@@ -1,0 +1,402 @@
+package dev.ellipog.tasked.progress;
+
+import dev.ellipog.tasked.quest.Chapter;
+import dev.ellipog.tasked.quest.ChapterGroup;
+import dev.ellipog.tasked.quest.LoadedQuestFile;
+import dev.ellipog.tasked.quest.PrerequisiteMode;
+import dev.ellipog.tasked.quest.ProgressionMode;
+import dev.ellipog.tasked.quest.Quest;
+import dev.ellipog.tasked.quest.QuestIndex;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Works out which quests a team can do, and which it has done.
+ *
+ * <h2>It reads; it never writes</h2>
+ *
+ * <p>Everything here is a pure function of the loaded quests, a {@link TeamProgress} and the clock.
+ * The state of every quest is <b>recomputed</b> rather than stored, which is deliberate: a stored
+ * state can drift out of step with the files, and then a player is permanently locked out of a quest
+ * whose dependency they have actually finished. Recomputing costs a walk over the graph, and this
+ * graph is a few hundred nodes — a few microseconds, on a tick where anything changed at all.
+ *
+ * <p>The only thing persisted is what a player <i>did</i>: which tasks are satisfied, how many times a
+ * quest was completed, and when. Those are facts that cannot be derived and must be stored. "Is this
+ * unlocked" is not a fact — it is a conclusion, and conclusions are cheaper to draw again than to
+ * keep in sync.
+ *
+ * <h2>Cycle safety</h2>
+ *
+ * <p>Dependencies can form a cycle, because a file can be edited into one. The loader reports it as
+ * an error, and this resolves around it rather than hanging or overflowing: a quest already being
+ * evaluated higher up the stack comes back LOCKED, so a cycle simply never unlocks. That is the
+ * honest answer — no ordering of a cycle satisfies it — and it means a mistake in a quest file
+ * produces a quest that cannot be completed plus a clear message at load time, rather than a server
+ * that never finishes starting.
+ */
+public final class ProgressionEngine {
+
+    /** State of every quest, keyed by the quest's own id. */
+    public record Resolution(Map<String, QuestState> states, Map<String, Long> cooldownRemaining) {
+
+        public QuestState stateOf(Quest quest) {
+            return states.getOrDefault(quest.id(), QuestState.LOCKED);
+        }
+
+        /** Ticks until a repeatable quest can be done again, or zero. */
+        public long cooldownOf(Quest quest) {
+            return cooldownRemaining.getOrDefault(quest.id(), 0L);
+        }
+
+        public int unlockedCount() {
+            return (int) states.values().stream().filter(state -> state != QuestState.LOCKED).count();
+        }
+
+        public int completedCount() {
+            return (int) states.values().stream().filter(state -> state == QuestState.COMPLETED).count();
+        }
+    }
+
+    private ProgressionEngine() {
+    }
+
+    /** Resolves every quest in the index. */
+    public static Resolution resolve(QuestIndex index, TeamProgress progress, long now) {
+        Map<String, QuestState> states = new LinkedHashMap<>();
+        Map<String, Long> cooldowns = new LinkedHashMap<>();
+
+        // Which quest has completed in each exclusive group, keyed by chapter and group so that a
+        // group name is scoped to the chapter that declared it. Without the chapter in the key,
+        // "smithing" in two chapters would silently exclude across both.
+        Set<String> takenExclusiveGroups = new HashSet<>();
+
+        // First pass: find the groups that are already decided, so a quest in one is locked even if
+        // its dependencies are met. Done before resolving anything, because the answer must not
+        // depend on the order the graph happens to be walked in.
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            Quest quest = entry.quest();
+            Optional<String> group = quest.exclusiveGroup();
+            if (group.isEmpty()) {
+                continue;
+            }
+            if (satisfiedForDependents(quest, progress)) {
+                takenExclusiveGroups.add(exclusiveKey(entry.chapterId(), group.get()));
+            }
+        }
+
+        // Quest position within its chapter, needed by linear progression.
+        Map<String, Integer> positionInChapter = new LinkedHashMap<>();
+        for (Chapter chapter : allChapters(index)) {
+            for (int i = 0; i < chapter.quests().size(); i++) {
+                positionInChapter.put(chapter.quests().get(i).id(), i);
+            }
+        }
+
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            resolveOne(index, entry, progress, now, states, cooldowns, takenExclusiveGroups,
+                    positionInChapter, new ArrayDeque<>());
+        }
+
+        return new Resolution(states, cooldowns);
+    }
+
+    /**
+     * Resolves one quest, resolving its dependencies first.
+     *
+     * <p>{@code visiting} is the cycle guard: a quest already on the stack returns LOCKED instead of
+     * recursing again. The chain is carried rather than a plain set so that a stuck resolver could
+     * report the cycle, which is what the loader does with its own copy of this walk.
+     */
+    private static QuestState resolveOne(QuestIndex index,
+                                         QuestIndex.QuestEntry entry,
+                                         TeamProgress progress,
+                                         long now,
+                                         Map<String, QuestState> states,
+                                         Map<String, Long> cooldowns,
+                                         Set<String> takenExclusiveGroups,
+                                         Map<String, Integer> positionInChapter,
+                                         Deque<String> visiting) {
+
+        Quest quest = entry.quest();
+
+        QuestState known = states.get(quest.id());
+        if (known != null) {
+            return known;
+        }
+        if (visiting.contains(quest.id())) {
+            // A cycle. Whichever quest is reached twice stays locked, which is the only answer that
+            // terminates -- and the loader has already reported the cycle with a proper message.
+            return QuestState.LOCKED;
+        }
+        visiting.push(quest.id());
+        try {
+            QuestProgress stored = progress.progressOf(quest);
+
+            // Already done, and either not repeatable or still cooling down.
+            if (stored.state() == QuestState.COMPLETED) {
+                long remaining = stored.cooldownRemaining(now, quest.repeatCooldownTicks());
+                cooldowns.put(quest.id(), remaining);
+                if (!quest.repeatable() || remaining > 0) {
+                    states.put(quest.id(), QuestState.COMPLETED);
+                    return QuestState.COMPLETED;
+                }
+                // Repeatable with the cooldown elapsed: falls through, and resolves as playable again.
+            }
+
+            // Mutually exclusive with something already taken.
+            Optional<String> group = quest.exclusiveGroup();
+            if (group.isPresent() && takenExclusiveGroups.contains(exclusiveKey(entry.chapterId(), group.get()))) {
+                states.put(quest.id(), QuestState.LOCKED);
+                return QuestState.LOCKED;
+            }
+
+            // Dependencies. Resolve each first, so this is a depth-first walk of the graph.
+            PrerequisiteMode mode = chapterOf(index, entry).map(Chapter::defaultPrerequisiteMode)
+                    .orElse(PrerequisiteMode.ALL_COMPLETED);
+            PrerequisiteMode effective = quest.prerequisiteMode(mode);
+
+            int satisfied = 0;
+            for (var dependency : quest.dependencies()) {
+                QuestState dependencyState = resolveById(index, dependency.id(), entry, progress, now, states,
+                        cooldowns, takenExclusiveGroups, positionInChapter, visiting);
+                if (dependencyState.isAtLeast(effective == PrerequisiteMode.ALL_STARTED
+                        || effective == PrerequisiteMode.ONE_STARTED
+                        ? QuestState.STARTED
+                        : QuestState.COMPLETED)) {
+                    satisfied++;
+                }
+            }
+
+            int required = quest.requiredCount(effective);
+            if (satisfied < required) {
+                states.put(quest.id(), QuestState.LOCKED);
+                return QuestState.LOCKED;
+            }
+
+            // Linear progression: every quest earlier in the chapter must be complete as well.
+            int position = positionInChapter.getOrDefault(quest.id(), -1);
+            if (position > 0) {
+                Chapter chapter = chapterOf(index, entry).orElse(null);
+                if (chapter != null && chapter.progressionMode() == ProgressionMode.LINEAR) {
+                    for (Quest earlier : chapter.questsBefore(position)) {
+                        QuestState earlierState = resolveById(index, earlier.id(), entry, progress, now, states,
+                                cooldowns, takenExclusiveGroups, positionInChapter, visiting);
+                        if (earlierState != QuestState.COMPLETED) {
+                            states.put(quest.id(), QuestState.LOCKED);
+                            return QuestState.LOCKED;
+                        }
+                    }
+                }
+            }
+
+            // Unlocked. Whether it is merely unlocked or already started depends on stored progress,
+            // which is the one fact that cannot be recomputed.
+            QuestState result = stored.state() == QuestState.COMPLETED || stored.anyTaskProgress()
+                    ? QuestState.STARTED
+                    : QuestState.UNLOCKED;
+            states.put(quest.id(), result);
+            return result;
+        }
+        finally {
+            visiting.pop();
+        }
+    }
+
+    /** Resolves a dependency by id or alias. An unresolved dependency locks the dependent. */
+    private static QuestState resolveById(QuestIndex index,
+                                          String idOrAlias,
+                                          QuestIndex.QuestEntry dependent,
+                                          TeamProgress progress,
+                                          long now,
+                                          Map<String, QuestState> states,
+                                          Map<String, Long> cooldowns,
+                                          Set<String> takenExclusiveGroups,
+                                          Map<String, Integer> positionInChapter,
+                                          Deque<String> visiting) {
+        Optional<QuestIndex.QuestEntry> found = index.quest(idOrAlias);
+        if (found.isEmpty()) {
+            // The loader reports this as an error at load time. Locking the dependent is the safe
+            // reading: a quest that cannot be unlocked is visible as broken, whereas one that
+            // unlocks for the wrong reason is not.
+            return QuestState.LOCKED;
+        }
+        return resolveOne(index, found.get(), progress, now, states, cooldowns, takenExclusiveGroups,
+                positionInChapter, visiting);
+    }
+
+    // ------------------------------------------------------------------
+    // Completion
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether every task that has to be done, has been.
+     *
+     * <p>The rule the plan names: every task not marked optional, or — if they are <i>all</i> optional
+     * — any single one of them. A quest where nothing at all is required would otherwise complete
+     * itself the instant it unlocked.
+     */
+    public static boolean tasksSatisfied(Quest quest, QuestProgress progress) {
+        if (quest.tasks().isEmpty()) {
+            return true;
+        }
+        int satisfied = 0;
+        for (int index = 0; index < quest.tasks().size(); index++) {
+            if (isTaskSatisfied(quest, index, progress)) {
+                satisfied++;
+            }
+        }
+        return satisfied >= quest.requiredTaskCount();
+    }
+
+    /** Whether one task is done, given how much has been recorded for it. */
+    public static boolean isTaskSatisfied(Quest quest, int index, QuestProgress progress) {
+        var task = quest.tasks().get(index);
+        int required = dev.ellipog.tasked.quest.task.TaskTypes.behaviourOf(task)
+                .map(behaviour -> behaviour.required(task))
+                .orElse(1);
+        return progress.progressOf(index) >= required;
+    }
+
+    /**
+     * Whether a quest counts as done for anything that depends on it.
+     *
+     * <p>A repeatable quest is satisfied for its dependents after its <b>first</b> completion, and
+     * stays satisfied however many times it is repeated. Otherwise a chain following a repeatable
+     * quest would lock again every time the player redid it, which is not what anyone means by
+     * repeatable.
+     */
+    public static boolean satisfiedForDependents(Quest quest, TeamProgress progress) {
+        QuestProgress stored = progress.progressOf(quest);
+        return stored.state() == QuestState.COMPLETED || stored.timesCompleted() > 0;
+    }
+
+    private static String exclusiveKey(String chapterId, String group) {
+        return chapterId + ":" + group;
+    }
+
+    // ------------------------------------------------------------------
+    // Small helpers over the index
+    // ------------------------------------------------------------------
+
+    private static Optional<Chapter> chapterOf(QuestIndex index, QuestIndex.QuestEntry entry) {
+        return index.chapter(entry.chapterId()).map(QuestIndex.ChapterEntry::chapter);
+    }
+
+    /** Every chapter, in file order. Built from the files because the lookup tables hold one entry per alias. */
+    private static java.util.List<Chapter> allChapters(QuestIndex index) {
+        java.util.List<Chapter> out = new java.util.ArrayList<>();
+        for (LoadedQuestFile loaded : index.files()) {
+            for (ChapterGroup group : loaded.file().chapterGroups()) {
+                out.addAll(group.chapters());
+            }
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------------------
+    // Cycle detection, for the loader
+    // ------------------------------------------------------------------
+
+    /**
+     * Finds every dependency cycle, returning each one as the chain of ids that closes it.
+     *
+     * <p>Called by {@link QuestIndex} at load time so an author is told, rather than discovering it
+     * because a quest never unlocks. A cycle is not recoverable — no amount of play satisfies
+     * "A needs B and B needs A" — so it is an error with the chain printed, and the engine's own
+     * guard keeps it from hanging in the meantime.
+     *
+     * <p>Returns each cycle once. A graph with a cycle in it would otherwise report the same loop
+     * from every node that can reach it, which for a questline is dozens of identical messages.
+     */
+    public static java.util.List<java.util.List<String>> findCycles(QuestIndex index) {
+        Map<String, java.util.List<String>> edges = new LinkedHashMap<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            java.util.List<String> targets = new java.util.ArrayList<>();
+            for (var dependency : entry.quest().dependencies()) {
+                index.quest(dependency.id()).ifPresent(target -> targets.add(target.quest().id()));
+            }
+            edges.put(entry.quest().id(), targets);
+        }
+
+        java.util.List<java.util.List<String>> cycles = new java.util.ArrayList<>();
+        Set<String> reported = new HashSet<>();
+
+        for (String start : edges.keySet()) {
+            Deque<String> path = new ArrayDeque<>();
+            Set<String> onPath = new LinkedHashSet<>();
+            walkForCycles(start, edges, path, onPath, cycles, reported);
+        }
+        return cycles;
+    }
+
+    private static void walkForCycles(String node,
+                                      Map<String, java.util.List<String>> edges,
+                                      Deque<String> path,
+                                      Set<String> onPath,
+                                      java.util.List<java.util.List<String>> cycles,
+                                      Set<String> reported) {
+        if (onPath.contains(node)) {
+            // Found one. Trim the path to start where the cycle starts, so the message reads as a
+            // loop rather than as the route that happened to reach it.
+            java.util.List<String> chain = new java.util.ArrayList<>(path);
+            java.util.Collections.reverse(chain);
+            int start = chain.indexOf(node);
+            if (start >= 0) {
+                java.util.List<String> cycle = new java.util.ArrayList<>(chain.subList(start, chain.size()));
+                cycle.add(node);
+                // Keyed by the set of nodes in the cycle, so the same loop reached from a different
+                // entry point is only reported once. A graph with a cycle would otherwise produce
+                // one message per node that can reach it, which for a questline is dozens.
+                String key = new java.util.TreeSet<>(cycle).toString();
+                if (reported.add(key)) {
+                    cycles.add(java.util.List.copyOf(cycle));
+                }
+            }
+            return;
+        }
+        if (reported.stream().anyMatch(existing -> existing.contains(node)) && !path.isEmpty()) {
+            // Already inside a cycle that has been reported; no need to walk it again.
+            return;
+        }
+
+        path.push(node);
+        onPath.add(node);
+        try {
+            for (String next : edges.getOrDefault(node, java.util.List.of())) {
+                walkForCycles(next, edges, path, onPath, cycles, reported);
+            }
+        }
+        finally {
+            path.pop();
+            onPath.remove(node);
+        }
+    }
+
+    /** Depth of the dependency graph from a quest, for diagnostics. Zero if it has none. */
+    public static int depth(QuestIndex index, QuestIndex.QuestEntry entry) {
+        return depth(index, entry.quest().id(), new HashSet<>());
+    }
+
+    private static int depth(QuestIndex index, String id, Set<String> seen) {
+        if (!seen.add(id)) {
+            return 0;
+        }
+        Optional<QuestIndex.QuestEntry> found = index.quest(id);
+        if (found.isEmpty()) {
+            return 0;
+        }
+        int best = 0;
+        for (var dependency : found.get().quest().dependencies()) {
+            best = Math.max(best, 1 + depth(index, dependency.id(), seen));
+        }
+        return best;
+    }
+}

@@ -1,0 +1,144 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+base {
+    archivesName = "${mod_id}-${project.name}-${minecraft_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+    // withJavadocJar() is deliberately absent -- see the same note in armature's copy. It is a
+    // jar nobody opens, it floods the build with warnings, and it once failed outright on a
+    // stale file from a killed build.
+}
+
+repositories {
+    mavenCentral()
+
+    // Armature, during local development.
+    //
+    // Tasked compiles against Armature's published artefact rather than its source tree: the
+    // composite-build substitution the plan originally called for turned out to fight
+    // Loom's and ModDevGradle's variant attributes, and the plan itself named this as the
+    // fallback. _deploy.ps1 runs "gradlew :common:publishToMavenLocal" in armature before
+    // building task here, so the ordering cannot be got wrong by hand.
+    //
+    // Filtered to dev.ellipog on purpose: a bare mavenLocal() would shadow every other
+    // dependency in this build with whatever happens to be sitting in ~/.m2.
+    maven {
+        name = 'ArmatureLocal'
+        url = mavenLocal().url
+        content { includeGroup('dev.ellipog') }
+    }
+
+    // https://docs.gradle.org/current/userguide/declaring_repositories.html#declaring_content_exclusively_found_in_one_repository
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Sponge'
+                url = 'https://repo.spongepowered.org/repository/maven-public'
+            }
+        }
+        filter { includeGroupAndSubgroups('org.spongepowered') }
+    }
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = "NeoForge"
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter { includeGroup('org.parchmentmc.data') }
+    }
+    maven {
+        name = 'BlameJared'
+        url = 'https://maven.blamejared.com'
+    }
+}
+
+// Declare capabilities on the outgoing configurations.
+// Read more about capabilities here: https://docs.gradle.org/current/userguide/component_capabilities.html#sec:declaring-additional-capabilities-for-a-local-component
+['apiElements', 'runtimeElements', 'sourcesElements'].each { variant ->
+    configurations."$variant".outgoing {
+        capability("$group:${base.archivesName.get()}:$version")
+        capability("$group:$mod_id-${project.name}-${minecraft_version}:$version")
+        capability("$group:$mod_id:$version")
+    }
+    publishing.publications.configureEach {
+        suppressPomMetadataWarningsFor(variant)
+    }
+}
+
+sourcesJar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${mod_name}" }
+    }
+}
+
+jar {
+    from(rootProject.file('LICENSE')) {
+        rename { "${it}_${mod_name}" }
+    }
+
+    manifest {
+        attributes([
+                'Specification-Title'   : mod_name,
+                'Specification-Vendor'  : mod_author,
+                'Specification-Version' : project.jar.archiveVersion,
+                'Implementation-Title'  : project.name,
+                'Implementation-Version': project.jar.archiveVersion,
+                'Implementation-Vendor' : mod_author,
+                'Built-On-Minecraft'    : minecraft_version
+        ])
+    }
+}
+
+processResources {
+    // Note: armature_version is new here. Tasked's metadata declares Armature as a required
+    // dependency, so the version has to be expanded into fabric.mod.json and neoforge.mods.toml
+    // -- and every field used in those files must appear in this map.
+    var expandProps = [
+            'version'                      : version,
+            'group'                        : project.group, //Else we target the task's group.
+            'minecraft_version'            : minecraft_version,
+            'minecraft_version_range'      : minecraft_version_range,
+            'fabric_version'               : fabric_version,
+            'fabric_loader_version'        : fabric_loader_version,
+            'mod_name'                     : mod_name,
+            'mod_author'                   : mod_author,
+            'mod_id'                       : mod_id,
+            'license'                      : license,
+            'description'                  : project.description,
+            'neoforge_version'             : neoforge_version,
+            'neoforge_loader_version_range': neoforge_loader_version_range,
+            'armature_version'             : armature_version,
+            'credits'                      : credits,
+            'java_version'                 : java_version
+    ]
+
+    filesMatching(['pack.mcmeta', 'fabric.mod.json', 'META-INF/mods.toml', 'META-INF/neoforge.mods.toml', '*.mixins.json']) {
+        expand expandProps
+    }
+    inputs.properties(expandProps)
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId base.archivesName.get()
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            url System.getenv('local_maven_url')
+        }
+    }
+}

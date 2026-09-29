@@ -1,0 +1,46 @@
+plugins {
+    id 'multiloader-loader'
+    id 'fabric-loom'
+}
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+
+    // Armature's common API. Declared here too, and not inherited from :common, because
+    // compileOnly does not travel through apiElements -- and this project's sources genuinely
+    // use it: the client entry point registers a screen and a key through Armature's API.
+    //
+    // No Armature *mod* dependency, and none is wanted. Armature's Fabric jar supplies its own
+    // common classes at runtime and is loaded as a separate mod, so Tasked only ever needs
+    // those classes to compile against.
+    compileOnly "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
+}
+
+loom {
+    def aw = project(':common').file("src/main/resources/${mod_id}.accesswidener")
+    if (aw.exists()) {
+        accessWidenerPath.set(aw)
+    }
+    mixin {
+        defaultRefmapName.set("${mod_id}.refmap.json")
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric Client')
+            ideConfigGenerated(true)
+            runDir('runs/client')
+        }
+        server {
+            server()
+            setConfigName('Fabric Server')
+            ideConfigGenerated(true)
+            runDir('runs/server')
+        }
+    }
+}

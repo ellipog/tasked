@@ -1,0 +1,96 @@
+package dev.ellipog.tasked.quest;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * A group of quests drawn on one canvas.
+ *
+ * <pre>{@code
+ * {
+ *   "id": "stone_age",
+ *   "title": "The Stone Age",
+ *   "icon": { "item": "minecraft:cobblestone" },
+ *   "defaultPrerequisiteMode": "all_completed",
+ *   "progressionMode": "linear",
+ *   "quests": [ ... ]
+ * }
+ * }</pre>
+ *
+ * <h2>The two chapter-level defaults, and why they earn their place</h2>
+ *
+ * <p>{@code defaultPrerequisiteMode} is FTB Quests' {@code default_quest_prerequisite_mode}. A
+ * chapter of thirty quests in a chain would otherwise repeat {@code "prerequisiteMode":
+ * "all_completed"} thirty times, and the one place it differed would be easy to miss.
+ *
+ * <p>{@code progressionMode} goes further: {@code linear} makes the <b>order of the quests list</b>
+ * the progression, so a chain needs no {@code dependsOn} at all. Those two together mean a
+ * straightforward chapter is a list of quests and nothing else.
+ *
+ * <p>{@code defaultConsumeItems} is the inheritance the plan called out from FTB Quests' model: a
+ * task can decide for itself whether taking the items is required, and a chapter can set the
+ * default so that "this pack takes your resources" is one word rather than a decision made
+ * thirty times. Defaults to false, because silently taking a player's items is the more surprising
+ * of the two behaviours.
+ */
+public record Chapter(
+        String id,
+        QuestText title,
+        Optional<QuestText> subtitle,
+        List<QuestText> description,
+        ItemRef icon,
+        List<String> aliases,
+        PrerequisiteMode defaultPrerequisiteMode,
+        ProgressionMode progressionMode,
+        boolean defaultConsumeItems,
+        List<Quest> quests
+) {
+
+    /** Finds a quest by id or alias. */
+    public Optional<Quest> quest(String idOrAlias) {
+        return quests.stream().filter(quest -> quest.matches(idOrAlias)).findFirst();
+    }
+
+    /** Whether {@code idOrAlias} refers to this chapter. */
+    public boolean matches(String idOrAlias) {
+        return id.equals(idOrAlias) || aliases.contains(idOrAlias);
+    }
+
+    /** The index a quest sits at, or -1. Needed by linear progression, which cares about order. */
+    public int indexOf(Quest quest) {
+        for (int i = 0; i < quests.size(); i++) {
+            if (quests.get(i) == quest) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The quests before {@code index} in the list — the ones linear progression waits on. */
+    public List<Quest> questsBefore(int index) {
+        if (index <= 0) {
+            return List.of();
+        }
+        return quests.subList(0, Math.min(index, quests.size()));
+    }
+
+    public static final Codec<Chapter> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            Codec.STRING.fieldOf("id").forGetter(Chapter::id),
+            QuestText.CODEC.fieldOf("title").forGetter(Chapter::title),
+            QuestText.CODEC.optionalFieldOf("subtitle").forGetter(Chapter::subtitle),
+            QuestText.CODEC.listOf().optionalFieldOf("description", List.of()).forGetter(Chapter::description),
+            ItemRef.CODEC.optionalFieldOf("icon", ItemRef.DEFAULT_ICON).forGetter(Chapter::icon),
+            Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(Chapter::aliases),
+            PrerequisiteMode.CODEC.optionalFieldOf("defaultPrerequisiteMode", PrerequisiteMode.ALL_COMPLETED)
+                    .forGetter(Chapter::defaultPrerequisiteMode),
+            // FLEXIBLE is the default deliberately. A chapter where declaring a dependency silently
+            // did nothing, because the chapter was linear, would be a confusing thing to debug.
+            ProgressionMode.CODEC.optionalFieldOf("progressionMode", ProgressionMode.FLEXIBLE)
+                    .forGetter(Chapter::progressionMode),
+            Codec.BOOL.optionalFieldOf("defaultConsumeItems", false).forGetter(Chapter::defaultConsumeItems),
+            Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
+    ).apply(instance, Chapter::new));
+}

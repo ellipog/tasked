@@ -1,0 +1,45 @@
+{
+    "item.tasked.quest_book": "Quest Book",
+
+    "key.categories.tasked": "Tasked",
+    "key.tasked.quest_book": "Open Quest Book",
+
+    "tasked.command.version": "Tasked %s, on Armature %s",
+    "tasked.command.echo": "Tasked echo %s",
+
+    "tasked.command.reload.summary": "Reloaded quests: %s of %s file(s) decoded, %s error(s), %s warning(s)",
+    "tasked.command.reload.failed": "%s file(s) have errors - see the log for the exact lines",
+    "tasked.command.reload.log": "Details are in the server log, with file and line numbers",
+
+    "tasked.command.quests.empty": "No quests are loaded. Put files in config/tasked/quests/ and run /tasked reload",
+    "tasked.command.quests.summary": "%s quest(s) in %s chapter(s), from %s file(s)",
+
+    "tasked.command.progress.header": "§7%s of %s quest(s) unlocked, %s completed",
+    "tasked.command.progress.none": "Nothing to do right now. Every unlocked quest is complete.",
+
+    "tasked.command.submit.done": "Submitted task %s of \"%s\"",
+    "tasked.command.submit.refused": "Cannot submit task %s of \"%s\" - it is not unlocked, or cannot be done by hand, or the items are not there",
+
+    "tasked.command.complete.done": "Completed \"%s\"",
+    "tasked.command.complete.locked": "Cannot complete \"%s\": it is %s, not unlocked",
+
+    "tasked.command.reset.done": "Cleared progress for %s quest(s)",
+    "tasked.command.reset.nothing": "There was no progress to clear",
+
+    "tasked.quest.completed": "Quest complete: %s",
+    "tasked.quest.not_enough": "You do not have the items for that",
+    "tasked.reward.inventory_full": "Your inventory was full; %s was dropped at your feet",
+
+    "tasked.command.quest.header": "§e%s §8[%s]",
+    "tasked.command.quest.notfound": "No quest with id or alias \"%s\"",
+
+    "tasked.screen.quest_book.title": "Quest Book",
+    "tasked.screen.quest_book.waiting": "Waiting for the server...",
+    "tasked.screen.quest_book.no_quests": "No quests are loaded on this server.",
+    "tasked.screen.quest_book.submit": "Submit",
+    "tasked.reward.xp.levels": "%s level(s)",
+    "tasked.reward.xp.points": "%s XP",
+    "tasked.quest.completed": "Quest complete: %s",
+    "tasked.quest.not_enough": "You do not have everything this task needs.",
+    "tasked.reward.inventory_full": "Your inventory was full, so %s was dropped at your feet"
+}

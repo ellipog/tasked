@@ -1,0 +1,102 @@
+plugins {
+    id 'multiloader-common'
+    id 'net.neoforged.moddev'
+}
+
+neoForge {
+    neoFormVersion = neo_form_version
+    // Automatically enable AccessTransformers if the file exists
+    def at = file('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers.from(at.absolutePath)
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+}
+
+dependencies {
+    // Armature's API -- the only part of it Tasked names anything from.
+    //
+    // compileOnly, deliberately, and not just as a shortcut. At runtime Armature is a separate
+    // mod jar sitting beside this one in the mods folder, loaded by the loader; it is never
+    // bundled into Tasked's jar. So there is nothing for Loom or ModDevGradle to remap here,
+    // and a plain java-library dependency is both sufficient and much less likely to trip
+    // over loader-specific variant attributes.
+    //
+    // Resolved from Maven local, published by ../armature. _deploy.ps1 publishes before
+    // building, because a change to Armature that has not been published is invisible here --
+    // and the error you get names a method that is right there in the file you just edited.
+    compileOnly "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
+
+    compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
+    // fabric and neoforge both bundle mixinextras, so it is safe to use it in common
+    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
+    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+//
+// These run headless on the JVM. The progression engine is a pure function of the loaded quests,
+// a team's progress and the clock -- no player, no level -- so the rules it implements are
+// testable without launching anything. That matters, because those rules are the part of Tasked
+// most likely to be subtly wrong and the part hardest to check by playing: a quest that refuses
+// to unlock looks identical whether the cause is the prerequisite mode, a typo in an id, or a
+// cycle, and you only find out by reading the code.
+//
+// Two classpath problems, and they are different problems:
+//
+// 1. Minecraft is on `main`'s compile classpath via ModDevGradle's NeoForm configuration, and
+//    `compileOnly` does not carry it to the test source set. Naming that configuration directly
+//    would be a guess at another project's internals -- the sort of guess that breaks on their
+//    next release -- so the test source set inherits the classpath `main` already resolves. That
+//    is guaranteed to be the same set of jars, because it literally is the same list.
+//
+// 2. Armature is `compileOnly` (correct: it is a separate mod jar the loader supplies at runtime,
+//    never bundled). Inheriting from main does not help, because `compileOnly` is not on main's
+//    *runtime* classpath either -- so the tests compiled and then died at class-loading with
+//    NoClassDefFoundError: JsonParseException. A test JVM has no mod loader to hand it the jar, so
+//    the test source set declares Armature for itself.
+sourceSets {
+    test {
+        compileClasspath += sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.runtimeClasspath
+    }
+}
+
+dependencies {
+    testImplementation "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
+
+    testImplementation platform("org.junit:junit-bom:${junit_version}")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        // Full exception text. A failure that says "expected true but was false" without the
+        // values is a test you have to re-run to understand, which is most of the point wasted.
+        events 'passed', 'failed', 'skipped'
+        exceptionFormat 'full'
+        showStackTraces = true
+    }
+}
+
+configurations {
+    commonJava {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    commonResources {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+}
+
+artifacts {
+    commonJava sourceSets.main.java.sourceDirectories.singleFile
+    commonResources sourceSets.main.resources.sourceDirectories.singleFile
+}

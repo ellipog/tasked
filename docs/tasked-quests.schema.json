@@ -1,0 +1,187 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ellipog.dev/tasked/tasked-quests.schema.json",
+  "title": "Tasked quest file",
+  "description": "One file under config/tasked/quests/. A questline may be split across any number of these; the loader treats them as one tree and dependencies resolve across files.",
+  "type": "object",
+  "required": ["chapterGroups"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Ignored by Tasked. For your editor, so it can autocomplete the rest of this file."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Format version. Written into new files. Present from the first release so that a future change has something to migrate from."
+    },
+    "chapterGroups": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/chapterGroup" }
+    }
+  },
+
+  "definitions": {
+    "text": {
+      "description": "Either a plain string, or a translation key with an English fallback.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["translate"],
+          "additionalProperties": false,
+          "properties": {
+            "translate": { "type": "string" },
+            "fallback": {
+              "type": "string",
+              "description": "Shown if the translation is missing. Without it a player sees the raw key."
+            }
+          }
+        }
+      ]
+    },
+
+    "itemRef": {
+      "description": "An item and a count. Not an ItemStack — resolved at the moment it is used.",
+      "type": "object",
+      "required": ["item"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+          "description": "Namespaced item id, e.g. minecraft:oak_log. A missing mod is an error, not a warning: the quest could never be completed."
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 }
+      }
+    },
+
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,64}$",
+      "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "chapterGroup": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "title": { "$ref": "#/definitions/text" },
+        "description": { "$ref": "#/definitions/text" },
+        "aliases": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/id" },
+          "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
+        },
+        "chapters": { "type": "array", "items": { "$ref": "#/definitions/chapter" } }
+      }
+    },
+
+    "chapter": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "title": { "$ref": "#/definitions/text" },
+        "subtitle": { "$ref": "#/definitions/text" },
+        "description": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/text" },
+          "description": "One string per paragraph. Separate from a single newline-containing string on purpose."
+        },
+        "icon": { "$ref": "#/definitions/itemRef" },
+        "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+        "defaultPrerequisiteMode": {
+          "enum": ["all_completed", "one_completed", "all_started", "one_started"],
+          "default": "all_completed",
+          "description": "What every quest in this chapter uses unless it says otherwise."
+        },
+        "quests": { "type": "array", "items": { "$ref": "#/definitions/quest" } }
+      }
+    },
+
+    "quest": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/definitions/id" },
+        "title": { "$ref": "#/definitions/text" },
+        "subtitle": { "$ref": "#/definitions/text" },
+        "description": { "type": "array", "items": { "$ref": "#/definitions/text" } },
+        "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
+        "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+
+        "dependsOn": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/id" },
+          "description": "Quest ids or aliases. May refer to quests in other files. A reference that resolves to nothing is an error: the quest could never unlock."
+        },
+        "prerequisiteMode": {
+          "enum": ["all_completed", "one_completed", "all_started", "one_started"],
+          "description": "Overrides the chapter's setting for this quest."
+        },
+        "minRequired": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0,
+          "description": "How many dependencies must be satisfied. When set, prerequisiteMode is ignored — this is how \"any three of these five\" is written. May not exceed the number of dependencies."
+        },
+
+        "x": { "type": "integer", "default": 0, "description": "Canvas position. Grid spacing is 32." },
+        "y": { "type": "integer", "default": 0 },
+        "shape": {
+          "enum": ["rounded", "circle", "hexagon", "tome"],
+          "default": "rounded"
+        },
+        "size": { "type": "integer", "minimum": 16, "maximum": 512, "default": 48 },
+
+        "tasks": { "type": "array", "items": { "$ref": "#/definitions/anyType" } },
+        "rewards": { "type": "array", "items": { "$ref": "#/definitions/anyType" } },
+
+        "repeatable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Completable more than once. Not yet implemented — the flag is stored and the engine arrives in Stage 3."
+        },
+        "invisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hidden until completed."
+        }
+      }
+    },
+
+    "anyType": {
+      "description": "A task or a reward. The `type` field chooses the rest of the fields — see tasked:item, tasked:checkmark and tasked:xp, which are the types implemented so far.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "description": "e.g. tasked:item" },
+        "optional": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tasks only. An optional task does not have to be done for the quest to complete, unless every task is optional."
+        },
+        "autoSubmitTicks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 72000,
+          "default": 20,
+          "description": "Tasks only. How often the task is re-checked, in ticks. Raise it for an expensive check."
+        },
+        "item": { "type": "string", "description": "tasked:item — namespaced item id." },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 },
+        "title": { "$ref": "#/definitions/text", "description": "tasked:checkmark — the label on the button." },
+        "amount": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "tasked:xp — points, or levels." },
+        "levels": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}
