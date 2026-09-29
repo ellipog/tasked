@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "red_gate",
+  "title": "No Signal",
+  "subtitle": "An OR-gate, one optional task, and no rewards",
+  "description": [
+    "Locked. The wash here is a dark maroon-black, and the locked outline is a very dark",
+    "red -- which is the one theme in the gallery where a locked node's border shares a hue",
+    "with the available one.",
+    "",
+    "They are far enough apart in brightness to be unmistakable, and that is the property",
+    "that matters: a theme may reuse a hue for a locked state as long as it does not reuse",
+    "a brightness."
+  ],
+  "icon": { "item": "minecraft:redstone_torch" },
+  "x": 264,
+  "y": 104,
+  "shape": "circle",
+  "size": 44,
+
+  "dependsOn": ["red_count", "red_repeat"],
+  "minRequired": 1,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:redstone_lamp", "count": 4 },
+    { "type": "tasked:checkmark", "title": "I looked for a signal",
+      "optional": true }
+  ]
+}

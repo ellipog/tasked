@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "farm_water",
+  "title": "A Source",
+  "subtitle": "A count, so the progress bar appears",
+  "description": [
+    "One bucket, so the count reads 0 / 1 until you have it and the bar has two pixels of",
+    "fill at most -- its own small test of the bar's minimum width.",
+    "",
+    "The greys here are very close together, and that is the one place this theme is",
+    "unfriendly. Vanilla's palette is a narrow one, and four surfaces drawn from it have",
+    "less room between them than any other theme's."
+  ],
+  "icon": { "item": "minecraft:bucket" },
+  "x": 132,
+  "y": 0,
+
+  "dependsOn": ["farm_break"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:bucket", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:water_bucket", "count": 1 }
+  ]
+}

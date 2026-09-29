@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "script_copy",
+  "title": "Copy the Page",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40, and it is the same shape arithmetic as in every other chapter --",
+    "Armature's span tables -- seen through a different theme.",
+    "",
+    "Worth checking that the taper still reads on a warm background. A shape's silhouette is",
+    "not theme-dependent, but how visible it is very much is."
+  ],
+  "icon": { "item": "minecraft:writable_book" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["script_pens"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:paper", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:book", "count": 2 }
+  ]
+}

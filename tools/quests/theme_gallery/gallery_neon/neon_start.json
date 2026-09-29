@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "neon_start",
+  "title": "Jack In",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "A cyan available colour on near-black violet, with a magenta hover ring. Three",
+    "different hues are already on screen before you have clicked anything, which is the",
+    "point.",
+    "",
+    "The hover ring is the theme's magenta at half alpha, and on this canvas it is a glow",
+    "rather than a highlight -- the ring is by some margin the most visible one in the",
+    "gallery."
+  ],
+  "icon": { "item": "minecraft:magenta_concrete" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glowstone", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:magenta_dye", "count": 4 }
+  ]
+}

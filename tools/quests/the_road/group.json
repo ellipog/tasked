@@ -1,0 +1,13 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_road",
+  "title": "The Road",
+  "description": [
+    "A chapter with no dependsOn in it at all. The order of the",
+    "quests list is the progression, because the chapter says so."
+  ],
+
+  "chapters": [
+    "desert_road"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "end_gate",
+  "title": "The Inner Ring",
+  "subtitle": "An OR-gate, one optional task, and no rewards",
+  "description": [
+    "Locked. The wash is a near-black violet and the outline is a dark desaturated violet,",
+    "so on this canvas a locked node is very close to invisible -- which as on Obsidian is",
+    "the intended reading rather than a mistake.",
+    "",
+    "The dim wash is what does the work of saying 'not yet' here, because the outline has",
+    "nowhere to go: there is no darker value left below it."
+  ],
+  "icon": { "item": "minecraft:end_crystal" },
+  "x": 264,
+  "y": 104,
+  "shape": "circle",
+  "size": 44,
+
+  "dependsOn": ["end_count", "end_repeat"],
+  "minRequired": 1,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:end_stone", "count": 8 },
+    { "type": "tasked:checkmark", "title": "I found the ring",
+      "optional": true }
+  ]
+}

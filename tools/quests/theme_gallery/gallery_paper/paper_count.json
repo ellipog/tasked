@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "paper_count",
+  "title": "Three Sheets",
+  "subtitle": "A count, so the progress bar appears",
+  "description": [
+    "The bar's track is a pale grey and its fill is a deep blue -- so on this theme the",
+    "filled part is the dark part, which is the reverse of every other chapter.",
+    "",
+    "A theme that got its surfaces inverted and forgot the state colours would show up here",
+    "first, and almost nowhere else."
+  ],
+  "icon": { "item": "minecraft:book" },
+  "x": 132,
+  "y": 0,
+
+  "dependsOn": ["paper_start"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:paper", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:writable_book", "count": 1 }
+  ]
+}

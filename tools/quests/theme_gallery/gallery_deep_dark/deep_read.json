@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "deep_read",
+  "title": "The City Below",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest. This is the page to open if you want to know whether a",
+    "theme this dark is actually usable for reading, and the answer depends entirely on",
+    "the faint tone.",
+    "",
+    "A theme at this brightness has roughly a third of the range between black and white to",
+    "work with, compared with a mid-grey theme. Everything it needs to say -- body, faint,",
+    "heading, border -- has to fit into that third, and the only way to do it is to keep",
+    "the number of distinct tones small and the steps between them wide.",
+    "",
+    "Scroll down for REQUIRES: a pale green tick and a dark teal cross, with the tick",
+    "again the only non-cyan hue in the chapter.",
+    "",
+    "The scrollbar is a dark teal on a very dark track, and it is the quietest pair in the",
+    "gallery apart from Copper's. On a theme that has deliberately given up most of its",
+    "contrast range, that is consistent rather than wrong -- and it is the kind of value a",
+    "theme author should be choosing knowingly.",
+    "",
+    "As in every chapter, this paragraph exists to make the body taller than the clip."
+  ],
+  "icon": { "item": "minecraft:sculk_shrieker" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["deep_gate"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I walked the first aisle" },
+    { "type": "tasked:checkmark", "title": "And I left quietly" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

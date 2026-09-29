@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "neon_count",
+  "title": "Charge Up",
+  "subtitle": "A count, so the progress bar appears",
+  "description": [
+    "The bar's fill is the cyan and its track is a very dark violet, so a filled bar is a",
+    "bright cyan strip on near-black.",
+    "",
+    "If you press Submit on this quest while it is incomplete, note the held state -- the",
+    "press colour is a magenta, so the same control passes through three hues in one",
+    "interaction. That is legal, and on most themes it would look like a bug."
+  ],
+  "icon": { "item": "minecraft:redstone_lamp" },
+  "x": 132,
+  "y": 0,
+
+  "dependsOn": ["neon_start"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glowstone_dust", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:glowstone", "count": 2 }
+  ]
+}

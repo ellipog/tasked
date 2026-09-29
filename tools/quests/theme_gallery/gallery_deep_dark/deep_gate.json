@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "deep_gate",
+  "title": "The Sensor",
+  "subtitle": "An OR-gate, one optional task, and no rewards",
+  "description": [
+    "Locked. The wash is the most opaque in the gallery at four-fifths black, and the",
+    "locked outline is a very dark teal -- which on this canvas is one step above the",
+    "surface.",
+    "",
+    "That is deliberate rather than a limitation: on a theme whose whole idea is that",
+    "there is almost no light, a locked node should be nearly unlit, and the item under",
+    "the wash carries the recognition."
+  ],
+  "icon": { "item": "minecraft:sculk_sensor" },
+  "x": 264,
+  "y": 104,
+  "shape": "circle",
+  "size": 44,
+
+  "dependsOn": ["deep_count", "deep_repeat"],
+  "minRequired": 1,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sculk_sensor", "count": 1 },
+    { "type": "tasked:checkmark", "title": "I did not make a sound",
+      "optional": true }
+  ]
+}

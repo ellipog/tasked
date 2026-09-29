@@ -39,14 +39,62 @@ import java.util.Optional;
  */
 public final class QuestIndex {
 
-    private final List<LoadedQuestFile> files;
+    /**
+     * The tree, in declaration order: every group, then every chapter, then every quest.
+     *
+     * <h2>Why three stored lists rather than five copies of the same walk</h2>
+     *
+     * <p>Because five separate places used to walk <i>the files</i> and flatten the tree themselves,
+     * each with its own nested loop: this class's own {@code quests()}, {@link
+     * dev.ellipog.tasked.net.QuestSync}'s tree writer, {@link
+     * dev.ellipog.tasked.progress.ProgressionEngine}'s chapter list, {@code TaskedCommand}'s group
+     * list, and two test helpers. Five loops, one shape, and nothing keeping them in step — so a
+     * change to what "a chapter" is had to be made in five places, and the four that were missed
+     * would compile and produce a shorter list than expected rather than an error.
+     *
+     * <p>The order is <b>declaration order</b>: groups in the order the loader found them, a group's
+     * chapters in the order its manifest lists them, and a chapter's quests in the order its manifest
+     * lists them. That last one is load-bearing rather than cosmetic — a LINEAR chapter's progression
+     * <i>is</i> its quest list order — which is why the position is carried on the entry rather than
+     * being counted again wherever it is needed. See {@link QuestEntry#orderInChapter}.
+     */
+    private final List<GroupEntry> groups;
+    private final List<ChapterEntry> chapters;
+    private final List<QuestEntry> quests;
+
     private final Map<String, QuestEntry> byIdentifier;
     private final Map<String, ChapterEntry> chaptersByIdentifier;
     private final Map<String, GroupEntry> groupsByIdentifier;
 
-    /** A quest, and where it came from. */
-    public record QuestEntry(String groupId, String chapterId, Quest quest,
+    /**
+     * A quest, and where it came from.
+     *
+     * <h2>Why the chapter and the position are on the entry</h2>
+     *
+     * <p>Both are properties of the chapter rather than of the quest, and both are here for the same
+     * reason: every consumer that needs one would otherwise look it up, and there are three such
+     * consumers. The chapter is cheap — it is a shared reference, not a copy — and holding it means
+     * {@code progressionMode}, {@code theme} and {@code defaultPrerequisiteMode} come off the entry
+     * rather than out of a map.
+     *
+     * <p>{@code orderInChapter} is the important one, and it is not an optimisation. It is the
+     * position the quest holds <b>in the same list</b> a LINEAR chapter gates on, taken at the moment
+     * that list is walked. A version recounted somewhere else is a second description of one fact,
+     * and the way that goes wrong is the way that cannot be seen: a prefix of the chapter that is
+     * wrong in the <i>inclusive</i> direction requires too little, so a LINEAR chapter unlocks
+     * several quests at once — or all of them — with no error, no log line, and nothing on screen to
+     * suggest a rule failed to apply. Carrying it from the walk makes the two the same number.
+     *
+     * <p>{@code chapterId} is derived rather than stored, because a second copy of a chapter's own id
+     * is a second thing that can disagree with the first.
+     */
+    public record QuestEntry(String groupId, Chapter chapter, Quest quest, int orderInChapter,
                              String file, JsonDocument document, String path) {
+
+        /** The id of the chapter this quest sits in. */
+        public String chapterId() {
+            return chapter.id();
+        }
 
         /** Where this quest is, for a message: {@code quests/01_stone_age.json:14:9}. */
         public String location() {
@@ -68,11 +116,15 @@ public final class QuestIndex {
         }
     }
 
-    private QuestIndex(List<LoadedQuestFile> files,
+    private QuestIndex(List<GroupEntry> groups,
+                       List<ChapterEntry> chapters,
+                       List<QuestEntry> quests,
                        Map<String, QuestEntry> byIdentifier,
                        Map<String, ChapterEntry> chaptersByIdentifier,
                        Map<String, GroupEntry> groupsByIdentifier) {
-        this.files = List.copyOf(files);
+        this.groups = List.copyOf(groups);
+        this.chapters = List.copyOf(chapters);
+        this.quests = List.copyOf(quests);
         this.byIdentifier = Map.copyOf(byIdentifier);
         this.chaptersByIdentifier = Map.copyOf(chaptersByIdentifier);
         this.groupsByIdentifier = Map.copyOf(groupsByIdentifier);
@@ -88,60 +140,95 @@ public final class QuestIndex {
      * "no such quest" with confidence.
      */
     public static QuestIndex build(List<LoadedQuestFile> files, Problems problems) {
+        return assemble(QuestTree.of(files), problems);
+    }
+
+    /**
+     * Builds the index from a tree whose every piece knows which document it was written in.
+     *
+     * <h2>Why this takes a tree rather than a list of files</h2>
+     *
+     * <p>Because the two file layouts disagree about what a "file" is, and this method is the one place
+     * that must not care. A version-1 file is a whole tree in one document; a version-2 tree is one
+     * document per group, per chapter and per quest. Given the files, this method would have to
+     * <i>choose</i> a path convention — and the one it used to choose, {@code
+     * $.chapterGroups[g].chapters[c].quests[q]}, is simply not a path in any document version 2 reads.
+     *
+     * <p>So it takes pieces, each of which carries the document and path it was written at, and it never
+     * computes a position. Every message below therefore names the file an author can open and a line in
+     * it, in both layouts, for the same reason: the position came from the file that was read.
+     *
+     * <p>{@link #build(List, Problems)} is the version-1 adapter, and {@link QuestTree#of} is where the
+     * version-1 paths live — the only place either layout's paths are written.
+     */
+    public static QuestIndex assemble(QuestTree tree, Problems problems) {
+        List<GroupEntry> groupList = new ArrayList<>();
+        List<ChapterEntry> chapterList = new ArrayList<>();
+        List<QuestEntry> questList = new ArrayList<>();
+
         Map<String, QuestEntry> quests = new LinkedHashMap<>();
         Map<String, ChapterEntry> chapters = new LinkedHashMap<>();
         Map<String, GroupEntry> groups = new LinkedHashMap<>();
 
-        for (LoadedQuestFile loaded : files) {
-            JsonDocument document = loaded.document();
+        for (QuestTree.Piece piece : tree.pieces()) {
+            switch (piece) {
+                case QuestTree.Piece.GroupPiece pieceGroup -> {
+                    ChapterGroup group = pieceGroup.group();
+                    JsonDocument document = pieceGroup.source().document();
+                    String path = pieceGroup.source().path();
+                    GroupEntry groupEntry = new GroupEntry(group, pieceGroup.source().file(), document, path);
+                    groupList.add(groupEntry);
 
-            for (int g = 0; g < loaded.file().chapterGroups().size(); g++) {
-                ChapterGroup group = loaded.file().chapterGroups().get(g);
-                String groupPath = QuestValidator.groupPath(g);
-
-                claimIdentifier(groups, quests, chapters, group.id(),
-                        new GroupEntry(group, loaded.displayName(), document, groupPath),
-                        "chapter group", document, groupPath + ".id", problems);
-                for (String alias : group.aliases()) {
-                    claimAlias(groups, quests, chapters, alias,
-                            new GroupEntry(group, loaded.displayName(), document, groupPath),
-                            group.id(), "chapter group", document, groupPath + ".aliases", problems);
+                    claimIdentifier(groups, quests, chapters, group.id(), groupEntry,
+                            "chapter group", document, path + ".id", problems);
+                    for (String alias : group.aliases()) {
+                        claimAlias(groups, quests, chapters, alias, groupEntry,
+                                group.id(), "chapter group", document, path + ".aliases", problems);
+                    }
                 }
 
-                for (int c = 0; c < group.chapters().size(); c++) {
-                    Chapter chapter = group.chapters().get(c);
-                    String chapterPath = QuestValidator.chapterPath(g, c);
-                    ChapterEntry chapterEntry = new ChapterEntry(group.id(), chapter,
-                            loaded.displayName(), document, chapterPath);
+                case QuestTree.Piece.ChapterPiece pieceChapter -> {
+                    Chapter chapter = pieceChapter.chapter();
+                    JsonDocument document = pieceChapter.source().document();
+                    String path = pieceChapter.source().path();
+                    ChapterEntry chapterEntry = new ChapterEntry(pieceChapter.groupId(), chapter,
+                            pieceChapter.source().file(), document, path);
+                    chapterList.add(chapterEntry);
 
                     claimIdentifier(groups, quests, chapters, chapter.id(), chapterEntry,
-                            "chapter", document, chapterPath + ".id", problems);
+                            "chapter", document, path + ".id", problems);
                     for (String alias : chapter.aliases()) {
                         claimAlias(groups, quests, chapters, alias, chapterEntry, chapter.id(),
-                                "chapter", document, chapterPath + ".aliases", problems);
+                                "chapter", document, path + ".aliases", problems);
+                    }
+                }
+
+                case QuestTree.Piece.QuestPiece pieceQuest -> {
+                    Quest quest = pieceQuest.quest();
+                    JsonDocument document = pieceQuest.source().document();
+                    String path = pieceQuest.source().path();
+                    // The position comes off the piece, and the piece is the only thing that ever
+                    // decided it -- it was taken while the chapter's own quest list was built, which is
+                    // the list a LINEAR chapter gates on. See QuestEntry's note on why a second
+                    // description of that number is the dangerous kind of mistake.
+                    QuestEntry questEntry = new QuestEntry(pieceQuest.groupId(), pieceQuest.chapter(),
+                            quest, pieceQuest.orderInChapter(), pieceQuest.source().file(), document, path);
+                    questList.add(questEntry);
+
+                    claimIdentifier(groups, quests, chapters, quest.id(), questEntry,
+                            "quest", document, path + ".id", problems);
+                    for (String alias : quest.aliases()) {
+                        claimAlias(groups, quests, chapters, alias, questEntry, quest.id(),
+                                "quest", document, path + ".aliases", problems);
                     }
 
-                    for (int q = 0; q < chapter.quests().size(); q++) {
-                        Quest quest = chapter.quests().get(q);
-                        String questPath = QuestValidator.questPath(g, c, q);
-                        QuestEntry questEntry = new QuestEntry(group.id(), chapter.id(), quest,
-                                loaded.displayName(), document, questPath);
-
-                        claimIdentifier(groups, quests, chapters, quest.id(), questEntry,
-                                "quest", document, questPath + ".id", problems);
-                        for (String alias : quest.aliases()) {
-                            claimAlias(groups, quests, chapters, alias, questEntry, quest.id(),
-                                    "quest", document, questPath + ".aliases", problems);
-                        }
-
-                        checkSelfDependency(document, questPath, quest, problems);
-                        checkPlacement(document, questPath, quest, problems);
-                    }
+                    checkSelfDependency(document, path, quest, problems);
+                    checkPlacement(document, path, quest, problems);
                 }
             }
         }
 
-        QuestIndex index = new QuestIndex(files, quests, chapters, groups);
+        QuestIndex index = new QuestIndex(groupList, chapterList, questList, quests, chapters, groups);
         index.checkDependencies(problems);
         index.checkDuplicatePositions(problems);
         // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 64,0
@@ -491,45 +578,53 @@ public final class QuestIndex {
     }
 
     /**
-     * Every quest, once each, in file order.
+     * Every chapter group, once each, in declaration order.
      *
-     * <p>The lookup table holds an entry under a quest's id <i>and</i> each of its aliases, so walking
-     * it directly would visit a quest once per name and report its dependencies once per name. This
-     * walks the files instead, which is the only ordering that is stable.
+     * <p>Once each and not once per alias: the lookup table beside this holds an entry under every
+     * name a thing has, group id and alias alike, so walking <i>that</i> would visit a group as many
+     * times as it has names. These lists are the tree, and the maps are for lookup.
      */
-    public List<QuestEntry> quests() {
-        List<QuestEntry> out = new ArrayList<>();
-        for (LoadedQuestFile loaded : files) {
-            for (int g = 0; g < loaded.file().chapterGroups().size(); g++) {
-                ChapterGroup group = loaded.file().chapterGroups().get(g);
-                for (int c = 0; c < group.chapters().size(); c++) {
-                    Chapter chapter = group.chapters().get(c);
-                    for (int q = 0; q < chapter.quests().size(); q++) {
-                        Quest quest = chapter.quests().get(q);
-                        out.add(new QuestEntry(group.id(), chapter.id(), quest, loaded.displayName(),
-                                loaded.document(), QuestValidator.questPath(g, c, q)));
-                    }
-                }
-            }
-        }
-        return List.copyOf(out);
+    public List<GroupEntry> groups() {
+        return groups;
     }
 
-    public List<LoadedQuestFile> files() {
-        return files;
+    /** Every chapter, once each, in declaration order. */
+    public List<ChapterEntry> chapters() {
+        return chapters;
+    }
+
+    /**
+     * Every quest, once each, in declaration order.
+     *
+     * <p>A stored list rather than a walk, and it used to be a walk: this method rebuilt the whole
+     * tree from the files on every call, and it is called from the dependency check, the position
+     * check, the crowding check, the tree serialiser and the progress listing. So the same walk ran
+     * five or six times per load and once per frame anywhere a screen asked, and every copy computed
+     * its own JSON paths — which is what made a typo in a quest file point at the wrong place.
+     */
+    public List<QuestEntry> quests() {
+        return quests;
     }
 
     public int questCount() {
-        return quests().size();
+        return quests.size();
     }
 
-    /** Distinct chapters. The table has one entry per name, so counting it would count aliases too. */
+    /**
+     * How many chapters there are.
+     *
+     * <p>This counted the lookup table's distinct values, because the list did not exist. Counting a
+     * map's values is counting aliases as well as the things they name, and {@code distinct()} on a
+     * record only collapses them when their contents match — so the number was right for the shipped
+     * content and wrong in principle. The list is the tree, so its size is the answer.
+     */
     public int chapterCount() {
-        return chaptersByIdentifier.values().stream().map(ChapterEntry::chapter).distinct().toList().size();
+        return chapters.size();
     }
 
+    /** How many chapter groups there are. Likewise once each rather than once per name. */
     public int groupCount() {
-        return groupsByIdentifier.values().stream().map(GroupEntry::group).distinct().toList().size();
+        return groups.size();
     }
 
     public boolean isEmpty() {

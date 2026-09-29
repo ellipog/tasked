@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "term_read",
+  "title": "man tasked",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest, and on a green-on-black palette a page of prose is what",
+    "the theme was designed for, which is worth saying plainly because it is the opposite",
+    "of what you would expect from the least Minecraft-looking theme in the set.",
+    "",
+    "The section headings are the brightest green and the body is a mid one, so on this",
+    "chapter TASKS and REWARDS are more prominent than the text under them -- the reverse",
+    "of every other theme. That is a real trade and it is visible here and nowhere else.",
+    "",
+    "Scroll down for REQUIRES: a green tick and a grey-green cross. All four states in",
+    "this theme are greens of different brightness, with the one exception of the",
+    "in-progress amber, which is the only colour on the canvas that is not green.",
+    "",
+    "The scrollbar's thumb is a mid green on a very dark track, which on this canvas is",
+    "unmistakable. Compare it with Copper's, where the same two tokens are deliberately",
+    "quiet: the scrollbar tokens exist precisely so that a theme can make that choice",
+    "rather than inheriting one.",
+    "",
+    "As in every chapter, this paragraph exists to make the body taller than the clip."
+  ],
+  "icon": { "item": "minecraft:book" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["term_gate"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "read the synopsis" },
+    { "type": "tasked:checkmark", "title": "read the examples" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

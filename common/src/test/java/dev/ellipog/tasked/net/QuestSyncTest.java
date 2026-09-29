@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,7 @@ import java.util.UUID;
 import static dev.ellipog.tasked.quest.Fixtures.q;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -91,7 +93,8 @@ class QuestSyncTest {
         // string somewhere on a screen.
         String json = new String(QuestSync.treeAsJson(twoQuests()), StandardCharsets.UTF_8);
 
-        for (String key : List.of("\"quests\"", "\"chapterId\"", "\"chapterTitle\"", "\"id\"",
+        for (String key : List.of("\"version\"", "\"groups\"", "\"chapterGroupId\"", "\"quests\"",
+                "\"chapterId\"", "\"chapterTitle\"", "\"id\"",
                 "\"title\"", "\"icon\"", "\"x\"", "\"y\"", "\"size\"", "\"shape\"",
                 "\"iconScale\"", "\"showTitle\"", "\"invisible\"", "\"chapterLinear\"", "\"order\"",
                 "\"description\"", "\"dependsOn\"", "\"tasks\"", "\"rewards\"")) {
@@ -401,6 +404,352 @@ class QuestSyncTest {
 
         assertTrue(ClientQuestCache.hasTree(), "an empty tree should still count as received");
         assertFalse(ClientQuestCache.hasData(), "an empty tree has nothing to show");
+    }
+
+    // ------------------------------------------------------------------
+    // Chapter groups, which version 2 added
+    // ------------------------------------------------------------------
+
+    /**
+     * The two additions of version 2: a flat {@code groups[]} at the root, and a {@code chapterGroupId}
+     * on every quest.
+     *
+     * <h2>Why this is a nested class of its own rather than four more methods above</h2>
+     *
+     * <p>Because it is the one part of the wire with a <b>compatibility claim</b> attached, and the claim
+     * is what needs testing rather than the fields. The writer and the reader are both hand-written JSON,
+     * so nothing but this test connects them; and on top of that the design promises that every change
+     * here is additive, which means an old client on a new server keeps drawing today's flat list.
+     *
+     * <p>That promise is the reason three of the tests below are about what a tree <i>without</i> the new
+     * fields does, and what an unexpectedly high version number does. Those are the cases a future
+     * change breaks silently — nothing throws, no test about the new field notices, and the symptom is
+     * somebody's quest book drawn as a different shape from the one they wrote.
+     */
+    @Nested
+    @DisplayName("the tree's chapter groups")
+    class Groups {
+
+        /**
+         * Two groups, deliberately written out of alphabetical order.
+         *
+         * <p>{@code zzz_written_first} before {@code aaa_written_second}, so that "declaration order" and
+         * "sorted order" are different answers and a client that sorted cannot pass by accident. Only the
+         * characters differ — this is the same trap the loader's folder-name order creates, arriving at
+         * the opposite end of the wire, and it is worth catching on both sides independently because
+         * neither end can see the other's sort.
+         *
+         * <p>Written as a version-1 file on purpose. The wire format is version 1's <i>tree</i> plus two
+         * fields, and building it through the version-1 codec keeps this test about the wire rather than
+         * about the version-2 folder layout — which the acceptance test covers and which would otherwise
+         * have to load here too.
+         */
+        private static final String TWO_GROUPS = """
+                {
+                  "version": 1,
+                  "chapterGroups": [
+                    {
+                      "id": "zzz_written_first",
+                      "title": "Written First",
+                      "collapsedByDefault": true,
+                      "chapters": [
+                        {
+                          "id": "first_steps",
+                          "title": "First Steps",
+                          "quests": [
+                            { "id": "punch_a_tree", "title": "Punch a Tree",
+                              "tasks": [ { "type": "tasked:checkmark", "title": "t" } ] }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "aaa_written_second",
+                      "title": "Written Second",
+                      "chapters": [
+                        {
+                          "id": "second_steps",
+                          "title": "Second Steps",
+                          "quests": [
+                            { "id": "build_a_house", "title": "Build a House",
+                              "tasks": [ { "type": "tasked:checkmark", "title": "t" } ] }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        private static QuestIndex twoGroups() {
+            return Fixtures.indexOf(TWO_GROUPS);
+        }
+
+        private static void send(QuestIndex index) {
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                    QuestSync.treeAsJson(index));
+        }
+
+        @Test
+        @DisplayName("the raw JSON carries the version, the headings and each quest's group")
+        void groupFieldsMatch() {
+            // The same contract check as `fieldNamesMatch` above, tightened onto the three things
+            // version 2 added. Named here as well as in that list because that list is a `for` over
+            // names, and a name *removed* from it would show up as one fewer iteration rather than as a
+            // failure -- this one cannot be weakened without deleting the line.
+            String json = new String(QuestSync.treeAsJson(twoGroups()), StandardCharsets.UTF_8);
+
+            assertTrue(json.contains("\"version\":2"),
+                    "the tree should declare version 2, so a reader can tell what it is looking at: " + json);
+            assertTrue(json.contains("\"groups\""),
+                    "the tree has no groups array, so the client has nothing to build headings from: " + json);
+            assertTrue(json.contains("\"chapterGroupId\""),
+                    "no quest says which group its chapter is in, so the headings would have nothing "
+                            + "under them: " + json);
+
+            // And the value, not just the key: a `chapterGroupId` written as a constant would satisfy
+            // the check above for every quest.
+            assertTrue(json.contains("\"chapterGroupId\":\"zzz_written_first\""), json);
+            assertTrue(json.contains("\"chapterGroupId\":\"aaa_written_second\""), json);
+        }
+
+        @Test
+        @DisplayName("the headings arrive, in the order the server declared them")
+        void groupsArrive() {
+            // Order is asserted because it is the one thing a client can get wrong without any symptom
+            // that points here: sorting these would draw a perfectly good book with the groups in the
+            // wrong places, and nothing on screen would say so.
+            QuestIndex index = twoGroups();
+            send(index);
+
+            assertEquals(2, ClientQuestCache.groups().size(),
+                    "the headings did not arrive: " + ClientQuestCache.groups());
+            assertEquals(List.of("zzz_written_first", "aaa_written_second"),
+                    ClientQuestCache.groups().stream().map(ClientQuestCache.GroupEntry::id).toList(),
+                    "declaration order, not sorted order");
+            assertEquals("Written First", ClientQuestCache.groups().get(0).title(),
+                    "the heading's title did not cross the wire");
+        }
+
+        @Test
+        @DisplayName("the authored collapsed flag arrives, which is what the sidebar seeds from")
+        void collapsedByDefaultArrives() {
+            // This is the *only* thing the server says about whether a group starts open, and it applies
+            // once, on the first sight of a tree. What the player toggles afterwards is theirs -- which is
+            // why the flag travels in one direction only and there is no "collapsed" field on the way
+            // back. Both values are asserted, because a flag that always arrived true would pass a test
+            // that only checked the true case.
+            QuestIndex index = twoGroups();
+            send(index);
+
+            assertTrue(ClientQuestCache.groups().get(0).collapsedByDefault(),
+                    "the authored collapsed flag did not survive the wire, so a group meant to start "
+                            + "closed would start open");
+            assertFalse(ClientQuestCache.groups().get(1).collapsedByDefault(),
+                    "a group that declares nothing must arrive open -- `collapsedByDefault` defaults to "
+                            + "false, and a wire that sent true for it would collapse every group");
+        }
+
+        @Test
+        @DisplayName("every quest says which group its chapter is in")
+        void questsCarryTheirGroupId() {
+            // `groups[]` says what the headings are called; this is what says what hangs under them.
+            // Without it the client would have headings and no way to place a single chapter.
+            QuestIndex index = twoGroups();
+            send(index);
+
+            assertEquals("zzz_written_first", entryFor("punch_a_tree").chapterGroupId(),
+                    "the quest did not carry its chapter's group");
+            assertEquals("aaa_written_second", entryFor("build_a_house").chapterGroupId(),
+                    "and the two quests should name *different* groups -- one shared constant would pass "
+                            + "a single-assertion version of this test");
+        }
+
+        @Test
+        @DisplayName("a server older than groups still draws, with no headings and no group id")
+        void anOlderServerStillWorks() {
+            // The additive promise in the direction this client must honour: it asks for `groups` and
+            // `chapterGroupId`, and a tree that has neither has to load anyway. A reader that required
+            // either would turn every old server into an empty quest book.
+            //
+            // Hand-written and version 1, because that is exactly what an older server sends -- and
+            // writing it by hand is the point: it is not this build's writer output, so it cannot
+            // accidentally contain a field the writer learned to send.
+            String older = "{\"version\":1,\"quests\":[{\"chapterId\":\"c\",\"chapterTitle\":\"C\","
+                    + "\"id\":\"a\",\"title\":\"A\",\"icon\":\"minecraft:stone\",\"x\":0,\"y\":0,"
+                    + "\"size\":48,\"shape\":\"rounded\",\"iconScale\":0.75,\"showTitle\":false,"
+                    + "\"description\":[],\"dependsOn\":[],\"tasks\":[],\"rewards\":[]}]}";
+            ClientQuestCache.acceptTree(1, 1, older.getBytes(StandardCharsets.UTF_8));
+
+            assertTrue(ClientQuestCache.hasData(), "an older server's tree must still draw");
+            assertTrue(ClientQuestCache.groups().isEmpty(),
+                    "no groups array means no headings -- and that is the flat chapter list's cue, so it "
+                            + "must be empty rather than invented or defaulted");
+            assertEquals("", entryFor("a").chapterGroupId(),
+                    "and a quest with no group field belongs to no group, which is the same cue at the "
+                            + "other level");
+        }
+
+        @Test
+        @DisplayName("a newer server's tree is drawn with what this client knows, rather than refused")
+        void aNewerServerIsNotRefused() {
+            // The one thing the version number must never be used for, and the reason it is read and only
+            // warned about. Refusing a version this build does not know would break precisely the case the
+            // additive design exists to keep working: an install that has not been updated, against a
+            // server that has. The alternative -- drawing what it understands and saying so in the log --
+            // degrades in the direction that keeps a player playing.
+            QuestIndex index = twoGroups();
+            String version2 = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+
+            // Version 9, plus a field this build has never heard of, which is what a newer server's tree
+            // actually looks like: the fields it knows, and one more.
+            String version9 = version2
+                    .replace("\"version\":2", "\"version\":9")
+                    .replace("\"quests\":", "\"somethingThisBuildHasNeverSeen\":[1,2,3],\"quests\":");
+
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                    version9.getBytes(StandardCharsets.UTF_8));
+
+            assertTrue(ClientQuestCache.hasData(),
+                    "a newer tree must still be drawn with whatever this build understands");
+            assertEquals(2, ClientQuestCache.groups().size(),
+                    "and the fields it *does* know must still arrive");
+            assertEquals("zzz_written_first", entryFor("punch_a_tree").chapterGroupId());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The tree revision
+    // ------------------------------------------------------------------
+
+    /**
+     * The counter that lets a screen tell "still my tree" from "a new one arrived".
+     *
+     * <h2>The behaviour it exists for, stated as a test rather than as a comment</h2>
+     *
+     * <p>A screen builds a collapsible outline and keeps the player's toggles in it. It has to be able to
+     * ask whether the tree under that outline is still the one it described — and the answer must be "yes"
+     * for a resize, a scroll, a toggle and a redraw, and "no" when a reload replaces the tree. Getting the
+     * second half wrong leaves a stale outline; getting the first half wrong silently resets the player's
+     * collapses every frame, which reads as the toggle buttons not working.
+     *
+     * <p>Every axis a screen might read is touched in {@link #standsStillWhileNothingArrives}, because the
+     * failure to guard against is a reader that bumped the counter as a side effect of answering a
+     * question — which is the kind of thing a getter never does until somebody caches something.
+     */
+    @Nested
+    @DisplayName("the tree revision")
+    class Revision {
+
+        @Test
+        @DisplayName("moves when a tree arrives, so a screen knows its outline is stale")
+        void movesWhenATreeArrives() {
+            long before = ClientQuestCache.treeRevision();
+            QuestIndex index = twoQuests();
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+            assertNotEquals(before, ClientQuestCache.treeRevision(),
+                    "a tree arrived, so a screen holding an outline built from the previous one has no way "
+                            + "to find out -- its outline would keep the rows of a tree the cache has "
+                            + "replaced");
+        }
+
+        @Test
+        @DisplayName("moves on a clear as well, because clearing empties the cache too")
+        void movesWhenCleared() {
+            // The half that is easy to forget, and the one whose absence has the worst symptom: a
+            // disconnect empties the cache, and a screen that seeded an outline at the old revision would
+            // go on drawing that tree's rows for a cache with nothing in it.
+            QuestIndex index = twoQuests();
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+            long loaded = ClientQuestCache.treeRevision();
+
+            ClientQuestCache.clear();
+
+            assertNotEquals(loaded, ClientQuestCache.treeRevision(),
+                    "the cache now holds a different tree -- an empty one -- and the revision has to say so");
+        }
+
+        @Test
+        @DisplayName("moves for a tree that could not be read, since that empties it too")
+        void movesForAnUnreadableTree() {
+            // A third path out of `acceptTree` that changes what the cache holds, and the one a
+            // success-only counter would miss. The tree it had is gone either way; the difference is only
+            // in why.
+            QuestIndex index = twoQuests();
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+            long loaded = ClientQuestCache.treeRevision();
+
+            ClientQuestCache.acceptTree(5, 1, "not json at all".getBytes(StandardCharsets.UTF_8));
+
+            assertNotEquals(loaded, ClientQuestCache.treeRevision(),
+                    "the cache was emptied by the failed parse, so a screen must re-seed -- otherwise it "
+                            + "draws rows for a tree that is no longer cached");
+        }
+
+        @Test
+        @DisplayName("moves on a reload, so the authored defaults seed the outline again")
+        void movesOnAReload() {
+            QuestIndex index = twoQuests();
+            QuestSync.treeAsJson(index);
+
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+            long first = ClientQuestCache.treeRevision();
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+            assertNotEquals(first, ClientQuestCache.treeRevision(),
+                    "a reload means the files changed, and the authored state is the honest one for a tree "
+                            + "nobody has seen -- so the revision has to move even when the content is "
+                            + "byte-identical, because the unit is 'a tree arrived' and not 'the tree "
+                            + "differs'");
+        }
+
+        @Test
+        @DisplayName("does not move while a screen reads what is cached")
+        void standsStillWhileNothingArrives() {
+            // The property the counter is *for*: everything a screen does to draw and interact with a
+            // tree is a read, and no read may move this. A resize, a scroll, a toggle and a redraw are all
+            // in the list below, and every one of them is something a player does constantly.
+            QuestIndex index = twoGroupsForRevision();
+            ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+            long settled = ClientQuestCache.treeRevision();
+
+            for (int frame = 0; frame < 5; frame++) {
+                assertFalse(ClientQuestCache.entries().isEmpty(), "the fixture should have loaded");
+                ClientQuestCache.groups();
+                ClientQuestCache.chapterTheme("first_steps");
+                ClientQuestCache.stateOf("punch_a_tree");
+                ClientQuestCache.canClaim("punch_a_tree");
+                assertEquals(settled, ClientQuestCache.treeRevision(),
+                        "frame " + frame + ": reading the cache moved the revision, so a screen that "
+                                + "rebuilt its outline from it would reset the player's toggles every "
+                                + "frame -- which looks like the toggles not working");
+            }
+        }
+
+        private static QuestIndex twoGroupsForRevision() {
+            return Fixtures.indexOf("""
+                    {
+                      "version": 1,
+                      "chapterGroups": [
+                        {
+                          "id": "g",
+                          "title": "G",
+                          "chapters": [
+                            {
+                              "id": "first_steps",
+                              "title": "First Steps",
+                              "quests": [
+                                { "id": "punch_a_tree", "title": "Punch a Tree",
+                                  "tasks": [ { "type": "tasked:checkmark", "title": "t" } ] }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """);
+        }
     }
 
     // ------------------------------------------------------------------

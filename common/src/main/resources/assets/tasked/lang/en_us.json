@@ -12,7 +12,7 @@
     "tasked.command.reload.log": "Details are in the server log, with file and line numbers",
 
     "tasked.command.quests.empty": "No quests are loaded. Put files in config/tasked/quests/ and run /tasked reload",
-    "tasked.command.quests.summary": "%s quest(s) in %s chapter(s), from %s file(s)",
+    "tasked.command.quests.summary": "%s quest(s) in %s chapter(s), %s chapter group(s)",
 
     "tasked.command.progress.header": "§7%s of %s quest(s) unlocked, %s completed",
     "tasked.command.progress.none": "Nothing to do right now. Every unlocked quest is complete.",

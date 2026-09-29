@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "deep_repeat",
+  "title": "Spread",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40 in cyan. On this theme the outline is very nearly the only line",
+    "on the canvas, so the six edges are unusually clear -- there is no surface detail",
+    "behind them to compete.",
+    "",
+    "A square theme's hexagon and a rounded theme's hexagon are the same six edges. What",
+    "differs is everything around them."
+  ],
+  "icon": { "item": "minecraft:sculk_catalyst" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["deep_start"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sculk", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:sculk_vein", "count": 8 }
+  ]
+}

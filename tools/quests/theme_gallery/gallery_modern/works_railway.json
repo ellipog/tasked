@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "works_railway",
+  "title": "The Line",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40 with the icon at 0.6 of its box, so this is visibly a minor job",
+    "rather than a milestone -- and a repeatable one, which is why its border never takes",
+    "the completed colour and stays there.",
+    "",
+    "The hexagon's taper is a straight line rather than an arc. That is what makes it a",
+    "hexagon and not a rounded rectangle, and at 40 pixels the two are easy to mistake for",
+    "each other."
+  ],
+  "icon": { "item": "minecraft:rail" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["works_yard"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:rail", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 }
+  ]
+}

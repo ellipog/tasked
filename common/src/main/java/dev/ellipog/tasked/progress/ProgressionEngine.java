@@ -1,8 +1,6 @@
 package dev.ellipog.tasked.progress;
 
 import dev.ellipog.tasked.quest.Chapter;
-import dev.ellipog.tasked.quest.ChapterGroup;
-import dev.ellipog.tasked.quest.LoadedQuestFile;
 import dev.ellipog.tasked.quest.PrerequisiteMode;
 import dev.ellipog.tasked.quest.ProgressionMode;
 import dev.ellipog.tasked.quest.Quest;
@@ -93,11 +91,17 @@ public final class ProgressionEngine {
         }
 
         // Quest position within its chapter, needed by linear progression.
+        //
+        // Taken from each entry rather than recounted from a chapter walk, and that is a fix rather
+        // than a tidy-up. The position is what a LINEAR chapter gates on: a version counted from a
+        // *different* list than the one the chapter's quests were assembled in can be a prefix that is
+        // wrong in the permissive direction, and the way that fails is the way nothing catches -- the
+        // chapter unlocks several quests at once, or every quest at once, with no error and no log
+        // line, because nothing about the computation looks wrong. One position, written where the
+        // chapter's own list is built.
         Map<String, Integer> positionInChapter = new LinkedHashMap<>();
-        for (Chapter chapter : allChapters(index)) {
-            for (int i = 0; i < chapter.quests().size(); i++) {
-                positionInChapter.put(chapter.quests().get(i).id(), i);
-            }
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            positionInChapter.put(entry.quest().id(), entry.orderInChapter());
         }
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
@@ -159,9 +163,7 @@ public final class ProgressionEngine {
             }
 
             // Dependencies. Resolve each first, so this is a depth-first walk of the graph.
-            PrerequisiteMode mode = chapterOf(index, entry).map(Chapter::defaultPrerequisiteMode)
-                    .orElse(PrerequisiteMode.ALL_COMPLETED);
-            PrerequisiteMode effective = quest.prerequisiteMode(mode);
+            PrerequisiteMode effective = quest.prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
 
             int satisfied = 0;
             for (var dependency : quest.dependencies()) {
@@ -184,8 +186,11 @@ public final class ProgressionEngine {
             // Linear progression: every quest earlier in the chapter must be complete as well.
             int position = positionInChapter.getOrDefault(quest.id(), -1);
             if (position > 0) {
-                Chapter chapter = chapterOf(index, entry).orElse(null);
-                if (chapter != null && chapter.progressionMode() == ProgressionMode.LINEAR) {
+                // The chapter off the entry, rather than looked up: `entry.chapter()` is the very
+                // object whose `quests()` list `orderInChapter` was read from, so the position and the
+                // list it indexes cannot be two different chapters. See QuestEntry.
+                Chapter chapter = entry.chapter();
+                if (chapter.progressionMode() == ProgressionMode.LINEAR) {
                     for (Quest earlier : chapter.questsBefore(position)) {
                         QuestState earlierState = resolveById(index, earlier.id(), entry, progress, now, states,
                                 cooldowns, takenExclusiveGroups, positionInChapter, visiting);
@@ -280,25 +285,6 @@ public final class ProgressionEngine {
 
     private static String exclusiveKey(String chapterId, String group) {
         return chapterId + ":" + group;
-    }
-
-    // ------------------------------------------------------------------
-    // Small helpers over the index
-    // ------------------------------------------------------------------
-
-    private static Optional<Chapter> chapterOf(QuestIndex index, QuestIndex.QuestEntry entry) {
-        return index.chapter(entry.chapterId()).map(QuestIndex.ChapterEntry::chapter);
-    }
-
-    /** Every chapter, in file order. Built from the files because the lookup tables hold one entry per alias. */
-    private static java.util.List<Chapter> allChapters(QuestIndex index) {
-        java.util.List<Chapter> out = new java.util.ArrayList<>();
-        for (LoadedQuestFile loaded : index.files()) {
-            for (ChapterGroup group : loaded.file().chapterGroups()) {
-                out.addAll(group.chapters());
-            }
-        }
-        return out;
     }
 
     // ------------------------------------------------------------------

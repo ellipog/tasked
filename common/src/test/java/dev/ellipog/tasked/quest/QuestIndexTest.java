@@ -43,6 +43,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class QuestIndexTest {
 
+    /**
+     * Starts enough of vanilla for the loader to check item ids.
+     *
+     * <p>Needed by the four tests that load the shipped examples, and it was not needed before them.
+     * They used to decode files directly — which exercises the codecs and nothing else — and the
+     * validator is the step that reads {@code BuiltInRegistries.ITEM}. Running it without this throws
+     * from inside a vanilla class initialiser, naming a registry that has nothing to do with what is
+     * under test, which is the failure mode {@link MinecraftTestBootstrap} documents at length.
+     *
+     * <p>About a second, once per JVM, shared with every other class that asks.
+     */
+    @org.junit.jupiter.api.BeforeAll
+    static void bootVanilla() {
+        MinecraftTestBootstrap.boot();
+    }
+
+    /**
+     * A directory of this test's own, for the quest tree {@link #loadExamples} builds.
+     *
+     * <p>An instance field rather than a static one, so each test method gets a fresh directory: these
+     * tests copy 139 files into it, and a shared one would mean a failed load leaving a half-built
+     * tree — and a half-built tree is exactly the state that produces a misleading "duplicate id"
+     * report on the next test rather than a clear failure.
+     */
+    @org.junit.jupiter.api.io.TempDir
+    Path temp;
+
     // ------------------------------------------------------------------
     // Fixtures
     // ------------------------------------------------------------------
@@ -423,26 +450,85 @@ class QuestIndexTest {
      */
     private static final java.nio.file.Path EXAMPLES = java.nio.file.Path.of("..", "tools", "quests");
 
-    /** The examples, name-sorted, {@code _}-prefixed excluded — the same rule the loader and the script use. */
-    private static List<String> exampleNames() throws java.io.IOException {
-        List<String> out = new java.util.ArrayList<>();
-        try (var files = java.nio.file.Files.list(EXAMPLES)) {
-            for (java.nio.file.Path path : files.toList()) {
-                String name = path.getFileName().toString();
-                // `_`-prefixed files are the deliberately-broken fixtures the loader skips by prefix.
-                // Asserting they are clean would be asserting the opposite of what they are for.
-                if (name.endsWith(".json") && !name.startsWith("_")) {
-                    out.add(name);
+    /**
+     * Loads the worked examples the way the mod does: copy them into a config directory, then run the
+     * real loader over it.
+     *
+     * <h2>Why this goes through the loader rather than decoding the files itself</h2>
+     *
+     * <p>Because the examples are now a <b>folder tree</b>, and the only thing that knows how to turn a
+     * folder tree into a questline is the loader. This used to build a {@link LoadedQuestFile} per file
+     * by hand, which worked because version 1 puts one whole tree in one document — so "decode the
+     * file" and "load the questline" were the same act, and a test was free to do the first directly.
+     * Under version 2 they are not the same act at all: {@code group.json} decodes to a manifest holding
+     * a list of <i>names</i> and nothing else, so a test that stopped at the codec would be asserting
+     * about a tree with no chapters in it.
+     *
+     * <p>That is the same trap the seeding step had, one level up, and it fails silently in the same
+     * direction: a manifest decodes perfectly and contributes nothing, so a test looping over the
+     * examples would find every file, decode every one, and then assert about an empty questline.
+     *
+     * <h2>So it is the real path, including validation</h2>
+     *
+     * <p>{@link QuestLoader#load} parses, validates, decodes and indexes — every step the game runs.
+     * These tests therefore now check something they could not before: that the shipped examples pass
+     * the <b>validator</b>, not merely the codecs. That is strictly stronger, and it is why
+     * {@link #bootVanilla()} sits at the top of this class: the validator resolves item ids against
+     * {@code BuiltInRegistries.ITEM}, and an unbootstrapped registry does not report everything missing
+     * — it throws from inside a vanilla class initialiser.
+     *
+     * <h2>The copy is not incidental</h2>
+     *
+     * <p>{@code QuestLoader} reads a directory and writes nothing, so a test that wants it to load
+     * something has to put it there. That is exactly what {@code tasked/tools/seed_quests.py} does for a
+     * player and what this does for a test. Copying rather than reading in place also keeps the
+     * examples directory itself untouched, so no test can leave the repository dirty.
+     *
+     * <h2>Paths are preserved, and the underscore rule applies to every segment</h2>
+     *
+     * <p>The relative path is kept rather than flattened, because the layout <i>is</i> the format: a
+     * quest called {@code punch_a_tree.json} at the quest root is not a quest at all, it is a version-1
+     * file the loader will try to read as a whole tree.
+     *
+     * <p>And {@code _}-prefixed names are skipped at every segment, not just the last. The shipped
+     * {@code _schema} folder is a <b>directory</b>, so a rule that tested only a file's own name would
+     * copy all three schema files into the config directory — where the loader's own walk would then
+     * skip them, so the mistake would be invisible from the test and visible only as three stray files
+     * in somebody's install.
+     *
+     * @param configDir where to build the copy. Each caller passes a directory of its own, so two tests
+     *     cannot collide over one config directory — and so a failed load cannot leave state behind for
+     *     the next one.
+     */
+    private static QuestLoader.Result loadExamples(java.nio.file.Path configDir) throws java.io.IOException {
+        java.nio.file.Path target = configDir.resolve(QuestLoader.DIRECTORY);
+        try (var walk = java.nio.file.Files.walk(EXAMPLES)) {
+            for (java.nio.file.Path source : walk.filter(java.nio.file.Files::isRegularFile).toList()) {
+                java.nio.file.Path relative = EXAMPLES.relativize(source);
+                if (isIgnored(relative)) {
+                    continue;
                 }
+                java.nio.file.Path destination = target.resolve(relative.toString());
+                java.nio.file.Files.createDirectories(destination.getParent());
+                java.nio.file.Files.copy(source, destination);
             }
         }
-        java.util.Collections.sort(out);
-        return out;
+        return QuestLoader.load(configDir);
     }
 
-    private static String readExample(String name) throws java.io.IOException {
-        return java.nio.file.Files.readString(EXAMPLES.resolve(name),
-                java.nio.charset.StandardCharsets.UTF_8);
+    /**
+     * Whether a path under the examples directory is skipped.
+     *
+     * <p>Every segment, not just the last — the same rule {@code DeclaredPaths.isIgnored} states, and
+     * for the same reason, which is the paragraph above. See {@link #loadExamples}.
+     */
+    private static boolean isIgnored(java.nio.file.Path relative) {
+        for (java.nio.file.Path segment : relative) {
+            if (segment.toString().startsWith("_")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
@@ -483,14 +569,32 @@ class QuestIndexTest {
                         + " -- the tests run from the Gradle project directory, so this is relative to"
                         + " tasked/common");
 
-        List<String> onDisk = exampleNames();
-        assertFalse(onDisk.isEmpty(), "there are no examples at all in " + EXAMPLES);
+        QuestLoader.Result loaded = loadExamples(temp.resolve("clean"));
 
-        for (String name : onDisk) {
-            Problems problems = problemsOf(readExample(name));
-            assertTrue(problems.isEmpty(), name + " should load cleanly, but reported:"
-                    + messages(problems));
-        }
+        // Errors only, and this assertion is stricter than the one it replaces in the way that matters
+        // while being looser in the way that does not.
+        //
+        // Looser: it used to demand that the problem list be *empty*. But it ran no validation, so there
+        // was very little that could have appeared in that list — the check was close to tautological.
+        // Now the validator runs, and "empty" would mean asserting something about the examples that is
+        // not this test's business: a warning that two example quests stack their nodes is a legitimate
+        // thing for example content to do, and failing on it would set the suite against whoever writes
+        // the next example.
+        //
+        // Stricter: what must be true is that nothing in the examples is an *error* — a dangling
+        // dependency, an id claimed twice, a field the codecs reject, a misspelled enum. That is what
+        // `ok()` means, and unlike the old assertion it is a claim the loader is in a position to
+        // contradict.
+        assertTrue(loaded.ok(), "the examples should have nothing fatal in them, but reported:"
+                + messages(loaded.problems()));
+
+        // And not vacuous. Every assertion above passes on an empty index, which is precisely what a
+        // broken copy step produces — see `loadExamples` on why the copy step is worth distrusting.
+        assertTrue(loaded.filesFound() > 0,
+                "no example files were found at all under " + EXAMPLES.toAbsolutePath());
+        assertTrue(loaded.index().questCount() > 0,
+                "the examples were read and contributed no quests, so either the copy step or the "
+                        + "loader found nothing. Files found: " + loaded.filesFound());
     }
 
     @Test
@@ -499,23 +603,13 @@ class QuestIndexTest {
         // A test that says what the example content is *for*, so a future tidy-up cannot quietly turn
         // four demonstrations into four copies of the first one. The descriptions in the files already
         // claim all of this; this is the version a compiler reads.
-        Problems problems = new Problems();
-        List<LoadedQuestFile> loaded = new ArrayList<>();
-        for (String name : exampleNames()) {
-            String display = "examples/" + name;
-            JsonDocument document = Fixtures.document(display, readExample(name));
-            loaded.add(new LoadedQuestFile(java.nio.file.Path.of(display), display, document,
-                    Fixtures.decode(display, document)));
-        }
-        QuestIndex index = QuestIndex.build(loaded, problems);
+        QuestLoader.Result loaded = loadExamples(temp.resolve("varied"));
 
-        assertTrue(problems.isEmpty(), "fixture sanity -- the examples should be clean first:"
-                + messages(problems));
+        assertTrue(loaded.ok(), "fixture sanity -- the examples should be clean first:"
+                + messages(loaded.problems()));
 
-        List<Quest> all = new ArrayList<>();
-        for (QuestIndex.QuestEntry entry : index.quests()) {
-            all.add(entry.quest());
-        }
+        QuestIndex index = loaded.index();
+        List<Quest> all = index.quests().stream().map(QuestIndex.QuestEntry::quest).toList();
 
         // The mechanics, each of which exists in exactly one place and is named in the file that has it.
         assertTrue(all.stream().anyMatch(Quest::repeatable), "a repeatable quest");
@@ -542,9 +636,12 @@ class QuestIndexTest {
 
         // And a chapter that is LINEAR, because the list order being the progression is a whole
         // mechanism that is otherwise never read by anything outside a test fixture.
-        boolean linear = index.files().stream()
-                .flatMap(file -> file.file().chapterGroups().stream())
-                .flatMap(group -> group.chapters().stream())
+        //
+        // Asked of `index.chapters()` rather than by walking the files, which is what this did. That
+        // walk was one of six copies of the same flattening loop, and the flattened result is exactly
+        // what `chapters()` already is.
+        boolean linear = index.chapters().stream()
+                .map(QuestIndex.ChapterEntry::chapter)
                 .anyMatch(chapter -> chapter.progressionMode() == ProgressionMode.LINEAR);
         assertTrue(linear, "no example chapter is LINEAR");
 
@@ -574,12 +671,20 @@ class QuestIndexTest {
         // The interesting failure this catches is not a typo. It is somebody later "tidying" the third
         // chapter's positions because they looked arbitrary, which would silently turn the one piece of
         // content whose whole design is comparability into three unrelated chapters.
-        QuestFile file = Fixtures.decode("gallery", Fixtures.document("gallery",
-                readExample("04_theme_gallery.json")));
+        QuestIndex index = loadExamples(temp.resolve("gallery")).index();
 
-        List<Chapter> chapters = file.chapterGroups().stream()
-                .flatMap(group -> group.chapters().stream())
-                .toList();
+        // Found by group id rather than by file name, because there is no longer a file that *is* the
+        // gallery: its fifteen chapters are fifteen folders, and the group's own manifest is what says
+        // which ones they are. That indirection used to be invisible — a flat file held the whole tree,
+        // so "the gallery" and "04_theme_gallery.json" were the same thing.
+        //
+        // `orElseThrow` rather than an index into a list, so a renamed group fails with the id it looked
+        // for and the groups that exist, rather than with an IndexOutOfBounds on somebody's refactor.
+        List<Chapter> chapters = index.group("theme_gallery")
+                .orElseThrow(() -> new AssertionError("no chapter group called theme_gallery in the"
+                        + " examples, so this test is looking at the wrong content. Groups present: "
+                        + index.groups().stream().map(entry -> entry.group().id()).toList()))
+                .group().chapters();
         // One chapter per shipped theme, asserted as a number rather than as "at least one". The
         // gallery is the only thing that demonstrates a theme by being clicked, so a chapter quietly
         // dropped makes a theme unreachable from the UI -- and nothing else in the build would notice,
@@ -716,21 +821,25 @@ class QuestIndexTest {
                 .map(dev.ellipog.armature.client.ui.Theme::name)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        for (String example : List.of("01_stone_age.json", "02_toolsmith.json", "03_desert_road.json",
-                "04_theme_gallery.json")) {
-            QuestFile file = Fixtures.decode(example, Fixtures.document(example,
-                    readExample(example)));
-            for (ChapterGroup group : file.chapterGroups()) {
-                for (Chapter chapter : group.chapters()) {
-                    if (chapter.theme().isEmpty()) {
-                        continue;
-                    }
-                    assertTrue(builtIn.contains(chapter.theme().get()),
-                            example + "'s chapter '" + chapter.id() + "' asks for a theme called '"
-                                    + chapter.theme().get() + "', which this build does not have. It has: "
-                                    + builtIn);
-                }
+        QuestIndex index = loadExamples(temp.resolve("themes")).index();
+
+        // Every chapter in every example, rather than a hand-written list of four file names. That list
+        // was a thing that stops matching the content — and it did, the moment the examples became
+        // folders: there is no `04_theme_gallery.json` to name any more. Reading the index means a fifth
+        // example is covered the day it is added.
+        //
+        // `entry.file()` rather than the old flat name, so the message names the file that actually
+        // holds the mistake — `theme_gallery/gallery_tome/chapter.json` rather than a file that contains
+        // fifteen chapters and no longer exists.
+        for (QuestIndex.ChapterEntry entry : index.chapters()) {
+            Chapter chapter = entry.chapter();
+            if (chapter.theme().isEmpty()) {
+                continue;
             }
+            assertTrue(builtIn.contains(chapter.theme().get()),
+                    entry.file() + "'s chapter '" + chapter.id() + "' asks for a theme called '"
+                            + chapter.theme().get() + "', which this build does not have. It has: "
+                            + builtIn);
         }
     }
 }

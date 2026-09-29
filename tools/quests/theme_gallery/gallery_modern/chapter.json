@@ -1,0 +1,41 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_modern",
+  "title": "Modern",
+  "subtitle": "The reference palette, four pixels rounder than the default",
+  "aliases": [
+    "modern"
+  ],
+  "theme": "modern",
+  "description": [
+    "The appearance this project has shipped with, and the one every screenshot before themes",
+    "were themeable was taken in. Nothing in this chapter is new.",
+    "",
+    "It is the baseline the rest are read against, and it is also the one theme that states all",
+    "forty-one of its colours rather than inheriting any -- so what you see here is what every",
+    "other theme starts from.",
+    "",
+    "Look at the node borders: an available node's ring is the same colour as the word",
+    "'available' beside a quest, and a locked node's outline is deliberately dimmer than the",
+    "word 'blocked'. Those became separate values this round, and both of those relationships",
+    "are asserted rather than incidental.",
+    "",
+    "This chapter is also where the default theme is easiest to see the difference from, because",
+    "they share a palette and differ in exactly one value: the corners. Your book is the default,",
+    "which is square. Open a quest in this chapter and the overlay's panel is rounded by four",
+    "pixels; do the same in Vanilla Plus and it is square again. Same colours throughout -- the",
+    "default and Modern are the same palette -- so the corners are the only thing moving."
+  ],
+  "icon": {
+    "item": "minecraft:iron_block"
+  },
+
+  "quests": [
+    "works_yard.json",
+    "works_smelt.json",
+    "works_railway.json",
+    "works_power.json",
+    "works_inspection.json",
+    "works_office.json"
+  ]
+}

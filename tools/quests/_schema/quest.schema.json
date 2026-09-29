@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ellipog.dev/tasked/_schema/quest.schema.json",
+  "title": "Tasked quest",
+  "description": "One quest, in one file, under a chapter folder in config/tasked/quests/. The file's name is the quest's own name and is what the chapter manifest lists it by; the quest's `id` is separate and is what everything else refers to it by.",
+  "type": "object",
+  "required": ["id", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Ignored by Tasked. For your editor. Depth-counted: four levels up from a quest file is the quest root."
+    },
+    "id": { "$ref": "#/definitions/id" },
+    "title": { "$ref": "#/definitions/text" },
+    "subtitle": { "$ref": "#/definitions/text" },
+    "description": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/text" },
+      "description": "One string per paragraph. Separate from a single newline-containing string on purpose: a wall of text is what FTB Quests' one-string descriptions become."
+    },
+    "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
+    "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+
+    "dependsOn": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/id" },
+      "description": "Quest ids or aliases. May refer to quests in other chapters and other groups. A reference that resolves to nothing is an error: the quest could never unlock."
+    },
+    "prerequisiteMode": {
+      "enum": ["all_completed", "one_completed", "all_started", "one_started"],
+      "description": "Overrides the chapter's setting for this quest."
+    },
+    "minRequired": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 64,
+      "default": 0,
+      "description": "How many dependencies must be satisfied. When set, prerequisiteMode is ignored - this is how \"any three of these five\" is written. May not exceed the number of dependencies."
+    },
+
+    "x": { "type": "integer", "default": 0, "description": "Canvas position. Grid spacing is 32." },
+    "y": { "type": "integer", "default": 0 },
+    "shape": {
+      "enum": ["rounded", "circle", "hexagon", "tome"],
+      "default": "rounded"
+    },
+    "size": { "type": "integer", "minimum": 16, "maximum": 512, "default": 48 },
+    "iconScale": {
+      "type": "number",
+      "minimum": 0.25,
+      "maximum": 1.0,
+      "default": 0.75,
+      "description": "How much of the largest square that fits the node the icon fills. 1.0 is corner to corner; the default leaves a margin so the node's shape reads."
+    },
+    "showTitle": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw this quest's name under its node. Off by default: a canvas of fifty names is a wall of text, and the name is on hover for every quest either way."
+    },
+    "sequentialTasks": {
+      "type": "boolean",
+      "default": false,
+      "description": "Tasks must be done in order: the second cannot be handed in until the first is."
+    },
+    "repeatable": {
+      "type": "boolean",
+      "default": false,
+      "description": "Completable more than once. Its timesCompleted survives each completion, and something depending on it stays satisfied."
+    },
+    "repeatCooldownTicks": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Ticks to wait between completions of a repeatable quest. 2400 is two minutes."
+    },
+    "exclusiveGroup": {
+      "type": "string",
+      "description": "Quests sharing a group name are mutually exclusive: completing one locks the others for good. Scoped to the chapter."
+    },
+    "invisible": {
+      "type": "boolean",
+      "default": false,
+      "description": "Hidden until completed."
+    },
+
+    "tasks": { "type": "array", "items": { "$ref": "#/definitions/anyType" } },
+    "rewards": { "type": "array", "items": { "$ref": "#/definitions/anyType" } }
+  },
+
+  "definitions": {
+    "text": {
+      "description": "Either a plain string, or a translation key with an English fallback.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["translate"],
+          "additionalProperties": false,
+          "properties": {
+            "translate": { "type": "string" },
+            "fallback": {
+              "type": "string",
+              "description": "Shown if the translation is missing. Without it a player sees the raw key."
+            }
+          }
+        }
+      ]
+    },
+
+    "itemRef": {
+      "description": "An item and a count. Not an ItemStack - resolved at the moment it is used.",
+      "type": "object",
+      "required": ["item"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+          "description": "Namespaced item id, e.g. minecraft:oak_log. A missing mod is an error, not a warning: the quest could never be completed."
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 }
+      }
+    },
+
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,64}$",
+      "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "anyType": {
+      "description": "A task or a reward. The `type` field chooses the rest of the fields - see tasked:item, tasked:checkmark and tasked:xp, which are the types implemented so far.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "description": "e.g. tasked:item" },
+        "optional": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tasks only. An optional task does not have to be done for the quest to complete, unless every task is optional."
+        },
+        "autoSubmitTicks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 72000,
+          "default": 20,
+          "description": "Tasks only. How often the task is re-checked, in ticks. Raise it for an expensive check."
+        },
+        "consumeItems": {
+          "type": "boolean",
+          "description": "tasked:item - whether handing this in takes the items. Falls back to the chapter's defaultConsumeItems."
+        },
+        "item": { "type": "string", "description": "tasked:item - namespaced item id." },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 },
+        "title": { "$ref": "#/definitions/text", "description": "tasked:checkmark - the label on the button." },
+        "amount": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "tasked:xp - points, or levels." },
+        "levels": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

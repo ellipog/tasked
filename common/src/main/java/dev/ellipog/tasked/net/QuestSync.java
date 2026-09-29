@@ -12,7 +12,6 @@ import dev.ellipog.tasked.progress.TeamProgress;
 import dev.ellipog.tasked.quest.Chapter;
 import dev.ellipog.tasked.quest.ChapterGroup;
 import dev.ellipog.tasked.quest.ItemRef;
-import dev.ellipog.tasked.quest.LoadedQuestFile;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestRef;
@@ -79,11 +78,54 @@ public final class QuestSync {
     }
 
     /**
+     * The version of the tree, as it goes over the wire.
+     *
+     * <h2>What 2 added, and the rule that keeps bumping it safe</h2>
+     *
+     * <p>Version 2 added {@code groups[]} at the root and {@code chapterGroupId} to every quest. Both
+     * are <b>additions</b>: no field moved, no field was renamed, and every field a version-1 reader
+     * asked for is still there meaning the same thing. That is the whole compatibility strategy, and it
+     * is worth stating plainly because it is a constraint rather than a description — every future
+     * change to {@link #treeAsJson} has to be of the additive kind, or be a deliberate break by a
+     * reader that checks this number.
+     *
+     * <p>The consequence, in the direction that matters most: <b>an old client on a new server still
+     * draws today's flat list.</b> It reads the fields it knows and ignores the two it does not, which
+     * is what Gson does with a key nobody asks for, so an install that has not been updated keeps
+     * working against a server that has.
+     *
+     * <h2>This is read in exactly one place, and deliberately not as a gate</h2>
+     *
+     * <p>{@link dev.ellipog.tasked.client.ClientQuestCache} compares it and logs a warning when the
+     * server is ahead, and then reads the tree anyway. A reader that <i>refused</i> a version it did
+     * not know would break the very case the additive design exists to keep working, so refusing is the
+     * one thing this field must never be used for. It is a description of the tree and a diagnostic for
+     * the mismatch; the field's presence and absence are what the reader actually branches on.
+     *
+     * <p>The reader importing this constant from the writer is a considered choice rather than an
+     * oversight. The two classes are two halves of one hand-written contract — which is the whole point
+     * of {@code QuestSyncTest} — so a second copy of this number in the client is precisely the "second
+     * answer that can disagree" this codebase keeps finding. {@code net} and {@code client} already
+     * reference each other, so this adds an instance of a coupling that is already there rather than a
+     * new kind of one.
+     */
+    public static final int TREE_VERSION = 2;
+
+    /**
      * The quest tree, as JSON.
      *
-     * <p>Every quest carries its {@code chapterId} rather than being nested under one, so the client
-     * groups however it likes without walking a tree. Nesting would be smaller and would fix the
-     * client's layout to the server's, which is backwards — grouping is a display decision.
+     * <h2>Flat at both levels, and for the same reason</h2>
+     *
+     * <p>Every quest carries its {@code chapterId} and its {@code chapterGroupId} rather than being
+     * nested under either, so the client groups however it likes without walking a tree. Nesting would
+     * be smaller and would fix the client's layout to the server's, which is backwards — grouping is a
+     * display decision.
+     *
+     * <p>The group <b>headings</b> travel in a flat list of their own at the root, and they have to:
+     * a quest can say which group it is in, and cannot say what that group is called or whether its
+     * chapters start closed. Those are two facts about one object, so they are two fields — and the
+     * alternative, nesting the quests inside their group, would buy a single place for both at the cost
+     * of the client having no say in the shape of its own sidebar.
      *
      * <p>{@code invisible} travels as a flag rather than the quest being withheld. Withholding it is
      * tidier right up until a player completes something and the quest should appear, at which point
@@ -93,34 +135,54 @@ public final class QuestSync {
     public static byte[] treeAsJson(QuestIndex index) {
         JsonArray quests = new JsonArray();
 
-        for (LoadedQuestFile file : index.files()) {
-            for (ChapterGroup group : file.file().chapterGroups()) {
-                for (Chapter chapter : group.chapters()) {
-                    // The quest's index within its chapter, and whether the chapter is linear. Both are
-                    // per-quest on the wire even though both are properties of the chapter, because the
-                    // client groups entries by `chapterId` and has no chapter record to hang them on.
-                    //
-                    // They are here rather than worked out on the client because a linear chapter
-                    // declares no dependencies at all -- the list order *is* the progression -- so from
-                    // the quests alone the client cannot tell a road from three unrelated nodes. It
-                    // would draw three unconnected boxes for a chapter that is a sequence, which looks
-                    // like a missing feature rather than a missing field.
-                    int order = 0;
-                    for (Quest quest : chapter.quests()) {
-                        quests.add(questAsJson(chapter, quest, order++));
-                    }
-                }
-            }
+        // One entry per quest, in declaration order, taken from the index rather than from a walk over
+        // the files. That walk was a fifth copy of the same nested loop, and it recounted each quest's
+        // position within its chapter with a local counter -- a second description of the number a
+        // LINEAR chapter gates on. The entry carries the position the chapter's own list gives it.
+        //
+        // The position and the linearity stay per-quest on the wire even though both are properties of
+        // the chapter, because the client groups entries by `chapterId` and has no chapter record to
+        // hang them on. They are sent rather than worked out on the client because a linear chapter
+        // declares no dependencies at all -- the list order *is* the progression -- so from the quests
+        // alone the client cannot tell a road from three unrelated nodes. It would draw three
+        // unconnected boxes for a chapter that is a sequence, which looks like a missing feature rather
+        // than a missing field.
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            quests.add(questAsJson(entry.groupId(), entry.chapter(), entry.quest(), entry.orderInChapter()));
+        }
+
+        // The headings, in declaration order — which for the folder layout is folder-name order, and is
+        // the order the book draws its rows in.
+        //
+        // Sent even when there are none, so that a version-2 tree is self-describing: a reader, or a
+        // packet dump, can see that this server describes groups at all rather than having to guess
+        // whether a missing key means "older server" or "no groups".
+        //
+        // Worth being exact about what that does and does not buy, because the tempting overclaim is
+        // that the reader *needs* the distinction. It does not. A client draws the flat chapter list
+        // whenever it holds no group headings, and that is the right screen for both an older server
+        // and a version-2 server with an empty questline — the two cases want the same drawing, so the
+        // client never has to ask which one it is looking at. This is a diagnostic, not a
+        // compatibility mechanism, and nothing should be built on it as one.
+        JsonArray groups = new JsonArray();
+        for (QuestIndex.GroupEntry entry : index.groups()) {
+            ChapterGroup group = entry.group();
+            JsonObject one = new JsonObject();
+            one.addProperty("id", group.id());
+            one.addProperty("title", group.title().value());
+            one.addProperty("collapsedByDefault", group.collapsedByDefault());
+            groups.add(one);
         }
 
         JsonObject root = new JsonObject();
-        root.addProperty("version", 1);
+        root.addProperty("version", TREE_VERSION);
         // The pack's main theme, absent when it has none. See `packTheme` for why this rides on the
         // tree rather than in a message of its own, and why it is sent both here and in the payload.
         String theme = packTheme(index);
         if (theme != null) {
             root.addProperty("theme", theme);
         }
+        root.add("groups", groups);
         root.add("quests", quests);
         return root.toString().getBytes(StandardCharsets.UTF_8);
     }
@@ -156,8 +218,15 @@ public final class QuestSync {
         return null;
     }
 
-    private static JsonObject questAsJson(Chapter chapter, Quest quest, int orderInChapter) {
+    private static JsonObject questAsJson(String groupId, Chapter chapter, Quest quest, int orderInChapter) {
         JsonObject json = new JsonObject();
+        // The group its chapter is in, which is the membership the heading list on its own cannot
+        // express: `groups[]` says what the headings are called and nothing about what hangs under them.
+        //
+        // Sent per quest rather than once per chapter, for the same reason `chapterTheme` is -- the
+        // client has no chapter record to hang it on, and a second message saying "chapter c is in group
+        // g" would be a second thing to keep in step with the first.
+        json.addProperty("chapterGroupId", groupId);
         json.addProperty("chapterId", chapter.id());
         json.addProperty("chapterTitle", chapter.title().value());
 

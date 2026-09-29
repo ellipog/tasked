@@ -1,0 +1,46 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "farm_market",
+  "title": "Market Day",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The scrollbar again, in this theme's track and thumb. Motion being zero has no effect",
+    "on it: scrolling is not animated in any theme, because the scroll is the pointer's own",
+    "gesture and easing it would put the content behind the finger.",
+    "",
+    "Two sequential checkmarks, so Submit starts on the first and moves down once it is",
+    "handed in. Pressing it here is more useful than on the animated themes for one reason:",
+    "the held state snaps in every theme, because a press has to be immediate, so the only",
+    "visible difference is how the hover got there.",
+    "",
+    "Scroll to the bottom for REQUIRES. Its tick is green and its cross is grey, and on a",
+    "greyscale palette the green is the only saturated thing in the body.",
+    "",
+    "This paragraph, like its counterparts in the other fourteen chapters, exists to make",
+    "the body taller than the clip -- so the scrollbar's track and thumb are seen in all",
+    "fifteen palettes rather than in whichever chapter you happened to open first.",
+    "",
+    "One thing to notice on this chapter that the others cannot show you: the paper surface",
+    "is barely lighter than the panel behind it, so the recessed areas and the raised strips",
+    "have almost no contrast to separate them. That is a real property of vanilla's palette",
+    "rather than a mistake in this theme, and it is why a light theme like Paper needs a",
+    "different relationship between its surfaces rather than a lighter version of the same",
+    "one."
+  ],
+  "icon": { "item": "minecraft:emerald" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["farm_keep"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I loaded the cart" },
+    { "type": "tasked:checkmark", "title": "And I sold the lot" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

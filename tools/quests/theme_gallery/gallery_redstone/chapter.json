@@ -1,0 +1,35 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_redstone",
+  "title": "Redstone",
+  "subtitle": "Dark slate and saturated red",
+  "aliases": [
+    "redstone",
+    "red"
+  ],
+  "theme": "redstone",
+  "description": [
+    "Slate surfaces with a saturated red doing all the signalling, so progression reads as",
+    "current through a wire -- which is the one idea this theme is built around, and it is",
+    "carried entirely by the connector lines and the state colours agreeing.",
+    "",
+    "The available colour is a bright red and the completed colour is a green, which is the",
+    "largest hue jump between two adjacent states in the gallery. A partially-completed",
+    "chapter on this theme has both colours on screen at once.",
+    "",
+    "The in-progress colour is an amber, so all four states are distinguishable at a glance",
+    "without any of them being a shade of another."
+  ],
+  "icon": {
+    "item": "minecraft:redstone_block"
+  },
+
+  "quests": [
+    "red_start.json",
+    "red_count.json",
+    "red_repeat.json",
+    "red_gate.json",
+    "red_read.json",
+    "red_end.json"
+  ]
+}

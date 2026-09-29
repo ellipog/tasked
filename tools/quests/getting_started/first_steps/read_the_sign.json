@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "read_the_sign",
+  "title": "Fine, I Read It",
+  "subtitle": "Hand this one in yourself",
+  "description": [
+    "This one is not a puzzle.",
+    "It is a button, and the button is a confession.",
+    "It is also the only task in this chapter you hand in by hand --",
+    "open it and press Submit. Everything else is counted as you carry it."
+  ],
+  "icon": { "item": "minecraft:oak_sign" },
+  "x": 132,
+  "y": 104,
+  "shape": "circle",
+  "repeatable": false,
+
+  "dependsOn": ["punch_a_tree"],
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I have read the sign" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 1 }
+  ]
+}

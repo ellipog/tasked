@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "cop_repeat",
+  "title": "Let It Weather",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40 in the green. The name of this quest and its colour are the same",
+    "joke, and a hexagon is about as close as this project gets to a crystal.",
+    "",
+    "The taper is a straight line rather than an arc, so at this size the six edges read",
+    "as six edges -- which on a warm palette matters more than on a cool one, because a",
+    "warm outline against a warm surface loses definition faster."
+  ],
+  "icon": { "item": "minecraft:oxidized_copper" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["cop_start"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:oxidized_copper", "count": 2 }
+  ]
+}

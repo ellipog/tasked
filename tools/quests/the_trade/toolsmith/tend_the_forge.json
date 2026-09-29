@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "tend_the_forge",
+  "title": "Stoke the Fire",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagonal node with a cooldown ring around it.",
+    "Four coal every two minutes, forever -- which is not much,",
+    "and is the point: a repeatable job should pay for the walk.",
+    "",
+    "The shape is a hint about what a node is. Nothing enforces it;",
+    "a file can draw a repeatable quest as anything at all.",
+    "",
+    "The icon is at iconScale 0.55, so it sits smaller in its node",
+    "than the quests around it -- which is how a minor, repeatable",
+    "job is told apart from a one-off milestone at a glance."
+  ],
+  "icon": { "item": "minecraft:coal" },
+  "x": 132,
+  "y": 104,
+  "shape": "hexagon",
+  "size": 44,
+  "iconScale": 0.55,
+
+  "dependsOn": ["smelt_iron"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:coal", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 8 }
+  ]
+}

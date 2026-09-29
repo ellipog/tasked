@@ -1,0 +1,19 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "punch_a_tree",
+  "title": "Punch a Tree",
+  "description": [
+    "Everything worth having starts with a tree,",
+    "and everything worth having ends with you hitting it."
+  ],
+  "icon": { "item": "minecraft:oak_log" },
+  "x": 0,
+  "y": 0,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:wooden_axe", "count": 1 }
+  ]
+}

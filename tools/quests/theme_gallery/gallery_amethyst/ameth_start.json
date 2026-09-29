@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "ameth_start",
+  "title": "A Good Seam",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "Pale violet on slate violet, which is the closest the gallery gets to a theme with no",
+    "hue contrast at all -- both ends of the accent range are violet, and the difference",
+    "between them is entirely brightness.",
+    "",
+    "The completed colour is a green, which is the one hue in this theme that is not violet",
+    "and is there so that 'done' is unmistakable even in peripheral vision."
+  ],
+  "icon": { "item": "minecraft:amethyst_shard" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_block", "count": 1 }
+  ]
+}

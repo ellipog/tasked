@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "nether_start",
+  "title": "Through the Portal",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "Orange on dark red-brown, with a lava-coloured connector leaving the node. On this",
+    "canvas the connector lines are almost as bright as the nodes, which is the one place",
+    "this theme is harder to read than a neutral one.",
+    "",
+    "The hover ring follows the shape as everywhere -- on a circle it is a ring, and a pale",
+    "orange one at half alpha against this surface is among the more visible rings in the",
+    "gallery."
+  ],
+  "icon": { "item": "minecraft:flint_and_steel" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:netherrack", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:nether_brick", "count": 1 }
+  ]
+}

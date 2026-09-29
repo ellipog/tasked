@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "farm_break",
+  "title": "Break the Ground",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "Move the pointer onto this node and the ring arrives on the frame it is hovered. That",
+    "is the whole difference a zero motion makes, and this chapter and High Contrast are the",
+    "only two that show it.",
+    "",
+    "The ring follows the shape, as everywhere: on a circle it is a ring rather than a",
+    "rectangle drawn around a disc."
+  ],
+  "icon": { "item": "minecraft:wheat" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat_seeds", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:wooden_hoe", "count": 1 }
+  ]
+}

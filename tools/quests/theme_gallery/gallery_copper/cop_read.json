@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "cop_read",
+  "title": "The Verdigris Log",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest. This is the page to read if you want to see how a warm",
+    "palette handles a long body of text, and the short answer is that it needs a cream",
+    "rather than a white.",
+    "",
+    "Body text at pure white on a warm brown surface is uncomfortable to read at length --",
+    "a known property of warm backgrounds rather than a flaw in this theme -- so the body",
+    "tone here is pulled slightly towards yellow. It is the kind of adjustment that is",
+    "invisible in a label and obvious in a paragraph.",
+    "",
+    "Scroll down and REQUIRES appears: a green tick and a brown cross, in the same two",
+    "colours the states use everywhere else on this canvas.",
+    "",
+    "The scrollbar is a mid brown on a darker one, so it is the quietest scrollbar in the",
+    "gallery. Compare it with Neon's, where the same two tokens are a magenta on near-black",
+    "and can afford to be the loudest thing on the screen.",
+    "",
+    "As in every chapter, this paragraph exists to make the body taller than the clip."
+  ],
+  "icon": { "item": "minecraft:copper_ingot" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["cop_gate"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I logged the first day" },
+    { "type": "tasked:checkmark", "title": "And the last" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

@@ -81,13 +81,29 @@ class BookGeometryTest {
     /**
      * Every control's name and rectangle, for a screen of that size.
      *
-     * <p>No `hasOpen` any more. The map used to take a second argument saying whether a quest was
-     * selected, because the summary strip's Open button only existed then — and the strip is gone,
-     * because clicking a node opens the quest. So the only thing that decides what the book offers is
-     * how many chapters there are.
+     * <h2>Two arguments used to be three, and both removals are the same story</h2>
+     *
+     * <p>It was {@code controlsAt(width, height, chapters)}, and before that it took a {@code hasOpen}
+     * as well. Each argument was a thing the map's contents depended on, and each was removed when the
+     * dependency stopped existing rather than when somebody tidied up:
+     *
+     * <ul>
+     *   <li>{@code hasOpen} went with the summary strip. The Open button only existed when a quest was
+     *       selected, so the map's contents depended on something that was not a property of the window
+     *       at all.</li>
+     *   <li>{@code chapters} has now gone too, and its removal is the larger one. The chapter rows were
+     *       in this map; they are placed by a {@link dev.ellipog.armature.client.ui.kit.Stack} inside a
+     *       scroll view now, so the map holds only the controls whose positions are <b>fixed</b>. Since
+     *       nothing in it depends on how many chapters there are, an argument saying how many is not an
+     *       input any more — and a test that kept passing it would be describing a layout the screen
+     *       does not build.</li>
+     * </ul>
+     *
+     * <p>What is left is a function of the window and nothing else, which is what made it possible to
+     * delete the argument rather than keep threading a number through that no caller reads.
      */
-    private static Map<String, Rect> controlsAt(int width, int height, int chapters) {
-        return new BookGeometry(width, height).controls(chapters);
+    private static Map<String, Rect> controlsAt(int width, int height) {
+        return new BookGeometry(width, height).controls();
     }
 
     /** The first overlapping pair, or null if none. Names the two, so a failure is actionable. */
@@ -125,16 +141,53 @@ class BookGeometryTest {
     class NoOverlap {
 
         @Test
-        @DisplayName("no two controls overlap, at any window size and any chapter count")
+        @DisplayName("no two controls overlap, at any window size")
         void noTwoControlsOverlapEver() {
+            // The chapter count used to be swept here as well — 0 to 6, at every size — because the
+            // chapter rows were in this map and a row could collide with a control. They are not in it
+            // any more, so the count is no longer an input to this method and sweeping it would be six
+            // identical checks per size.
+            //
+            // That is not a loss of coverage, and the reason is worth stating rather than assuming. Rows
+            // cannot collide with each other, because a Stack gives each one its own slot in a column.
+            // And the one way a row could collide with the fixed chrome — being drawn up into the header
+            // under the close button — is asserted directly below, as a property about *where rows may
+            // go*. A property about a region is stronger than a sample of how many things are in it: the
+            // sweep over counts only ever tested the six numbers somebody thought to write down.
             for (int[] size : sizes()) {
-                for (int chapters = 0; chapters <= 6; chapters++) {
-                    Map<String, Rect> controls = controlsAt(size[0], size[1], chapters);
-                    String overlap = firstOverlap(controls);
-                    if (overlap != null) {
-                        throw new AssertionError("at " + size[0] + "x" + size[1]
-                                + " with " + chapters + " chapters: " + overlap);
-                    }
+                Map<String, Rect> controls = controlsAt(size[0], size[1]);
+                String overlap = firstOverlap(controls);
+                if (overlap != null) {
+                    throw new AssertionError("at " + size[0] + "x" + size[1] + ": " + overlap);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("the region the sidebar's rows go in is clear of every fixed control")
+        void theSidebarViewportClearsEveryControl() {
+            // The replacement for sweeping chapter counts, and it is the property that sweep was
+            // actually about: a row drawn under the close button is a row a player can neither read nor
+            // click. The rows are placed inside `sidebarViewport()` by a scroll view, so "can a row reach
+            // a control" is exactly "does the viewport intersect one".
+            //
+            // Every control in the map, not just close. The map is what the screen builds from, so a
+            // control added to it later is covered here without this test being told — where a test that
+            // named `close` would stop covering the case on the day a second header control arrived,
+            // while still passing.
+            //
+            // The view cluster is on the canvas and the sidebar is not, so today only `close` is
+            // anywhere near. That is the honest reason this assertion is cheap: it is a one-line
+            // invariant that happens to be true for a reason, rather than a sweep that happens to find
+            // nothing.
+            for (int[] size : sizes()) {
+                BookGeometry geometry = new BookGeometry(size[0], size[1]);
+                Rect viewport = geometry.sidebarViewport();
+                for (Map.Entry<String, Rect> entry : geometry.controls().entrySet()) {
+                    assertFalse(viewport.intersects(entry.getValue()),
+                            "the sidebar's rows are drawn in " + viewport + ", which overlaps "
+                                    + entry.getKey() + " " + entry.getValue()
+                                    + " at " + size[0] + "x" + size[1]);
                 }
             }
         }
@@ -177,7 +230,7 @@ class BookGeometryTest {
                 // And nothing has taken either position. There is no pair left to compare, and
                 // `assertNotEquals` against a key that does not exist would throw rather than fail --
                 // which is why this walks the map instead of indexing it.
-                Map<String, Rect> controls = geometry.controls(4);
+                Map<String, Rect> controls = geometry.controls();
                 assertFalse(controls.containsKey("open"),
                         "the strip's Open button is still being offered as a control");
                 assertFalse(controls.containsKey("done"),
@@ -198,7 +251,7 @@ class BookGeometryTest {
             // y + 2 * pitch. They used to be four controls across two rows of the sidebar's footer,
             // which is the only reason that footer had two rows.
             for (int[] size : sizes()) {
-                Map<String, Rect> controls = controlsAt(size[0], size[1], 2);
+                Map<String, Rect> controls = controlsAt(size[0], size[1]);
                 Rect in = controls.get("zoomIn");
                 Rect out = controls.get("zoomOut");
                 Rect centre = controls.get("centre");
@@ -245,7 +298,7 @@ class BookGeometryTest {
             // The real case, and a case smaller than anything real. A minimum panel that merely
             // *looks* big enough on a developer's monitor is how the original bug survived.
             for (int[] size : new int[][] {{SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT}, {200, 120}, {160, 100}}) {
-                String overlap = firstOverlap(controlsAt(size[0], size[1], 5));
+                String overlap = firstOverlap(controlsAt(size[0], size[1]));
                 assertTrue(overlap == null, "at " + size[0] + "x" + size[1] + ": " + overlap);
             }
         }
@@ -329,7 +382,7 @@ class BookGeometryTest {
             // rather than being quietly exempted from a check that no longer applies to it.
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Map<String, Rect> controls = geometry.controls(6);
+                Map<String, Rect> controls = geometry.controls();
 
                 for (Map.Entry<String, Rect> entry : controls.entrySet()) {
                     String key = entry.getKey();
@@ -357,7 +410,7 @@ class BookGeometryTest {
         void closeIsInsideTheHeader() {
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Rect close = geometry.controls(1).get("close");
+                Rect close = geometry.controls().get("close");
                 assertTrue(close.isInside(geometry.header()),
                         "Close " + close + " is outside the header " + geometry.header()
                                 + " at " + size[0] + "x" + size[1]);
@@ -382,43 +435,86 @@ class BookGeometryTest {
         }
 
         @Test
-        @DisplayName("every chapter row fits above the bottom of the panel")
-        void chapterRowsStopAboveThePanelBottom() {
-            // The multi-row version of the reported bug: a chapter drawn underneath something, where it
-            // is both invisible and unclickable. There is no footer to measure from any more, so this
-            // checks against the panel's own bottom -- which is the surface a row has to stay inside.
+        @DisplayName("the sidebar's viewport stays inside the panel and inside its own column")
+        void theSidebarViewportStaysInsideItsSurfaces() {
+            // The multi-row version of the reported bug: a row drawn underneath something, where it is
+            // both invisible and unclickable. The rows live inside `sidebarViewport()` now, so the thing
+            // to assert is that the region itself is inside the surfaces it belongs to — a viewport
+            // running past the panel's edge would put a row outside the book, and running into the
+            // canvas would put one under the graph.
+            //
+            // This replaces a loop over `chapterRows()` and `chapterRowY(i)`, which existed because the
+            // screen computed each row's y itself. Nothing does now: a Stack places the rows, so there is
+            // no row y for this class to be right or wrong about, and the region is the whole of what it
+            // still decides.
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                int limit = geometry.panel().bottom() - BookGeometry.EDGE;
+                Rect viewport = geometry.sidebarViewport();
 
-                for (int i = 0; i < geometry.chapterRows(); i++) {
-                    int bottom = geometry.chapterRowY(i) + BookGeometry.ROW_HEIGHT;
-                    assertTrue(bottom <= limit,
-                            "chapter row " + i + " ends at " + bottom + ", past " + limit
-                                    + " on a " + size[0] + "x" + size[1] + " screen");
-                }
+                assertTrue(viewport.isInside(geometry.panel()),
+                        "the sidebar's viewport " + viewport + " is outside the panel "
+                                + geometry.panel() + " at " + size[0] + "x" + size[1]);
+                assertTrue(viewport.x() >= geometry.sidebar().x(),
+                        "the viewport starts left of the sidebar at " + size[0] + "x" + size[1]);
+                assertTrue(viewport.right() <= geometry.sidebar().right(),
+                        "the viewport runs into the canvas at " + size[0] + "x" + size[1]);
             }
         }
 
         @Test
-        @DisplayName("at least one chapter can always be shown")
-        void atLeastOneChapterRowAlwaysFits() {
-            // A chapter list with zero rows is a book whose only chapter cannot be selected, which is
-            // a blank screen with no way forward. The minimum panel height exists to make this true.
+        @DisplayName("the sidebar's viewport has room for at least one row")
+        void atLeastOneRowAlwaysFits() {
+            // A sidebar with no room for a row is a book whose only chapter cannot be selected, which is
+            // a blank screen with no way forward, and MIN_PANEL_HEIGHT exists to make this true.
+            //
+            // This is the honest form of what used to be `chapterRows() >= 1`, and it is worth being
+            // clear that the new assertion is **weaker** than the old one while being true for a
+            // stronger reason. The old promise was that the list was *complete* — every row the geometry
+            // counted fitted above the bottom — which required the count to be right. This promises that
+            // the region is at least as tall as one row, and that everything past it scrolls. The
+            // guarantee is smaller; the arithmetic that can be wrong is gone entirely, because the row
+            // count that had to be correct no longer exists.
+            //
+            // Measured against the row height rather than its pitch: a scroll view scrolls by whole
+            // pitches, so a region exactly one pitch tall is what shows a row plus the gap under it, and
+            // a region one *row* tall is the smallest in which a row is fully visible at any offset.
             for (int[] size : sizes()) {
-                assertTrue(new BookGeometry(size[0], size[1]).chapterRows() >= 1,
-                        "no chapter row fits on a " + size[0] + "x" + size[1] + " screen");
+                int height = new BookGeometry(size[0], size[1]).sidebarViewport().height();
+                assertTrue(height >= BookGeometry.SIDEBAR_ROW_HEIGHT,
+                        "the sidebar has " + height + "px of room for rows, less than one "
+                                + BookGeometry.SIDEBAR_ROW_HEIGHT + "px row, on a "
+                                + size[0] + "x" + size[1] + " screen");
             }
         }
 
         @Test
-        @DisplayName("at least one chapter row is actually offered as a control")
-        void oneChapterControlAlwaysExists() {
-            // Distinct from the row count: `controls` caps the rows it offers by the rows that fit, so
-            // a mistake there would show a row and offer nothing to click.
+        @DisplayName("the sidebar's viewport has width, and the scrollbar's strip still fits beside it")
+        void theSidebarViewportHasWidth() {
+            // Distinct from the height above, and this is what replaced "at least one chapter control
+            // exists". That assertion was about `controls` capping the rows it offered by the rows that
+            // fitted, which is a mistake `controls()` can no longer make — it offers fixed chrome and
+            // nothing else, so there is no count to get wrong.
+            //
+            // What can still go wrong is the subtraction that reserves room for the scrollbar: a sidebar
+            // narrower than its own insets plus the bar gives a viewport of zero or negative width, and
+            // `sidebarViewport` floors that at zero rather than letting it go negative. A zero-width
+            // viewport places every row at a negative width, which reads correctly at every use and
+            // draws nothing. So the clamp is real and this asserts a real window never relies on it.
             for (int[] size : sizes()) {
-                assertTrue(new BookGeometry(size[0], size[1]).controls(1).containsKey("chapter0"),
-                        "no chapter control on a " + size[0] + "x" + size[1] + " screen");
+                BookGeometry geometry = new BookGeometry(size[0], size[1]);
+                assertTrue(geometry.sidebarViewport().width() > 0,
+                        "the sidebar's viewport has no width on a " + size[0] + "x" + size[1] + " screen");
+
+                // And the strip the scrollbar is drawn in lands in the sidebar's margin rather than over
+                // the end of a row. `ScrollView.drawScrollbar` puts the bar four pixels right of the
+                // viewport's right edge and three pixels wide, so this is the same arithmetic that
+                // SIDEBAR_SCROLLBAR is derived from — asserted here rather than left to the comment,
+                // because a bar drawn over a row is the fault the reservation exists to prevent and
+                // nothing else in the suite would notice it.
+                int stripRight = geometry.sidebarViewport().right() + 4 + 3;
+                assertTrue(stripRight <= geometry.sidebar().right(),
+                        "the scrollbar's strip reaches " + stripRight + ", past the sidebar's right edge "
+                                + geometry.sidebar().right() + " at " + size[0] + "x" + size[1]);
             }
         }
 
@@ -636,7 +732,15 @@ class BookGeometryTest {
         // What it still proves is the thing worth keeping: the reconstructed collision above is real,
         // so the sweep in NoOverlap is a test that can fail. That was the whole reason this test
         // existed, and it survives the controls it was about.
-        Map<String, Rect> controls = geometry.controls(4);
+        //
+        // The chapter count is gone from this call, and that this block was one of its call sites is
+        // the argument for removing it rather than leaving it as an ignored parameter. There were two
+        // byte-identical blocks reading `geometry.controls(4)` in this file — this one and the one in
+        // `NoOverlap` — so a fix applied to the first match of that text fixed exactly one of them, and
+        // the compiler caught the other. A parameter no caller reads is a parameter that can be left
+        // behind at one site out of six, and in every other case the mistake is silent, because a
+        // redundant argument still compiles. Removing it turned a would-be divergence into an error.
+        Map<String, Rect> controls = geometry.controls();
         assertFalse(controls.containsKey("open"),
                 "the strip's Open button is still being offered as a control");
         assertFalse(controls.containsKey("done"),
@@ -677,24 +781,29 @@ class BookGeometryTest {
         // The screen rebuilds its geometry whenever the size changes and asks for the control map on
         // every init. A map built in iteration order that varied would move controls between rebuilds,
         // which shows up as a button that occasionally cannot be clicked.
-        Map<String, Rect> first = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3));
-        Map<String, Rect> second = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3));
+        Map<String, Rect> first = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT));
+        Map<String, Rect> second = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT));
 
         assertEquals(first, second);
         // No "open" any more: the strip's button went with the strip, and it was the only entry here
-        // whose presence depended on something other than how many chapters there are.
+        // whose presence depended on something other than the window.
+        //
+        // And no chapter rows any more either, which is the change worth recording because it is the one
+        // that altered what this list *is*. It used to be "the fixed chrome, plus one entry per chapter
+        // that fits" -- a mixed bag whose length was a sum of two unrelated things. It is now only the
+        // fixed chrome, so this assertion is a statement about the screen's controls rather than about a
+        // particular window's worth of them.
         //
         // The order is asserted, not just the contents, and that is the half that catches a rebuild
         // reordering them: this method's callers index nothing, but a screen that later walks this map
         // to place controls would draw them in a different order between two inits of the same size --
         // which shows up as a control that is occasionally somewhere else.
         //
-        // The source order in `controls()` is: the chapter rows, then close, then the view cluster. The
-        // two appearance rows are no longer between the last two -- see the note in that method for why
-        // they are gone rather than relocated, and `BookGeometry.MIN_PANEL_HEIGHT` for what their absence
-        // did to the sidebar's term.
-        assertEquals(List.of("chapter0", "chapter1", "chapter2", "close",
-                        "zoomIn", "zoomOut", "centre"),
+        // The source order in `controls()` is: close, then the view cluster. The chapter rows were ahead
+        // of close and are gone; the two appearance rows were between close and the cluster and are gone
+        // -- see the note in that method for why each went, and `BookGeometry.MIN_PANEL_HEIGHT` for what
+        // their absence did to the sidebar's term.
+        assertEquals(List.of("close", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

@@ -1,0 +1,42 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_vanilla_plus",
+  "title": "Vanilla Plus",
+  "subtitle": "Grey, square and still",
+  "aliases": [
+    "vanilla_plus",
+    "plain"
+  ],
+  "theme": "vanilla_plus",
+  "description": [
+    "Vanilla's own greys, tidied -- for a player who does not want their game restyled. It",
+    "catches two implementation mistakes at once, because two of its values are zero.",
+    "",
+    "Motion is zero, and that is a difference you feel rather than see: click another chapter in",
+    "the sidebar and the canvas changes on the frame you click, where every other theme eases",
+    "over at least 60ms. Vanilla has no UI animation, so neither does this -- which only works",
+    "because a duration of zero means 'instant' rather than 'unset'. An earlier version read",
+    "zero as 'no opinion' and used the built-in duration, so this theme silently animated like",
+    "Modern while claiming not to.",
+    "",
+    "Radius is zero, which is what 'looks like Minecraft' means, and it is the case a radius",
+    "implementation with a minimum of one gets wrong -- a theme cannot express 'square' if the",
+    "code has decided a corner is at least a pixel.",
+    "",
+    "And this is the one chapter whose corners match the book's, because Vanilla Plus and the",
+    "default theme are both square. The difference is what they do with that: Vanilla Plus is",
+    "square AND still, where the default is square and eases like everything else."
+  ],
+  "icon": {
+    "item": "minecraft:hay_block"
+  },
+
+  "quests": [
+    "farm_break.json",
+    "farm_water.json",
+    "farm_renew.json",
+    "farm_keep.json",
+    "farm_market.json",
+    "farm_barn.json"
+  ]
+}

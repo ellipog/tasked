@@ -49,11 +49,36 @@ public final class QuestValidator {
 
     private static final Set<String> ROOT_FIELDS = Set.of("$schema", "version", "chapterGroups");
 
-    private static final Set<String> GROUP_FIELDS = Set.of("id", "title", "description", "aliases", "chapters");
+    /**
+     * The field sets, <b>taken from the records that declare the fields</b>.
+     *
+     * <p>These used to be copies written out here, under a comment claiming they "mirror a record's
+     * declared fields" — which is a description of an intention rather than a mechanism. Adding
+     * {@code collapsedByDefault} to {@code ChapterGroup} made the cost concrete: it is a two-file edit
+     * where forgetting the second half produces a field the <b>codec reads and the validator calls
+     * unknown</b>, so the file loads with checking disabled and is refused with it on. The author's only
+     * clue would be which build they had.
+     *
+     * <p>So the records own their sets, and a version-1 inline group and a version-2 {@code group.json}
+     * allow the same fields by construction rather than by two lists agreeing. Version 1 and version 2
+     * describe <i>the same objects</i>; only the file layout differs, so the fields a group may carry
+     * cannot depend on which format it was written in.
+     */
+    private static final Set<String> GROUP_FIELDS = ChapterGroup.FIELDS;
 
-    private static final Set<String> CHAPTER_FIELDS = Set.of(
-            "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "theme", "quests");
+    private static final Set<String> CHAPTER_FIELDS = Chapter.FIELDS;
+
+    /**
+     * What a version-2 per-kind file may hold at its root: the kind's own fields, plus {@code $schema}.
+     *
+     * <p>And deliberately <b>no {@code version}</b>. A per-kind file cannot be anything but version 2 —
+     * the folder layout settles it, the same way a flat {@code .json} at the root is version 1 by
+     * position rather than by the number inside it — so a version field would be a second answer to a
+     * question that is already answered, and a second answer is a thing that can disagree.
+     */
+    private static final Set<String> GROUP_DOCUMENT_FIELDS = withSchema(GROUP_FIELDS);
+
+    private static final Set<String> CHAPTER_DOCUMENT_FIELDS = withSchema(CHAPTER_FIELDS);
 
     /**
      * A quest's own fields, plus the layout's and the rules'.
@@ -91,8 +116,35 @@ public final class QuestValidator {
     }
 
     /**
-     * Validates one file. Reports into {@code problems}, which may already hold problems from other
-     * files — the caller decides whether to stop after one file or keep going.
+     * Validates a version-2 document that is one whole chapter group.
+     *
+     * <p>The version-2 counterpart of {@link #validate}, and the difference is entirely in where things
+     * are: a version-1 file holds {@code chapterGroups[]} and the group is at {@code $.chapterGroups[0]},
+     * while a {@code group.json} <i>is</i> the group and its fields are at {@code $}. The checks are the
+     * same checks at a different path, which is why they are shared rather than written twice.
+     */
+    public static void validateGroupDocument(JsonDocument document, Problems problems) {
+        validateGroupAt(document, "$", problems, false, GROUP_DOCUMENT_FIELDS);
+    }
+
+    /** Validates a version-2 document that is one whole chapter. */
+    public static void validateChapterDocument(JsonDocument document, Problems problems) {
+        validateChapterAt(document, "$", problems, false, CHAPTER_DOCUMENT_FIELDS);
+    }
+
+    /**
+     * Validates a version-2 document that is one whole quest.
+     *
+     * <p>No "inline children" distinction to make: a quest has no children, so its field check is the
+     * same one version 1 uses, at a different root.
+     */
+    public static void validateQuestDocument(JsonDocument document, Problems problems) {
+        validateQuestAt(document, "$", problems, withSchema(QUEST_FIELDS));
+    }
+
+    /**
+     * Validates one version-1 file. Reports into {@code problems}, which may already hold problems from
+     * other files — the caller decides whether to stop after one file or keep going.
      */
     public static void validate(JsonDocument document, Problems problems) {
         Checks.rejectUnknown(document, "$", ROOT_FIELDS, problems);
@@ -123,13 +175,38 @@ public final class QuestValidator {
         }
     }
 
+    /** A version-1 group, where the whole tree is one document. */
     private static void validateGroup(JsonDocument document, int g, Problems problems) {
-        String path = groupPath(g);
+        validateGroupAt(document, groupPath(g), problems, true, GROUP_FIELDS);
+    }
 
+    /**
+     * A group's own fields, at whatever path it sits at, plus its child list in whichever shape applies.
+     *
+     * <h2>The allowed set is a parameter, and that is the fix for a real duplicate</h2>
+     *
+     * <p>The unknown-field check is the one thing the two layouts genuinely disagree about: a version-1
+     * group sits at {@code $.chapterGroups[0]} inside a file that also holds {@code version}, while a
+     * {@code group.json} is the group and its whole document is the object — so it may carry
+     * {@code $schema} and may not carry {@code version}. Everything else about a group is the same
+     * either way, which is why the body is shared.
+     *
+     * <p>It was not, at first. The check ran in the wrapper <i>and</i> in this method, at the same path
+     * with two different sets — so {@code $schema} was allowed by the outer call and refused by the
+     * inner one, and a perfectly good {@code group.json} reported "unknown field $schema" with a field
+     * list that plainly contained it. Two descriptions of one field set, one level apart, disagreeing:
+     * the same fault this file's own class comment is about, committed inside the fix for it.
+     *
+     * @param inlineChildren true for version 1, where {@code chapters} holds chapter <i>objects</i>;
+     *                       false for version 2, where it holds the <b>names</b> of chapter folders
+     * @param allowedFields  what this level may hold. The caller knows whether it is at a file root.
+     */
+    private static void validateGroupAt(JsonDocument document, String path, Problems problems,
+                                        boolean inlineChildren, Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, GROUP_FIELDS, problems);
+        Checks.rejectUnknown(document, path, allowedFields, problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
         // Checked, and it was not until the codec rejected one. A field the validator does not look at
@@ -144,27 +221,91 @@ public final class QuestValidator {
         checkTextOrList(document, path + ".description", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
+        if (document.has(path + ".collapsedByDefault")) {
+            Checks.optionalBool(document, path + ".collapsedByDefault", problems);
+        }
 
         if (!document.has(path + ".chapters")) {
             problems.warn(document, path, "no \"chapters\" - this chapter group is empty");
             return;
         }
-        var chapters = Checks.array(document, path + ".chapters", problems);
-        if (chapters == null) {
-            return;
+        if (inlineChildren) {
+            var chapters = Checks.array(document, path + ".chapters", problems);
+            if (chapters == null) {
+                return;
+            }
+            for (int c = 0; c < chapters.size(); c++) {
+                validateChapterAt(document, path + ".chapters[" + c + "]", problems, true, CHAPTER_FIELDS);
+            }
         }
-        for (int c = 0; c < chapters.size(); c++) {
-            validateChapter(document, g, c, problems);
+        else {
+            checkNameList(document, path + ".chapters", "chapter", problems);
         }
     }
 
-    private static void validateChapter(JsonDocument document, int g, int c, Problems problems) {
-        String path = chapterPath(g, c);
+    /**
+     * A manifest's list of child names: an array of single path segments, in order.
+     *
+     * <h2>Shape here, resolution at load, and one message either way</h2>
+     *
+     * <p>This checks that the list is an array of strings and says so when it is not. It deliberately
+     * does <b>not</b> check that a name is a bare segment, or that the thing it names exists, or that the
+     * folder it resolves against holds nothing unlisted. All three are {@link QuestFiles}' business — it
+     * is the step that holds the folder the names resolve against — and it reports each of them with a
+     * message that names the declared string and the path it failed to resolve to.
+     *
+     * <p>Doing any of it here as well would mean one missing chapter producing two messages about the
+     * same absence, which is the fault {@link #validate} exists to avoid: the whole reason a file with a
+     * structural error is not decoded is so that one mistake produces one message.
+     *
+     * <p>The <i>message</i> is worth as much as the check, and it names the format change rather than
+     * describing a type error. {@code "chapters": [{"id": "one"}]} is a real thing to write — an element
+     * copied straight out of a version-1 file — and "expected a string, found an object" would leave the
+     * author looking at a field that looks right to them.
+     */
+    private static void checkNameList(JsonDocument document, String path, String what, Problems problems) {
+        var names = Checks.array(document, path, problems);
+        if (names == null) {
+            return;
+        }
+        if (names.isEmpty()) {
+            problems.warn(document, path, "this " + what + " list is empty");
+            return;
+        }
+        for (int i = 0; i < names.size(); i++) {
+            JsonElement child = names.get(i);
+            if (child.isJsonPrimitive() && child.getAsJsonPrimitive().isString()) {
+                continue;
+            }
+            problems.error(document, path + "[" + i + "]", "expected the name of a " + what
+                    + " as a string, found " + Checks.kindOf(child)
+                    + " - a manifest lists the names of the folders and files sitting beside it, in the"
+                    + " order they should appear. This is the version-2 layout: what was nested inline"
+                    + " is now a folder of its own, named here.");
+        }
+    }
 
+    /** A version-1 chapter, where the whole tree is one document. */
+    private static void validateChapter(JsonDocument document, int g, int c, Problems problems) {
+        validateChapterAt(document, chapterPath(g, c), problems, true, CHAPTER_FIELDS);
+    }
+
+    /**
+     * A chapter's own fields, at whatever path it sits at, plus its quest list in whichever shape.
+     *
+     * @param inlineChildren true for version 1, where {@code quests} holds quest <i>objects</i>; false
+     *                       for version 2, where it holds the <b>file names</b> of quests. The order of
+     *                       that list is the progression of a {@code LINEAR} chapter, so it is the one
+     *                       list in the format whose order is load-bearing rather than presentational.
+     * @param allowedFields  what this level may hold. See {@link #validateGroupAt} for why this is a
+     *                       parameter rather than a constant read here.
+     */
+    private static void validateChapterAt(JsonDocument document, String path, Problems problems,
+                                          boolean inlineChildren, Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, CHAPTER_FIELDS, problems);
+        Checks.rejectUnknown(document, path, allowedFields, problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
         checkIcon(document, path + ".icon", problems);
@@ -210,25 +351,42 @@ public final class QuestValidator {
             problems.warn(document, path, "no \"quests\" - this chapter is empty");
             return;
         }
-        var quests = Checks.array(document, path + ".quests", problems);
-        if (quests == null) {
-            return;
+        if (inlineChildren) {
+            var quests = Checks.array(document, path + ".quests", problems);
+            if (quests == null) {
+                return;
+            }
+            if (quests.isEmpty()) {
+                problems.warn(document, path + ".quests", "this chapter's quest list is empty");
+            }
+            for (int q = 0; q < quests.size(); q++) {
+                validateQuestAt(document, path + ".quests[" + q + "]", problems, QUEST_FIELDS);
+            }
         }
-        if (quests.isEmpty()) {
-            problems.warn(document, path + ".quests", "this chapter's quest list is empty");
-        }
-        for (int q = 0; q < quests.size(); q++) {
-            validateQuest(document, g, c, q, problems);
+        else {
+            checkNameList(document, path + ".quests", "quest", problems);
         }
     }
 
+    /** A version-1 quest, where the whole tree is one document. */
     private static void validateQuest(JsonDocument document, int g, int c, int q, Problems problems) {
-        String path = questPath(g, c, q);
+        validateQuestAt(document, questPath(g, c, q), problems, QUEST_FIELDS);
+    }
 
+    /**
+     * A quest's own fields, at whatever path it sits at.
+     *
+     * <p>Its path is the only thing either layout changes — a quest has no children either way, so
+     * unlike a group or a chapter there is no child-list shape to branch on. The allowed set is still a
+     * parameter for the same reason as the other two: at a version-2 file root the document may carry
+     * {@code $schema}, and one level down it may not.
+     */
+    private static void validateQuestAt(JsonDocument document, String path, Problems problems,
+                                       Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, QUEST_FIELDS, problems);
+        Checks.rejectUnknown(document, path, allowedFields, problems);
 
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
@@ -745,6 +903,18 @@ public final class QuestValidator {
 
     // Shared with QuestIndex so that both agree on where a quest is. If one of these changes, the
     // other's error messages move with it rather than silently pointing somewhere else.
+
+    /**
+     * A field set plus {@code $schema}, for the root of a version-2 per-kind document.
+     *
+     * <p>Every kind allows it and none reads it: it is an editor's pointer at the schema in
+     * {@code _schema/}, and the folder holding those is skipped by name so the walk never trips over it.
+     */
+    private static Set<String> withSchema(Set<String> fields) {
+        Set<String> out = new HashSet<>(fields);
+        out.add("$schema");
+        return out;
+    }
 
     public static String groupPath(int g) {
         return "$.chapterGroups[" + g + "]";

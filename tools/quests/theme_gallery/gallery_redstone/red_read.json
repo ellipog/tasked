@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "red_read",
+  "title": "The Schematic",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest, and the one to read if you want to know whether a red",
+    "accent is a problem in a body of text. It is not, and the reason is that the accent",
+    "is used for section rules and the counts rather than for the prose.",
+    "",
+    "That is a general point worth taking from this chapter: a theme that wants a loud",
+    "accent has to decide where the accent is allowed, and if it is allowed in the body",
+    "text the page becomes unreadable very quickly. Modern solves it by making the accent",
+    "rare; this theme solves it by keeping the accent out of the body entirely.",
+    "",
+    "Scroll down for REQUIRES: a green tick and a dim red cross, which on this palette is",
+    "the only green in the body.",
+    "",
+    "The scrollbar's thumb is a mid red on a dark track, so it is legible without being",
+    "loud -- which is what a scrollbar should be, and is a decision this pair of tokens did",
+    "not have when it was borrowing the raised surface and a control edge.",
+    "",
+    "As in every chapter, this paragraph exists to make the body taller than the clip."
+  ],
+  "icon": { "item": "minecraft:redstone_block" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["red_gate"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I traced the first line" },
+    { "type": "tasked:checkmark", "title": "And I found the fault" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "hc_count",
+  "title": "Stock Up",
+  "subtitle": "A count, so the progress bar appears",
+  "description": [
+    "The bar's track is pure black with a white border, and its fill is the state colour --",
+    "so a partially-filled bar is the clearest thing on this screen.",
+    "",
+    "Hand in two and notice the count beside it: pure white, at the same weight as the label,",
+    "because this theme has no faint tone that is genuinely faint."
+  ],
+  "icon": { "item": "minecraft:chest" },
+  "x": 132,
+  "y": 0,
+
+  "dependsOn": ["hc_start"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:coal", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:chest", "count": 1 }
+  ]
+}

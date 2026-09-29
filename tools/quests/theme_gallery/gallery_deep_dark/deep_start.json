@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "deep_start",
+  "title": "Wake Up",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "A sculk cyan available colour on near-black, which is the only glow on the canvas and",
+    "therefore the only thing your eye lands on.",
+    "",
+    "The hover ring is a pale cyan at half alpha, which against this surface reads as a",
+    "louder highlight than the same alpha does on any other theme -- there is so little",
+    "else competing with it."
+  ],
+  "icon": { "item": "minecraft:sculk" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sculk", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:sculk_catalyst", "count": 1 }
+  ]
+}

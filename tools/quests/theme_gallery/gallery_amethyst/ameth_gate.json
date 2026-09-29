@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "ameth_gate",
+  "title": "The Geode",
+  "subtitle": "An OR-gate, one optional task, and no rewards",
+  "description": [
+    "Locked. The wash over it is a near-black violet, and the icon underneath stays",
+    "readable -- which on this theme takes some care, because a violet wash over a violet",
+    "icon can lose the item's own colours entirely.",
+    "",
+    "This is the node to look at if you are deciding whether to write a theme of your own:",
+    "the wash is the value most likely to be wrong, and the one with the least margin."
+  ],
+  "icon": { "item": "minecraft:amethyst_cluster" },
+  "x": 264,
+  "y": 104,
+  "shape": "circle",
+  "size": 44,
+
+  "dependsOn": ["ameth_count", "ameth_repeat"],
+  "minRequired": 1,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_cluster", "count": 2 },
+    { "type": "tasked:checkmark", "title": "I found the geode",
+      "optional": true }
+  ]
+}

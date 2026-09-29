@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.ellipog.armature.client.Appearance;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.quest.QuestLayout;
 import dev.ellipog.tasked.quest.QuestShape;
@@ -101,11 +102,35 @@ public final class ClientQuestCache {
     }
 
     /**
+     * One chapter group heading, as the server described it.
+     *
+     * <p>Arrives in a flat {@code groups[]} at the tree root rather than nested around its chapters,
+     * for the same reason a quest carries its own {@code chapterId}: the client groups however it
+     * likes, and a nested shape would fix its outline to the server's.
+     *
+     * <p>{@code collapsedByDefault} is what the tree says the <i>first</i> time this client sees it,
+     * and it is the only thing the server has to say about whether a group is open. What the player
+     * toggles afterwards is the player's — it lives in the outline, is never written back, and is never
+     * written to {@code config/armature/appearance.json}, which is the player's and Armature's file.
+     * The two never meet, which is why this is a boolean from the server and a set of keys on the
+     * client rather than a field that travels in both directions.
+     */
+    public record GroupEntry(String id, String title, boolean collapsedByDefault) {
+    }
+
+    /**
      * One quest, as the client needs it.
      *
      * <p>{@code shape} is held as the resolved enum rather than the string that arrived, for the same
      * reason the items are resolved on arrival: the screen asks for it per node per frame, and
      * scanning a string per frame to answer the same question is work with no purpose.
+     *
+     * <p>{@code chapterGroupId} is what puts a quest's chapter under the right heading, and it is the
+     * one thing the heading list on its own cannot express — {@code groups[]} says what a heading is
+     * called and nothing about what hangs under it. It is <b>empty</b> for a server that predates
+     * groups, and that means "no group", which is the case the sidebar has to draw today's flat chapter
+     * list for. An empty string is unambiguously not a group id: {@code Checks.id} refuses one, so no
+     * real group can collide with the sentinel.
      *
      * <p>It was missing entirely until the shapes were wired up. The field existed in the quest file
      * format, was validated, and was printed by {@code /tasked} — but {@code QuestSync} never put it on
@@ -113,8 +138,8 @@ public final class ClientQuestCache {
      * whatever the file said. A field that is parsed, validated and reported but never consumed reads
      * as supported, which is worse than one that is absent.
      */
-    public record Entry(String chapterId, String chapterTitle, String chapterTheme, String id, String title,
-                        String subtitle,
+    public record Entry(String chapterGroupId, String chapterId, String chapterTitle, String chapterTheme,
+                        String id, String title, String subtitle,
                         List<String> description, ItemStack icon, int x, int y, int size, QuestShape shape,
                         double iconScale, boolean showTitle,
                         boolean chapterLinear, int orderInChapter,
@@ -134,12 +159,44 @@ public final class ClientQuestCache {
     }
 
     private static volatile List<Entry> entries = List.of();
+
+    /**
+     * The group headings, in the order the server declared them.
+     *
+     * <p>Empty for a server that predates groups, and that is not a case needing its own handling: the
+     * sidebar draws the flat chapter list whenever it holds no headings, which is exactly what an older
+     * server wants. So absence needs no flag and no branch — see {@link
+     * dev.ellipog.tasked.net.QuestSync#treeAsJson}, which sends the key even when it is empty so a
+     * version-2 tree is self-describing, and note that nothing here depends on that.
+     */
+    private static volatile List<GroupEntry> groups = List.of();
+
     private static volatile Map<String, Progress> progress = Map.of();
     private static volatile UUID teamId;
     private static volatile long syncedAt;
     private static volatile int questCount;
     private static volatile int chapterCount;
     private static volatile boolean treeReceived;
+
+    /**
+     * Which tree this cache holds, as a number that only ever increases.
+     *
+     * <p>Bumped by every path that changes what the cache holds — a tree arriving, and a disconnect
+     * clearing it — and by nothing else.
+     *
+     * <p>What it is for: a screen builds a collapsible outline, and has to be able to tell "the tree
+     * is still the one I built my outline from" from "a new one has arrived". A player toggling a
+     * group, resizing the window, or scrolling all leave this alone, so the outline keeps the toggles
+     * the player chose. A reload — which is a tree arriving — moves it, so the outline is re-seeded
+     * from the authored defaults, which is right rather than unfortunate: a reload means the files
+     * changed, and the authored state is the honest one for a tree nobody has seen.
+     *
+     * <p>So the unit is "a tree arrived", not "the tree is different". Comparing contents would answer
+     * the same question a second way with its own answer for an identical re-send, and the two
+     * descriptions would disagree about whether the player keeps their toggles — with neither being
+     * more correct than the other.
+     */
+    private static volatile long treeRevision;
 
     /** Whether the tree has arrived — even an empty one. */
     public static boolean hasTree() {
@@ -159,6 +216,28 @@ public final class ClientQuestCache {
 
     public static List<Entry> entries() {
         return entries;
+    }
+
+    /**
+     * The group headings, in the order the server declared them.
+     *
+     * <p>Declaration order, not sorted: the server's order is the author's — folder-name order for the
+     * folder layout — and a client that sorted would silently reorder somebody's book.
+     */
+    public static List<GroupEntry> groups() {
+        return groups;
+    }
+
+    /**
+     * Which tree this cache holds. See the field's own note for why a caller compares it.
+     *
+     * <p>Read by a screen to decide whether the outline it built is still the one to draw. Only
+     * equality is ever asked of it, so nothing depends on the absolute value; the reason it never
+     * decreases is that a caller might remember it across a clear, and the one thing that must not
+     * happen is a remembered value matching a later, different tree.
+     */
+    public static long treeRevision() {
+        return treeRevision;
     }
 
     /**
@@ -268,6 +347,12 @@ public final class ClientQuestCache {
 
     /** Called from the payload handler on the client thread. */
     public static void acceptTree(int quests, int chapters, String packTheme, byte[] json) {
+        // Moved before anything is parsed, and that is deliberate: the revision says *which tree this
+        // cache holds*, and every path out of this method changes that. A parsed tree replaces what was
+        // there; a tree that could not be read empties it. A revision that only moved on success would
+        // leave a screen drawing the rows of a tree the cache has just thrown away.
+        treeRevision++;
+
         try {
             parseTree(new String(json, StandardCharsets.UTF_8));
             questCount = quests;
@@ -289,6 +374,7 @@ public final class ClientQuestCache {
             // in the middle and nothing saying why.
             Constants.LOG.error("tasked: the server sent a quest tree this client could not read", e);
             entries = List.of();
+            groups = List.of();
             treeReceived = false;
         }
     }
@@ -370,12 +456,17 @@ public final class ClientQuestCache {
      */
     public static void clear() {
         entries = List.of();
+        groups = List.of();
         progress = Map.of();
         teamId = null;
         questCount = 0;
         chapterCount = 0;
         syncedAt = 0;
         treeReceived = false;
+        // Moved rather than left alone, because clearing changes what the cache holds as surely as
+        // receiving does: a screen that seeded an outline at the old revision would otherwise keep
+        // drawing that tree's rows for a cache that has nothing in it.
+        treeRevision++;
         // And the pack's theme, for the reason in this method's javadoc: it describes a connection, so
         // leaving it set would show one server's look on the next one -- an appearance nobody chose,
         // with nothing on screen saying where it came from.
@@ -388,6 +479,36 @@ public final class ClientQuestCache {
 
     private static void parseTree(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+
+        // Read, and only warned about. Deliberately not a gate: refusing a version this client does not
+        // know would break exactly the case the additive design exists to keep working — a client on an
+        // older install drawing today's flat list from a server that has moved on. So a newer tree is
+        // drawn with whatever this build understands, and this log line is the only symptom a player
+        // will ever get, which is why it names both numbers.
+        int version = root.has("version") ? root.get("version").getAsInt() : 1;
+        if (version > QuestSync.TREE_VERSION) {
+            Constants.LOG.warn("tasked: the server sent a version {} quest tree and this client"
+                    + " understands up to version {}. Anything it added will not be drawn.", version,
+                    QuestSync.TREE_VERSION);
+        }
+
+        // The group headings, when the server sent any. Absent means a server older than groups, so
+        // this defaults rather than requires and that tree draws the flat list it always drew.
+        //
+        // No `version` test guards this, deliberately: the key's presence is the fact. Testing a number
+        // to decide whether a key is there would be a second way to find out something already known,
+        // and the two would disagree the first time a server sent one without the other.
+        List<GroupEntry> parsedGroups = new ArrayList<>();
+        if (root.has("groups")) {
+            for (JsonElement element : root.getAsJsonArray("groups")) {
+                JsonObject group = element.getAsJsonObject();
+                parsedGroups.add(new GroupEntry(
+                        str(group, "id"),
+                        str(group, "title"),
+                        group.has("collapsedByDefault") && group.get("collapsedByDefault").getAsBoolean()));
+            }
+        }
+
         JsonArray quests = root.getAsJsonArray("quests");
 
         List<Entry> parsed = new ArrayList<>(quests.size());
@@ -423,6 +544,9 @@ public final class ClientQuestCache {
             }
 
             parsed.add(new Entry(
+                    // Empty for a server that predates groups, which the sidebar reads as "no group"
+                    // and answers by drawing the flat chapter list.
+                    str(quest, "chapterGroupId"),
                     str(quest, "chapterId"),
                     str(quest, "chapterTitle"),
                     // A chapter asking for a theme of its own, or "" for one that has no opinion.
@@ -462,6 +586,7 @@ public final class ClientQuestCache {
                     quest.has("invisible") && quest.get("invisible").getAsBoolean()));
         }
         entries = List.copyOf(parsed);
+        groups = List.copyOf(parsedGroups);
     }
 
     private static TaskEntry taskEntry(JsonObject json) {

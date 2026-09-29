@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "ameth_end",
+  "title": "The Cutting Room",
+  "subtitle": "Invisible until it is done",
+  "description": [
+    "Hidden, in the position every chapter's last node occupies.",
+    "",
+    "The smallest node in this chapter at size 36 with the icon at 0.9, so when it does",
+    "appear it is nearly all item and very little border."
+  ],
+  "icon": { "item": "minecraft:glass" },
+  "x": 528,
+  "y": 104,
+  "shape": "circle",
+  "size": 36,
+  "iconScale": 0.9,
+  "invisible": true,
+
+  "dependsOn": ["ameth_read"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glass", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:glass_pane", "count": 8 }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_underground",
+  "title": "Down There",
+  "description": [
+    "There is a whole other game below y=0,",
+    "and none of it is pleased to see you."
+  ],
+  "icon": { "item": "minecraft:torch" },
+  "x": 264,
+  "y": 104,
+  "shape": "hexagon",
+
+  "dependsOn": ["stone_tools"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:coal", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 32 }
+  ]
+}

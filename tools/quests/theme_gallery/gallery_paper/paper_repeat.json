@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "paper_repeat",
+  "title": "Copy It Out",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40 on a pale canvas. Its outline is a mid-brown, which is the",
+    "closest thing this theme has to a border colour, and the taper holds up better here",
+    "than on the dark themes because a dark line on a light field is how ink works."
+  ],
+  "icon": { "item": "minecraft:ink_sac" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["paper_start"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:paper", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:ink_sac", "count": 4 }
+  ]
+}

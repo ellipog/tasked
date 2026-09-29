@@ -1,0 +1,16 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "first_steps",
+  "title": "First Steps",
+  "icon": {
+    "item": "minecraft:crafting_table"
+  },
+
+  "quests": [
+    "punch_a_tree.json",
+    "make_a_table.json",
+    "stone_tools.json",
+    "read_the_sign.json",
+    "the_underground.json"
+  ]
+}

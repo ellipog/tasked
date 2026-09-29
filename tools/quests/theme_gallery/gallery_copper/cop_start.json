@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "cop_start",
+  "title": "Fresh Copper",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "A green available colour on a warm brown canvas -- the two ends of copper's life in",
+    "one screen.",
+    "",
+    "The title tone is a pale cream rather than a white, which is what stops a warm palette",
+    "from reading as orange text on orange. Every theme with a warm surface has to make that",
+    "adjustment somewhere, and on this one it is in the text tones."
+  ],
+  "icon": { "item": "minecraft:copper_ingot" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:raw_copper", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 4 }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "script_reading",
+  "title": "First Reading",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest, as in every chapter, so the scrollbar appears here too --",
+    "and it does, in this theme's recessed surface and thumb colours, which are the two",
+    "tokens added this round.",
+    "",
+    "Scroll down: REQUIRES is at the bottom with its tick and its cross. The cross is the",
+    "blocked tone, which recedes rather than turning red. Nothing has gone wrong; a",
+    "prerequisite simply is not met.",
+    "",
+    "Two checkmarks with sequentialTasks, so Submit starts on the first and moves down. A",
+    "row of a body is washed with the row-hover colour, scaled by an eased amount, and",
+    "narrowed to the row's own content rather than to its box. A row of a stack stretches to",
+    "the full width of the body, so washing its box drew a highlight straight across the",
+    "whole panel. That was a real bug, and a screenshot found it rather than a test.",
+    "",
+    "Its motion is the same 140ms on the same curve as Modern's, and that is on purpose: if",
+    "Tome also animated differently, a difference you saw while switching chapters could be",
+    "either one, and an exhibit that shows two variables shows nothing.",
+    "",
+    "This paragraph, like its counterparts in the other fourteen chapters, exists to make",
+    "the body taller than the clip. If the scrollbar ever stops appearing, one of these got",
+    "shorter and everything it was demonstrating went with it."
+  ],
+  "icon": { "item": "minecraft:written_book" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["script_catalogue"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I have opened the book" },
+    { "type": "tasked:checkmark", "title": "And I have read to the end" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

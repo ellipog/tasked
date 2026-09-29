@@ -1,0 +1,36 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_deep_dark",
+  "title": "Deep Dark",
+  "subtitle": "Almost no light, and one glow",
+  "aliases": [
+    "deep_dark",
+    "deepdark",
+    "sculk"
+  ],
+  "theme": "deep_dark",
+  "description": [
+    "The quietest theme in the set. Surfaces are barely above black and the accent is a sculk",
+    "cyan that is the only thing on the canvas with any light in it.",
+    "",
+    "It is the opposite approach to Neon, which is also near-black but loud: this one has",
+    "almost no saturation anywhere except the accent, and Neon has almost nothing but.",
+    "Comparing those two chapters is the quickest way to see what a theme is actually",
+    "deciding.",
+    "",
+    "Radius 2, so it is among the squarest themes -- between Vanilla Plus's 0 and Amethyst's",
+    "6. Compare the quest overlay's panel against Tome's while you are here."
+  ],
+  "icon": {
+    "item": "minecraft:sculk"
+  },
+
+  "quests": [
+    "deep_start.json",
+    "deep_count.json",
+    "deep_repeat.json",
+    "deep_gate.json",
+    "deep_read.json",
+    "deep_end.json"
+  ]
+}

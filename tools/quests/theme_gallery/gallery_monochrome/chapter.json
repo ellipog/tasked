@@ -1,0 +1,42 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_monochrome",
+  "title": "Monochrome",
+  "subtitle": "No hue anywhere, on purpose",
+  "aliases": [
+    "monochrome",
+    "mono",
+    "grey"
+  ],
+  "theme": "monochrome",
+  "description": [
+    "Greys only. Not one of the forty-one colours in this theme has a hue, and that makes it a",
+    "test as much as a theme: every state here is a distinct brightness and nothing else, so",
+    "anywhere the interface leans on hue to tell available from complete is somewhere this",
+    "chapter is unreadable.",
+    "",
+    "The four states are chosen far apart on purpose -- available at 210, in progress at 150,",
+    "complete at 255, blocked at 90 -- so the difference is unmistakable when you look for it",
+    "and invisible when you do not.",
+    "",
+    "Building this theme found a real bug, which is worth recording because it is the kind",
+    "only a theme can find. The washes -- the dim over the world, the recessed surfaces, the",
+    "label backdrops -- started out inherited from Modern, on the reasonable-sounding grounds",
+    "that a wash is only a wash. Modern's are all a very slightly blue near-black, so the",
+    "no-hue-anywhere theme had five faintly tinted surfaces in it and nothing on screen would",
+    "ever have said so. A test that checks every token rather than the interesting ones caught",
+    "it, then caught a sixth one on the next run."
+  ],
+  "icon": {
+    "item": "minecraft:light_gray_concrete"
+  },
+
+  "quests": [
+    "mono_start.json",
+    "mono_count.json",
+    "mono_repeat.json",
+    "mono_gate.json",
+    "mono_read.json",
+    "mono_end.json"
+  ]
+}

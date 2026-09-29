@@ -1,0 +1,40 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "ameth_read",
+  "title": "Inside the Geode",
+  "subtitle": "Two hand-ins, in order, and a long description",
+  "description": [
+    "The long-description quest, drawn in a theme whose accent and whose faint tone are",
+    "both violet. That pairing is the thing to check here: a body of prose in which every",
+    "tone is a shade of one hue is either elegant or muddy, and which one it is depends on",
+    "whether the brightness steps are far enough apart.",
+    "",
+    "Scroll to the bottom and REQUIRES appears with its tick and its cross -- the tick",
+    "green, the cross a slate violet, and the two of them the only place on the page where",
+    "two different hues meet.",
+    "",
+    "The scrollbar's thumb is a saturated violet on a dark track, which is the second-most",
+    "saturated in the gallery after Obsidian's and Neon's. Since the scrollbar gained its",
+    "own two tokens this round, a theme can finally say 'my scrollbar is violet' rather",
+    "than hoping the raised surface happens to be.",
+    "",
+    "As in every chapter, this paragraph exists to make the body taller than the clip, so",
+    "the scrollbar is actually drawn."
+  ],
+  "icon": { "item": "minecraft:spyglass" },
+  "x": 396,
+  "y": 104,
+  "shape": "tome",
+  "size": 48,
+
+  "dependsOn": ["ameth_gate"],
+  "sequentialTasks": true,
+
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I have seen the inside" },
+    { "type": "tasked:checkmark", "title": "And I have counted the crystals" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10, "levels": true }
+  ]
+}

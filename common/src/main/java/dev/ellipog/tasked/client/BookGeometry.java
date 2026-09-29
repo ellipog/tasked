@@ -107,10 +107,62 @@ public final class BookGeometry {
     public static final int EDGE = 8;
 
 
-    /** The vertical pitch of a chapter row. Also its height plus its gap. */
-    public static final int CHAPTER_ROW_PITCH = 22;
+    // --- the sidebar's list --------------------------------------------------
 
-    /** Between the header and the first chapter row. */
+    // These four replace a single CHAPTER_ROW_PITCH, and the reason is the whole of what changed here.
+    // A pitch is a *geometry* decision -- "row n is at y + n * pitch" -- and it can only be made by a
+    // class that knows how many rows there are and which of them are on screen. That was true while the
+    // chapter list was a flat map the screen walked with an index. It is not true now: the rows come
+    // from a collapsible outline, are nested, and are scrollable, so the arithmetic belongs to the
+    // Stack that places them and the ScrollView that clips them.
+    //
+    // So what is left here is what is genuinely this class's: how tall a row is, how far apart two of
+    // them sit, how far one level of nesting is indented, and how much of the column the scrollbar
+    // needs. Those are metrics. The *positions* are not.
+
+    /**
+     * The height of one row in the sidebar's list, chapter or group.
+     *
+     * <p>Equal to {@link #ROW_HEIGHT} rather than a second 18, because a sidebar row and a control are
+     * the same kind of thing drawn at the same size, and the previous arrangement had them as two
+     * numbers that agreed by inspection.
+     */
+    public static final int SIDEBAR_ROW_HEIGHT = ROW_HEIGHT;
+
+    /** Between two rows of the sidebar's list. Equal to {@link #ROW_GAP} for the same reason. */
+    public static final int SIDEBAR_ROW_GAP = ROW_GAP;
+
+    /**
+     * How far a row is indented per level of nesting.
+     *
+     * <p>One level exists today — a chapter under its group — so a chapter row is indented by this and a
+     * group row is not. It is a per-level number rather than a single chapter indent because the
+     * outline that places these rows is depth-general: {@code Outline.depth} already answers for a tree
+     * of any depth, and a second constant here would be this class disagreeing with it about a question
+     * it does not need to have an opinion on.
+     *
+     * <p>Ten, which is a little over half a row's height. Wide enough that the indent reads as nesting
+     * rather than as a random left margin, and narrow enough that a two-level list in a 132-pixel column
+     * still has room for a word.
+     */
+    public static final int SIDEBAR_INDENT = 10;
+
+    /**
+     * The width the scroll view's bar needs, taken off the right of the list.
+     *
+     * <p>{@code ScrollView.drawScrollbar} draws a three-pixel bar four pixels right of the viewport's
+     * right edge, so the bar occupies {@code viewRight() + 4} to {@code viewRight() + 7}. Eight leaves
+     * that a pixel clear of {@link #EDGE}, which is the whole of the arithmetic: the bar has to sit in
+     * the sidebar's inner margin and not on a row.
+     *
+     * <p>Named here rather than in {@code ScrollView} because it is this screen's column that has to
+     * reserve it. A view that draws a bar in space its caller did not leave is a view drawing over the
+     * caller's content, which is why the bar's position is the kit's business and the room for it is
+     * not.
+     */
+    public static final int SIDEBAR_SCROLLBAR = 8;
+
+    /** Between the header and the top of the sidebar's list. */
     public static final int CHAPTER_GAP = 6;
 
     /** The gap inside the full-screen overlay, between its edge and its content. */
@@ -145,43 +197,66 @@ public final class BookGeometry {
     /**
      * The smallest panel that can hold its own chrome, derived rather than written out.
      *
-     * <p>Two constraints, and the taller one wins:
+     * <p>Two constraints, and the taller one wins. Both are re-derived here rather than carried over,
+     * because the thing the sidebar's term was measuring has changed.
+     *
+     * <h2>The sidebar term, re-derived</h2>
+     *
+     * <p>The sidebar needs the header, a gap, <b>one row</b> and the bottom edge:
+     * {@code CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE}. A list with no rows is a book whose only chapter
+     * cannot be selected, which is a blank screen with no way forward.
+     *
+     * <p>What is guaranteed is now <i>weaker and more honest</i> than it was. It used to be "at least one
+     * chapter fits above the bottom", measured by {@code chapterRows()} against a pitch — so the promise
+     * was about the list being <b>complete</b>, and the arithmetic had to be right about how many rows
+     * fit or the last one was drawn off the end. Now it is "the viewport is at least one row tall", and
+     * everything past that scrolls. The consequences, both of them improvements:
      *
      * <ul>
-     *   <li><b>The sidebar</b> needs the header, a gap, one chapter row and the bottom edge:
-     *       {@code CHAPTER_GAP + ROW_HEIGHT + EDGE}. A chapter list with no rows is a book whose only
-     *       chapter cannot be selected, which is a blank screen with no way forward.</li>
-     *   <li><b>The canvas</b> needs the view cluster, which is the tallest thing that sits on it:
-     *       {@code (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + 2 * VIEW_MAT) + EDGE}. Without this the
-     *       cluster can run past the bottom of a short canvas, which is the same class of fault as the
-     *       chapter row drawn underneath a footer.</li>
+     *   <li>There is <b>no pitch in the term</b>, and no row count. The pitch is the Stack's (see
+     *       {@link #SIDEBAR_ROW_HEIGHT} for where it went) and the count is the outline's, so this
+     *       constant cannot be invalidated by a change to either. That is the pressure that has gone,
+     *       and it is why this is a re-derivation rather than a renumbering.</li>
+     *   <li>The number is <b>unchanged</b> at {@code 6 + 18 + 8 = 32}, because the first row's position
+     *       and its height are the same as they were. It is worth saying plainly that the figure not
+     *       moving is not evidence that nothing changed: the sum that produces it is a different sum
+     *       describing a different guarantee, which is exactly the kind of coincidence that makes an
+     *       unchanged test count reassuring and meaningless.</li>
      * </ul>
      *
-     * <p>Changing {@link #VIEW_BUTTON} therefore cannot silently invalidate it. The first version of
-     * this constant was the sidebar term alone, and it was right only because the footer happened to be
-     * shorter than the chapter list.
+     * <p>A third thing went out of this term too: it used to be measured to the <i>appearance rows'</i>
+     * top, because those were anchored to the panel's bottom and a row counted past them would have been
+     * drawn underneath. They are gone, and the list measures to the panel's edge now — see
+     * {@link #sidebarViewport()}.
      *
-     * <h2>The sidebar term has been three different sizes, and it no longer decides anything</h2>
+     * <h2>The canvas term, re-derived</h2>
      *
-     * <p>It was the footer's two rows; then it grew to three when the appearance rows arrived, because
-     * those were anchored to the panel's bottom and on a panel shorter than the minimum they would have
-     * been drawn over the chapter rows — the reported overlap bug, in the one place the previous minimum
-     * did not cover; and it is now back to one, because those two rows are gone.
+     * <p>{@code (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE}. It is the view cluster,
+     * which is the tallest thing that sits <i>on</i> the canvas: three square buttons, the gaps between
+     * them, and the mat that makes them read as one group, all inside the canvas's own {@link #EDGE}.
+     * Without it the cluster runs past the bottom of a short canvas, which is the same class of fault as
+     * a row drawn underneath a footer — a control outside the surface it belongs to, and therefore
+     * clickable outside it.
      *
-     * <p>The arithmetic: the sidebar needs {@code 6 + 18 + 8} = <b>32</b> and the canvas needs
-     * {@code 5 + 58 + 6 + 8} = <b>77</b>. So the canvas decides it by a wide margin now, and that margin
-     * is the interesting part — the one-pixel lead this used to have was luck rather than design, and a
-     * {@code ROW_GAP}, a {@code ROW_HEIGHT} or a pixel of {@code EDGE} removed from the sidebar term
-     * would have crossed the two under each other. At 32 against 77 the constant no longer depends on
-     * getting a sidebar row count right, which is the version of it that stops mattering when the
-     * sidebar changes again.
+     * <p>This term is <b>arithmetically unchanged</b>, and unlike the sidebar's it is not a coincidence:
+     * nothing about scrolling touches the canvas. Writing it out again is the point of the exercise
+     * rather than a formality — a "re-derive both terms" that quietly copied one of them would not be a
+     * check, and the useful half of this paragraph is that the canvas's term is the one that did not
+     * move, for a reason that can be stated.
      *
-     * <p>The total is unchanged from before the appearance rows were added: {@code 26 + 77 = 103}, and
-     * it was {@code 26 + max(76, 77) = 103} with them. So a screenshot from either side of this change
-     * is the same size, which is worth stating since the two sidebar figures look nothing alike.
+     * <p>The numbers: the sidebar needs {@code 32} and the canvas needs {@code (8 - 3) + (58 + 6) + 8}
+     * = <b>77</b>. So the canvas decides it, by a wide margin, and {@code MIN_PANEL_HEIGHT} is
+     * {@code 26 + 77 = 103}. Changing {@link #VIEW_BUTTON} therefore cannot silently invalidate it: the
+     * sum is written in terms of that constant.
+     *
+     * <p>It is also worth recording that the two terms are now <b>unrelated</b> — one is a list, the
+     * other a cluster of tools — where they used to be two measurements of the same column. So the
+     * margin between them no longer means "the footer is shorter than the chapter list"; it means the
+     * canvas has more chrome than the sidebar has, which is a fact about the design rather than about
+     * an accident of layout.
      */
     public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
-            CHAPTER_GAP + ROW_HEIGHT + EDGE,
+            CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /** Enough canvas to be worth showing beside the sidebar. */
@@ -362,44 +437,54 @@ public final class BookGeometry {
     // The positions that the drawing and the controls both need
     // ------------------------------------------------------------------
 
-    /** Where the chapter list starts. */
+    /** Where the sidebar's list starts. The top of {@link #sidebarViewport()}, and nothing else. */
     public int chapterListTop() {
         return panel.y() + HEADER_HEIGHT + CHAPTER_GAP;
     }
 
     /**
-     * How many chapter rows fit above the bottom of the panel.
+     * The region the sidebar's rows are scrolled within.
      *
-     * <p>At least one, always — a chapter list with no rows is a list a player cannot use, and a book
-     * whose only chapter cannot be selected is a blank screen. {@link #MIN_PANEL_HEIGHT} guarantees
-     * the row fits.
+     * <h2>What this replaces, and why a rectangle is the right thing to hand out</h2>
      *
-     * <p>Derived from the panel's bottom rather than from a footer, because there is no footer any
-     * more. The old version measured from {@code footerRow1Y()}, which is where a chapter could be
-     * drawn underneath a button — the reported bug, one dimension over.
+     * <p>Two methods used to be here: {@code chapterRows()}, which answered how many rows fit, and
+     * {@code chapterRowY(int)}, which answered where row {@code n} is. Both are gone, and the reason is
+     * not that they were wrong — they were right, and asserted — but that they were <b>a second place
+     * that knew where a row goes</b>. The rows are placed by a {@link dev.ellipog.armature.client.ui.kit.Stack}
+     * now, so that it, and the
+     * {@link dev.ellipog.armature.client.ui.kit.ScrollView} over it, own hit-testing and culling. A
+     * {@code chapterRowY} still standing here would be an arithmetic that agrees with the Stack on the
+     * day it is written and drifts the first time either changes — the failure mode this whole class
+     * exists to make impossible.
      *
-     * <h2>What this measured, and why it no longer has to measure anything else</h2>
+     * <p>What is left that genuinely belongs to the framing is the <b>region</b>: where the list is
+     * allowed to draw. That is a fact about the panel, which is this class's business, and it is the one
+     * thing a caller cannot derive from the rows themselves — a list cannot know where its own edge is.
      *
-     * <p>It measured to the <i>theme row's</i> top, because the two appearance controls were anchored in
-     * the space below the list, and counting rows to the panel's edge would have drawn the last chapter
-     * underneath them. Those two controls have gone — the theme picker and the motion switch are dev-mode
-     * tools now, not part of the book — so the only thing below the chapter list is the panel's own edge
-     * and the single subtraction is the whole of it.
+     * <h2>The three subtractions, each with a reason</h2>
      *
-     * <p>Worth recording that this got <i>simpler</i> rather than staying as it was: a chapter list that
-     * measures itself against a control is one that has to know what that control is, and the row count
-     * changes whenever a button is added or removed from the bottom of a sidebar. The panel's edge is the
-     * only bottom that does not move, so measuring to it is the version that survives the next change
-     * rather than the next-but-one.
+     * <ul>
+     *   <li><b>Top: {@link #chapterListTop()}.</b> Below the header and its gap.</li>
+     *   <li><b>Bottom: the panel's own {@link #EDGE}.</b> Measured to the panel's edge, because there is
+     *       nothing else below the list any more — see {@link #MIN_PANEL_HEIGHT} for the two appearance
+     *       rows that used to be anchored there and the bug their anchoring caused.</li>
+     *   <li><b>Right: {@link #SIDEBAR_SCROLLBAR}.</b> Room for the scrollbar, so the bar is drawn in the
+     *       sidebar's margin rather than over the end of a row. The alternative — a bar drawn over the
+     *       content, or a viewport that stops short of one — puts the bar and the row it belongs to in
+     *       the same pixels, and a row that a bar can be read through is a row whose text is cut off.</li>
+     * </ul>
+     *
+     * <p>Both dimensions are floored at zero rather than assumed. A window can be dragged smaller than
+     * {@link #MIN_PANEL_WIDTH}, and a negative-width rectangle places a widget at a position that reads
+     * correctly everywhere it is used — which is the shape of bug that survives to a screenshot. A
+     * zero-area viewport draws nothing and can be clicked through, which is visibly wrong.
      */
-    public int chapterRows() {
-        int room = (panel.bottom() - EDGE) - chapterListTop() - ROW_HEIGHT;
-        return Math.max(1, room / CHAPTER_ROW_PITCH + 1);
-    }
-
-    /** The y of chapter row {@code index}. Not clamped; callers check {@link #chapterRows()}. */
-    public int chapterRowY(int index) {
-        return chapterListTop() + index * CHAPTER_ROW_PITCH;
+    public Rect sidebarViewport() {
+        int top = chapterListTop();
+        int bottom = panel.bottom() - EDGE;
+        return Rect.at(panel.x() + EDGE, top,
+                Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR),
+                Math.max(0, bottom - top));
     }
 
     /** The close button: a row-height square in the header, against the panel's right edge. */
@@ -451,19 +536,29 @@ public final class BookGeometry {
      * strip that used to sit across the bottom. Close is one square in the header, and the four former
      * footer controls are three map buttons and that square.
      *
-     * @param chapters how many chapters there are to show
+     * <h2>The chapter rows used to be handed out from here, and they are not any more</h2>
+     *
+     * <p>This was {@code controls(int chapters)}, and it put {@code chapter0} … {@code chapterN} into the
+     * map, capped at the number that fitted. The map now holds only the controls whose positions are
+     * <b>fixed</b> — the header's close button and the three map buttons — and the argument that told it
+     * how many chapters there are is gone with them.
+     *
+     * <p>The reason is worth stating precisely, because it is not "the rows moved elsewhere" but
+     * "something else owns them now". A chapter row's position depends on the row's own index (its y),
+     * on whether its group is collapsed (whether it is drawn at all), and on the scroll (how far it has
+     * been moved) — and the last two of those are properties of a <i>view</i>, not of a layout. A map
+     * built once from a size cannot express "row 5, currently scrolled out of view" without also
+     * becoming the thing that decides it, which is what a {@code Stack}, a {@code Layout} and a
+     * {@code ScrollView} already are.
+     *
+     * <p>So this method keeps the half of its job it can still do honestly — the fixed chrome — and
+     * {@link #sidebarViewport()} says where the rows are allowed to go. What the overlap test sweeps
+     * therefore shrinks to four controls, which is correct rather than a loss: those are the four that
+     * can collide, and the rows cannot collide with each other because a Stack places them in a column
+     * one after another.
      */
-    public Map<String, Rect> controls(int chapters) {
+    public Map<String, Rect> controls() {
         Map<String, Rect> out = new LinkedHashMap<>();
-        int left = panel.x() + EDGE;
-        int inner = sidebarInner();
-
-        // The chapter rows, top down, only as many as fit. Naming them chapter0, chapter1 ... rather
-        // than a list, because a test that fails should say which control collided.
-        int rows = Math.min(Math.max(0, chapters), chapterRows());
-        for (int i = 0; i < rows; i++) {
-            out.put("chapter" + i, Rect.at(left, chapterRowY(i), inner, ROW_HEIGHT));
-        }
 
         // Close, in the header's right corner.
         out.put("close", closeRect());

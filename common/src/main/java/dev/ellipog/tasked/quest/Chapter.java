@@ -65,6 +65,18 @@ public record Chapter(
         List<Quest> quests
 ) {
 
+    /**
+     * The field names this contributes, for the validator to allow.
+     *
+     * <p>Declared here rather than copied into the validator, for the reason {@link ChapterGroup#FIELDS}
+     * gives at length: a second copy is a second thing to remember, and forgetting it produces a field
+     * the codec reads and the validator calls unknown. {@link ChapterManifest} declares the same set,
+     * because a chapter manifest and the chapter it becomes describe the same object.
+     */
+    public static final java.util.Set<String> FIELDS = java.util.Set.of(
+            "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
+            "progressionMode", "defaultConsumeItems", "theme", "quests");
+
     /** Finds a quest by id or alias. */
     public Optional<Quest> quest(String idOrAlias) {
         return quests.stream().filter(quest -> quest.matches(idOrAlias)).findFirst();

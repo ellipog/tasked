@@ -12,6 +12,7 @@ import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestLoader;
+import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.TaskedQuests;
 
 import net.minecraft.core.Registry;
@@ -213,42 +214,88 @@ class QuestPlaythroughTest {
     @Test
     @Order(1)
     @DisplayName("the examples this test seeded load with nothing wrong in them")
-    void theSeededExamplesLoad() {
+    void theSeededExamplesLoad() throws IOException {
         assertTrue(loaded.ok(), () -> "the seeded questlines did not load cleanly:\n" + render(loaded.problems()));
 
-        // Counted from the files this test copied, not written here as a number.
-        //
-        // This asserted `5 quests in 1 chapter from 1 file`, and it was right until the second and
-        // third questlines were written -- at which point it failed for the one reason a test should
-        // never fail, which is that the content grew. A hardcoded 5 was a claim about the content
-        // wearing the clothes of a check on the loader.
-        //
-        // Derived instead: every file that was seeded was found, and the count the engine reports is
-        // the sum of the quests in them. That still catches the fault it was written for -- a file that
-        // did not load -- and cannot be broken by adding a fourth example.
         assertEquals(examples.size(), loaded.filesFound(),
                 "every seeded file should have been found and read");
-        assertEquals(examples.size(), TaskedQuests.index().files().size(),
-                "and every one of them should have been indexed");
 
-        int expectedQuests = TaskedQuests.index().files().stream()
-                .flatMap(file -> file.file().chapterGroups().stream())
-                .flatMap(group -> group.chapters().stream())
-                .mapToInt(chapter -> chapter.quests().size())
-                .sum();
-        assertEquals(expectedQuests, TaskedQuests.index().questCount(),
-                "the reported quest count should be the number actually in the files");
+        // Counted from the seeded file names, and this is the fourth version of this check.
+        //
+        // The first asserted `5 quests in 1 chapter from 1 file`. That was right until the second and
+        // third questlines were written, at which point it failed for the one reason a test should never
+        // fail: the content grew. A hardcoded 5 was a claim about the content wearing the clothes of a
+        // check on the loader.
+        //
+        // The second derived the expected numbers by *walking the index* -- it compared the index against
+        // itself, so it could only fail if the index were internally inconsistent, which it never is. It
+        // read as a check on the loader and was a tautology.
+        //
+        // The third decoded every seeded file and added up the groups, chapters and quests inside them.
+        // That was a genuine independent count under version 1, where a file <i>is</i> a whole tree -- and
+        // it is impossible under version 2, which is why this had to change rather than be repaired:
+        // `group.json` decodes to a manifest holding a list of <b>names</b>, and the names are not in the
+        // document at all. They are the directory listing. A test that decoded the files and counted what
+        // was inside them would count three manifests and no chapters.
+        //
+        // So the count comes from the file names, which are the format's own fixed contract: a group is a
+        // folder holding a {@code group.json}, a chapter holds a {@code chapter.json}, and every other
+        // {@code .json} inside a chapter folder is one quest. Counting those is not a re-implementation of
+        // the loader -- it is the loader's stated naming rules, and the loader is what this checks. What
+        // it catches is the failure that matters: a file that was seeded, sits on disk, and never reached
+        // the index.
+        int seededGroups = 0;
+        int seededChapters = 0;
+        int seededQuests = 0;
+        int seededFlat = 0;
+        for (String name : examples) {
+            Path relative = Path.of(name);
+            String fileName = relative.getFileName().toString();
 
-        int expectedChapters = TaskedQuests.index().files().stream()
-                .flatMap(file -> file.file().chapterGroups().stream())
-                .flatMap(group -> group.chapters().stream())
-                .mapToInt(chapter -> 1)
-                .sum();
-        assertEquals(expectedChapters, TaskedQuests.index().chapterCount(),
-                "one chapter per chapter in the files");
+            if (fileName.equals(QuestFiles.GROUP_MANIFEST)) {
+                seededGroups++;
+            }
+            else if (fileName.equals(QuestFiles.CHAPTER_MANIFEST)) {
+                seededChapters++;
+            }
+            else if (fileName.endsWith(".json")) {
+                if (relative.getNameCount() > 1) {
+                    seededQuests++;
+                }
+                else {
+                    // A version-1 file at the quest root: one whole tree in one document. None of the
+                    // examples is one any more, which is what the assertion below says -- and counting
+                    // them separately matters, because a conversion that left one behind would otherwise
+                    // inflate the quest count while every id in the pair was reported as a duplicate.
+                    seededFlat++;
+                }
+            }
+        }
 
-        note("the seeded examples are " + expectedQuests + " quests in " + expectedChapters
-                + " chapters, from " + examples.size() + " files");
+        assertEquals(0, seededFlat,
+                "the examples still contain a version-1 flat file at the quest root. Leaving one beside"
+                        + " the folder it was converted into is worse than not converting at all: every id"
+                        + " then exists twice, and the loader reports a duplicate for every group, chapter"
+                        + " and quest in the pair -- which reads as a broken conversion rather than as a"
+                        + " stale copy.");
+
+        // Every seeded group, chapter and quest was found -- which is the property the three
+        // file-counting variants were all circling, and the only one that stays meaningful as content is
+        // added.
+        assertEquals(seededGroups, TaskedQuests.index().groupCount(),
+                "every chapter group in the seeded files should be in the index");
+        assertEquals(seededChapters, TaskedQuests.index().chapterCount(),
+                "every chapter in the seeded files should be in the index");
+        assertEquals(seededQuests, TaskedQuests.index().questCount(),
+                "every quest in the seeded files should be in the index");
+
+        // And not vacuously: every count above is zero if the walk found nothing, and zero equals zero.
+        assertTrue(seededQuests > 0 && seededGroups > 0,
+                "the counting walk found no content at all under " + EXAMPLES.toAbsolutePath()
+                        + ", so every assertion above is comparing zero with zero");
+
+        note("the seeded examples are " + seededQuests + " quest(s) in " + seededChapters
+                + " chapter(s) in " + seededGroups + " group(s), from " + examples.size() + " file(s)");
     }
 
     @Test
@@ -897,32 +944,88 @@ class QuestPlaythroughTest {
      * Copies the worked examples into a config directory, and returns their names.
      *
      * <p>What {@code tasked/tools/seed_quests.py} does, in Java so the test needs nothing on PATH. The
-     * two must agree, and the thing that keeps them agreeing is that neither holds a list: both read
-     * {@code tasked/tools/quests} and both skip the {@code _} prefix.
+     * two must agree, and the thing that keeps them agreeing is that neither holds a list: both walk
+     * {@code tasked/tools/quests} and both skip anything whose name begins with {@code _}.
+     *
+     * <h2>Recursive, and it had to become recursive for the same reason the script did</h2>
+     *
+     * <p>It was a single {@code Files.list} over the quest directory, copying each {@code .json} whose
+     * name did not begin with an underscore. That is exactly right for the flat format, where a file
+     * <i>is</i> a whole tree, and it silently copies nothing at all under the folder format — where the
+     * quests are four levels down inside {@code getting_started/first_steps/} and no file at the top
+     * level is a quest.
+     *
+     * <p>The failure that produces is worth naming because of how it reads. The seeding step succeeds,
+     * the load succeeds, and the quest book is empty — so the first place anyone looks is the loader,
+     * which is working. Worse, this test's own {@code filesFound} assertion would have compared 0 with
+     * the number of top-level files and passed, because both sides were counting the same nothing.
+     *
+     * <p>So it walks, and it applies the underscore rule to <b>every path segment</b> rather than to the
+     * final name — the same rule {@code DeclaredPaths.isIgnored} states, and for the same reason: the
+     * shipped {@code _schema} folder is a directory, and a rule that only tested the file's own name
+     * would happily copy every one of its contents into a config directory.
+     *
+     * <p>Returns {@code /}-separated relative paths, not bare file names, because under the folder
+     * format a name is not unique — {@code group.json} appears once per group and {@code chapter.json}
+     * once per chapter.
      */
     private static List<String> seedExamples(Path configDir) throws IOException {
         Path target = configDir.resolve("tasked/quests");
         Files.createDirectories(target);
 
-        List<String> names = new ArrayList<>();
-        try (Stream<Path> files = Files.list(EXAMPLES)) {
-            for (Path source : files.toList()) {
-                String name = source.getFileName().toString();
-                if (!name.endsWith(".json") || name.startsWith("_")) {
+        List<String> copied = new ArrayList<>();
+        try (Stream<Path> walk = Files.walk(EXAMPLES)) {
+            for (Path source : walk.filter(Files::isRegularFile).toList()) {
+                Path relative = EXAMPLES.relativize(source);
+                if (isIgnored(relative)) {
                     continue;
                 }
-                Files.copy(source, target.resolve(name));
-                names.add(name);
+                Path destination = target.resolve(relative.toString());
+                Files.createDirectories(destination.getParent());
+                Files.copy(source, destination);
+                copied.add(relative.toString().replace('\\', '/'));
             }
         }
-        Collections.sort(names);
+        Collections.sort(copied);
 
-        if (names.isEmpty()) {
+        if (copied.isEmpty()) {
             throw new IllegalStateException("no example quests at " + EXAMPLES.toAbsolutePath()
                     + " -- the tests run from the Gradle project directory, so this is relative to"
                     + " tasked/common, and the examples belong in tasked/tools/quests");
         }
-        return names;
+        return copied;
+    }
+
+    /**
+     * Whether a path under the examples directory is to be skipped.
+     *
+     * <p>Every segment, not just the last. See {@link #seedExamples} — the {@code _schema} folder is a
+     * directory, and a rule that only looked at the file's own name would copy its contents.
+     */
+    private static boolean isIgnored(Path relative) {
+        for (Path segment : relative) {
+            if (segment.toString().startsWith("_")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * One seeded example's text, by the relative path this test seeded it under.
+     *
+     * <p>Was used by {@link #theSeededExamplesLoad} to decode each seeded file and count what was in
+     * it. That count is impossible under the folder format — a {@code group.json} holds a list of names
+     * and the names are the directory listing — so the count reads the paths themselves now, and this
+     * has no callers. It is kept rather than deleted for the one thing it is still good for: a test that
+     * wants to assert something about the <i>bytes</i> of an example, which nothing does today.
+     *
+     * <p>Concretely: "the seeded file on disk is the file the loader read" is a claim a per-byte
+     * comparison would make and a count cannot. Nothing needs it yet, and inventing a use for it would
+     * be worse than leaving it here with a note saying so.
+     */
+    private static String readExample(String relative) throws IOException {
+        return Files.readString(EXAMPLES.resolve(relative), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private static void deleteRecursively(Path root) throws IOException {

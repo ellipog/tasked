@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "hc_end",
+  "title": "The Last One",
+  "subtitle": "Invisible until it is done",
+  "description": [
+    "Hidden, in the position every chapter's last node occupies, so the gap is where you",
+    "expect it."
+  ],
+  "icon": { "item": "minecraft:nether_star" },
+  "x": 528,
+  "y": 104,
+  "shape": "circle",
+  "size": 36,
+  "iconScale": 0.9,
+  "invisible": true,
+
+  "dependsOn": ["hc_read"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glowstone", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:nether_star", "count": 1 }
+  ]
+}

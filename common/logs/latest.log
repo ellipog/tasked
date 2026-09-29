@@ -1,21 +1,273 @@
-[23:18:51] [Test worker/INFO]: Tasked: declared 4 payload(s)
-[23:18:55] [Test worker/INFO]: tasked: progress is now for team 57ba4126-4281-4e8b-986e-457aaceeb24b (was a3dcbb3f-ff01-4e24-81a8-c39a5ce48913)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: progress is now for team ffffffff-ffff-ffff-ffff-ffffffffffff (was 3f2a1b4c-5d6e-7f80-9a0b-1c2d3e4f5061)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/ERROR]: tasked: the server sent progress this client could not read
+[01:16:01] [Test worker/INFO]: Loaded 1291 recipes
+[01:16:01] [Test worker/INFO]: Loaded 1400 advancements
+[01:16:02] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
+[01:16:02] [Worker-Main-12/INFO]: Preparing spawn area: 2%
+[01:16:02] [Server thread/INFO]: Time elapsed: 164 ms
+[01:16:03] [Test worker/INFO]: Tasked: loaded 132 file(s) cleanly
+[01:16:03] [Test worker/INFO]: Tasked: quest tree (110 quests in 18 chapters)
+  Getting Started
+    First Steps  [first_steps]
+      Punch a Tree  [punch_a_tree]  1 task(s), 1 reward(s)
+      Somewhere to Work  [make_a_table]  1 task(s), 2 reward(s), after [punch_a_tree]
+      Stone Tools  [stone_tools]  2 task(s), 2 reward(s), after [make_a_table]
+      Fine, I Read It  [read_the_sign]  1 task(s), 1 reward(s), after [punch_a_tree]
+      Down There  [the_underground]  1 task(s), 1 reward(s), after [stone_tools]
+  The Road
+    Desert Road  [desert_road]
+      Sift the Sand  [sift_the_sand]  1 task(s), 1 reward(s)
+      Walls of a Kind  [build_the_walls]  1 task(s), 1 reward(s)
+      Melt It Clear  [melt_the_glass]  1 task(s), 1 reward(s)
+      Something Green  [a_little_green]  1 task(s), 1 reward(s)
+      Trade the Glass  [trade_the_glass]  1 task(s), 1 reward(s)
+      The Road Home  [the_road_home]  1 task(s), 1 reward(s)
+  The Trade
+    Toolsmith  [toolsmith]
+      Iron, Twice  [smelt_iron]  1 task(s), 1 reward(s)
+      Something to Hit With  [forge_a_hammer]  1 task(s), 2 reward(s), after [smelt_iron]
+      The Blade  [specialise_blade]  1 task(s), 1 reward(s), after [forge_a_hammer]
+      The Tools  [specialise_tools]  1 task(s), 1 reward(s), after [forge_a_hammer]
+      Stoke the Fire  [tend_the_forge]  1 task(s), 1 reward(s), after [smelt_iron]
+      One of the Two Above  [build_all_the_things]  1 task(s), 2 reward(s), after [specialise_blade, specialise_tools]
+      One Thing at a Time  [the_long_road]  2 task(s), 1 reward(s), after [build_all_the_things]
+      Curiosity  [optional_curiosity]  2 task(s), 1 reward(s), after [forge_a_hammer]
+      The Hoard  [the_hoard]  1 task(s), 1 reward(s), after [tend_the_forge]
+  Theme Gallery
+    Modern  [gallery_modern]
+      The Yard  [works_yard]  1 task(s), 1 reward(s)
+      The Furnace  [works_smelt]  1 task(s), 1 reward(s), after [works_yard]
+      The Line  [works_railway]  1 task(s), 1 reward(s), after [works_yard]
+      The Drive  [works_power]  2 task(s), 0 reward(s), after [works_smelt, works_railway]
+      The Inspection  [works_inspection]  2 task(s), 1 reward(s), after [works_power]
+      The Office  [works_office]  1 task(s), 1 reward(s), after [works_inspection]
+    Tome  [gallery_tome]
+      Pens and Ink  [script_pens]  1 task(s), 1 reward(s)
+      Bind It Shut  [script_bind]  1 task(s), 1 reward(s), after [script_pens]
+      Copy the Page  [script_copy]  1 task(s), 1 reward(s), after [script_pens]
+      The Catalogue  [script_catalogue]  2 task(s), 0 reward(s), after [script_bind, script_copy]
+      First Reading  [script_reading]  2 task(s), 1 reward(s), after [script_catalogue]
+      The Vault  [script_vault]  1 task(s), 1 reward(s), after [script_reading]
+    Vanilla Plus  [gallery_vanilla_plus]
+      Break the Ground  [farm_break]  1 task(s), 1 reward(s)
+      A Source  [farm_water]  1 task(s), 1 reward(s), after [farm_break]
+      Plant Again  [farm_renew]  1 task(s), 1 reward(s), after [farm_break]
+      Keep the Animals  [farm_keep]  2 task(s), 0 reward(s), after [farm_water, farm_renew]
+      Market Day  [farm_market]  2 task(s), 1 reward(s), after [farm_keep]
+      The Barn  [farm_barn]  1 task(s), 1 reward(s), after [farm_market]
+    High Contrast  [gallery_high_contrast]
+      First Step  [hc_start]  1 task(s), 1 reward(s)
+      Stock Up  [hc_count]  1 task(s), 1 reward(s), after [hc_start]
+      Keep Going  [hc_repeat]  1 task(s), 1 reward(s), after [hc_start]
+      Either Will Do  [hc_gate]  2 task(s), 0 reward(s), after [hc_count, hc_repeat]
+      Read This  [hc_read]  2 task(s), 1 reward(s), after [hc_gate]
+      The Last One  [hc_end]  1 task(s), 1 reward(s), after [hc_read]
+    Monochrome  [gallery_monochrome]
+      Begin  [mono_start]  1 task(s), 1 reward(s)
+      Gather  [mono_count]  1 task(s), 1 reward(s), after [mono_start]
+      Again  [mono_repeat]  1 task(s), 1 reward(s), after [mono_start]
+      Blocked  [mono_gate]  2 task(s), 0 reward(s), after [mono_count, mono_repeat]
+      Read  [mono_read]  2 task(s), 1 reward(s), after [mono_gate]
+      Finished  [mono_end]  1 task(s), 1 reward(s), after [mono_read]
+    Paper  [gallery_paper]
+      A Clean Page  [paper_start]  1 task(s), 1 reward(s)
+      Three Sheets  [paper_count]  1 task(s), 1 reward(s), after [paper_start]
+      Copy It Out  [paper_repeat]  1 task(s), 1 reward(s), after [paper_start]
+      Under Seal  [paper_gate]  2 task(s), 0 reward(s), after [paper_count, paper_repeat]
+      The Long Chapter  [paper_read]  2 task(s), 1 reward(s), after [paper_gate]
+      The Last Page  [paper_end]  1 task(s), 1 reward(s), after [paper_read]
+    Obsidian  [gallery_obsidian]
+      Into the Dark  [obs_start]  1 task(s), 1 reward(s)
+      Four Blocks  [obs_count]  1 task(s), 1 reward(s), after [obs_start]
+      Mine Again  [obs_repeat]  1 task(s), 1 reward(s), after [obs_start]
+      The Seal  [obs_gate]  2 task(s), 0 reward(s), after [obs_count, obs_repeat]
+      What the Dark Said  [obs_read]  2 task(s), 1 reward(s), after [obs_gate]
+      The Core  [obs_end]  1 task(s), 1 reward(s), after [obs_read]
+    Amethyst  [gallery_amethyst]
+      A Good Seam  [ameth_start]  1 task(s), 1 reward(s)
+      Four Shards  [ameth_count]  1 task(s), 1 reward(s), after [ameth_start]
+      Chip Away  [ameth_repeat]  1 task(s), 1 reward(s), after [ameth_start]
+      The Geode  [ameth_gate]  2 task(s), 0 reward(s), after [ameth_count, ameth_repeat]
+      Inside the Geode  [ameth_read]  2 task(s), 1 reward(s), after [ameth_gate]
+      The Cutting Room  [ameth_end]  1 task(s), 1 reward(s), after [ameth_read]
+    Copper  [gallery_copper]
+      Fresh Copper  [cop_start]  1 task(s), 1 reward(s)
+      Smelt It Down  [cop_count]  1 task(s), 1 reward(s), after [cop_start]
+      Let It Weather  [cop_repeat]  1 task(s), 1 reward(s), after [cop_start]
+      Patina  [cop_gate]  2 task(s), 0 reward(s), after [cop_count, cop_repeat]
+      The Verdigris Log  [cop_read]  2 task(s), 1 reward(s), after [cop_gate]
+      The Lightning Rod  [cop_end]  1 task(s), 1 reward(s), after [cop_read]
+    Redstone  [gallery_redstone]
+      Power On  [red_start]  1 task(s), 1 reward(s)
+      Sixteen Signals  [red_count]  1 task(s), 1 reward(s), after [red_start]
+      Clock Circuit  [red_repeat]  1 task(s), 1 reward(s), after [red_start]
+      No Signal  [red_gate]  2 task(s), 0 reward(s), after [red_count, red_repeat]
+      The Schematic  [red_read]  2 task(s), 1 reward(s), after [red_gate]
+      Full Power  [red_end]  1 task(s), 1 reward(s), after [red_read]
+    Nether  [gallery_nether]
+      Through the Portal  [nether_start]  1 task(s), 1 reward(s)
+      Three Ingots  [nether_count]  1 task(s), 1 reward(s), after [nether_start]
+      Keep Digging  [nether_repeat]  1 task(s), 1 reward(s), after [nether_start]
+      Bastion Gate  [nether_gate]  2 task(s), 0 reward(s), after [nether_count, nether_repeat]
+      What the Piglins Said  [nether_read]  2 task(s), 1 reward(s), after [nether_gate]
+      The Crown  [nether_end]  1 task(s), 1 reward(s), after [nether_read]
+    End  [gallery_end]
+      The Gate  [end_start]  1 task(s), 1 reward(s)
+      Twelve Pearls  [end_count]  1 task(s), 1 reward(s), after [end_start]
+      Void Fishing  [end_repeat]  1 task(s), 1 reward(s), after [end_start]
+      The Inner Ring  [end_gate]  2 task(s), 0 reward(s), after [end_count, end_repeat]
+      The Obsidian Pillar  [end_read]  2 task(s), 1 reward(s), after [end_gate]
+      The Void  [end_end]  1 task(s), 1 reward(s), after [end_read]
+    Deep Dark  [gallery_deep_dark]
+      Wake Up  [deep_start]  1 task(s), 1 reward(s)
+      Nine Veins  [deep_count]  1 task(s), 1 reward(s), after [deep_start]
+      Spread  [deep_repeat]  1 task(s), 1 reward(s), after [deep_start]
+      The Sensor  [deep_gate]  2 task(s), 0 reward(s), after [deep_count, deep_repeat]
+      The City Below  [deep_read]  2 task(s), 1 reward(s), after [deep_gate]
+      The Heart  [deep_end]  1 task(s), 1 reward(s), after [deep_read]
+    Terminal  [gallery_terminal]
+      boot  [term_start]  1 task(s), 1 reward(s)
+      mount /dev/redstone  [term_count]  1 task(s), 1 reward(s), after [term_start]
+      cron --every 2m  [term_repeat]  1 task(s), 1 reward(s), after [term_start]
+      permission denied  [term_gate]  2 task(s), 0 reward(s), after [term_count, term_repeat]
+      man tasked  [term_read]  2 task(s), 1 reward(s), after [term_gate]
+      exit 0  [term_end]  1 task(s), 1 reward(s), after [term_read]
+    Neon  [gallery_neon]
+      Jack In  [neon_start]  1 task(s), 1 reward(s)
+      Charge Up  [neon_count]  1 task(s), 1 reward(s), after [neon_start]
+      Re-Sync  [neon_repeat]  1 task(s), 1 reward(s), after [neon_start]
+      Offline  [neon_gate]  2 task(s), 0 reward(s), after [neon_count, neon_repeat]
+      Packet Capture  [neon_read]  2 task(s), 1 reward(s), after [neon_gate]
+      Ghost in the Machine  [neon_end]  1 task(s), 1 reward(s), after [neon_read]
+[01:16:03] [Server thread/INFO]: tasked-tester[embedded] logged in with entity id 1 at (9.5, -60.0, -7.5)
+[01:16:04] [Server thread/INFO]: tasked-tester joined the game
+[01:16:04] [Test worker/INFO]: [STDOUT]:     server up: 110 quest(s) in 18 chapter(s), 4 chapter group(s)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     player 'tasked-tester' is on the player list: 1
+[01:16:04] [Test worker/INFO]: [STDOUT]:     the seeded examples are 110 quest(s) in 18 chapter(s) in 4 group(s), from 132 file(s)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 0
+        tasked.command.complete.locked
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit punch_a_tree 0                        -> 0
+        tasked.command.submit.refused
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 0
+        tasked.command.submit.refused
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /give @s minecraft:oak_log 8                         -> 1
+        Gave 8 [Oak Log] to tasked-tester
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'punch_a_tree' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 989ccad7-0f56-41ae-98d5-40ef1a0485c9)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
+        tasked.command.claim.done
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 0
+        tasked.command.claim.nothing
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'read_the_sign' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 1
+        tasked.command.submit.done
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
+        tasked.command.complete.done
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'stone_tools' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete stone_tools                         -> 1
+        tasked.command.complete.done
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'the_underground' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 1
+        tasked.command.complete.done
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked progress                                     -> 21
+        tasked.command.progress.header
+          §acompleted§r Somewhere to Work  §8[make_a_table]  §6(rewards waiting - /tasked claim make_a_table)
+              §7[  ]§r §70§r minecraft:crafting_table  §70/1
+          §acompleted§r Stone Tools  §8[stone_tools]  §6(rewards waiting - /tasked claim stone_tools)
+              §7[  ]§r §70§r minecraft:cobblestone x3  §70/3
+              §7[  ]§r §71§r minecraft:stick x2  §70/2
+          §acompleted§r Fine, I Read It  §8[read_the_sign]  §6(rewards waiting - /tasked claim read_the_sign)
+              §a[ok]§r §70§r I have read the sign  §71/1
+          §acompleted§r Down There  §8[the_underground]  §6(rewards waiting - /tasked claim the_underground)
+              §7[  ]§r §70§r minecraft:coal x16  §70/16
+          §funlocked§r Sift the Sand  §8[sift_the_sand]
+              §7[  ]§r §70§r minecraft:sand x16  §70/16
+          §funlocked§r Iron, Twice  §8[smelt_iron]
+              §7[  ]§r §70§r minecraft:iron_ingot x3  §70/3
+          §funlocked§r The Yard  §8[works_yard]
+              §7[  ]§r §70§r minecraft:cobblestone x8  §70/8
+          §funlocked§r Pens and Ink  §8[script_pens]
+              §7[  ]§r §70§r minecraft:paper x8  §70/8
+          §funlocked§r Break the Ground  §8[farm_break]
+              §7[  ]§r §70§r minecraft:wheat_seeds x8  §70/8
+          §funlocked§r First Step  §8[hc_start]
+              §7[  ]§r §70§r minecraft:coal x8  §70/8
+          §funlocked§r Begin  §8[mono_start]
+              §7[  ]§r §70§r minecraft:cobblestone x8  §70/8
+          §funlocked§r A Clean Page  §8[paper_start]
+              §7[  ]§r §70§r minecraft:paper x8  §70/8
+          §funlocked§r Into the Dark  §8[obs_start]
+              §7[  ]§r §70§r minecraft:obsidian x4  §70/4
+          §funlocked§r A Good Seam  §8[ameth_start]
+              §7[  ]§r §70§r minecraft:amethyst_shard x8  §70/8
+          §funlocked§r Fresh Copper  §8[cop_start]
+              §7[  ]§r §70§r minecraft:raw_copper x8  §70/8
+          §funlocked§r Power On  §8[red_start]
+              §7[  ]§r §70§r minecraft:redstone x8  §70/8
+          §funlocked§r Through the Portal  §8[nether_start]
+              §7[  ]§r §70§r minecraft:netherrack x8  §70/8
+          §funlocked§r The Gate  §8[end_start]
+              §7[  ]§r §70§r minecraft:ender_pearl x8  §70/8
+          §funlocked§r Wake Up  §8[deep_start]
+              §7[  ]§r §70§r minecraft:sculk x8  §70/8
+          §funlocked§r boot  §8[term_start]
+              §7[  ]§r §70§r minecraft:redstone x8  §70/8
+          §funlocked§r Jack In  §8[neon_start]
+              §7[  ]§r §70§r minecraft:glowstone x8  §70/8
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked reset make_a_table                           -> 1
+        tasked.command.reset.done
+[01:16:04] [Test worker/INFO]: [STDOUT]:     after resetting make_a_table: stone_tools=COMPLETED the_underground=COMPLETED (recorded, not asserted -- see the comment)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 0  (never ran: Incorrect argument for command at position 7: tasked <--[HERE])
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
+        tasked.command.complete.done
+[01:16:04] [Server thread/INFO]: tasked-friend[embedded] logged in with entity id 3 at (-5.5, -60.0, -2.5)
+[01:16:04] [Server thread/INFO]: tasked-friend joined the game
+[01:16:04] [Test worker/INFO]: [STDOUT]:     spawned 'tasked-friend', a second real player on the server
+[01:16:04] [Server thread/INFO]: armature: team 'the playthrough party' created by 989ccad7-0f56-41ae-98d5-40ef1a0485c9
+[01:16:04] [Server thread/INFO]: armature: 7fdc8deb-db72-4043-acc5-5c1eb21bfb27 joined team 'the playthrough party'
+[01:16:04] [Server thread/INFO]: tasked: tasked-friend completed 'punch_a_tree' for team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a -- rewards waiting
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
+        tasked.command.claim.done
+[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a -- rewards waiting
+[01:16:04] [Server thread/INFO]: tasked: tasked-friend collected the rewards for 'make_a_table' (team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a)
+[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim make_a_table                           -> 1
+        tasked.command.claim.done
+[01:16:04] [Test worker/INFO]: [STDOUT]:     after tasked-friend left: the party sees punch_a_tree=COMPLETED, and their own progress says UNLOCKED
+[01:16:04] [Test worker/INFO]: [STDOUT]:     after the owner left: solo progress is intact, punch_a_tree=COMPLETED the_underground=COMPLETED
+[01:16:04] [Test worker/INFO]: [STDOUT]:     NOT PROVEN by these tests: that the same progress-sharing holds when the server is a real dedicated server with a real client attached. Every part Tasked owns is covered, and nothing in Tasked branches on isDedicatedServer -- but the loader's dedicated bootstrap and the client's packet decode are not exercised here. That needs a real client, and it is the one item on the list that does.
+[01:16:04] [Test worker/INFO]: [STDOUT]:     an idle tick reports nothing: the engine's own output is empty, so the sync it drives costs nothing on the ticks where nothing happened
+[01:16:04] [Test worker/INFO]: [STDOUT]:     playthrough transcript: C:\Users\Ellio\Documents\GitHub\minecraft\tasked\common\build\playthrough\transcript.txt
+[01:16:04] [Server thread/INFO]: Stopping server
+[01:16:04] [Server thread/INFO]: Saving players
+[01:16:04] [Server thread/INFO]: tasked-tester lost connection: Server closed
+[01:16:04] [Server thread/INFO]: tasked-tester left the game
+[01:16:04] [Server thread/INFO]: Saving worlds
+[01:16:04] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:overworld
+[01:16:05] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_end
+[01:16:05] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_nether
+[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (playthrough): All chunks are saved
+[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+[01:16:05] [Test worker/INFO]: Tasked: declared 4 payload(s)
+[01:16:05] [Test worker/INFO]: tasked: progress is now for team 877e74c4-0701-493c-a4e4-8fcd4ebb5cdf (was 28be1700-41f8-499b-891c-021e1915ed34)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: progress is now for team ffffffff-ffff-ffff-ffff-ffffffffffff (was 3f2a1b4c-5d6e-7f80-9a0b-1c2d3e4f5061)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/ERROR]: tasked: the server sent progress this client could not read
 com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Expected value at line 1 column 1 path $
 	at com.google.gson.internal.Streams.parse(Streams.java:61) ~[gson-2.10.1.jar:?]
 	at com.google.gson.JsonParser.parseReader(JsonParser.java:102) ~[gson-2.10.1.jar:?]
 	at com.google.gson.JsonParser.parseReader(JsonParser.java:70) ~[gson-2.10.1.jar:?]
 	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.parseProgress(ClientQuestCache.java:501) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:350) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:306) ~[main/:?]
-	at dev.ellipog.tasked.net.QuestSyncTest.malformedProgressIsDiscarded(QuestSyncTest.java:656) ~[test/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseProgress(ClientQuestCache.java:626) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:436) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:392) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest.malformedProgressIsDiscarded(QuestSyncTest.java:1005) ~[test/:?]
 	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
 	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
@@ -103,14 +355,14 @@ Caused by: com.google.gson.stream.MalformedJsonException: Expected value at line
 	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
 	at com.google.gson.internal.Streams.parse(Streams.java:47) ~[gson-2.10.1.jar:?]
 	... 88 more
-[23:18:55] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
+[01:16:05] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
 com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
 	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
 	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:390) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:272) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:266) ~[main/:?]
-	at dev.ellipog.tasked.net.QuestSyncTest.malformedTreeIsDiscarded(QuestSyncTest.java:647) ~[test/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest.malformedTreeIsDiscarded(QuestSyncTest.java:996) ~[test/:?]
 	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
 	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
 	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
@@ -199,288 +451,149 @@ Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLeni
 	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
 	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
 	... 86 more
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 0 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/WARN]: tasked: refused a progress delta for team 62e69c92-1cb1-44b2-b171-ca56b2dc8986 -- this client holds no full sync for it (it holds null), so there is nothing for the delta to be relative to. The server sends a full sync on join and on reload.
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/WARN]: tasked: ignored an unreadable progress message from the server: unknown sync message flag 116 -- this build writes 0 (raw) and 1 (deflate)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: progress is now for team bdbb4a59-6d8a-4e2d-a829-315fd4ab115b (was 7a9e9c7d-8a12-48c3-8360-9fad76a85c70)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/WARN]: tasked: ignored an unplaceable tree chunk from the server: chunk 5 is outside a message of 2 chunk(s)
-[23:18:55] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[23:18:55] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[23:18:56] [Test worker/INFO]: [STDOUT]:     seeded 4 example questline(s) into build\playthrough\config\tasked\quests
-[23:18:57] [Test worker/INFO]: Loaded 1291 recipes
-[23:18:57] [Test worker/INFO]: Loaded 1400 advancements
-[23:18:58] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
-[23:18:58] [Worker-Main-5/INFO]: Preparing spawn area: 2%
-[23:18:59] [Server thread/INFO]: Time elapsed: 185 ms
-[23:18:59] [Test worker/INFO]: Tasked: loaded 4 file(s) cleanly
-[23:18:59] [Test worker/INFO]: Tasked: quest tree (110 quests in 18 chapters)
-  01_stone_age.json
-    Getting Started
-      First Steps  [first_steps]
-        Punch a Tree  [punch_a_tree]  1 task(s), 1 reward(s)
-        Somewhere to Work  [make_a_table]  1 task(s), 2 reward(s), after [punch_a_tree]
-        Stone Tools  [stone_tools]  2 task(s), 2 reward(s), after [make_a_table]
-        Fine, I Read It  [read_the_sign]  1 task(s), 1 reward(s), after [punch_a_tree]
-        Down There  [the_underground]  1 task(s), 1 reward(s), after [stone_tools]
-  02_toolsmith.json
-    The Trade
-      Toolsmith  [toolsmith]
-        Iron, Twice  [smelt_iron]  1 task(s), 1 reward(s)
-        Something to Hit With  [forge_a_hammer]  1 task(s), 2 reward(s), after [smelt_iron]
-        The Blade  [specialise_blade]  1 task(s), 1 reward(s), after [forge_a_hammer]
-        The Tools  [specialise_tools]  1 task(s), 1 reward(s), after [forge_a_hammer]
-        Stoke the Fire  [tend_the_forge]  1 task(s), 1 reward(s), after [smelt_iron]
-        One of the Two Above  [build_all_the_things]  1 task(s), 2 reward(s), after [specialise_blade, specialise_tools]
-        One Thing at a Time  [the_long_road]  2 task(s), 1 reward(s), after [build_all_the_things]
-        Curiosity  [optional_curiosity]  2 task(s), 1 reward(s), after [forge_a_hammer]
-        The Hoard  [the_hoard]  1 task(s), 1 reward(s), after [tend_the_forge]
-  03_desert_road.json
-    The Road
-      Desert Road  [desert_road]
-        Sift the Sand  [sift_the_sand]  1 task(s), 1 reward(s)
-        Walls of a Kind  [build_the_walls]  1 task(s), 1 reward(s)
-        Melt It Clear  [melt_the_glass]  1 task(s), 1 reward(s)
-        Something Green  [a_little_green]  1 task(s), 1 reward(s)
-        Trade the Glass  [trade_the_glass]  1 task(s), 1 reward(s)
-        The Road Home  [the_road_home]  1 task(s), 1 reward(s)
-  04_theme_gallery.json
-    Theme Gallery
-      Modern  [gallery_modern]
-        The Yard  [works_yard]  1 task(s), 1 reward(s)
-        The Furnace  [works_smelt]  1 task(s), 1 reward(s), after [works_yard]
-        The Line  [works_railway]  1 task(s), 1 reward(s), after [works_yard]
-        The Drive  [works_power]  2 task(s), 0 reward(s), after [works_smelt, works_railway]
-        The Inspection  [works_inspection]  2 task(s), 1 reward(s), after [works_power]
-        The Office  [works_office]  1 task(s), 1 reward(s), after [works_inspection]
-      Tome  [gallery_tome]
-        Pens and Ink  [script_pens]  1 task(s), 1 reward(s)
-        Bind It Shut  [script_bind]  1 task(s), 1 reward(s), after [script_pens]
-        Copy the Page  [script_copy]  1 task(s), 1 reward(s), after [script_pens]
-        The Catalogue  [script_catalogue]  2 task(s), 0 reward(s), after [script_bind, script_copy]
-        First Reading  [script_reading]  2 task(s), 1 reward(s), after [script_catalogue]
-        The Vault  [script_vault]  1 task(s), 1 reward(s), after [script_reading]
-      Vanilla Plus  [gallery_vanilla_plus]
-        Break the Ground  [farm_break]  1 task(s), 1 reward(s)
-        A Source  [farm_water]  1 task(s), 1 reward(s), after [farm_break]
-        Plant Again  [farm_renew]  1 task(s), 1 reward(s), after [farm_break]
-        Keep the Animals  [farm_keep]  2 task(s), 0 reward(s), after [farm_water, farm_renew]
-        Market Day  [farm_market]  2 task(s), 1 reward(s), after [farm_keep]
-        The Barn  [farm_barn]  1 task(s), 1 reward(s), after [farm_market]
-      High Contrast  [gallery_high_contrast]
-        First Step  [hc_start]  1 task(s), 1 reward(s)
-        Stock Up  [hc_count]  1 task(s), 1 reward(s), after [hc_start]
-        Keep Going  [hc_repeat]  1 task(s), 1 reward(s), after [hc_start]
-        Either Will Do  [hc_gate]  2 task(s), 0 reward(s), after [hc_count, hc_repeat]
-        Read This  [hc_read]  2 task(s), 1 reward(s), after [hc_gate]
-        The Last One  [hc_end]  1 task(s), 1 reward(s), after [hc_read]
-      Monochrome  [gallery_monochrome]
-        Begin  [mono_start]  1 task(s), 1 reward(s)
-        Gather  [mono_count]  1 task(s), 1 reward(s), after [mono_start]
-        Again  [mono_repeat]  1 task(s), 1 reward(s), after [mono_start]
-        Blocked  [mono_gate]  2 task(s), 0 reward(s), after [mono_count, mono_repeat]
-        Read  [mono_read]  2 task(s), 1 reward(s), after [mono_gate]
-        Finished  [mono_end]  1 task(s), 1 reward(s), after [mono_read]
-      Paper  [gallery_paper]
-        A Clean Page  [paper_start]  1 task(s), 1 reward(s)
-        Three Sheets  [paper_count]  1 task(s), 1 reward(s), after [paper_start]
-        Copy It Out  [paper_repeat]  1 task(s), 1 reward(s), after [paper_start]
-        Under Seal  [paper_gate]  2 task(s), 0 reward(s), after [paper_count, paper_repeat]
-        The Long Chapter  [paper_read]  2 task(s), 1 reward(s), after [paper_gate]
-        The Last Page  [paper_end]  1 task(s), 1 reward(s), after [paper_read]
-      Obsidian  [gallery_obsidian]
-        Into the Dark  [obs_start]  1 task(s), 1 reward(s)
-        Four Blocks  [obs_count]  1 task(s), 1 reward(s), after [obs_start]
-        Mine Again  [obs_repeat]  1 task(s), 1 reward(s), after [obs_start]
-        The Seal  [obs_gate]  2 task(s), 0 reward(s), after [obs_count, obs_repeat]
-        What the Dark Said  [obs_read]  2 task(s), 1 reward(s), after [obs_gate]
-        The Core  [obs_end]  1 task(s), 1 reward(s), after [obs_read]
-      Amethyst  [gallery_amethyst]
-        A Good Seam  [ameth_start]  1 task(s), 1 reward(s)
-        Four Shards  [ameth_count]  1 task(s), 1 reward(s), after [ameth_start]
-        Chip Away  [ameth_repeat]  1 task(s), 1 reward(s), after [ameth_start]
-        The Geode  [ameth_gate]  2 task(s), 0 reward(s), after [ameth_count, ameth_repeat]
-        Inside the Geode  [ameth_read]  2 task(s), 1 reward(s), after [ameth_gate]
-        The Cutting Room  [ameth_end]  1 task(s), 1 reward(s), after [ameth_read]
-      Copper  [gallery_copper]
-        Fresh Copper  [cop_start]  1 task(s), 1 reward(s)
-        Smelt It Down  [cop_count]  1 task(s), 1 reward(s), after [cop_start]
-        Let It Weather  [cop_repeat]  1 task(s), 1 reward(s), after [cop_start]
-        Patina  [cop_gate]  2 task(s), 0 reward(s), after [cop_count, cop_repeat]
-        The Verdigris Log  [cop_read]  2 task(s), 1 reward(s), after [cop_gate]
-        The Lightning Rod  [cop_end]  1 task(s), 1 reward(s), after [cop_read]
-      Redstone  [gallery_redstone]
-        Power On  [red_start]  1 task(s), 1 reward(s)
-        Sixteen Signals  [red_count]  1 task(s), 1 reward(s), after [red_start]
-        Clock Circuit  [red_repeat]  1 task(s), 1 reward(s), after [red_start]
-        No Signal  [red_gate]  2 task(s), 0 reward(s), after [red_count, red_repeat]
-        The Schematic  [red_read]  2 task(s), 1 reward(s), after [red_gate]
-        Full Power  [red_end]  1 task(s), 1 reward(s), after [red_read]
-      Nether  [gallery_nether]
-        Through the Portal  [nether_start]  1 task(s), 1 reward(s)
-        Three Ingots  [nether_count]  1 task(s), 1 reward(s), after [nether_start]
-        Keep Digging  [nether_repeat]  1 task(s), 1 reward(s), after [nether_start]
-        Bastion Gate  [nether_gate]  2 task(s), 0 reward(s), after [nether_count, nether_repeat]
-        What the Piglins Said  [nether_read]  2 task(s), 1 reward(s), after [nether_gate]
-        The Crown  [nether_end]  1 task(s), 1 reward(s), after [nether_read]
-      End  [gallery_end]
-        The Gate  [end_start]  1 task(s), 1 reward(s)
-        Twelve Pearls  [end_count]  1 task(s), 1 reward(s), after [end_start]
-        Void Fishing  [end_repeat]  1 task(s), 1 reward(s), after [end_start]
-        The Inner Ring  [end_gate]  2 task(s), 0 reward(s), after [end_count, end_repeat]
-        The Obsidian Pillar  [end_read]  2 task(s), 1 reward(s), after [end_gate]
-        The Void  [end_end]  1 task(s), 1 reward(s), after [end_read]
-      Deep Dark  [gallery_deep_dark]
-        Wake Up  [deep_start]  1 task(s), 1 reward(s)
-        Nine Veins  [deep_count]  1 task(s), 1 reward(s), after [deep_start]
-        Spread  [deep_repeat]  1 task(s), 1 reward(s), after [deep_start]
-        The Sensor  [deep_gate]  2 task(s), 0 reward(s), after [deep_count, deep_repeat]
-        The City Below  [deep_read]  2 task(s), 1 reward(s), after [deep_gate]
-        The Heart  [deep_end]  1 task(s), 1 reward(s), after [deep_read]
-      Terminal  [gallery_terminal]
-        boot  [term_start]  1 task(s), 1 reward(s)
-        mount /dev/redstone  [term_count]  1 task(s), 1 reward(s), after [term_start]
-        cron --every 2m  [term_repeat]  1 task(s), 1 reward(s), after [term_start]
-        permission denied  [term_gate]  2 task(s), 0 reward(s), after [term_count, term_repeat]
-        man tasked  [term_read]  2 task(s), 1 reward(s), after [term_gate]
-        exit 0  [term_end]  1 task(s), 1 reward(s), after [term_read]
-      Neon  [gallery_neon]
-        Jack In  [neon_start]  1 task(s), 1 reward(s)
-        Charge Up  [neon_count]  1 task(s), 1 reward(s), after [neon_start]
-        Re-Sync  [neon_repeat]  1 task(s), 1 reward(s), after [neon_start]
-        Offline  [neon_gate]  2 task(s), 0 reward(s), after [neon_count, neon_repeat]
-        Packet Capture  [neon_read]  2 task(s), 1 reward(s), after [neon_gate]
-        Ghost in the Machine  [neon_end]  1 task(s), 1 reward(s), after [neon_read]
-[23:18:59] [Server thread/INFO]: tasked-tester[embedded] logged in with entity id 1 at (-5.5, -60.0, 9.5)
-[23:18:59] [Server thread/INFO]: tasked-tester joined the game
-[23:18:59] [Test worker/INFO]: [STDOUT]:     server up: 110 quest(s) in 18 chapter(s), 4 group(s), from 4 file(s)
-[23:18:59] [Test worker/INFO]: [STDOUT]:     player 'tasked-tester' is on the player list: 1
-[23:18:59] [Test worker/INFO]: [STDOUT]:     the seeded examples are 110 quests in 18 chapters, from 4 files
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 0
-        tasked.command.complete.locked
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked submit punch_a_tree 0                        -> 0
-        tasked.command.submit.refused
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 0
-        tasked.command.submit.refused
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /give @s minecraft:oak_log 8                         -> 1
-        Gave 8 [Oak Log] to tasked-tester
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'punch_a_tree' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 0f56c923-d389-4552-bc20-5feea316df7e)
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
-        tasked.command.claim.done
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 0
-        tasked.command.claim.nothing
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'read_the_sign' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 1
-        tasked.command.submit.done
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
-        tasked.command.complete.done
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'stone_tools' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete stone_tools                         -> 1
-        tasked.command.complete.done
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'the_underground' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 1
-        tasked.command.complete.done
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked progress                                     -> 21
-        tasked.command.progress.header
-          §acompleted§r Somewhere to Work  §8[make_a_table]  §6(rewards waiting - /tasked claim make_a_table)
-              §7[  ]§r §70§r minecraft:crafting_table  §70/1
-          §acompleted§r Stone Tools  §8[stone_tools]  §6(rewards waiting - /tasked claim stone_tools)
-              §7[  ]§r §70§r minecraft:cobblestone x3  §70/3
-              §7[  ]§r §71§r minecraft:stick x2  §70/2
-          §acompleted§r Fine, I Read It  §8[read_the_sign]  §6(rewards waiting - /tasked claim read_the_sign)
-              §a[ok]§r §70§r I have read the sign  §71/1
-          §acompleted§r Down There  §8[the_underground]  §6(rewards waiting - /tasked claim the_underground)
-              §7[  ]§r §70§r minecraft:coal x16  §70/16
-          §funlocked§r Iron, Twice  §8[smelt_iron]
-              §7[  ]§r §70§r minecraft:iron_ingot x3  §70/3
-          §funlocked§r Sift the Sand  §8[sift_the_sand]
-              §7[  ]§r §70§r minecraft:sand x16  §70/16
-          §funlocked§r The Yard  §8[works_yard]
-              §7[  ]§r §70§r minecraft:cobblestone x8  §70/8
-          §funlocked§r Pens and Ink  §8[script_pens]
-              §7[  ]§r §70§r minecraft:paper x8  §70/8
-          §funlocked§r Break the Ground  §8[farm_break]
-              §7[  ]§r §70§r minecraft:wheat_seeds x8  §70/8
-          §funlocked§r First Step  §8[hc_start]
-              §7[  ]§r §70§r minecraft:coal x8  §70/8
-          §funlocked§r Begin  §8[mono_start]
-              §7[  ]§r §70§r minecraft:cobblestone x8  §70/8
-          §funlocked§r A Clean Page  §8[paper_start]
-              §7[  ]§r §70§r minecraft:paper x8  §70/8
-          §funlocked§r Into the Dark  §8[obs_start]
-              §7[  ]§r §70§r minecraft:obsidian x4  §70/4
-          §funlocked§r A Good Seam  §8[ameth_start]
-              §7[  ]§r §70§r minecraft:amethyst_shard x8  §70/8
-          §funlocked§r Fresh Copper  §8[cop_start]
-              §7[  ]§r §70§r minecraft:raw_copper x8  §70/8
-          §funlocked§r Power On  §8[red_start]
-              §7[  ]§r §70§r minecraft:redstone x8  §70/8
-          §funlocked§r Through the Portal  §8[nether_start]
-              §7[  ]§r §70§r minecraft:netherrack x8  §70/8
-          §funlocked§r The Gate  §8[end_start]
-              §7[  ]§r §70§r minecraft:ender_pearl x8  §70/8
-          §funlocked§r Wake Up  §8[deep_start]
-              §7[  ]§r §70§r minecraft:sculk x8  §70/8
-          §funlocked§r boot  §8[term_start]
-              §7[  ]§r §70§r minecraft:redstone x8  §70/8
-          §funlocked§r Jack In  §8[neon_start]
-              §7[  ]§r §70§r minecraft:glowstone x8  §70/8
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked reset make_a_table                           -> 1
-        tasked.command.reset.done
-[23:18:59] [Test worker/INFO]: [STDOUT]:     after resetting make_a_table: stone_tools=COMPLETED the_underground=COMPLETED (recorded, not asserted -- see the comment)
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 0  (never ran: Incorrect argument for command at position 7: tasked <--[HERE])
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 0f56c923-d389-4552-bc20-5feea316df7e -- rewards waiting
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
-        tasked.command.complete.done
-[23:18:59] [Server thread/INFO]: tasked-friend[embedded] logged in with entity id 3 at (-1.5, -60.0, -3.5)
-[23:18:59] [Server thread/INFO]: tasked-friend joined the game
-[23:18:59] [Test worker/INFO]: [STDOUT]:     spawned 'tasked-friend', a second real player on the server
-[23:18:59] [Server thread/INFO]: armature: team 'the playthrough party' created by 0f56c923-d389-4552-bc20-5feea316df7e
-[23:18:59] [Server thread/INFO]: armature: 3c69439c-a0f5-4010-84fb-407abf9eb669 joined team 'the playthrough party'
-[23:18:59] [Server thread/INFO]: tasked: tasked-friend completed 'punch_a_tree' for team 926ad079-eb5a-4eab-82f1-dd9e3a69be17 -- rewards waiting
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 926ad079-eb5a-4eab-82f1-dd9e3a69be17)
-[23:18:59] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
-        tasked.command.claim.done
-[23:18:59] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 926ad079-eb5a-4eab-82f1-dd9e3a69be17 -- rewards waiting
-[23:19:00] [Server thread/INFO]: tasked: tasked-friend collected the rewards for 'make_a_table' (team 926ad079-eb5a-4eab-82f1-dd9e3a69be17)
-[23:19:00] [Test worker/INFO]: [STDOUT]:     /tasked claim make_a_table                           -> 1
-        tasked.command.claim.done
-[23:19:00] [Test worker/INFO]: [STDOUT]:     after tasked-friend left: the party sees punch_a_tree=COMPLETED, and their own progress says UNLOCKED
-[23:19:00] [Test worker/INFO]: [STDOUT]:     after the owner left: solo progress is intact, punch_a_tree=COMPLETED the_underground=COMPLETED
-[23:19:00] [Test worker/INFO]: [STDOUT]:     NOT PROVEN by these tests: that the same progress-sharing holds when the server is a real dedicated server with a real client attached. Every part Tasked owns is covered, and nothing in Tasked branches on isDedicatedServer -- but the loader's dedicated bootstrap and the client's packet decode are not exercised here. That needs a real client, and it is the one item on the list that does.
-[23:19:00] [Test worker/INFO]: [STDOUT]:     an idle tick reports nothing: the engine's own output is empty, so the sync it drives costs nothing on the ticks where nothing happened
-[23:19:00] [Test worker/INFO]: [STDOUT]:     playthrough transcript: C:\Users\Ellio\Documents\GitHub\minecraft\tasked\common\build\playthrough\transcript.txt
-[23:19:00] [Server thread/INFO]: Stopping server
-[23:19:00] [Server thread/INFO]: Saving players
-[23:19:00] [Server thread/INFO]: tasked-tester lost connection: Server closed
-[23:19:00] [Server thread/INFO]: tasked-tester left the game
-[23:19:00] [Server thread/INFO]: Saving worlds
-[23:19:00] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:overworld
-[23:19:00] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_nether
-[23:19:00] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_end
-[23:19:00] [Server thread/INFO]: ThreadedAnvilChunkStorage (playthrough): All chunks are saved
-[23:19:00] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
-[23:19:00] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
-[23:19:00] [Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 0 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
+com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest$Revision.movesForAnUnreadableTree(QuestSyncTest.java:683) ~[test/:?]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
+Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
+	... 96 more
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/WARN]: tasked: the server sent a version 9 quest tree and this client understands up to version 2. Anything it added will not be drawn.
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/WARN]: tasked: refused a progress delta for team 44c94eb4-54d2-487f-bed5-7fedc7eec051 -- this client holds no full sync for it (it holds null), so there is nothing for the delta to be relative to. The server sends a full sync on join and on reload.
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/WARN]: tasked: ignored an unreadable progress message from the server: unknown sync message flag 116 -- this build writes 0 (raw) and 1 (deflate)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: progress is now for team fc8590ef-a639-4568-bba2-b00b5964a6ed (was ad40dad7-7ad8-4f8c-baf2-2b94a5a0e58a)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/WARN]: tasked: ignored an unplaceable tree chunk from the server: chunk 5 is outside a message of 2 chunk(s)
+[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)

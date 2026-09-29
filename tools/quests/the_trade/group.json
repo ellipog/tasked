@@ -1,0 +1,13 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_trade",
+  "title": "The Trade",
+  "description": [
+    "What a blacksmith's shop actually is, which is a pile of",
+    "iron and a person who has decided to be patient with it."
+  ],
+
+  "chapters": [
+    "toolsmith"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "desert_road",
+  "title": "Desert Road",
+  "subtitle": "Linear: the list order is the progression",
+  "icon": {
+    "item": "minecraft:sandstone"
+  },
+  "progressionMode": "linear",
+
+  "quests": [
+    "sift_the_sand.json",
+    "build_the_walls.json",
+    "melt_the_glass.json",
+    "a_little_green.json",
+    "trade_the_glass.json",
+    "the_road_home.json"
+  ]
+}

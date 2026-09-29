@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "farm_barn",
+  "title": "The Barn",
+  "subtitle": "Invisible until it is done",
+  "description": [
+    "The third hidden node, in the third chapter, at the same position as every chapter's.",
+    "",
+    "Everything in this file is arranged so that two chapters can be compared by clicking",
+    "between them without the layout moving underneath you. If a difference appears, it is",
+    "the theme. If the nodes jump, something is wrong with the file rather than the",
+    "renderer."
+  ],
+  "icon": { "item": "minecraft:oak_door" },
+  "x": 528,
+  "y": 104,
+  "shape": "circle",
+  "size": 36,
+  "iconScale": 0.9,
+  "invisible": true,
+
+  "dependsOn": ["farm_market"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:hay_block", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 3 }
+  ]
+}

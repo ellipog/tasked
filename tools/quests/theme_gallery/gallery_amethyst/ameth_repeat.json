@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "ameth_repeat",
+  "title": "Chip Away",
+  "subtitle": "Repeatable, with a cooldown",
+  "description": [
+    "A hexagon at size 40 in pale violet. On a radius-6 theme a hexagon's corners are the",
+    "flattest thing on screen, because it is the one shape whose corners are not rounded --",
+    "which makes it the shape to look at if you want to see what the radius is doing to",
+    "everything else."
+  ],
+  "icon": { "item": "minecraft:iron_pickaxe" },
+  "x": 132,
+  "y": 208,
+  "shape": "hexagon",
+  "size": 40,
+  "iconScale": 0.6,
+
+  "dependsOn": ["ameth_start"],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_cluster", "count": 4 }
+  ]
+}

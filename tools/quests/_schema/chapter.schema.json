@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ellipog.dev/tasked/_schema/chapter.schema.json",
+  "title": "Tasked chapter manifest",
+  "description": "One chapter folder's chapter.json, under config/tasked/quests/. The folder it sits in must be named after the chapter's id, and `quests` lists the file names of that chapter's quests, in the order they should appear.",
+  "type": "object",
+  "required": ["id", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Ignored by Tasked. For your editor. Depth-counted: three levels up from a chapter folder is the quest root."
+    },
+    "id": {
+      "$ref": "#/definitions/id",
+      "description": "Must equal the name of the folder this file is in. Tasked reports the mismatch naming both sides, and uses the folder name."
+    },
+    "title": { "$ref": "#/definitions/text" },
+    "subtitle": { "$ref": "#/definitions/text" },
+    "description": {
+      "oneOf": [
+        { "$ref": "#/definitions/text" },
+        { "type": "array", "items": { "$ref": "#/definitions/text" } }
+      ],
+      "description": "Paragraphs. A bare string is also accepted, for a one-line description."
+    },
+    "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
+    "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+
+    "progressionMode": {
+      "enum": ["flexible", "linear"],
+      "default": "flexible",
+      "description": "In a linear chapter the order of the `quests` list *is* the progression: each unlocks when the one above it completes, and no dependsOn is needed. A linear chapter that also declares dependsOn is a warning, not an error - the explicit edges win and the list order is then doing nothing."
+    },
+    "defaultPrerequisiteMode": {
+      "enum": ["all_completed", "one_completed", "all_started", "one_started"],
+      "default": "all_completed",
+      "description": "What every quest in this chapter uses unless it says otherwise."
+    },
+    "defaultConsumeItems": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether item tasks in this chapter take the items unless the task says otherwise. The inherited default, which is why it lives here: an author sets it once for a whole trade chapter."
+    },
+    "theme": {
+      "type": "string",
+      "description": "A palette this chapter asks to be drawn in. A client concept: the catalogue of themes lives on the client, so this is a plain string here and is reported by the client that could not resolve it."
+    },
+
+    "quests": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/name" },
+      "description": "The file names of this chapter's quests, in order. Load-bearing rather than cosmetic: a LINEAR chapter's progression *is* this order. A name here that is not on disk is reported; a quest file that is not named here is reported and never loads."
+    }
+  },
+
+  "definitions": {
+    "text": {
+      "description": "Either a plain string, or a translation key with an English fallback.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["translate"],
+          "additionalProperties": false,
+          "properties": {
+            "translate": { "type": "string" },
+            "fallback": {
+              "type": "string",
+              "description": "Shown if the translation is missing. Without it a player sees the raw key."
+            }
+          }
+        }
+      ]
+    },
+
+    "itemRef": {
+      "description": "An item and a count. Not an ItemStack - resolved at the moment it is used.",
+      "type": "object",
+      "required": ["item"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+          "description": "Namespaced item id, e.g. minecraft:oak_log. A missing mod is an error, not a warning: the quest could never be completed."
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 }
+      }
+    },
+
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,64}$",
+      "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "name": {
+      "type": "string",
+      "pattern": "^[^/\\\\.]{1,128}$",
+      "description": "A single path segment: the name of something in the same folder as the file that declares it. No separator, no `..`, and not beginning with `_` (every `_`-prefixed name is skipped, everywhere, so a reference to one could never resolve)."
+    }
+  }
+}

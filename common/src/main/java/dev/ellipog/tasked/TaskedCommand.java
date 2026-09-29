@@ -190,9 +190,10 @@ public final class TaskedCommand {
         }
 
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.quests.summary",
-                index.questCount(), index.chapterCount(), index.files().size()), false);
+                index.questCount(), index.chapterCount(), index.groupCount()), false);
 
-        for (ChapterGroup group : allGroups(index)) {
+        for (QuestIndex.GroupEntry entry : index.groups()) {
+            ChapterGroup group = entry.group();
             context.getSource().sendSuccess(() -> Component.literal("  " + group.title().value()), false);
             for (Chapter chapter : group.chapters()) {
                 context.getSource().sendSuccess(() -> Component.literal(
@@ -519,17 +520,11 @@ public final class TaskedCommand {
 
     // ------------------------------------------------------------------
 
-    /** Groups in load order, from the files rather than the lookup table — which holds one entry per alias. */
-    private static List<ChapterGroup> allGroups(QuestIndex index) {
-        return index.files().stream()
-                .flatMap(file -> file.file().chapterGroups().stream())
-                .toList();
-    }
-
+    /** Groups in load order, from the index rather than from a second walk over the files. */
     private static PrerequisiteMode effectiveMode(QuestIndex.QuestEntry entry) {
-        return TaskedQuests.index().chapter(entry.chapterId())
-                .map(chapter -> entry.quest().prerequisiteMode(chapter.chapter().defaultPrerequisiteMode()))
-                .orElse(PrerequisiteMode.ALL_COMPLETED);
+        // The chapter off the entry, which is the same object that lists this quest -- so the chapter
+        // default and the quest it applies to cannot come from two different chapters.
+        return entry.quest().prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
     }
 
     private static String stateColour(QuestState state) {

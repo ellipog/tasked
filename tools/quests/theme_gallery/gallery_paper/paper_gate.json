@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "paper_gate",
+  "title": "Under Seal",
+  "subtitle": "An OR-gate, one optional task, and no rewards",
+  "description": [
+    "This is the locked node, and it is the most interesting one in the gallery to look at",
+    "on this theme -- because the wash over a locked icon is a pale haze here rather than a",
+    "dark one.",
+    "",
+    "The icon underneath is FADED rather than darkened. On a dark theme a lock dims the",
+    "item; on this one it washes it out. Both say 'not yet' and they arrive at it from",
+    "opposite directions, which is exactly the kind of thing a theme is allowed to decide."
+  ],
+  "icon": { "item": "minecraft:written_book" },
+  "x": 264,
+  "y": 104,
+  "shape": "circle",
+  "size": 44,
+
+  "dependsOn": ["paper_count", "paper_repeat"],
+  "minRequired": 1,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:red_dye", "count": 1 },
+    { "type": "tasked:checkmark", "title": "I checked the seal",
+      "optional": true }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "toolsmith",
+  "title": "Toolsmith",
+  "subtitle": "Branches, a repeatable job, and a hoard",
+  "icon": {
+    "item": "minecraft:anvil"
+  },
+
+  "quests": [
+    "smelt_iron.json",
+    "forge_a_hammer.json",
+    "specialise_blade.json",
+    "specialise_tools.json",
+    "tend_the_forge.json",
+    "build_all_the_things.json",
+    "the_long_road.json",
+    "optional_curiosity.json",
+    "the_hoard.json"
+  ]
+}

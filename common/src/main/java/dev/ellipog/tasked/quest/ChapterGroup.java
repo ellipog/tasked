@@ -37,8 +37,25 @@ public record ChapterGroup(
         QuestText title,
         List<QuestText> description,
         List<String> aliases,
+        boolean collapsedByDefault,
         List<Chapter> chapters
 ) {
+
+    /**
+     * The field names this contributes, for the validator to allow.
+     *
+     * <p>Declared here rather than in the validator's own list, and that is a correction rather than a
+     * preference. The validator said its field sets "mirror a record's declared fields" and then held
+     * its own copies — so adding {@code collapsedByDefault} to this record was a two-file edit with
+     * nothing to catch a missed half. The symptom of getting it wrong is a field the codec reads and
+     * the validator reports as unknown, which is a file that works with checking disabled.
+     *
+     * <p>{@link GroupManifest} declares the same set, and the duplication is honest: a manifest and the
+     * group it becomes describe the same object, so they allow the same fields. The two are kept in
+     * step by a test rather than by a comment.
+     */
+    public static final java.util.Set<String> FIELDS = java.util.Set.of(
+            "id", "title", "description", "aliases", "collapsedByDefault", "chapters");
 
     /** Finds a chapter by id or alias. */
     public Optional<Chapter> chapter(String idOrAlias) {
@@ -53,17 +70,22 @@ public record ChapterGroup(
     public static final Codec<ChapterGroup> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.STRING.fieldOf("id").forGetter(ChapterGroup::id),
             QuestText.CODEC.fieldOf("title").forGetter(ChapterGroup::title),
-            // Accepts either shape, and the union is deliberate rather than lazy: a one-line group
-            // description written as a bare string is not a mistake worth failing a file over, and
-            // `Codec.either` costs one `xmap` to make both spellings work forever.
-            Codec.either(QuestText.CODEC, QuestText.CODEC.listOf())
-                    .xmap(either -> either.map(List::of, list -> list),
-                            list -> list.size() == 1
-                                    ? com.mojang.datafixers.util.Either.left(list.get(0))
-                                    : com.mojang.datafixers.util.Either.right(list))
-                    .optionalFieldOf("description", List.of())
+            // Accepts either shape. The union is QuestText's now -- see `LIST_OR_ONE`, which says why it
+            // moved there and why a one-element list comes back as a bare string.
+            QuestText.LIST_OR_ONE.optionalFieldOf("description", List.of())
                     .forGetter(ChapterGroup::description),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(ChapterGroup::aliases),
+            // Whether the book shows this group's chapters the first time it sees the tree.
+            //
+            // False by default, which is the honest default for a *version-1* file: the field is new,
+            // so every existing flat file has it absent, and absent has to mean "as it has always
+            // looked" -- open. A pack that wants a long progression collapsed says so per group.
+            //
+            // Note what this is not: it is not written to `config/armature/appearance.json`, and no
+            // client ever persists it there. That file is the player's and Armature's; this is a
+            // property of the questline, and it applies once, on the first sight of a tree. See
+            // Outline.seedFromDefaults.
+            Codec.BOOL.optionalFieldOf("collapsedByDefault", false).forGetter(ChapterGroup::collapsedByDefault),
             Chapter.CODEC.listOf().optionalFieldOf("chapters", List.of()).forGetter(ChapterGroup::chapters)
     ).apply(instance, ChapterGroup::new));
 }

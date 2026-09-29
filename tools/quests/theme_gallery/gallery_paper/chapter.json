@@ -1,0 +1,41 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "gallery_paper",
+  "title": "Paper",
+  "subtitle": "The only light theme there is",
+  "aliases": [
+    "paper",
+    "light"
+  ],
+  "theme": "paper",
+  "description": [
+    "Dark ink on pale surfaces, and the only theme in the set that inverts the relationship",
+    "every other one assumes -- text is darker than the surface behind it.",
+    "",
+    "That makes it worth opening even if you would never use it. Anywhere the interface",
+    "assumes 'brighter means more important', or draws a dark shadow, or uses white for a",
+    "highlight, this chapter makes it visible. A gallery of fourteen dark themes cannot find",
+    "those, because in all of them the assumption happens to be true.",
+    "",
+    "Its dim is a pale haze rather than a dark one, which is the one place a light theme has",
+    "to make a real decision. The dim exists to push the world back behind the panel; a light",
+    "theme can do that with brightness as well as with darkness, and a light theme that dimmed",
+    "to black would be a pale panel on a black void, which reads as a bug.",
+    "",
+    "Watch the locked node here in particular. Its wash is a translucent pale grey, which is",
+    "the opposite of what a dark theme does -- and the icon has to stay readable under it",
+    "either way."
+  ],
+  "icon": {
+    "item": "minecraft:paper"
+  },
+
+  "quests": [
+    "paper_start.json",
+    "paper_count.json",
+    "paper_repeat.json",
+    "paper_gate.json",
+    "paper_read.json",
+    "paper_end.json"
+  ]
+}

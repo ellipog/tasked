@@ -41,6 +41,32 @@ public record QuestText(String value, boolean translatable, Optional<String> fal
     public static final Codec<QuestText> CODEC = Codec.either(Codec.STRING, TranslateSpec.CODEC)
             .xmap(QuestText::fromEither, QuestText::toEither);
 
+    /**
+     * A list of paragraphs that also accepts one bare string.
+     *
+     * <h2>Why the union lives here rather than at each field that wants it</h2>
+     *
+     * <p>It was written inline on {@link ChapterGroup} for a chapter group's description, and it was
+     * right there for the reason its own javadoc gives: a one-line description written as a string is
+     * not a mistake worth failing a file over. The same is true of a group's description in the
+     * version-2 {@code group.json} — the field moved and the argument came with it — and two copies of
+     * a {@code Codec.either} plus its two {@code xmap} lambdas is two places for the one-line case to
+     * stop working.
+     *
+     * <p>So it is a codec here, beside the type whose values it carries. The asymmetry in the
+     * {@code xmap} is deliberate and is the whole trick: <b>a one-element list comes back as a bare
+     * string</b>, which means a round trip through a codec normalises rather than preserving the
+     * spelling. That is correct for a file format whose two spellings are equivalent — and it is worth
+     * naming, because a test that asserted "the string I wrote comes back as a string" would be
+     * asserting something the format does not promise.
+     */
+    public static final Codec<java.util.List<QuestText>> LIST_OR_ONE =
+            Codec.either(CODEC, CODEC.listOf())
+                    .xmap(either -> either.map(java.util.List::of, list -> list),
+                            list -> list.size() == 1
+                                    ? Either.left(list.get(0))
+                                    : Either.right(list));
+
     public static QuestText literal(String text) {
         return new QuestText(text, false, Optional.empty());
     }

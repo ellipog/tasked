@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "sift_the_sand",
+  "title": "Sift the Sand",
+  "subtitle": "Sixteen, and you will stop counting",
+  "description": [
+    "A tome-shaped node, and a name drawn under it.",
+    "",
+    "Every quest in this chapter has a title drawn under it,",
+    "because this is the chapter that demonstrating names is for --",
+    "and the other two chapters do not, which is the default."
+  ],
+  "icon": { "item": "minecraft:sand" },
+  "x": 0,
+  "y": 0,
+  "shape": "tome",
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sand", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:sandstone", "count": 8 }
+  ]
+}

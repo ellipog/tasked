@@ -1,0 +1,9 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "getting_started",
+  "title": "Getting Started",
+
+  "chapters": [
+    "first_steps"
+  ]
+}

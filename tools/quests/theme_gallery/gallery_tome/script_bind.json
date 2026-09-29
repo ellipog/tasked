@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "script_bind",
+  "title": "Bind It Shut",
+  "subtitle": "A count, so the progress bar appears",
+  "description": [
+    "The bar here is drawn in brass rather than in the available-blue, because the bar takes",
+    "the state colour and the state colours are per-theme.",
+    "",
+    "A theme that got its surfaces right and its state colours wrong shows up first on a",
+    "partly-filled bar and almost nowhere else."
+  ],
+  "icon": { "item": "minecraft:leather" },
+  "x": 132,
+  "y": 0,
+
+  "dependsOn": ["script_pens"],
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:leather", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:book", "count": 1 }
+  ]
+}

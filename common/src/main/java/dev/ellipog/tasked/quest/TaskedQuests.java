@@ -106,11 +106,19 @@ public final class TaskedQuests {
         }
     }
 
-    /** One line describing what is loaded, for {@code /tasked quests}. */
+    /**
+     * One line describing what is loaded, for the boot log.
+     *
+     * <p>Counted in groups, chapters and quests, and it used to end "from N file(s)". That term has no
+     * meaning in the folder layout — a group is a folder holding a manifest, and a chapter is a folder
+     * inside it — so the number it reported would have been a file count that no longer corresponded
+     * to anything a reader could point at. The loader's own result still reports files found and
+     * decoded, which is where that question belongs.
+     */
     public static String summary() {
         QuestIndex current = index();
         return current.questCount() + " quest(s) in " + current.chapterCount() + " chapter(s), "
-                + current.groupCount() + " group(s), from " + current.files().size() + " file(s)";
+                + current.groupCount() + " chapter group(s)";
     }
 
     /** A quest by id or alias, if it is loaded. */

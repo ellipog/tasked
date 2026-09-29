@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "build_the_walls",
+  "title": "Walls of a Kind",
+  "description": [
+    "No dependsOn field. This quest unlocks when the one above",
+    "it in the list completes, because the chapter is linear.",
+    "",
+    "Spelling that out as a dependsOn would have worked and would",
+    "have been the same thing said twice."
+  ],
+  "icon": { "item": "minecraft:sandstone" },
+  "x": 132,
+  "y": 0,
+  "size": 40,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sandstone", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:glass", "count": 4 }
+  ]
+}

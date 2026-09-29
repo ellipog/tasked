@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "trade_the_glass",
+  "title": "Trade the Glass",
+  "subtitle": "A trade, so it takes the panes",
+  "description": [
+    "This task consumes -- four glass panes go into the trade and",
+    "do not come back. The chapter's defaultConsumeItems is false,",
+    "so the flag is on the task itself.",
+    "",
+    "Handing this in needs the panes to really be in the inventory.",
+    "The Submit button checks, and so does the server."
+  ],
+  "icon": { "item": "minecraft:emerald" },
+  "x": 264,
+  "y": 104,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glass_pane", "count": 4,
+      "consumeItems": true }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 2 }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "works_yard",
+  "title": "The Yard",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "Four things are on screen at once when this chapter opens, which is why it is first:",
+    "an available node, a locked one, a connector line between them, and a hover ring as",
+    "soon as you put the pointer on this one.",
+    "",
+    "The hover ring follows the node's shape. On a circle it is a ring -- it used to be a",
+    "rectangle drawn around a disc, which reads as two unrelated things stacked."
+  ],
+  "icon": { "item": "minecraft:iron_ingot" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:stone_pickaxe", "count": 1 }
+  ]
+}

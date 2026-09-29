@@ -97,7 +97,7 @@ import java.util.Map;
  * <p>{@code canvasRight() == panelLeft() + panelWidth()}, so the two x values are 10px apart, and the
  * two y values are ~15px apart — a collision. So every position that the drawing and the controls both
  * need now comes from a helper method: {@link #footerRow1Y()}, {@link #footerRow2Y()},
- * {@link #stripButtonX()}, {@link #stripButtonY()}, {@link #chapterRows()}. One expression, used twice,
+ * {@link #stripButtonX()}, {@link #stripButtonY()}, {@link #sidebarViewport()}. One expression, used twice,
  * rather than two expressions that happen to agree until someone changes one.
  *
  * <h2>Every colour is eight digits</h2>
@@ -330,6 +330,51 @@ public final class QuestBookScreen extends Screen {
      */
     private final ScrollView overlayView = ScrollView.of(Viewport.fixed());
 
+    /**
+     * The chapter list, as a scroll view over {@link BookGeometry#sidebarViewport()}.
+     *
+     * <h2>Why the rows are widgets rather than drawn lines</h2>
+     *
+     * <p>Because they are the thing a click lands on, and a hand-drawn row cannot take focus, cannot be
+     * narrated, and has no hover state unless this class reimplements one per row. Every one of those is
+     * already solved by {@code AbstractWidget}, and the price of getting them is a class that moves the
+     * widget when the content scrolls — which is {@link ScrollView}'s whole job.
+     *
+     * <p>The viewport is fixed-scale: a sidebar does not zoom, and a view that reported a zoom range of
+     * one would be a view whose zoom controls are drawn, enabled, and do nothing.
+     *
+     * <p>It is <b>not</b> cleared on a resize, and that is deliberate. {@code init} runs on every resize
+     * and on every rebuild, and the outline's expansion state — and so the player's collapses — lives in
+     * {@link #sidebar}, which is keyed on the tree rather than on the window. The scroll offset lives in
+     * this object's viewport, so it survives a resize too: a window dragged narrower while the list is
+     * scrolled keeps its place, which is what every other list on any platform does.
+     */
+    private final ScrollView sidebarView = ScrollView.of(Viewport.fixed());
+
+    /**
+     * The sidebar's outline, and the tree revision it was built from.
+     *
+     * <h2>Why the outline is kept rather than rebuilt</h2>
+     *
+     * <p>Because it holds the player's collapsed groups. Rebuilding it from the server's data on every
+     * <code>init</code> would re-seed it from the authored defaults, so a resize would silently reopen
+     * every group the player had closed — and a rebuild happens on every window resize, every click that
+     * selects a chapter, and every quest the screen opens.
+     *
+     * <p>The revision is what decides when to rebuild, and it is the counter
+     * {@code ClientQuestCache.treeRevision()} exists to provide: it moves when a tree arrives and when a
+     * cache is cleared, and <b>not</b> when a screen merely reads one. So a resize, a scroll, a toggle
+     * and a redraw all leave the outline alone, and a reload — which is a tree arriving — builds a new
+     * one. See that method's own note for why the unit is "a tree arrived" rather than "the tree
+     * differs".
+     *
+     * <p>{@code -1} rather than {@code 0} for the initial value, because a revision is only ever
+     * compared and a real one could legitimately be zero on the first tree. A sentinel that cannot be
+     * mistaken for a real value is the difference between "definitely stale" and "probably stale".
+     */
+    private static SidebarLayout sidebar;
+    private static long sidebarRevision = -1;
+
     private boolean dragging;
     private boolean pressMoved;
     private double pressX;
@@ -425,15 +470,178 @@ public final class QuestBookScreen extends Screen {
     }
 
     /**
-     * How many chapter rows fit above the footer.
+     * The region the sidebar's rows scroll within, with its bounds taken from the current window.
      *
-     * <p>This replaced {@code (footerRow1Y() - 6 - chapterListTop()) / 22} — the same arithmetic with
-     * the 6 and the 22 written in by hand twice, once here and once where the chapter rows were drawn.
-     * {@link BookGeometry} derives the row count from its own {@code CHAPTER_ROW_PITCH}, so a row can
-     * no longer be drawn underneath a footer button by changing one number and not the other.
+     * <p>Re-applied on every use, like {@link #viewport()} and for the same reason: a resize is announced
+     * to {@code init} and to nothing else, and {@link #render} and {@code mouseClicked} are not in an
+     * order this class could rely on — so a bound rectangle stored once would be describing the previous
+     * window for an unknown number of frames.
+     *
+     * <h2>This is what replaced {@code chapterRows()}</h2>
+     *
+     * <p>That answered "how many rows fit above the bottom", which is the question a screen asks when it
+     * has to decide where row <i>n</i> goes. The rows are placed by a {@link dev.ellipog.armature.client.ui.kit.Stack}
+     * inside a {@link ScrollView} now, so a count is no longer part of the contract and the arithmetic
+     * that produced it has no owner. What the framing still owes the list is the <b>region</b> — a list
+     * cannot know where its own edge is — and that is what this returns.
+     *
+     * <p>Both the scrolling and the culling read it, so it is the one rectangle that decides what is on
+     * screen: {@link ScrollView#apply} places against it and hides what falls outside, and
+     * {@link #mouseScrolled} routes the wheel by it.
      */
-    private int chapterRows() {
-        return geometry().chapterRows();
+    private Viewport sidebarViewport() {
+        BookGeometry.Rect rect = geometry().sidebarViewport();
+        return sidebarView.viewport().bounds(rect.x(), rect.y(), rect.width(), rect.height());
+    }
+
+    /** The sidebar's scrollbar, when there is more to scroll than fits. */
+    private void drawSidebarScrollbar(GuiRenderer r) {
+        // Re-bound here, not assumed. The scrollbar's geometry comes from the viewport, so the viewport
+        // has to describe the current window before it is drawn -- and this is the first thing in the
+        // frame that needs it, because the drawing itself happens before the widget pass.
+        sidebarViewport();
+        sidebarView.drawScrollbar(r, ArmatureTheme.panelEdge(), ArmatureTheme.available());
+    }
+
+    // ------------------------------------------------------------------
+    // The sidebar's outline, and what a click on a row does
+    // ------------------------------------------------------------------
+
+    /**
+     * The sidebar's outline: the group headings, the chapters under them, and which the player has open.
+     *
+     * <h2>Rebuilt when a tree arrives, and never when a screen merely reads one</h2>
+     *
+     * <p>Keyed on {@link ClientQuestCache#treeRevision()}, which moves when a tree arrives and when the
+     * cache is cleared, and not when a screen reads one. So a resize, a scroll, a toggle and a redraw all
+     * find the same outline — with the player's collapses still in it — and a reload builds a new one
+     * whose groups are open or closed as their files say.
+     *
+     * <p>That is the whole reason the revision exists rather than this comparing the cache's entries.
+     * Comparing contents would answer the same question a second way, and the two answers would disagree
+     * about one real case: a reload that re-sent an identical tree. "A tree arrived" is a fact; "the tree
+     * is different" is a judgement, and it is the wrong one for the authored defaults to hang on.
+     *
+     * <p>The outline is <b>static</b>, unlike the scroll view beside it, and the difference is what each
+     * describes. A scroll view describes a window — it holds widgets, and a widget belongs to one screen.
+     * An outline describes a questline: the same tree drawn twice should be one outline, or closing and
+     * reopening the book would discard every collapse the player had made. {@link #forgetViewState()}
+     * clears it on a disconnect, alongside the selection and the pan, because the collapses are a fact
+     * about a server this client is no longer connected to.
+     */
+    private static SidebarLayout sidebar() {
+        long revision = ClientQuestCache.treeRevision();
+        if (sidebar == null || sidebarRevision != revision) {
+            sidebar = buildSidebar();
+            sidebarRevision = revision;
+        }
+        return sidebar;
+    }
+
+    /**
+     * Builds an outline from what the server sent.
+     *
+     * <h2>Two lists from two places, and the asymmetry is real</h2>
+     *
+     * <p>The headings come from {@link ClientQuestCache#groups()}, which the server sends explicitly — so
+     * a group with no chapters is still a heading, and the rows say so. The chapters are <b>derived from
+     * the quest entries</b>, because there is no chapter list on the wire: a chapter reaches the client
+     * only as a property of the quests in it.
+     *
+     * <p>That has one consequence worth stating rather than discovering, and it is a consequence of the
+     * wire's shape rather than of this method: <b>a chapter with no quests is invisible here.</b> It
+     * cannot be otherwise, because nothing was sent about it. It is the same limitation the flat chapter
+     * list had before the sidebar existed, so nothing has regressed — but a sidebar is exactly where
+     * somebody would expect to see an empty chapter, which makes it worth writing down.
+     *
+     * <p>Deduped by chapter id while keeping the order of first sighting, so a chapter's row sits where
+     * its first quest is and appears once however many quests it has.
+     *
+     * <p>A server older than groups sends no headings at all, so every chapter arrives with an empty
+     * group id — which {@link SidebarLayout} reads as "no group" and adds as a root. That draws exactly
+     * the flat chapter list this screen had before, which is why there is no branch here for the old
+     * case and nothing to notice at.
+     */
+    private static SidebarLayout buildSidebar() {
+        List<SidebarLayout.Group> groups = new ArrayList<>();
+        for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
+            groups.add(new SidebarLayout.Group(group.id(), group.title(), group.collapsedByDefault()));
+        }
+
+        Map<String, SidebarLayout.ChapterRow> chapters = new LinkedHashMap<>();
+        for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
+            chapters.putIfAbsent(entry.chapterId(), new SidebarLayout.ChapterRow(
+                    entry.chapterId(), entry.chapterTitle(), entry.chapterGroupId()));
+        }
+
+        return SidebarLayout.of(groups, List.copyOf(chapters.values()));
+    }
+
+    /**
+     * What a click on a sidebar row does.
+     *
+     * <p>A heading is toggled and a chapter is selected, and the two are told apart by the row's
+     * <b>key</b> rather than by a flag on the button — see {@link SidebarLayout} on why a group and a
+     * chapter share one namespace and are kept apart by a prefix.
+     *
+     * <p>A toggle that changed nothing does <b>not</b> rebuild, and that is the reason
+     * {@link SidebarLayout#toggle} answers a boolean rather than being void. A heading with no chapters
+     * under it is drawn without a chevron and is still clickable — the whole row is the target, which is
+     * the point of chevroning the label rather than adding a second control beside it — so pressing it
+     * is a real thing a player can do. Rebuilding every button for a press that meant nothing costs a
+     * frame and can lose focus.
+     */
+    private void pressSidebarRow(String key) {
+        if (SidebarLayout.isGroupKey(key)) {
+            if (sidebar().toggle(key)) {
+                rebuildWidgets();
+            }
+            return;
+        }
+
+        selectedChapter = SidebarLayout.idOf(key);
+        // The selection belongs to the chapter being left, so it closes. The rule is unchanged from the
+        // flat list, and it is repeated here because the rows are built by different code now: leaving
+        // it open would show a quest that is not on screen, with a Submit button, for a chapter you have
+        // walked away from.
+        selectedQuest = null;
+        centred = false;
+        rebuildWidgets();
+    }
+
+    /**
+     * Scrolls the sidebar by a screen-space delta, snapped so a row is never left half past the top.
+     *
+     * <h2>Why the snapping is here rather than in the viewport</h2>
+     *
+     * <p>Because it is this list's decision and not the kit's. A viewport scrolls by pixels, because that
+     * is what a pan-and-zoom canvas wants; a list of rows wants to stop with a row's top edge against the
+     * list's top edge, and a list left a third of a row out of position reads as a drawing fault rather
+     * than as a scroll. So every offset this produces is a whole multiple of
+     * {@link SidebarLayout#pitch()}.
+     *
+     * <p>That pitch is derived from the same two numbers the rows are spaced with, which is the point:
+     * a scroll rate written out at the call site drifts against the spacing by a couple of pixels a
+     * notch, and the symptom arrives slowly — a row that ends up half under the header after a while,
+     * with nothing in the code looking wrong.
+     *
+     * <p>A delta too small to move a whole row still moves one, in the direction asked for. The
+     * alternative is a trackpad whose small deltas each round back to where they started, which reads as
+     * the wheel being broken; one row per notch is what every other list does.
+     */
+    private void scrollSidebar(int dy) {
+        if (sidebar == null || dy == 0) {
+            return;
+        }
+
+        int pitch = SidebarLayout.pitch();
+        int current = sidebarView.viewport().scrollY();
+        int wanted = current + dy;
+        int snapped = Math.round(wanted / (float) pitch) * pitch;
+        if (snapped == current) {
+            snapped = current + (dy > 0 ? pitch : -pitch);
+        }
+        sidebarView.scrollTo(snapped);
     }
 
     /** The full-screen overlay's bounds. */
@@ -646,6 +854,70 @@ public final class QuestBookScreen extends Screen {
         return control(rect.x(), rect.y(), rect.width(), rect.height(), label, onPress);
     }
 
+    /**
+     * Creates the sidebar's rows as widgets, over the current outline.
+     *
+     * <h2>The four steps, in this order, and why the order is this method's business</h2>
+     *
+     * <ol>
+     *   <li>The outline is fetched — {@link #sidebar()} rebuilds it if a tree has arrived since the last
+     *       build, which is the only thing that discards the player's collapses.</li>
+     *   <li>The scroll view is cleared, so a row that no longer exists cannot linger.</li>
+     *   <li>The viewport is <b>bound before anything is placed</b>. {@link ScrollView#apply} positions
+     *       against the viewport, so it has to describe the current window first. This is the one place
+     *       that ordering is this class's responsibility rather than a drawing pass's, because
+     *       {@code init} runs before any frame has drawn.</li>
+     *   <li>{@code apply} places every row from the layout and tells the viewport how tall the content
+     *       is. Those are one call on purpose: the scrollbar's range and the row positions cannot
+     *       disagree if they come from one computation.</li>
+     * </ol>
+     *
+     * <h2>Why the rows are widgets and not drawn lines</h2>
+     *
+     * <p>Because they are the thing a click lands on. A hand-drawn row cannot take focus, cannot be
+     * narrated, and has no hover state unless this class reimplements one per row — and the price of
+     * getting all three is a class that moves the widget when the content scrolls, which is exactly
+     * {@link ScrollView}'s job.
+     *
+     * <p>Each button is created at <b>0,0 with no size</b>, and that is deliberate rather than lazy: its
+     * rectangle is not this method's to decide. {@code apply} sets x, y, width and height from the row's
+     * slot, so a button created at its final size would be a second description of where a row goes —
+     * which is the class of mistake this whole round is about.
+     *
+     * <h2>A heading is flat, and a chapter is filled or not</h2>
+     *
+     * <p>A group row gets no fill and a chapter row gets {@link ArmatureButton#selected} when it is the
+     * one being shown. The heading is a heading that happens to be clickable; giving it a selection fill
+     * would make it read as the current chapter — the confusion the fill exists to prevent, one level up.
+     */
+    private void buildSidebarWidgets() {
+        SidebarLayout layout = sidebar();
+        sidebarView.clear();
+
+        sidebarViewport();
+        int width = geometry().sidebarViewport().width();
+
+        for (SidebarLayout.Row row : layout.rows()) {
+            boolean heading = row.group();
+            boolean isSelected = !heading && row.id().equals(effectiveChapter());
+
+            ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
+                    () -> pressSidebarRow(row.key()));
+
+            if (heading) {
+                button.flat(true).textColour(ArmatureTheme.title());
+            }
+            else {
+                button.selected(isSelected)
+                        .textColour(isSelected ? ArmatureTheme.title() : ArmatureTheme.body());
+            }
+
+            sidebarView.put(row.key(), button);
+        }
+
+        sidebarView.apply(layout.stack(width), width);
+    }
+
     @Override
     protected void init() {
         clearWidgets();
@@ -672,60 +944,22 @@ public final class QuestBookScreen extends Screen {
         // from numbers written here by hand, and a test asserting on a *parallel* description would
         // have passed while the screen still overlapped -- which is worse than no test at all, because
         // it would have been believed.
-        Map<String, BookGeometry.Rect> controls = geometry().controls(chapters().size());
+        Map<String, BookGeometry.Rect> controls = geometry().controls();
 
-        // Chapters, down the left. The selected one gets its own fill, so which chapter is showing
-        // reads at a glance.
+        // The chapter list, which is no longer this method's to place.
         //
-        // It used to be `.flat(isSelected)` -- no fill, no border -- on the reasoning that a control
-        // with nothing behind it stands out among controls that have something. It does stand out, and
-        // as the wrong thing: in a list of eight filled rows, the one with no box reads as the disabled
-        // or missing entry rather than the active one. A selection has to be a thing that is there,
-        // not a thing that is absent.
+        // It used to be a loop right here: BookGeometry handed out chapter0, chapter1, ... and this
+        // method made a button from each rectangle until the rectangles ran out. It cannot be that any
+        // more, and not because the code moved -- because the *question* changed. A row's position now
+        // depends on its own index, on whether its group is collapsed, and on how far the list has
+        // been scrolled, and the last two are properties of a view rather than of a layout. A map built
+        // once from a window size cannot say "row five, currently scrolled out of view" without also
+        // becoming the thing that decides it.
         //
-        // The text colour still comes from the screen rather than from the style, because the selected
-        // row's label is worth brightening even if the style ever stops doing that.
-        int index = 0;
-        for (Map.Entry<String, String> chapter : chapters().entrySet()) {
-            BookGeometry.Rect row = controls.get("chapter" + index);
-            if (row == null) {
-                // More chapters than fit. BookGeometry decides how many that is, so the loop simply
-                // stops when it stops offering rectangles.
-                break;
-            }
-            index++;
-
-            final String chapterId = chapter.getKey();
-            boolean isSelected = chapterId.equals(effectiveChapter());
-
-            // The full chapter title, not a truncated one: ArmatureButton truncates its own label to
-            // the width it actually has, and does it by measuring the font. Passing a pre-trimmed
-            // string here was trimming by character count to a number chosen by eye, which cut
-            // "Getting Started" to "Getting Starte…" in a 116px-wide button with room to spare.
-            control(row, Component.literal(chapter.getValue()),
-                    () -> {
-                        selectedChapter = chapterId;
-                        // The selection belongs to the chapter being left, so it closes. Leaving it
-                        // open would show a quest that is not on screen, with a Submit button, for a
-                        // chapter you have walked away from.
-                        selectedQuest = null;
-                        centred = false;
-                        rebuildWidgets();
-                    })
-                    .selected(isSelected)
-                    .textColour(isSelected ? ArmatureTheme.title() : ArmatureTheme.body());
-            // No tooltip, and this is a rule rather than an omission: **a tooltip earns its place by
-            // saying something the control cannot.**
-            //
-            // This one was the chapter's own title, which is already the button's label — so hovering
-            // a chapter drew the word you were already reading, in a box that covered the row. It is
-            // also what made the z-order bug so obvious: the ghost text on the button's top edge was
-            // this tooltip, painted under the control it duplicated.
-            //
-            // The three glyph buttons keep theirs, because "+" and "−" and "◉" have no word in them
-            // and the second line is a real hint ("or scroll up over the canvas"). That is the test
-            // to apply to the next one.
-        }
+        // So the sidebar builds its own widgets, from a Stack inside a ScrollView, and this method's
+        // job is to say so. What the chapter loop's comment said about selection is still true and now
+        // lives in `buildSidebarWidgets`, because that is where the chapter rows are made.
+        buildSidebarWidgets();
 
         // Close, in the header's right corner. A modal panel is closed by the thing in its corner, and
         // the header had a mostly empty right end.
@@ -919,8 +1153,35 @@ public final class QuestBookScreen extends Screen {
         // a tooltip that appeared *underneath* the button it described.
         GuiRenderer renderer = new GuiGraphicsRenderer(graphics);
         renderWith(renderer, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
+
+        // The widget pass is clipped to the book itself, and this is the only place the clip can be
+        // pushed: the controls are AbstractWidgets and the base class draws them in one call, so there
+        // is no way to clip one group of them and not another.
+        //
+        // The consequence is worth stating, because the tidier version is not available. The clip is
+        // the *panel*, not the sidebar's own viewport, so it stops a row escaping the book without
+        // stopping one reaching the header -- and clipping to the viewport instead would also clip the
+        // Close button, which lives in the header and has to stay visible.
+        //
+        // What keeps rows off the header is therefore the scroll rather than the clip: every scroll is
+        // snapped to a whole row pitch by `scrollSidebar`, so a row is never left half past the top
+        // edge. The clip then bounds what is left, which is a row half past the *bottom* -- it can
+        // reach the panel's own edge and no further, and the last few pixels of a scrolled row showing
+        // in the margin is the one visible seam of the arrangement. It is bounded, it is inside the
+        // book, and the alternative is a second clip that cannot be placed.
+        BookGeometry.Rect book = panelRect();
+        try (GuiRenderer.Scoped clip = renderer.clip(book.x(), book.y(), book.right(), book.bottom())) {
+            super.render(graphics, mouseX, mouseY, partialTick);
+        }
+
+        // Outside the clip, deliberately: a tooltip belongs over everything, including the edge it
+        // happens to reach past.
         drawTooltips(renderer, mouseX, mouseY);
+    }
+
+    /** The whole book, as a rectangle. Used by the render clip and by nothing else. */
+    private BookGeometry.Rect panelRect() {
+        return geometry().panel();
     }
 
     /**
@@ -948,6 +1209,19 @@ public final class QuestBookScreen extends Screen {
      */
     public void renderWith(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
         centreCanvas();
+
+        // A tree that arrived since the sidebar was built means the outline is describing a questline
+        // this client no longer holds. Rebuilt here rather than from a payload handler, because the
+        // handlers run before this screen exists as often as after it, and because this is the first
+        // point in a frame where clearing and recreating the widgets is safe — `super.render` has not
+        // started iterating them yet.
+        //
+        // Guarded on the overlay being closed: with one open, `init` builds the overlay's two controls
+        // and nothing reads the sidebar, so the revision would stay stale and this would rebuild every
+        // frame. `closeOverlay` rebuilds on the way out, which is where the sidebar comes back.
+        if (overlay == Overlay.NONE && sidebarRevision != ClientQuestCache.treeRevision()) {
+            rebuildWidgets();
+        }
 
         // The animation clock, read once per frame and handed down. Nothing in this screen or in the
         // toolkit reads a clock itself -- see Tween's javadoc for why that is the property that makes
@@ -1023,6 +1297,11 @@ public final class QuestBookScreen extends Screen {
         // rather than as one dark field with things floating in it.
         r.fill(left + SIDEBAR_WIDTH, top + 1, left + SIDEBAR_WIDTH + 1, top + panelH - 1,
                 ArmatureTheme.panelEdge());
+
+        // The sidebar's scrollbar. Drawn here rather than by the widget pass, because it is chrome
+        // rather than a control -- nothing is clickable about it -- and because every number it needs
+        // comes from the viewport, so the thumb and the rows it describes come from one object.
+        drawSidebarScrollbar(r);
 
         r.text(title.getString(), left + 10, top + 9, ArmatureTheme.title());
         if (ClientQuestCache.hasData()) {
@@ -2142,6 +2421,18 @@ public final class QuestBookScreen extends Screen {
             return true;
         }
 
+        // The wheel over the sidebar scrolls the list, and over the canvas it still zooms. Routed by
+        // region rather than by a modifier, because the two regions are visibly separate things and a
+        // player pointing at one does not want the other: a list that zoomed the graph behind it, or a
+        // canvas that scrolled a sidebar it is not over, is a control answering a question nobody asked.
+        //
+        // Checked before the canvas, and the two cannot both match -- the sidebar is to the left of the
+        // canvas's own left edge -- so the order is for the reader rather than for the logic.
+        if (sidebarViewport().containsScreen(mouseX, mouseY)) {
+            scrollSidebar(-(int) (scrollY * SidebarLayout.pitch()));
+            return true;
+        }
+
         if (inCanvas(mouseX, mouseY)) {
             // Zoom, about the pointer. Not a scroll: a canvas that pans by dragging and also scrolls is
             // two controls for one idea, and the wheel is the one people reach for to zoom.
@@ -2221,6 +2512,14 @@ public final class QuestBookScreen extends Screen {
         // There is no theme to release any more, and there were two calls here that did it. A chapter's
         // palette lives inside one frame now, so there is nothing that could outlive a disconnect.
         warnedThemeFor = null;
+
+        // The sidebar's outline goes too, and the revision with it. The outline holds which groups the
+        // player had collapsed, which is a fact about a questline on a server this client is no longer
+        // connected to -- so keeping it would open the next server's book with the last one's collapses,
+        // and `-1` means the next tree definitely re-seeds rather than possibly matching a revision it
+        // happens to share.
+        sidebar = null;
+        sidebarRevision = -1;
     }
 
     @Override

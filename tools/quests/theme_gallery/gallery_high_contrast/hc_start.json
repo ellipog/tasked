@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "hc_start",
+  "title": "First Step",
+  "subtitle": "The entry node, and the only one named",
+  "description": [
+    "A white-on-black outline with a white title over it. The ring on hover is pure white",
+    "at full alpha, so it does not fade in at all -- hover and it appears.",
+    "",
+    "Everything on this canvas is one of four unmissable colours, and that is the whole",
+    "design."
+  ],
+  "icon": { "item": "minecraft:torch" },
+  "x": 0,
+  "y": 104,
+  "showTitle": true,
+
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:coal", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 16 }
+  ]
+}
