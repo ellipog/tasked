@@ -96,14 +96,15 @@ class PayloadTest {
     }
 
     @Test
-    @DisplayName("the three payloads this stage adds are all present, at the paths expected")
+    @DisplayName("the four payloads this mod declares are all present, at the paths expected")
     void declaredPayloadsAreTheExpectedOnes() {
         List<String> ids = ArmatureNetwork.registrations().stream()
                 .map(registration -> registration.type().id().toString())
                 .sorted()
                 .toList();
 
-        assertEquals(List.of("tasked:progress_sync", "tasked:quest_sync", "tasked:submit_task"), ids);
+        assertEquals(List.of("tasked:claim_reward", "tasked:progress_sync", "tasked:quest_sync",
+                "tasked:submit_task"), ids);
     }
 
     @Test
@@ -114,6 +115,7 @@ class PayloadTest {
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:quest_sync"));
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:progress_sync"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:submit_task"));
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_reward"));
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {
@@ -129,19 +131,37 @@ class PayloadTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("the quest tree survives a round trip, byte array and all")
+    @DisplayName("one chunk of the quest tree survives a round trip, byte array and chunk header both")
     void questSyncRoundTrip() {
         // Non-ASCII and a newline in the tree, because the tree is JSON and JSON holds both -- and
         // because a byte-array codec that truncated or mis-sized would still pass on "{}".
         byte[] tree = "{\"quests\":[{\"title\":\"Punch a Tree \u2014 it's fine\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        QuestSyncPayload original = new QuestSyncPayload(7, 2, tree);
+        // A middle chunk of three, so the header's fields are all non-default and a codec that put
+        // them in the wrong order cannot pass by having written zeroes.
+        QuestSyncPayload original = new QuestSyncPayload(7, 2, "amethyst",
+                new SyncChunk(4096, 1, 3, true), tree);
 
         QuestSyncPayload decoded = roundTrip(QuestSyncPayload.CODEC, original);
 
         assertEquals(7, decoded.questCount());
         assertEquals(2, decoded.chapterCount());
-        assertEquals(tree.length, decoded.tree().length, "the byte array changed length");
-        assertArrayEquals(tree, decoded.tree());
+        assertEquals("amethyst", decoded.packTheme(),
+                "the pack's own theme rides on every chunk, not only the first -- a codec that sent it"
+                        + " once would leave a client with no theme when the first chunk was lost and"
+                        + " re-requested");
+        assertTrue(decoded.hasTheme());
+        assertEquals(tree.length, decoded.data().length, "the byte array changed length");
+        assertArrayEquals(tree, decoded.data());
+
+        // The chunk header, asserted field by field. It is four components folded into one and the
+        // reassembler keys on all of them, so a transposed pair here would assemble chunks in the
+        // wrong order or attach them to the wrong transfer -- and the symptom is a JSON parse error
+        // at the far end, naming nothing about the codec.
+        assertEquals(4096, decoded.chunk().transferId());
+        assertEquals(1, decoded.chunk().index());
+        assertEquals(3, decoded.chunk().count());
+        assertTrue(decoded.chunk().full());
+        assertFalse(decoded.chunk().whole(), "three chunks is not a whole message");
     }
 
     @Test
@@ -150,10 +170,36 @@ class PayloadTest {
         // The "no quests loaded" case, which is what a fresh install sends. A codec that returned
         // null here would throw on the client at the exact moment a new player opens the book.
         QuestSyncPayload decoded = roundTrip(QuestSyncPayload.CODEC,
-                new QuestSyncPayload(0, 0, new byte[0]));
+                new QuestSyncPayload(0, 0, "", new SyncChunk(1, 0, 1, true), new byte[0]));
 
         assertEquals(0, decoded.questCount());
-        assertEquals(0, decoded.tree().length);
+        assertEquals(0, decoded.data().length);
+        assertTrue(decoded.chunk().whole(), "an empty message is still one chunk, not zero");
+
+        // And "no theme" survives as "no theme" rather than arriving as something that looks like one.
+        // The record's own constructor normalises absent to the empty string, so `hasTheme` is the one
+        // question a reader has to ask; a codec that wrote a null as the four characters "null" would
+        // make a client try to resolve a theme by that name.
+        assertEquals("", decoded.packTheme());
+        assertFalse(decoded.hasTheme());
+    }
+
+    @Test
+    @DisplayName("a pack theme travels as a plain string, and an absent one is not the word null")
+    void packThemeRoundTripsBothWays() {
+        // Worth its own test because the two states are one character apart on the wire and behave
+        // very differently: an absent theme means "this pack expresses no preference", and a theme
+        // named `null` would mean "look this up and, failing, warn about it once per chapter".
+        QuestSyncPayload absent = roundTrip(QuestSyncPayload.CODEC,
+                new QuestSyncPayload(1, 1, null, new SyncChunk(1, 0, 1, true), new byte[]{1}));
+        assertFalse(absent.hasTheme(), "a null theme should arrive as absent, not as a name");
+
+        // And a name is not lowercased or otherwise touched on the way through: a stream codec that
+        // round-tripped through a normalising step would make a file's `high_contrast` arrive as
+        // something a lookup could not resolve.
+        QuestSyncPayload named = roundTrip(QuestSyncPayload.CODEC,
+                new QuestSyncPayload(1, 1, "high_contrast", new SyncChunk(1, 0, 1, true), new byte[]{1}));
+        assertEquals("high_contrast", named.packTheme());
     }
 
     @Test
@@ -164,8 +210,8 @@ class PayloadTest {
         // real codec uses writeLong, so it is fine -- and this is the test that says so.
         UUID awkward = new UUID(-1L, -1L);
         byte[] data = "{\"states\":{\"a\":\"COMPLETED\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        ProgressSyncPayload original = new ProgressSyncPayload(awkward, 123_456L, data,
-                ProgressSyncPayload.REASON_CHANGED);
+        ProgressSyncPayload original = new ProgressSyncPayload(awkward, 123_456L,
+                new SyncChunk(-7, 2, 5, false), data, ProgressSyncPayload.REASON_CHANGED);
 
         ProgressSyncPayload decoded = roundTrip(ProgressSyncPayload.CODEC, original);
 
@@ -173,6 +219,14 @@ class PayloadTest {
         assertEquals(123_456L, decoded.gameTime());
         assertEquals(ProgressSyncPayload.REASON_CHANGED, decoded.reason());
         assertArrayEquals(data, decoded.data());
+
+        // The chunk, and the `full` flag specifically. It is the field the client's refusal hangs on:
+        // a delta wrongly marked full is applied onto nothing, and a full wrongly marked delta is
+        // refused, leaving a player with a blank book that never fills.
+        assertEquals(-7, decoded.chunk().transferId(), "a negative transfer id must survive, since the counter wraps");
+        assertEquals(2, decoded.chunk().index());
+        assertEquals(5, decoded.chunk().count());
+        assertFalse(decoded.chunk().full(), "a delta must not arrive claiming to be a full sync");
     }
 
     @Test
@@ -180,11 +234,13 @@ class PayloadTest {
     void progressSyncNormalUuid() {
         UUID team = UUID.fromString("3f2a1b4c-5d6e-7f80-9a0b-1c2d3e4f5061");
         ProgressSyncPayload decoded = roundTrip(ProgressSyncPayload.CODEC,
-                new ProgressSyncPayload(team, 0L, new byte[]{1, 2, 3}, ProgressSyncPayload.REASON_JOIN));
+                new ProgressSyncPayload(team, 0L, new SyncChunk(1, 0, 1, true), new byte[]{1, 2, 3},
+                        ProgressSyncPayload.REASON_JOIN));
 
         assertEquals(team, decoded.teamId());
         assertEquals(0L, decoded.gameTime(), "zero is a valid game time on the first tick");
         assertEquals(3, decoded.data().length);
+        assertTrue(decoded.chunk().full(), "a join's progress is a full sync, and the client's accept path branches on it");
     }
 
     @Test
@@ -195,6 +251,18 @@ class PayloadTest {
 
         assertEquals("punch_a_tree", decoded.questId());
         assertEquals(3, decoded.taskIndex());
+    }
+
+    @Test
+    @DisplayName("a claims request survives a round trip and carries a quest id and nothing else")
+    void claimRewardRoundTrip() {
+        // The id and nothing else, which is the security property rather than an accident: a payload
+        // that could name an item and a count would be a payload a modified client could point at a
+        // diamond. Here it can only ever say "I would like quest X", and the server decides.
+        ClaimRewardPayload decoded = roundTrip(ClaimRewardPayload.CODEC,
+                new ClaimRewardPayload("punch_a_tree"));
+
+        assertEquals("punch_a_tree", decoded.questId());
     }
 
     @Test

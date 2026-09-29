@@ -304,7 +304,14 @@ public final class QuestIndex {
         Map<String, QuestEntry> taken = new LinkedHashMap<>();
         for (QuestEntry entry : quests()) {
             QuestLayout layout = entry.quest().layout();
-            String key = layout.x() + "," + layout.y();
+            // Keyed by chapter as well as position, exactly as the crowding check is.
+            //
+            // Two chapters are two separate canvases drawn one at a time, so two quests at 0,0 in
+            // different chapters are not stacked on anything -- and until a second shipped file used
+            // 0,0 this never came up. Every chapter starts at its own origin, which is what makes a new
+            // chapter easy to write, and a check that reports the first quest of every chapter as a
+            // duplicate makes that impossible to do.
+            String key = entry.groupId() + "/" + entry.chapterId() + "/" + layout.x() + "," + layout.y();
             QuestEntry other = taken.putIfAbsent(key, entry);
             if (other != null) {
                 problems.warn(entry.document(), entry.path(),
@@ -356,6 +363,10 @@ public final class QuestIndex {
      *
      * <p>Only adjacent pairs in the same row are compared, because those are the only pairs that can
      * collide: a label sits below its node, so labels on different rows never meet.
+     *
+     * <p>And only pairs where <b>both</b> quests ask for their name to be drawn. Titles are off by
+     * default, so a chapter of unnamed nodes can be as tight as the author likes and nothing will
+     * collide — because nothing is drawn in the space between them.
      */
     private void checkCrowdedRows(Problems problems) {
         Map<String, List<QuestEntry>> rows = new LinkedHashMap<>();
@@ -380,6 +391,20 @@ public final class QuestIndex {
             for (int i = 1; i < leftToRight.size(); i++) {
                 QuestEntry left = leftToRight.get(i - 1);
                 QuestEntry right = leftToRight.get(i);
+
+                // Only a pair that is actually named can crowd. This is the change the labels' new
+                // default forced: titles are now drawn only where a quest asks for one, so two quests
+                // 64 pixels apart with no names between them are not a layout problem at all -- they
+                // are two icons with room to breathe, which is what the default is for.
+                //
+                // Warning about them anyway would be the worst kind of check: noise that is right
+                // about the arithmetic and wrong about the screen, which is how a warning gets
+                // suppressed and then stays suppressed for the case that mattered. A named quest beside
+                // an unnamed one gets the whole gap to itself, because the unnamed one draws nothing
+                // there to collide with -- so this pair, not every pair, is the honest question.
+                if (!left.quest().showTitle() || !right.quest().showTitle()) {
+                    continue;
+                }
 
                 int gap = right.quest().layout().x() - left.quest().layout().x();
                 if (gap == 0 || gap >= MIN_LABEL_SPACING) {

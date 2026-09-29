@@ -141,6 +141,8 @@ public final class Fixtures {
         private Boolean repeatable;
         private Integer repeatCooldownTicks;
         private Boolean invisible;
+        private Boolean showTitle;
+        private Double iconScale;
         private int taskCount = 1;
         private int x;
         private int y;
@@ -173,6 +175,24 @@ public final class Fixtures {
          */
         public Builder drawnSize(int size) {
             this.drawnSize = size;
+            return this;
+        }
+
+        /**
+         * Whether the book draws this quest's name under its node.
+         *
+         * <p>Needed by the crowding tests, which turn on it: the check compares the space between two
+         * nodes against the width of the titles that would be drawn there, so two titles that are
+         * <b>not being drawn</b> cannot crowd anything. See {@code checkCrowdedRows}.
+         */
+        public Builder showTitle(boolean value) {
+            this.showTitle = value;
+            return this;
+        }
+
+        /** The share of the node the icon fills. Out-of-range values are the codec's problem, not the builder's. */
+        public Builder iconScale(double value) {
+            this.iconScale = value;
             return this;
         }
 
@@ -281,6 +301,12 @@ public final class Fixtures {
             }
             if (invisible != null) {
                 json.append(", \"invisible\": ").append(invisible);
+            }
+            if (showTitle != null) {
+                json.append(", \"showTitle\": ").append(showTitle);
+            }
+            if (iconScale != null) {
+                json.append(", \"iconScale\": ").append(iconScale);
             }
             if (taskCount > 0) {
                 json.append(", \"tasks\": [");

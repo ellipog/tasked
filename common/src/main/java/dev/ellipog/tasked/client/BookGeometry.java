@@ -31,6 +31,48 @@ import java.util.Map;
  * <b>no two controls overlap, and every control is inside the surface it belongs to</b> — across a
  * sweep of window sizes. That is a test of the exact failure that was reported.
  *
+ * <h2>The shape of the screen, and what changed</h2>
+ *
+ * <pre>
+ * +--------------------------------------------------------------+
+ * | Quest Book                       20 quests . 100%      [ x ] |  header, close at the right
+ * +-------------+------------------------------------------------+
+ * | First Steps | [+]                                            |
+ * | Toolsmith   | [-]                                            |
+ * | Desert Road | [o]                                            |
+ * |             |                                                |
+ * |             |          (the graph, the whole canvas)         |
+ * +-------------+------------------------------------------------+
+ * </pre>
+ *
+ * <p>Two things moved, and each replaced something that was spending space without earning it:
+ *
+ * <ul>
+ *   <li><b>The sidebar footer is gone.</b> It held four controls across two rows — zoom in, zoom out,
+ *       re-centre and Done — in 116 pixels of a 132-pixel column. They are map controls, so they now
+ *       sit on the map, as small square icon buttons in the canvas's top-left corner. That is where a
+ *       player looks for them, it costs the chapter list no room at all, and it frees both footer
+ *       rows.</li>
+ *   <li><b>Done is now a close button in the header</b>, top-right, beside the quest count. A modal
+ *       panel is closed by the thing in its corner, and the header had a mostly empty right end.</li>
+ * </ul>
+ *
+ * <h2>And the summary strip is gone entirely</h2>
+ *
+ * <p>There used to be a third thing here: a bar across the bottom describing the selected quest with
+ * an <b>Open</b> button. It went through two forms — a 46-pixel band reserved below the graph, then a
+ * floating bar that appeared only when something was selected — and both were waste, for a reason
+ * neither form addressed.
+ *
+ * <p><b>Clicking a node already opens the quest.</b> That is what a graph UI does, and the code has
+ * done it since the pan/select/open gesture was written: a press that does not move selects
+ * <i>and</i> opens, so the strip was a second route to a place you were already standing. A summary
+ * of what you are looking at is only useful if you are not looking at it, and you just clicked it.
+ *
+ * <p>So the canvas is the whole area below the header, and there is nothing to keep clear of. That
+ * also removes the class's only reason to distinguish a <i>canvas</i> from a <i>view port</i>: content
+ * is centred in the canvas, because there is nothing on top of it.
+ *
  * <h2>Screens are smaller than you think</h2>
  *
  * <p>Minecraft's GUI space is the window divided by the GUI scale, and an auto scale on a small
@@ -38,10 +80,10 @@ import java.util.Map;
  * <b>427 × 240</b> GUI pixels. At that size the panel is 387 × 200. Anything that assumes 800 × 480
  * works on the developer's monitor and breaks on a laptop.
  *
- * <p>So the panel has a minimum size that can physically hold its own chrome — a header, one chapter
- * row, and two footer rows — and below that minimum the panel is allowed to run off the edge of the
- * screen rather than overlapping itself. Off-screen is clipped and obviously wrong; overlapping
- * controls look like a rendering fault and are not obviously anything.
+ * <p>So the panel has a minimum size that can physically hold its own chrome, and below that minimum
+ * the panel is allowed to run off the edge of the screen rather than overlapping itself. Off-screen is
+ * clipped and obviously wrong; overlapping controls look like a rendering fault and are not obviously
+ * anything.
  */
 public final class BookGeometry {
 
@@ -52,43 +94,90 @@ public final class BookGeometry {
     /** The chapter list down the left. */
     public static final int SIDEBAR_WIDTH = 132;
 
-    /** The title bar across the top of the panel. */
+    /** The title bar across the top of the panel. Holds the title, the count and Close. */
     public static final int HEADER_HEIGHT = 26;
-
-    /** The selected quest's summary, under the canvas. */
-    public static final int STRIP_HEIGHT = 46;
 
     /** A control's height. One number, so a row of them lines up. */
     public static final int ROW_HEIGHT = 18;
 
-    /** Between the two footer rows. */
+    /** Between two stacked controls. */
     public static final int ROW_GAP = 4;
 
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
 
-    /** The strip's Open button, and so what the strip's text has to stop short of. */
-    public static final int OPEN_WIDTH = 72;
 
     /** The vertical pitch of a chapter row. Also its height plus its gap. */
     public static final int CHAPTER_ROW_PITCH = 22;
 
-    /** Between the last chapter row and the first footer row. */
+    /** Between the header and the first chapter row. */
     public static final int CHAPTER_GAP = 6;
 
     /** The gap inside the full-screen overlay, between its edge and its content. */
     public static final int OVERLAY_MARGIN = 24;
 
+    // --- the view cluster ----------------------------------------------------
+
     /**
-     * The smallest panel that can hold its own chrome: a header, one chapter row, and two footer
-     * rows, with the gaps between them.
+     * One button of the view cluster, and so the cluster's width.
      *
-     * <p>Derived rather than written out, so that changing {@link #ROW_HEIGHT} cannot silently
-     * invalidate it. If this is smaller than the sum of the parts, the chapter list and the footer
-     * are drawn in the same place — which is the reported bug, one dimension over.
+     * <p>Square and small, because it is a map control: the graph is the content and these are a tool
+     * for looking at it. They used to be 30 pixels wide with the word "Centre" in one of them, which
+     * is a label earning its keep in a footer and not on a map.
      */
-    public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + CHAPTER_GAP + ROW_HEIGHT
-            + CHAPTER_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + EDGE;
+    public static final int VIEW_BUTTON = ROW_HEIGHT;
+
+    /** Between two buttons of the cluster. Small, because they are one control group. */
+    public static final int VIEW_GAP = 2;
+
+    /** The height of the three stacked buttons. */
+    public static final int VIEW_COLUMN_HEIGHT = VIEW_BUTTON * 3 + VIEW_GAP * 2;
+
+    /**
+     * How far the cluster's backing panel extends past the buttons.
+     *
+     * <p>The buttons have their own fills, so this is not what makes them visible — it is what makes
+     * them read as <b>one</b> cluster rather than as three controls that happen to be stacked. Three
+     * pixels, and the three of them sit inside a single raised panel.
+     */
+    public static final int VIEW_MAT = 3;
+
+    /**
+     * The smallest panel that can hold its own chrome, derived rather than written out.
+     *
+     * <p>Two constraints, and the taller one wins:
+     *
+     * <ul>
+     *   <li><b>The sidebar</b> needs the header, a gap, one chapter row, <b>the two appearance rows</b>
+     *       and the bottom edge: {@code CHAPTER_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + ROW_GAP +
+     *       ROW_HEIGHT + EDGE}. A chapter list with no rows is a book whose only chapter cannot be
+     *       selected, which is a blank screen with no way forward.</li>
+     *   <li><b>The canvas</b> needs the view cluster, which is the tallest thing that sits on it:
+     *       {@code (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + 2 * VIEW_MAT) + EDGE}. Without this the
+     *       cluster can run past the bottom of a short canvas, which is the same class of fault as the
+     *       chapter row drawn underneath a footer.</li>
+     * </ul>
+     *
+     * <p>Changing {@link #VIEW_BUTTON} therefore cannot silently invalidate it. The first version of
+     * this constant was the sidebar term alone, and it was right only because the footer happened to be
+     * shorter than the chapter list.
+     *
+     * <p><b>The sidebar term grew when the appearance rows arrived, and it had to.</b> The theme and
+     * motion controls are anchored to the panel's bottom rather than to the chapter list, so on a panel
+     * shorter than this they would be drawn over the chapter rows — the reported overlap bug, in the
+     * one place the previous minimum no longer covered.
+     *
+     * <p>The arithmetic, since it is now close: the sidebar needs {@code 6 + 18 + 4 + 18 + 4 + 18 + 8}
+     * = <b>76</b> and the canvas needs {@code 5 + (54 + 4 + 6) + 8} = <b>77</b>. So the canvas still
+     * decides it, <b>by one pixel</b> — the total is unchanged from before the rows were added, which
+     * is luck rather than design and worth knowing before trimming either term. Remove a {@code ROW_GAP},
+     * a {@code ROW_HEIGHT} or a pixel of {@code EDGE} and the sidebar crosses under the canvas, at
+     * which point {@code chapterRows()} would be computing against a panel its own minimum does not
+     * guarantee. It would still return 1, and that is the point: the failure mode is silent.
+     */
+    public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
+            CHAPTER_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + EDGE,
+            (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /** Enough canvas to be worth showing beside the sidebar. */
     public static final int MIN_CANVAS_WIDTH = 80;
@@ -192,9 +281,9 @@ public final class BookGeometry {
     private final int screenWidth;
     private final int screenHeight;
     private final Rect panel;
+    private final Rect header;
     private final Rect canvas;
     private final Rect sidebar;
-    private final Rect strip;
     private final Rect overlay;
 
     public BookGeometry(int screenWidth, int screenHeight) {
@@ -217,11 +306,15 @@ public final class BookGeometry {
         int panelTop = (screenHeight - panelHeight) / 2;
 
         this.panel = Rect.at(panelLeft, panelTop, panelWidth, panelHeight);
+        this.header = Rect.at(panelLeft, panelTop, panelWidth, HEADER_HEIGHT);
+
+        // The canvas is everything below the header, to the bottom of the panel. Nothing floats over
+        // it any more: the summary strip went, so there is no band to reserve and no view port to keep
+        // clear of one.
         this.canvas = Rect.at(panelLeft + SIDEBAR_WIDTH, panelTop + HEADER_HEIGHT,
-                panelWidth - SIDEBAR_WIDTH, panelHeight - HEADER_HEIGHT - STRIP_HEIGHT);
+                panelWidth - SIDEBAR_WIDTH, panelHeight - HEADER_HEIGHT);
         this.sidebar = Rect.at(panelLeft, panelTop + HEADER_HEIGHT, SIDEBAR_WIDTH,
                 panelHeight - HEADER_HEIGHT);
-        this.strip = Rect.at(canvas.x(), canvas.bottom(), canvas.width(), STRIP_HEIGHT);
         this.overlay = Rect.at(OVERLAY_MARGIN, OVERLAY_MARGIN,
                 Math.max(MIN_PANEL_WIDTH, screenWidth - OVERLAY_MARGIN * 2),
                 Math.max(MIN_PANEL_HEIGHT, screenHeight - OVERLAY_MARGIN * 2));
@@ -240,6 +333,11 @@ public final class BookGeometry {
         return panel;
     }
 
+    /** The title bar, which holds the title, the quest count and Close. */
+    public Rect header() {
+        return header;
+    }
+
     /** The graph, inside the panel. */
     public Rect canvas() {
         return canvas;
@@ -248,11 +346,6 @@ public final class BookGeometry {
     /** The chapter list, inside the panel. */
     public Rect sidebar() {
         return sidebar;
-    }
-
-    /** The selected quest's summary, under the canvas. */
-    public Rect strip() {
-        return strip;
     }
 
     /** The full-screen quest view. */
@@ -264,30 +357,31 @@ public final class BookGeometry {
     // The positions that the drawing and the controls both need
     // ------------------------------------------------------------------
 
-    /** The y of the lower footer row, which holds Done. */
-    public int footerRow2Y() {
-        return panel.bottom() - EDGE - ROW_HEIGHT;
-    }
-
-    /** The y of the upper footer row, which holds the zoom controls. */
-    public int footerRow1Y() {
-        return footerRow2Y() - ROW_GAP - ROW_HEIGHT;
-    }
-
     /** Where the chapter list starts. */
     public int chapterListTop() {
         return panel.y() + HEADER_HEIGHT + CHAPTER_GAP;
     }
 
     /**
-     * How many chapter rows fit above the footer.
+     * How many chapter rows fit above the bottom of the panel.
      *
-     * <p>At least one, always — a chapter list with no rows is a list a player cannot use, and a
-     * book whose only chapter cannot be selected is a blank screen. {@link #MIN_PANEL_HEIGHT}
-     * guarantees the row fits.
+     * <p>At least one, always — a chapter list with no rows is a list a player cannot use, and a book
+     * whose only chapter cannot be selected is a blank screen. {@link #MIN_PANEL_HEIGHT} guarantees
+     * the row fits.
+     *
+     * <p>Derived from the panel's bottom rather than from a footer, because there is no footer any
+     * more. The old version measured from {@code footerRow1Y()}, which is where a chapter could be
+     * drawn underneath a button — the reported bug, one dimension over.
+     *
+     * <p>Measured to <b>{@link #themeRect()}</b> rather than to the panel's bottom, which is the same
+     * fix applied to the one thing now in that space. The appearance rows are anchored down there, so
+     * counting rows to the panel's edge would draw the last chapter underneath them; the chapter list
+     * has to know what is below it, and asking the row where it starts is a better description of that
+     * than subtracting a constant and hoping.
      */
     public int chapterRows() {
-        return Math.max(1, (footerRow1Y() - CHAPTER_GAP - chapterListTop()) / CHAPTER_ROW_PITCH);
+        int room = (themeRect().y() - ROW_GAP) - chapterListTop() - ROW_HEIGHT;
+        return Math.max(1, room / CHAPTER_ROW_PITCH + 1);
     }
 
     /** The y of chapter row {@code index}. Not clamped; callers check {@link #chapterRows()}. */
@@ -295,19 +389,70 @@ public final class BookGeometry {
         return chapterListTop() + index * CHAPTER_ROW_PITCH;
     }
 
-    /** The x of the strip's Open button, against the panel's right edge. */
-    public int stripButtonX() {
-        return canvas.right() - EDGE - OPEN_WIDTH;
+    /** The close button: a row-height square in the header, against the panel's right edge. */
+    public Rect closeRect() {
+        return Rect.at(panel.right() - EDGE - ROW_HEIGHT,
+                panel.y() + (HEADER_HEIGHT - ROW_HEIGHT) / 2, ROW_HEIGHT, ROW_HEIGHT);
     }
 
-    /** The y of the strip's Open button, centred in the strip. */
-    public int stripButtonY() {
-        return strip.y() + (STRIP_HEIGHT - ROW_HEIGHT) / 2;
+    /**
+     * Where the header's right-hand text has to stop, so the quest count does not run under Close.
+     *
+     * <p>One expression, used by the drawing and by nothing else — but it is here rather than in the
+     * screen because that is the rule this class exists to enforce, and because the alternative is a
+     * second {@code panelWidth() - 12} that agrees until somebody moves the button.
+     */
+    public int headerRightLimit() {
+        return closeRect().x() - 10;
     }
 
-    /** Where the strip's text has to stop, so a long title does not run under the Open button. */
-    public int stripTextLimit() {
-        return stripButtonX() - (canvas.x() + 10) - 10;
+    /**
+     * The motion control: the bottom row of the sidebar.
+     *
+     * <p>Anchored to the panel's bottom rather than placed under the chapter list, and the reason is
+     * the layout bug this class exists because of. Anything positioned "after the list" moves when the
+     * list grows, so the last chapter row and a control below it are one edit apart from colliding.
+     * Anchored from below, the two grow towards each other and {@link #chapterRows()} decides where
+     * they meet — one place, checked by the sweep.
+     */
+    public Rect motionRect() {
+        return Rect.at(panel.x() + EDGE, panel.bottom() - EDGE - ROW_HEIGHT, sidebarInner(), ROW_HEIGHT);
+    }
+
+    /**
+     * The theme control: the row above {@link #motionRect()}.
+     *
+     * <h2>These two live on the sidebar, and that is a decision about what a theme is</h2>
+     *
+     * <p>They were commands. {@code /tasked theme tome} ran on the <i>server</i>: in single player that
+     * is the same process as the client so it appeared to work, and on a dedicated server it changed a
+     * field in a process with no window — which is why it needed an {@code isClient()} guard to avoid
+     * being a lie. A control that has to defend against the side it runs on is a control on the wrong
+     * side.
+     *
+     * <p>A theme is a preference for the person looking at the screen. It is the same kind of thing as
+     * a volume slider: it belongs in the interface, next to the other one, and it should be reachable
+     * without knowing a command exists. Two rows at the foot of the sidebar is where a screen puts
+     * settings that apply to the whole screen, and it costs the chapter list the least room of any
+     * position on the panel.
+     *
+     * <p>Side by side was the other option and it does not fit: the sidebar is 132 pixels and these
+     * labels are a word each. Stacked, each is a full row and reads as its own setting.
+     */
+    public Rect themeRect() {
+        Rect motion = motionRect();
+        return Rect.at(motion.x(), motion.y() - ROW_GAP - ROW_HEIGHT, motion.width(), ROW_HEIGHT);
+    }
+
+    /**
+     * The backing panel behind the three view buttons.
+     *
+     * <p>Three pixels larger than the buttons on every side, and it is what makes them read as one
+     * cluster rather than three controls that happen to be stacked.
+     */
+    public Rect viewControls() {
+        return Rect.at(canvas.x() + EDGE - VIEW_MAT, canvas.y() + EDGE - VIEW_MAT,
+                VIEW_BUTTON + VIEW_MAT * 2, VIEW_COLUMN_HEIGHT + VIEW_MAT * 2);
     }
 
     /** The width available inside the sidebar, between its two edges. */
@@ -326,10 +471,14 @@ public final class BookGeometry {
      * screen creates its widgets from these rectangles; the test asserts they do not overlap. A
      * layout change therefore cannot move a control without the test seeing it.
      *
+     * <p>Note what is <b>not</b> here: nothing named for the footer that used to hold these, no control
+     * at all whose only job is to close a panel that Escape already closes, and nothing for the summary
+     * strip that used to sit across the bottom. Close is one square in the header, and the four former
+     * footer controls are three map buttons and that square.
+     *
      * @param chapters how many chapters there are to show
-     * @param hasOpen  whether a quest is selected, which is what the strip's Open button needs
      */
-    public Map<String, Rect> controls(int chapters, boolean hasOpen) {
+    public Map<String, Rect> controls(int chapters) {
         Map<String, Rect> out = new LinkedHashMap<>();
         int left = panel.x() + EDGE;
         int inner = sidebarInner();
@@ -341,19 +490,25 @@ public final class BookGeometry {
             out.put("chapter" + i, Rect.at(left, chapterRowY(i), inner, ROW_HEIGHT));
         }
 
-        // The footer's upper row: three controls that add up to the sidebar's inner width exactly.
-        // 30 + 4 + 30 + 4 + (inner - 68) == inner, so the row is flush at both ends -- derived rather
-        // than three numbers that happen to add up today.
-        out.put("zoomIn", Rect.at(left, footerRow1Y(), 30, ROW_HEIGHT));
-        out.put("zoomOut", Rect.at(left + 34, footerRow1Y(), 30, ROW_HEIGHT));
-        out.put("centre", Rect.at(left + 68, footerRow1Y(), inner - 68, ROW_HEIGHT));
+        // Close, in the header's right corner.
+        out.put("close", closeRect());
 
-        // And the lower row, which is why there are two rows: four controls do not fit across 116px.
-        out.put("done", Rect.at(left, footerRow2Y(), inner, ROW_HEIGHT));
+        // The two appearance rows, at the foot of the sidebar. Added here rather than by the screen so
+        // the overlap sweep covers them: they are the controls most likely to collide with the chapter
+        // list, because they are the only ones that push into it from below. Their labels are not
+        // fixed -- the theme row says whichever theme is in force -- so the width is the sidebar's
+        // rather than measured from any particular name.
+        out.put("theme", themeRect());
+        out.put("motion", motionRect());
 
-        if (hasOpen) {
-            out.put("open", Rect.at(stripButtonX(), stripButtonY(), OPEN_WIDTH, ROW_HEIGHT));
-        }
+        // The view cluster, top-left inside the canvas. A column, so it reads as one tool group and
+        // leaves the canvas's width for the graph.
+        int vx = canvas.x() + EDGE;
+        int vy = canvas.y() + EDGE;
+        out.put("zoomIn", Rect.at(vx, vy, VIEW_BUTTON, VIEW_BUTTON));
+        out.put("zoomOut", Rect.at(vx, vy + VIEW_BUTTON + VIEW_GAP, VIEW_BUTTON, VIEW_BUTTON));
+        out.put("centre", Rect.at(vx, vy + (VIEW_BUTTON + VIEW_GAP) * 2, VIEW_BUTTON, VIEW_BUTTON));
+
         return out;
     }
 
@@ -392,36 +547,25 @@ public final class BookGeometry {
     // Pure arithmetic the screen also uses
     // ------------------------------------------------------------------
 
-    /** A pan and zoom. */
-    public record Zoom(int panX, int panY, float zoom) {
-    }
-
-    /**
-     * Applies a zoom factor while keeping the world point under the pointer fixed — the whole of
-     * "scroll to zoom about the cursor".
-     *
-     * <p>Convert the pointer to a world coordinate, zoom, and solve for the pan that puts that same
-     * world coordinate back under the pointer. Two lines of algebra, and getting them wrong is what
-     * makes a zoom appear to run away from the cursor — the most common complaint about a graph UI.
-     *
-     * <p>Here rather than in the screen so the invariant itself can be asserted: after this call,
-     * the distance between the pointer and the world point it was over is zero to within the
-     * rounding of an integer pan. That is a property of these numbers alone and needs no renderer.
-     */
-    public static Zoom zoomAbout(double pointerX, double pointerY, Rect canvas,
-                                 int panX, int panY, float zoom, float factor,
-                                 float minZoom, float maxZoom) {
-        float next = Math.min(Math.max(zoom * factor, minZoom), maxZoom);
-        if (next == zoom || factor <= 0F) {
-            return new Zoom(panX, panY, zoom);
-        }
-
-        double worldX = (pointerX - canvas.x() - panX) / zoom;
-        double worldY = (pointerY - canvas.y() - panY) / zoom;
-        int nextPanX = (int) Math.round((pointerX - canvas.x()) - worldX * next);
-        int nextPanY = (int) Math.round((pointerY - canvas.y()) - worldY * next);
-        return new Zoom(nextPanX, nextPanY, next);
-    }
+    // A `Zoom` record and a `zoomAbout` method used to live here, with four tests of their own in
+    // BookGeometryTest. They are gone, and the reason is worth keeping because it is the rule this
+    // whole round was about rather than tidiness.
+    //
+    // They were a second implementation of zoom-about-the-pointer. The first was in
+    // QuestBookScreen itself, as three static fields and the same algebra written out twice more --
+    // in the pan, in the centring. The transform is `ui.kit`'s `Viewport` now, which the screen
+    // calls, and `ViewportTest.zoomAtKeepsTheContentPointUnderThePointer` asserts the same
+    // invariant this copy's suite did -- swept over more pans and scales than it managed, and
+    // asserted against the transform rather than against a re-derivation of it.
+    //
+    // So this copy had no callers. Nothing said so: it compiled, its tests passed, and a reader
+    // would reasonably have taken it for the one the screen uses. That is the failure mode of a
+    // duplicate — not that it is wrong, but that it is *plausible*, and it stays plausible after
+    // the thing it duplicates has moved on.
+    //
+    // What stays here is the framing: rectangles, the control map, label room, hit-test bounds.
+    // That is one screen's own layout and nothing else's. Content-to-screen mapping is not framing,
+    // it is a viewport, and it lives in the kit where a scrolling list can use it too.
 
     /**
      * The horizontal room a label may take, given the columns of nodes that are on screen.

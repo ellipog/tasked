@@ -53,7 +53,7 @@ public final class QuestValidator {
 
     private static final Set<String> CHAPTER_FIELDS = Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "quests");
+            "progressionMode", "defaultConsumeItems", "theme", "quests");
 
     /**
      * A quest's own fields, plus the layout's and the rules'.
@@ -132,6 +132,16 @@ public final class QuestValidator {
         Checks.rejectUnknown(document, path, GROUP_FIELDS, problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
+        // Checked, and it was not until the codec rejected one. A field the validator does not look at
+        // is a field whose mistakes arrive as a codec message at line 1 column 1 — which is exactly what
+        // happened to the first group description written as a list of lines.
+        //
+        // `checkTextOrList`, not `checkTextList`, because this is the one description whose codec
+        // takes either shape -- see the method. Using the list-only check here was the validator
+        // being *stricter than the format*: a bare string decoded fine and was then failed by the
+        // validator, so the same file loaded with the check disabled and refused with it on. The
+        // author's only clue would have been which build they had.
+        checkTextOrList(document, path + ".description", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
 
@@ -175,6 +185,25 @@ public final class QuestValidator {
         }
         if (document.has(path + ".defaultConsumeItems")) {
             Checks.optionalBool(document, path + ".defaultConsumeItems", problems);
+        }
+
+        // A theme name is checked for being a non-empty string and nothing more, and that stopping
+        // point is the point of it: the theme catalogue is a <b>client</b> concept, and this validator
+        // runs on the server too. A dedicated server has no appearance and no themes, so teaching it
+        // the list would be a server knowing something only a client can act on — the same shape of
+        // mistake as a command that reaches for a client class. The name is checked where it is used,
+        // by the client that could not honour it, and the message there names the chapter.
+        //
+        // An empty string is worth rejecting because the codec would accept it and `Optional.of("")`
+        // is not "no opinion" — it is a chapter asking for a theme called nothing, which can only be
+        // reported as unrecognised.
+        if (document.has(path + ".theme")) {
+            Checks.optionalString(document, path + ".theme", problems).ifPresent(name -> {
+                if (name.isBlank()) {
+                    problems.error(document, path + ".theme",
+                            "a theme name may not be empty - remove the field to use the player's own theme");
+                }
+            });
         }
 
         if (!document.has(path + ".quests")) {
@@ -225,6 +254,12 @@ public final class QuestValidator {
         if (document.has(path + ".sequentialTasks")) {
             Checks.optionalBool(document, path + ".sequentialTasks", problems);
         }
+        if (document.has(path + ".showTitle")) {
+            Checks.optionalBool(document, path + ".showTitle", problems);
+        }
+        if (document.has(path + ".iconScale")) {
+            checkIconScale(document, path + ".iconScale", problems);
+        }
         if (document.has(path + ".repeatCooldownTicks")) {
             Checks.optionalInt(document, path + ".repeatCooldownTicks", problems).ifPresent(ticks -> {
                 if (ticks < 0) {
@@ -273,6 +308,41 @@ public final class QuestValidator {
         checkDependencies(document, path + ".dependsOn", problems);
         checkTasks(document, path + ".tasks", problems);
         checkRewards(document, path + ".rewards", problems);
+    }
+
+    /**
+     * Checks the icon scale, which is a fraction and therefore not a field {@link Checks} can read.
+     *
+     * <p>Read from the JSON directly rather than through a helper, because {@code Checks} has no
+     * {@code optionalDouble} and inventing one in Armature for a single consumer would be library work
+     * for a caller's convenience. Everything else about this is the same shape as the numeric checks
+     * above: read the value, then say what is wrong with it in the terms the author wrote.
+     *
+     * <p>Bounds come from {@link QuestShape}, which is where the geometry they describe lives — and
+     * therefore what the codec uses too. Two numbers in two places is the mistake this whole file is
+     * arranged to avoid, and the honest reason a message can say "the largest that fits" and be right.
+     */
+    private static void checkIconScale(JsonDocument document, String path, Problems problems) {
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            problems.error(document, path, "expected a number between "
+                    + QuestShape.MIN_ICON_SCALE + " and " + QuestShape.MAX_ICON_SCALE
+                    + ", found " + Checks.kindOf(element));
+            return;
+        }
+
+        double scale = element.getAsDouble();
+        if (scale < QuestShape.MIN_ICON_SCALE || scale > QuestShape.MAX_ICON_SCALE) {
+            problems.error(document, path, "iconScale must be between "
+                    + QuestShape.MIN_ICON_SCALE + " and " + QuestShape.MAX_ICON_SCALE + ", found " + scale
+                    + (scale > QuestShape.MAX_ICON_SCALE
+                            ? " - 1.0 is the largest icon that fits in the node"
+                            : " - below a quarter the item is a smudge; omit the field for the default ("
+                              + QuestLayout.DEFAULT_ICON_SCALE + ")"));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -508,12 +578,25 @@ public final class QuestValidator {
     }
 
     private static void checkText(JsonDocument document, String path, Problems problems) {
+        checkText(document, path, problems, true);
+    }
+
+    /**
+     * The text check, with the blank warning optional.
+     *
+     * @param warnIfBlank whether an empty string is worth reporting. True for a title or a subtitle —
+     *     an empty one is a quest with no name. False inside a list of paragraphs, where a blank entry
+     *     is how an author writes a line break: each entry is drawn as its own paragraph, so there is
+     *     no other way to say "skip a line". That distinction was found the hard way, by the shipped
+     *     questlines warning on every deliberate blank line in them.
+     */
+    private static void checkText(JsonDocument document, String path, Problems problems, boolean warnIfBlank) {
         JsonElement element = document.get(path).orElse(null);
         if (element == null) {
             return;
         }
         if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
-            if (element.getAsString().isBlank()) {
+            if (warnIfBlank && element.getAsString().isBlank()) {
                 problems.warn(document, path, "this text is empty, so nothing will be shown");
             }
             return;
@@ -540,14 +623,67 @@ public final class QuestValidator {
                 + "\"fallback\": ... } - but found " + Checks.kindOf(element));
     }
 
+    /**
+     * A list of paragraphs, where a blank entry is legal and a list that is *all* blank is not.
+     *
+     * <p>An empty entry means a blank line, which is the only way an author can write one: each entry
+     * is drawn as its own paragraph. So the per-paragraph blank warning is off here, and the question
+     * worth asking moves to the whole list — a description where nothing at all would be shown.
+     *
+     * <p>Found by the shipped questlines reporting four warnings each on their deliberate line breaks,
+     * which is the worst possible shape for a check to take: it was not wrong about the fact, it was
+     * wrong about whether the fact was a problem, and a warning like that teaches an author to skim
+     * output.
+     */
     private static void checkTextList(JsonDocument document, String path, Problems problems) {
         var array = Checks.optionalArray(document, path, problems);
         if (array.isEmpty()) {
             return;
         }
+
+        boolean anyText = false;
         for (int i = 0; i < array.get().size(); i++) {
-            checkText(document, path + "[" + i + "]", problems);
+            JsonElement element = array.get().get(i);
+            if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()
+                    || !element.getAsString().isBlank()) {
+                anyText = true;
+            }
+            checkText(document, path + "[" + i + "]", problems, false);
         }
+
+        if (!array.get().isEmpty() && !anyText) {
+            problems.warn(document, path, "every paragraph here is empty, so nothing will be shown");
+        }
+    }
+
+    /**
+     * A description the format accepts in either shape: a list of paragraphs, or one bare string.
+     *
+     * <p>Only {@link ChapterGroup} has this union, and the union is the codec's own doing — its javadoc
+     * argues why. The validator has to accept both <b>because the codec does</b>. A validator stricter
+     * than the format is the worst of both worlds: the file decodes, so the format says it is fine, and
+     * is then refused, so the tool says it is not — and the author has no way to tell which is
+     * authoritative. This is the same fault as a validator that is too *lax*, just pointing the other
+     * way: in both cases the two descriptions of the format have drifted and the message names the
+     * wrong thing.
+     *
+     * <p>Found by a test written to assert both spellings work. The test believed the codec and failed
+     * against the validator, which is the right way round for that to be discovered — the codec is the
+     * thing that decides whether a file loads.
+     */
+    private static void checkTextOrList(JsonDocument document, String path, Problems problems) {
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (element.isJsonArray()) {
+            checkTextList(document, path, problems);
+            return;
+        }
+        // A bare string is one paragraph, so a blank one means nothing is shown at all — the same
+        // question `checkTextList` asks of a list that is entirely blank, asked of the one-paragraph
+        // case. Which is why this uses the warning-on-blank form rather than the list's tolerant one.
+        checkText(document, path, problems);
     }
 
     /**

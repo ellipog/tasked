@@ -23,14 +23,15 @@ public record QuestRules(boolean repeatable,
                          int repeatCooldownTicks,
                          boolean sequentialTasks,
                          boolean invisible,
+                         boolean showTitle,
                          Optional<String> exclusiveGroup) {
 
     public static final QuestRules DEFAULT =
-            new QuestRules(false, 0, false, false, Optional.empty());
+            new QuestRules(false, 0, false, false, false, Optional.empty());
 
     /** The field names this contributes, for the validator to allow at quest level. */
-    public static final Set<String> FIELDS =
-            Set.of("repeatable", "repeatCooldownTicks", "sequentialTasks", "invisible", "exclusiveGroup");
+    public static final Set<String> FIELDS = Set.of("repeatable", "repeatCooldownTicks", "sequentialTasks",
+            "invisible", "showTitle", "exclusiveGroup");
 
     public static final MapCodec<QuestRules> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.BOOL.optionalFieldOf("repeatable", false).forGetter(QuestRules::repeatable),
@@ -41,6 +42,14 @@ public record QuestRules(boolean repeatable,
                     .forGetter(QuestRules::repeatCooldownTicks),
             Codec.BOOL.optionalFieldOf("sequentialTasks", false).forGetter(QuestRules::sequentialTasks),
             Codec.BOOL.optionalFieldOf("invisible", false).forGetter(QuestRules::invisible),
+            // Off by default, which is the opposite of the obvious choice and is deliberate.
+            //
+            // A node is an icon; a canvas of fifty names under fifty nodes is a wall of text with
+            // pictures in it, and the titles are the part you can already get by hovering. So the
+            // default is the quiet one, the hover caption carries the name for every node either way,
+            // and an author who wants the names drawn asks for each one they mean. The same reasoning
+            // as the icon scale, one step further.
+            Codec.BOOL.optionalFieldOf("showTitle", false).forGetter(QuestRules::showTitle),
             // Quests sharing a group are mutually exclusive: completing one locks the others for
             // good. Scoped to the chapter, so "smithing" in two chapters does not collide.
             Codec.STRING.optionalFieldOf("exclusiveGroup").forGetter(QuestRules::exclusiveGroup)

@@ -7,41 +7,64 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * The quest tree and the player's progress, sent together when they join.
+ * The quest tree: one chunk of it, plus how many quests and chapters the whole tree holds.
  *
- * <h2>One payload, not two</h2>
+ * <h2>One payload, and the counts are not redundant</h2>
  *
- * <p>The tree and the progress are useless apart — a quest list with no state shows everything as
- * locked, and states with no quests have nothing to attach to. Sending them separately means a window
- * where the client has one and not the other, and no way to tell a rendering bug from a missing
- * packet. Together, the client is either informed or it is not.
+ * <p>The counts ride on every chunk rather than only the last because the client uses them before it
+ * has parsed anything — "20 quests in 4 chapters" is shown while the rest arrives, and the client can
+ * tell a server with no quests from a server whose message has not finished. Recomputing them from
+ * the tree would only be possible at the end, which is the moment they stop being useful.
+ *
+ * <h2>What changed here, and why the first version was wrong</h2>
+ *
+ * <p>This used to carry the whole tree as one {@code BYTE_ARRAY}, uncompressed. That is correct for
+ * the shipped example questline and stops being correct at the scale the plan is written for: a pack
+ * with a few thousand quests is a multi-megabyte packet, and vanilla's own fallback codec for an
+ * unknown payload — {@code MAX_PAYLOAD_SIZE = 1048576} — says plainly what a payload is expected to
+ * hold. The limit is not enforced against a registered payload, which is the trap: nothing throws,
+ * and the failure appears as a stalled or dropped connection with no size in the message.
+ *
+ * <p>So the field is a chunk of a packed message, and {@link SyncChunk} says where it sits. The
+ * reassembled bytes are deflated JSON, and {@link SyncWire#unpack} turns them back into the shape the
+ * client's parser already reads — so the client's parsing code did not have to change at all, which
+ * is the property that made this a safe thing to do to a working wire format.
  *
  * <h2>Why the codec is declared as {@code ? super RegistryFriendlyByteBuf}</h2>
  *
- * <p>This is not decoration and it is not obvious. {@code ByteBufCodecs.BYTE_ARRAY} is defined over
- * {@code ByteBuf}, not {@code RegistryFriendlyByteBuf} — so {@code StreamCodec.composite} infers
- * {@code ByteBuf} as the buffer type and produces a {@code StreamCodec<ByteBuf, QuestSyncPayload>}.
- * Declaring the field as {@code StreamCodec<RegistryFriendlyByteBuf, ...>} therefore does not compile,
- * even though {@code ByteBuf} is a supertype of it and every use would have been fine.
+ * <p>Unchanged from the first version, and the reason is now load-bearing in a second place:
+ * {@code ByteBufCodecs.BYTE_ARRAY} is defined over {@code ByteBuf}, not
+ * {@code RegistryFriendlyByteBuf}, so {@code StreamCodec.composite} infers {@code ByteBuf} as the
+ * buffer type. Declaring the field as {@code StreamCodec<RegistryFriendlyByteBuf, ...>} therefore
+ * does not compile, even though {@code ByteBuf} is a supertype of it. {@code ? super} matches both
+ * what comes out and what both loaders want — Fabric's {@code playS2C().register} and NeoForge's
+ * {@code playToClient} both take {@code StreamCodec<? super RegistryFriendlyByteBuf, T>}.
  *
- * <p>{@code ? super} is the declaration that matches what comes out <i>and</i> what both loaders want:
- * Fabric's {@code playS2C().register} and NeoForge's {@code playToClient} both take
- * {@code StreamCodec<? super RegistryFriendlyByteBuf, T>}. So the natural inference and the required
- * type agree, once the field says so. This took a {@code javap} to be sure of rather than a guess.
- *
- * <h2>The tree is JSON, and that is a deliberate first step</h2>
- *
- * <p>A hand-written binary encoding would be smaller — the plan says so, and it is right — but it
- * would also be a second serialiser to keep in step with the codecs, and a format nobody can read in
- * a packet dump while the shape is still moving. This is the version that gets a screen working; the
- * plan's chunked-and-compressed binary sync is a later-stage optimisation, and optimising before the
- * thing works is how you optimise the wrong part.
- *
- * @param questCount   how many quests the tree holds
+ * @param questCount   how many quests the whole tree holds, not just this chunk
  * @param chapterCount how many chapters, for a summary the client can show before parsing
- * @param tree         the quest tree, as UTF-8 JSON
+ * @param chunk        where this chunk sits in the message
+ * @param data         this chunk's packed bytes — see {@link SyncWire#pack}
  */
-public record QuestSyncPayload(int questCount, int chapterCount, byte[] tree) implements CustomPacketPayload {
+public record QuestSyncPayload(int questCount, int chapterCount, String packTheme, SyncChunk chunk,
+                                byte[] data)
+        implements CustomPacketPayload {
+
+    /**
+     * Absent becomes the empty string, and the empty string means absent.
+     *
+     * <p>A stream codec has no null for a string: {@code STRING_UTF8} writes a length and then bytes, so
+     * a null would be a length of zero anyway. Normalising it here means the field can never be null
+     * inside the process, so no reader has to decide what a null means — and "no theme" has exactly one
+     * spelling rather than two that behave the same and compare differently.
+     */
+    public QuestSyncPayload {
+        packTheme = packTheme == null ? "" : packTheme;
+    }
+
+    /** Whether the pack asked for a theme at all. */
+    public boolean hasTheme() {
+        return !packTheme.isEmpty();
+    }
 
     /**
      * The payload's id, <b>not</b> built with {@code CustomPacketPayload.createType}.
@@ -65,7 +88,15 @@ public record QuestSyncPayload(int questCount, int chapterCount, byte[] tree) im
             StreamCodec.composite(
                     ByteBufCodecs.VAR_INT, QuestSyncPayload::questCount,
                     ByteBufCodecs.VAR_INT, QuestSyncPayload::chapterCount,
-                    ByteBufCodecs.BYTE_ARRAY, QuestSyncPayload::tree,
+                    // Sent as a plain string with "" for absent, rather than as an optional. A stream
+                    // codec's optional costs a boolean on the wire and a generic type argument at this
+                    // call site, and the composite's type inference here is already delicate enough
+                    // that its own comment warns about `ByteBuf` versus `RegistryFriendlyByteBuf`. One
+                    // sentinel that every reader understands is cheaper than a discussion about which
+                    // overload the compiler picked.
+                    ByteBufCodecs.STRING_UTF8, QuestSyncPayload::packTheme,
+                    SyncChunk.CODEC, QuestSyncPayload::chunk,
+                    ByteBufCodecs.BYTE_ARRAY, QuestSyncPayload::data,
                     QuestSyncPayload::new);
 
     @Override

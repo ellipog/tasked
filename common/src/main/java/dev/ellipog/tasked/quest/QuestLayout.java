@@ -20,12 +20,23 @@ import java.util.Set;
  * <p>Grid spacing is 32 pixels, so quests at 0,0 and 32,0 touch. The editor snaps to that; a
  * hand-edited file can put one anywhere.
  */
-public record QuestLayout(int x, int y, QuestShape shape, int size) {
+public record QuestLayout(int x, int y, QuestShape shape, int size, double iconScale) {
 
-    public static final QuestLayout DEFAULT = new QuestLayout(0, 0, QuestShape.ROUNDED, 48);
+    /**
+     * The share of the node the icon fills, unless a quest says otherwise.
+     *
+     * <p>Three-quarters rather than the full square, because at full size a node is a picture with a
+     * one-pixel outline around it — which looks fine for one quest and like a contact sheet for fifty.
+     * Leaving a margin lets the shape read, and the shape is the thing that says what kind of quest
+     * this is.
+     */
+    public static final double DEFAULT_ICON_SCALE = 0.75;
+
+    public static final QuestLayout DEFAULT =
+            new QuestLayout(0, 0, QuestShape.ROUNDED, 48, DEFAULT_ICON_SCALE);
 
     /** The field names this contributes, for the validator to allow at quest level. */
-    public static final Set<String> FIELDS = Set.of("x", "y", "shape", "size");
+    public static final Set<String> FIELDS = Set.of("x", "y", "shape", "size", "iconScale");
 
     public static final MapCodec<QuestLayout> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.INT.optionalFieldOf("x", 0).forGetter(QuestLayout::x),
@@ -33,7 +44,11 @@ public record QuestLayout(int x, int y, QuestShape shape, int size) {
             QuestShape.CODEC.optionalFieldOf("shape", QuestShape.ROUNDED).forGetter(QuestLayout::shape),
             // Bounded because the canvas draws at a fixed scale: a 4000-pixel node would be a
             // performance problem and is certainly a typo for 40.
-            Codec.intRange(16, 512).optionalFieldOf("size", 48).forGetter(QuestLayout::size)
+            Codec.intRange(16, 512).optionalFieldOf("size", 48).forGetter(QuestLayout::size),
+            // The bounds live on QuestShape, where the geometry they describe lives, so the codec and
+            // the validator cannot come to disagree about them.
+            Codec.doubleRange(QuestShape.MIN_ICON_SCALE, QuestShape.MAX_ICON_SCALE)
+                    .optionalFieldOf("iconScale", DEFAULT_ICON_SCALE).forGetter(QuestLayout::iconScale)
     ).apply(instance, QuestLayout::new));
 
     public static final Codec<QuestLayout> CODEC = MAP_CODEC.codec();

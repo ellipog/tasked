@@ -6,9 +6,13 @@ import dev.ellipog.armature.api.teams.TeamEvents;
 
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.resources.ResourceLocation;
+
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Common entry point, shared by the Fabric and NeoForge builds.
@@ -73,10 +77,23 @@ public final class Tasked {
         // The engine. Runs once per player tick, and dedupes internally -- see
         // ProgressService.tick, which has to, because this hook fires per player and the work it
         // does is per team.
+        //
+        // The set it returns is the teams whose progress actually moved, and telling those players is
+        // the half that was missing. Without it, the only thing that ever pushed progress to a client
+        // was the handler for pressing Submit -- so gathering the items completed the quest, granted
+        // the reward and printed the completion message while the quest book went on showing 0 of 8
+        // until the player reconnected. See TaskedNetworking.sendProgressToOwners.
+        //
+        // Empty on almost every tick, which is what makes "tell them when it moves" cost nothing
+        // rather than costing a packet per player per tick.
         ArmatureEvents.PLAYER_TICK.register(player -> {
             var server = player.getServer();
-            if (server != null) {
-                ProgressService.tick(server);
+            if (server == null) {
+                return;
+            }
+            Set<UUID> changed = ProgressService.tick(server);
+            if (!changed.isEmpty()) {
+                TaskedNetworking.sendProgressToOwners(server, changed, ProgressSyncPayload.REASON_CHANGED);
             }
         });
 

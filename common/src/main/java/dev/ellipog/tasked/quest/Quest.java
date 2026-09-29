@@ -91,6 +91,17 @@ public record Quest(
         return rules.invisible();
     }
 
+    /**
+     * Whether the book draws this quest's name under its node.
+     *
+     * <p>False by default. A node is an icon; a canvas of fifty names is a wall of text, and the name
+     * is available on hover for every quest whether this is set or not. An author asks for the ones
+     * worth naming.
+     */
+    public boolean showTitle() {
+        return rules.showTitle();
+    }
+
     public Optional<String> exclusiveGroup() {
         return rules.exclusiveGroup();
     }

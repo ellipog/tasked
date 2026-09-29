@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ArmatureScreens;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientQuestCache;
+import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
@@ -55,8 +56,13 @@ public final class TaskedNeoForgeClient {
             ArmatureClient.tick();
         });
 
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) ->
-                ClientQuestCache.clear());
+        // Both, for the same reason as on Fabric: the cache's contents and the half-received chunks
+        // that feed it. See the Fabric side's comment for why the second half lives in the networking
+        // rather than in the cache.
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
+            ClientQuestCache.clear();
+            TaskedNetworking.forgetTransfers();
+        });
 
         Constants.LOG.info("Tasked: NeoForge client ready");
     }

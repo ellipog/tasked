@@ -1,7 +1,6 @@
 package dev.ellipog.tasked.client;
 
 import dev.ellipog.tasked.client.BookGeometry.Rect;
-import dev.ellipog.tasked.client.BookGeometry.Zoom;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -10,10 +9,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -21,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What this exists to prevent</h2>
  *
- * <p>A screenshot showed the <b>Done</b> and <b>Open</b> buttons drawn on top of each other in the
+ * <p>A screenshot showed two buttons drawn on top of each other in the
  * bottom-right corner. The cause was that "near the bottom right" was written twice, as two
  * expressions that were equal only by coincidence:
  *
@@ -46,6 +45,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code 339,196 60x18}. Those intersect. Every test below that sweeps window sizes would have failed
  * on the old arithmetic.
  *
+ * <p>Both of those controls are gone — Open with the summary strip, Done replaced by a close button —
+ * so the pair is now reconstructed inside the test that reproduces it rather than existing in the
+ * layout. The rectangles are kept verbatim because their <i>overlap</i> is the evidence that the sweep
+ * can fail, and that evidence does not expire when the controls do.
+ *
  * <h2>Why the sweep rather than a handful of cases</h2>
  *
  * <p>Because the failure mode is size-dependent. The developer's monitor is the one size that
@@ -59,13 +63,31 @@ class BookGeometryTest {
     private static final int SCREENSHOT_WIDTH = 427;
     private static final int SCREENSHOT_HEIGHT = 240;
 
+    /**
+     * The summary strip's height, as it was.
+     *
+     * <p>A literal, and deliberately not {@code BookGeometry.STRIP_HEIGHT} -- that constant is deleted
+     * with the strip. The two tests that use this reconstruct a layout that no longer exists, so the
+     * number has to be the <i>old</i> value rather than a live reference. Following a live constant is
+     * how a regression test silently stops reproducing the layout it claims to: it moves with the
+     * change and goes on passing.
+     */
+    private static final int OLD_STRIP_HEIGHT = 46;
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
-    /** Every control's name and rectangle, for a screen of that size. */
-    private static Map<String, Rect> controlsAt(int width, int height, int chapters, boolean hasOpen) {
-        return new BookGeometry(width, height).controls(chapters, hasOpen);
+    /**
+     * Every control's name and rectangle, for a screen of that size.
+     *
+     * <p>No `hasOpen` any more. The map used to take a second argument saying whether a quest was
+     * selected, because the summary strip's Open button only existed then — and the strip is gone,
+     * because clicking a node opens the quest. So the only thing that decides what the book offers is
+     * how many chapters there are.
+     */
+    private static Map<String, Rect> controlsAt(int width, int height, int chapters) {
+        return new BookGeometry(width, height).controls(chapters);
     }
 
     /** The first overlapping pair, or null if none. Names the two, so a failure is actionable. */
@@ -107,55 +129,113 @@ class BookGeometryTest {
         void noTwoControlsOverlapEver() {
             for (int[] size : sizes()) {
                 for (int chapters = 0; chapters <= 6; chapters++) {
-                    for (boolean hasOpen : new boolean[] {true, false}) {
-                        Map<String, Rect> controls = controlsAt(size[0], size[1], chapters, hasOpen);
-                        String overlap = firstOverlap(controls);
-                        if (overlap != null) {
-                            throw new AssertionError("at " + size[0] + "x" + size[1]
-                                    + " with " + chapters + " chapters"
-                                    + (hasOpen ? " and a selection" : "")
-                                    + ": " + overlap);
-                        }
+                    Map<String, Rect> controls = controlsAt(size[0], size[1], chapters);
+                    String overlap = firstOverlap(controls);
+                    if (overlap != null) {
+                        throw new AssertionError("at " + size[0] + "x" + size[1]
+                                + " with " + chapters + " chapters: " + overlap);
                     }
                 }
             }
         }
 
         @Test
-        @DisplayName("Done and Open are never near each other — the reported bug")
-        void doneAndOpenNeverCollide() {
-            // The two controls that collided, asserted directly and with a margin, so a failure names
-            // the reported symptom rather than a generic rectangle clash. They sit on different
-            // surfaces either side of the sidebar divider, so "near each other" is never correct.
+        @DisplayName("the two controls that collided are gone, and nothing took their places")
+        void theReportedCollisionPairIsGone() {
+            // This was `doneAndOpenNeverCollide`, and it named the specific pair that collided in the
+            // screenshot: Done in the sidebar's footer, Open in the summary strip. Both are gone --
+            // Done replaced by a close button in the header, Open with the strip -- so there is no pair
+            // left to assert about, and a test that kept naming them would be asserting about two
+            // rectangles that are no longer drawn.
+            //
+            // What is worth keeping, and what this now asserts, is that nothing has quietly taken
+            // either position. The old coordinates were a fault, and a future control landing on them
+            // exactly would be a coincidence worth failing on.
+            //
+            // The half that still proves something is kept, and it is the important half: the old
+            // pair really did overlap, which is what makes the sweep in NoOverlap a test capable of
+            // failing rather than a loop that happens to pass. That evidence does not expire when the
+            // controls it was about do.
             for (int[] size : sizes()) {
-                Map<String, Rect> controls = controlsAt(size[0], size[1], 4, true);
-                Rect done = controls.get("done");
-                Rect open = controls.get("open");
+                BookGeometry geometry = new BookGeometry(size[0], size[1]);
+                Rect panel = geometry.panel();
 
-                assertFalse(done.intersects(open),
-                        "Done " + done + " and Open " + open + " overlap at " + size[0] + "x" + size[1]);
-                assertTrue(BookGeometry.clearOf(done, open, 4),
-                        "Done " + done + " and Open " + open + " are within four pixels at "
-                                + size[0] + "x" + size[1]);
+                // The old arithmetic, verbatim, against the canvas as it was: it stopped short of the
+                // summary strip, which was carved out of the panel's bottom.
+                Rect oldCanvas = Rect.at(panel.x() + BookGeometry.SIDEBAR_WIDTH,
+                        panel.y() + BookGeometry.HEADER_HEIGHT,
+                        panel.width() - BookGeometry.SIDEBAR_WIDTH,
+                        panel.height() - BookGeometry.HEADER_HEIGHT - OLD_STRIP_HEIGHT);
+                Rect oldOpen = Rect.at(oldCanvas.right() - 78, oldCanvas.bottom() + 11, 70, 18);
+                Rect oldDone = Rect.at(panel.x() + panel.width() - 68,
+                        panel.y() + panel.height() - 24, 60, 18);
+
+                assertTrue(oldOpen.intersects(oldDone),
+                        "the old placement should overlap, or this test proves nothing: Open "
+                                + oldOpen + " vs Done " + oldDone);
+
+                // And nothing has taken either position. There is no pair left to compare, and
+                // `assertNotEquals` against a key that does not exist would throw rather than fail --
+                // which is why this walks the map instead of indexing it.
+                Map<String, Rect> controls = geometry.controls(4);
+                assertFalse(controls.containsKey("open"),
+                        "the strip's Open button is still being offered as a control");
+                assertFalse(controls.containsKey("done"),
+                        "the old Done button is still being offered as a control");
+                for (Map.Entry<String, Rect> entry : controls.entrySet()) {
+                    assertFalse(entry.getValue().equals(oldOpen),
+                            entry.getKey() + " is drawn exactly where the old Open button was");
+                    assertFalse(entry.getValue().equals(oldDone),
+                            entry.getKey() + " is drawn exactly where the old Done button was");
+                }
             }
         }
 
         @Test
-        @DisplayName("the three zoom controls do not overlap each other")
-        void theFooterRowFitsAcross() {
-            // Three controls across 116 pixels of sidebar. They are placed from one arithmetic series
-            // -- 30, gap, 30, gap, the rest -- so the row is flush at both ends by construction.
+        @DisplayName("the three view buttons do not overlap each other")
+        void theClusterFitsTogether() {
+            // Three square buttons in a column, placed from one arithmetic series -- y, y + pitch,
+            // y + 2 * pitch. They used to be four controls across two rows of the sidebar's footer,
+            // which is the only reason that footer had two rows.
             for (int[] size : sizes()) {
-                Map<String, Rect> controls = controlsAt(size[0], size[1], 2, false);
+                Map<String, Rect> controls = controlsAt(size[0], size[1], 2);
                 Rect in = controls.get("zoomIn");
                 Rect out = controls.get("zoomOut");
                 Rect centre = controls.get("centre");
 
                 assertFalse(in.intersects(out), "zoom in/out collide at " + size[0] + "x" + size[1]);
                 assertFalse(out.intersects(centre), "zoom out/centre collide at " + size[0] + "x" + size[1]);
-                assertEquals(BookGeometry.SIDEBAR_WIDTH - BookGeometry.EDGE,
-                        centre.right() - new BookGeometry(size[0], size[1]).panel().x(),
-                        "the footer row should be flush with the sidebar's right edge");
+                assertFalse(in.intersects(centre), "zoom in/centre collide at " + size[0] + "x" + size[1]);
+
+                assertEquals(in.x(), out.x(), "the cluster is a column, so one x");
+                assertEquals(in.x(), centre.x());
+                assertEquals(in.width(), in.height(), "the buttons are square");
+            }
+        }
+
+        @Test
+        @DisplayName("the view cluster is inside the canvas it floats over")
+        void theClusterIsInsideTheCanvas() {
+            // This test used to check two things -- the strip and the cluster -- because both floated
+            // over the canvas. The strip is gone, so there is one, and the assertion it keeps is the
+            // one that generalises: whatever is drawn *on* the canvas has to be inside it, or it is
+            // drawn over the sidebar and clickable outside its own surface.
+            //
+            // That is not hypothetical for this class. A control at a fixed offset from a container's
+            // right edge went 4 pixels outside the canvas at a 160-wide window -- see the Open button's
+            // history in BookGeometry -- which is the same fault as the two colliding controls with the
+            // sign flipped. Swept rather than checked at one size, because the fault exists only below
+            // the width where the fixed offset happens to fit.
+            for (int[] size : sizes()) {
+                BookGeometry geometry = new BookGeometry(size[0], size[1]);
+                Rect canvas = geometry.canvas();
+                Rect cluster = geometry.viewControls();
+
+                assertTrue(cluster.isInside(canvas),
+                        "the cluster " + cluster + " is outside the canvas " + canvas
+                                + " at " + size[0] + "x" + size[1]);
+                assertTrue(cluster.width() > 0 && cluster.height() > 0,
+                        "the cluster has no area at " + size[0] + "x" + size[1]);
             }
         }
 
@@ -165,7 +245,7 @@ class BookGeometryTest {
             // The real case, and a case smaller than anything real. A minimum panel that merely
             // *looks* big enough on a developer's monitor is how the original bug survived.
             for (int[] size : new int[][] {{SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT}, {200, 120}, {160, 100}}) {
-                String overlap = firstOverlap(controlsAt(size[0], size[1], 5, true));
+                String overlap = firstOverlap(controlsAt(size[0], size[1], 5));
                 assertTrue(overlap == null, "at " + size[0] + "x" + size[1] + ": " + overlap);
             }
         }
@@ -193,50 +273,124 @@ class BookGeometryTest {
     @DisplayName("controls are inside their surface")
     class Containment {
 
+        /**
+         * Which surface each control is drawn on.
+         *
+         * <h2>Named lists rather than a chain with a default, and this is a fix rather than a tidy-up</h2>
+         *
+         * <p>The check below used to read
+         * {@code key.startsWith("chapter") ? sidebar : key.equals("close") ? header : canvas} — and the
+         * <b>default</b> was the trap. When the two appearance rows arrived they fell through to the
+         * canvas, so this test failed on two controls that were in exactly the right place. The
+         * geometry was correct and the test was describing a layout that no longer existed.
+         *
+         * <p>That is the failure mode of a default in a mapping like this: it silently answers for
+         * every case nobody thought about, and its answer is wrong in the direction that looks like a
+         * real fault. Three lists invert it — a control in none of them returns null and fails with a
+         * message saying so, which is the one thing a default cannot do.
+         *
+         * <p>Kept by hand rather than derived from {@code BookGeometry}, deliberately: "which surface
+         * is this control on" is a design statement, and deriving it from the rectangles would make
+         * this test agree with the code by construction — which is the property that makes a layout
+         * test worthless. A control that moves surface should fail here.
+         */
+        private static Rect surfaceFor(BookGeometry geometry, String key) {
+            if (key.startsWith("chapter") || SIDEBAR_CONTROLS.contains(key)) {
+                return geometry.sidebar();
+            }
+            if (HEADER_CONTROLS.contains(key)) {
+                return geometry.header();
+            }
+            if (CANVAS_CONTROLS.contains(key)) {
+                return geometry.canvas();
+            }
+            return null;
+        }
+
+        /** The appearance rows, at the foot of the sidebar. See {@code BookGeometry.themeRect}. */
+        private static final Set<String> SIDEBAR_CONTROLS = Set.of("theme", "motion");
+
+        /** Close, in the header's right corner. */
+        private static final Set<String> HEADER_CONTROLS = Set.of("close");
+
+        /** The view cluster, top-left on the graph. The only things that sit on the canvas. */
+        private static final Set<String> CANVAS_CONTROLS = Set.of("zoomIn", "zoomOut", "centre");
+
         @Test
-        @DisplayName("the chapter list and the footer are inside the sidebar")
-        void sidebarControlsAreInsideTheSidebar() {
+        @DisplayName("every control is inside the surface it belongs to")
+        void everyControlIsInsideItsOwnSurface() {
+            // Was "everything except Open is inside the sidebar", which was true when the screen had a
+            // sidebar footer and one floating control. Neither exists any more, and the honest version
+            // says which surface each control belongs to -- so a control that moves surface fails here
+            // rather than being quietly exempted from a check that no longer applies to it.
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Map<String, Rect> controls = geometry.controls(6, true);
-                Rect sidebar = geometry.sidebar();
+                Map<String, Rect> controls = geometry.controls(6);
 
                 for (Map.Entry<String, Rect> entry : controls.entrySet()) {
-                    if (!entry.getKey().equals("open")) {
-                        assertTrue(entry.getValue().isInside(sidebar),
-                                entry.getKey() + " " + entry.getValue() + " is outside the sidebar "
-                                        + sidebar + " at " + size[0] + "x" + size[1]);
-                    }
+                    String key = entry.getKey();
+                    Rect rect = entry.getValue();
+                    Rect surface = surfaceFor(geometry, key);
+
+                    // Asserted before use rather than after, so a control this test does not know
+                    // about says *that* rather than reporting an NPE or checking it against the wrong
+                    // rectangle. Reachable the moment a control is added to `controls()` and not to
+                    // one of the three lists above -- which is the moment worth being told about.
+                    assertTrue(surface != null,
+                            key + " is a control this test has no surface for, at "
+                                    + size[0] + "x" + size[1] + ". Add it to the list for the surface"
+                                    + " it is drawn on -- one of them has to be right, and guessing"
+                                    + " which is how it ended up checked against the canvas.");
+                    assertTrue(rect.isInside(surface),
+                            key + " " + rect + " is outside its surface " + surface
+                                    + " at " + size[0] + "x" + size[1]);
                 }
             }
         }
 
         @Test
-        @DisplayName("the Open button is inside the strip")
-        void openButtonIsInsideTheStrip() {
+        @DisplayName("the Close button is inside the header")
+        void closeIsInsideTheHeader() {
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Rect open = geometry.controls(1, true).get("open");
-                assertTrue(open.isInside(geometry.strip()),
-                        "Open " + open + " is outside the strip " + geometry.strip()
+                Rect close = geometry.controls(1).get("close");
+                assertTrue(close.isInside(geometry.header()),
+                        "Close " + close + " is outside the header " + geometry.header()
                                 + " at " + size[0] + "x" + size[1]);
             }
         }
 
         @Test
-        @DisplayName("every chapter row is above the footer")
-        void chapterRowsStopAboveTheFooter() {
-            // The multi-row version of the reported bug: a chapter drawn underneath a button, where
-            // it is both invisible and unclickable. The row count is derived from where the footer
-            // actually starts, so this cannot drift.
+        @DisplayName("the header's count stops short of Close, at every size")
+        void theHeaderCountClearsClose() {
+            // The quest count is right-aligned to this limit. It was `panel width - 12` -- the panel's
+            // own inset, a number the Close button knows nothing about -- so it is exactly the mistake
+            // that put two controls on top of each other, one surface up.
             for (int[] size : sizes()) {
                 BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                int footer = geometry.footerRow1Y();
+                if (size[0] > 600) {
+                    assertTrue(geometry.headerRightLimit() < geometry.closeRect().x(),
+                            "the count would run into Close at " + size[0] + "x" + size[1]);
+                }
+                assertTrue(geometry.headerRightLimit() > geometry.panel().x() + 10,
+                        "the header has no room for its own title at " + size[0] + "x" + size[1]);
+            }
+        }
+
+        @Test
+        @DisplayName("every chapter row fits above the bottom of the panel")
+        void chapterRowsStopAboveThePanelBottom() {
+            // The multi-row version of the reported bug: a chapter drawn underneath something, where it
+            // is both invisible and unclickable. There is no footer to measure from any more, so this
+            // checks against the panel's own bottom -- which is the surface a row has to stay inside.
+            for (int[] size : sizes()) {
+                BookGeometry geometry = new BookGeometry(size[0], size[1]);
+                int limit = geometry.panel().bottom() - BookGeometry.EDGE;
 
                 for (int i = 0; i < geometry.chapterRows(); i++) {
                     int bottom = geometry.chapterRowY(i) + BookGeometry.ROW_HEIGHT;
-                    assertTrue(bottom <= footer,
-                            "chapter row " + i + " ends at " + bottom + ", past the footer at " + footer
+                    assertTrue(bottom <= limit,
+                            "chapter row " + i + " ends at " + bottom + ", past " + limit
                                     + " on a " + size[0] + "x" + size[1] + " screen");
                 }
             }
@@ -259,7 +413,7 @@ class BookGeometryTest {
             // Distinct from the row count: `controls` caps the rows it offers by the rows that fit, so
             // a mistake there would show a row and offer nothing to click.
             for (int[] size : sizes()) {
-                assertTrue(new BookGeometry(size[0], size[1]).controls(1, false).containsKey("chapter0"),
+                assertTrue(new BookGeometry(size[0], size[1]).controls(1).containsKey("chapter0"),
                         "no chapter control on a " + size[0] + "x" + size[1] + " screen");
             }
         }
@@ -275,127 +429,28 @@ class BookGeometryTest {
                         "canvas has no height at " + size[0] + "x" + size[1]);
             }
         }
-
-        @Test
-        @DisplayName("the strip's text stops before the Open button")
-        void stripTextStopsBeforeTheButton() {
-            // The strip's title and summary are drawn to this limit. If it were computed past the
-            // button, a long quest title would run underneath it -- which reads as a rendering fault
-            // rather than as a title that is simply too long.
-            for (int[] size : sizes()) {
-                BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                int limit = geometry.stripTextLimit();
-                int buttonLeft = geometry.stripButtonX() - (geometry.canvas().x() + 10);
-
-                assertTrue(limit < buttonLeft,
-                        "text limit " + limit + " does not stop short of the button at " + buttonLeft
-                                + " on a " + size[0] + "x" + size[1] + " screen");
-            }
-        }
     }
 
     // ------------------------------------------------------------------
-    // Zoom
+    // Zoom -- moved out, and why that is worth a note here
     // ------------------------------------------------------------------
 
-    @Nested
-    @DisplayName("zoom about the pointer")
-    class Zooming {
-
-        /** The invariant: the world point under the pointer is the same before and after. */
-        private static void assertPointerIsFixed(Rect canvas, double px, double py,
-                                                 Zoom before, Zoom after) {
-            double worldBefore = (px - canvas.x() - before.panX()) / before.zoom();
-            double worldAfter = (px - canvas.x() - after.panX()) / after.zoom();
-            double worldYBefore = (py - canvas.y() - before.panY()) / before.zoom();
-            double worldYAfter = (py - canvas.y() - after.panY()) / after.zoom();
-
-            assertEquals(worldBefore, worldAfter, 0.5 / after.zoom(),
-                    "the world x under the pointer moved");
-            assertEquals(worldYBefore, worldYAfter, 0.5 / after.zoom(),
-                    "the world y under the pointer moved");
-        }
-
-        @Test
-        @DisplayName("the point under the pointer stays under the pointer")
-        void zoomKeepsThePointUnderThePointer() {
-            // The property that makes a graph UI feel right, and the one most often got wrong: get it
-            // backwards and the zoom appears to run away from the cursor. Checked from many starting
-            // pans and zooms, at every corner of the canvas and in the middle, because an error in the
-            // algebra often cancels at the centre.
-            Rect canvas = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT).canvas();
-
-            for (int panX = -400; panX <= 400; panX += 137) {
-                for (int panY = -300; panY <= 300; panY += 113) {
-                    for (float zoom : new float[] {0.4F, 0.75F, 1.0F, 1.5F, 2.1F}) {
-                        for (double[] pointer : new double[][] {
-                                {canvas.x() + 1, canvas.y() + 1},
-                                {canvas.x() + canvas.width() / 2.0, canvas.y() + canvas.height() / 2.0},
-                                {canvas.right() - 2, canvas.bottom() - 2}}) {
-                            Zoom before = new Zoom(panX, panY, zoom);
-                            Zoom after = BookGeometry.zoomAbout(pointer[0], pointer[1], canvas,
-                                    panX, panY, zoom, 1.15F, 0.35F, 2.2F);
-                            assertPointerIsFixed(canvas, pointer[0], pointer[1], before, after);
-                        }
-                    }
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("zooming in and then out returns to where it started")
-        void zoomIsReversible() {
-            // Within a pixel of rounding, which is as close as integer pans can get. Worth asserting
-            // because a sign error in one direction only -- the easiest mistake to make here -- passes
-            // any test that zooms in only.
-            Rect canvas = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT).canvas();
-            double px = canvas.x() + 120;
-            double py = canvas.y() + 90;
-
-            Zoom start = new Zoom(40, -30, 1.0F);
-            Zoom in = BookGeometry.zoomAbout(px, py, canvas, start.panX(), start.panY(), start.zoom(),
-                    1.25F, 0.35F, 2.2F);
-            Zoom back = BookGeometry.zoomAbout(px, py, canvas, in.panX(), in.panY(), in.zoom(),
-                    1F / 1.25F, 0.35F, 2.2F);
-
-            assertEquals(start.zoom(), back.zoom(), 1.0E-4F);
-            assertTrue(Math.abs(start.panX() - back.panX()) <= 1, "pan x drifted");
-            assertTrue(Math.abs(start.panY() - back.panY()) <= 1, "pan y drifted");
-        }
-
-        @Test
-        @DisplayName("zoom stops at its limits rather than running away")
-        void zoomIsClamped() {
-            Rect canvas = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT).canvas();
-
-            Zoom zoom = new Zoom(0, 0, 1.0F);
-            for (int i = 0; i < 40; i++) {
-                zoom = BookGeometry.zoomAbout(100, 100, canvas, zoom.panX(), zoom.panY(), zoom.zoom(),
-                        1.25F, 0.35F, 2.2F);
-            }
-            assertEquals(2.2F, zoom.zoom(), 1.0E-4F, "zoom in should stop at the maximum");
-
-            for (int i = 0; i < 80; i++) {
-                zoom = BookGeometry.zoomAbout(100, 100, canvas, zoom.panX(), zoom.panY(), zoom.zoom(),
-                        0.8F, 0.35F, 2.2F);
-            }
-            assertEquals(0.35F, zoom.zoom(), 1.0E-4F, "zoom out should stop at the minimum");
-        }
-
-        @Test
-        @DisplayName("a zoom already at its limit changes nothing at all")
-        void zoomAtTheLimitDoesNotDrift() {
-            // The early return matters: without it, zooming further at the limit would recompute the
-            // pan from an unchanged zoom, and rounding would walk the canvas by a pixel per scroll
-            // event until the questline had wandered off the screen.
-            Rect canvas = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT).canvas();
-            Zoom atMax = new Zoom(123, -45, 2.2F);
-            Zoom result = BookGeometry.zoomAbout(200, 150, canvas, atMax.panX(), atMax.panY(),
-                    atMax.zoom(), 1.25F, 0.35F, 2.2F);
-
-            assertEquals(atMax, result, "a clamped zoom must not move the pan");
-        }
-    }
+    // A `Zooming` nested class used to sit here: four tests of zoom-about-the-pointer, asserting that
+    // the world point under the pointer is the same before and after, that zooming in then out comes
+    // back, that the limits clamp, and that a zoom already at a limit does not drift.
+    //
+    // They tested `BookGeometry.zoomAbout`, which was a second implementation of the transform --
+    // the screen had its own, as three static fields and the same algebra written out three times.
+    // Both are gone. The transform is `ui.kit`'s `Viewport`, which the screen calls, and
+    // `ViewportTest.zoomAtKeepsTheContentPointUnderThePointer` asserts the same invariant: swept over
+    // more pans and scales than this copy managed, and against the transform itself rather than
+    // against a re-derivation of it.
+    //
+    // So this file now covers one thing rather than two: the framing. Rectangles, the control map,
+    // label room, hit-test bounds -- one screen's own layout, and nothing else's. That the split
+    // matters at all is the reason to keep this comment: the four tests above were *good tests of the
+    // wrong object*, and they were part of why the duplicate went unnoticed. A passing suite is not
+    // evidence that the thing it passes against is the thing in use.
 
     // ------------------------------------------------------------------
     // Label room and hit testing
@@ -537,38 +592,79 @@ class BookGeometryTest {
         // These are verbatim from the first version of QuestBookScreen:
         //     Open: canvasRight() - 78,               canvasBottom() + 11
         //     Done: panelLeft() + panelWidth() - 68,  panelTop() + panelHeight() - 24
+        //
+        // <h2>And it stopped proving anything, which is worth the paragraph</h2>
+        //
+        // <p>{@code canvasBottom()} is not the same number it was. The canvas used to stop short of the
+        // strip — the strip was carved out of the panel's bottom, 46 pixels tall — and it now runs the
+        // full height with the bar floating over it. So the old Open expression landed 46 pixels lower
+        // than it did on the screen being described, the two rectangles stopped overlapping, and this
+        // assertion failed with the message it prints when it has no evidence.
+        //
+        // <p>The fix is to reconstruct the <b>old</b> canvas rather than to reuse the new one, because
+        // the case under test is a layout that no longer exists. The alternative — deleting the test
+        // because it "no longer applies" — would have thrown away the only proof that this sweep can
+        // fail. A regression test pinned to a moving number is a test that quietly retires itself, and
+        // the failure message is the only reason it did not.
         int width = SCREENSHOT_WIDTH;
         int height = SCREENSHOT_HEIGHT;
         BookGeometry geometry = new BookGeometry(width, height);
-
-        Rect canvas = geometry.canvas();
         Rect panel = geometry.panel();
 
-        Rect oldOpen = Rect.at(canvas.right() - 78, canvas.bottom() + 11, 70, 18);
+        Rect oldCanvas = Rect.at(panel.x() + BookGeometry.SIDEBAR_WIDTH, panel.y() + BookGeometry.HEADER_HEIGHT,
+                panel.width() - BookGeometry.SIDEBAR_WIDTH,
+                panel.height() - BookGeometry.HEADER_HEIGHT - OLD_STRIP_HEIGHT);
+
+        Rect oldOpen = Rect.at(oldCanvas.right() - 78, oldCanvas.bottom() + 11, 70, 18);
         Rect oldDone = Rect.at(panel.x() + panel.width() - 68, panel.y() + panel.height() - 24, 60, 18);
 
         assertTrue(oldOpen.intersects(oldDone),
                 "the old placement should overlap, or this regression test proves nothing: Open "
                         + oldOpen + " vs Done " + oldDone);
+        assertEquals(SCREENSHOT_WIDTH - 2 * BookGeometry.PANEL_MARGIN, panel.width(),
+                "fixture sanity: this is the window the bug was photographed in, at the panel size it had");
 
-        // And the new placement, at the same window size, does not.
-        Map<String, Rect> controls = geometry.controls(4, true);
-        assertFalse(controls.get("open").intersects(controls.get("done")));
-        assertNotEquals(oldOpen, controls.get("open"), "Open should have moved");
-        assertNotEquals(oldDone, controls.get("done"), "Done should have moved");
+        // And nothing is drawn where either of them was, which is the only form this assertion can
+        // take now: both controls are gone (Open with the strip, Done replaced by Close), so there is
+        // no pair left to compare. `assertNotEquals` against a key that does not exist would throw
+        // rather than fail, which is why this reads the rectangles positionally.
+        //
+        // What it still proves is the thing worth keeping: the reconstructed collision above is real,
+        // so the sweep in NoOverlap is a test that can fail. That was the whole reason this test
+        // existed, and it survives the controls it was about.
+        Map<String, Rect> controls = geometry.controls(4);
+        assertFalse(controls.containsKey("open"),
+                "the strip's Open button is still being offered as a control");
+        assertFalse(controls.containsKey("done"),
+                "the old Done button is still being offered as a control");
+        for (Map.Entry<String, Rect> entry : controls.entrySet()) {
+            assertFalse(entry.getValue().equals(oldOpen),
+                    entry.getKey() + " is drawn exactly where the old Open button was");
+            assertFalse(entry.getValue().equals(oldDone),
+                    entry.getKey() + " is drawn exactly where the old Done button was");
+        }
     }
 
     @Test
     @DisplayName("a control named in the map is the one the geometry helper points at")
     void theMapAndTheHelpersAgree() {
-        // The screen draws text into the strip using stripButtonX/Y and creates the Open control from
-        // the map. If those two disagreed, the button would be drawn in one place and clickable in
-        // another -- which is the same class of bug as the original, and harder to see.
+        // The screen draws to two numbers that nothing else creates: the header's right limit, which
+        // the quest count is aligned to, and the cluster's rectangle, which the mat is painted from.
+        // A drift in either would be invisible until the two met -- which is the class of bug this
+        // whole file exists for.
+        //
+        // Open and its bar used to be checked here too and are gone with the strip. Nothing replaces
+        // them, and that is honest rather than a gap: there is no longer a control whose position is
+        // computed in two places.
         BookGeometry geometry = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
-        Rect open = geometry.controls(1, true).get("open");
 
-        assertEquals(geometry.stripButtonX(), open.x());
-        assertEquals(geometry.stripButtonY(), open.y());
+        assertTrue(geometry.headerRightLimit() <= geometry.closeRect().x(),
+                "the count's limit must not run past the Close button");
+        assertTrue(geometry.viewControls().isInside(geometry.canvas()),
+                "the cluster's mat is painted outside the canvas it sits on");
+        assertTrue(geometry.viewControls().width() > BookGeometry.VIEW_BUTTON,
+                "the mat is the whole reason the cluster reads as one group, so it must be bigger "
+                        + "than a single button: " + geometry.viewControls());
     }
 
     @Test
@@ -577,11 +673,25 @@ class BookGeometryTest {
         // The screen rebuilds its geometry whenever the size changes and asks for the control map on
         // every init. A map built in iteration order that varied would move controls between rebuilds,
         // which shows up as a button that occasionally cannot be clicked.
-        Map<String, Rect> first = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3, true));
-        Map<String, Rect> second = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3, true));
+        Map<String, Rect> first = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3));
+        Map<String, Rect> second = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, 3));
 
         assertEquals(first, second);
-        assertEquals(List.of("chapter0", "chapter1", "chapter2", "zoomIn", "zoomOut", "centre", "done", "open"),
+        // No "open" any more: the strip's button went with the strip, and it was the only entry here
+        // whose presence depended on something other than how many chapters there are.
+        //
+        // The order is asserted, not just the contents, and that is the half that catches a rebuild
+        // reordering them: this method's callers index nothing, but a screen that later walks this map
+        // to place controls would draw them in a different order between two inits of the same size --
+        // which shows up as a control that is occasionally somewhere else.
+        //
+        // `theme` and `motion` sit after `close` because that is where `controls()` adds them: the
+        // chapter rows, then close, then the two appearance rows, then the view cluster. Worth knowing
+        // that this list is a statement about the source order in that method rather than about the
+        // screen -- the sidebar's two rows are drawn at the *bottom* while they are added here in the
+        // middle.
+        assertEquals(List.of("chapter0", "chapter1", "chapter2", "close", "theme", "motion",
+                        "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

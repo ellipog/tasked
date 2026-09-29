@@ -9,9 +9,10 @@ package dev.ellipog.tasked.quest.reward;
  *
  * <h2>Granting must be idempotent-safe, but is not required to be idempotent</h2>
  *
- * <p>The engine records that a quest's rewards have been claimed <b>before</b> calling this, and
- * persists that immediately. So a crash midway through granting leaves a quest marked claimed with
- * some rewards given — losing the remaining items rather than duplicating them.
+ * <p>Called from exactly one place — {@code ProgressService.claim}, which a player triggers — and that
+ * call marks the rewards collected and <b>saves</b> before invoking this, persisting immediately. So a
+ * crash midway through granting leaves a quest marked collected with some rewards given, losing the
+ * remaining items rather than duplicating them.
  *
  * <p>That is the deliberate choice. Duplicating a diamond is an exploit; losing one to a crash is an
  * annoyance. FTB Quests takes the same direction, and it is the only defensible one.

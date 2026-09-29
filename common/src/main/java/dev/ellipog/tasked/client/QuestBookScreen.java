@@ -2,8 +2,22 @@ package dev.ellipog.tasked.client;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
+import dev.ellipog.armature.client.Appearance;
 import dev.ellipog.armature.client.ArmatureTheme;
+import dev.ellipog.armature.client.ui.Theme;
+import dev.ellipog.armature.client.ui.Themes;
+import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
+import dev.ellipog.armature.client.render.GuiRenderer;
+import dev.ellipog.armature.client.ui.kit.Colour;
+import dev.ellipog.armature.client.ui.kit.Hover;
+import dev.ellipog.armature.client.ui.kit.Layout;
+import dev.ellipog.armature.client.ui.kit.Measure;
+import dev.ellipog.armature.client.ui.kit.ScrollView;
+import dev.ellipog.armature.client.ui.kit.Slot;
+import dev.ellipog.armature.client.ui.kit.TextWrap;
+import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.net.ClaimRewardPayload;
 import dev.ellipog.tasked.net.SubmitTaskPayload;
 import dev.ellipog.tasked.progress.QuestState;
 
@@ -11,7 +25,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.Util;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 
@@ -63,6 +77,15 @@ import java.util.Map;
  *
  * <h2>Layout, and the bug that made this a separate concern</h2>
  *
+ * <h2>The selected chapter is a fill, and getting that wrong is worth knowing about</h2>
+ *
+ * <p>The chapter list marked the current chapter with {@code .flat(true)} — no fill, no border — on the
+ * reasoning that a control with nothing behind it stands out among controls that have something. It does
+ * stand out, and as the wrong thing: in a list of filled rows, the one with no box reads as the
+ * <i>disabled</i> or missing entry. A selection has to be something that is there, not something that is
+ * absent. It is {@code .selected(true)} now, and {@code ArmatureControlStyle} decides what that looks
+ * like so the preview draws the same thing this screen does.
+ *
  * <p>The first working version drew two controls on top of each other in the bottom-right corner. The
  * cause was writing "near the bottom right" twice, as two different expressions that were not equal:
  *
@@ -94,16 +117,12 @@ public final class QuestBookScreen extends Screen {
     // ended up drawn on top of each other: "near the bottom right" written twice.
     private static final int SIDEBAR_WIDTH = BookGeometry.SIDEBAR_WIDTH;
     private static final int HEADER_HEIGHT = BookGeometry.HEADER_HEIGHT;
-    private static final int STRIP_HEIGHT = BookGeometry.STRIP_HEIGHT;
     private static final int OVERLAY_MARGIN = BookGeometry.OVERLAY_MARGIN;
 
     /** The sidebar's footer, as two rows of its own. Four controls do not fit across one. */
     private static final int ROW_HEIGHT = BookGeometry.ROW_HEIGHT;
     private static final int ROW_GAP = BookGeometry.ROW_GAP;
     private static final int EDGE = BookGeometry.EDGE;
-
-    /** The strip's Open button. Also what the strip's text must stop short of. */
-    private static final int OPEN_WIDTH = BookGeometry.OPEN_WIDTH;
 
     /**
      * The layout, rebuilt when the window changes size.
@@ -144,22 +163,32 @@ public final class QuestBookScreen extends Screen {
      * the same 16px item, which reads as a rendering fault rather than as a small picture. And a row's
      * pitch was 13px while the icon in it was 16px tall, so consecutive icons overlapped.
      *
-     * <p>So one number per box, and everything around it derived: {@link #ROW_ADVANCE} is
-     * {@link #ROW_ICON} plus a gap, the text offset is {@link #ROW_ICON} plus a gap, and
-     * {@link #measureOverlay} multiplies by {@code ROW_ADVANCE} — the same number the drawing advances
-     * by. An icon is then the size of its box by construction rather than by agreement.
+     * <p>So one number per box, and everything around it derived: the row pitch, the gap under an icon
+     * and the box an icon fills are {@link OverlayLayout}'s, and this screen reads them from there —
+     * because those same numbers are what the scrollbar's range is computed from, and a copy here is a
+     * copy that can disagree with the height the layout reports.
+     *
+     * <p>{@link #NODE_INSET} stays: it is about a node on the canvas, which no layout knows about.
      */
     private static final int NODE_INSET = 3;
 
-    private static final int ROW_ICON = 18;
-
-    /** The row pitch: the icon box plus the gap under it. Used to draw *and* to measure. */
-    private static final int ROW_ADVANCE = ROW_ICON + 6;
+    /** The item box in an overlay row. The layout reserved this box; the icon fills it. */
+    private static final int ROW_ICON = OverlayLayout.ROW_ICON;
 
     private static final int HEADER_ICON = 20;
 
-    /** The pitch for a text-only row — a dependency, which has a tick but no icon. */
-    private static final int DEP_ADVANCE = 14;
+    /**
+     * Where the overlay's body sits inside its card: inset from the sides, and the stops above and
+     * below it.
+     *
+     * <p>Above is the header's height plus a gap; below is the footer's rule plus its own. The drawing
+     * and the clip used to write these numbers out separately — {@code left + 18} and {@code top + 54}
+     * in two places each — which is two expressions for one rectangle, and the same class of mistake as
+     * the two controls that were once drawn on top of each other, one surface up.
+     */
+    private static final int BODY_INSET = 18;
+    private static final int BODY_TOP = 54;
+    private static final int BODY_BOTTOM = 46;
 
     /**
      * Node labels, and the room they are allowed to take.
@@ -204,11 +233,69 @@ public final class QuestBookScreen extends Screen {
 
     // --- view state, kept between openings -----------------------------------
 
+    /**
+     * How hovered each node looks, and each row of the overlay's body.
+     *
+     * <h2>Two trackers rather than one, because two things are never hovered at once</h2>
+     *
+     * <p>A pointer is either over the canvas or over the overlay — the overlay covers the canvas
+     * entirely — so one tracker would work. Two are used anyway because the keys would otherwise share
+     * a namespace: a quest id and a row key like {@code "task:0"} can never collide today, and nothing
+     * would notice if a future key scheme made them collide, because a hover that lit the wrong thing
+     * for one frame is not a thing anyone reports.
+     *
+     * <p>Instances rather than static, unlike the selection above: a hover is <b>per screen</b>, and a
+     * screen that reopened with the last one's hovered row still lit would point at whatever now sits
+     * at that index. {@code clear()} is called when the overlay opens and closes for the same reason.
+     */
+    private final Hover nodeHover = new Hover();
+    private final Hover rowHover = new Hover();
+
     private static String selectedChapter;
     private static String selectedQuest;
-    private static float zoom = 1.0F;
-    private static int panX;
-    private static int panY;
+
+    /**
+     * The chapter whose missing theme was last reported, so the warning is not repeated every frame.
+     *
+     * <h2>What this guards, and what it used to</h2>
+     *
+     * <p>It used to guard the <i>application</i> of a chapter's theme, because applying one was a global
+     * side effect that {@link #init} would otherwise repeat on every resize and every widget rebuild.
+     * A chapter's theme is now applied by opening a scope around the canvas and the overlay, which costs
+     * nothing to re-open and resets no tween — so there is nothing left to guard except the message.
+     *
+     * <p>The message does still need guarding: it is emitted from inside a per-frame drawing path, and a
+     * chapter with a misspelled theme name would otherwise write a line of log per frame, which buries
+     * everything else in it. Once per chapter, cleared on disconnect, is the useful amount.
+     */
+    private static String warnedThemeFor;
+
+    /**
+     * The canvas transform: pan, zoom, the mapping from a quest's own coordinates to the screen, and
+     * the rectangle currently visible. Shared across openings, like the selection above it.
+     *
+     * <h2>Where the four things that used to be here went</h2>
+     *
+     * <p>This was {@code float zoom}, {@code int panX}, {@code int panY} and the bound arithmetic
+     * beside them — and every place that needed a coordinate wrote the conversion out itself: the two
+     * methods that turn a quest into a screen position, the hit test, the pan on drag, the zoom about
+     * the pointer, and {@link #centreCanvas}, which solved the same equation a second time from the
+     * content's bounding box. Five copies of one transform, and the copy that decided what a click
+     * selected was the one nothing could check.
+     *
+     * <p>It is {@link Viewport}'s now — the same object a scrolling list uses at a smaller range, which
+     * is why it is in the kit rather than in {@code ui.graph}. Two things follow, and both are the
+     * reason rather than a side effect: the zoom-about-the-pointer arithmetic is asserted against a
+     * known transform in Armature's own tests instead of being judged in a screenshot, and there is
+     * exactly one place in this repo that knows how to map content space onto screen space.
+     *
+     * <p><b>No content size is ever set on it, deliberately.</b> A canvas may be dragged off into
+     * empty space: a player exploring a large questline should not be stopped at an invisible edge, and
+     * a chapter's bounding box is not a wall. A view that wants a clamp asks for one by saying how much
+     * content it has; this one never does, so the offset is whatever the drag put there.
+     */
+    private static final Viewport VIEW = Viewport.of(MIN_ZOOM, MAX_ZOOM);
+
     private static String pannedChapter;
     private static boolean centred;
 
@@ -219,8 +306,29 @@ public final class QuestBookScreen extends Screen {
     /** The quest whose overlay is open, by id. */
     private String overlayQuest;
 
-    /** Scroll offset inside the overlay, in pixels. */
-    private int overlayScroll;
+    /**
+     * The overlay body's scroll, as a scroll view rather than an int.
+     *
+     * <h2>What this replaced</h2>
+     *
+     * <p>An {@code int overlayScroll} that the wheel wrote <b>unclamped</b>, and that
+     * {@link #drawOverlay} clamped much later against a height produced by a separate
+     * {@code measureOverlay} pass. Three places holding one number — the writer, the clamp and the
+     * scrollbar — which agreed only by hand, and only until somebody scrolled. A flick past the bottom
+     * left the offset out of range until the next frame happened to correct it.
+     *
+     * <p>Here the clamp, the position and the thumb are one object's, and {@link #overlayLayout} is the
+     * single call that says how much content there is, so the bar cannot claim a range the drawing does
+     * not fill.
+     *
+     * <p>The viewport is fixed-scale: there is no canvas inside the overlay, so a zoom control here
+     * would be a control for something that does not exist.
+     *
+     * <p>No widgets are registered in it. The overlay's two controls are placed by {@link BookGeometry}
+     * from the card's own rectangles rather than by the scroll, so what this contributes is the scroll
+     * range, the clamp and the scrollbar.
+     */
+    private final ScrollView overlayView = ScrollView.of(Viewport.fixed());
 
     private boolean dragging;
     private boolean pressMoved;
@@ -295,14 +403,20 @@ public final class QuestBookScreen extends Screen {
 
     // --- the shared positions. One expression each, used by drawing and by the controls ---
 
-    /** The y of the sidebar's lower footer row, which holds Done. */
-    private int footerRow2Y() {
-        return geometry().footerRow2Y();
+    /**
+     * Where the header's right-hand text has to stop, so the quest count does not run under Close.
+     *
+     * <p>There is no footer to ask about any more. The four controls that were in it are three square
+     * map buttons in the canvas's own corner and a close button in the header — see
+     * {@link BookGeometry}'s class comment for why each moved, and what each replaced.
+     */
+    private int headerRightLimit() {
+        return geometry().headerRightLimit();
     }
 
-    /** The y of the sidebar's upper footer row, which holds the zoom controls. */
-    private int footerRow1Y() {
-        return geometry().footerRow1Y();
+    /** The backing panel behind the three view buttons, drawn so they read as one cluster. */
+    private BookGeometry.Rect viewControls() {
+        return geometry().viewControls();
     }
 
     /** Where a chapter row starts, and so the top of the list. */
@@ -320,19 +434,6 @@ public final class QuestBookScreen extends Screen {
      */
     private int chapterRows() {
         return geometry().chapterRows();
-    }
-
-    private int stripButtonX() {
-        return geometry().stripButtonX();
-    }
-
-    private int stripButtonY() {
-        return geometry().stripButtonY();
-    }
-
-    /** Where the strip's text has to stop, so a long title does not run under the Open button. */
-    private int stripTextLimit() {
-        return geometry().stripTextLimit();
     }
 
     /** The full-screen overlay's bounds. */
@@ -396,33 +497,50 @@ public final class QuestBookScreen extends Screen {
                 .orElse(null);
     }
 
-    /** The quest the bottom strip describes: the selected one, if it is in the chapter on screen. */
-    private ClientQuestCache.Entry stripped() {
-        String chapter = effectiveChapter();
-        if (chapter == null || selectedQuest == null) {
-            return null;
-        }
-        return questsIn(chapter).stream()
-                .filter(entry -> entry.id().equals(selectedQuest))
-                .findFirst()
-                .orElse(null);
-    }
-
     // ------------------------------------------------------------------
     // Canvas coordinates
     // ------------------------------------------------------------------
 
+    /**
+     * The canvas transform, with its bounds taken from the current window.
+     *
+     * <p>Re-applied on every use rather than cached, so the transform cannot outlive the canvas it
+     * describes. A resize is announced to {@code init} and to nothing else, and {@link #render} and
+     * {@code mouseClicked} are not in an order this class could rely on — so a bound rectangle stored
+     * once would be describing the previous window for an unknown number of frames.
+     */
+    private Viewport viewport() {
+        return VIEW.bounds(canvasLeft(), canvasTop(), canvasRight() - canvasLeft(),
+                canvasBottom() - canvasTop());
+    }
+
+    /**
+     * The overlay's body rectangle, as a viewport.
+     *
+     * <p>Re-applied on every use, like {@link #viewport()} and for the same reason. Its offset is the
+     * scroll, its content height is whatever the last {@link #overlayLayout} said, and it is the one
+     * rectangle the clip, the scroll clamp and the scrollbar all read — which is the point, because
+     * they used to be three.
+     */
+    private Viewport overlayBody() {
+        return overlayView.viewport().bounds(
+                overlayLeft() + BODY_INSET,
+                overlayTop() + BODY_TOP,
+                overlayWidth() - BODY_INSET * 2,
+                overlayHeight() - BODY_TOP - BODY_BOTTOM);
+    }
+
     private int nodeSize(ClientQuestCache.Entry entry) {
         int base = Mth.clamp(entry.size(), 26, 48);
-        return Math.max(12, Math.round(base * zoom));
+        return Math.max(12, Math.round(base * viewport().scale()));
     }
 
     private int nodeScreenX(ClientQuestCache.Entry entry) {
-        return canvasLeft() + panX + Math.round(entry.x() * zoom);
+        return viewport().screenX(entry.x());
     }
 
     private int nodeScreenY(ClientQuestCache.Entry entry) {
-        return canvasTop() + panY + Math.round(entry.y() * zoom);
+        return viewport().screenY(entry.y());
     }
 
     /**
@@ -456,10 +574,19 @@ public final class QuestBookScreen extends Screen {
             minX = maxX = minY = maxY = 0;
         }
 
-        int canvasW = canvasRight() - canvasLeft();
-        int canvasH = canvasBottom() - canvasTop();
-        panX = Math.round(canvasW / 2F - (minX + maxX) / 2F * zoom);
-        panY = Math.round(canvasH / 2F - (minY + maxY) / 2F * zoom);
+        // Centred in the view port rather than in the canvas: the canvas minus the floating strip. The
+        // strip covers nothing, at the cost of a chapter looking slightly high when nothing is selected
+        // -- which is the right trade against the alternative, where the bottom row of a chapter slides
+        // under the bar the instant a player clicks a node, because clicking is what makes it appear.
+        // Centred in the canvas, which is the whole area below the header. There used to be a summary
+        // strip floating over its bottom, and content was centred in the canvas minus that strip so the
+        // bar could not cover the last row of a chapter -- but the strip is gone (clicking a node opens
+        // the quest), so there is nothing on the canvas for content to be kept clear of.
+        // Given the bounding box rather than a size and an origin, which is what makes the
+        // negative-coordinate case above fall out instead of needing the handling it used to get. No
+        // clamp is applied, deliberately: this is the call that defines where a canvas starts, so
+        // applying one would move content the caller had just positioned.
+        viewport().centreOn(minX, minY, maxX, maxY);
         pannedChapter = chapter;
         centred = true;
     }
@@ -467,27 +594,19 @@ public final class QuestBookScreen extends Screen {
     /**
      * Applies a new zoom while keeping the world point under {@code (mouseX, mouseY)} fixed.
      *
-     * <p>The whole calculation is one line of algebra: convert the pointer to a world coordinate,
-     * zoom, and solve for the pan that puts that same world coordinate back under the pointer. Getting
-     * it wrong is what makes a zoom appear to run away from the cursor, which is the single most
-     * common complaint about a graph UI.
+     * <p>The arithmetic is the kit's, and it is asserted there rather than here: the content point
+     * under the pointer is the same point after the zoom, the limits clamp, and a zoom already at a
+     * limit does not drift. This method exists only to name the canvas for it — which is the whole
+     * argument for the transform living in {@link Viewport}, because in a {@code Screen} that
+     * calculation could only ever be judged by eye.
      */
     private void zoomAt(double mouseX, double mouseY, float factor) {
-        float next = Mth.clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM);
-        if (next == zoom) {
-            return;
-        }
-        float worldX = (float) ((mouseX - canvasLeft() - panX) / zoom);
-        float worldY = (float) ((mouseY - canvasTop() - panY) / zoom);
-        panX = Math.round((float) (mouseX - canvasLeft()) - worldX * next);
-        panY = Math.round((float) (mouseY - canvasTop()) - worldY * next);
-        zoom = next;
+        viewport().zoomAt(mouseX, mouseY, factor);
     }
 
-    /** Zooms about the canvas centre, for the buttons, which have no pointer position. */
+    /** Zooms about the view port's centre, for the buttons, which have no pointer position. */
     private void zoomCentre(float factor) {
-        zoomAt(canvasLeft() + (canvasRight() - canvasLeft()) / 2.0,
-                canvasTop() + (canvasBottom() - canvasTop()) / 2.0, factor);
+        viewport().zoomAboutCentre(factor);
     }
 
     // ------------------------------------------------------------------
@@ -532,6 +651,16 @@ public final class QuestBookScreen extends Screen {
         clearWidgets();
         buttons.clear();
 
+        // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
+        // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
+        // nothing to establish before the controls are built, and the label below reads from
+        // `Appearance`, which no chapter can influence.
+        //
+        // That is a real simplification rather than a relocation. The sequence here used to matter: the
+        // theme had to be applied before the controls were made, because each control reads its colours
+        // when it is constructed. With the two palettes separated by region, a control reads the chrome
+        // and a canvas reads the chapter, and neither has an order dependency on the other.
+
         if (overlay == Overlay.QUEST) {
             buildOverlayWidgets();
             return;
@@ -543,11 +672,19 @@ public final class QuestBookScreen extends Screen {
         // from numbers written here by hand, and a test asserting on a *parallel* description would
         // have passed while the screen still overlapped -- which is worse than no test at all, because
         // it would have been believed.
-        boolean hasOpen = stripped() != null;
-        Map<String, BookGeometry.Rect> controls = geometry().controls(chapters().size(), hasOpen);
+        Map<String, BookGeometry.Rect> controls = geometry().controls(chapters().size());
 
-        // Chapters, down the left. A flat control for the selected one, so which is showing reads at a
-        // glance without a separate highlight rectangle.
+        // Chapters, down the left. The selected one gets its own fill, so which chapter is showing
+        // reads at a glance.
+        //
+        // It used to be `.flat(isSelected)` -- no fill, no border -- on the reasoning that a control
+        // with nothing behind it stands out among controls that have something. It does stand out, and
+        // as the wrong thing: in a list of eight filled rows, the one with no box reads as the disabled
+        // or missing entry rather than the active one. A selection has to be a thing that is there,
+        // not a thing that is absent.
+        //
+        // The text colour still comes from the screen rather than from the style, because the selected
+        // row's label is worth brightening even if the style ever stops doing that.
         int index = 0;
         for (Map.Entry<String, String> chapter : chapters().entrySet()) {
             BookGeometry.Rect row = controls.get("chapter" + index);
@@ -575,47 +712,94 @@ public final class QuestBookScreen extends Screen {
                         centred = false;
                         rebuildWidgets();
                     })
-                    .flat(isSelected)
-                    .textColour(isSelected ? ArmatureTheme.TITLE : ArmatureTheme.BODY)
-                    .tooltip(Component.literal(chapter.getValue()));
+                    .selected(isSelected)
+                    .textColour(isSelected ? ArmatureTheme.title() : ArmatureTheme.body());
+            // No tooltip, and this is a rule rather than an omission: **a tooltip earns its place by
+            // saying something the control cannot.**
+            //
+            // This one was the chapter's own title, which is already the button's label — so hovering
+            // a chapter drew the word you were already reading, in a box that covered the row. It is
+            // also what made the z-order bug so obvious: the ghost text on the button's top edge was
+            // this tooltip, painted under the control it duplicated.
+            //
+            // The three glyph buttons keep theirs, because "+" and "−" and "◉" have no word in them
+            // and the second line is a real hint ("or scroll up over the canvas"). That is the test
+            // to apply to the next one.
         }
 
-        // The sidebar's footer. Two rows, because four controls do not fit across 116 pixels — which
-        // is why the footer has two rows at all, and the rectangles come from the same map the overlap
-        // test walks.
+        // Close, in the header's right corner. A modal panel is closed by the thing in its corner, and
+        // the header had a mostly empty right end.
+        //
+        // This replaces a full-width "Done" button in the sidebar's footer — the only control on the
+        // screen whose label was a whole word occupying a whole row. Escape still closes the book, so
+        // this is the discoverable half of a pair rather than the only way out.
+        // The two appearance rows, at the foot of the sidebar. See BookGeometry.themeRect for why
+        // they are here rather than behind the commands they replaced.
+        //
+        // The theme row's tooltip earns its second line by saying where the theme came from, which is
+        // the one thing about it a player cannot see. A pack can set the theme for someone who has
+        // never chosen one -- that is most of the point of a themed pack -- and a player who has not
+        // chosen would otherwise have no way to find out why their game looks like this.
+        //
+        // It used to have three states rather than two, because a chapter could overrule the player's
+        // choice while they stood in it. A chapter's theme is scoped to the canvas now, so it never
+        // competes with this control and there is nothing to explain.
+        ArmatureButton themeButton = control(controls.get("theme"),
+                Component.literal(Appearance.main().displayName()),
+                this::cycleTheme)
+                .textColour(ArmatureTheme.body());
+        if (themeButton != null) {
+            boolean fromPack = !Appearance.chosen() && Appearance.serverDefault() != null;
+            themeButton.tooltip(List.of(
+                    Component.literal("UI theme"),
+                    Component.literal(fromPack
+                            ? "Set by this pack. Click to choose your own"
+                            : "Click for the next one")));
+        }
+
+        control(controls.get("motion"),
+                Component.literal(Appearance.motion() ? "Motion: on" : "Motion: off"),
+                this::toggleMotion)
+                .textColour(Appearance.motion() ? ArmatureTheme.body() : ArmatureTheme.faint())
+                .tooltip(List.of(
+                        Component.literal("Animates hovers and highlights"),
+                        Component.literal(Appearance.motion()
+                                ? "Click to make every transition instant"
+                                : "Off, so nothing eases. Click to animate again")));
+
+        control(controls.get("close"), Component.literal("\u2715"), this::onClose)
+                .textColour(ArmatureTheme.body())
+                .tooltip(List.of(Component.literal("Close the book"),
+                        Component.literal("Escape does the same")));
+
+        // The view cluster: three square buttons in the canvas's own top-left corner.
+        //
+        // These were four controls across two rows of the sidebar's footer — 116 pixels of a 132-pixel
+        // column, which is *why* the footer needed two rows at all. They are map controls, so they
+        // belong on the map: that is where a player looks for them, and it costs the chapter list
+        // nothing. The rectangles come from the same map the overlap test walks.
         control(controls.get("zoomIn"), Component.literal("+"), () -> zoomCentre(1.25F))
                 .tooltip(List.of(Component.literal("Zoom in"),
                         Component.literal("Or scroll up over the canvas")))
-                .textColour(ArmatureTheme.BODY);
+                .textColour(ArmatureTheme.body());
 
         control(controls.get("zoomOut"), Component.literal("\u2212"), () -> zoomCentre(0.8F))
                 .tooltip(List.of(Component.literal("Zoom out"),
                         Component.literal("Or scroll down over the canvas")))
-                .textColour(ArmatureTheme.BODY);
+                .textColour(ArmatureTheme.body());
 
-        control(controls.get("centre"), Component.literal("Centre"), () -> {
+        // A glyph rather than the word "Centre", because it is an 18-pixel square now: "Centre" in that
+        // box would be cut off by the button's own font measurement — and it was that measurement that
+        // fixed the chapter titles, so the fix here is to pass a label that fits rather than to widen
+        // the control back out. The tooltip carries the word.
+        control(controls.get("centre"), Component.literal("\u25c9"), () -> {
             centred = false;
             centreCanvas();
         })
-                .tooltip(List.of(Component.literal("Re-centre the canvas"),
+                .tooltip(List.of(Component.literal("Re-centre the view"),
                         Component.literal("Drag with left or middle to pan")))
-                .textColour(ArmatureTheme.BODY);
+                .textColour(ArmatureTheme.body());
 
-        control(controls.get("done"), Component.translatable("gui.done"), this::onClose)
-                .textColour(ArmatureTheme.BODY)
-                .tooltip(Component.literal("Escape also closes the book"));
-
-        // The strip's own control. It sits on the strip beside the canvas, while Done sits in the
-        // sidebar's footer — different surfaces either side of the divider. They are 10px apart in x
-        // and 15px in y, which is why the old hand-written versions collided.
-        ClientQuestCache.Entry stripped = stripped();
-        BookGeometry.Rect open = controls.get("open");
-        if (stripped != null && open != null) {
-            control(open, Component.literal("Open"), () -> openOverlay(stripped.id()))
-                    .accent(true)
-                    .tooltip(List.of(Component.literal("Open this quest full screen"),
-                            Component.literal("The whole description, every task and reward")));
-        }
     }
 
     private void buildOverlayWidgets() {
@@ -633,12 +817,35 @@ public final class QuestBookScreen extends Screen {
         // The overlay is where the mismatch was real: this method used to pass 130 for Submit's width
         // while BookGeometry said 120, so the overlap test would have gone on passing while the control
         // on screen ran into Back.
+        // Submit and Claim share the bottom-left control, and the geometry is asked for a control if
+        // *either* of them wants one. They cannot both want it: Submit needs a task a player can hand
+        // over, which means the quest is unfinished, and Claim needs the quest to be finished. So it is
+        // one rectangle with two possible meanings rather than two controls fighting over one corner --
+        // which is precisely the collision BookGeometry exists to prevent.
         int taskIndex = firstManualTask(entry);
-        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(taskIndex >= 0);
+        boolean claimable = ClientQuestCache.canClaim(entry.id());
+        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(taskIndex >= 0 || claimable);
 
-        // Submit, for the first task a player hands over by hand. Bottom-left, where it is the last
-        // thing read after the tasks and rewards.
-        if (taskIndex >= 0) {
+        if (claimable) {
+            // Collecting a finished quest's rewards. No permission, no confirmation: it is the player
+            // asking for something the server already knows they earned, and the server re-checks that
+            // before handing anything over -- so a client that shows this wrongly gets a refusal.
+            ArmatureButton claim = control(controls.get("submit"),
+                    Component.translatable("tasked.screen.quest_book.claim"),
+                    () -> claim(entry.id()));
+            if (claim != null) {
+                claim.accent(true)
+                        .tooltip(List.of(Component.literal("Collect this quest's rewards"),
+                                Component.literal("Nothing more is needed - it is already finished")));
+                // The first reward's own icon, when there is one to draw. A Claim button wearing the
+                // thing it is about says what it is for without a word of label.
+                if (!entry.rewards().isEmpty()) {
+                    ClientQuestCache.RewardEntry first = entry.rewards().get(0);
+                    claim.icon(first.hasItem() ? first.item() : first.icon());
+                }
+            }
+        }
+        else if (taskIndex >= 0) {
             final String questId = entry.id();
             final int index = taskIndex;
             ArmatureButton submit = control(controls.get("submit"),
@@ -654,7 +861,7 @@ public final class QuestBookScreen extends Screen {
 
         ArmatureButton back = control(controls.get("back"), Component.literal("Back"), this::closeOverlay);
         if (back != null) {
-            back.textColour(ArmatureTheme.BODY)
+            back.textColour(ArmatureTheme.body())
                     .tooltip(Component.literal("Escape also closes this"));
         }
     }
@@ -662,14 +869,18 @@ public final class QuestBookScreen extends Screen {
     private void openOverlay(String questId) {
         overlay = Overlay.QUEST;
         overlayQuest = questId;
-        overlayScroll = 0;
+        overlayView.scrollTo(0);
+        // The row keys mean something else now -- "task:0" was the last quest's first task -- so a
+        // hover carried over would light up a row nobody is pointing at for a fifth of a second.
+        rowHover.clear();
         rebuildWidgets();
     }
 
     private void closeOverlay() {
         overlay = Overlay.NONE;
         overlayQuest = null;
-        overlayScroll = 0;
+        overlayView.scrollTo(0);
+        rowHover.clear();
         rebuildWidgets();
     }
 
@@ -690,6 +901,20 @@ public final class QuestBookScreen extends Screen {
         // arrives would mean showing something the server may refuse.
     }
 
+    /**
+     * Asks the server to hand over a finished quest's rewards.
+     *
+     * <p>Sends the quest id and nothing else, and makes no local change, for the same reason
+     * {@link #submit} does not: whether anything is owed is the server's decision, and it is the one
+     * that has the stored progress. Showing the items before it answers would mean showing something
+     * it may refuse -- and the refusal is a case that exists, because a stale client can be showing a
+     * Claim button for a quest it collected a minute ago.
+     */
+    private static void claim(String questId) {
+        ArmatureNetwork.sendToServer(new ClaimRewardPayload(questId));
+        Constants.LOG.debug("tasked: asked the server to hand over the rewards for {}", questId);
+    }
+
     // ------------------------------------------------------------------
     // Render
     // ------------------------------------------------------------------
@@ -708,44 +933,124 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        centreCanvas();
-        graphics.fill(0, 0, width, height, ArmatureTheme.DIM);
-
-        if (overlay == Overlay.QUEST) {
-            drawOverlay(graphics);
-        }
-        else {
-            drawBook(graphics, mouseX, mouseY);
-        }
-
-        // Widgets over the screen's own drawing, then tooltips over the widgets. renderBackground is a
-        // no-op above, so super.render() draws the controls and nothing else.
+        // The one forced signature in this class for drawing, and the whole of the seam at this call
+        // site: a GuiGraphics arrives because Minecraft's Screen hands over one and there is no other
+        // override, so it is wrapped and handed on. Nothing below this line names the type.
+        //
+        // The widget pass stays here rather than moving into renderWith, and that is deliberate: the
+        // controls are AbstractWidgets and the base class draws them from the context it was given, so
+        // there is no version of "draw the widgets" that takes a renderer. Keeping it on this side is
+        // what lets renderWith — the part that decides what the book looks like — be driven by a
+        // RecordingRenderer with no client at all.
+        //
+        // And the tooltip is drawn last of all, after the controls, which is the whole of the fix for
+        // a tooltip that appeared *underneath* the button it described.
+        GuiRenderer renderer = new GuiGraphicsRenderer(graphics);
+        renderWith(renderer, mouseX, mouseY, partialTick);
         super.render(graphics, mouseX, mouseY, partialTick);
-        drawTooltips(graphics, mouseX, mouseY);
+        drawTooltips(renderer, mouseX, mouseY);
     }
 
-    private void drawBook(GuiGraphics graphics, int mouseX, int mouseY) {
+    /**
+     * Draws the book. Takes a renderer, so this is the method a test can drive.
+     *
+     * <p>Separated from {@link #render} for exactly the reason the rest of this round exists: the
+     * forced override cannot be tested — it needs a real {@code Screen} with a real client behind it —
+     * and everything that decides <i>what is drawn</i> can be, once it is expressed in terms of the
+     * seam. {@code RecordingRenderer} feeds this method and asserts on the result without a window.
+     *
+     * What it does <b>not</b> draw is the controls, and the honest reason is that they belong to
+     * {@code AbstractWidget}: the base class iterates its renderables and hands each one the context it
+     * was given. So a test driving this method sees the book and not its buttons. That is a real limit
+     * worth stating rather than hiding — what it means is that button <i>placement</i> is
+     * {@code BookGeometryTest}'s job, and button <i>appearance</i> is {@code ArmatureButton.draw}'s,
+     * which does take a renderer and is testable on its own.
+     *
+     * <h2>Two palettes in one frame, and a test can tell</h2>
+     *
+     * <p>This is where the black is drawn and where the chapter's colours are drawn, and they are
+     * different palettes on purpose — see {@code ArmatureTheme.scope}. The consequence for a test driving
+     * this method is worth knowing: every colour it records is the one in force <i>at the point it was
+     * drawn</i>, so a scope that leaks shows up as chrome drawn in a chapter's colours rather than as a
+     * missing call. {@code ArmatureTheme.scopeDepth} is the blunt check for the same thing.
+     */
+    public void renderWith(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
+        centreCanvas();
+
+        // The animation clock, read once per frame and handed down. Nothing in this screen or in the
+        // toolkit reads a clock itself -- see Tween's javadoc for why that is the property that makes
+        // every animation here testable, and `Motion.tween` for how the client's setting reaches it.
+        long now = Util.getMillis();
+
+        renderer.fill(0, 0, width, height, ArmatureTheme.dim());
+
+        if (overlay == Overlay.QUEST) {
+            // The overlay is content: it describes the quest you opened, so it is drawn in the palette
+            // that quest belongs to rather than in the chrome's. Your answer put it inside the
+            // viewport's scope explicitly, and it is also the reading that keeps the screen coherent --
+            // clicking a node in a violet chapter and getting a blue panel reads as the theme having
+            // stopped working at the moment it was being used.
+            //
+            // The controls stay chrome, and they are drawn by `render` after this returns, so they are
+            // outside the scope without having to ask. That is the property the whole feature rests on:
+            // the button that leaves a chapter must not be recoloured by the chapter.
+            try (ArmatureTheme.Scope ignored = ArmatureTheme.scope(viewportTheme())) {
+                drawOverlay(renderer, mouseX, mouseY, now);
+            }
+        }
+        else {
+            drawBook(renderer, mouseX, mouseY, now);
+        }
+
+        // Tooltips are deliberately NOT drawn here, and that is a bug fix rather than a preference.
+        //
+        // They belong over the controls, and the controls are drawn by `render` *after* this returns.
+        // A tooltip drawn at this point is therefore underneath the widget it describes — which is
+        // what it looked like on screen: hovering a chapter drew its name in a box that the chapter
+        // button then painted over, so the tooltip showed as a ghost of text on the button's top edge
+        // and read as a rendering fault rather than as a tooltip.
+        //
+        // Worth recording how it got here, because the comment that caused it is worth reading: this
+        // method used to end with drawTooltips, annotated "kept here as well because a test driving
+        // renderWith wants to see them". That is a rationalisation rather than a reason — a test can
+        // call drawTooltips itself, and now does — and the cost was a visible defect that no test
+        // could catch, because drawing order over widgets is not something RecordingRenderer observes.
+        // A screenshot found it in five seconds, which is the honest argument for looking at the UI
+        // as well as testing it.
+    }
+
+    private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
         int left = panelLeft();
         int top = panelTop();
         int panelW = panelWidth();
         int panelH = panelHeight();
 
-        ArmatureTheme.panel(graphics, left, top, panelW, panelH, ArmatureTheme.PANEL, ArmatureTheme.PANEL_EDGE);
-        graphics.fill(left + 1, top + 1, left + SIDEBAR_WIDTH, top + panelH - 1, ArmatureTheme.RECESSED);
-        graphics.fill(left + SIDEBAR_WIDTH, top + 1, left + panelW - 1, top + HEADER_HEIGHT - 1,
-                ArmatureTheme.RAISED);
-        graphics.fill(left + 1, top + HEADER_HEIGHT - 1, left + panelW - 1, top + HEADER_HEIGHT,
-                ArmatureTheme.PANEL_EDGE);
+        ArmatureTheme.panel(r, left, top, panelW, panelH, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        r.fill(left + 1, top + 1, left + SIDEBAR_WIDTH, top + panelH - 1, ArmatureTheme.recessed());
+        r.fill(left + SIDEBAR_WIDTH, top + 1, left + panelW - 1, top + HEADER_HEIGHT - 1,
+                ArmatureTheme.raised());
+        r.fill(left + 1, top + HEADER_HEIGHT - 1, left + panelW - 1, top + HEADER_HEIGHT,
+                ArmatureTheme.panelEdge());
         // A divider between the sidebar and everything else, so the two read as separate surfaces
         // rather than as one dark field with things floating in it.
-        graphics.fill(left + SIDEBAR_WIDTH, top + 1, left + SIDEBAR_WIDTH + 1, top + panelH - 1,
-                ArmatureTheme.PANEL_EDGE);
+        r.fill(left + SIDEBAR_WIDTH, top + 1, left + SIDEBAR_WIDTH + 1, top + panelH - 1,
+                ArmatureTheme.panelEdge());
 
-        graphics.drawString(font, title, left + 10, top + 9, ArmatureTheme.TITLE, false);
+        r.text(title.getString(), left + 10, top + 9, ArmatureTheme.title());
         if (ClientQuestCache.hasData()) {
-            String summary = ClientQuestCache.questCount() + " quests  \u00b7  " + Math.round(zoom * 100) + "%";
-            graphics.drawString(font, summary, left + panelW - 12 - font.width(summary), top + 9,
-                    ArmatureTheme.FAINT, false);
+            String summary = ClientQuestCache.questCount() + " quests  \u00b7  "
+                    + Math.round(viewport().scale() * 100) + "%";
+            // Right-aligned to the Close button, not to the panel's edge. The old version measured
+            // from `left + panelW - 12`, which is where the panel's own inset is — a position the
+            // button knew nothing about. That is the same class of mistake as the two controls that
+            // collided, one surface up, and it only needed the button to move.
+            //
+            // Dropped entirely when the header is too narrow to hold both, rather than overlapping the
+            // title. A missing count is a smaller fault than a title with a number drawn through it.
+            int summaryX = headerRightLimit() - r.textWidth(summary);
+            if (summaryX > left + 10 + r.textWidth(title.getString()) + 12) {
+                r.text(summary, summaryX, top + 9, ArmatureTheme.faint());
+            }
         }
 
         if (!ClientQuestCache.hasData()) {
@@ -754,16 +1059,22 @@ public final class QuestBookScreen extends Screen {
             Component message = Component.translatable(ClientQuestCache.hasTree()
                     ? "tasked.screen.quest_book.no_quests"
                     : "tasked.screen.quest_book.waiting");
-            graphics.drawCenteredString(font, message, left + SIDEBAR_WIDTH + (panelW - SIDEBAR_WIDTH) / 2,
-                    top + panelH / 2, ArmatureTheme.BODY);
+            r.centredText(message.getString(), left + SIDEBAR_WIDTH + (panelW - SIDEBAR_WIDTH) / 2,
+                    top + panelH / 2, ArmatureTheme.body());
             return;
         }
 
         String chapter = effectiveChapter();
         if (chapter != null) {
-            drawCanvas(graphics, mouseX, mouseY, questsIn(chapter));
+            drawCanvas(r, mouseX, mouseY, questsIn(chapter), now);
         }
-        drawStrip(graphics, stripped());
+
+        // The view cluster's backing panel, over the canvas. The buttons have fills of their own, so
+        // this is not what makes them visible — it is what makes them read as one tool group rather
+        // than as three controls that happen to be stacked.
+        BookGeometry.Rect cluster = viewControls();
+        ArmatureTheme.panel(r, cluster.x(), cluster.y(), cluster.width(), cluster.height(),
+                ArmatureTheme.panel(), ArmatureTheme.panelEdge());
     }
 
     /**
@@ -772,10 +1083,10 @@ public final class QuestBookScreen extends Screen {
      * <p>Not vanilla's tooltip: that would draw in vanilla's style, which is the thing this UI avoids.
      * Drawn here, after the widgets, so it is over everything and not clipped by the canvas scissor.
      */
-    private void drawTooltips(GuiGraphics graphics, int mouseX, int mouseY) {
+    public void drawTooltips(GuiRenderer r, int mouseX, int mouseY) {
         for (ArmatureButton button : buttons) {
             if (button.tooltip() != null && button.isMouseOver(mouseX, mouseY)) {
-                drawTooltip(graphics, button.tooltip(), mouseX, mouseY);
+                drawTooltip(r, button.tooltip(), mouseX, mouseY);
                 return;
             }
         }
@@ -788,15 +1099,20 @@ public final class QuestBookScreen extends Screen {
      * background, and a tooltip is the most visible piece of chrome a screen has. Flipped to the other
      * side of the pointer when it would run off the right or the bottom, which is the one piece of
      * behaviour worth copying from vanilla's positioner.
+     *
+     * <p>Lines are plain strings. They were {@code FormattedCharSequence} until the seam landed, which
+     * is a shape that cannot cross it without dragging {@code Style} along — and every tooltip in both
+     * mods is built from {@code Component.literal}, so there was no style to lose. See
+     * {@code ArmatureButton.tooltip} for the same note on the other side of the call.
      */
-    private void drawTooltip(GuiGraphics graphics, List<FormattedCharSequence> lines, int mouseX, int mouseY) {
+    private void drawTooltip(GuiRenderer r, List<String> lines, int mouseX, int mouseY) {
         int textWidth = 0;
-        for (FormattedCharSequence line : lines) {
-            textWidth = Math.max(textWidth, font.width(line));
+        for (String line : lines) {
+            textWidth = Math.max(textWidth, r.textWidth(line));
         }
 
         int boxWidth = textWidth + 8;
-        int boxHeight = lines.size() * 10 + 6;
+        int boxHeight = lines.size() * r.lineHeight() + 6;
         int x = mouseX + 10;
         int y = mouseY - 11;
         if (x + boxWidth > width) {
@@ -807,12 +1123,12 @@ public final class QuestBookScreen extends Screen {
         }
         y = Math.max(2, y);
 
-        ArmatureTheme.panel(graphics, x, y, boxWidth, boxHeight, ArmatureTheme.PANEL,
-                ArmatureTheme.CONTROL_EDGE_BRIGHT);
+        ArmatureTheme.panel(r, x, y, boxWidth, boxHeight, ArmatureTheme.panel(),
+                ArmatureTheme.controlEdgeBright());
         int lineY = y + 4;
-        for (FormattedCharSequence line : lines) {
-            graphics.drawString(font, line, x + 4, lineY, ArmatureTheme.BODY, false);
-            lineY += 10;
+        for (String line : lines) {
+            r.text(line, x + 4, lineY, ArmatureTheme.body());
+            lineY += r.lineHeight();
         }
     }
 
@@ -820,9 +1136,49 @@ public final class QuestBookScreen extends Screen {
     // The canvas
     // ------------------------------------------------------------------
 
-    private void drawCanvas(GuiGraphics graphics, int mouseX, int mouseY, List<ClientQuestCache.Entry> quests) {
-        graphics.enableScissor(canvasLeft(), canvasTop(), canvasRight(), canvasBottom());
-        graphics.fill(canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), ArmatureTheme.CANVAS);
+    private void drawCanvas(GuiRenderer r, int mouseX, int mouseY, List<ClientQuestCache.Entry> quests,
+                            long now) {
+        ClientQuestCache.Entry hovered;
+
+        // Clipped to the canvas, so a node panned past the edge is cut off at the edge rather than
+        // drawn over the sidebar. A scoped clip rather than a raw enable/disable pair: the pop is
+        // placed by the compiler on every exit path, so the two calls cannot come apart -- and a
+        // missing pop does not fail loudly, it leaves every later draw in the frame clipped to a
+        // rectangle nobody chose.
+        //
+        // The scope is the seam's own type, so this file no longer knows what a scissor is. What that
+        // bought beyond the port: `RecordingRenderer` can now assert that the clip was opened and
+        // closed exactly once, which a screen cannot be asked without one.
+        // Two scopes, and they are different kinds of thing. The clip is where the drawing is allowed
+        // to land; the theme is what it is drawn in. Both are closed by the compiler on every exit path,
+        // which is the property that matters for each — a clip left open cuts the rest of the frame off,
+        // and a theme left open paints every later screen in one chapter's colours.
+        //
+        // The chapter's palette covers the canvas and everything on it: the backdrop, the connector
+        // lines, the nodes, their rings, their washes. The sidebar beside it is chrome and keeps the
+        // player's own theme — that is what lets a themed canvas and an ordinary sidebar be visible in
+        // the same frame with no precedence rule between them.
+        //
+        // The node caption below is deliberately outside. It is a label floating over the canvas in the
+        // same family as a tooltip, and a caption that changed colour with the chapter would read as
+        // part of the node it names rather than as a label about it.
+        try (GuiRenderer.Scoped clip = r.clip(canvasLeft(), canvasTop(), canvasRight(), canvasBottom());
+             ArmatureTheme.Scope theme = ArmatureTheme.scope(viewportTheme())) {
+            hovered = drawCanvasContents(r, mouseX, mouseY, quests, now);
+        }
+
+        // The hovered quest's name, drawn outside the clip so it is never cut off by the canvas edge.
+        // A node is an icon and nothing else, so without this the canvas is a wall of unlabelled
+        // squares until you click one.
+        if (hovered != null) {
+            drawNodeCaption(r, hovered);
+        }
+    }
+
+    /** The canvas's own drawing, inside the clip. Returns the hovered node, for the caption above. */
+    private ClientQuestCache.Entry drawCanvasContents(GuiRenderer r, int mouseX, int mouseY,
+                                                      List<ClientQuestCache.Entry> quests, long now) {
+        r.fill(canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), ArmatureTheme.canvas());
 
         // Dependency lines first, so nodes draw over them.
         for (ClientQuestCache.Entry quest : quests) {
@@ -837,141 +1193,198 @@ public final class QuestBookScreen extends Screen {
                     continue;
                 }
                 boolean done = ClientQuestCache.stateOf(dependencyId) == QuestState.COMPLETED;
-                drawConnector(graphics, dependency, quest,
-                        done ? ArmatureTheme.LINE_DONE : ArmatureTheme.LINE);
+                drawConnector(r, dependency, quest,
+                        done ? ArmatureTheme.lineDone() : ArmatureTheme.line());
+            }
+        }
+
+        // A linear chapter's road. Drawn from the list order rather than from dependencies, because a
+        // linear chapter declares none -- that is what makes it linear. Without this the client would
+        // draw five unconnected boxes for a chapter that is unmistakably a sequence, which reads as a
+        // missing feature rather than as a missing line.
+        //
+        // Consecutive pairs only, so the road has no shortcuts across it.
+        if (!quests.isEmpty() && quests.get(0).chapterLinear()) {
+            List<ClientQuestCache.Entry> ordered = quests.stream()
+                    .sorted(java.util.Comparator.comparingInt(ClientQuestCache.Entry::orderInChapter))
+                    .toList();
+            for (int i = 1; i < ordered.size(); i++) {
+                ClientQuestCache.Entry previous = ordered.get(i - 1);
+                boolean done = ClientQuestCache.stateOf(previous.id()) == QuestState.COMPLETED;
+                drawConnector(r, previous, ordered.get(i),
+                        done ? ArmatureTheme.lineDone() : ArmatureTheme.line());
             }
         }
 
         ClientQuestCache.Entry hovered = nodeAt(mouseX, mouseY, quests);
+
+        // Told which node the pointer is over, once, before any node is drawn. Then every node asks how
+        // hovered it is -- which is what makes the ring ease in as the pointer arrives and ease out as
+        // it leaves, and what makes a fast sweep across a chapter look like following the pointer
+        // rather than like flicker. See Hover for why both halves have to ease.
+        nodeHover.update(hovered == null ? null : hovered.id(), now);
+
         for (ClientQuestCache.Entry quest : quests) {
-            drawNode(graphics, quest, quest == hovered);
+            drawNode(r, quest, nodeHover.amount(quest.id(), now));
         }
         // Titles in their own pass, after every node, so a label can see the other nodes -- see the
         // comment on drawLabels for what happened when it could not.
-        drawLabels(graphics, quests);
+        drawLabels(r, quests);
 
         if (quests.isEmpty()) {
-            graphics.drawString(font, "No quests in this chapter", canvasLeft() + 10, canvasTop() + 10,
-                    ArmatureTheme.FAINT, false);
+            r.text("No quests in this chapter", canvasLeft() + 10, canvasTop() + 10,
+                    ArmatureTheme.faint());
         }
 
         // A hint, only until the player has zoomed. Then it would be clutter on a canvas they
         // demonstrably already know how to drive.
-        if (Math.abs(zoom - 1.0F) < 0.001F) {
-            graphics.drawString(font, "scroll to zoom  \u00b7  drag to pan  \u00b7  click a quest",
-                    canvasLeft() + 6, canvasBottom() - 11, ArmatureTheme.FAINT, false);
+        //
+        // In the canvas's top-right corner, and not the bottom-left. The bottom-left was where the
+        // strip's own text lives, so the two were drawn on top of each other: the hint at y=917 and the
+        // strip's first line at y=928, eleven pixels apart, which in the screenshot is a line of text
+        // with another line of text through it. The top-right is empty — the view cluster is
+        // top-*left*, and the header's quest count is a surface above this one.
+        //
+        // Behind a LABEL_BACKDROP, which is that colour's entire purpose: text drawn over a canvas that
+        // may have a node underneath it. It composites to exactly the canvas colour, so it is invisible
+        // except by what it prevents.
+        if (Math.abs(viewport().scale() - 1.0F) < 0.001F) {
+            String hint = "scroll to zoom  \u00b7  drag to pan  \u00b7  click a quest";
+            int hintX = canvasRight() - 8 - r.textWidth(hint);
+            int hintY = canvasTop() + 8;
+            // Only when it clears the cluster. On a small window these two would meet, and a hint
+            // overlapping the buttons it is describing is worse than no hint at all.
+            if (hintX > viewControls().right() + 6) {
+                r.fill(hintX - 3, hintY - 2, canvasRight() - 5, hintY + 10,
+                        ArmatureTheme.labelBackdrop());
+                r.text(hint, hintX, hintY, ArmatureTheme.faint());
+            }
         }
 
-        graphics.disableScissor();
-
-        // The hovered quest's name, drawn outside the scissor so it is never clipped by the canvas
-        // edge. A node is an icon and nothing else, so without this the canvas is a wall of unlabelled
-        // squares until you click one.
-        if (hovered != null) {
-            drawNodeCaption(graphics, hovered);
-        }
+        return hovered;
     }
 
     /** The hovered node's title, under the pointer. */
-    private void drawNodeCaption(GuiGraphics graphics, ClientQuestCache.Entry entry) {
+    private void drawNodeCaption(GuiRenderer r, ClientQuestCache.Entry entry) {
         int size = nodeSize(entry);
         int x = nodeScreenX(entry);
         int y = nodeScreenY(entry);
 
-        Component title = Component.literal(entry.title());
-        int boxWidth = font.width(title) + 10;
+        String title = entry.title();
+        int boxWidth = r.textWidth(title) + 10;
         int boxX = Mth.clamp(x + size / 2 - boxWidth / 2, canvasLeft() + 2, canvasRight() - boxWidth - 2);
         int boxY = y + size + 4;
         if (boxY + 14 > canvasBottom()) {
             boxY = y - 18;
         }
 
-        ArmatureTheme.panel(graphics, boxX, boxY, boxWidth, 14, ArmatureTheme.PANEL,
-                ArmatureTheme.CONTROL_EDGE_BRIGHT);
-        graphics.drawString(font, title, boxX + 5, boxY + 3, ArmatureTheme.TITLE, false);
+        ArmatureTheme.panel(r, boxX, boxY, boxWidth, 14, ArmatureTheme.panel(),
+                ArmatureTheme.controlEdgeBright());
+        r.text(title, boxX + 5, boxY + 3, ArmatureTheme.title());
     }
 
-    /**
-     * Draws an item so that it exactly fills a box of {@code box} pixels.
-     *
-     * <p>Delegates to {@link ArmatureTheme#drawIcon}, where the mechanism is explained. It lives there
-     * rather than here because {@link ArmatureButton} needs the same thing, and two copies of "how do
-     * you draw an item at a size other than 16px" is two chances to get it wrong.
-     */
-    private static boolean drawIcon(GuiGraphics graphics, ItemStack stack, int boxX, int boxY, int box) {
-        return ArmatureTheme.drawIcon(graphics, stack, boxX, boxY, box);
-    }
+    // drawIcon(GuiGraphics, ...) used to be here, delegating to ArmatureTheme's copy. Both are gone:
+    // the operation is `GuiRenderer.icon` now, so the screen calls it on the renderer it was handed
+    // rather than on a helper, and there is no static method on either side to pass the wrong thing to.
+    //
+    // Worth keeping as a note because of what the indirection cost. This method existed only to forward
+    // to another class's static helper, and that helper existed only because a colour table had been
+    // asked to solve a rendering problem. Two layers of forwarding around one pose-stack manipulation,
+    // and the manipulation is the only part that had anything to say.
 
-    private void drawNode(GuiGraphics graphics, ClientQuestCache.Entry entry, boolean hovered) {
+    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover) {
         QuestState state = ClientQuestCache.stateOf(entry.id());
         int size = nodeSize(entry);
         int x = nodeScreenX(entry);
         int y = nodeScreenY(entry);
 
         int edge = switch (state) {
-            case COMPLETED -> ArmatureTheme.COMPLETE;
-            case STARTED -> ArmatureTheme.IN_PROGRESS;
-            case UNLOCKED -> ArmatureTheme.AVAILABLE;
-            case LOCKED -> ArmatureTheme.NODE_EDGE_BLOCKED;
+            case COMPLETED -> ArmatureTheme.complete();
+            case STARTED -> ArmatureTheme.inProgress();
+            case UNLOCKED -> ArmatureTheme.available();
+            case LOCKED -> ArmatureTheme.nodeEdgeBlocked();
         };
 
+        boolean isSelected = entry.id().equals(selectedQuest);
+        ArmatureTheme.RowSpans spans = entry.shape()::span;
+
+        // The hover and selection ring, drawn FIRST and one pixel larger, so the node's own panel
+        // covers all but its outer edge. What shows is a one-pixel ring that follows the shape.
+        //
+        // It used to be `ArmatureTheme.outline(...)`, a rectangle drawn around a circle. On a round or
+        // hexagonal node that is a box drawn round a disc -- which reads as two unrelated things
+        // stacked, and it is the third thing in the screenshot that looks unfinished. Following the
+        // shape is also what FTB Quests does, and for the same reason: the ring is the node saying
+        // "this one", so it has to be the node's shape saying it.
+        //
+        // The hover ring's alpha is scaled by the eased hover, so it fades in and out rather than
+        // appearing. `translucent` rather than `alphaOf`: HOVER_RING is already 0x80 alpha, and
+        // `alphaOf` would discard that and make a fully-hovered ring twice as bright as it has always
+        // been. Selection is not animated at all -- the row you are on is a state, not a transition.
+        if (hover > 0F || isSelected) {
+            int ring = isSelected
+                    ? ArmatureTheme.selectedRing()
+                    : Colour.translucent(ArmatureTheme.hoverRing(), hover);
+            ArmatureTheme.shapePanel(r, x - 1, y - 1, size + 2, ArmatureTheme.nodeFill(), ring, spans);
+        }
+
         // The node, in its own shape. A shape is a row-to-span lookup and nothing else, so the fill,
-        // the border and the hit test all come from one place -- which is why a click lands on exactly
-        // the pixels that were drawn and not on a bounding box around them.
+        // the border, the ring and the hit test all come from one place -- which is why a click lands
+        // on exactly the pixels that were drawn and not on a bounding box around them.
         //
         // This draws a square for ROUNDED and a circle, hexagon or book for the others. Before, every
         // node was a square whatever the file said, because the shape never crossed the wire.
-        ArmatureTheme.shapePanel(graphics, x, y, size, ArmatureTheme.NODE_FILL, edge,
-                entry.shape()::span);
+        ArmatureTheme.shapePanel(r, x, y, size, ArmatureTheme.nodeFill(), edge, spans);
 
-        boolean isSelected = entry.id().equals(selectedQuest);
-        if (hovered || isSelected) {
-            // The ring is a rectangle around whatever shape is inside it. Deliberately: a ring that
-            // followed the outline would sit one pixel from the border and read as a thicker border,
-            // where a rectangle reads as a selection box -- and it is the same for all four shapes,
-            // which is what makes "this node is selected" legible at a glance.
-            ArmatureTheme.outline(graphics, x - 1, y - 1, size + 2, size + 2,
-                    isSelected ? ArmatureTheme.SELECTED_RING : ArmatureTheme.HOVER_RING);
-        }
-
-        // The icon fills the node, less the inset the shape needs. NOT a constant: the corner of a
-        // square is outside a circle of the same size, so one inset either spills the icon outside the
-        // outline on a circle or wastes a fifth of the area on a rounded rectangle. At 48 pixels the
-        // four shapes want 4, 7, 6 and 5 -- and the circle's 7 is the inscribed square, size/sqrt(2).
+        // The icon's corner and its size, from ONE inset -- `iconBox`, not two numbers here.
         //
-        // Derived from the same span table, so the icon can never be drawn outside the shape that
-        // contains it -- which is what a hardcoded 3 did as soon as a node was drawn as a circle.
-        int itemBox = size - entry.shape().iconInset(size) * 2;
-        if (itemBox >= MIN_ITEM_BOX) {
-            if (drawIcon(graphics, entry.icon(), x + NODE_INSET, y + NODE_INSET, itemBox)) {
-                // The state, as a wash over the icon. It used to be a chip with a ✖ in the node's
-                // bottom-right corner, and at node scale that chip was a black square pasted over the
-                // artwork -- the worst thing in the screenshot. Dimming what is already there says "not
-                // yet" without hiding what the quest is, which is the only reason the icon is here.
-                //
-                // Drawn after the item, which is safe: every fill in GuiGraphics ends by flushing the
-                // buffer (fill -> flushIfUnmanaged -> flush -> bufferSource.endBatch), so the item is
-                // submitted first and the wash quad lands on top of it.
-                int wash = switch (state) {
-                    case LOCKED -> ArmatureTheme.NODE_DIM;
-                    case COMPLETED -> ArmatureTheme.NODE_DONE_WASH;
-                    case STARTED, UNLOCKED -> 0;
-                };
-                if (wash != 0) {
-                    graphics.fill(x + NODE_INSET, y + NODE_INSET, x + size - NODE_INSET,
-                            y + size - NODE_INSET, wash);
-                }
-            }
-            else {
-                // No icon, or one the client cannot resolve. A solid square in the state colour still
-                // reads as a node in a graph, where an empty one reads as a bug.
-                graphics.fill(x + NODE_INSET, y + NODE_INSET, x + size - NODE_INSET, y + size - NODE_INSET,
-                        edge);
-            }
+        // The version that shipped took the size from `shape.iconInset(size)` and the position from the
+        // constant `NODE_INSET`, so a 36-pixel item was drawn 3 pixels in from the corner instead of 6:
+        // off centre in both axes, with its corner through the rounded outline. Same mistake as the
+        // colliding buttons and the label and its room -- one value, two places -- and the fix is the
+        // same: compute the pair together, somewhere a caller cannot take one and invent the other.
+        // The share of the node comes from the quest file, so the size is the quest's decision and the
+        // placement is still the shape's. `iconBox` keeps the two together -- see its javadoc for why
+        // splitting them is what put an item through the outline the first time.
+        int[] iconBox = entry.shape().iconBox(x, y, size, entry.iconScale());
+        boolean drewItem = iconBox[2] >= MIN_ITEM_BOX
+                && r.icon(entry.icon(), iconBox[0], iconBox[1], iconBox[2]);
+
+        if (!drewItem) {
+            // No icon, or one the client cannot resolve, or a node too small to hold one. A block in the
+            // state colour still reads as a node in a graph, where an empty one reads as a bug -- and it
+            // follows the shape, so a small circle is a small circle rather than a square inside it.
+            int inset = Math.max(1, size / 4);
+            ArmatureTheme.fillShape(r, x + inset, y + inset, size - inset * 2,
+                    (edge & 0x00FFFFFF) | 0xB0000000, spans);
         }
-        else {
-            graphics.fill(x + size / 3, y + size / 3, x + size - size / 3, y + size - size / 3,
-                    (edge & 0x00FFFFFF) | 0xB0000000);
+
+        // The state, as a wash over the node. It used to be a chip with a ✖ in the node's bottom-right
+        // corner, and at node scale that chip was a black square pasted over the artwork. Dimming what
+        // is already there says "not yet" without hiding what the quest is, which is the only reason
+        // the icon is here.
+        //
+        // The wash FOLLOWS THE SHAPE, and that is the whole point of drawing it here rather than with a
+        // `fill` rectangle over the icon's box. A rectangle over a circular node is a black square on a
+        // round thing -- the second fault in the screenshot, and the one that reads as a rendering
+        // glitch rather than as a style. Inset by one so the state-coloured border stays crisp; the
+        // item is inside this and is dimmed by it, which is intended.
+        int wash = switch (state) {
+            case LOCKED -> ArmatureTheme.nodeDim();
+            case COMPLETED -> ArmatureTheme.nodeDoneWash();
+            case STARTED, UNLOCKED -> 0;
+        };
+        if (wash != 0) {
+            // Drawn after the item, which is safe: every fill in GuiGraphics ends by flushing the buffer
+            // (fill -> flushIfUnmanaged -> flush -> bufferSource.endBatch), so the item is submitted
+            // first and the wash lands on top of it. Verified in Stage 4 rather than assumed -- an
+            // overlay that draws *under* the thing it overlays is invisible, which is a bug that looks
+            // like the overlay was never called.
+            //
+            // The spans are looked up at `size - 2`, because that is the size this call passes -- a
+            // shape is a function of (row, size), not a fixed table, so the same method reference gives
+            // the smaller outline for free. That is the design paying for itself.
+            ArmatureTheme.fillShape(r, x + 1, y + 1, size - 2, wash, spans);
         }
     }
 
@@ -983,8 +1396,22 @@ public final class QuestBookScreen extends Screen {
      * Drawing labels inside the node loop is what produced the garbled text in the screenshot — each
      * label knew only about its own node, so three of them were drawn straight through each other.
      */
-    private void drawLabels(GuiGraphics graphics, List<ClientQuestCache.Entry> quests) {
-        int room = labelRoom(quests);
+    private void drawLabels(GuiRenderer r, List<ClientQuestCache.Entry> quests) {
+        // Only the quests that asked for a name. The rest are named on hover, which the caption below
+        // the canvas does for every node -- so nothing is unreachable, and the canvas is not a wall of
+        // text.
+        //
+        // The room is measured from *these* nodes, not from every node, which is a real difference:
+        // a named quest next to an unnamed one has the whole gap to itself, because the unnamed one
+        // draws nothing there to collide with.
+        List<ClientQuestCache.Entry> named = quests.stream()
+                .filter(ClientQuestCache.Entry::showTitle)
+                .toList();
+        if (named.isEmpty()) {
+            return;
+        }
+
+        int room = labelRoom(named);
         if (room < MIN_LABEL_WIDTH) {
             // Not enough room for a readable label anywhere in this chapter, so none are drawn and the
             // hover caption carries the name. Drawing them anyway is what "Punch a SomewherStone To…"
@@ -992,18 +1419,26 @@ public final class QuestBookScreen extends Screen {
             return;
         }
 
-        for (ClientQuestCache.Entry entry : quests) {
+        for (ClientQuestCache.Entry entry : named) {
             int size = nodeSize(entry);
             int x = nodeScreenX(entry);
             int y = nodeScreenY(entry);
 
-            String shown = trimToWidth(font, entry.title(), room);
-            int width = font.width(shown);
+            String shown = Measure.truncate(entry.title(), room, textMeasure(r));
+            int width = r.textWidth(shown);
             // Clamped inward so a label on the edge node is not half off the canvas, but never so far
             // that it slides away from the node it belongs to.
             int textX = Mth.clamp(x + size / 2 - width / 2, canvasLeft() + 2, canvasRight() - width - 2);
             int textY = y + size + LABEL_GAP;
 
+            // Checked against **every** node, not just the named ones, and the difference is real.
+            //
+            // `named` is the right list to *measure the room* from -- an unnamed quest draws nothing
+            // between two nodes, so it cannot crowd a label. It is the wrong list to test a collision
+            // against: a label drawn over an unnamed quest's icon is just as unreadable as one drawn
+            // over a named node, and the unnamed node is still there on the screen. Passing `named`
+            // here was a regression introduced with the default, and it would have shown up as a label
+            // sitting across a neighbour's icon in exactly the chapters that opt in to names.
             if (textY + 9 > canvasBottom() || overlapsAnotherNode(quests, entry, textX, textY, width)) {
                 // A label drawn over the node below it, or out of the canvas, is worse than no label.
                 continue;
@@ -1011,15 +1446,15 @@ public final class QuestBookScreen extends Screen {
 
             QuestState state = ClientQuestCache.stateOf(entry.id());
             int textColour = switch (state) {
-                case LOCKED -> ArmatureTheme.BLOCKED;
-                case COMPLETED -> ArmatureTheme.COMPLETE;
-                default -> entry.id().equals(selectedQuest) ? ArmatureTheme.TITLE : ArmatureTheme.BODY;
+                case LOCKED -> ArmatureTheme.blocked();
+                case COMPLETED -> ArmatureTheme.complete();
+                default -> entry.id().equals(selectedQuest) ? ArmatureTheme.title() : ArmatureTheme.body();
             };
 
             // A backdrop, so a label sitting over a connector line is still readable. Opaque rather
             // than shadowed: a shadow does not help against a line of similar brightness.
-            graphics.fill(textX - 2, textY - 1, textX + width + 2, textY + 9, ArmatureTheme.LABEL_BACKDROP);
-            graphics.drawString(font, shown, textX, textY, textColour, false);
+            r.fill(textX - 2, textY - 1, textX + width + 2, textY + 9, ArmatureTheme.labelBackdrop());
+            r.text(shown, textX, textY, textColour);
         }
     }
 
@@ -1058,25 +1493,18 @@ public final class QuestBookScreen extends Screen {
         return false;
     }
 
-    /**
-     * Truncates to a pixel width, with an ellipsis only when something was actually removed.
-     *
-     * <p>Uses {@code Font.plainSubstrByWidth}, which measures in the font's own metric. The version
-     * this replaces divided the node size by the zoom and used the result as a <b>character</b> count,
-     * which has nothing to do with how wide the text is: it is not that the answer was imprecise, it is
-     * that the quantity was the wrong kind of thing.
-     */
-    private static String trimToWidth(net.minecraft.client.gui.Font font, String text, int maxWidth) {
-        if (maxWidth <= 0 || font.width(text) <= maxWidth) {
-            return maxWidth <= 0 ? "" : text;
-        }
-        String ellipsis = "\u2026";
-        int room = maxWidth - font.width(ellipsis);
-        if (room <= 0) {
-            return font.plainSubstrByWidth(text, maxWidth);
-        }
-        return font.plainSubstrByWidth(text, room) + ellipsis;
-    }
+    // trimToWidth(Font, String, int) used to live here, and it is now `Measure.truncate`.
+    //
+    // The move is worth a note because of what it was before *that*: the version before this one
+    // divided the node size by the zoom and used the result as a character count, which has nothing to
+    // do with how wide text is. Not imprecise -- the wrong kind of quantity. Then it became a wrapper
+    // around `Font.plainSubstrByWidth`, which was right and lived in a screen, so a control that needed
+    // the same thing grew its own copy.
+    //
+    // It is in the kit now, beside `TextWrap`, where both rules that answer "what fits in this width"
+    // sit together -- one breaking a paragraph, one cutting a line. Neither needs a renderer: both take
+    // a `Measure`, and `Measure.of(renderer::textWidth, renderer.lineHeight())` is how a caller with a
+    // renderer gets one.
 
     /**
      * A connector from one node to another.
@@ -1085,7 +1513,7 @@ public final class QuestBookScreen extends Screen {
      * has to be approximated by many single-pixel fills — and at node scale a staircase reads as a
      * mistake rather than as a line. Axis-aligned fills look deliberate and cost three calls.
      */
-    private void drawConnector(GuiGraphics graphics, ClientQuestCache.Entry from,
+    private void drawConnector(GuiRenderer r, ClientQuestCache.Entry from,
                                ClientQuestCache.Entry to, int colour) {
         int ax = nodeScreenX(from) + nodeSize(from) / 2;
         int ay = nodeScreenY(from) + nodeSize(from) / 2;
@@ -1093,11 +1521,11 @@ public final class QuestBookScreen extends Screen {
         int by = nodeScreenY(to) + nodeSize(to) / 2;
 
         if (ax == bx) {
-            graphics.fill(ax, Math.min(ay, by), ax + 1, Math.max(ay, by), colour);
+            r.fill(ax, Math.min(ay, by), ax + 1, Math.max(ay, by), colour);
             return;
         }
         if (ay == by) {
-            graphics.fill(Math.min(ax, bx), ay, Math.max(ax, bx), ay + 1, colour);
+            r.fill(Math.min(ax, bx), ay, Math.max(ax, bx), ay + 1, colour);
             return;
         }
 
@@ -1105,9 +1533,9 @@ public final class QuestBookScreen extends Screen {
         // quest chain runs left to right: a short vertical stub reads as a branch, where a long
         // horizontal run would pass through a neighbouring node's space.
         int midY = ay + (by - ay) / 2;
-        graphics.fill(ax, Math.min(ay, midY), ax + 1, Math.max(ay, midY), colour);
-        graphics.fill(Math.min(ax, bx), midY, Math.max(ax, bx), midY + 1, colour);
-        graphics.fill(bx, Math.min(midY, by), bx + 1, Math.max(midY, by), colour);
+        r.fill(ax, Math.min(ay, midY), ax + 1, Math.max(ay, midY), colour);
+        r.fill(Math.min(ax, bx), midY, Math.max(ax, bx), midY + 1, colour);
+        r.fill(bx, Math.min(midY, by), bx + 1, Math.max(midY, by), colour);
     }
 
     /** The node under the pointer, or null. */
@@ -1131,59 +1559,6 @@ public final class QuestBookScreen extends Screen {
     }
 
     // ------------------------------------------------------------------
-    // The bottom strip
-    // ------------------------------------------------------------------
-
-    private void drawStrip(GuiGraphics graphics, ClientQuestCache.Entry entry) {
-        int left = canvasLeft();
-        int top = canvasBottom();
-        int right = canvasRight();
-
-        graphics.fill(left, top, right, top + STRIP_HEIGHT, ArmatureTheme.RAISED);
-        graphics.fill(left, top, right, top + 1, ArmatureTheme.PANEL_EDGE);
-
-        int textX = left + 10;
-        int limit = stripTextLimit();
-
-        if (entry == null) {
-            graphics.drawString(font, "Click a quest to see what it wants", textX, top + 8,
-                    ArmatureTheme.FAINT, false);
-            graphics.drawString(font, "Scroll to zoom, drag to pan", textX, top + 22,
-                    ArmatureTheme.FAINT, false);
-            return;
-        }
-
-        QuestState state = ClientQuestCache.stateOf(entry.id());
-        String stateText = stateLabel(state);
-        // The title is truncated to leave room for the state, rather than the state being pushed off
-        // the end — which is what happens if the title is drawn first at full length. By width, in one
-        // step: the loop this replaces trimmed a character at a time and re-measured, which is the same
-        // answer for a great deal more work, and it started from a character count that was a guess.
-        String titleText = trimToWidth(font, entry.title(),
-                Math.max(0, limit - font.width(stateText) - 8));
-
-        graphics.drawString(font, titleText, textX, top + 7, ArmatureTheme.TITLE, false);
-        graphics.drawString(font, stateText, textX + font.width(titleText) + 8, top + 7,
-                stateColour(state), false);
-
-        int y = top + 21;
-        long done = 0;
-        for (int i = 0; i < entry.tasks().size(); i++) {
-            if (ClientQuestCache.taskProgressOf(entry.id(), i) >= entry.tasks().get(i).count()) {
-                done++;
-            }
-        }
-        String summary = entry.tasks().size() + " task" + (entry.tasks().size() == 1 ? "" : "s")
-                + "  \u00b7  " + done + " done"
-                + (entry.rewards().isEmpty() ? "" : "  \u00b7  " + entry.rewards().size() + " reward"
-                        + (entry.rewards().size() == 1 ? "" : "s"))
-                + (entry.dependencies().isEmpty() ? "" : "  \u00b7  needs " + entry.dependencies().size());
-        // Truncated to the strip's own limit, by width. The previous version passed 999 as the limit,
-        // which is not a truncation at all -- the summary simply ran under the Open button.
-        graphics.drawString(font, trimToWidth(font, summary, limit), textX, y, ArmatureTheme.FAINT, false);
-    }
-
-    // ------------------------------------------------------------------
     // The overlay
     // ------------------------------------------------------------------
 
@@ -1192,10 +1567,11 @@ public final class QuestBookScreen extends Screen {
      *
      * <p>Laid out as a fixed header, a scrolling body and a fixed footer, because the body can be
      * arbitrarily long and the controls that close it must not scroll away. The body's clipping rect is
-     * what makes that work: {@code enableScissor} cuts a long description off at the footer rather than
-     * letting it draw over the controls.
+     * what makes that work: a clip around the body cuts a long description off at the footer rather
+     * than letting it draw over the controls, and being scoped it cannot be left open by an early
+     * return.
      */
-    private void drawOverlay(GuiGraphics graphics) {
+    private void drawOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
         ClientQuestCache.Entry entry = entryFor(overlayQuest);
         if (entry == null) {
             return;
@@ -1206,10 +1582,10 @@ public final class QuestBookScreen extends Screen {
         int w = overlayWidth();
         int h = overlayHeight();
 
-        ArmatureTheme.panel(graphics, left, top, w, h, ArmatureTheme.PANEL, ArmatureTheme.PANEL_EDGE);
-        graphics.fill(left + 1, top + 1, left + w - 1, top + 46, ArmatureTheme.RAISED);
-        graphics.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.PANEL_EDGE);
-        graphics.fill(left + 1, top + h - 38, left + w - 1, top + h - 37, ArmatureTheme.PANEL_EDGE);
+        ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        r.fill(left + 1, top + 1, left + w - 1, top + 46, ArmatureTheme.raised());
+        r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
+        r.fill(left + 1, top + h - 38, left + w - 1, top + h - 37, ArmatureTheme.panelEdge());
 
         // --- header ---
 
@@ -1221,197 +1597,445 @@ public final class QuestBookScreen extends Screen {
         int iconBox = HEADER_ICON;
         int iconX = left + 14;
         int iconY = top + (46 - iconBox) / 2;
-        drawIcon(graphics, entry.icon(), iconX, iconY, iconBox);
+        r.icon(entry.icon(), iconX, iconY, iconBox);
 
         int textX = iconX + iconBox + 6;
-        graphics.drawString(font, entry.title(), textX, top + 12, ArmatureTheme.TITLE, false);
-        graphics.drawString(font, stateLabel(state), textX + font.width(entry.title()) + 10, top + 12,
-                stateColour(state), false);
+        r.text(entry.title(), textX, top + 12, ArmatureTheme.title());
+        r.text(stateLabel(state), textX + r.textWidth(entry.title()) + 10, top + 12,
+                stateColour(state));
 
         String where = entry.chapterTitle() + (entry.subtitle().isEmpty() ? "" : "  \u00b7  " + entry.subtitle());
-        graphics.drawString(font, where, textX, top + 26, ArmatureTheme.FAINT, false);
+        r.text(where, textX, top + 26, ArmatureTheme.faint());
 
-        // --- body, scrolled and clipped ---
+        // --- body: one layout, one clip, one scroll ---
 
-        int bodyLeft = left + 18;
-        int bodyRight = left + w - 18;
-        int bodyTop = top + 54;
-        int bodyBottom = top + h - 46;
-        int bodyWidth = bodyRight - bodyLeft;
+        // Bounds first, then the layout at that width, then the scroll range from the layout's own
+        // height. The order matters: apply() clamps the offset against the view's height, so clamping
+        // against a stale bounds would clamp to the previous window's body.
+        Viewport body = overlayBody();
+        Measure measure = textMeasure(r);
+        Layout layout = overlayLayout(r, entry);
+        overlayView.apply(layout, body.viewWidth());
 
-        int contentHeight = measureOverlay(entry, bodyWidth);
-        int maxScroll = Math.max(0, contentHeight - (bodyBottom - bodyTop));
-        overlayScroll = Mth.clamp(overlayScroll, 0, maxScroll);
+        // Which row the pointer is over, resolved once for the whole body before anything is drawn.
+        // `update` is called exactly once per frame rather than once per row: a pointer is a single
+        // point, so there is at most one hovered row and asking per row would be the same answer
+        // computed three times while never being told that the answer is "none".
+        rowHover.update(rowAt(layout, body, rowKeysOf(entry), mouseX, mouseY), now);
 
-        graphics.enableScissor(bodyLeft, bodyTop, bodyRight, bodyBottom);
-        int y = bodyTop - overlayScroll;
-
-        y = drawParagraphs(graphics, entry.description(), bodyLeft, y, bodyWidth, ArmatureTheme.BODY);
-        if (entry.description().isEmpty()) {
-            graphics.drawString(font, "No description.", bodyLeft, y, ArmatureTheme.FAINT, false);
-            y += 12;
+        // The clip, the scroll clamp and the scrollbar all read this one rectangle. They used to be
+        // three expressions for it — bodyLeft/bodyRight/bodyTop/bodyBottom written out in the drawing
+        // and again in the clamp — which is the same class of mistake as the two controls that were
+        // once drawn on top of each other.
+        try (GuiRenderer.Scoped clip = r.clip(body)) {
+            drawDescription(r, entry, layout, body, measure);
+            drawTasks(r, entry, layout, body, now);
+            drawRewards(r, entry, layout, body, now);
+            drawDependencies(r, entry, layout, body);
         }
 
-        y += 8;
-        y = heading(graphics, "TASKS", bodyLeft, y);
-        if (entry.tasks().isEmpty()) {
-            graphics.drawString(font, "Nothing required", bodyLeft + 8, y, ArmatureTheme.FAINT, false);
-            // ROW_ADVANCE, not a number: measureOverlay reserves Math.max(1, size) * ROW_ADVANCE for an
-            // empty list too, and the scrollbar is only right if the two agree exactly.
-            y += ROW_ADVANCE;
-        }
-        for (int i = 0; i < entry.tasks().size(); i++) {
-            y = drawTaskRow(graphics, entry, i, bodyLeft + 8, y, bodyWidth - 16);
-        }
-
-        y += 10;
-        y = heading(graphics, "REWARDS", bodyLeft, y);
-        if (entry.rewards().isEmpty()) {
-            graphics.drawString(font, "Nothing", bodyLeft + 8, y, ArmatureTheme.FAINT, false);
-            y += ROW_ADVANCE;
-        }
-        for (ClientQuestCache.RewardEntry reward : entry.rewards()) {
-            y = drawRewardRow(graphics, reward, bodyLeft + 8, y);
-        }
-
-        if (!entry.dependencies().isEmpty()) {
-            y += 10;
-            y = heading(graphics, "REQUIRES", bodyLeft, y);
-            for (String dependency : entry.dependencies()) {
-                ClientQuestCache.Entry other = entryFor(dependency);
-                QuestState otherState = ClientQuestCache.stateOf(dependency);
-                boolean met = otherState == QuestState.COMPLETED;
-                String label = other != null ? other.title() : dependency;
-                graphics.drawString(font, (met ? "\u2714" : "\u2716") + "  " + label, bodyLeft + 8, y,
-                        met ? ArmatureTheme.COMPLETE : ArmatureTheme.BLOCKED, false);
-                y += DEP_ADVANCE;
-            }
-        }
-
-        graphics.disableScissor();
-
-        // --- a scrollbar, only when there is something to scroll ---
-
-        if (maxScroll > 0) {
-            int trackHeight = bodyBottom - bodyTop;
-            int thumbHeight = Math.max(20, trackHeight * trackHeight / contentHeight);
-            int thumbTop = bodyTop + (trackHeight - thumbHeight) * overlayScroll / maxScroll;
-            graphics.fill(bodyRight + 4, bodyTop, bodyRight + 7, bodyBottom, ArmatureTheme.RECESSED);
-            graphics.fill(bodyRight + 4, thumbTop, bodyRight + 7, thumbTop + thumbHeight,
-                    ArmatureTheme.CONTROL_EDGE);
-        }
-    }
-
-    private int heading(GuiGraphics graphics, String text, int x, int y) {
-        graphics.drawString(font, text, x, y, ArmatureTheme.HEADING, false);
-        graphics.fill(x, y + 10, x + font.width(text), y + 11, ArmatureTheme.PANEL_EDGE);
-        return y + 16;
+        // The bar, and it draws nothing when the content fits. Its geometry comes from the same
+        // viewport as the clip and the clamp, so a thumb that stops short of the end is not a thing
+        // that can happen here.
+        overlayView.drawScrollbar(r, ArmatureTheme.recessed(), ArmatureTheme.controlEdge());
     }
 
     /**
-     * How tall the overlay's body will be, so the scrollbar knows its range before anything is drawn.
+     * The body's elements, in order, at the width the body actually has.
      *
-     * <p>Every number here is the number the drawing actually advances by, and that is the only reason
-     * this method can be trusted: a scrollbar computed from a second, independent estimate drifts, and
-     * the symptom is a thumb that stops short of the end or runs past it. In particular
-     * {@link #ROW_ADVANCE} is shared with {@link #drawTaskRow} and {@link #drawRewardRow} rather than
-     * written out again — the previous version had a 13px pitch here against a 16px icon, so rows
-     * overlapped each other and the measurement was wrong in the same direction.
+     * <p>The one call that decides both where every row goes and how tall the content is. That is the
+     * property this round was about: {@code measureOverlay} was a second pass over the same fields,
+     * kept in step with the drawing by a comment.
      */
-    private int measureOverlay(ClientQuestCache.Entry entry, int textWidth) {
-        int height = 0;
-        if (entry.description().isEmpty()) {
-            height += 12;
-        }
-        for (String paragraph : entry.description()) {
-            height += wrap(paragraph, textWidth).size() * 10 + 5;
-        }
-        height += 8 + 16;                                          // TASKS heading
-        height += Math.max(1, entry.tasks().size()) * ROW_ADVANCE;
-        height += 10 + 16;                                         // REWARDS heading
-        height += Math.max(1, entry.rewards().size()) * ROW_ADVANCE;
-        if (!entry.dependencies().isEmpty()) {
-            height += 10 + 16 + entry.dependencies().size() * DEP_ADVANCE;
-        }
-        return height + 16;
+    private Layout overlayLayout(GuiRenderer r, ClientQuestCache.Entry entry) {
+        Viewport body = overlayBody();
+        return OverlayLayout.stack(entry.description(), entry.tasks().size(),
+                entry.rewards().size(), entry.dependencies().size())
+                .build(body.viewWidth(), textMeasure(r));
     }
 
-    private int drawTaskRow(GuiGraphics graphics, ClientQuestCache.Entry entry, int index, int x, int y,
-                            int availableWidth) {
+    /**
+     * The prose, at the slot the layout placed it in.
+     *
+     * <p>Wrapped again here, with the same {@link Measure} and the same column width the layout wrapped
+     * it with. That is not a second description of the wrap rule — it is the same pure function called
+     * with the same arguments, which is the property {@code TextWrap.height} exists to guarantee.
+     *
+     * <p>The width is the <b>body's</b>, not the slot's: a left-aligned text slot is as wide as its
+     * longest line, so wrapping to it would narrow the paragraph a little more on every pass.
+     */
+    private void drawDescription(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout,
+                                 Viewport body, Measure measure) {
+        if (entry.description().isEmpty()) {
+            Slot slot = placed(layout, body, OverlayLayout.NO_DESCRIPTION);
+            if (slot != null) {
+                r.text("No description.", slot.x(), slot.y(), ArmatureTheme.faint());
+            }
+            return;
+        }
+
+        for (int i = 0; i < entry.description().size(); i++) {
+            Slot slot = placed(layout, body, OverlayLayout.proseKey(i));
+            if (slot == null) {
+                continue;
+            }
+            int lineY = slot.y();
+            for (String line : TextWrap.wrap(entry.description().get(i), body.viewWidth(), measure)) {
+                r.text(line, slot.x(), lineY, ArmatureTheme.body());
+                lineY += measure.lineHeight();
+            }
+        }
+    }
+
+    private void drawTasks(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout, Viewport body,
+                           long now) {
+        drawHeading(r, placed(layout, body, OverlayLayout.TASKS_HEADING), "TASKS");
+
+        if (entry.tasks().isEmpty()) {
+            Slot slot = placed(layout, body, OverlayLayout.NO_TASKS);
+            if (slot != null) {
+                r.text("Nothing required", slot.x(), slot.y(), ArmatureTheme.faint());
+            }
+            return;
+        }
+        for (int i = 0; i < entry.tasks().size(); i++) {
+            String key = OverlayLayout.taskKey(i);
+            Slot slot = placed(layout, body, key);
+            if (slot != null) {
+                drawTaskRow(r, entry, i, slot, rowHover.amount(key, now));
+            }
+        }
+    }
+
+    /**
+     * Every key a row of the body could be drawn under, in reading order.
+     *
+     * <p>Built here rather than asked of {@link OverlayLayout}, because the layout's business is where
+     * things go and the hover tracker's is which one the pointer is over — and a method on the layout
+     * that listed its own keys would be a second place the key naming has to be kept in step with
+     * {@code stack}'s. It is not: both call the same key generators.
+     */
+    private static List<String> rowKeysOf(ClientQuestCache.Entry entry) {
+        List<String> keys = new ArrayList<>(entry.tasks().size() + entry.rewards().size());
+        for (int i = 0; i < entry.tasks().size(); i++) {
+            keys.add(OverlayLayout.taskKey(i));
+        }
+        for (int i = 0; i < entry.rewards().size(); i++) {
+            keys.add(OverlayLayout.rewardKey(i));
+        }
+        return keys;
+    }
+
+    /**
+     * The key of the row under the pointer, or null.
+     *
+     * <p>Asks each key's <b>placed slot</b> rather than recomputing a rectangle, which is the same
+     * principle the whole drawing pass is built on: the row a click would land on and the row that
+     * lights up come from one description of where a row is. A second piece of arithmetic here would
+     * agree with the layout almost everywhere, and the place it disagreed would be a row that
+     * highlights but does not respond.
+     *
+     * <p>Uses {@link Slot#contains}, so a row scrolled out of the view is null from {@code placed} and
+     * is therefore unhoverable — which is right, since it is not on screen to point at.
+     */
+    private static String rowAt(Layout layout, Viewport body, List<String> keys,
+                                double mouseX, double mouseY) {
+        for (String key : keys) {
+            Slot slot = placed(layout, body, key);
+            if (slot != null && slot.contains(mouseX, mouseY)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private void drawRewards(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout, Viewport body,
+                             long now) {
+        drawHeading(r, placed(layout, body, OverlayLayout.REWARDS_HEADING), "REWARDS");
+
+        if (entry.rewards().isEmpty()) {
+            Slot slot = placed(layout, body, OverlayLayout.NO_REWARDS);
+            if (slot != null) {
+                r.text("Nothing", slot.x(), slot.y(), ArmatureTheme.faint());
+            }
+            return;
+        }
+        for (int i = 0; i < entry.rewards().size(); i++) {
+            String key = OverlayLayout.rewardKey(i);
+            Slot slot = placed(layout, body, key);
+            if (slot != null) {
+                drawRewardRow(r, entry.rewards().get(i), slot, rowHover.amount(key, now));
+            }
+        }
+    }
+
+    private void drawDependencies(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout,
+                                  Viewport body) {
+        if (entry.dependencies().isEmpty()) {
+            // No REQUIRES section at all, rather than one saying nothing. The layout omits it for the
+            // same reason, so there is no heading to draw and no room reserved for one.
+            return;
+        }
+        drawHeading(r, placed(layout, body, OverlayLayout.REQUIRES_HEADING), "REQUIRES");
+
+        for (int i = 0; i < entry.dependencies().size(); i++) {
+            Slot slot = placed(layout, body, OverlayLayout.dependencyKey(i));
+            if (slot == null) {
+                continue;
+            }
+            String dependency = entry.dependencies().get(i);
+            ClientQuestCache.Entry other = entryFor(dependency);
+            boolean met = ClientQuestCache.stateOf(dependency) == QuestState.COMPLETED;
+            String label = other != null ? other.title() : dependency;
+            r.text((met ? "\u2714" : "\u2716") + "  " + label, slot.x(), slot.y(),
+                    met ? ArmatureTheme.complete() : ArmatureTheme.blocked());
+        }
+    }
+
+    /** A section label and its rule, at the slot the layout reserved for it. */
+    private void drawHeading(GuiRenderer r, Slot slot, String label) {
+        if (slot == null) {
+            return;
+        }
+        r.text(label, slot.x(), slot.y(), ArmatureTheme.heading());
+        r.fill(slot.x(), slot.y() + OverlayLayout.SECTION_LEAD, slot.x() + r.textWidth(label),
+                slot.y() + OverlayLayout.SECTION_LEAD + 1, ArmatureTheme.panelEdge());
+    }
+
+    /**
+     * A key's slot, moved onto the screen, or null if it was not placed or is scrolled out of view.
+     *
+     * <p>Null for two different reasons, and a caller treats them the same: an element this layout did
+     * not place at all — a REQUIRES heading on a quest with no prerequisites — and one that is off the
+     * screen right now. Both mean "do not draw it here".
+     *
+     * <p>This is the whole of the culling, and it is why the drawing can be written against keys: the
+     * dispatch is on what an element <i>is</i>, so a row that moves when a metric changes takes its
+     * drawing with it. Matching on coordinates is the version of this that leaves a working test naming
+     * the wrong row.
+     */
+    private static Slot placed(Layout layout, Viewport body, Object key) {
+        Slot slot = layout.slot(key);
+        if (slot == null) {
+            return null;
+        }
+        // Wholly off screen: above the top of the view or below its bottom. A slot that is only partly
+        // on screen is drawn and cut off by the clip, which is what the clip is for.
+        if (slot.bottom() <= body.visibleTop() || slot.y() >= body.visibleBottom()) {
+            return null;
+        }
+        // Moved by the viewport's own mapping, so the placement and the culling cannot disagree about
+        // where a row is. The overlay's viewport is fixed-scale, so a slot's width is its screen width.
+        return slot.moved(body.screenX(slot.x()) - slot.x(), body.screenY(slot.y()) - slot.y());
+    }
+
+    /**
+     * The font as the overlay's layout measures it: the same face, at the line box this pane draws.
+     *
+     * <h2>What this used to be, and why the change matters</h2>
+     *
+     * <p>It was {@code FontMeasure.of(font).withLeading(...)} — a kit class whose whole job was to wrap
+     * a Minecraft {@code Font} in a {@code Measure}. That class is gone, and the reason is the
+     * clearest illustration of what the seam bought: a renderer <i>is</i> a measure of text. It answers
+     * {@code textWidth} and {@code lineHeight} already, so the adapter that existed only to bridge a
+     * font to the layout interface has nothing left to bridge.
+     *
+     * <p>The leading is still added, and still belongs inside the measure rather than at the drawing
+     * site: this pane draws a line of body text every {@link OverlayLayout#LINE_HEIGHT} pixels, and a
+     * layout measuring at the font's own height over a drawing advancing by ten is short by a line per
+     * paragraph — which arrives as a scrollbar that stops early with nothing anywhere reporting it.
+     */
+    private static Measure textMeasure(GuiRenderer r) {
+        return Measure.of(r::textWidth, OverlayLayout.LINE_HEIGHT);
+    }
+
+    /**
+     * The wash behind a hovered row.
+     *
+     * <h2>Why it hugs the content rather than the row</h2>
+     *
+     * <p>{@code slot} is stretched to the width of the body, because that is what a row of a stack is
+     * — and that makes a wash out to {@code slot.right()} a bar the <b>full width of the panel</b>.
+     * On a wide window that is a highlight clear across the screen for a row that draws an icon and
+     * two words, which reads as the row being selected rather than as a hint about where a click
+     * lands. It looked like an overflow, and it was one: the wash was drawn to the row's box, and the
+     * row's box is not what the row <i>draws</i>.
+     *
+     * <p>So it runs from the row's left edge to just past the furthest thing the row actually puts on
+     * screen. {@code contentRight} is that edge, measured by the caller before it draws anything —
+     * see {@code drawTaskRow} for why the measurement has to come first.
+     *
+     * <h2>Why it is not the full row height either</h2>
+     *
+     * <p>{@code slot} is {@link OverlayLayout#ROW_ADVANCE} tall — the icon's box <b>plus the gap under
+     * it</b> — so washing the whole slot puts the highlight two pixels into the row below and leaves
+     * it sitting low under the icon. This brackets the icon instead: symmetric about it, and unable to
+     * reach a neighbour even during a crossfade where two washes are on screen at once.
+     */
+    private static void rowWash(GuiRenderer r, Slot slot, int contentRight, float hover) {
+        if (hover <= 0F) {
+            return;
+        }
+        int right = Math.min(slot.right() + 3, contentRight + 6);
+        r.fill(slot.x() - 3, slot.y() - 2, right, slot.y() + ROW_ICON + 2,
+                Colour.translucent(ArmatureTheme.rowHover(), hover));
+    }
+
+    /**
+     * One task, with a highlight that eases in and out as the pointer arrives and leaves.
+     *
+     * <h2>Why a row highlights at all</h2>
+     *
+     * <p>Because the row is the thing a click lands on. A task in the list is not a button — there is
+     * nothing to press on most of them — but it is the anchor for <b>Hand over</b>, and without any
+     * feedback the only way to know which task that button refers to is to click it and see. The
+     * highlight is the row saying "this one", which is the same job the hover ring does on a node.
+     *
+     * <p>It is a wash rather than a fill, and at low alpha. A task row that brightened as much as a
+     * button would compete with the quest's actual selection, and the row is a hint rather than a
+     * choice.
+     *
+     * <h2>Everything is measured before anything is drawn</h2>
+     *
+     * <p>Not a style choice: the wash has to be <b>behind</b> the icon, so it cannot be drawn after the
+     * row is painted — which means the width it needs must be known before the row exists on screen.
+     * The measurement block below therefore computes every string and x-position the row will use, and
+     * the drawing block consumes those same values rather than recomputing them. Two descriptions of
+     * one extent is the failure this codebase keeps paying for, and the highlight is exactly the kind
+     * of thing where the two would drift unnoticed.
+     *
+     * <p>One value is assumed rather than known: the text's indent. Whether an item resolves is only
+     * answerable by asking the renderer to draw it, and the wash has to come first — so the measurement
+     * uses the indented position, which is the wider case. A row whose icon cannot be resolved gets a
+     * wash a couple of characters wider than its text, which is invisible.
+     *
+     * @param slot the placed row, so the highlight is anchored to the box the layout reserved — and so
+     *     the box the hover test asks about is the box the highlight is drawn from
+     * @param hover 0 at rest, 1 fully hovered, eased. See {@link Hover}
+     */
+    private void drawTaskRow(GuiRenderer r, ClientQuestCache.Entry entry, int index, Slot slot,
+                             float hover) {
         ClientQuestCache.TaskEntry task = entry.tasks().get(index);
         int progress = ClientQuestCache.taskProgressOf(entry.id(), index);
         boolean satisfied = progress >= task.count();
+
+        int x = slot.x();
+        int y = slot.y();
+        int availableWidth = slot.width();
 
         // The text sits on the centre line of the icon's box, and the box is ROW_ICON square. Before,
         // the text was on the row's top edge while the icon was drawn 4px above it at 16px tall, so
         // neither lined up with the other and the icon bled into the row above.
         int textY = y + (ROW_ICON - 8) / 2;
 
+        // --- measured, so the wash can be drawn behind the row at the width it will occupy ---
+
+        String text = task.text().getString();
+        int measuredTextX = x + ROW_ICON + 5;
+        int measuredTextRight = measuredTextX + r.textWidth(text);
+
+        String count = task.count() > 1
+                ? Math.min(progress, task.count()) + " / " + task.count()
+                : null;
+        int barX = count == null
+                ? measuredTextRight + 8
+                : measuredTextRight + 8 + r.textWidth(count) + 8;
+        int barWidth = count == null ? 0 : Mth.clamp(availableWidth - (barX - x) - 70, 24, 120);
+
+        // Both tags are right-aligned to the row, which is the one case where the content really does
+        // reach the row's far edge -- so a task that can be handed in has a highlight that spans it,
+        // and that is correct rather than a leftover of the old full-width wash.
+        boolean optional = task.optional();
+        boolean manual = task.manual();
+        String tag = manual ? "hand in" : (optional ? "optional" : null);
+        int tagX = tag == null ? 0 : x + availableWidth - r.textWidth(tag)
+                - (manual && optional ? r.textWidth("optional") + 6 : 0);
+
+        int contentRight = Math.max(measuredTextRight, barX + barWidth);
+        if (tag != null) {
+            contentRight = Math.max(contentRight, tagX + r.textWidth(tag));
+        }
+
+        rowWash(r, slot, contentRight, hover);
+
+        // --- drawn ---
+
         int textX = x;
         ItemStack toDraw = task.hasItem() ? task.item() : task.icon();
-        if (drawIcon(graphics, toDraw, x, y, ROW_ICON)) {
+        if (r.icon(toDraw, x, y, ROW_ICON)) {
             // Only indent the text when something was actually drawn, so a task whose item the client
             // cannot resolve is not left with a gap where an icon should be.
             textX = x + ROW_ICON + 5;
         }
 
-        Component text = task.text();
-        int colour = satisfied ? ArmatureTheme.COMPLETE
-                : ClientQuestCache.stateOf(entry.id()) == QuestState.LOCKED ? ArmatureTheme.BLOCKED
-                : ArmatureTheme.BODY;
-        graphics.drawString(font, text, textX, textY, colour, false);
+        int colour = satisfied ? ArmatureTheme.complete()
+                : ClientQuestCache.stateOf(entry.id()) == QuestState.LOCKED ? ArmatureTheme.blocked()
+                : ArmatureTheme.body();
+        r.text(text, textX, textY, colour);
 
-        int after = textX + font.width(text) + 8;
+        int after = textX + r.textWidth(text) + 8;
 
         // The progress, and a bar for it. The bar is what makes "5 / 8" readable at a glance rather
         // than something you have to stop and parse.
-        if (task.count() > 1) {
-            String count = Math.min(progress, task.count()) + " / " + task.count();
-            graphics.drawString(font, count, after, textY,
-                    satisfied ? ArmatureTheme.COMPLETE : ArmatureTheme.FAINT, false);
-            after += font.width(count) + 8;
+        if (count != null) {
+            r.text(count, after, textY, satisfied ? ArmatureTheme.complete() : ArmatureTheme.faint());
+            after += r.textWidth(count) + 8;
 
-            int barWidth = Mth.clamp(availableWidth - (after - x) - 70, 24, 120);
-            int filled = Math.round(barWidth * Math.min(1F, progress / (float) task.count()));
             int barY = textY + 1;
-            graphics.fill(after, barY, after + barWidth, barY + 6, ArmatureTheme.RECESSED);
-            ArmatureTheme.outline(graphics, after, barY, barWidth, 6, ArmatureTheme.PANEL_EDGE);
+            int filled = Math.round(barWidth * Math.min(1F, progress / (float) task.count()));
+            r.fill(after, barY, after + barWidth, barY + 6, ArmatureTheme.recessed());
+            ArmatureTheme.outline(r, after, barY, barWidth, 6, ArmatureTheme.panelEdge());
             if (filled > 0) {
-                graphics.fill(after + 1, barY + 1, after + Math.max(2, filled), barY + 5,
-                        satisfied ? ArmatureTheme.COMPLETE : ArmatureTheme.AVAILABLE);
+                r.fill(after + 1, barY + 1, after + Math.max(2, filled), barY + 5,
+                        satisfied ? ArmatureTheme.complete() : ArmatureTheme.available());
             }
         }
 
-        if (task.optional()) {
-            String tag = "optional";
-            graphics.drawString(font, tag, x + availableWidth - font.width(tag), textY,
-                    ArmatureTheme.FAINT, false);
+        if (optional) {
+            r.text("optional", x + availableWidth - r.textWidth("optional"), textY, ArmatureTheme.faint());
         }
-        if (task.manual()) {
-            String tag = "hand in";
-            int tagX = x + availableWidth - font.width(tag) - (task.optional() ? font.width("optional") + 6 : 0);
-            graphics.drawString(font, tag, tagX, textY, ArmatureTheme.AVAILABLE, false);
+        if (manual) {
+            r.text("hand in", tagX, textY, ArmatureTheme.available());
         }
-
-        return y + ROW_ADVANCE;
     }
 
-    private int drawRewardRow(GuiGraphics graphics, ClientQuestCache.RewardEntry reward, int x, int y) {
+    /**
+     * One reward, with the same eased wash a task row gets.
+     *
+     * <p>A reward is no more clickable than a task is, but the two sit in one list one above the other:
+     * a highlight on one kind and not the other reads as the list being broken partway down.
+     *
+     * <p>Measured before drawn, for the reason {@code drawTaskRow} explains at length — the wash is
+     * behind the icon, so its width has to be known before the row is painted. A reward's content is
+     * simpler than a task's: an icon, a name, and a count when there is one, with no tags reaching the
+     * row's far edge.
+     */
+    private void drawRewardRow(GuiRenderer r, ClientQuestCache.RewardEntry reward, Slot slot,
+                               float hover) {
+        int x = slot.x();
+        int y = slot.y();
         int textY = y + (ROW_ICON - 8) / 2;
+
+        String text = reward.text().getString();
+        String count = reward.hasItem() && reward.count() > 1 ? "x" + reward.count() : null;
+
+        int contentRight = x + ROW_ICON + 5 + r.textWidth(text);
+        if (count != null) {
+            contentRight += 5 + r.textWidth(count);
+        }
+
+        rowWash(r, slot, contentRight, hover);
 
         int textX = x;
         ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
-        if (drawIcon(graphics, toDraw, x, y, ROW_ICON)) {
+        if (r.icon(toDraw, x, y, ROW_ICON)) {
             textX = x + ROW_ICON + 5;
         }
 
-        Component text = reward.text();
-        graphics.drawString(font, text, textX, textY, ArmatureTheme.BODY, false);
-        if (reward.hasItem() && reward.count() > 1) {
-            graphics.drawString(font, "x" + reward.count(), textX + font.width(text) + 5, textY,
-                    ArmatureTheme.FAINT, false);
+        r.text(text, textX, textY, ArmatureTheme.body());
+        if (count != null) {
+            r.text(count, textX + r.textWidth(text) + 5, textY, ArmatureTheme.faint());
         }
-        return y + ROW_ADVANCE;
     }
 
     // ------------------------------------------------------------------
@@ -1444,8 +2068,8 @@ public final class QuestBookScreen extends Screen {
             pressMoved = false;
             pressX = mouseX;
             pressY = mouseY;
-            panAtPressX = panX;
-            panAtPressY = panY;
+            panAtPressX = viewport().offsetX();
+            panAtPressY = viewport().offsetY();
 
             String chapter = effectiveChapter();
             ClientQuestCache.Entry under = chapter == null ? null
@@ -1469,8 +2093,11 @@ public final class QuestBookScreen extends Screen {
             if (Math.abs(mouseX - pressX) > DRAG_THRESHOLD || Math.abs(mouseY - pressY) > DRAG_THRESHOLD) {
                 pressMoved = true;
             }
-            panX = panAtPressX + (int) (mouseX - pressX);
-            panY = panAtPressY + (int) (mouseY - pressY);
+            // From the offset the press started at, not from the previous frame's. Accumulating the
+            // per-event deltas drifts by a pixel each time, so a drag of any length lands somewhere the
+            // pointer is not — and it reads as the canvas slipping rather than as an arithmetic fault.
+            viewport().setOffset(panAtPressX + (int) (mouseX - pressX),
+                    panAtPressY + (int) (mouseY - pressY));
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
@@ -1485,7 +2112,19 @@ public final class QuestBookScreen extends Screen {
             // makes "hold to pan" and "click to select" one gesture.
             if (!pressMoved && pressedNode != null && button == 0) {
                 selectedQuest = pressedNode.equals(selectedQuest) ? null : pressedNode;
-                rebuildWidgets();
+
+                // A click on a node opens it, rather than only selecting it.
+                //
+                // Selecting first and opening second is a two-gesture read: click, then find the
+                // Open button. Nobody wants that, so one click opens the quest -- which is also what a
+                // graph UI is expected to do. There is no longer a second route to it: the summary
+                // strip and its Open button are gone, because a button that opens what you just
+                // clicked is a button for a place you are already standing.
+                //
+                // The pan is unaffected: a press that moved is a pan and never reaches here, so
+                // holding to look around still works and cannot open anything by accident.
+                openOverlay(pressedNode);
+                return true;
             }
             pressedNode = null;
             return true;
@@ -1498,7 +2137,11 @@ public final class QuestBookScreen extends Screen {
         if (overlay == Overlay.QUEST) {
             // Inside the overlay the wheel scrolls the text, which is what a long description wants.
             // Zooming here would be wrong: there is no canvas to zoom.
-            overlayScroll = Math.max(0, overlayScroll - (int) (scrollY * 30));
+            // Clamped by the viewport rather than here, and that is the fix rather than a tidy-up:
+            // the previous version wrote the offset unclamped and left the drawing pass to clamp it
+            // against a height computed somewhere else, so a flick past the bottom sat out of range
+            // until the next frame happened to correct it.
+            overlayBody().scrollBy(-(int) (scrollY * 30));
             return true;
         }
 
@@ -1542,48 +2185,17 @@ public final class QuestBookScreen extends Screen {
 
     private static int stateColour(QuestState state) {
         return switch (state) {
-            case COMPLETED -> ArmatureTheme.COMPLETE;
-            case STARTED -> ArmatureTheme.IN_PROGRESS;
-            case UNLOCKED -> ArmatureTheme.AVAILABLE;
-            case LOCKED -> ArmatureTheme.BLOCKED;
+            case COMPLETED -> ArmatureTheme.complete();
+            case STARTED -> ArmatureTheme.inProgress();
+            case UNLOCKED -> ArmatureTheme.available();
+            case LOCKED -> ArmatureTheme.blocked();
         };
     }
 
-    private List<FormattedCharSequence> wrap(String text, int width) {
-        List<FormattedCharSequence> out = new ArrayList<>();
-        if (width <= 8) {
-            out.add(Component.literal(text).getVisualOrderText());
-            return out;
-        }
-        StringBuilder line = new StringBuilder();
-        for (String word : text.split(" ")) {
-            String candidate = line.isEmpty() ? word : line + " " + word;
-            if (font.width(candidate) > width && !line.isEmpty()) {
-                out.add(Component.literal(line.toString()).getVisualOrderText());
-                line = new StringBuilder(word);
-            }
-            else {
-                line = new StringBuilder(candidate);
-            }
-        }
-        if (!line.isEmpty()) {
-            out.add(Component.literal(line.toString()).getVisualOrderText());
-        }
-        return out;
-    }
-
-    /** Draws wrapped paragraphs, returning the y after the last line. */
-    private int drawParagraphs(GuiGraphics graphics, List<String> paragraphs, int x, int y, int width,
-                               int colour) {
-        for (String paragraph : paragraphs) {
-            for (FormattedCharSequence line : wrap(paragraph, width)) {
-                graphics.drawString(font, line, x, y, colour, false);
-                y += 10;
-            }
-            y += 5;
-        }
-        return y;
-    }
+    // wrap(String, int) and drawParagraphs(...) used to live here: a hand-rolled word wrap, and the
+    // drawing of it, in the same class that needed the height. That is why the scrollbar's range and
+    // the text on screen were two computations that had to be kept in step. The wrap rule is TextWrap's
+    // now, the composition is OverlayLayout's, and this class draws the lines it is handed.
 
     // trim(String, int) used to live here: a character-count truncation, which is the wrong kind of
     // quantity for this job -- see trimToWidth above. It had four callers and all four were wrong:
@@ -1601,10 +2213,119 @@ public final class QuestBookScreen extends Screen {
     public static void forgetViewState() {
         selectedChapter = null;
         selectedQuest = null;
-        zoom = 1.0F;
-        panX = 0;
-        panY = 0;
+        VIEW.setScale(1.0F);
+        VIEW.setOffset(0, 0);
         pannedChapter = null;
         centred = false;
+        // The warning memory goes with them, for the same reason as everything else here: it describes
+        // a chapter of a server this client is no longer connected to. Without this, rejoining the same
+        // server would stay quiet about a chapter theme that is still misspelled.
+        //
+        // There is no theme to release any more, and there were two calls here that did it. A chapter's
+        // palette lives inside one frame now, so there is nothing that could outlive a disconnect.
+        warnedThemeFor = null;
+    }
+
+    @Override
+    public void removed() {
+        super.removed();
+        // Nothing to undo, and that is worth recording because there used to be three lines here.
+        //
+        // A chapter's theme was a global claim in an earlier round: it was applied when the chapter was
+        // opened and had to be released when the book closed, or browsing the gallery and then walking
+        // away left that chapter's palette on every other Armature screen until the client restarted.
+        // The release was written correctly; the need for it was the design being wrong.
+        //
+        // A chapter's palette is a *region* now -- a scope around the canvas and the overlay, closed on
+        // every exit path by the compiler -- so leaving the book cannot leave anything behind. This
+        // comment stays so that the next person does not add the release back.
+        warnedThemeFor = null;
+    }
+
+    // ------------------------------------------------------------------
+    // Appearance
+    // ------------------------------------------------------------------
+
+    /**
+     * The palette the canvas and the quest overlay are drawn in: the chapter's theme, or the main one.
+     *
+     * <h2>This is the whole of the chapter-theme rule, and it is deliberately four lines</h2>
+     *
+     * <p>A chapter's theme used to be an <i>override</i> of the player's own: it won while you were in
+     * that chapter, a click declined it, the decline lasted one visit, and there were two flags to
+     * remember that. All of it is gone, and not because it was buggy — it worked. It is gone because the
+     * two things were never competing: "how do I want this program to look" and "what does this chapter
+     * look like" are different questions, answered for different regions of the screen. Two palettes,
+     * live at once, with no rule between them.
+     *
+     * <p>What that buys, concretely: a player can be looking at a violet chapter's canvas inside an
+     * otherwise-unchanged book, and there is no state in which a control reports one theme while the
+     * screen shows another.
+     *
+     * <h2>Quest-level themes slot in here, and nowhere else</h2>
+     *
+     * <p>A quest may override its chapter's palette. That merge is a {@code ThemePatch} composition —
+     * main → chapter → quest — and this method is the single place it happens, which is why the chapter's
+     * patch will be applied here rather than at the call site. Nothing else in this screen knows how a
+     * palette is assembled.
+     *
+     * <p><b>A name this build has no theme for falls back and says so</b>, once per chapter. Ignoring it
+     * silently would make a typo indistinguishable from a deliberately plain chapter; refusing to draw
+     * the chapter would let one bad string block a player from their own quests. See
+     * {@link #warnAboutThemeOnce}.
+     */
+    private static Theme viewportTheme() {
+        String chapter = effectiveChapter();
+        if (chapter == null) {
+            return Appearance.main();
+        }
+
+        String named = ClientQuestCache.chapterTheme(chapter);
+        if (named == null) {
+            return Appearance.main();
+        }
+
+        Theme found = Themes.any(named);
+        if (found == null) {
+            warnAboutThemeOnce(chapter, named);
+            return Appearance.main();
+        }
+        return found;
+    }
+
+    /**
+     * Reports a chapter whose theme name this build cannot resolve, once per chapter.
+     *
+     * <p>Warned on the client rather than the server, and that boundary is deliberate rather than an
+     * omission: the theme catalogue is a client concept, and a dedicated server has no appearance and no
+     * themes, so teaching the validator about them would make a quest file depend on which client reads
+     * it. {@code Chapter.theme} carries the same argument.
+     *
+     * <p>Once per chapter because this runs inside a per-frame drawing path: a line of log per frame for
+     * one misspelled name would bury every other message the client writes.
+     */
+    private static void warnAboutThemeOnce(String chapter, String named) {
+        if (chapter.equals(warnedThemeFor)) {
+            return;
+        }
+        warnedThemeFor = chapter;
+        Constants.LOG.warn("tasked: chapter '{}' asks to be drawn in a theme called '{}', which this"
+                + " build does not have, so your own theme is in use. The themes it has are: {}",
+                chapter, named, Themes.names());
+    }
+
+    /** The theme control: the next one, and the player's own choice from here on. */
+    private void cycleTheme() {
+        Appearance.cycleTheme();
+        // Applying the theme happens inside `cycleTheme`, but not the *label*: a button's text is set
+        // when it is constructed, so the change is only visible after a rebuild. That rebuild is also
+        // what refreshes the tooltip, which now says whether the theme came from a pack or the player.
+        rebuildWidgets();
+    }
+
+    /** The motion control. Also the accessibility switch every theme's motion is subordinate to. */
+    private void toggleMotion() {
+        Appearance.setMotion(!Appearance.motion());
+        rebuildWidgets();
     }
 }

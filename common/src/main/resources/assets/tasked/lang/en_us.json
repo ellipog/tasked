@@ -22,24 +22,29 @@
 
     "tasked.command.complete.done": "Completed \"%s\"",
     "tasked.command.complete.locked": "Cannot complete \"%s\": it is %s, not unlocked",
+    "tasked.command.complete.pending": "Cannot complete \"%s\" again while its rewards are still waiting - collect them with /tasked claim",
+
+    "tasked.command.claim.done": "Collected the rewards for \"%s\"",
+    "tasked.command.claim.nothing": "Nothing to collect for \"%s\" - it is not finished, has no rewards, or they have already been collected",
 
     "tasked.command.reset.done": "Cleared progress for %s quest(s)",
     "tasked.command.reset.nothing": "There was no progress to clear",
 
-    "tasked.quest.completed": "Quest complete: %s",
-    "tasked.quest.not_enough": "You do not have the items for that",
-    "tasked.reward.inventory_full": "Your inventory was full; %s was dropped at your feet",
-
     "tasked.command.quest.header": "§e%s §8[%s]",
     "tasked.command.quest.notfound": "No quest with id or alias \"%s\"",
+
+    "tasked.quest.completed": "Quest complete: %s",
+    "tasked.quest.completed.claim": "Quest complete: %s - its rewards are waiting. Open the quest book to collect them.",
+    "tasked.quest.claimed": "Collected the rewards for %s",
+    "tasked.quest.not_enough": "You do not have everything this task needs.",
+    "tasked.reward.inventory_full": "Your inventory was full, so %s was dropped at your feet",
 
     "tasked.screen.quest_book.title": "Quest Book",
     "tasked.screen.quest_book.waiting": "Waiting for the server...",
     "tasked.screen.quest_book.no_quests": "No quests are loaded on this server.",
     "tasked.screen.quest_book.submit": "Submit",
+    "tasked.screen.quest_book.claim": "Claim",
+
     "tasked.reward.xp.levels": "%s level(s)",
-    "tasked.reward.xp.points": "%s XP",
-    "tasked.quest.completed": "Quest complete: %s",
-    "tasked.quest.not_enough": "You do not have everything this task needs.",
-    "tasked.reward.inventory_full": "Your inventory was full, so %s was dropped at your feet"
+    "tasked.reward.xp.points": "%s XP"
 }

@@ -309,4 +309,103 @@ class QuestValidatorTest {
         assertFalse(problems.hasErrors());
         assertFalse(problems.hasErrorsIn("test.json"), "no errors means nothing to skip");
     }
+
+    // ------------------------------------------------------------------
+    // Blank lines, which are paragraphs and not mistakes
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a blank line in a description is a paragraph break, not a mistake")
+    void blankParagraphsAreDeliberate() {
+        // Found by the shipped questlines, which warn on every deliberate blank line in them. Each
+        // entry of a description is drawn as its own paragraph, so an empty entry is the only way an
+        // author can write a line break -- and warning about it is the worst shape a check can take:
+        // not wrong about the fact, wrong about whether the fact is a problem. A warning like that
+        // teaches an author to skim output, which costs the warnings that matter.
+        Problems problems = validate(file(
+                "{\"id\": \"a\", \"title\": \"a\", \"description\": [\"one\", \"\", \"two\"]}"));
+
+        assertFalse(messages(problems).contains("this text is empty"),
+                "a blank paragraph should not warn, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("a description that is all blank paragraphs still warns, because nothing shows")
+    void anAllBlankDescriptionWarns() {
+        // The question moves from each paragraph to the whole list. A description of nothing but
+        // blank lines draws nothing at all, which is worth saying once.
+        Problems problems = validate(file(
+                "{\"id\": \"a\", \"title\": \"a\", \"description\": [\"\", \"  \"]}"));
+
+        assertTrue(messages(problems).contains("every paragraph here is empty"),
+                "expected a warning about the whole list, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("an empty title still warns, since an empty title is a quest with no name")
+    void anEmptyTitleStillWarns() {
+        // The distinction the parameter exists for. Blank is meaningful inside a list of paragraphs
+        // and meaningless in a title.
+        Problems problems = validate(
+                "{\"version\": 1, \"chapterGroups\": [{\"id\": \"g\", \"title\": \"G\", "
+                        + "\"chapters\": [{\"id\": \"c\", \"title\": \"\", \"quests\": []}]}]}");
+
+        assertTrue(messages(problems).contains("this text is empty"),
+                "an empty chapter title should still warn, got:" + messages(problems));
+    }
+
+    // ------------------------------------------------------------------
+    // A group's description, where a list of paragraphs is the natural thing to write
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a chapter group description accepts a list of paragraphs, because a chapter's does")
+    void groupDescriptionAcceptsAList() {
+        // The inconsistency that a second shipped questline found by being written the obvious way.
+        // `ChapterGroup.description` was a single Optional<QuestText> while a chapter's and a quest's
+        // were both lists -- so an array of lines failed to decode, and the failure arrived as a codec
+        // message at line 1 column 1 saying the format had rejected the file.
+        //
+        // That is the exact message this whole validator exists to prevent: it names the wrong place,
+        // about a field the validator had never been taught to look at, so it stayed silent and let the
+        // codec speak from the root of the file.
+        Problems problems = validate("""
+                {"version": 1, "chapterGroups": [{
+                   "id": "g", "title": "G",
+                   "description": ["a line", "", "another line"],
+                   "chapters": [{"id": "c", "title": "C", "quests": [
+                     {"id": "q", "title": "q", "tasks": [{"type": "tasked:checkmark", "title": "t"}]}
+                   ]}]
+                }]}""");
+
+        assertTrue(problems.isEmpty(), "a group description as a list should be clean, got:"
+                + messages(problems));
+    }
+
+    @Test
+    @DisplayName("and a bare string still works, so an existing file is not broken by the change")
+    void groupDescriptionAcceptsAString() {
+        // The union is deliberate rather than lazy. A one-line group description written as a string is
+        // not a mistake worth failing a file over, so both spellings work and keep working.
+        Problems problems = validate("""
+                {"version": 1, "chapterGroups": [{
+                   "id": "g", "title": "G",
+                   "description": "one line",
+                   "chapters": [{"id": "c", "title": "C", "quests": [
+                     {"id": "q", "title": "q", "tasks": [{"type": "tasked:checkmark", "title": "t"}]}
+                   ]}]
+                }]}""");
+
+        assertTrue(problems.isEmpty(), "a one-line group description should still load, got:"
+                + messages(problems));
+    }
+
+    private static String file(String quest) {
+        return "{\"version\": 1, \"chapterGroups\": [{\"id\": \"g\", \"title\": \"G\", "
+                + "\"chapters\": [{\"id\": \"c\", \"title\": \"C\", \"quests\": [" + quest + "]}]}]}";
+    }
+
+    private static String messages(Problems problems) {
+        return problems.all().stream().map(DataProblem::render).reduce("", (a, b) -> a + "\n" + b);
+    }
 }

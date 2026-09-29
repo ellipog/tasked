@@ -4,8 +4,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.ellipog.armature.client.Appearance;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.progress.QuestState;
+import dev.ellipog.tasked.quest.QuestLayout;
 import dev.ellipog.tasked.quest.QuestShape;
 
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -111,14 +113,24 @@ public final class ClientQuestCache {
      * whatever the file said. A field that is parsed, validated and reported but never consumed reads
      * as supported, which is worse than one that is absent.
      */
-    public record Entry(String chapterId, String chapterTitle, String id, String title, String subtitle,
+    public record Entry(String chapterId, String chapterTitle, String chapterTheme, String id, String title,
+                        String subtitle,
                         List<String> description, ItemStack icon, int x, int y, int size, QuestShape shape,
+                        double iconScale, boolean showTitle,
+                        boolean chapterLinear, int orderInChapter,
                         List<String> dependencies, List<TaskEntry> tasks, List<RewardEntry> rewards,
                         boolean invisible) {
     }
 
-    /** One quest's progress, as the server last reported it. */
-    private record Progress(QuestState state, long cooldown, List<Integer> tasks) {
+    /**
+     * One quest's progress, as the server last reported it.
+     *
+     * <p>{@code claimable} is what the Claim button hangs on. The server sends it only when a quest is
+     * finished with something still to collect, so its absence — including from a server too old to
+     * send it — reads as "nothing to claim", which is the direction that cannot show a button that
+     * does nothing.
+     */
+    private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean claimable) {
     }
 
     private static volatile List<Entry> entries = List.of();
@@ -147,6 +159,30 @@ public final class ClientQuestCache {
 
     public static List<Entry> entries() {
         return entries;
+    }
+
+    /**
+     * The theme a chapter asks to be drawn in, or null when it has no opinion.
+     *
+     * <p>Null rather than the default theme's name, and that is not pedantry: this is what the screen
+     * hands to the override, and an override of "modern" would beat a player who has chosen "tome" —
+     * which is the exact bug the two-tier design exists to prevent. Absence has to survive the trip
+     * so that "no opinion" and "the default" stay distinguishable.
+     *
+     * <p>Looks the chapter up in the entries rather than in a map of its own: the theme arrives on
+     * every quest of the chapter, so a second structure would be a second thing to keep in step with
+     * this one, and the entry list is the one the whole screen already walks.
+     */
+    public static String chapterTheme(String chapterId) {
+        if (chapterId == null) {
+            return null;
+        }
+        for (Entry entry : entries) {
+            if (entry.chapterId().equals(chapterId)) {
+                return entry.chapterTheme().isEmpty() ? null : entry.chapterTheme();
+            }
+        }
+        return null;
     }
 
     public static int questCount() {
@@ -181,6 +217,18 @@ public final class ClientQuestCache {
     }
 
     /**
+     * Whether this quest is finished with rewards the player has not collected.
+     *
+     * <p>The client's copy of the answer, and the reason the Claim button can be drawn at all: it is
+     * asked on arrival rather than on every frame, and the server recomputes the same thing when the
+     * claim arrives. Asking is not claiming — a client that shows the button wrongly gets a refusal.
+     */
+    public static boolean canClaim(String questId) {
+        Progress found = progress.get(questId);
+        return found != null && found.claimable();
+    }
+
+    /**
      * Ticks of cooldown left for a quest, adjusted for the time since the sync arrived.
      *
      * <p>Adjusted rather than sent live, because a cooldown is a countdown and counting it down from a
@@ -201,13 +249,38 @@ public final class ClientQuestCache {
     // Writing
     // ------------------------------------------------------------------
 
-    /** Called from the payload handler on the client thread. */
+    /**
+     * A tree that carries no pack theme.
+     *
+     * <p>An overload rather than a {@code null} at each call site, and the reason is what a bare
+     * {@code null} third argument reads like: {@code acceptTree(2, 1, null, json)} says nothing about
+     * what is absent, and there are seventeen callers that mean "no theme" — every one of them a test
+     * asserting on the tree's contents rather than on the connection's appearance.
+     *
+     * <p><b>A production caller with a theme must use the four-argument form.</b> This exists for the
+     * case where there is no theme to pass, not as the convenient path; a wire handler that reached
+     * for it would silently stop applying a pack's look, which is the kind of omission that shows up
+     * as "the pack's theme works on my machine".
+     */
     public static void acceptTree(int quests, int chapters, byte[] json) {
+        acceptTree(quests, chapters, null, json);
+    }
+
+    /** Called from the payload handler on the client thread. */
+    public static void acceptTree(int quests, int chapters, String packTheme, byte[] json) {
         try {
             parseTree(new String(json, StandardCharsets.UTF_8));
             questCount = quests;
             chapterCount = chapters;
             treeReceived = true;
+
+            // The pack's main theme, applied before anything is drawn from this tree. It only takes
+            // effect for a player who has never chosen a theme of their own -- `Appearance.main`
+            // decides that, and this class has no business knowing the rule. Null rather than "leave it
+            // alone" when the tree carries none: a server that stops sending one must stop influencing
+            // the client, or a player would carry one pack's look onto the next server with nothing on
+            // screen to explain it.
+            Appearance.setServerDefault(packTheme);
             Constants.LOG.info("tasked: received {} quest(s) in {} chapter(s)", quests, chapters);
         }
         catch (RuntimeException e) {
@@ -221,23 +294,70 @@ public final class ClientQuestCache {
     }
 
     /**
-     * Called from the payload handler on the client thread.
+     * A full progress sync. Called from the payload handler on the client thread.
+     *
+     * <p>The short form, kept because a full sync is what most callers mean and what every test
+     * written before deltas existed passes. It delegates rather than duplicating: the two paths must
+     * not be able to disagree about what "full" does.
      *
      * @param clientTickNow the client's tick count, so cooldowns can be counted down from here
      */
     public static void acceptProgress(UUID incomingTeam, long gameTime, byte[] json, long clientTickNow) {
-        if (teamId != null && !teamId.equals(incomingTeam)) {
-            Constants.LOG.info("tasked: progress is now for team {} (was {})", incomingTeam, teamId);
+        acceptProgress(incomingTeam, gameTime, json, clientTickNow, true);
+    }
+
+    /**
+     * A progress message — full or a delta.
+     *
+     * <h2>A delta with no full sync behind it is refused, not applied</h2>
+     *
+     * <p>This is the one refusal in this class, and it is here because applying such a delta produces
+     * a cache holding a handful of quests and everything else {@code LOCKED} — which looks exactly
+     * like a working sync of a very small pack. There is no symptom that points at the cause, so the
+     * failure has to be prevented rather than diagnosed: the server sends a full sync on join and on
+     * reload, so a client that has none has missed something, and the honest response is to keep what
+     * it has and wait.
+     *
+     * <p>The check is the team id rather than whether anything is held. A delta for a team this client
+     * has never heard of cannot be relative to anything; a delta for the team it already holds can, and
+     * that includes the case where the server's questline is empty.
+     *
+     * @param full whether the server said this message is the whole of its progress
+     */
+    public static void acceptProgress(UUID incomingTeam, long gameTime, byte[] json, long clientTickNow,
+                                      boolean full) {
+        UUID previous = teamId;
+
+        if (full) {
+            // Replaced, not merged. A full sync is the server saying "this is all of it", and merging
+            // would leave a quest the server has since removed sitting in the cache forever.
+            progress = Map.of();
+        }
+        else if (previous == null || !previous.equals(incomingTeam)) {
+            Constants.LOG.warn("tasked: refused a progress delta for team {} -- this client holds no "
+                    + "full sync for it (it holds {}), so there is nothing for the delta to be relative "
+                    + "to. The server sends a full sync on join and on reload.",
+                    incomingTeam, previous);
+            return;
+        }
+
+        if (previous != null && !previous.equals(incomingTeam)) {
+            Constants.LOG.info("tasked: progress is now for team {} (was {})", incomingTeam, previous);
         }
         teamId = incomingTeam;
 
         try {
-            parseProgress(new String(json, StandardCharsets.UTF_8));
+            parseProgress(new String(json, StandardCharsets.UTF_8), full);
             syncedAt = clientTickNow;
         }
         catch (RuntimeException e) {
             Constants.LOG.error("tasked: the server sent progress this client could not read", e);
             progress = Map.of();
+            // The team is forgotten too, and that is the important half: leaving it set would make the
+            // *next* delta look applicable, and it would be applied onto the empty map this catch just
+            // left behind. Clearing it means the next message has to be a full sync to be accepted,
+            // which is the correct resynchronisation.
+            teamId = null;
         }
     }
 
@@ -256,6 +376,10 @@ public final class ClientQuestCache {
         chapterCount = 0;
         syncedAt = 0;
         treeReceived = false;
+        // And the pack's theme, for the reason in this method's javadoc: it describes a connection, so
+        // leaving it set would show one server's look on the next one -- an appearance nobody chose,
+        // with nothing on screen saying where it came from.
+        Appearance.setServerDefault(null);
     }
 
     // ------------------------------------------------------------------
@@ -301,6 +425,11 @@ public final class ClientQuestCache {
             parsed.add(new Entry(
                     str(quest, "chapterId"),
                     str(quest, "chapterTitle"),
+                    // A chapter asking for a theme of its own, or "" for one that has no opinion.
+                    // Read into the entry rather than into a map of chapter to theme, because it
+                    // arrives on every quest of the chapter and a second structure keyed by chapter
+                    // would be a second thing to keep in step with the first.
+                    str(quest, "chapterTheme"),
                     str(quest, "id"),
                     str(quest, "title"),
                     str(quest, "subtitle"),
@@ -313,6 +442,20 @@ public final class ClientQuestCache {
                     // version that names a shape this client has never heard of draws a square
                     // instead of throwing while a player waits for a screen.
                     QuestShape.byName(str(quest, "shape"), QuestShape.ROUNDED),
+                    // Clamped here as well as in the codec, and this is not belt-and-braces: the codec
+                    // ran on the *server*, over a file that server had. What arrives is a number from
+                    // possibly a different version, and the screen must not draw outside its node
+                    // because of one. Same reasoning as QuestShape.span clamping its own output.
+                    quest.has("iconScale")
+                            ? Math.min(Math.max(quest.get("iconScale").getAsDouble(),
+                                    QuestShape.MIN_ICON_SCALE), QuestShape.MAX_ICON_SCALE)
+                            : QuestLayout.DEFAULT_ICON_SCALE,
+                    quest.has("showTitle") && quest.get("showTitle").getAsBoolean(),
+                    quest.has("chapterLinear") && quest.get("chapterLinear").getAsBoolean(),
+                    // Defaulted to a large number rather than to zero, so a server too old to send it
+                    // cannot claim every quest is the first one in its chapter. A chapter that is not
+                    // linear never reads this, and that is the only case an old server can produce.
+                    quest.has("order") ? quest.get("order").getAsInt() : Integer.MAX_VALUE,
                     List.copyOf(dependencies),
                     List.copyOf(tasks),
                     List.copyOf(rewards),
@@ -341,9 +484,28 @@ public final class ClientQuestCache {
                 str(json, "labelFallback"));
     }
 
-    private static void parseProgress(String json) {
+    /**
+     * Reads progress into the cache.
+     *
+     * <h2>{@code removed} is why a delta cannot be inferred from absence</h2>
+     *
+     * <p>A delta carries only what changed, so a quest missing from it means "unchanged" — which is
+     * also what a quest deleted from a server file would look like. The two are indistinguishable
+     * from the message alone, so the server names deletions explicitly and the client applies them
+     * first. Without that, a quest removed from a file would live on in this cache until the player
+     * reconnected: a ghost node on the canvas that cannot be clicked and cannot be explained.
+     *
+     * @param full whether to start from nothing or from what is already held
+     */
+    private static void parseProgress(String json, boolean full) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        Map<String, Progress> next = new LinkedHashMap<>();
+        Map<String, Progress> next = full ? new LinkedHashMap<>() : new LinkedHashMap<>(progress);
+
+        if (root.has("removed")) {
+            for (JsonElement gone : root.getAsJsonArray("removed")) {
+                next.remove(gone.getAsString());
+            }
+        }
 
         if (root.has("quests")) {
             for (Map.Entry<String, JsonElement> entry : root.getAsJsonObject("quests").entrySet()) {
@@ -359,7 +521,8 @@ public final class ClientQuestCache {
                 next.put(entry.getKey(), new Progress(
                         readState(str(one, "state")),
                         one.has("cooldown") ? one.get("cooldown").getAsLong() : 0L,
-                        List.copyOf(tasks)));
+                        List.copyOf(tasks),
+                        one.has("claimable") && one.get("claimable").getAsBoolean()));
             }
         }
         progress = Map.copyOf(next);

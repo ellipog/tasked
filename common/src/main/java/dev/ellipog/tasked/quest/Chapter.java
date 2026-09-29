@@ -35,6 +35,21 @@ import java.util.Optional;
  * default so that "this pack takes your resources" is one word rather than a decision made
  * thirty times. Defaults to false, because silently taking a player's items is the more surprising
  * of the two behaviours.
+ *
+ * <h2>{@code theme}: a chapter may dress itself, and it is a weak claim rather than a strong one</h2>
+ *
+ * <p>Optional, and absent means "no opinion" rather than "the default theme". That distinction is the
+ * whole design. The setting a player chooses is the baseline; this is an <b>override</b> that lasts
+ * while you are looking at this chapter and is released when you leave. So a gallery chapter can
+ * demonstrate a theme by being clicked rather than by being explained, and a pack author's taste can
+ * never become a setting the player cannot get out of — clicking the appearance control in the book's
+ * sidebar always wins, and clears this at the same time.
+ *
+ * <p>Validated as a plain string here rather than against a list of theme names, and that is a
+ * deliberate boundary rather than an omission: the theme catalogue lives on the client, and a
+ * dedicated server has no business knowing what themes a client has. So an unrecognised name is
+ * reported by the client that could not honour it, once, naming the chapter — which is the same
+ * treatment a value that reached the wrong side would get anywhere else in this codebase.
  */
 public record Chapter(
         String id,
@@ -46,6 +61,7 @@ public record Chapter(
         PrerequisiteMode defaultPrerequisiteMode,
         ProgressionMode progressionMode,
         boolean defaultConsumeItems,
+        Optional<String> theme,
         List<Quest> quests
 ) {
 
@@ -91,6 +107,7 @@ public record Chapter(
             ProgressionMode.CODEC.optionalFieldOf("progressionMode", ProgressionMode.FLEXIBLE)
                     .forGetter(Chapter::progressionMode),
             Codec.BOOL.optionalFieldOf("defaultConsumeItems", false).forGetter(Chapter::defaultConsumeItems),
+            Codec.STRING.optionalFieldOf("theme").forGetter(Chapter::theme),
             Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
     ).apply(instance, Chapter::new));
 }

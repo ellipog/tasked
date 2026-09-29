@@ -1,0 +1,3102 @@
+{
+  "$schema": "../tasked-quests.schema.json",
+
+  "version": 1,
+
+  "chapterGroups": [
+    {
+      "id": "theme_gallery",
+      "title": "Theme Gallery",
+      "description": [
+        "Fifteen chapters, one per shipped theme. Click them in the sidebar and the canvas changes",
+        "colour -- no command, no setting to find first.",
+        "",
+        "Every chapter below names a theme of its own in the 'theme' field beside its title, and every",
+        "chapter has the same six quests in the same six positions. That is the whole design and it is",
+        "deliberate rather than lazy: if the chapters differed in layout as well as in colour, a",
+        "difference you saw while clicking between them could be either, and an exhibit that varies two",
+        "things shows nothing.",
+        "",
+        "What a chapter's theme covers is the canvas and the quest overlay -- the graph, its nodes,",
+        "their rings and connectors, the backdrop, and the panel you get when you open a quest. What it",
+        "does NOT cover is the frame around them: the sidebar, the header, the title, the buttons and",
+        "the tooltips are drawn in YOUR theme, whatever chapter you are standing in. So opening a",
+        "violet chapter shows a violet canvas inside an otherwise unchanged book, and both are visible",
+        "at once.",
+        "",
+        "That split is why the theme row at the foot of the sidebar never fights with the chapter. Your",
+        "choice is the book; the chapter's is its own picture. Clicking the theme row changes the",
+        "frame, the buttons and the other chapters, and leaves the canvas you are looking at alone.",
+        "",
+        "The motion row is yours as well, and it wins over any theme: a theme sets how long its",
+        "transitions last and what curve they use, so Vanilla Plus and High Contrast have a motion of",
+        "zero and snap, but turning motion off overrides even an animated theme. That precedence is",
+        "deliberate -- a reskin must not be able to re-enable animation for somebody who cannot",
+        "comfortably use it.",
+        "",
+        "Corners are the one part of a theme you cannot see yet from this file alone: the radius is",
+        "read and applied, and it rounds the panels and controls built on Armature, but the quest book",
+        "draws its own rectangles squarely. Two themes below carry a radius of 8 and two carry 0, which",
+        "is where that difference would show.",
+        "",
+        "The shipped themes, in the order the sidebar's theme row cycles them: Modern, Tome, Vanilla",
+        "Plus, High Contrast, Monochrome, Paper, Obsidian, Amethyst, Copper, Redstone, Nether, End,",
+        "Deep Dark, Terminal, Neon."
+      ],
+      "chapters": [
+        {
+          "id": "gallery_modern",
+          "title": "Modern",
+          "subtitle": "The theme a client starts with",
+          "aliases": ["modern"],
+          "theme": "modern",
+          "description": [
+            "The appearance this project has shipped with, and the one every screenshot before themes",
+            "were themeable was taken in. Nothing in this chapter is new.",
+            "",
+            "It is the baseline the other fourteen are read against, and it is also the one theme that",
+            "states all forty-one of its colours rather than inheriting any -- so what you see here is",
+            "what every other theme starts from.",
+            "",
+            "Look at the node borders: an available node's ring is the same colour as the word",
+            "'available' beside a quest, and a locked node's outline is deliberately dimmer than the",
+            "word 'blocked'. Those became separate values this round, and both of those relationships",
+            "are asserted rather than incidental.",
+            "",
+            "Close the book while standing here and nothing changes: the canvas IS your theme, because",
+            "this is the theme you started with."
+          ],
+          "icon": { "item": "minecraft:iron_block" },
+
+          "quests": [
+            {
+              "id": "works_yard",
+              "title": "The Yard",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Four things are on screen at once when this chapter opens, which is why it is first:",
+                "an available node, a locked one, a connector line between them, and a hover ring as",
+                "soon as you put the pointer on this one.",
+                "",
+                "The hover ring follows the node's shape. On a circle it is a ring -- it used to be a",
+                "rectangle drawn around a disc, which reads as two unrelated things stacked."
+              ],
+              "icon": { "item": "minecraft:iron_ingot" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:stone_pickaxe", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "works_smelt",
+              "title": "The Furnace",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "Three ingots, so this is the row that draws a progress bar -- a recessed track and a",
+                "state-coloured fill, which is two of the theme's surfaces in six pixels of height.",
+                "",
+                "Carry some of the eight and open this quest: the bar is part of the way across and the",
+                "count beside it reads in the faint text tone. It is the smallest place a theme can be",
+                "wrong and still look fine everywhere else."
+              ],
+              "icon": { "item": "minecraft:furnace" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["works_yard"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:iron_block", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "works_railway",
+              "title": "The Line",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 with the icon at 0.6 of its box, so this is visibly a minor job",
+                "rather than a milestone -- and a repeatable one, which is why its border never takes",
+                "the completed colour and stays there.",
+                "",
+                "The hexagon's taper is a straight line rather than an arc. That is what makes it a",
+                "hexagon and not a rounded rectangle, and at 40 pixels the two are easy to mistake for",
+                "each other."
+              ],
+              "icon": { "item": "minecraft:rail" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["works_yard"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:rail", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 }
+              ]
+            },
+
+            {
+              "id": "works_power",
+              "title": "The Drive",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Either of the two above will do -- minRequired is 1 -- so this unlocks the moment one",
+                "of them is finished and stays locked while both are not. That is what makes it the node",
+                "to watch for the locked wash and its dimmed icon.",
+                "",
+                "The wash is a translucent black over the icon rather than a chip with a cross in the",
+                "corner. The chip used to sit in this node's bottom-right and read as a square pasted",
+                "over the artwork, hiding the one thing a node is on the canvas to show.",
+                "",
+                "The checkmark is optional, so its row carries both tags at once: 'hand in' in the",
+                "available colour and 'optional' in faint, right-aligned, in one row."
+              ],
+              "icon": { "item": "minecraft:redstone_block" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["works_smelt", "works_railway"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 16 },
+                { "type": "tasked:checkmark", "title": "I looked at the locked node",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "works_inspection",
+              "title": "The Inspection",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "Two checkmarks and sequentialTasks, so Submit starts on the first and moves down to",
+                "the second once the first is handed in. Both rows carry the 'hand in' tag in the",
+                "available colour for as long as they are undone.",
+                "",
+                "This chapter's long description is here for one reason, and it is not the writing.",
+                "",
+                "The overlay is a fixed header, a scrolling body and a fixed footer. The body clips, the",
+                "scrollbar appears when the content is taller than the clip, and the scrollbar's track",
+                "and its thumb are two colours that only exist when there is something to scroll.",
+                "Without a description this long none of it is ever drawn, which is how it went",
+                "unnoticed for a whole round. The scrollbar is also the newest pair of tokens in the",
+                "theme: it used to be drawn from the raised surface and a control edge, neither of which",
+                "was chosen for the job, so every theme got the same weak contrast between a track and",
+                "the panel behind it.",
+                "",
+                "Scroll to the bottom and REQUIRES is there: two rows, each a tick or a cross in the",
+                "completed or blocked colour, naming the two quests above.",
+                "",
+                "None of this needs doing beyond pressing two buttons, which is the honest shape of an",
+                "inspection."
+              ],
+              "icon": { "item": "minecraft:anvil" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["works_power"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I have walked the line" },
+                { "type": "tasked:checkmark", "title": "And I have looked at the drive" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "works_office",
+              "title": "The Office",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "You cannot see this node until it is complete, so there is a gap here and the gap",
+                "stays. A hidden node that left no hole would tell you exactly where it was.",
+                "",
+                "The smallest node in the chapter at size 36 with the icon at 0.9 -- the other end of",
+                "the range from the railway, because an office should look crammed into the thing",
+                "holding it."
+              ],
+              "icon": { "item": "minecraft:emerald" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["works_inspection"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:emerald", "count": 2 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_tome",
+          "title": "Tome",
+          "subtitle": "Parchment and brass",
+          "aliases": ["tome"],
+          "theme": "tome",
+          "description": [
+            "A parchment and brass reskin, and the theme that proves a palette is a parameter rather",
+            "than a set of constants -- because two of its values differ from Modern's by more than a",
+            "tint.",
+            "",
+            "Its selected ring is brass, not blue. A parchment canvas with a bright blue selection ring",
+            "is two palettes arguing, and that is the kind of thing only a second theme finds: a colour",
+            "that looked fine on its own turns out to have been chosen against the surfaces around it.",
+            "",
+            "Its corner radius is 8 against Modern's 4, so it is the theme that makes the radius a real",
+            "parameter. Watch the quest overlay's panel and the buttons on it when you open a quest",
+            "here -- those are drawn through Armature and do round. The canvas underneath them does",
+            "not."
+          ],
+          "icon": { "item": "minecraft:lectern" },
+
+          "quests": [
+            {
+              "id": "script_pens",
+              "title": "Pens and Ink",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Same position, same shape, same size as The Yard -- and a different colour everywhere a",
+                "colour is used. That is the comparison this chapter exists to make.",
+                "",
+                "The heading tones are the ones to look at. TASKS and REWARDS are drawn in a colour of",
+                "their own rather than in the body tone, and on a parchment palette that distinction is",
+                "carried by brightness rather than by hue."
+              ],
+              "icon": { "item": "minecraft:ink_sac" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:ink_sac", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "script_bind",
+              "title": "Bind It Shut",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar here is drawn in brass rather than in the available-blue, because the bar takes",
+                "the state colour and the state colours are per-theme.",
+                "",
+                "A theme that got its surfaces right and its state colours wrong shows up first on a",
+                "partly-filled bar and almost nowhere else."
+              ],
+              "icon": { "item": "minecraft:leather" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["script_pens"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:leather", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:book", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "script_copy",
+              "title": "Copy the Page",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40, and it is the same shape arithmetic as in every other chapter --",
+                "Armature's span tables -- seen through a different theme.",
+                "",
+                "Worth checking that the taper still reads on a warm background. A shape's silhouette is",
+                "not theme-dependent, but how visible it is very much is."
+              ],
+              "icon": { "item": "minecraft:writable_book" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["script_pens"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:book", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "script_catalogue",
+              "title": "The Catalogue",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "The locked node, while both of the two above are undone. Its wash is warmer here than",
+                "Modern's and its outline is darker, and neither was chosen separately: a locked node is",
+                "the panel colour dimmed, and the panel colour is the theme's.",
+                "",
+                "The optional checkmark carries both tags in one row, as in every other chapter."
+              ],
+              "icon": { "item": "minecraft:bookshelf" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["script_bind", "script_copy"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:ink_sac", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I read the shelf",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "script_reading",
+              "title": "First Reading",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, as in every chapter, so the scrollbar appears here too --",
+                "and it does, in this theme's recessed surface and thumb colours, which are the two",
+                "tokens added this round.",
+                "",
+                "Scroll down: REQUIRES is at the bottom with its tick and its cross. The cross is the",
+                "blocked tone, which recedes rather than turning red. Nothing has gone wrong; a",
+                "prerequisite simply is not met.",
+                "",
+                "Two checkmarks with sequentialTasks, so Submit starts on the first and moves down. A",
+                "row of a body is washed with the row-hover colour, scaled by an eased amount, and",
+                "narrowed to the row's own content rather than to its box. A row of a stack stretches to",
+                "the full width of the body, so washing its box drew a highlight straight across the",
+                "whole panel. That was a real bug, and a screenshot found it rather than a test.",
+                "",
+                "Its motion is the same 140ms on the same curve as Modern's, and that is on purpose: if",
+                "Tome also animated differently, a difference you saw while switching chapters could be",
+                "either one, and an exhibit that shows two variables shows nothing.",
+                "",
+                "This paragraph, like its counterparts in the other fourteen chapters, exists to make",
+                "the body taller than the clip. If the scrollbar ever stops appearing, one of these got",
+                "shorter and everything it was demonstrating went with it."
+              ],
+              "icon": { "item": "minecraft:written_book" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["script_catalogue"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I have opened the book" },
+                { "type": "tasked:checkmark", "title": "And I have read to the end" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "script_vault",
+              "title": "The Vault",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, like every chapter's last node, and in the same place -- so once you have",
+                "completed one gallery chapter you know exactly where the gap is."
+              ],
+              "icon": { "item": "minecraft:diamond" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["script_reading"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:bookshelf", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_vanilla_plus",
+          "title": "Vanilla Plus",
+          "subtitle": "Grey, square and still",
+          "aliases": ["vanilla_plus", "plain"],
+          "theme": "vanilla_plus",
+          "description": [
+            "Vanilla's own greys, tidied -- for a player who does not want their game restyled. It",
+            "catches two implementation mistakes at once, because two of its values are zero.",
+            "",
+            "Motion is zero, and that is a difference you feel rather than see: click another chapter in",
+            "the sidebar and the canvas changes on the frame you click, where every other theme eases",
+            "over at least 60ms. Vanilla has no UI animation, so neither does this -- which only works",
+            "because a duration of zero means 'instant' rather than 'unset'. An earlier version read",
+            "zero as 'no opinion' and used the built-in duration, so this theme silently animated like",
+            "Modern while claiming not to.",
+            "",
+            "Radius is zero, which is what 'looks like Minecraft' means, and it is the case a radius",
+            "implementation with a minimum of one gets wrong -- a theme cannot express 'square' if the",
+            "code has decided a corner is at least a pixel.",
+            "",
+            "Note that the motion row in the sidebar still says what you set it to. A theme supplies",
+            "the default duration; your own switch, if you have turned motion off, wins over every",
+            "theme including the animated ones."
+          ],
+          "icon": { "item": "minecraft:hay_block" },
+
+          "quests": [
+            {
+              "id": "farm_break",
+              "title": "Break the Ground",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Move the pointer onto this node and the ring arrives on the frame it is hovered. That",
+                "is the whole difference a zero motion makes, and this chapter and High Contrast are the",
+                "only two that show it.",
+                "",
+                "The ring follows the shape, as everywhere: on a circle it is a ring rather than a",
+                "rectangle drawn around a disc."
+              ],
+              "icon": { "item": "minecraft:wheat" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:wheat_seeds", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:wooden_hoe", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "farm_water",
+              "title": "A Source",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "One bucket, so the count reads 0 / 1 until you have it and the bar has two pixels of",
+                "fill at most -- its own small test of the bar's minimum width.",
+                "",
+                "The greys here are very close together, and that is the one place this theme is",
+                "unfriendly. Vanilla's palette is a narrow one, and four surfaces drawn from it have",
+                "less room between them than any other theme's."
+              ],
+              "icon": { "item": "minecraft:bucket" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["farm_break"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:bucket", "count": 1 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:water_bucket", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "farm_renew",
+              "title": "Plant Again",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon on a grey palette at the same size as every other chapter's. The state",
+                "colours here are still four distinguishable values even though every surface around",
+                "them is grey, and that is the thing a palette has to get right before anything else."
+              ],
+              "icon": { "item": "minecraft:bread" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["farm_break"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:wheat", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:bread", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "farm_keep",
+              "title": "Keep the Animals",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked while both of the two above are undone. The dimmed icon on this theme is a flat",
+                "black, because vanilla's own dim is black -- so the item stays readable underneath it",
+                "rather than being hidden, which is the difference between a wash and a chip with a",
+                "cross drawn in the corner."
+              ],
+              "icon": { "item": "minecraft:hay_block" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["farm_water", "farm_renew"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:wheat", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I counted the animals",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "farm_market",
+              "title": "Market Day",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The scrollbar again, in this theme's track and thumb. Motion being zero has no effect",
+                "on it: scrolling is not animated in any theme, because the scroll is the pointer's own",
+                "gesture and easing it would put the content behind the finger.",
+                "",
+                "Two sequential checkmarks, so Submit starts on the first and moves down once it is",
+                "handed in. Pressing it here is more useful than on the animated themes for one reason:",
+                "the held state snaps in every theme, because a press has to be immediate, so the only",
+                "visible difference is how the hover got there.",
+                "",
+                "Scroll to the bottom for REQUIRES. Its tick is green and its cross is grey, and on a",
+                "greyscale palette the green is the only saturated thing in the body.",
+                "",
+                "This paragraph, like its counterparts in the other fourteen chapters, exists to make",
+                "the body taller than the clip -- so the scrollbar's track and thumb are seen in all",
+                "fifteen palettes rather than in whichever chapter you happened to open first.",
+                "",
+                "One thing to notice on this chapter that the others cannot show you: the paper surface",
+                "is barely lighter than the panel behind it, so the recessed areas and the raised strips",
+                "have almost no contrast to separate them. That is a real property of vanilla's palette",
+                "rather than a mistake in this theme, and it is why a light theme like Paper needs a",
+                "different relationship between its surfaces rather than a lighter version of the same",
+                "one."
+              ],
+              "icon": { "item": "minecraft:emerald" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["farm_keep"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I loaded the cart" },
+                { "type": "tasked:checkmark", "title": "And I sold the lot" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "farm_barn",
+              "title": "The Barn",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "The third hidden node, in the third chapter, at the same position as every chapter's.",
+                "",
+                "Everything in this file is arranged so that two chapters can be compared by clicking",
+                "between them without the layout moving underneath you. If a difference appears, it is",
+                "the theme. If the nodes jump, something is wrong with the file rather than the",
+                "renderer."
+              ],
+              "icon": { "item": "minecraft:oak_door" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["farm_market"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:hay_block", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:emerald", "count": 3 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_high_contrast",
+          "title": "High Contrast",
+          "subtitle": "Maximum legibility, no motion",
+          "aliases": ["high_contrast", "contrast"],
+          "theme": "high_contrast",
+          "description": [
+            "Chosen to solve a problem rather than to look like somewhere: surfaces pushed to near",
+            "black, text to pure white, and every state a bright primary with no muddiness in it.",
+            "",
+            "The two things that are washes in every other theme are much more opaque here. The",
+            "locked-node dimming and the row-hover highlight are the information you need to know",
+            "where a click will land, so a subtle hint is the wrong answer for this theme.",
+            "",
+            "Motion is zero, as on Vanilla Plus, so nothing eases. Panels are square.",
+            "",
+            "The panel borders are pure white, which is the loudest thing any shipped theme does and is",
+            "the point. If there is anywhere in the interface that draws a frame from a colour it",
+            "happens to have rather than from the border token, this is the chapter that shows it."
+          ],
+          "icon": { "item": "minecraft:beacon" },
+
+          "quests": [
+            {
+              "id": "hc_start",
+              "title": "First Step",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A white-on-black outline with a white title over it. The ring on hover is pure white",
+                "at full alpha, so it does not fade in at all -- hover and it appears.",
+                "",
+                "Everything on this canvas is one of four unmissable colours, and that is the whole",
+                "design."
+              ],
+              "icon": { "item": "minecraft:torch" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:coal", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:torch", "count": 16 }
+              ]
+            },
+
+            {
+              "id": "hc_count",
+              "title": "Stock Up",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's track is pure black with a white border, and its fill is the state colour --",
+                "so a partially-filled bar is the clearest thing on this screen.",
+                "",
+                "Hand in two and notice the count beside it: pure white, at the same weight as the label,",
+                "because this theme has no faint tone that is genuinely faint."
+              ],
+              "icon": { "item": "minecraft:chest" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["hc_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:coal", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:chest", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "hc_repeat",
+              "title": "Keep Going",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A white hexagon on black, at size 40, with the icon at 0.6 -- the sharpest a shape gets",
+                "in any of the fifteen chapters, because the border is a full-white outline two pixels",
+                "wide against nothing."
+              ],
+              "icon": { "item": "minecraft:lantern" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["hc_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:torch", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:lantern", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "hc_gate",
+              "title": "Either Will Do",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked, and deliberately so -- this is the node where the dimming wash matters most.",
+                "On this theme the wash is four-fifths opaque black rather than a hint, because 'this",
+                "node is not available' is the single most useful fact on the canvas if you cannot read",
+                "subtle contrast.",
+                "",
+                "The icon is still visible under it, which is the line a wash has to walk: hide the",
+                "item entirely and the node stops being recognisable."
+              ],
+              "icon": { "item": "minecraft:redstone_lamp" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["hc_count", "hc_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 16 },
+                { "type": "tasked:checkmark", "title": "I found the gate",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "hc_read",
+              "title": "Read This",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and the one where the overlay's typography is doing real",
+                "work: pure white on pure black, with the section headings in white as well rather than",
+                "in a dimmer tone.",
+                "",
+                "That last part is the trade this theme makes and it is worth knowing about. TASKS and",
+                "REWARDS are ordinarily quieter than the body text, which makes a long page scannable.",
+                "Here they are not quieter, because a quieter heading is exactly what somebody using",
+                "this theme has said they cannot read -- so the sections are separated by a white rule",
+                "instead, and the page reads as a list of headings rather than as prose.",
+                "",
+                "Scroll down for REQUIRES: its cross is a light grey rather than the usual dim one, so",
+                "an unmet prerequisite is legible without being alarming. Nothing has gone wrong when",
+                "you see it.",
+                "",
+                "The scrollbar is white on black here, which makes it the most visible one in the whole",
+                "gallery. Compare it with Paper's, where the same two tokens have to do the opposite",
+                "job.",
+                "",
+                "As in every other chapter this paragraph exists to make the body taller than the clip,",
+                "so the scrollbar is drawn in this palette rather than in whichever chapter you opened",
+                "first. Fifteen chapters, fifteen of these."
+              ],
+              "icon": { "item": "minecraft:book" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["hc_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I have read the heading" },
+                { "type": "tasked:checkmark", "title": "And I have read the footer" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "hc_end",
+              "title": "The Last One",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies, so the gap is where you",
+                "expect it."
+              ],
+              "icon": { "item": "minecraft:nether_star" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["hc_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glowstone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:nether_star", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_monochrome",
+          "title": "Monochrome",
+          "subtitle": "No hue anywhere, on purpose",
+          "aliases": ["monochrome", "mono", "grey"],
+          "theme": "monochrome",
+          "description": [
+            "Greys only. Not one of the forty-one colours in this theme has a hue, and that makes it a",
+            "test as much as a theme: every state here is a distinct brightness and nothing else, so",
+            "anywhere the interface leans on hue to tell available from complete is somewhere this",
+            "chapter is unreadable.",
+            "",
+            "The four states are chosen far apart on purpose -- available at 210, in progress at 150,",
+            "complete at 255, blocked at 90 -- so the difference is unmistakable when you look for it",
+            "and invisible when you do not.",
+            "",
+            "Building this theme found a real bug, which is worth recording because it is the kind",
+            "only a theme can find. The washes -- the dim over the world, the recessed surfaces, the",
+            "label backdrops -- started out inherited from Modern, on the reasonable-sounding grounds",
+            "that a wash is only a wash. Modern's are all a very slightly blue near-black, so the",
+            "no-hue-anywhere theme had five faintly tinted surfaces in it and nothing on screen would",
+            "ever have said so. A test that checks every token rather than the interesting ones caught",
+            "it, then caught a sixth one on the next run."
+          ],
+          "icon": { "item": "minecraft:light_gray_concrete" },
+
+          "quests": [
+            {
+              "id": "mono_start",
+              "title": "Begin",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "An available node here is a light grey, and the ring on hover is the brightest white",
+                "in the theme. Every distinction on this canvas is one of brightness.",
+                "",
+                "Look at the connector line to the node above: it is a mid grey, which is brighter than",
+                "the blocked outline and dimmer than the available one. Those three values have to sit",
+                "in the right order for this theme to work at all."
+              ],
+              "icon": { "item": "minecraft:stone" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:stone", "count": 16 }
+              ]
+            },
+
+            {
+              "id": "mono_count",
+              "title": "Gather",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the available grey and its track is a darker one, with no hue between",
+                "them to help. Four pixels of fill at the left edge is a real test of whether the two",
+                "greys are far enough apart."
+              ],
+              "icon": { "item": "minecraft:furnace" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["mono_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:stone", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:stone_bricks", "count": 8 }
+              ]
+            },
+
+            {
+              "id": "mono_repeat",
+              "title": "Again",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon, size 40. A shape's outline on a grey palette has nothing but a one-step",
+                "brightness change to distinguish itself from the canvas behind it, and the taper is",
+                "where that either works or does not."
+              ],
+              "icon": { "item": "minecraft:flint" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["mono_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:flint", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "mono_gate",
+              "title": "Blocked",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "The locked node, and this is the state that proves the theme is doing what it claims.",
+                "A locked node's outline is a mid-dark grey; the word 'blocked' beside a quest is a",
+                "lighter one. Both are grey, both are legible, and the difference between them is the",
+                "whole point.",
+                "",
+                "In every one of the fifteen shipped themes those two values differ, and 'blocked' is",
+                "always the brighter of the pair -- a node you cannot click should recede, and the word",
+                "explaining why should not."
+              ],
+              "icon": { "item": "minecraft:iron_bars" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["mono_count", "mono_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I tried the bars",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "mono_read",
+              "title": "Read",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest. On a theme with no hue anywhere, TASKS and REWARDS have",
+                "to be separated from the body text by brightness alone -- which is why the heading",
+                "tone here is nearly the same as the title tone, and why it works anyway.",
+                "",
+                "This is the page to read if you want to know whether a greyscale interface is usable",
+                "or merely tidy. Scroll down and the REQUIRES cross appears in a darker grey than the",
+                "tick above it, with no colour to help.",
+                "",
+                "The scrollbar's thumb is a light grey on a near-black track. It is the second-loudest",
+                "scrollbar in the gallery after High Contrast's, and the two are worth comparing",
+                "because they arrive at a similar contrast from opposite directions -- one by going to",
+                "pure white, the other by having nothing else to go to.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip, so",
+                "the scrollbar is drawn in this palette rather than in whichever chapter you opened",
+                "first."
+              ],
+              "icon": { "item": "minecraft:book" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["mono_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I read the first line" },
+                { "type": "tasked:checkmark", "title": "And I read the last" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "mono_end",
+              "title": "Finished",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the same place as every chapter's last node."
+              ],
+              "icon": { "item": "minecraft:netherite_ingot" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["mono_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:obsidian", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:netherite_ingot", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_paper",
+          "title": "Paper",
+          "subtitle": "The only light theme there is",
+          "aliases": ["paper", "light"],
+          "theme": "paper",
+          "description": [
+            "Dark ink on pale surfaces, and the only theme in the set that inverts the relationship",
+            "every other one assumes -- text is darker than the surface behind it.",
+            "",
+            "That makes it worth opening even if you would never use it. Anywhere the interface",
+            "assumes 'brighter means more important', or draws a dark shadow, or uses white for a",
+            "highlight, this chapter makes it visible. A gallery of fourteen dark themes cannot find",
+            "those, because in all of them the assumption happens to be true.",
+            "",
+            "Its dim is a pale haze rather than a dark one, which is the one place a light theme has",
+            "to make a real decision. The dim exists to push the world back behind the panel; a light",
+            "theme can do that with brightness as well as with darkness, and a light theme that dimmed",
+            "to black would be a pale panel on a black void, which reads as a bug.",
+            "",
+            "Watch the locked node here in particular. Its wash is a translucent pale grey, which is",
+            "the opposite of what a dark theme does -- and the icon has to stay readable under it",
+            "either way."
+          ],
+          "icon": { "item": "minecraft:paper" },
+
+          "quests": [
+            {
+              "id": "paper_start",
+              "title": "A Clean Page",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Dark ink on a pale canvas, which is the first thing you will notice and the only thing",
+                "that matters about this chapter.",
+                "",
+                "The hover ring is near-black at half alpha. On every other theme the ring is a light",
+                "colour brightening; here it is a dark one appearing, and the two read surprisingly",
+                "differently."
+              ],
+              "icon": { "item": "minecraft:feather" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:book", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "paper_count",
+              "title": "Three Sheets",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's track is a pale grey and its fill is a deep blue -- so on this theme the",
+                "filled part is the dark part, which is the reverse of every other chapter.",
+                "",
+                "A theme that got its surfaces inverted and forgot the state colours would show up here",
+                "first, and almost nowhere else."
+              ],
+              "icon": { "item": "minecraft:book" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["paper_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:writable_book", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "paper_repeat",
+              "title": "Copy It Out",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 on a pale canvas. Its outline is a mid-brown, which is the",
+                "closest thing this theme has to a border colour, and the taper holds up better here",
+                "than on the dark themes because a dark line on a light field is how ink works."
+              ],
+              "icon": { "item": "minecraft:ink_sac" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["paper_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:ink_sac", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "paper_gate",
+              "title": "Under Seal",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "This is the locked node, and it is the most interesting one in the gallery to look at",
+                "on this theme -- because the wash over a locked icon is a pale haze here rather than a",
+                "dark one.",
+                "",
+                "The icon underneath is FADED rather than darkened. On a dark theme a lock dims the",
+                "item; on this one it washes it out. Both say 'not yet' and they arrive at it from",
+                "opposite directions, which is exactly the kind of thing a theme is allowed to decide."
+              ],
+              "icon": { "item": "minecraft:written_book" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["paper_count", "paper_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:red_dye", "count": 1 },
+                { "type": "tasked:checkmark", "title": "I checked the seal",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "paper_read",
+              "title": "The Long Chapter",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and on this theme it is the most readable page in the",
+                "gallery -- which is a real property of a light theme rather than a preference. Body",
+                "text at this size, in a dark ink on a pale field, is the configuration that has been",
+                "measured most often and it shows.",
+                "",
+                "Scroll down: the REQUIRES cross is a muted brown rather than a grey, because a pure",
+                "grey on a warm pale field looks like a printing error rather than a state.",
+                "",
+                "The scrollbar here is the one to compare against High Contrast's. Both have to be",
+                "unmistakable, and they get there by opposite routes: white on black, and a deep brown",
+                "on cream. That is the whole argument for the scrollbar having tokens of its own rather",
+                "than borrowing the raised surface and a control edge, which is what it did before this",
+                "round.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip, so",
+                "the scrollbar appears and is drawn in this palette.",
+                "",
+                "One more thing worth noticing while you are here: the tooltip that follows the pointer",
+                "over a control on the sidebar is drawn in YOUR theme, not in this one. The chapter's",
+                "palette covers the canvas and this overlay, and nothing outside them -- so a pale",
+                "canvas can sit inside a dark frame without either looking broken."
+              ],
+              "icon": { "item": "minecraft:lectern" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["paper_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I turned the page" },
+                { "type": "tasked:checkmark", "title": "And I reached the end" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "paper_end",
+              "title": "The Last Page",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies."
+              ],
+              "icon": { "item": "minecraft:writable_book" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["paper_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:paper", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:written_book", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_obsidian",
+          "title": "Obsidian",
+          "subtitle": "Near-black purple, lit from inside",
+          "aliases": ["obsidian"],
+          "theme": "obsidian",
+          "description": [
+            "Obsidian and crying obsidian: the darkest surfaces in the gallery, with a violet glow",
+            "doing all the work. Every colour here that is not near-black is a purple.",
+            "",
+            "The interesting value is the connector line. On a canvas this dark a line has to be",
+            "brighter than the surface it crosses and dimmer than the nodes at either end, or the",
+            "graph reads as unconnected boxes -- and there is very little room between those two",
+            "constraints when the surface is at 11,9,20.",
+            "",
+            "Radius is 2, so this is one of the two squarest themes. Compare the quest overlay's",
+            "panel against Tome's while you are here: the same panel, drawn through the same code,",
+            "and the corners are the only difference."
+          ],
+          "icon": { "item": "minecraft:obsidian" },
+
+          "quests": [
+            {
+              "id": "obs_start",
+              "title": "Into the Dark",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A violet glow on nearly-black purple. The available colour here is the brightest",
+                "violet in the theme, and the completed colour is a paler one that only appears once",
+                "you have finished something.",
+                "",
+                "The hover ring is a pale lavender at half alpha, which against this canvas is a",
+                "visible glow rather than a highlight."
+              ],
+              "icon": { "item": "minecraft:obsidian" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:obsidian", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:ender_pearl", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "obs_count",
+              "title": "Four Blocks",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's track is a recessed near-black and its fill is the state violet, so on this",
+                "canvas the fill is the only light thing in the row.",
+                "",
+                "This is the theme where a partially-filled bar is most legible and a fully-empty one",
+                "is least -- an empty track at this darkness is nearly invisible, which is a deliberate",
+                "trade rather than an oversight: an empty bar is not information."
+              ],
+              "icon": { "item": "minecraft:diamond_pickaxe" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["obs_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:obsidian", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "obs_repeat",
+              "title": "Mine Again",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in violet outline on near-black. The straight taper of a hexagon",
+                "reads as a thinner line than a circle's arc at the same weight, so a shape drawn in a",
+                "dark theme looks sharper than the same shape drawn in a light one."
+              ],
+              "icon": { "item": "minecraft:diamond_pickaxe" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["obs_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:obsidian", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "obs_gate",
+              "title": "The Seal",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. On a canvas this dark the locked wash can afford to be gentler than on, say,",
+                "Vanilla Plus -- because the item's own colours are already standing out against the",
+                "background, so dimming it slightly is enough to say 'not yet'.",
+                "",
+                "The outline of a locked node is the darkest border in any shipped theme. It is meant",
+                "to be nearly lost against the canvas, which is what 'you cannot go here' looks like."
+              ],
+              "icon": { "item": "minecraft:crying_obsidian" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["obs_count", "obs_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:crying_obsidian", "count": 4 },
+                { "type": "tasked:checkmark", "title": "I looked at the seal",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "obs_read",
+              "title": "What the Dark Said",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest. This is the page to open if you want to know how a very",
+                "dark theme handles a long body of text -- and the answer is that it needs its faint",
+                "tone to be brighter than a dark theme's faint tone usually is.",
+                "",
+                "On Modern, faint text is roughly half the body's brightness, which is comfortable",
+                "against a mid-grey panel. Against this canvas, half of white is too dim to read at",
+                "length, so this theme's faint tone is set higher. That is the sort of thing that only",
+                "shows up in a page of prose rather than in a label.",
+                "",
+                "Scroll down for REQUIRES. The cross there is a mid purple-grey: legible, and clearly",
+                "not the green of the tick beside it.",
+                "",
+                "The scrollbar is a violet thumb on a near-black track, which makes it the most",
+                "saturated scrollbar in the gallery. It is also the token pair this theme gained this",
+                "round -- before that it borrowed the raised surface and a control edge, and on a",
+                "canvas this dark that produced a track with no contrast against the panel at all.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:ender_eye" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["obs_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I read in the dark" },
+                { "type": "tasked:checkmark", "title": "And I did not need a torch" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "obs_end",
+              "title": "The Core",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies.",
+                "",
+                "On this theme the gap is almost impossible to spot, because a slightly darker patch",
+                "of near-black on near-black is not much of a gap. That is worth knowing rather than",
+                "wondering about -- a hidden node is still hidden, and this is just what that looks",
+                "like on a very dark palette."
+              ],
+              "icon": { "item": "minecraft:beacon" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["obs_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:obsidian", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:beacon", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_amethyst",
+          "title": "Amethyst",
+          "subtitle": "Pale violet crystal, and the roundest theme",
+          "aliases": ["amethyst"],
+          "theme": "amethyst",
+          "description": [
+            "A crystal palette: the surfaces are dark but not black, and the accent is a pale violet",
+            "bright enough to be the light source rather than the surface.",
+            "",
+            "This is the roundest theme in the set at a radius of 6, against Modern's 4 and Tome's 8.",
+            "Three radii, all different, all applied to the same panels -- which is what makes the",
+            "radius a parameter rather than a constant that happens to be 4.",
+            "",
+            "Its locked outline is a desaturated slate violet, and its blocked word is a brighter grey",
+            "violet. As on every theme, the node recedes and the word explaining it does not."
+          ],
+          "icon": { "item": "minecraft:amethyst_block" },
+
+          "quests": [
+            {
+              "id": "ameth_start",
+              "title": "A Good Seam",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Pale violet on slate violet, which is the closest the gallery gets to a theme with no",
+                "hue contrast at all -- both ends of the accent range are violet, and the difference",
+                "between them is entirely brightness.",
+                "",
+                "The completed colour is a green, which is the one hue in this theme that is not violet",
+                "and is there so that 'done' is unmistakable even in peripheral vision."
+              ],
+              "icon": { "item": "minecraft:amethyst_shard" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_block", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "ameth_count",
+              "title": "Four Shards",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is a pale violet and its track is a dark slate, which is a bigger gap",
+                "than most themes manage -- a consequence of the accent being the brightest thing here.",
+                "",
+                "The count beside it is in the faint tone, which on this theme is a muted lilac rather",
+                "than a grey. A grey faint tone on a violet canvas reads as a colour that was forgotten."
+              ],
+              "icon": { "item": "minecraft:budding_amethyst" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["ameth_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:spyglass", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "ameth_repeat",
+              "title": "Chip Away",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in pale violet. On a radius-6 theme a hexagon's corners are the",
+                "flattest thing on screen, because it is the one shape whose corners are not rounded --",
+                "which makes it the shape to look at if you want to see what the radius is doing to",
+                "everything else."
+              ],
+              "icon": { "item": "minecraft:iron_pickaxe" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["ameth_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_cluster", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "ameth_gate",
+              "title": "The Geode",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash over it is a near-black violet, and the icon underneath stays",
+                "readable -- which on this theme takes some care, because a violet wash over a violet",
+                "icon can lose the item's own colours entirely.",
+                "",
+                "This is the node to look at if you are deciding whether to write a theme of your own:",
+                "the wash is the value most likely to be wrong, and the one with the least margin."
+              ],
+              "icon": { "item": "minecraft:amethyst_cluster" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["ameth_count", "ameth_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:amethyst_cluster", "count": 2 },
+                { "type": "tasked:checkmark", "title": "I found the geode",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "ameth_read",
+              "title": "Inside the Geode",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, drawn in a theme whose accent and whose faint tone are",
+                "both violet. That pairing is the thing to check here: a body of prose in which every",
+                "tone is a shade of one hue is either elegant or muddy, and which one it is depends on",
+                "whether the brightness steps are far enough apart.",
+                "",
+                "Scroll to the bottom and REQUIRES appears with its tick and its cross -- the tick",
+                "green, the cross a slate violet, and the two of them the only place on the page where",
+                "two different hues meet.",
+                "",
+                "The scrollbar's thumb is a saturated violet on a dark track, which is the second-most",
+                "saturated in the gallery after Obsidian's and Neon's. Since the scrollbar gained its",
+                "own two tokens this round, a theme can finally say 'my scrollbar is violet' rather",
+                "than hoping the raised surface happens to be.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip, so",
+                "the scrollbar is actually drawn."
+              ],
+              "icon": { "item": "minecraft:spyglass" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["ameth_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I have seen the inside" },
+                { "type": "tasked:checkmark", "title": "And I have counted the crystals" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "ameth_end",
+              "title": "The Cutting Room",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies.",
+                "",
+                "The smallest node in this chapter at size 36 with the icon at 0.9, so when it does",
+                "appear it is nearly all item and very little border."
+              ],
+              "icon": { "item": "minecraft:glass" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["ameth_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glass", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:glass_pane", "count": 8 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_copper",
+          "title": "Copper",
+          "subtitle": "Warm metal going green",
+          "aliases": ["copper"],
+          "theme": "copper",
+          "description": [
+            "Copper the metal and copper the patina in one palette -- warm orange-brown surfaces with",
+            "a green doing the accent work. It is the only theme here where the answer to 'what colour",
+            "is this' is genuinely two colours.",
+            "",
+            "The available colour is the green and the in-progress colour is the orange, which on this",
+            "theme means the state colours are also the material colours. That makes the progression",
+            "readable as oxidation, which is either a nice touch or a coincidence depending on how",
+            "much credit you want to give it.",
+            "",
+            "Radius 4, the same as Modern's, so this chapter is the control case for the other three",
+            "radii in the gallery."
+          ],
+          "icon": { "item": "minecraft:copper_block" },
+
+          "quests": [
+            {
+              "id": "cop_start",
+              "title": "Fresh Copper",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A green available colour on a warm brown canvas -- the two ends of copper's life in",
+                "one screen.",
+                "",
+                "The title tone is a pale cream rather than a white, which is what stops a warm palette",
+                "from reading as orange text on orange. Every theme with a warm surface has to make that",
+                "adjustment somewhere, and on this one it is in the text tones."
+              ],
+              "icon": { "item": "minecraft:copper_ingot" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:raw_copper", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "cop_count",
+              "title": "Smelt It Down",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the available green and its track is a dark brown. Green on brown is",
+                "a combination that appears nowhere else in the gallery, and it is either the reason to",
+                "use this theme or the reason not to.",
+                "",
+                "Bars are useful in a gallery for exactly this: six pixels of a saturated colour on a",
+                "desaturated surface is a pairing that no amount of description gets across."
+              ],
+              "icon": { "item": "minecraft:furnace" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["cop_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:copper_block", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "cop_repeat",
+              "title": "Let It Weather",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in the green. The name of this quest and its colour are the same",
+                "joke, and a hexagon is about as close as this project gets to a crystal.",
+                "",
+                "The taper is a straight line rather than an arc, so at this size the six edges read",
+                "as six edges -- which on a warm palette matters more than on a cool one, because a",
+                "warm outline against a warm surface loses definition faster."
+              ],
+              "icon": { "item": "minecraft:oxidized_copper" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["cop_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:oxidized_copper", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "cop_gate",
+              "title": "Patina",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash here is a warm near-black brown, and the locked outline is a very",
+                "dark brown -- which on this theme is the darkest value anywhere, darker than the",
+                "blocked word beside a quest.",
+                "",
+                "That relationship holds on all fifteen themes and it is worth seeing on one where the",
+                "difference is large: a node you cannot click is quieter than the word telling you so."
+              ],
+              "icon": { "item": "minecraft:weathered_copper" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["cop_count", "cop_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:weathered_copper", "count": 4 },
+                { "type": "tasked:checkmark", "title": "I waited for the green",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "cop_read",
+              "title": "The Verdigris Log",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest. This is the page to read if you want to see how a warm",
+                "palette handles a long body of text, and the short answer is that it needs a cream",
+                "rather than a white.",
+                "",
+                "Body text at pure white on a warm brown surface is uncomfortable to read at length --",
+                "a known property of warm backgrounds rather than a flaw in this theme -- so the body",
+                "tone here is pulled slightly towards yellow. It is the kind of adjustment that is",
+                "invisible in a label and obvious in a paragraph.",
+                "",
+                "Scroll down and REQUIRES appears: a green tick and a brown cross, in the same two",
+                "colours the states use everywhere else on this canvas.",
+                "",
+                "The scrollbar is a mid brown on a darker one, so it is the quietest scrollbar in the",
+                "gallery. Compare it with Neon's, where the same two tokens are a magenta on near-black",
+                "and can afford to be the loudest thing on the screen.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:copper_ingot" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["cop_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I logged the first day" },
+                { "type": "tasked:checkmark", "title": "And the last" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "cop_end",
+              "title": "The Lightning Rod",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies. On a warm palette the",
+                "node will be the only green thing on a brown canvas when it appears, so it is easier",
+                "to spot here than on most."
+              ],
+              "icon": { "item": "minecraft:lightning_rod" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["cop_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:lightning_rod", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_redstone",
+          "title": "Redstone",
+          "subtitle": "Dark slate and saturated red",
+          "aliases": ["redstone", "red"],
+          "theme": "redstone",
+          "description": [
+            "Slate surfaces with a saturated red doing all the signalling, so progression reads as",
+            "current through a wire -- which is the one idea this theme is built around, and it is",
+            "carried entirely by the connector lines and the state colours agreeing.",
+            "",
+            "The available colour is a bright red and the completed colour is a green, which is the",
+            "largest hue jump between two adjacent states in the gallery. A partially-completed",
+            "chapter on this theme has both colours on screen at once.",
+            "",
+            "The in-progress colour is an amber, so all four states are distinguishable at a glance",
+            "without any of them being a shade of another."
+          ],
+          "icon": { "item": "minecraft:redstone_block" },
+
+          "quests": [
+            {
+              "id": "red_start",
+              "title": "Power On",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A bright red available colour on a dark red-brown slate. The connector line leaving",
+                "this node is the mid red, and it is the value that has to sit between the surface and",
+                "the node or the graph reads as disconnected boxes.",
+                "",
+                "The title is a warm off-white rather than pure white, for the same reason Copper's is",
+                "-- a saturated warm accent beside a neutral white makes the white look blue."
+              ],
+              "icon": { "item": "minecraft:redstone" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:redstone_block", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "red_count",
+              "title": "Sixteen Signals",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the red, and against a dark slate track it is the brightest thing",
+                "in the row by a wide margin.",
+                "",
+                "This is the theme where the progress bar is most obviously a signal-strength meter,",
+                "which is either the intended reading or a happy accident depending on how you feel",
+                "about redstone."
+              ],
+              "icon": { "item": "minecraft:repeater" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["red_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:repeater", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "red_repeat",
+              "title": "Clock Circuit",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in red. A red hexagon on dark slate is the closest the gallery",
+                "gets to a stop sign, which is a coincidence of shape and colour rather than a design",
+                "decision -- but a repeatable quest in a bright red outline does read as 'this comes",
+                "round again', which is the right reading."
+              ],
+              "icon": { "item": "minecraft:comparator" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["red_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone_torch", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:observer", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "red_gate",
+              "title": "No Signal",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash here is a dark maroon-black, and the locked outline is a very dark",
+                "red -- which is the one theme in the gallery where a locked node's border shares a hue",
+                "with the available one.",
+                "",
+                "They are far enough apart in brightness to be unmistakable, and that is the property",
+                "that matters: a theme may reuse a hue for a locked state as long as it does not reuse",
+                "a brightness."
+              ],
+              "icon": { "item": "minecraft:redstone_torch" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["red_count", "red_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone_lamp", "count": 4 },
+                { "type": "tasked:checkmark", "title": "I looked for a signal",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "red_read",
+              "title": "The Schematic",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and the one to read if you want to know whether a red",
+                "accent is a problem in a body of text. It is not, and the reason is that the accent",
+                "is used for section rules and the counts rather than for the prose.",
+                "",
+                "That is a general point worth taking from this chapter: a theme that wants a loud",
+                "accent has to decide where the accent is allowed, and if it is allowed in the body",
+                "text the page becomes unreadable very quickly. Modern solves it by making the accent",
+                "rare; this theme solves it by keeping the accent out of the body entirely.",
+                "",
+                "Scroll down for REQUIRES: a green tick and a dim red cross, which on this palette is",
+                "the only green in the body.",
+                "",
+                "The scrollbar's thumb is a mid red on a dark track, so it is legible without being",
+                "loud -- which is what a scrollbar should be, and is a decision this pair of tokens did",
+                "not have when it was borrowing the raised surface and a control edge.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:redstone_block" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["red_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I traced the first line" },
+                { "type": "tasked:checkmark", "title": "And I found the fault" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "red_end",
+              "title": "Full Power",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies."
+              ],
+              "icon": { "item": "minecraft:redstone_block" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["red_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone_block", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:daylight_detector", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_nether",
+          "title": "Nether",
+          "subtitle": "Blood red, basalt grey and lava orange",
+          "aliases": ["nether"],
+          "theme": "nether",
+          "description": [
+            "The hottest palette in the set. The surfaces are dark red-brown rather than black, so",
+            "there is no neutral ground anywhere on the canvas -- everything is either red, orange",
+            "or a grey pressed up against them.",
+            "",
+            "The available colour is an orange and the in-progress colour is a yellow, which are the",
+            "two closest states in the gallery. Telling them apart is possible but it takes a moment,",
+            "and that is a genuine trade this palette makes rather than a mistake: the whole theme is",
+            "built on a narrow range of hues and it buys a mood with that narrowness.",
+            "",
+            "Worth comparing against Nether's opposite, End, which makes the same trade in purple."
+          ],
+          "icon": { "item": "minecraft:netherrack" },
+
+          "quests": [
+            {
+              "id": "nether_start",
+              "title": "Through the Portal",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "Orange on dark red-brown, with a lava-coloured connector leaving the node. On this",
+                "canvas the connector lines are almost as bright as the nodes, which is the one place",
+                "this theme is harder to read than a neutral one.",
+                "",
+                "The hover ring follows the shape as everywhere -- on a circle it is a ring, and a pale",
+                "orange one at half alpha against this surface is among the more visible rings in the",
+                "gallery."
+              ],
+              "icon": { "item": "minecraft:flint_and_steel" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:netherrack", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:nether_brick", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "nether_count",
+              "title": "Three Ingots",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the orange and its track is a very dark red. Orange on dark red is",
+                "a low-contrast pairing by the standards of most themes here, and it is the clearest",
+                "case in the gallery of a theme choosing a mood over a contrast ratio."
+              ],
+              "icon": { "item": "minecraft:netherite_scrap" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["nether_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:netherite_scrap", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:netherite_ingot", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "nether_repeat",
+              "title": "Keep Digging",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in orange. At this size on this surface the six edges are still",
+                "legible, which is worth checking -- a warm outline on a warm surface is the pairing",
+                "most likely to lose its silhouette."
+              ],
+              "icon": { "item": "minecraft:golden_pickaxe" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["nether_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:netherrack", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:gold_ingot", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "nether_gate",
+              "title": "Bastion Gate",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash is a near-black red and the outline is a dark red-brown, which on",
+                "this canvas is very nearly the surface colour -- a locked node here is close to",
+                "invisible, and that is the intended reading.",
+                "",
+                "The blocked word beside a quest stays clearly readable, which is the pair that always",
+                "has to differ. A node recedes; the reason it receded does not."
+              ],
+              "icon": { "item": "minecraft:gilded_blackstone" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["nether_count", "nether_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:blackstone", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I found the gate",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "nether_read",
+              "title": "What the Piglins Said",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest. This is the page to read if you want to judge whether a",
+                "warm, high-saturation palette can carry prose, and the honest answer is: better than",
+                "you would expect, because the body tone here is a pale sand rather than a white.",
+                "",
+                "A pure white on this surface glares. Every warm theme in the set pulls its body tone",
+                "off white by some amount, and this one pulls it furthest -- towards a warm cream that",
+                "reads almost as parchment on the dark red.",
+                "",
+                "Scroll down for REQUIRES: a yellow-green tick and a muted brown cross.",
+                "",
+                "The scrollbar's thumb is a mid red on a dark track, so it disappears into the panel",
+                "more than most. That is a defensible choice for a theme this committed to one hue, and",
+                "a bad one if you scroll a lot -- which is exactly the sort of judgement a theme should",
+                "leave to the person choosing it rather than making on their behalf.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:gold_ingot" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["nether_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I listened to the first" },
+                { "type": "tasked:checkmark", "title": "And to the second" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "nether_end",
+              "title": "The Crown",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies."
+              ],
+              "icon": { "item": "minecraft:nether_star" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["nether_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:wither_skeleton_skull", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:nether_star", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_end",
+          "title": "End",
+          "subtitle": "Void purple, darker than anything else here",
+          "aliases": ["end", "the_end"],
+          "theme": "end",
+          "description": [
+            "The darkest surfaces in the gallery -- deeper than Obsidian's, which is the other",
+            "near-black theme -- with a violet accent and a pale chorus green for the completed state.",
+            "",
+            "Radius 8, the same as Tome's. Tome rounds light-on-warm and this rounds dark-on-dark,",
+            "which is worth seeing side by side because the same radius on the same panel reads as a",
+            "softer edge in one and a harder one in the other.",
+            "",
+            "Its progress line is a bright violet, and on a canvas this dark a line that bright reads",
+            "as a beam rather than a connector. That is the intended reading: the End's version of",
+            "progression is something travelling."
+          ],
+          "icon": { "item": "minecraft:end_stone" },
+
+          "quests": [
+            {
+              "id": "end_start",
+              "title": "The Gate",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A pale violet on a void purple so dark it is nearly black. The connector leaving this",
+                "node is the brightest line in the gallery, which is the single most distinctive thing",
+                "about this theme on a canvas.",
+                "",
+                "The title tone is a very pale lilac rather than a white -- on a surface this dark, a",
+                "pure white would be the loudest thing on the screen rather than the node."
+              ],
+              "icon": { "item": "minecraft:ender_eye" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:ender_pearl", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:ender_eye", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "end_count",
+              "title": "Twelve Pearls",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the violet and its track is a very dark purple, so the filled part",
+                "is the only thing in the row that is visibly present.",
+                "",
+                "On this theme an empty track is nearly indistinguishable from the panel behind it,",
+                "which is the deliberate trade: an empty progress bar is not information, and the",
+                "space is better spent on the count."
+              ],
+              "icon": { "item": "minecraft:ender_pearl" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["end_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:ender_pearl", "count": 12 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:ender_eye", "count": 12 }
+              ]
+            },
+
+            {
+              "id": "end_repeat",
+              "title": "Void Fishing",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in pale violet on near-black. This is the sharpest a hexagon gets",
+                "in the gallery after High Contrast's, because the outline is bright and the field",
+                "behind it is nothing."
+              ],
+              "icon": { "item": "minecraft:fishing_rod" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["end_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:chorus_fruit", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:purpur_block", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "end_gate",
+              "title": "The Inner Ring",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash is a near-black violet and the outline is a dark desaturated violet,",
+                "so on this canvas a locked node is very close to invisible -- which as on Obsidian is",
+                "the intended reading rather than a mistake.",
+                "",
+                "The dim wash is what does the work of saying 'not yet' here, because the outline has",
+                "nowhere to go: there is no darker value left below it."
+              ],
+              "icon": { "item": "minecraft:end_crystal" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["end_count", "end_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:end_stone", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I found the ring",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "end_read",
+              "title": "The Obsidian Pillar",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and the page where this theme's faint tone is doing the",
+                "most work -- because on a surface this dark, a faint tone set by the usual rule would",
+                "be invisible.",
+                "",
+                "Body text is a light lavender and the faint tone is a mid one, and the gap between",
+                "them is wider than Modern's. Both of them would be called 'bright' on a dark theme in",
+                "the abstract; what matters is the step between them, not the values.",
+                "",
+                "Scroll down for REQUIRES: a pale green tick and a muted violet cross. The green is the",
+                "only non-violet hue in the chapter, which makes the completed state unmistakable.",
+                "",
+                "The scrollbar's thumb is a saturated violet on a very dark track -- among the loudest",
+                "in the gallery, and the pair that most obviously needed its own tokens. Before this",
+                "round the track was the raised surface, which on this theme is barely above black, so",
+                "the track was invisible and the thumb had nothing to read against.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:end_stone_bricks" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["end_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I placed the first crystal" },
+                { "type": "tasked:checkmark", "title": "And the last" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "end_end",
+              "title": "The Void",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies. As on Obsidian, the gap",
+                "is almost invisible on a palette this dark -- there is not much difference between a",
+                "hole and the thing around it."
+              ],
+              "icon": { "item": "minecraft:dragon_breath" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["end_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:dragon_breath", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:dragon_head", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_deep_dark",
+          "title": "Deep Dark",
+          "subtitle": "Almost no light, and one glow",
+          "aliases": ["deep_dark", "deepdark", "sculk"],
+          "theme": "deep_dark",
+          "description": [
+            "The quietest theme in the set. Surfaces are barely above black and the accent is a sculk",
+            "cyan that is the only thing on the canvas with any light in it.",
+            "",
+            "It is the opposite approach to Neon, which is also near-black but loud: this one has",
+            "almost no saturation anywhere except the accent, and Neon has almost nothing but.",
+            "Comparing those two chapters is the quickest way to see what a theme is actually",
+            "deciding.",
+            "",
+            "Radius 2, so it is among the squarest themes -- between Vanilla Plus's 0 and Amethyst's",
+            "6. Compare the quest overlay's panel against Tome's while you are here."
+          ],
+          "icon": { "item": "minecraft:sculk" },
+
+          "quests": [
+            {
+              "id": "deep_start",
+              "title": "Wake Up",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A sculk cyan available colour on near-black, which is the only glow on the canvas and",
+                "therefore the only thing your eye lands on.",
+                "",
+                "The hover ring is a pale cyan at half alpha, which against this surface reads as a",
+                "louder highlight than the same alpha does on any other theme -- there is so little",
+                "else competing with it."
+              ],
+              "icon": { "item": "minecraft:sculk" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:sculk", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:sculk_catalyst", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "deep_count",
+              "title": "Nine Veins",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the cyan and its track is a near-black teal, so the filled portion",
+                "is a thin bright line and the empty portion is essentially the panel.",
+                "",
+                "This is the theme where the progress bar most resembles a signal indicator, and where",
+                "the count beside it matters most -- because the bar alone does not say how far along",
+                "it is against a track you cannot see."
+              ],
+              "icon": { "item": "minecraft:sculk_vein" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["deep_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:sculk_vein", "count": 9 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:sculk_sensor", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "deep_repeat",
+              "title": "Spread",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in cyan. On this theme the outline is very nearly the only line",
+                "on the canvas, so the six edges are unusually clear -- there is no surface detail",
+                "behind them to compete.",
+                "",
+                "A square theme's hexagon and a rounded theme's hexagon are the same six edges. What",
+                "differs is everything around them."
+              ],
+              "icon": { "item": "minecraft:sculk_catalyst" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["deep_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:sculk", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:sculk_vein", "count": 8 }
+              ]
+            },
+
+            {
+              "id": "deep_gate",
+              "title": "The Sensor",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash is the most opaque in the gallery at four-fifths black, and the",
+                "locked outline is a very dark teal -- which on this canvas is one step above the",
+                "surface.",
+                "",
+                "That is deliberate rather than a limitation: on a theme whose whole idea is that",
+                "there is almost no light, a locked node should be nearly unlit, and the item under",
+                "the wash carries the recognition."
+              ],
+              "icon": { "item": "minecraft:sculk_sensor" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["deep_count", "deep_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:sculk_sensor", "count": 1 },
+                { "type": "tasked:checkmark", "title": "I did not make a sound",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "deep_read",
+              "title": "The City Below",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest. This is the page to open if you want to know whether a",
+                "theme this dark is actually usable for reading, and the answer depends entirely on",
+                "the faint tone.",
+                "",
+                "A theme at this brightness has roughly a third of the range between black and white to",
+                "work with, compared with a mid-grey theme. Everything it needs to say -- body, faint,",
+                "heading, border -- has to fit into that third, and the only way to do it is to keep",
+                "the number of distinct tones small and the steps between them wide.",
+                "",
+                "Scroll down for REQUIRES: a pale green tick and a dark teal cross, with the tick",
+                "again the only non-cyan hue in the chapter.",
+                "",
+                "The scrollbar is a dark teal on a very dark track, and it is the quietest pair in the",
+                "gallery apart from Copper's. On a theme that has deliberately given up most of its",
+                "contrast range, that is consistent rather than wrong -- and it is the kind of value a",
+                "theme author should be choosing knowingly.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:sculk_shrieker" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["deep_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I walked the first aisle" },
+                { "type": "tasked:checkmark", "title": "And I left quietly" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "deep_end",
+              "title": "The Heart",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies.",
+                "",
+                "When it appears it will be the brightest thing in this chapter by a wide margin -- a",
+                "pale cyan node on a canvas of near-black."
+              ],
+              "icon": { "item": "minecraft:echo_shard" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["deep_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:echo_shard", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:disc_fragment_5", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_terminal",
+          "title": "Terminal",
+          "subtitle": "Green on black, and nothing in the way",
+          "aliases": ["terminal", "term"],
+          "theme": "terminal",
+          "description": [
+            "Monospace green on black, which is the least Minecraft-looking theme in the set and is",
+            "here for packs that want that. Every surface in it does nothing but hold text up.",
+            "",
+            "It is the second theme with a non-zero but very short motion -- 60ms on a linear curve,",
+            "against Modern's 140ms eased. Clicking between this chapter and Modern is the quickest",
+            "way to feel the difference between an eased transition and a linear one: the linear one",
+            "arrives faster and stops harder.",
+            "",
+            "Radius 0, like Vanilla Plus, so the panels are square. It is the only theme that is both",
+            "square and animated."
+          ],
+          "icon": { "item": "minecraft:command_block" },
+
+          "quests": [
+            {
+              "id": "term_start",
+              "title": "boot",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A bright green available colour on pure black. The connector leaving this node is the",
+                "same green at a lower brightness, which on this palette is the only way a line can be",
+                "distinguished from the node it comes from.",
+                "",
+                "The title is a green-tinted white rather than a pure white. On a palette that is this",
+                "committed to one hue, a neutral white reads as a foreign colour."
+              ],
+              "icon": { "item": "minecraft:redstone_torch" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:repeater", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "term_count",
+              "title": "mount /dev/redstone",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the green and its track is a very dark green, so a filled bar is a",
+                "green line on black and an empty one is nothing.",
+                "",
+                "This is the theme where the count beside the bar is doing the most work, because the",
+                "empty part of the track is not visible at all -- you cannot estimate the fraction, so",
+                "the number has to tell you."
+              ],
+              "icon": { "item": "minecraft:hopper" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["term_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:hopper", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "term_repeat",
+              "title": "cron --every 2m",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in green. A green outline on black at this weight is the highest",
+                "contrast of any shape in the gallery at the same size -- the shape is essentially a",
+                "drawing of itself rather than a container.",
+                "",
+                "Its motion is 60ms linear, so clicking into this chapter and then moving the pointer",
+                "across the sidebar feels noticeably faster than on the eased themes."
+              ],
+              "icon": { "item": "minecraft:clock" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["term_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone_torch", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:clock", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "term_gate",
+              "title": "permission denied",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash is pure black at three-quarters, and the outline is a very dark",
+                "green -- so on this theme a locked node is a dim green box around a dimmed item, with",
+                "nothing else on the canvas.",
+                "",
+                "The name of this quest is doing something the other chapters' are not: it is the",
+                "state the node is in, written on the node. That is not a theme property at all, which",
+                "is exactly why it is worth noticing here -- a quest's title is content, and a theme",
+                "cannot change it."
+              ],
+              "icon": { "item": "minecraft:observer" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["term_count", "term_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:sculk_sensor", "count": 1 },
+                { "type": "tasked:checkmark", "title": "sudo !!", "optional": true }
+              ]
+            },
+
+            {
+              "id": "term_read",
+              "title": "man tasked",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and on a green-on-black palette a page of prose is what",
+                "the theme was designed for, which is worth saying plainly because it is the opposite",
+                "of what you would expect from the least Minecraft-looking theme in the set.",
+                "",
+                "The section headings are the brightest green and the body is a mid one, so on this",
+                "chapter TASKS and REWARDS are more prominent than the text under them -- the reverse",
+                "of every other theme. That is a real trade and it is visible here and nowhere else.",
+                "",
+                "Scroll down for REQUIRES: a green tick and a grey-green cross. All four states in",
+                "this theme are greens of different brightness, with the one exception of the",
+                "in-progress amber, which is the only colour on the canvas that is not green.",
+                "",
+                "The scrollbar's thumb is a mid green on a very dark track, which on this canvas is",
+                "unmistakable. Compare it with Copper's, where the same two tokens are deliberately",
+                "quiet: the scrollbar tokens exist precisely so that a theme can make that choice",
+                "rather than inheriting one.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip."
+              ],
+              "icon": { "item": "minecraft:book" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["term_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "read the synopsis" },
+                { "type": "tasked:checkmark", "title": "read the examples" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "term_end",
+              "title": "exit 0",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies. On this canvas the gap",
+                "is invisible until it is not, which is the one place a terminal palette and a void",
+                "palette behave identically."
+              ],
+              "icon": { "item": "minecraft:nether_star" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["term_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:nether_star", "count": 1 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:beacon", "count": 1 }
+              ]
+            }
+          ]
+        },
+
+        {
+          "id": "gallery_neon",
+          "title": "Neon",
+          "subtitle": "Near-black with magenta and cyan",
+          "aliases": ["neon"],
+          "theme": "neon",
+          "description": [
+            "The loudest theme in the set, and the other end of the range from Deep Dark: both are",
+            "near-black, and one of them has almost no saturation anywhere while this one has almost",
+            "nothing but.",
+            "",
+            "It is also the only theme where the three visible states are three different hues -- cyan",
+            "for available, magenta for in progress, green for complete. Every other theme keeps at",
+            "least two of them in one family, and this one deliberately does not, because the whole",
+            "point of the palette is that everything glows a different colour.",
+            "",
+            "Radius 6, the same as Amethyst's, so this is rounder than Modern and less round than Tome",
+            "and End.",
+            "",
+            "If a theme is going to break something, this is the one that finds it: a value borrowed",
+            "from another job, an assumption about two colours being related, a shadow drawn in a",
+            "fixed colour -- all of them are visible here and invisible on a neutral palette."
+          ],
+          "icon": { "item": "minecraft:magenta_concrete" },
+
+          "quests": [
+            {
+              "id": "neon_start",
+              "title": "Jack In",
+              "subtitle": "The entry node, and the only one named",
+              "description": [
+                "A cyan available colour on near-black violet, with a magenta hover ring. Three",
+                "different hues are already on screen before you have clicked anything, which is the",
+                "point.",
+                "",
+                "The hover ring is the theme's magenta at half alpha, and on this canvas it is a glow",
+                "rather than a highlight -- the ring is by some margin the most visible one in the",
+                "gallery."
+              ],
+              "icon": { "item": "minecraft:magenta_concrete" },
+              "x": 0,
+              "y": 104,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glowstone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:magenta_dye", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "neon_count",
+              "title": "Charge Up",
+              "subtitle": "A count, so the progress bar appears",
+              "description": [
+                "The bar's fill is the cyan and its track is a very dark violet, so a filled bar is a",
+                "bright cyan strip on near-black.",
+                "",
+                "If you press Submit on this quest while it is incomplete, note the held state -- the",
+                "press colour is a magenta, so the same control passes through three hues in one",
+                "interaction. That is legal, and on most themes it would look like a bug."
+              ],
+              "icon": { "item": "minecraft:redstone_lamp" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["neon_start"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glowstone_dust", "count": 16 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:glowstone", "count": 2 }
+              ]
+            },
+
+            {
+              "id": "neon_repeat",
+              "title": "Re-Sync",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagon at size 40 in cyan on near-black violet. High contrast and this theme are",
+                "the two that make a hexagon look sharpest, for opposite reasons: one has a white",
+                "outline and one has a bright hue against nothing.",
+                "",
+                "The six edges are a good place to check that a shape's outline uses the border token",
+                "and not the fill -- on a theme with this much saturation, a node fill showing through",
+                "would be immediately obvious."
+              ],
+              "icon": { "item": "minecraft:end_rod" },
+              "x": 132,
+              "y": 208,
+              "shape": "hexagon",
+              "size": 40,
+              "iconScale": 0.6,
+
+              "dependsOn": ["neon_start"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glowstone", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:end_rod", "count": 4 }
+              ]
+            },
+
+            {
+              "id": "neon_gate",
+              "title": "Offline",
+              "subtitle": "An OR-gate, one optional task, and no rewards",
+              "description": [
+                "Locked. The wash is a near-black at roughly two-thirds, and the locked outline is a",
+                "dark violet -- so a locked node here still has a faintly visible border, which on",
+                "this palette is a deliberate choice: a theme this saturated looks broken if something",
+                "is invisible.",
+                "",
+                "The blocked word beside a quest is a grey violet rather than a vivid one. A dim state",
+                "should not be using the loudest colour in the palette, even as a word."
+              ],
+              "icon": { "item": "minecraft:observer" },
+              "x": 264,
+              "y": 104,
+              "shape": "circle",
+              "size": 44,
+
+              "dependsOn": ["neon_count", "neon_repeat"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 },
+                { "type": "tasked:checkmark", "title": "I checked the connection",
+                  "optional": true }
+              ]
+            },
+
+            {
+              "id": "neon_read",
+              "title": "Packet Capture",
+              "subtitle": "Two hand-ins, in order, and a long description",
+              "description": [
+                "The long-description quest, and the hardest page in the gallery to make readable --",
+                "which makes it the most useful one to look at. Three saturated hues on one screen is",
+                "a design that is either striking or a headache, and a long body of text is where that",
+                "gets settled.",
+                "",
+                "The body tone here is a pale lavender rather than a white, and the faint tone is a",
+                "muted violet. Neither of them is saturated at all, and that is the trick: the hues",
+                "are for the states and the headings, and the prose is deliberately colourless so",
+                "that the colour means something.",
+                "",
+                "Scroll down for REQUIRES: a cyan tick and a grey violet cross, which is the pairing",
+                "this theme repeats in a dozen places. The cross is never vivid on any theme -- an",
+                "unmet prerequisite is not an error, and colouring it like one would be a lie about",
+                "the state of the quest.",
+                "",
+                "The scrollbar is a magenta on near-black, and it is the loudest scrollbar in the",
+                "gallery. Compare it with Copper's, which is the quietest: both are a defensible",
+                "answer to the same question, and the pair of tokens exists so that a theme can choose",
+                "rather than inherit.",
+                "",
+                "As in every chapter, this paragraph exists to make the body taller than the clip, so",
+                "the scrollbar is actually drawn in this palette."
+              ],
+              "icon": { "item": "minecraft:amethyst_shard" },
+              "x": 396,
+              "y": 104,
+              "shape": "tome",
+              "size": 48,
+
+              "dependsOn": ["neon_gate"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I captured the first packet" },
+                { "type": "tasked:checkmark", "title": "And the last" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10, "levels": true }
+              ]
+            },
+
+            {
+              "id": "neon_end",
+              "title": "Ghost in the Machine",
+              "subtitle": "Invisible until it is done",
+              "description": [
+                "Hidden, in the position every chapter's last node occupies.",
+                "",
+                "Fifteen chapters, fifteen themes, and this is the end of the gallery. If two of them",
+                "looked identical anywhere in the middle of it, something is wrong -- every theme in",
+                "this file resolves to forty-one distinct colours, and a test asserts that none of",
+                "them shares a name or a label with another."
+              ],
+              "icon": { "item": "minecraft:beacon" },
+              "x": 528,
+              "y": 104,
+              "shape": "circle",
+              "size": 36,
+              "iconScale": 0.9,
+              "invisible": true,
+
+              "dependsOn": ["neon_read"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:nether_star", "count": 1 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:beacon", "count": 1 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

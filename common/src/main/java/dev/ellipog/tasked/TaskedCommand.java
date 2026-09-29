@@ -21,10 +21,12 @@ import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
+import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
@@ -87,6 +89,13 @@ public final class TaskedCommand {
                         .then(Commands.argument("quest", StringArgumentType.word())
                                 .executes(TaskedCommand::complete)))
 
+                // No permission gate, and that is the point rather than an omission: this is a player
+                // collecting what they already earned, not an operator changing anything. The same
+                // call the quest book's Claim button makes.
+                .then(Commands.literal("claim")
+                        .then(Commands.argument("quest", StringArgumentType.word())
+                                .executes(TaskedCommand::claim)))
+
                 .then(Commands.literal("reset")
                         .requires(source -> source.hasPermission(2))
                         .executes(ctx -> reset(ctx, null))
@@ -95,6 +104,26 @@ public final class TaskedCommand {
 
                 .then(Commands.literal("types")
                         .executes(TaskedCommand::types))
+
+                // `/tasked theme` and `/tasked motion` were here. They are gone, and where they went
+                // is the point rather than the tidy-up.
+                //
+                // They were client preferences wearing a command's clothes. A command runs on the
+                // server: in single player that is the same process as the client, so both appeared to
+                // work, and on a dedicated server they changed a field in a process with no window --
+                // which is why both had to be wrapped in an `isClient()` guard to avoid being a lie. A
+                // control that has to defend against the side it runs on is a control on the wrong side,
+                // and the guard was the symptom rather than the cure.
+                //
+                // They are two rows at the foot of the quest book's sidebar now, which is where a
+                // setting that applies to the whole screen belongs and where it can be found without
+                // knowing the command existed. The state and the file behind it are in
+                // `Armature's Appearance` -- see its class comment for the base-and-override split
+                // that lets a chapter dress itself without taking the choice away from the player.
+                //
+                // Worth recording what the removal gained, beyond the surface: the setting is
+                // testable. A command cannot be, so the reading of "did that work" needed a running
+                // game and a person to notice; `AppearanceTest` covers the same ground in milliseconds.
 
                 .then(Commands.literal("echo")
                         // Not useful. Kept because it is the cheapest proof that Brigadier arguments
@@ -131,6 +160,23 @@ public final class TaskedCommand {
         }
         if (!problems.isEmpty()) {
             context.getSource().sendSuccess(() -> Component.translatable("tasked.command.reload.log"), false);
+        }
+
+        // Tell everyone what is loaded now -- the tree *and* their progress.
+        //
+        // A reload can change both: a quest removed, an id renamed, a dependency broken so a quest
+        // locks again. Without this, every connected client keeps the tree it was sent at join, so an
+        // author's fix appears to do nothing until they reconnect -- which is the same trap as the
+        // deploy-does-not-copy-quests one, one layer in.
+        //
+        // Worth noting what this line's absence was: `TaskedNetworking.sendTreeToAll` existed, was
+        // documented, and had no caller anywhere in the mod. That is the same shape of gap as the
+        // missing progress push -- a method that does exactly the right thing and nothing that calls
+        // it -- and it is invisible to a compiler, a test and a reader, because code that is never
+        // called looks the same as code that is.
+        MinecraftServer server = context.getSource().getServer();
+        if (server != null) {
+            TaskedNetworking.sendTreeToAll(server);
         }
         return result.filesDecoded();
     }
@@ -248,14 +294,23 @@ public final class TaskedCommand {
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.progress.header",
                 resolution.unlockedCount(), index.questCount(), resolution.completedCount()), false);
 
+        // Fetched once, outside the loop. It was inside it, once per quest, which is the same value
+        // read eighty times -- and now that `claimable` is asked of it, a per-quest fetch would also
+        // be a per-quest chance to ask the wrong question.
+        var teamProgress = ProgressService.progressFor(context.getSource().getServer(),
+                ProgressService.progressOwner(context.getSource().getServer(), player));
+
         int shown = 0;
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
             QuestState state = resolution.stateOf(quest);
 
             // Completed and non-repeatable is not interesting to list; locked is not actionable.
-            // A repeatable quest that is done still is, because it can be done again.
-            boolean worthShowing = state.isPlayable()
+            // A repeatable quest that is done still is, because it can be done again -- and so is one
+            // with a payout still waiting, which is the case where leaving it out would hide the only
+            // thing the player is meant to do next.
+            boolean claimable = ProgressService.canClaim(teamProgress, quest);
+            boolean worthShowing = state.isPlayable() || claimable
                     || (state == QuestState.COMPLETED && quest.repeatable());
             if (!worthShowing || (quest.invisible() && state != QuestState.COMPLETED)) {
                 continue;
@@ -263,14 +318,15 @@ public final class TaskedCommand {
             shown++;
 
             final QuestState shownState = state;
+            final boolean showClaimable = claimable;
             long cooldown = resolution.cooldownOf(quest);
             context.getSource().sendSuccess(() -> Component.literal(
                     "  " + stateColour(shownState) + shownState.label() + "§r "
                             + quest.title().value() + "  §8[" + quest.id() + "]"
+                            + (showClaimable ? "  §6(rewards waiting - /tasked claim " + quest.id() + ")" : "")
                             + (cooldown > 0 ? "  §7(ready in " + (cooldown / 20) + "s)" : "")), false);
 
-            var stored = ProgressService.progressFor(context.getSource().getServer(),
-                    ProgressService.progressOwner(context.getSource().getServer(), player)).progressOf(quest);
+            var stored = teamProgress.progressOf(quest);
 
             for (int i = 0; i < quest.tasks().size(); i++) {
                 QuestTask task = quest.tasks().get(i);
@@ -339,12 +395,14 @@ public final class TaskedCommand {
     }
 
     /**
-     * Forces a quest complete, granting its rewards.
+     * Forces a quest complete. Its rewards are recorded as waiting, not handed over.
      *
      * <p>Op level 2, and deliberately not routed through task evaluation: its whole purpose is to
      * skip the requirements, which is what makes a long chain testable without gathering forty
      * stacks of cobblestone. It goes through the same {@link ProgressService#complete} the engine
-     * uses, so the rewards, the saved state and the "already claimed" guard are all exercised.
+     * uses, so the saved state and the completion guard are both exercised — and since that method no
+     * longer grants anything, this command no longer does either. Use {@code /tasked claim} for the
+     * rewards, which is what a player does.
      */
     private static int complete(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
@@ -370,8 +428,47 @@ public final class TaskedCommand {
             return 0;
         }
 
+        // Playable is not the same as completable, now that collecting a payout is a separate act. A
+        // repeatable quest that is finished with its rewards still waiting is playable -- its tasks are
+        // satisfied and the cooldown has not started -- so the check above lets it through and
+        // `complete` would do nothing. Reporting success there would be this command telling an
+        // operator that something happened when nothing did.
+        if (!ProgressService.canComplete(entry.get().quest(), progress)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.complete.pending", id));
+            return 0;
+        }
+
         ProgressService.complete(server, owner, player, entry.get(), progress);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.complete.done", id), false);
+        return 1;
+    }
+
+    /**
+     * Collects a finished quest's rewards.
+     *
+     * <p>The command half of the Claim button in the quest book. It exists so the whole feature is
+     * reachable without a GUI — the plan's Stage 3 exit is a questline playable by command, and a
+     * payout that could only be collected by clicking would put a hole in exactly that.
+     */
+    private static int claim(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        String id = StringArgumentType.getString(context, "quest");
+
+        Optional<QuestIndex.QuestEntry> entry = TaskedQuests.find(id);
+        if (entry.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.quest.notfound", id));
+            return 0;
+        }
+
+        // One message for every reason a claim can fail -- not finished, no rewards, already collected.
+        // Distinguishing them would be three strings a player reads to learn the same thing: there is
+        // nothing here for you. `ProgressService.canClaim` is where the distinctions actually live.
+        if (!ProgressService.claim(context.getSource().getServer(), player, entry.get())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.claim.nothing", id));
+            return 0;
+        }
+
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.claim.done", id), false);
         return 1;
     }
 
@@ -379,7 +476,19 @@ public final class TaskedCommand {
         var server = context.getSource().getServer();
         ServerPlayer player = context.getSource().getPlayer();
         if (player == null) {
-            context.getSource().sendFailure(Component.literal("Run this as a player, or name a quest."));
+            // Naming a quest does not help here, and this message used to say it did.
+            //
+            // The null check fires before `questId` is ever looked at, so "/tasked reset stone_age"
+            // from the console hit the same message as "/tasked reset" -- the one escape the message
+            // offered was the one case that also failed. A reader would conclude the mod was broken.
+            //
+            // The real reason is worth saying, because it is not a limitation of the command: progress
+            // belongs to a *team*, a team is derived from a player, and the console is in no team. There
+            // is no argument that would supply one, so the fix is an honest message rather than a
+            // redirect -- and if a console-driven reset is ever wanted, it has to take a player or a
+            // team id and is a different command.
+            context.getSource().sendFailure(Component.literal(
+                    "Run this as a player. Progress belongs to a team, and the console is not in one."));
             return 0;
         }
 

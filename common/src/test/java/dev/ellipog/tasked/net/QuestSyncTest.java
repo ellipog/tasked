@@ -7,6 +7,7 @@ import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.progress.TeamProgress;
 import dev.ellipog.tasked.quest.Fixtures;
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
+import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestShape;
 import net.minecraft.world.item.ItemStack;
@@ -92,10 +93,89 @@ class QuestSyncTest {
 
         for (String key : List.of("\"quests\"", "\"chapterId\"", "\"chapterTitle\"", "\"id\"",
                 "\"title\"", "\"icon\"", "\"x\"", "\"y\"", "\"size\"", "\"shape\"",
-                "\"invisible\"",
+                "\"iconScale\"", "\"showTitle\"", "\"invisible\"", "\"chapterLinear\"", "\"order\"",
                 "\"description\"", "\"dependsOn\"", "\"tasks\"", "\"rewards\"")) {
             assertTrue(json.contains(key), "the tree JSON has no " + key + " field");
         }
+    }
+
+    @Test
+    @DisplayName("the icon scale and the name flag arrive, since the validator accepts both")
+    void appearanceFieldsArrive() {
+        // The same defect as `shape`, which is why this test exists in the same shape as that one: a
+        // field the format accepts, the validator checks and `/tasked` prints -- and the wire never
+        // carries. It reads as supported and does nothing, which is worse than a field that is absent,
+        // because an author would look for the bug in the drawing code.
+        //
+        // Both of these are exactly that risk: they are presentation, so nothing on the server behaves
+        // differently when they are wrong, and no test that runs on the server can notice.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                q("plain").build(),
+                q("named").showTitle(true).iconScale(0.4).build()));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry plain = entryFor("plain");
+        ClientQuestCache.Entry named = entryFor("named");
+
+        assertEquals(0.75, plain.iconScale(), 1.0E-9,
+                "a quest with no iconScale in its file should arrive at the default");
+        assertFalse(plain.showTitle(),
+                "a quest with no showTitle in its file should arrive with the name NOT drawn");
+
+        assertEquals(0.4, named.iconScale(), 1.0E-9, "an explicit icon scale should survive the wire");
+        assertTrue(named.showTitle(), "and an explicit showTitle should survive it too");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"showTitle\":true"), "showTitle should travel as a boolean");
+    }
+
+    @Test
+    @DisplayName("an out-of-range icon scale from a server is clamped rather than drawn")
+    void anOutOfRangeIconScaleIsClamped() {
+        // The codec already bounds this on the *server*, over that server's files. What arrives is a
+        // number from possibly a different version, and the screen must not draw outside its node
+        // because of one -- the same reasoning as QuestShape.span clamping its own output.
+        String handWritten = "{\"version\":1,\"quests\":[{\"chapterId\":\"c\",\"chapterTitle\":\"C\","
+                + "\"id\":\"wild\",\"title\":\"Wild\",\"icon\":\"minecraft:stone\",\"x\":0,\"y\":0,"
+                + "\"size\":48,\"shape\":\"rounded\",\"iconScale\":99.0,\"showTitle\":false,"
+                + "\"description\":[],\"dependsOn\":[],\"tasks\":[],\"rewards\":[]},"
+                + "{\"chapterId\":\"c\",\"chapterTitle\":\"C\",\"id\":\"none\",\"title\":\"None\","
+                + "\"icon\":\"minecraft:stone\",\"x\":64,\"y\":0,\"size\":48,\"shape\":\"rounded\","
+                + "\"iconScale\":-5.0,\"showTitle\":false,\"description\":[],\"dependsOn\":[],"
+                + "\"tasks\":[],\"rewards\":[]}]}";
+        ClientQuestCache.acceptTree(2, 1, handWritten.getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(QuestShape.MAX_ICON_SCALE, entryFor("wild").iconScale(), 1.0E-9);
+        assertEquals(QuestShape.MIN_ICON_SCALE, entryFor("none").iconScale(), 1.0E-9);
+    }
+
+    @Test
+    @DisplayName("a linear chapter arrives marked linear, with its quests in order")
+    void aLinearChapterTravels() {
+        // A linear chapter declares no dependencies at all -- the list order is the progression -- so
+        // without these two fields the client draws a row of unconnected nodes for a chapter that is,
+        // in fact, a road. The lines have to come from somewhere, and the server is the only thing that
+        // knows.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"progressionMode\": \"linear\",",
+                q("first").build(), q("second").build(), q("third").build()));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
+            assertTrue(entry.chapterLinear(),
+                    entry.id() + " is in a linear chapter, but arrived as flexible");
+        }
+        assertEquals(0, entryFor("first").orderInChapter());
+        assertEquals(1, entryFor("second").orderInChapter());
+        assertEquals(2, entryFor("third").orderInChapter());
+
+        // And the default is not linear, because a chapter that declares nothing must not be treated as
+        // declaring an order -- FLEXIBLE is what the codec defaults to, and this is the same default
+        // arriving at the client.
+        QuestIndex flexible = Fixtures.indexOf(Fixtures.file(q("alone").build()));
+        ClientQuestCache.acceptTree(flexible.questCount(), flexible.chapterCount(),
+                QuestSync.treeAsJson(flexible));
+        assertFalse(entryFor("alone").chapterLinear());
     }
 
     @Test
@@ -389,6 +469,70 @@ class QuestSyncTest {
         assertEquals(5, ClientQuestCache.taskProgressOf("a", 0));
         assertEquals(0, ClientQuestCache.taskProgressOf("a", 7), "an unknown task index must read as zero");
         assertEquals(0, ClientQuestCache.taskProgressOf("nonexistent", 0));
+    }
+
+    @Test
+    @DisplayName("a finished quest with rewards still to collect arrives as claimable, and stops once collected")
+    void claimableArrives() {
+        // The field the Claim button hangs on, and it was not on the wire at all until now -- which is
+        // the same shape of gap as `shape` before it: a value the engine records, `/tasked progress`
+        // prints, and no client ever hears about, so the button could not have existed.
+        //
+        // Both halves are asserted, because a flag that is only ever set is indistinguishable from one
+        // that is always true. The collected half is what makes this a test of the guard.
+        QuestIndex index = rewardedQuest();
+        Quest quest = Fixtures.quest(index, "a");
+
+        TeamProgress waiting = TeamProgress.empty().put(quest,
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, waiting, NOW), waiting, index),
+                CLIENT_TICK);
+
+        assertEquals(QuestState.COMPLETED, ClientQuestCache.stateOf("a"), "fixture sanity");
+        assertTrue(ClientQuestCache.canClaim("a"),
+                "a finished quest whose rewards nobody has collected must read as claimable on the "
+                        + "client, or there is nothing for a Claim button to be drawn from");
+
+        TeamProgress collected = waiting.put(quest,
+                waiting.progressOf(quest).withRewardsClaimed(true));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, collected, NOW), collected, index),
+                CLIENT_TICK);
+
+        assertFalse(ClientQuestCache.canClaim("a"), "and not once they have been collected");
+    }
+
+    @Test
+    @DisplayName("an unfinished quest is not claimable, however many rewards it carries")
+    void unfinishedIsNotClaimable() {
+        // The other half of the guard, and the half a "does it have rewards" shortcut gets wrong: a
+        // quest that is merely unlocked and carrying rewards must not offer a Claim button, or the
+        // button would be on screen from the moment the quest appeared.
+        QuestIndex index = rewardedQuest();
+        TeamProgress fresh = TeamProgress.empty();
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, fresh, NOW), fresh, index),
+                CLIENT_TICK);
+
+        assertEquals(QuestState.UNLOCKED, ClientQuestCache.stateOf("a"), "fixture sanity");
+        assertFalse(ClientQuestCache.canClaim("a"));
+    }
+
+    /**
+     * One quest with a reward, built through the real codecs.
+     *
+     * <p>A legitimate prize worth having, and deliberately not a consumable one: the item never has to
+     * be granted here, because these tests are about what travels on the wire. What matters is that the
+     * quest has a non-empty reward list, which is the first clause of the claimable guard.
+     */
+    private static QuestIndex rewardedQuest() {
+        return Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": ["
+                        + " { \"type\": \"tasked:checkmark\", \"title\": \"done\"} ],"
+                        + " \"rewards\": ["
+                        + " { \"type\": \"tasked:item\", \"item\": \"minecraft:wooden_axe\", \"count\": 1} ]}"));
     }
 
     @Test

@@ -11,7 +11,6 @@ import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,21 +44,55 @@ import java.util.stream.Stream;
  * <p>Files that fail are skipped rather than aborting the load. A questline of ten files with one
  * broken should still load the other nine — that is the difference between a typo being a nuisance
  * and it being a dead server.
+ *
+ * <h2>It reads, and only reads</h2>
+ *
+ * <p>Nothing here creates, writes, renames or deletes anything — not even the quest directory itself.
+ * That is a rule, and it was arrived at by getting it wrong twice.
+ *
+ * <p>The first version copied a questline out of the jar whenever the directory was <i>absent</i>. So
+ * a shipped file could only ever reach an install at the moment that install was created, and adding
+ * a second one to the jar reached nobody: every existing install already had the directory. The
+ * second version fixed that by recording which files had been offered and offering the rest — a
+ * bigger machine for a smaller problem, and still a mod writing content into a directory that belongs
+ * to whoever is playing.
+ *
+ * <p>The rule that replaced both: <b>the mod ships no quests.</b> A quest file belongs to the person
+ * who wrote it, and a loader that also writes has an opinion about content it has no business having
+ * an opinion about — a player who installs Tasked wants a quest engine, not three example chapters
+ * to delete, and every file a mod ships is a file that has to keep working forever against a format
+ * that is still moving.
+ *
+ * <p>So the worked examples live in the repository, at {@code tasked/tools/quests}, and reach a
+ * config directory because somebody ran {@code tasked/tools/seed_quests.py}. That script's header
+ * says why it is there rather than here; the short version is that deleting a file you wrote is a
+ * different act from discovering one you did not.
+ *
+ * <p>Two consequences are visible from outside, and both are intended:
+ *
+ * <ul>
+ *   <li><b>An absent directory is reported, not created.</b> The warning names the full path, which
+ *       is the useful half of what the old code did, without the write.</li>
+ *   <li><b>A fresh install has no quests.</b> An empty book is the designed state rather than a
+ *       failure, and it is what a pack author starts from.</li>
+ * </ul>
  */
 public final class QuestLoader {
 
     /** Relative to the config directory. */
     public static final String DIRECTORY = "tasked/quests";
 
-    /**
-     * The questline shipped inside the jar, copied out on first run.
-     *
-     * <p>Listed explicitly rather than discovered by listing the jar directory, because a jar has no
-     * directory listing — {@code getResource} on a folder works in a development environment and
-     * returns nothing in a packaged one. An explicit list behaves the same in both, which matters
-     * because this runs in the one place nobody tests until release.
-     */
-    private static final List<String> DEFAULT_FILES = List.of("01_stone_age.json");
+    // There is deliberately no list of shipped quest files here.
+    //
+    // There used to be: a `SHIPPED_FILES` constant naming three files in the jar's resources, which
+    // the loader copied into the config directory, plus a `.seeded` marker recording which of them
+    // had been offered so a deleted one would stay deleted. The class comment explains why both are
+    // gone. The short version is that the mod should not be the delivery mechanism for content it
+    // does not own, so the examples moved to `tasked/tools/quests` and out of the jar entirely.
+    //
+    // The tests followed them there. That is a small improvement in its own right: the file under
+    // test is now the file an author is pointed at, rather than a copy that travels through the
+    // build's resource processing and could differ from it.
 
     /** Files whose name starts with this are ignored, so an author can keep notes beside their work. */
     private static final String IGNORED_PREFIX = "_";
@@ -83,18 +116,21 @@ public final class QuestLoader {
     }
 
     /**
-     * Loads everything under {@code <configDir>/tasked/quests}, copying the built-in questline out
-     * first if the directory does not exist yet.
+     * Reads every quest file under {@code <configDir>/tasked/quests}.
+     *
+     * <p>A directory that is not there is reported and <b>not</b> created, which is the rule stated
+     * on the class. An absent or empty directory is a normal state rather than a failure: Tasked
+     * ships no quests, so this is what a fresh install looks like, and the warning names the full
+     * path so the fix is obvious from the message alone.
      */
     public static Result load(Path configDir) {
         Path directory = configDir.resolve(DIRECTORY);
         Problems problems = new Problems();
 
-        copyDefaultsIfMissing(directory, problems);
-
         if (!Files.isDirectory(directory)) {
             problems.add(DIRECTORY, new JsonLocation(1, 1, "$"), DataProblem.Severity.WARNING,
-                    "no quest directory at " + directory + ", so there are no quests to load");
+                    "no quest directory at " + directory + ", so there are no quests to load. Tasked"
+                            + " ships no quests of its own; this directory is where they go.");
             return new Result(QuestIndex.build(List.of(), problems), problems, 0, 0, 0);
         }
 
@@ -189,48 +225,6 @@ public final class QuestLoader {
         catch (IOException e) {
             Constants.LOG.error("Could not list {}: {}", directory, e.getMessage());
             return List.of();
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Defaults
-    // ------------------------------------------------------------------
-
-    /**
-     * Copies the jar's questline into {@code config/tasked/quests} if that directory is absent.
-     *
-     * <p>Only when it is <b>absent</b>, never when it exists but is empty. A player who deleted every
-     * quest deliberately should not have them come back on the next restart, which is the bug that
-     * makes an install feel haunted.
-     */
-    private static void copyDefaultsIfMissing(Path directory, Problems problems) {
-        if (Files.exists(directory)) {
-            return;
-        }
-        try {
-            Files.createDirectories(directory);
-        }
-        catch (IOException e) {
-            problems.add(DIRECTORY, new JsonLocation(1, 1, "$"), DataProblem.Severity.ERROR,
-                    "could not create " + directory + ": " + e.getMessage());
-            return;
-        }
-
-        for (String name : DEFAULT_FILES) {
-            String resource = "/tasked/default_quests/" + name;
-            try (InputStream in = QuestLoader.class.getResourceAsStream(resource)) {
-                if (in == null) {
-                    problems.add(DIRECTORY, new JsonLocation(1, 1, "$"), DataProblem.Severity.WARNING,
-                            "the built-in questline file " + resource + " is missing from the jar");
-                    continue;
-                }
-                Files.write(directory.resolve(name), in.readAllBytes());
-                Constants.LOG.info("Tasked: wrote the built-in questline to {}", directory.resolve(name));
-            }
-            catch (IOException e) {
-                problems.add(DIRECTORY, new JsonLocation(1, 1, "$"), DataProblem.Severity.ERROR,
-                        "could not write " + name + ": " + e.getMessage());
-            }
         }
     }
 

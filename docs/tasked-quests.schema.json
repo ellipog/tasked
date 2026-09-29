@@ -71,7 +71,17 @@
       "properties": {
         "id": { "$ref": "#/definitions/id" },
         "title": { "$ref": "#/definitions/text" },
-        "description": { "$ref": "#/definitions/text" },
+        "description": {
+          "oneOf": [
+            { "$ref": "#/definitions/text" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/definitions/text" },
+              "description": "One string per paragraph. Also accepts a bare string, for a one-line description."
+            }
+          ],
+          "description": "A list of paragraphs, as a chapter's and a quest's are. A bare string is also accepted."
+        },
         "aliases": {
           "type": "array",
           "items": { "$ref": "#/definitions/id" },
@@ -96,11 +106,23 @@
         },
         "icon": { "$ref": "#/definitions/itemRef" },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+
+        "progressionMode": {
+          "enum": ["flexible", "linear"],
+          "default": "flexible",
+          "description": "In a linear chapter the order of the quests list *is* the progression: each unlocks when the one above it completes, and no dependsOn is needed. A linear chapter that also declares dependsOn is a warning, not an error — the explicit edges win and the list order is then doing nothing."
+        },
         "defaultPrerequisiteMode": {
           "enum": ["all_completed", "one_completed", "all_started", "one_started"],
           "default": "all_completed",
           "description": "What every quest in this chapter uses unless it says otherwise."
         },
+        "defaultConsumeItems": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether item tasks in this chapter take the items unless the task says otherwise. The inherited default, which is why it lives here: an author sets it once for a whole trade chapter."
+        },
+
         "quests": { "type": "array", "items": { "$ref": "#/definitions/quest" } }
       }
     },
@@ -141,6 +163,33 @@
           "default": "rounded"
         },
         "size": { "type": "integer", "minimum": 16, "maximum": 512, "default": 48 },
+        "iconScale": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 1.0,
+          "default": 0.75,
+          "description": "How much of the largest square that fits the node the icon fills. 1.0 is corner to corner; the default leaves a margin so the node's shape reads."
+        },
+        "showTitle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw this quest's name under its node. Off by default: a canvas of fifty names is a wall of text, and the name is on hover for every quest either way."
+        },
+        "sequentialTasks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tasks must be done in order: the second cannot be handed in until the first is."
+        },
+        "repeatCooldownTicks": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Ticks to wait between completions of a repeatable quest. 2400 is two minutes."
+        },
+        "exclusiveGroup": {
+          "type": "string",
+          "description": "Quests sharing a group name are mutually exclusive: completing one locks the others for good. Scoped to the chapter."
+        },
 
         "tasks": { "type": "array", "items": { "$ref": "#/definitions/anyType" } },
         "rewards": { "type": "array", "items": { "$ref": "#/definitions/anyType" } },
@@ -148,7 +197,7 @@
         "repeatable": {
           "type": "boolean",
           "default": false,
-          "description": "Completable more than once. Not yet implemented — the flag is stored and the engine arrives in Stage 3."
+          "description": "Completable more than once. Its timesCompleted survives each completion, and something depending on it stays satisfied."
         },
         "invisible": {
           "type": "boolean",
@@ -175,6 +224,10 @@
           "maximum": 72000,
           "default": 20,
           "description": "Tasks only. How often the task is re-checked, in ticks. Raise it for an expensive check."
+        },
+        "consumeItems": {
+          "type": "boolean",
+          "description": "tasked:item — whether handing this in takes the items. Falls back to the chapter's defaultConsumeItems."
         },
         "item": { "type": "string", "description": "tasked:item — namespaced item id." },
         "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 },

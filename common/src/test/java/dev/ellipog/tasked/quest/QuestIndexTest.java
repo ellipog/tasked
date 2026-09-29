@@ -9,11 +9,16 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static dev.ellipog.tasked.quest.Fixtures.q;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -244,13 +249,17 @@ class QuestIndexTest {
     class Crowding {
 
         @Test
-        @DisplayName("two long titles 64px apart in one row warn")
+        @DisplayName("two long titles 64px apart in one row warn, if both are drawn")
         void closeTogetherInARowWarn() {
             // 64 is the spacing that produced the bug: three nodes 64px apart carrying titles around
             // 90-120px, so their labels were drawn through each other.
+            //
+            // `showTitle(true)` on both is not incidental detail -- it is what makes this the case the
+            // check is about. Titles are off by default, so without it there would be nothing drawn in
+            // that 64 pixels and nothing to collide.
             Problems problems = problemsOf(Fixtures.file(
-                    q(LONG_ID).at(0, 0).build(),
-                    q(WIDER_ID).at(64, 0).build()));
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(64, 0).showTitle(true).build()));
 
             assertTrue(!problems.hasErrors(), "crowding is a warning, not a failure:");
             assertMentions(problems, "pixels apart in the same row");
@@ -258,13 +267,43 @@ class QuestIndexTest {
         }
 
         @Test
-        @DisplayName("the same two titles at 132px apart do not warn")
+        @DisplayName("the same two quests 64px apart with neither name drawn do not warn")
+        void unnamedQuestsCannotCrowd() {
+            // The case the labels' new default created, and the reason the check had to change with it.
+            // Two 20-character titles 64 pixels apart look exactly like the reported bug -- and nothing
+            // at all is drawn between them, so there is nothing to report.
+            //
+            // A check that ignored this would fire on every tightly-packed chapter of unnamed nodes,
+            // which is a layout the default now actively encourages.
+            Problems problems = problemsOf(Fixtures.file(
+                    q(LONG_ID).at(0, 0).build(),
+                    q(WIDER_ID).at(64, 0).build()));
+
+            assertDoesNotMention(problems, "pixels apart in the same row");
+        }
+
+        @Test
+        @DisplayName("and one named beside one unnamed does not warn either")
+        void oneNamedNeighbourIsNotCrowding() {
+            // Half the pair is drawn, so the drawn one has the whole 64 pixels to itself. That is a
+            // real difference from "both are drawn" rather than a technicality: the screen measures the
+            // room from the names it is going to draw, so an unnamed neighbour contributes no
+            // competition for the space.
+            Problems problems = problemsOf(Fixtures.file(
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(64, 0).build()));
+
+            assertDoesNotMention(problems, "pixels apart in the same row");
+        }
+
+        @Test
+        @DisplayName("the same two names at 132px apart do not warn")
         void generousSpacingDoesNotWarn() {
             // 132 is what the shipped example questline now uses. If this ever starts warning, the
             // threshold has drifted away from the label cap the client actually applies.
             Problems problems = problemsOf(Fixtures.file(
-                    q(LONG_ID).at(0, 0).build(),
-                    q(WIDER_ID).at(132, 0).build()));
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(132, 0).showTitle(true).build()));
 
             assertDoesNotMention(problems, "pixels apart in the same row");
         }
@@ -276,8 +315,8 @@ class QuestIndexTest {
             // about 18px, so 64px of room is ample -- and warning here would be noise, which is how a
             // check gets ignored.
             Problems problems = problemsOf(Fixtures.file(
-                    q("aaa").at(0, 0).build(),
-                    q("bbb").at(64, 0).build()));
+                    q("aaa").at(0, 0).showTitle(true).build(),
+                    q("bbb").at(64, 0).showTitle(true).build()));
 
             assertDoesNotMention(problems, "pixels apart in the same row");
         }
@@ -289,8 +328,8 @@ class QuestIndexTest {
             // close the nodes are horizontally. Comparing every pair rather than only row-mates would
             // report a branch as a fault.
             Problems problems = problemsOf(Fixtures.file(
-                    q(LONG_ID).at(0, 0).build(),
-                    q(WIDER_ID).at(64, 64).build()));
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(64, 64).showTitle(true).build()));
 
             assertDoesNotMention(problems, "pixels apart in the same row");
         }
@@ -305,10 +344,24 @@ class QuestIndexTest {
             // document that is not JSON at all, and the test would then be asserting about a parse
             // failure rather than about chapters -- which is how it was written the first time.
             Problems problems = problemsOf(
-                    Fixtures.fileWithChapter("\"id\": \"one\",", q(LONG_ID).at(0, 0).build()),
-                    Fixtures.fileWithChapter("\"id\": \"two\",", q(WIDER_ID).at(64, 0).build()));
+                    Fixtures.fileWithChapter("\"id\": \"one\",", q(LONG_ID).at(0, 0).showTitle(true).build()),
+                    Fixtures.fileWithChapter("\"id\": \"two\",", q(WIDER_ID).at(64, 0).showTitle(true).build()));
 
             assertDoesNotMention(problems, "pixels apart in the same row");
+        }
+
+        @Test
+        @DisplayName("quests at the same coordinates in different chapters are not duplicates")
+        void samePositionInDifferentChaptersIsNotADuplicate() {
+            // Every chapter starts at 0,0, which is what makes a new chapter easy to write -- and this
+            // is the check that had to be keyed by chapter when a second shipped file started doing it.
+            // Reporting the first quest of every chapter as stacked would make the natural layout
+            // impossible, and the message would be about coordinates rather than about anything wrong.
+            Problems problems = problemsOf(
+                    Fixtures.fileWithChapter("\"id\": \"one\",", q(LONG_ID).at(0, 0).build()),
+                    Fixtures.fileWithChapter("\"id\": \"two\",", q(WIDER_ID).at(0, 0).build()));
+
+            assertDoesNotMention(problems, "is at the same position");
         }
 
         @Test
@@ -319,8 +372,8 @@ class QuestIndexTest {
             // author to skim the output, and "these two titles will overlap" is not the interesting
             // part of two nodes being on top of each other.
             Problems problems = problemsOf(Fixtures.file(
-                    q(LONG_ID).at(0, 0).build(),
-                    q(WIDER_ID).at(0, 0).build()));
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(0, 0).showTitle(true).build()));
 
             assertMentions(problems, "is at the same position");
             assertDoesNotMention(problems, "pixels apart in the same row");
@@ -333,9 +386,9 @@ class QuestIndexTest {
             // Each adjacent pair, not just the first. An author who fixes only the pair they were told
             // about would otherwise have to reload once per collision.
             Problems problems = problemsOf(Fixtures.file(
-                    q(LONG_ID).at(0, 0).build(),
-                    q(WIDER_ID).at(64, 0).build(),
-                    q(LONG_ID + "_b").at(128, 0).build()));
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(64, 0).showTitle(true).build(),
+                    q(LONG_ID + "_b").at(128, 0).showTitle(true).build()));
 
             long crowded = problems.all().stream()
                     .filter(problem -> problem.message().contains("pixels apart in the same row"))
@@ -345,33 +398,317 @@ class QuestIndexTest {
     }
 
     // ------------------------------------------------------------------
-    // The shipped questline
+    // The mod ships nothing, and the examples are examples
     // ------------------------------------------------------------------
 
-    @Test
-    @DisplayName("the shipped example questline reports nothing at all")
-    void theShippedExampleIsClean() {
-        // Read from the mod's own resources rather than a fixture, so the file a fresh install seeds
-        // is the one under test. Its spacing was 64 until the labelling bug, and this is what stops it
-        // drifting back: a change to the example that reintroduces crowding fails here rather than on
-        // someone's screen.
-        String json = readResource("/tasked/default_quests/01_stone_age.json");
-        Problems problems = problemsOf(json);
+    /**
+     * Where the worked examples live.
+     *
+     * <p><b>Not</b> in {@code src/main/resources}. They used to be: {@code /tasked/default_quests/} in
+     * the jar, copied into {@code config/tasked/quests} by the loader. They moved out for two reasons,
+     * and the first is the important one — a mod that installs three example chapters into every
+     * player's config directory has decided something that is not its to decide, and the first thing a
+     * pack author would have to do is delete somebody else's content.
+     *
+     * <p>The second is smaller and still real: a quest file in the jar is a file that has to keep
+     * working forever against a format that is still moving, and every format change is a migration
+     * for content nobody asked for.
+     *
+     * <p>So they are authoring documentation in the repository, and
+     * {@code tasked/tools/seed_quests.py} is what copies them somewhere. An author reads them; a
+     * player never sees them unless they ask, which is the whole difference.
+     *
+     * <p>Relative to the Gradle project directory, which is {@code tasked/common} — the same place the
+     * old path was relative to, so the tests run from the same working directory either way.
+     */
+    private static final java.nio.file.Path EXAMPLES = java.nio.file.Path.of("..", "tools", "quests");
 
-        assertTrue(problems.isEmpty(), "the shipped questline should be clean, but reported:"
-                + messages(problems));
+    /** The examples, name-sorted, {@code _}-prefixed excluded — the same rule the loader and the script use. */
+    private static List<String> exampleNames() throws java.io.IOException {
+        List<String> out = new java.util.ArrayList<>();
+        try (var files = java.nio.file.Files.list(EXAMPLES)) {
+            for (java.nio.file.Path path : files.toList()) {
+                String name = path.getFileName().toString();
+                // `_`-prefixed files are the deliberately-broken fixtures the loader skips by prefix.
+                // Asserting they are clean would be asserting the opposite of what they are for.
+                if (name.endsWith(".json") && !name.startsWith("_")) {
+                    out.add(name);
+                }
+            }
+        }
+        java.util.Collections.sort(out);
+        return out;
     }
 
-    private static String readResource(String path) {
-        try (var stream = QuestIndexTest.class.getResourceAsStream(path)) {
-            if (stream == null) {
-                throw new AssertionError("no resource at " + path
-                        + " - it should be in tasked/common/src/main/resources");
-            }
-            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    private static String readExample(String name) throws java.io.IOException {
+        return java.nio.file.Files.readString(EXAMPLES.resolve(name),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("the mod ships no quests of its own, in the source tree or on the classpath")
+    void theModShipsNoQuests() {
+        // The rule this round was about, pinned in the two places it could break.
+        //
+        // Both halves are needed. The source-tree check catches somebody putting the files back; the
+        // classpath check catches a file that reached the built output some other way — a stale copy
+        // in `build/resources`, or a resource added under a different path. Only the second one is a
+        // check of what actually ends up in the jar.
+        java.nio.file.Path inSource = java.nio.file.Path.of(
+                "src", "main", "resources", "tasked", "default_quests");
+        assertFalse(java.nio.file.Files.exists(inSource),
+                "the mod is shipping quest files again, at " + inSource.toAbsolutePath()
+                        + ". They belong in tasked/tools/quests, where they are authoring documentation"
+                        + " rather than content installed into every player's config directory.");
+
+        assertNull(QuestIndexTest.class.getResource("/tasked/default_quests/01_stone_age.json"),
+                "a quest file is on the classpath, so it is in the jar. Delete it from"
+                        + " src/main/resources -- the examples live in tasked/tools/quests now, and"
+                        + " tasked/tools/seed_quests.py is what puts them in a config directory.");
+    }
+
+    @Test
+    @DisplayName("every example questline loads with nothing wrong in it")
+    void everyExampleQuestlineIsClean() throws java.io.IOException {
+        // Read from the repository rather than a fixture, so the file an author is pointed at is the
+        // one under test. `01_stone_age`'s spacing was 64 until the labelling bug, and this is what
+        // stops it drifting back: a change that reintroduces crowding fails here rather than on
+        // someone's screen.
+        //
+        // A loop over the directory rather than one file by name, because it used to read
+        // `01_stone_age.json` alone — so a second example could have shipped with a broken dependency
+        // in it and this test would have stayed green, wrong about the thing it was named for.
+        assertTrue(java.nio.file.Files.isDirectory(EXAMPLES),
+                "expected the examples at " + EXAMPLES.toAbsolutePath()
+                        + " -- the tests run from the Gradle project directory, so this is relative to"
+                        + " tasked/common");
+
+        List<String> onDisk = exampleNames();
+        assertFalse(onDisk.isEmpty(), "there are no examples at all in " + EXAMPLES);
+
+        for (String name : onDisk) {
+            Problems problems = problemsOf(readExample(name));
+            assertTrue(problems.isEmpty(), name + " should load cleanly, but reported:"
+                    + messages(problems));
         }
-        catch (java.io.IOException e) {
-            throw new AssertionError("could not read " + path, e);
+    }
+
+    @Test
+    @DisplayName("the examples are four different designs, not one four times")
+    void theExampleQuestlinesExerciseDifferentThings() throws java.io.IOException {
+        // A test that says what the example content is *for*, so a future tidy-up cannot quietly turn
+        // four demonstrations into four copies of the first one. The descriptions in the files already
+        // claim all of this; this is the version a compiler reads.
+        Problems problems = new Problems();
+        List<LoadedQuestFile> loaded = new ArrayList<>();
+        for (String name : exampleNames()) {
+            String display = "examples/" + name;
+            JsonDocument document = Fixtures.document(display, readExample(name));
+            loaded.add(new LoadedQuestFile(java.nio.file.Path.of(display), display, document,
+                    Fixtures.decode(display, document)));
+        }
+        QuestIndex index = QuestIndex.build(loaded, problems);
+
+        assertTrue(problems.isEmpty(), "fixture sanity -- the examples should be clean first:"
+                + messages(problems));
+
+        List<Quest> all = new ArrayList<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            all.add(entry.quest());
+        }
+
+        // The mechanics, each of which exists in exactly one place and is named in the file that has it.
+        assertTrue(all.stream().anyMatch(Quest::repeatable), "a repeatable quest");
+        assertTrue(all.stream().anyMatch(quest -> quest.repeatCooldownTicks() > 0), "with a cooldown");
+        assertTrue(all.stream().anyMatch(Quest::sequentialTasks), "a quest with sequential tasks");
+        assertTrue(all.stream().anyMatch(Quest::invisible), "a hidden quest");
+        assertTrue(all.stream().anyMatch(Quest::showTitle), "a quest whose name is drawn");
+        assertTrue(all.stream().anyMatch(quest -> quest.exclusiveGroup().isPresent()), "an exclusive pair");
+        assertTrue(all.stream().anyMatch(quest -> quest.minRequired() > 0), "an OR-gate");
+        assertTrue(all.stream().anyMatch(quest -> quest.tasks().stream().anyMatch(QuestTask::optional)),
+                "an optional task");
+        assertTrue(all.stream().anyMatch(quest -> quest.tasks().isEmpty() == false
+                        && quest.tasks().stream().anyMatch(task -> task instanceof
+                        dev.ellipog.tasked.quest.task.ItemTask item
+                        && item.consumes(false))),
+                "a task that takes the items");
+
+        // Every shape, because the shapes are the thing a still cannot show the difference between
+        // unless the content actually varies -- which was the defect this project already had once.
+        for (QuestShape shape : QuestShape.values()) {
+            assertTrue(all.stream().anyMatch(quest -> quest.layout().shape() == shape),
+                    "no example quest uses the " + shape + " shape, so nothing exercises it");
+        }
+
+        // And a chapter that is LINEAR, because the list order being the progression is a whole
+        // mechanism that is otherwise never read by anything outside a test fixture.
+        boolean linear = index.files().stream()
+                .flatMap(file -> file.file().chapterGroups().stream())
+                .flatMap(group -> group.chapters().stream())
+                .anyMatch(chapter -> chapter.progressionMode() == ProgressionMode.LINEAR);
+        assertTrue(linear, "no example chapter is LINEAR");
+
+        // And the two defaults, by their absence: most quests draw no name and take no items, which is
+        // what makes the exceptions in the files mean something.
+        long named = all.stream().filter(Quest::showTitle).count();
+        assertTrue(named < all.size() / 2,
+                "most example quests should NOT draw their name -- that is the default, and a file where"
+                        + " every quest opts in is not demonstrating anything");
+    }
+
+    @Test
+    @DisplayName("the theme gallery's fifteen chapters are the same layout with different content")
+    void theThemeGalleryIsComparable() throws java.io.IOException {
+        // The fourth example has exactly one job: let someone switch theme and see what changed. That
+        // only works if the three chapters differ in **nothing but their palette** -- otherwise a
+        // difference on screen could be the theme or the content, and an exhibit that varies two things
+        // at once demonstrates neither.
+        //
+        // So this asserts the two halves of that, and they pull in opposite directions on purpose:
+        //
+        //   - **Geometry identical**, quest for quest, position and shape and size and icon scale. That
+        //     is what makes flipping between chapters a comparison rather than a new screen.
+        //   - **Titles all different**, because three chapters with identical tiles would be one chapter
+        //     written three times, which is the thing the test above this one exists to prevent.
+        //
+        // The interesting failure this catches is not a typo. It is somebody later "tidying" the third
+        // chapter's positions because they looked arbitrary, which would silently turn the one piece of
+        // content whose whole design is comparability into three unrelated chapters.
+        QuestFile file = Fixtures.decode("gallery", Fixtures.document("gallery",
+                readExample("04_theme_gallery.json")));
+
+        List<Chapter> chapters = file.chapterGroups().stream()
+                .flatMap(group -> group.chapters().stream())
+                .toList();
+        // One chapter per shipped theme, asserted as a number rather than as "at least one". The
+        // gallery is the only thing that demonstrates a theme by being clicked, so a chapter quietly
+        // dropped makes a theme unreachable from the UI -- and nothing else in the build would notice,
+        // because a theme nobody can select is still a perfectly valid theme.
+        assertEquals(15, chapters.size(),
+                "the theme gallery should be one chapter per shipped theme: " + chapters.stream()
+                        .map(Chapter::id).toList());
+
+        // Geometry, as strings, so a mismatch names the field it is in rather than printing two records
+        // that differ somewhere the reader has to find.
+        //
+        // The quest's **id is deliberately absent** from this string, and that is the whole trick: the
+        // three chapters have different content, so their ids differ by design. Including the id would
+        // make the comparison fail for every chapter and the assertion would look like it was testing
+        // something when it was testing "these are three different files".
+        List<List<String>> geometries = new ArrayList<>();
+        for (Chapter chapter : chapters) {
+            List<String> geometry = new ArrayList<>();
+            for (Quest quest : chapter.quests()) {
+                QuestLayout layout = quest.layout();
+                geometry.add(layout.x() + "," + layout.y() + " as " + layout.shape() + " " + layout.size()
+                        + " icon " + layout.iconScale());
+            }
+            geometries.add(geometry);
+        }
+        assertEquals(6, geometries.get(0).size(),
+                "each gallery chapter is six quests, so one of them lost or gained one: "
+                        + geometries.get(0));
+
+        // Every chapter against the first, named, so a failure says *which* chapter drifted rather
+        // than printing fifteen identical-looking lists. Writing this out as a loop rather than fifteen
+        // assertions is the same choice as the token registry: the invariant is "all of them agree",
+        // and a hand-written list is one that the sixteenth theme is left out of.
+        for (int i = 1; i < geometries.size(); i++) {
+            assertEquals(geometries.get(0), geometries.get(i),
+                    "chapter " + i + " ('" + chapters.get(i).id() + "') has different geometry from"
+                            + " chapter 0 ('" + chapters.get(0).id() + "'), so a difference seen while"
+                            + " flipping between them is not attributable to the theme");
+        }
+
+        // And the content is genuinely different, which is the other half. Without this the three
+        // chapters would be one chapter written three times, which is the failure the test above this
+        // one exists to prevent.
+        Set<String> titles = new LinkedHashSet<>();
+        Set<String> icons = new LinkedHashSet<>();
+        for (Chapter chapter : chapters) {
+            for (Quest quest : chapter.quests()) {
+                // Resolved rather than read, because a title is a `QuestText` -- either a literal or a
+                // translation key. Comparing the keys would pass for three chapters whose titles all
+                // read the same to a player, which is the opposite of what this asserts.
+                titles.add(quest.title().component().getString());
+                icons.add(quest.icon().toString());
+            }
+        }
+        assertEquals(90, titles.size(),
+                "two gallery quests share a title, so two chapters are partly the same chapter");
+        assertTrue(icons.size() >= 30,
+                "the chapters reuse icons heavily, which makes them harder to tell apart than the"
+                        + " theme already makes them: " + icons.size() + " distinct icons across"
+                        + " 90 quests");
+
+        // And the half that makes the whole file work: every chapter names a theme, and they are all
+        // different.
+        //
+        // This is not a formality, and the first version of this file is why. It predated the theme
+        // field and relied on a command instead, so clicking between its chapters changed nothing --
+        // which is the reported bug, and it was reported as "they all look identical, just clicking
+        // through them". A chapter with no `theme` is not a broken chapter; it is a chapter making no
+        // claim. Several of them in a row is a gallery that demonstrates nothing, and only a test of
+        // the *set* can see that, because every individual chapter is well-formed.
+        List<String> themes = chapters.stream().map(chapter -> chapter.theme().orElse("")).toList();
+        assertFalse(themes.contains(""),
+                "a gallery chapter names no theme, so it looks identical to whichever chapter came"
+                        + " before it: " + themes);
+        assertEquals(chapters.size(), new LinkedHashSet<>(themes).size(),
+                "two gallery chapters name the same theme, so one of the fifteen is demonstrated twice"
+                        + " and a theme is missing from the gallery: " + themes);
+
+        // And every name it uses is one this build has, which is the assertion that makes the count
+        // above mean something. A gallery of fifteen chapters naming fifteen names, one of which is a
+        // typo, passes the distinctness check and shows the player fourteen themes -- so the two
+        // together are the property, not either on its own. `exampleThemesExist` below covers the same
+        // ground for all four shipped files; this narrows it to the one where a missing theme is
+        // invisible rather than merely wrong.
+        for (String theme : themes) {
+            assertNotNull(dev.ellipog.armature.client.ui.Themes.byName(theme),
+                    "the gallery asks for a theme called '" + theme + "', which this build does not"
+                            + " have. It has: " + dev.ellipog.armature.client.ui.Themes.names());
+        }
+    }
+
+    @Test
+    @DisplayName("every theme a shipped example names is one this build actually has")
+    void exampleThemesExist() throws java.io.IOException {
+        // The failure this catches is the quietest one in the whole theme feature, and it is worth
+        // being explicit about why it needs a test at all.
+        //
+        // A chapter naming a theme that does not exist is *handled*: the client logs a line naming the
+        // chapter and the name, and carries on with the player's own theme. Handled well, in fact --
+        // refusing to open the chapter would be far worse. But handled silently from the author's
+        // side, and the shipped examples are the one place where a typo would reach the player before
+        // it reached anyone who could fix it.
+        //
+        // So the gallery's `theme` field is checked against the built-ins here rather than discovered
+        // in a log. It is the same reasoning as the shape field that was parsed, validated and printed
+        // by a command while nothing drew it: a value that only ever produces a warning at runtime is
+        // a value that is wrong for a while before anyone notices.
+        //
+        // Read from the tools directory rather than from a resource, because that is where the
+        // examples live -- they are documentation, and the mod deliberately ships no quests.
+        Set<String> builtIn = dev.ellipog.armature.client.ui.Themes.ALL.stream()
+                .map(dev.ellipog.armature.client.ui.Theme::name)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        for (String example : List.of("01_stone_age.json", "02_toolsmith.json", "03_desert_road.json",
+                "04_theme_gallery.json")) {
+            QuestFile file = Fixtures.decode(example, Fixtures.document(example,
+                    readExample(example)));
+            for (ChapterGroup group : file.chapterGroups()) {
+                for (Chapter chapter : group.chapters()) {
+                    if (chapter.theme().isEmpty()) {
+                        continue;
+                    }
+                    assertTrue(builtIn.contains(chapter.theme().get()),
+                            example + "'s chapter '" + chapter.id() + "' asks for a theme called '"
+                                    + chapter.theme().get() + "', which this build does not have. It has: "
+                                    + builtIn);
+                }
+            }
         }
     }
 }

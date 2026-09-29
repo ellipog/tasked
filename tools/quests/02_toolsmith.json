@@ -1,0 +1,269 @@
+{
+  "$schema": "../tasked-quests.schema.json",
+
+  "version": 1,
+
+  "chapterGroups": [
+    {
+      "id": "the_trade",
+      "title": "The Trade",
+      "description": [
+        "What a blacksmith's shop actually is, which is a pile of",
+        "iron and a person who has decided to be patient with it."
+      ],
+      "chapters": [
+        {
+          "id": "toolsmith",
+          "title": "Toolsmith",
+          "subtitle": "Branches, a repeatable job, and a hoard",
+          "icon": { "item": "minecraft:anvil" },
+
+          "quests": [
+            {
+              "id": "smelt_iron",
+              "title": "Iron, Twice",
+              "subtitle": "The first one is a lesson",
+              "description": [
+                "Three ingots. The first one teaches you to make a furnace,",
+                "the second teaches you to stand next to it, and the third",
+                "is the one you get to keep."
+              ],
+              "icon": { "item": "minecraft:iron_ingot" },
+              "x": 0,
+              "y": 0,
+              "showTitle": true,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 3 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:iron_block", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "forge_a_hammer",
+              "title": "Something to Hit With",
+              "description": [
+                "Four sticks is a hammer, apparently,",
+                "and this is the last time a crafting recipe will surprise you."
+              ],
+              "icon": { "item": "minecraft:anvil" },
+              "x": 132,
+              "y": 0,
+
+              "dependsOn": ["smelt_iron"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:stick", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:iron_sword", "count": 1 },
+                { "type": "tasked:xp", "amount": 3 }
+              ]
+            },
+
+            {
+              "id": "specialise_blade",
+              "title": "The Blade",
+              "subtitle": "One of these two, not both",
+              "description": [
+                "Two quests here share an exclusive group, so finishing one",
+                "locks the other for good. The lock is deliberate and it is",
+                "the only unrecoverable decision in this chapter --",
+                "/tasked reset clears it if you want to try the other."
+              ],
+              "icon": { "item": "minecraft:iron_sword" },
+              "x": 264,
+              "y": 0,
+
+              "dependsOn": ["forge_a_hammer"],
+              "exclusiveGroup": "specialisation",
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 2 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "specialise_tools",
+              "title": "The Tools",
+              "subtitle": "The other one",
+              "description": [
+                "The pickaxe instead of the sword. Cheaper to maintain,",
+                "less good at being a sword."
+              ],
+              "icon": { "item": "minecraft:iron_pickaxe" },
+              "x": 396,
+              "y": 0,
+
+              "dependsOn": ["forge_a_hammer"],
+              "exclusiveGroup": "specialisation",
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:oak_planks", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+              ]
+            },
+
+            {
+              "id": "tend_the_forge",
+              "title": "Stoke the Fire",
+              "subtitle": "Repeatable, with a cooldown",
+              "description": [
+                "A hexagonal node with a cooldown ring around it.",
+                "Four coal every two minutes, forever -- which is not much,",
+                "and is the point: a repeatable job should pay for the walk.",
+                "",
+                "The shape is a hint about what a node is. Nothing enforces it;",
+                "a file can draw a repeatable quest as anything at all.",
+                "",
+                "The icon is at iconScale 0.55, so it sits smaller in its node",
+                "than the quests around it -- which is how a minor, repeatable",
+                "job is told apart from a one-off milestone at a glance."
+              ],
+              "icon": { "item": "minecraft:coal" },
+              "x": 132,
+              "y": 104,
+              "shape": "hexagon",
+              "size": 44,
+              "iconScale": 0.55,
+
+              "dependsOn": ["smelt_iron"],
+              "repeatable": true,
+              "repeatCooldownTicks": 2400,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:coal", "count": 4 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:torch", "count": 8 }
+              ]
+            },
+
+            {
+              "id": "build_all_the_things",
+              "title": "One of the Two Above",
+              "subtitle": "minRequired, so either branch will do",
+              "description": [
+                "This quest needs one of its two dependencies, not both --",
+                "because the two above are mutually exclusive and requiring",
+                "both would make this quest impossible.",
+                "",
+                "minRequired is how an OR-gate is written. It wins over the",
+                "chapter's prerequisite mode, which is why setting it makes",
+                "the mode irrelevant here."
+              ],
+              "icon": { "item": "minecraft:chest" },
+              "x": 264,
+              "y": 104,
+
+              "dependsOn": ["specialise_blade", "specialise_tools"],
+              "minRequired": 1,
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:chest", "count": 1 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:crafting_table", "count": 1 },
+                { "type": "tasked:xp", "amount": 5, "levels": true }
+              ]
+            },
+
+            {
+              "id": "the_long_road",
+              "title": "One Thing at a Time",
+              "subtitle": "Sequential tasks",
+              "description": [
+                "Two checkmarks, and the second one cannot be handed in",
+                "until the first is done. Open the quest and the Submit",
+                "button moves down to task two, because the first is behind it.",
+                "",
+                "Sequential tasks are how an order matters. Without the flag",
+                "the two could be handed in in either order, or both at once."
+              ],
+              "icon": { "item": "minecraft:oak_boat" },
+              "x": 132,
+              "y": 208,
+
+              "dependsOn": ["build_all_the_things"],
+              "sequentialTasks": true,
+
+              "tasks": [
+                { "type": "tasked:checkmark", "title": "I found the wood" },
+                { "type": "tasked:checkmark", "title": "And I found the iron" }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 10 }
+              ]
+            },
+
+            {
+              "id": "optional_curiosity",
+              "title": "Curiosity",
+              "subtitle": "One required task, one that is not",
+              "description": [
+                "The glass is required. The checkmark under it is optional --",
+                "a bonus for reading, which the quest itself does not need.",
+                "",
+                "An optional task is still a button while it is undone, and",
+                "still counts towards nothing. If every task in a quest were",
+                "optional, any one of them would complete it."
+              ],
+              "icon": { "item": "minecraft:spyglass" },
+              "x": 264,
+              "y": 208,
+
+              "dependsOn": ["forge_a_hammer"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:glass", "count": 2 },
+                { "type": "tasked:checkmark", "title": "I read the optional one", "optional": true }
+              ],
+              "rewards": [
+                { "type": "tasked:xp", "amount": 5 }
+              ]
+            },
+
+            {
+              "id": "the_hoard",
+              "title": "The Hoard",
+              "subtitle": "Invisible until you have it",
+              "description": [
+                "You cannot see this node until the quest is complete.",
+                "Sort by chapter and there will be a gap where it sits,",
+                "which is the honest thing for a hidden quest to do --",
+                "a hidden node that leaves no gap tells you where it is.",
+                "",
+                "iconScale 0.95, the other end of the range from the forge",
+                "above: nearly the whole node, because a hoard should look",
+                "like it is overflowing the thing holding it."
+              ],
+              "icon": { "item": "minecraft:diamond" },
+              "x": 396,
+              "y": 208,
+              "shape": "tome",
+              "size": 36,
+              "iconScale": 0.95,
+              "invisible": true,
+
+              "dependsOn": ["tend_the_forge"],
+
+              "tasks": [
+                { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 }
+              ],
+              "rewards": [
+                { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

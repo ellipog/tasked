@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ArmatureScreens;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientQuestCache;
+import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
@@ -66,7 +67,16 @@ public final class TaskedFabricClient implements ClientModInitializer {
         // A payload can arrive for a world being left, and a cache holding it would be read by the
         // next world's screen. Cleared on disconnect rather than on connect, because the last sync of
         // a session is likely to arrive after any connect-time hook has already run.
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientQuestCache.clear());
+        //
+        // `forgetTransfers` bisects that, and it has to be here rather than inside the cache: the
+        // cache knows about quests, and the half-received chunks belong to the networking. A player
+        // who disconnects mid-tree would otherwise leave chunks in memory that no later message can
+        // complete -- the next connection's transfer ids are fresh ones -- so they would sit there
+        // until the cap in SyncWire.Reassembler evicted them.
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            ClientQuestCache.clear();
+            TaskedNetworking.forgetTransfers();
+        });
 
         Constants.LOG.info("Tasked: Fabric client ready");
     }
