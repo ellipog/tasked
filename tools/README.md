@@ -22,7 +22,7 @@ The four are four different *designs* rather than four difficulties of the same 
 | `01_stone_age.json` | The basics. A short chain, a couple of item tasks that do not consume, one checkmark. The one to read first, and the one the playthrough test plays. |
 | `02_toolsmith.json` | The mechanics. A branch, an OR-gate, an exclusive pair, a repeatable job with a cooldown, sequential tasks, an optional task, and a quest that stays hidden until it is done. |
 | `03_desert_road.json` | Linear progression with names drawn under the nodes, so a chapter where the list order *is* the progression is demonstrated rather than described. |
-| `04_theme_gallery.json` | One chapter per shipped UI theme — fifteen of them — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. |
+| `04_theme_gallery.json` | One chapter per shipped UI theme **apart from `default`** — fifteen of them — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. |
 
 `QuestIndexTest` asserts all of that, so a future tidy-up cannot quietly turn four demonstrations
 into four copies of the first one.
@@ -44,18 +44,28 @@ Each chapter names a theme in its **`theme`** field, which is what makes the fil
 ```
 
 **A chapter's theme covers the canvas and the quest overlay, and nothing else.** The sidebar, the
-header, the title, the buttons and the tooltips are drawn in *your* theme — the one the row at the
-foot of the sidebar cycles, kept in `config/armature/appearance.json`. So standing in a violet chapter
+header, the title, the buttons and the tooltips are drawn in *your* theme — a setting, kept in
+`config/armature/appearance.json`, and not one of these chapters at all. Standing in a violet chapter
 shows a violet canvas inside an otherwise unchanged book, and both are visible in one frame with no
 precedence rule between them.
 
-That split is why the theme row never fights with the chapter, and it replaced a design that did. A
-chapter's theme used to be an *override* of the player's: it won while you stood there, a click
-declined it, the decline lasted one visit, and two flags existed to remember that. It worked, and it
-is gone, because "how do I want this program to look" and "what does this chapter look like" turned
-out to be different questions about different regions of the screen rather than two answers to one
-question. The region is `ArmatureTheme.scope`; the chapter's colours are a `ThemePatch` over the
-player's, so a theme and a chapter do not compete and neither has to know the other exists.
+That split replaced a design that got it wrong. A chapter's theme used to be an *override* of the
+player's: it won while you stood there, a click declined it, the decline lasted one visit, and two
+flags existed to remember that. It worked, and it is gone, because "how do I want this program to
+look" and "what does this chapter look like" turned out to be different questions about different
+regions of the screen rather than two answers to one question. The region is `ArmatureTheme.scope`;
+the chapter's colours are a `ThemePatch` over the player's, so a theme and a chapter do not compete
+and neither has to know the other exists.
+
+**The book itself is drawn in the `default` theme**, which is not one of these fifteen: it is Modern's
+palette with square corners, and `Modern` in the catalogue keeps the rounded corners it has always
+had. That is why the chapter named Modern is worth opening first — it has the same colours as the frame
+around it and one value different, so the corner radius is the only thing that moves.
+
+There were two controls at the foot of the sidebar, a theme picker and a motion switch. Both are gone
+from the book: they are dev-mode tools now, the picker beside the theme editor it belongs with and the
+motion switch beside the accessibility settings it duplicates. A theme is a setting, and a setting that
+sits permanently under a chapter list in every book is one that was never quite in the right place.
 
 That is also why the geometry is copied between all fifteen chapters and nothing else is. If they
 differed in layout as well as palette, a difference you saw while clicking between them could be the
@@ -73,12 +83,22 @@ track and the panel behind it. Fifteen chapters is fifteen scrollbars, from High
 black to Copper's deliberate near-invisibility. If a chapter's scrollbar stops appearing, that
 paragraph got shorter and everything it was demonstrating went with it.
 
-Two of the themes carry a **corner radius** that differs from the rest — Tome and End at 8 against
-Modern's 4, Terminal and Vanilla Plus at 0 — and this is the one part of a theme the quest book does
-not draw. The radius is read and applied by everything built on Armature, which is the panels and
-controls of a *screen*; the book draws its own rectangles and they are square in every theme. So two
-chapters differing in radius look identical here, and that is a gap in the demonstration rather than
-a difference you are failing to see.
+The themes' **corner radii** differ — Tome and End are 8, Amethyst and Neon 6, Modern and the four
+written from it 4, Obsidian and Monochrome 2, and Terminal, Vanilla Plus and High Contrast 0 — and the
+radius is drawn, so it is one of the things to look at.
+
+It shows up in two places, and comparing them is the clearest demonstration of the region split in the
+whole gallery. **The book's own panel** — sidebar, header strip and all — is drawn in *your* theme, so
+it has square corners while you are on `default` no matter which chapter you are standing in. **The
+quest overlay** is inside the chapter's scope, so opening a quest rounds its panel to whatever the
+chapter asks for. Tome against Vanilla Plus is the pair to flip between: the same panel, drawn by the
+same code, at 8 and at 0.
+
+The radius is also the value that was *advertised but not drawn* until this round — every theme set
+one and nothing read it — so if you find a corner that is still square in a theme that says otherwise,
+it is a call site that has not been converted, and it is worth reporting. The interior surfaces of a
+panel are the ones most likely to be missed, because a panel rounds while the recessed area inside it
+does not.
 
 **An unknown theme name is handled rather than fatal, and it is reported.** A chapter naming a theme
 this build does not have leaves the player's own theme in force and logs a line naming the chapter and
@@ -86,10 +106,18 @@ the name. It does not refuse to open the chapter — one bad string in a quest f
 player their quests. `QuestIndexTest.exampleThemesExist` checks the shipped examples against the
 built-ins, so a typo in this file fails the build rather than reaching a player's log.
 
-**What does not change yet: the corner radius.** Every theme carries one and they really do differ
-(`tome` is 8, `modern` is 4, `vanilla_plus` is 0), but nothing draws a rounded control, so all three
-look the same at the corners. That is the one part of a theme not wired up, and it is stated in the
-chapter prose so nobody spends an afternoon looking for a difference that is not rendered.
+**The corner radius changes too.** Every theme carries one and they really do differ — `tome` and
+`end` are 8, `amethyst` and `neon` 6, `modern` and the four written from it 4, `obsidian` and
+`monochrome` 2, and `terminal`, `vanilla_plus` and `high_contrast` 0 — and the book's own panel, its
+sidebar, its header strip and the quest overlay are all rounded to whatever the theme says. The inner
+surfaces round only the corners they share with the panel, so the gap between the two curves stays
+even.
+
+Until this round the radius was *advertised but not drawn*: every theme set one and nothing read it,
+so a radius of 8 and a radius of 0 rendered identically. If you find a corner that is still square in
+a theme that says otherwise, it is a call site that has not been converted and it is worth reporting.
+The interior surfaces of a panel are the ones most likely to be missed, because a panel rounds while
+the recessed area inside it does not.
 
 ## `seed_quests.py` — how they get into a config directory
 

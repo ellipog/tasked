@@ -733,40 +733,12 @@ public final class QuestBookScreen extends Screen {
         // This replaces a full-width "Done" button in the sidebar's footer — the only control on the
         // screen whose label was a whole word occupying a whole row. Escape still closes the book, so
         // this is the discoverable half of a pair rather than the only way out.
-        // The two appearance rows, at the foot of the sidebar. See BookGeometry.themeRect for why
-        // they are here rather than behind the commands they replaced.
         //
-        // The theme row's tooltip earns its second line by saying where the theme came from, which is
-        // the one thing about it a player cannot see. A pack can set the theme for someone who has
-        // never chosen one -- that is most of the point of a themed pack -- and a player who has not
-        // chosen would otherwise have no way to find out why their game looks like this.
-        //
-        // It used to have three states rather than two, because a chapter could overrule the player's
-        // choice while they stood in it. A chapter's theme is scoped to the canvas now, so it never
-        // competes with this control and there is nothing to explain.
-        ArmatureButton themeButton = control(controls.get("theme"),
-                Component.literal(Appearance.main().displayName()),
-                this::cycleTheme)
-                .textColour(ArmatureTheme.body());
-        if (themeButton != null) {
-            boolean fromPack = !Appearance.chosen() && Appearance.serverDefault() != null;
-            themeButton.tooltip(List.of(
-                    Component.literal("UI theme"),
-                    Component.literal(fromPack
-                            ? "Set by this pack. Click to choose your own"
-                            : "Click for the next one")));
-        }
-
-        control(controls.get("motion"),
-                Component.literal(Appearance.motion() ? "Motion: on" : "Motion: off"),
-                this::toggleMotion)
-                .textColour(Appearance.motion() ? ArmatureTheme.body() : ArmatureTheme.faint())
-                .tooltip(List.of(
-                        Component.literal("Animates hovers and highlights"),
-                        Component.literal(Appearance.motion()
-                                ? "Click to make every transition instant"
-                                : "Off, so nothing eases. Click to animate again")));
-
+        // Nothing is built at the foot of the sidebar below this, and there used to be two rows there:
+        // the theme picker and the motion switch. They are dev tools now, reached from a mode rather than
+        // sitting permanently under the chapter list — the picker beside the editor, and the motion
+        // switch beside the accessibility settings it duplicates. See BookGeometry.controls for why the
+        // geometry went with them and why the space went back to the chapter list.
         control(controls.get("close"), Component.literal("\u2715"), this::onClose)
                 .textColour(ArmatureTheme.body())
                 .tooltip(List.of(Component.literal("Close the book"),
@@ -1026,9 +998,25 @@ public final class QuestBookScreen extends Screen {
         int panelH = panelHeight();
 
         ArmatureTheme.panel(r, left, top, panelW, panelH, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        r.fill(left + 1, top + 1, left + SIDEBAR_WIDTH, top + panelH - 1, ArmatureTheme.recessed());
-        r.fill(left + SIDEBAR_WIDTH, top + 1, left + panelW - 1, top + HEADER_HEIGHT - 1,
-                ArmatureTheme.raised());
+
+        // The two surfaces inside the panel, and both of them are now rounded on the corners they share
+        // with it. Their rounds are one pixel tighter than the panel's, which is what keeps the gap
+        // between the two curves even: reusing the panel's radius would make the panel's border thicker
+        // at the corners than along its sides.
+        //
+        // The masks are the part that has to be right, and each says which corners the surface is
+        // actually touching. The sidebar runs the full height of the left edge, so it rounds its two
+        // left corners and leaves the right-hand pair square -- its right edge is interior, and rounding
+        // it would leave two notches in the middle of the header strip. The header starts where the
+        // sidebar ends and runs to the right edge, so it rounds its top-right corner and nothing else.
+        //
+        // Getting a mask wrong is visible and diagnosable rather than subtle, which is the whole reason
+        // the mask is a value at the call site instead of a guess inside `fillSurface`.
+        int innerRadius = Math.max(0, ArmatureTheme.current().cornerRadius() - 1);
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, SIDEBAR_WIDTH - 1, panelH - 2,
+                ArmatureTheme.recessed(), innerRadius, ArmatureTheme.CORNERS_LEFT);
+        ArmatureTheme.fillSurface(r, left + SIDEBAR_WIDTH, top + 1, panelW - SIDEBAR_WIDTH - 1,
+                HEADER_HEIGHT - 2, ArmatureTheme.raised(), innerRadius, ArmatureTheme.TOP_RIGHT);
         r.fill(left + 1, top + HEADER_HEIGHT - 1, left + panelW - 1, top + HEADER_HEIGHT,
                 ArmatureTheme.panelEdge());
         // A divider between the sidebar and everything else, so the two read as separate surfaces
@@ -1583,7 +1571,16 @@ public final class QuestBookScreen extends Screen {
         int h = overlayHeight();
 
         ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        r.fill(left + 1, top + 1, left + w - 1, top + 46, ArmatureTheme.raised());
+
+        // The overlay's header strip, rounded on its two top corners to match the panel -- see
+        // `drawBook` for why the mask is explicit and why the radius is one tighter than the panel's.
+        // This one spans the overlay's full width, so it is the one surface in this screen whose two top
+        // corners are both its own.
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, 45, ArmatureTheme.raised(),
+                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
+
+        // And the two rules. Square, deliberately: they are one pixel tall, and a radius applied to a
+        // one-pixel rule would either vanish or produce a dotted line.
         r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
         r.fill(left + 1, top + h - 38, left + w - 1, top + h - 37, ArmatureTheme.panelEdge());
 
@@ -2314,18 +2311,22 @@ public final class QuestBookScreen extends Screen {
                 chapter, named, Themes.names());
     }
 
-    /** The theme control: the next one, and the player's own choice from here on. */
-    private void cycleTheme() {
-        Appearance.cycleTheme();
-        // Applying the theme happens inside `cycleTheme`, but not the *label*: a button's text is set
-        // when it is constructed, so the change is only visible after a rebuild. That rebuild is also
-        // what refreshes the tooltip, which now says whether the theme came from a pack or the player.
-        rebuildWidgets();
-    }
-
-    /** The motion control. Also the accessibility switch every theme's motion is subordinate to. */
-    private void toggleMotion() {
-        Appearance.setMotion(!Appearance.motion());
-        rebuildWidgets();
-    }
+    // ------------------------------------------------------------------
+    // Appearance, and the two controls that used to be here
+    // ------------------------------------------------------------------
+    //
+    // `cycleTheme()` and `toggleMotion()` were the callbacks for the sidebar's two appearance rows, and
+    // both have gone with the buttons. Neither did any work: one called `Appearance.cycleTheme()` and
+    // the other `Appearance.setMotion(!Appearance.motion())`, and what they added was a `rebuildWidgets()`
+    // to refresh a label that no longer exists.
+    //
+    // That is the right split rather than a deletion that loses something. The operations live in
+    // Armature, are tested there, and are what a dev-mode screen will call; the screen only ever wrapped
+    // them to redraw a button. A dev-mode control that cycles the theme does not need this class to know
+    // about it at all, which is the property worth having -- the alternative is that every screen wanting
+    // a theme control reimplements the rebuild.
+    //
+    // What remains here is `viewportTheme()`, which is not a control: it decides which palette a *chapter*
+    // is drawn in, and that is this screen's business because a chapter is this screen's concept. A
+    // theme control is not.
 }

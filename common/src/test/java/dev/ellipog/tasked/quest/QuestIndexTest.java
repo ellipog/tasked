@@ -669,6 +669,28 @@ class QuestIndexTest {
                     "the gallery asks for a theme called '" + theme + "', which this build does not"
                             + " have. It has: " + dev.ellipog.armature.client.ui.Themes.names());
         }
+
+        // And it covers every theme except one -- <b>and the exception is the point</b>.
+        //
+        // `default` is deliberately not a chapter, because the default theme *is* the frame these
+        // chapters are read inside: a chapter asking for it would show a canvas identical to the
+        // sidebar beside it, which demonstrates nothing and would read as the chapter having failed to
+        // load. So the gallery is every theme apart from the one a player is already looking at.
+        //
+        // Written as a set difference against the catalogue rather than as a count, because the property
+        // worth protecting is "a new theme cannot be added without a chapter" -- and a count of fifteen
+        // passes just as happily when a sixteenth theme is added and a chapter is mistakenly pointed at
+        // an older name. This fails, and names the theme that has nowhere to be seen.
+        Set<String> shipped = dev.ellipog.armature.client.ui.Themes.ALL.stream()
+                .map(dev.ellipog.armature.client.ui.Theme::name)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        shipped.remove("default");
+
+        assertEquals(shipped, new LinkedHashSet<>(themes),
+                "the gallery's chapters and the shipped themes have drifted apart. A theme in the left"
+                        + " set has no chapter, so nothing lets a player see it; a name in the right set"
+                        + " is a chapter asking for a theme that is not shipped. The only sanctioned"
+                        + " difference is `default`, which is the frame rather than a chapter.");
     }
 
     @Test

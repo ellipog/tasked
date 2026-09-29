@@ -148,10 +148,9 @@ public final class BookGeometry {
      * <p>Two constraints, and the taller one wins:
      *
      * <ul>
-     *   <li><b>The sidebar</b> needs the header, a gap, one chapter row, <b>the two appearance rows</b>
-     *       and the bottom edge: {@code CHAPTER_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + ROW_GAP +
-     *       ROW_HEIGHT + EDGE}. A chapter list with no rows is a book whose only chapter cannot be
-     *       selected, which is a blank screen with no way forward.</li>
+     *   <li><b>The sidebar</b> needs the header, a gap, one chapter row and the bottom edge:
+     *       {@code CHAPTER_GAP + ROW_HEIGHT + EDGE}. A chapter list with no rows is a book whose only
+     *       chapter cannot be selected, which is a blank screen with no way forward.</li>
      *   <li><b>The canvas</b> needs the view cluster, which is the tallest thing that sits on it:
      *       {@code (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + 2 * VIEW_MAT) + EDGE}. Without this the
      *       cluster can run past the bottom of a short canvas, which is the same class of fault as the
@@ -162,21 +161,27 @@ public final class BookGeometry {
      * this constant was the sidebar term alone, and it was right only because the footer happened to be
      * shorter than the chapter list.
      *
-     * <p><b>The sidebar term grew when the appearance rows arrived, and it had to.</b> The theme and
-     * motion controls are anchored to the panel's bottom rather than to the chapter list, so on a panel
-     * shorter than this they would be drawn over the chapter rows — the reported overlap bug, in the
-     * one place the previous minimum no longer covered.
+     * <h2>The sidebar term has been three different sizes, and it no longer decides anything</h2>
      *
-     * <p>The arithmetic, since it is now close: the sidebar needs {@code 6 + 18 + 4 + 18 + 4 + 18 + 8}
-     * = <b>76</b> and the canvas needs {@code 5 + (54 + 4 + 6) + 8} = <b>77</b>. So the canvas still
-     * decides it, <b>by one pixel</b> — the total is unchanged from before the rows were added, which
-     * is luck rather than design and worth knowing before trimming either term. Remove a {@code ROW_GAP},
-     * a {@code ROW_HEIGHT} or a pixel of {@code EDGE} and the sidebar crosses under the canvas, at
-     * which point {@code chapterRows()} would be computing against a panel its own minimum does not
-     * guarantee. It would still return 1, and that is the point: the failure mode is silent.
+     * <p>It was the footer's two rows; then it grew to three when the appearance rows arrived, because
+     * those were anchored to the panel's bottom and on a panel shorter than the minimum they would have
+     * been drawn over the chapter rows — the reported overlap bug, in the one place the previous minimum
+     * did not cover; and it is now back to one, because those two rows are gone.
+     *
+     * <p>The arithmetic: the sidebar needs {@code 6 + 18 + 8} = <b>32</b> and the canvas needs
+     * {@code 5 + 58 + 6 + 8} = <b>77</b>. So the canvas decides it by a wide margin now, and that margin
+     * is the interesting part — the one-pixel lead this used to have was luck rather than design, and a
+     * {@code ROW_GAP}, a {@code ROW_HEIGHT} or a pixel of {@code EDGE} removed from the sidebar term
+     * would have crossed the two under each other. At 32 against 77 the constant no longer depends on
+     * getting a sidebar row count right, which is the version of it that stops mattering when the
+     * sidebar changes again.
+     *
+     * <p>The total is unchanged from before the appearance rows were added: {@code 26 + 77 = 103}, and
+     * it was {@code 26 + max(76, 77) = 103} with them. So a screenshot from either side of this change
+     * is the same size, which is worth stating since the two sidebar figures look nothing alike.
      */
     public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
-            CHAPTER_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + ROW_GAP + ROW_HEIGHT + EDGE,
+            CHAPTER_GAP + ROW_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /** Enough canvas to be worth showing beside the sidebar. */
@@ -373,14 +378,22 @@ public final class BookGeometry {
      * more. The old version measured from {@code footerRow1Y()}, which is where a chapter could be
      * drawn underneath a button — the reported bug, one dimension over.
      *
-     * <p>Measured to <b>{@link #themeRect()}</b> rather than to the panel's bottom, which is the same
-     * fix applied to the one thing now in that space. The appearance rows are anchored down there, so
-     * counting rows to the panel's edge would draw the last chapter underneath them; the chapter list
-     * has to know what is below it, and asking the row where it starts is a better description of that
-     * than subtracting a constant and hoping.
+     * <h2>What this measured, and why it no longer has to measure anything else</h2>
+     *
+     * <p>It measured to the <i>theme row's</i> top, because the two appearance controls were anchored in
+     * the space below the list, and counting rows to the panel's edge would have drawn the last chapter
+     * underneath them. Those two controls have gone — the theme picker and the motion switch are dev-mode
+     * tools now, not part of the book — so the only thing below the chapter list is the panel's own edge
+     * and the single subtraction is the whole of it.
+     *
+     * <p>Worth recording that this got <i>simpler</i> rather than staying as it was: a chapter list that
+     * measures itself against a control is one that has to know what that control is, and the row count
+     * changes whenever a button is added or removed from the bottom of a sidebar. The panel's edge is the
+     * only bottom that does not move, so measuring to it is the version that survives the next change
+     * rather than the next-but-one.
      */
     public int chapterRows() {
-        int room = (themeRect().y() - ROW_GAP) - chapterListTop() - ROW_HEIGHT;
+        int room = (panel.bottom() - EDGE) - chapterListTop() - ROW_HEIGHT;
         return Math.max(1, room / CHAPTER_ROW_PITCH + 1);
     }
 
@@ -404,44 +417,6 @@ public final class BookGeometry {
      */
     public int headerRightLimit() {
         return closeRect().x() - 10;
-    }
-
-    /**
-     * The motion control: the bottom row of the sidebar.
-     *
-     * <p>Anchored to the panel's bottom rather than placed under the chapter list, and the reason is
-     * the layout bug this class exists because of. Anything positioned "after the list" moves when the
-     * list grows, so the last chapter row and a control below it are one edit apart from colliding.
-     * Anchored from below, the two grow towards each other and {@link #chapterRows()} decides where
-     * they meet — one place, checked by the sweep.
-     */
-    public Rect motionRect() {
-        return Rect.at(panel.x() + EDGE, panel.bottom() - EDGE - ROW_HEIGHT, sidebarInner(), ROW_HEIGHT);
-    }
-
-    /**
-     * The theme control: the row above {@link #motionRect()}.
-     *
-     * <h2>These two live on the sidebar, and that is a decision about what a theme is</h2>
-     *
-     * <p>They were commands. {@code /tasked theme tome} ran on the <i>server</i>: in single player that
-     * is the same process as the client so it appeared to work, and on a dedicated server it changed a
-     * field in a process with no window — which is why it needed an {@code isClient()} guard to avoid
-     * being a lie. A control that has to defend against the side it runs on is a control on the wrong
-     * side.
-     *
-     * <p>A theme is a preference for the person looking at the screen. It is the same kind of thing as
-     * a volume slider: it belongs in the interface, next to the other one, and it should be reachable
-     * without knowing a command exists. Two rows at the foot of the sidebar is where a screen puts
-     * settings that apply to the whole screen, and it costs the chapter list the least room of any
-     * position on the panel.
-     *
-     * <p>Side by side was the other option and it does not fit: the sidebar is 132 pixels and these
-     * labels are a word each. Stacked, each is a full row and reads as its own setting.
-     */
-    public Rect themeRect() {
-        Rect motion = motionRect();
-        return Rect.at(motion.x(), motion.y() - ROW_GAP - ROW_HEIGHT, motion.width(), ROW_HEIGHT);
     }
 
     /**
@@ -493,13 +468,18 @@ public final class BookGeometry {
         // Close, in the header's right corner.
         out.put("close", closeRect());
 
-        // The two appearance rows, at the foot of the sidebar. Added here rather than by the screen so
-        // the overlap sweep covers them: they are the controls most likely to collide with the chapter
-        // list, because they are the only ones that push into it from below. Their labels are not
-        // fixed -- the theme row says whichever theme is in force -- so the width is the sidebar's
-        // rather than measured from any particular name.
-        out.put("theme", themeRect());
-        out.put("motion", motionRect());
+        // The theme and motion controls are deliberately absent, and their absence is a decision worth
+        // recording because the geometry for them existed and worked.
+        //
+        // They were the theme picker and the motion switch, anchored at the foot of the sidebar as two
+        // full-width rows -- the only part of the whole overlay system that was not part of the design.
+        // They are dev tools now: the same operations, reached from a mode rather than from a row sitting
+        // permanently under the chapter list of every book. The picker belongs next to the editor, and
+        // the motion switch belongs next to the accessibility settings it duplicates.
+        //
+        // Nothing here needs a replacement. `chapterRows()` measures to the panel's edge now, so the
+        // space the rows occupied went back to the chapter list -- which is the honest use for it, since
+        // it was always a compromise between a list of chapters and two controls that are not chapters.
 
         // The view cluster, top-left inside the canvas. A column, so it reads as one tool group and
         // leaves the canvas's width for the graph.

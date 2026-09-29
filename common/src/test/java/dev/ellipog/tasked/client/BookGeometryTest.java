@@ -295,7 +295,7 @@ class BookGeometryTest {
          * test worthless. A control that moves surface should fail here.
          */
         private static Rect surfaceFor(BookGeometry geometry, String key) {
-            if (key.startsWith("chapter") || SIDEBAR_CONTROLS.contains(key)) {
+            if (key.startsWith("chapter")) {
                 return geometry.sidebar();
             }
             if (HEADER_CONTROLS.contains(key)) {
@@ -307,8 +307,12 @@ class BookGeometryTest {
             return null;
         }
 
-        /** The appearance rows, at the foot of the sidebar. See {@code BookGeometry.themeRect}. */
-        private static final Set<String> SIDEBAR_CONTROLS = Set.of("theme", "motion");
+        // There was a SIDEBAR_CONTROLS set here holding `theme` and `motion`, and its removal is worth a
+        // line because the list was doing real work. It named the two appearance rows, which were
+        // controls on the sidebar that were not chapters -- so `key.startsWith("chapter")` was not enough
+        // to place them, and this test would have refused to check them at all without that set. With
+        // both rows gone, every sidebar control *is* a chapter row again, and the remaining two sets are
+        // a control each.
 
         /** Close, in the header's right corner. */
         private static final Set<String> HEADER_CONTROLS = Set.of("close");
@@ -685,12 +689,11 @@ class BookGeometryTest {
         // to place controls would draw them in a different order between two inits of the same size --
         // which shows up as a control that is occasionally somewhere else.
         //
-        // `theme` and `motion` sit after `close` because that is where `controls()` adds them: the
-        // chapter rows, then close, then the two appearance rows, then the view cluster. Worth knowing
-        // that this list is a statement about the source order in that method rather than about the
-        // screen -- the sidebar's two rows are drawn at the *bottom* while they are added here in the
-        // middle.
-        assertEquals(List.of("chapter0", "chapter1", "chapter2", "close", "theme", "motion",
+        // The source order in `controls()` is: the chapter rows, then close, then the view cluster. The
+        // two appearance rows are no longer between the last two -- see the note in that method for why
+        // they are gone rather than relocated, and `BookGeometry.MIN_PANEL_HEIGHT` for what their absence
+        // did to the sidebar's term.
+        assertEquals(List.of("chapter0", "chapter1", "chapter2", "close",
                         "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
