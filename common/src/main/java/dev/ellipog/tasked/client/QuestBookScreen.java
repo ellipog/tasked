@@ -1752,10 +1752,14 @@ public final class QuestBookScreen extends Screen {
         partyButton.setMessage(Component.literal(label));
 
         // And whether it is a control at all. In no party the strip is a caption: it says so, and it
-        // does not respond to a press that would open a panel with nothing in it. `active(false)` is
-        // what makes that true of the whole control at once -- fill, text colour, hover and input --
-        // rather than a colour chosen here that the pressed state would then contradict.
-        partyButton.active(roster.isReal());
+        // does not respond to a press that would open a panel with nothing in it.
+        //
+        // A field rather than a method, which the compiler said plainly: `AbstractWidget.active` is
+        // `public boolean active`, and the setter a reader expects from the naming convention does not
+        // exist. Assigning it is what makes "not a control right now" true of the whole widget at once
+        // -- fill, text colour, hover and input -- rather than a colour chosen here that the pressed
+        // state would then contradict.
+        partyButton.active = roster.isReal();
     }
 
     /**
