@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
+import dev.ellipog.armature.api.teams.Team;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.ClientTicker;
@@ -300,9 +301,9 @@ public final class TaskedNetworking {
      *
      * <h2>Why this is the method that was missing</h2>
      *
-     * <p>The automatic half of the engine had no way to reach a client. {@code sendToTeam} below has
-     * exactly one caller — the handler for <i>pressing Submit</i> — so submitting a task updated the
-     * screen and <b>nothing else did</b>. Gathering eight oak logs completed the quest on the server,
+     * <p>The automatic half of the engine had no way to reach a client. The only code anywhere that
+     * pushed progress to a player was the handler for <i>pressing Submit</i>, so submitting a task
+     * updated the screen and <b>nothing else did</b>. Gathering eight oak logs completed the quest on the server,
      * granted its reward and printed the completion message, while the book went on showing
      * {@code 0 / 8} for the rest of the session.
      *
@@ -327,6 +328,34 @@ public final class TaskedNetworking {
     }
 
     /**
+     * Pushes progress to one player, by id, if they are still connected.
+     *
+     * <h2>Why this exists rather than a second team lookup at the call site</h2>
+     *
+     * <p>Two callers need it and neither has a {@link ServerPlayer} to hand: a team event carries a
+     * player's <b>UUID</b> and nothing else, and the player it names is routinely offline — the whole
+     * point of the event is that the membership changed, which is not the same as the player being
+     * present. So the offline case is the common one rather than an edge case, and it is handled here
+     * once instead of at every caller.
+     *
+     * <p>Doing nothing for an absent player is correct rather than merely safe: a snapshot describes
+     * what <i>this connection</i> was last sent, and a player who is not connected has been sent
+     * nothing. {@code sendProgress} would push a row into that map for somebody who will never read
+     * it, and {@code sendEverythingTo} drops the row on their next join anyway. So this is not just
+     * avoiding a null — it is declining to record knowledge nobody has.
+     *
+     * <p>An absent player is also not a reason for the <i>sender</i> to hear about it: the events that
+     * call this fire for changes a listener should react to, not for changes it should report.
+     */
+    public static void sendProgressToPlayer(MinecraftServer server, UUID playerId, int reason) {
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        QuestSync.sendProgress(server, player, reason);
+    }
+
+    /**
      * Pushes progress to the sender's whole team, including the sender.
      *
      * <p>The team's progress is shared, so a change caused by one member is news to all of them. The
@@ -341,7 +370,60 @@ public final class TaskedNetworking {
         if (server == null) {
             return;
         }
+        sendProgressToTeam(server, sender, reason);
+    }
+
+    /**
+     * The same, for a caller that already holds the server.
+     *
+     * <h2>Why the server is a parameter here</h2>
+     *
+     * <p>Because taking it from the player is a second question with a second answer. A
+     * {@link ServerPlayer} carries its server in production and does not necessarily carry one in a
+     * test — the playthrough harness builds players that answer {@code null} — so a command that
+     * derived the server from its own source would silently push nothing there, and the push would
+     * look tested when it was not. A command source always knows its server, so it passes it.
+     *
+     * <p>That is not a test convenience dressed up as design: it is the honest direction of the
+     * dependency. The sender is what decides <i>whose</i> progress moved; the server is what the
+     * message is sent through, and the caller that has one should not have to ask a player for it.
+     */
+    public static void sendProgressToTeam(MinecraftServer server, ServerPlayer sender, int reason) {
         QuestSync.sendProgressToTeam(server, membersOf(server, sender), reason);
+    }
+
+    /**
+     * Pushes progress to everyone who has to hear that a team changed.
+     *
+     * <h2>Why the team's members <i>and</i> one named player</h2>
+     *
+     * <p>A membership change moves progress for two sets of people, and they are not nested. The team
+     * keeps what it recorded, so every member still in it has a view that may have changed. And the
+     * player who left is keyed by their own id again — Armature's {@code MEMBER_LEFT} fires with the
+     * team as it now is, which does not include them, so a caller that only walked the team would
+     * leave exactly the person whose progress actually moved as the one who was never told.
+     *
+     * <p>That is why this takes the pair rather than a single team: the recipient set genuinely is
+     * "the team, plus this player", and a caller that had to work that out itself would be the second
+     * place that knows it.
+     *
+     * <h2>Why the reason travels</h2>
+     *
+     * <p>{@code REASON_TEAM_CHANGED} rather than {@code REASON_CHANGED}, and it is not decoration. It
+     * is what makes {@code QuestSync} send a <b>full</b> sync rather than a delta — a client that has
+     * changed teams is holding the previous team's progress, and a delta would merge one party's
+     * questline onto another's. See {@code sendProgress} for that branch.
+     *
+     * @param team     the team as the event reports it — after a join, and before a disband
+     * @param alsoThis a player who is no longer in the team and still needs to hear, or null
+     */
+    public static void sendTeamChange(MinecraftServer server, Team team, UUID alsoThis) {
+        for (UUID member : team.memberIds()) {
+            sendProgressToPlayer(server, member, ProgressSyncPayload.REASON_TEAM_CHANGED);
+        }
+        if (alsoThis != null) {
+            sendProgressToPlayer(server, alsoThis, ProgressSyncPayload.REASON_TEAM_CHANGED);
+        }
     }
 
     /** Everyone online who shares this player's progress. */

@@ -14,6 +14,9 @@ import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.net.ProgressSyncPayload;
+import dev.ellipog.tasked.net.QuestSync;
+import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;
@@ -735,8 +738,199 @@ class QuestPlaythroughTest {
     }
 
     // ------------------------------------------------------------------
+    // The two pushes the tick cannot make
+    // ------------------------------------------------------------------
+
+    /**
+     * <h2>Why these are separate from the tick's push, which is already covered</h2>
+     *
+     * <p>Order 5 asserts that the engine's automatic push happens — a tick completes a quest and
+     * reports the team as changed, which is what fixed "the quest book still says 0/8". That push goes
+     * through {@code ProgressService.tick}, and the two tests below are about the changes a tick
+     * <b>cannot</b> see at all. Both were half-built in the committed code and neither had a test:
+     *
+     * <ol>
+     *   <li><b>A command.</b> {@code evaluateTeam} skips every quest that is not playable, so a quest
+     *       that is already COMPLETED is never reported as changed again, however often it is ticked.
+     *       {@code /tasked reset} and {@code /tasked claim} both move something a client is showing and
+     *       are both invisible to the tick. {@code /tasked complete} likewise.</li>
+     *   <li><b>A team change.</b> {@code REASON_TEAM_CHANGED} existed, {@code sendProgress} implemented
+     *       the full-sync-on-team-change branch, and nothing ever sent one — the two listeners on
+     *       Armature's team events logged and returned.</li>
+     * </ol>
+     *
+     * <p>Both are asserted by counting messages, not by inspecting the wire, and the reason is stated
+     * where the counter lives: a loader is absent here, so "did a message get produced" is the only
+     * question a test can ask, and counting at the one place a message is produced means a route
+     * nobody thought of is counted too.
+     */
+
+    @Test
+    @Order(17)
+    @DisplayName("a command that moves progress pushes it, which the tick could never have done for it")
+    void aCommandPushesTheChangeTheTickCannotSee() {
+        // the_underground was completed back in order 7, so before this it is COMPLETED -- which is
+        // exactly the state `evaluateTeam` skips, so no amount of ticking would ever report it again.
+        assertEquals(QuestState.COMPLETED, stateOf("the_underground"),
+                "this test is about a change the tick cannot see, so it has to start from the state "
+                        + "that makes it invisible: an already-completed quest");
+
+        int before = messagesSent(ProgressSyncPayload.REASON_CHANGED);
+        int beforeToPlayer = messagesSentTo(ProgressSyncPayload.REASON_CHANGED, player);
+
+        HeadlessServer.Outcome reset = asOperator("/tasked reset the_underground");
+        assertEquals(1, reset.result(),
+                () -> "/tasked reset the_underground should have cleared one quest. It said:\n"
+                        + reset.text());
+
+        assertTrue(stateOf("the_underground").isPlayable(),
+                "and the reset moved it out of COMPLETED, which is the whole point: the state it was "
+                        + "in produces no tick, and the state it is in now produces one. So the client "
+                        + "had to be told by the command, or it keeps drawing a finished quest");
+
+        assertEquals(before + 1, messagesSent(ProgressSyncPayload.REASON_CHANGED),
+                "resetting a quest should have produced exactly one progress message. Zero means the "
+                        + "command changed something a client is drawing and told nobody, and the tick "
+                        + "cannot make up the difference -- see this test's note on why");
+        assertEquals(beforeToPlayer + 1,
+                messagesSentTo(ProgressSyncPayload.REASON_CHANGED, player),
+                "and it reaches the player who ran the command, which is the sender's own team");
+
+        // The half that keeps this from becoming "one message per command, whether or not anything
+        // happened". A refusal returns before the push, so a command that changed nothing is silent --
+        // and this counts every reason rather than just REASON_CHANGED, because "silent" has to mean
+        // no message at all. Counting one reason would pass while a push under another reason happened.
+        int after = messagesSent();
+        HeadlessServer.Outcome refused = asOperator("/tasked reset no_such_quest_at_all");
+        assertRefused(refused, "there is no quest by that name, so nothing was cleared");
+        assertEquals(after, messagesSent(),
+                "a command that changed nothing must push nothing, for any reason. A message here means "
+                        + "the push happens before the command knows whether it did anything, which turns "
+                        + "every mistyped id into a progress packet to the whole party");
+    }
+
+    @Test
+    @Order(18)
+    @DisplayName("both sides of a party change are told, with the reason that forces a full sync")
+    void aPartyChangeIsPushedToBothSidesOfIt() {
+        // Driven by hand, and this is a real limitation stated rather than glossed. Tasked's listeners
+        // on Armature's team events are registered from `Tasked.listenToTeams`, which is hooked to
+        // SERVER_STARTED -- and that event is fired by loader code in each loader's subproject, so no
+        // test JVM ever fires it. `Tasked`'s own note on that guard says as much: "nothing in Tasked's
+        // tests can come to depend on a team event having been subscribed, because it never is there".
+        //
+        // So the team events fired by the Teams calls above reach no listener at all, and the push
+        // those listeners perform is exercised by calling the method they call with the same arguments
+        // they pass. What is left unasserted is that the *subscription* happened, which nothing in this
+        // repo can reach -- the same shape of gap as the loader's transport.
+        UUID secondParty = server.callOnServerThread(() -> {
+            var teams = Teams.of(server.server());
+            var party = teams.create("the second playthrough party", player.getUUID());
+            assertTrue(teams.invite(party.id(), friend.getUUID()),
+                    "the friend should have been invited to the second party");
+            return party.id();
+        });
+
+        assertEquals(Optional.of(secondParty),
+                server.callOnServerThread(() -> Teams.of(server.server())
+                        .acceptInvite(friend.getUUID()).map(team -> team.id())),
+                "and is now in it, so there are two members for a change to be news to");
+
+        assertTrue(server.callOnServerThread(() -> Teams.of(server.server()).leave(friend.getUUID())),
+                "leaving a party they were in should have done something");
+
+        assertEquals(friend.getUUID(), ownerOf(friend),
+                "and their progress is keyed by their own id again -- which is the whole reason the "
+                        + "leaver has to be named separately. MEMBER_LEFT carries the team as it now is, "
+                        + "and that team no longer contains them, so walking it would tell everybody "
+                        + "except the one player whose progress actually moved");
+
+        assertEquals(0, messagesSentTo(ProgressSyncPayload.REASON_TEAM_CHANGED, player),
+                "nothing above pushed a team-change message: the events fired with no listener "
+                        + "attached, so every message counted below is this test's own doing and the "
+                        + "assertions are not passing on somebody else's traffic");
+        assertEquals(0, messagesSentTo(ProgressSyncPayload.REASON_TEAM_CHANGED, friend),
+                "and the same for the other member");
+
+        int before = messagesSent(ProgressSyncPayload.REASON_TEAM_CHANGED);
+
+        // The same call `Tasked.listenToTeams`'s MEMBER_LEFT listener makes: the team, and the player
+        // who has left it.
+        server.callOnServerThread(() -> {
+            Teams.of(server.server()).byId(secondParty).ifPresent(team ->
+                    TaskedNetworking.sendTeamChange(server.server(), team, friend.getUUID()));
+            return null;
+        });
+
+        assertEquals(before + 2, messagesSent(ProgressSyncPayload.REASON_TEAM_CHANGED),
+                "one team change should produce one message per person who has to hear it, so two for "
+                        + "a party of two. Four means both members were told twice -- which is what a "
+                        + "disband does if the listener walks the team, since each member's own "
+                        + "MEMBER_LEFT carries the whole team");
+        assertEquals(1, messagesSentTo(ProgressSyncPayload.REASON_TEAM_CHANGED, player),
+                "the member still in the party is told, because the team's progress is theirs and the "
+                        + "leaver arriving with their own share is what can change it");
+        assertEquals(1, messagesSentTo(ProgressSyncPayload.REASON_TEAM_CHANGED, friend),
+                "and the player who left is told exactly once. **If this count is 0, the leaver is the "
+                        + "one person a team-only push can never reach** -- which is the bug this "
+                        + "parameter exists to prevent, and it is the worst possible shape for it: "
+                        + "everybody still in the party gets corrected, and the player whose screen is "
+                        + "now showing the wrong team's questline is the one who never hears");
+
+        // Note what is deliberately not asserted: that the message was a *full* sync. The reason code
+        // is on the wire and `QuestSync.sendProgress` branches on it, but whether the bytes were a full
+        // set or a delta is only visible through `chunk.full()`, and this test has no client to decode
+        // it. `QuestSyncTest` covers the branch itself; this covers that it is reached with the right
+        // reason, which is the half that was broken.
+        note("a team change pushed " + messagesSent(ProgressSyncPayload.REASON_TEAM_CHANGED)
+                + " message(s) for a party of two, one to each member, tagged "
+                + "REASON_TEAM_CHANGED so the client is sent the whole questline rather than a delta "
+                + "against the team it has just stopped being in");
+    }
+
+    // ------------------------------------------------------------------
     // Driving and reading
     // ------------------------------------------------------------------
+
+    /**
+     * How many progress messages have been produced for one reason.
+     *
+     * <p>Read through the server thread, like every other read here, and not because the counter is
+     * lock-protected -- it is a plain {@code HashMap}, written from the server thread and read here, so
+     * reading it directly would be reading a {@code HashMap} from another thread while it may be
+     * written. That happens to work today and is not a thing to build on.
+     */
+    private static int messagesSent(int reason) {
+        return server.callOnServerThread(() -> QuestSync.messagesSent(reason));
+    }
+
+    /**
+     * How many progress messages have been produced in total, whatever the reason.
+     *
+     * <p>This is the form that answers "did <i>anything</i> get sent", which is a different question
+     * from "was the right message sent for this reason" and the only one that can be asked about a
+     * refusal. Order 17's last assertion is exactly that: a command that changed nothing must be silent,
+     * and silence means no message of <b>any</b> reason -- so asking per-reason would let a push under a
+     * different reason through while the assertion still passed.
+     *
+     * <p>It exists rather than being spelled as a sum at the call site because a caller summing reasons
+     * has to know which reasons exist, and that list grows. A total is defined by the counter, not by the
+     * test.
+     */
+    private static int messagesSent() {
+        return server.callOnServerThread(QuestSync::messagesSent);
+    }
+
+    /**
+     * The same, for one recipient.
+     *
+     * <p>The recipient is the half that matters for the team-change push, and a total cannot supply it:
+     * two messages that both reached the same player look identical to two that reached one player
+     * each, and the second is the entire claim being made.
+     */
+    private static int messagesSentTo(int reason, ServerPlayer who) {
+        return server.callOnServerThread(() -> QuestSync.messagesSentTo(reason, who.getUUID()));
+    }
 
     /** Runs a command as an operator -- the same permission a player in ops.json has. */
     private static HeadlessServer.Outcome asOperator(String command) {

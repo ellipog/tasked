@@ -219,12 +219,38 @@ public final class Tasked {
 
         Constants.LOG.info("Tasked: teams come from '{}' on this server", Teams.of(server).name());
 
-        // So that shared progress is visible in the log while it is being built. Tasked's party
-        // behaviour is Stage 3's T4; this is the hook it will attach to.
-        TeamEvents.MEMBER_JOINED.register((eventServer, team, player) ->
-                Constants.LOG.info("Tasked: {} joined team '{}'; progress now comes from team {}",
-                        player, team.name(), team.id()));
-        TeamEvents.MEMBER_LEFT.register((eventServer, team, player, reason) ->
-                Constants.LOG.info("Tasked: {} left team '{}' ({})", player, team.name(), reason));
+        // Every membership change moves progress for somebody, so each one pushes rather than only
+        // logging. This was two log lines with a comment saying "this is the hook it will attach to" —
+        // which is the shape of a thing started and not finished: `REASON_TEAM_CHANGED` existed,
+        // `sendProgress` implemented the full-sync-on-a-team-change branch, and nothing ever sent one.
+        //
+        // The cases are not the same set of people, which is why they read differently:
+        //
+        //   - JOINED: the arriving member is in the team the event carries, so walking it covers them
+        //     and everybody else in it. Their own solo progress is not merged in — ProgressStore
+        //     documents that as deliberate — so what they need is the team's.
+        //   - LEFT: the event's team is the one they are no longer in, so walking it would miss exactly
+        //     the player whose progress actually moved.
+        //   - DISBANDED arrives as one MEMBER_LEFT per member, each carrying the *whole* team — so
+        //     walking the team there would send N messages to each of N members for one disband. Each
+        //     member's own event names them, so the named player is the whole audience.
+        //
+        // TEAM_CREATED is deliberately not subscribed: a new team is empty and nobody's progress
+        // belongs to it yet, so there is nothing to tell anybody.
+        TeamEvents.MEMBER_JOINED.register((eventServer, team, player) -> {
+            Constants.LOG.info("Tasked: {} joined team '{}'; progress now comes from team {}",
+                    player, team.name(), team.id());
+            TaskedNetworking.sendTeamChange(eventServer, team, null);
+        });
+        TeamEvents.MEMBER_LEFT.register((eventServer, team, player, reason) -> {
+            Constants.LOG.info("Tasked: {} left team '{}' ({})", player, team.name(), reason);
+
+            if (reason == TeamEvents.Reason.DISBANDED) {
+                TaskedNetworking.sendProgressToPlayer(eventServer, player,
+                        ProgressSyncPayload.REASON_TEAM_CHANGED);
+                return;
+            }
+            TaskedNetworking.sendTeamChange(eventServer, team, player);
+        });
     }
 }

@@ -21,6 +21,7 @@ import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
+import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.commands.CommandSourceStack;
@@ -391,6 +392,7 @@ public final class TaskedCommand {
             context.getSource().sendFailure(Component.translatable("tasked.command.submit.refused", id, taskIndex));
             return 0;
         }
+        pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.submit.done", id, taskIndex), false);
         return 1;
     }
@@ -440,6 +442,7 @@ public final class TaskedCommand {
         }
 
         ProgressService.complete(server, owner, player, entry.get(), progress);
+        pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.complete.done", id), false);
         return 1;
     }
@@ -469,6 +472,7 @@ public final class TaskedCommand {
             return 0;
         }
 
+        pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.claim.done", id), false);
         return 1;
     }
@@ -502,8 +506,44 @@ public final class TaskedCommand {
                     : Component.translatable("tasked.command.quest.notfound", questId));
             return 0;
         }
+        pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.reset.done", cleared), false);
         return cleared;
+    }
+
+    /**
+     * Tells everyone who shares this player's progress that it moved.
+     *
+     * <h2>Why a command has to do this itself</h2>
+     *
+     * <p>Because the engine's tick cannot do it for a command, and the reason is narrow enough to
+     * state exactly: {@code ProgressService.evaluateTeam} skips every quest that is not
+     * <i>playable</i>. A quest that is already COMPLETED never reports a change again, however many
+     * times it is ticked — so {@code /tasked complete}, {@code reset} and {@code claim} all move
+     * something a client is showing and produce no tick that says so. Before this, a client watching
+     * an operator finish or clear a quest kept the stale view until something unrelated happened to
+     * move.
+     *
+     * <p>{@code submit} and {@code claim} already reach a client through the payload handlers, which
+     * push for themselves — but those handlers are the <i>client-initiated</i> path. The commands are
+     * the other one, and the whole point of Stage 3 is that the two are equally real. So this is
+     * called from both.
+     *
+     * <h2>Why the change is reflected rather than avoided</h2>
+     *
+     * <p>Only after the command has actually changed something: the two refusals above return before
+     * this line. That is what keeps "a command was run" from quietly becoming "a message per command".
+     */
+    private static void pushToTeam(CommandSourceStack source, ServerPlayer player) {
+        MinecraftServer server = source.getServer();
+        if (server == null) {
+            return;
+        }
+        // The server is passed rather than taken from the player, and it matters here rather than in
+        // theory: the harness that plays this questline builds players whose `getServer()` is null,
+        // so deriving it from the player would make every push a silent no-op in the one place it is
+        // asserted. See TaskedNetworking.sendProgressToTeam.
+        TaskedNetworking.sendProgressToTeam(server, player, ProgressSyncPayload.REASON_CHANGED);
     }
 
     private static int echo(CommandContext<CommandSourceStack> context) {

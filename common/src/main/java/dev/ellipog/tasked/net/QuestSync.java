@@ -74,6 +74,42 @@ public final class QuestSync {
     private record Sent(UUID teamId, Map<String, String> quests) {
     }
 
+    /**
+     * One message that was produced: why, and to whom.
+     *
+     * <p>Both halves are needed and neither implies the other. The reason is what a client branches
+     * on — it is what decides a full sync over a delta — so counting without it would pass while every
+     * message said the wrong thing. The recipient is what makes "who was told" assertable, and a total
+     * cannot answer that: two messages that both reached the <i>same</i> player look identical to two
+     * that reached one player each, and the second is the entire point of the team-change push.
+     */
+    private record Told(int reason, UUID player) {
+    }
+
+    /**
+     * How many progress messages have been produced, per reason and recipient.
+     *
+     * <h2>Why this exists, rather than a test reading the wire</h2>
+     *
+     * <p>Because the half of the sync that is easy to get wrong has no other observable. A message
+     * goes out, a booted server writes nothing to the log, and the payload is handed to a loader that
+     * a test JVM does not have — so "was the client told" is not a question a test can ask of the
+     * transport. Counting messages answers it without inventing a second code path: the count is
+     * incremented at the one place a message is produced, so a caller that reaches it by a route
+     * nobody thought of is counted too. A test that asserted on a route instead would pass while the
+     * route it did not know about stayed broken — which is precisely the shape of the bug this
+     * counter was added to close, where the only thing pushing progress was the Submit handler.
+     *
+     * <p>Static and never reset, like the snapshot map above it, so a test asserts a <i>delta</i>
+     * rather than an absolute value. Two test classes sharing one JVM cannot then disagree about a
+     * number that belongs to neither of them.
+     *
+     * <p>Deliberately not a count of <i>packets</i>: one logical message is several packets once it is
+     * chunked, and "how many times did the server have something to say" is the question. Counting
+     * chunks would make a large pack look like a chatty one.
+     */
+    private static final Map<Told, Integer> MESSAGES = new HashMap<>();
+
     private QuestSync() {
     }
 
@@ -576,6 +612,12 @@ public final class QuestSync {
         Delta delta = progressDelta(resolution, progress, index, full ? null : last.quests());
         SENT.put(player.getUUID(), new Sent(owner, delta.snapshot()));
 
+        // Counted here rather than at the `send` calls below. One logical message can be several
+        // chunks, and it is counted once for all of them: "how many times did the server have
+        // something to say" is the question, and counting chunks would make a large pack look like a
+        // chatty one.
+        MESSAGES.merge(new Told(reason, player.getUUID()), 1, Integer::sum);
+
         byte[] packed = SyncWire.pack(delta.json());
         List<byte[]> parts = SyncWire.chunk(packed);
         int transferId = SyncWire.newTransferId();
@@ -615,14 +657,43 @@ public final class QuestSync {
         SENT.remove(player);
     }
 
-    /** Forgets every snapshot. For a reload, where the tree under them has changed. */
+    /**
+     * Forgets every snapshot, so the next sync to anybody is a full one.
+     *
+     * <p><b>Nothing calls this, and the reload path does not need it.</b> A reload is
+     * {@code REASON_RELOAD}, and {@link #sendProgress} sends a full sync for that reason on its own —
+     * so a caller that forgot every snapshot first would change nothing, and it would also forget the
+     * snapshots of players the reload is not about. It is kept because forcing a full sync for a
+     * player who never disconnected is exactly what it does and the next reason to want that will not
+     * be a reload; the reader who finds it dead should feel free to delete it.
+     */
     public static void forgetAll() {
         SENT.clear();
     }
 
-    /** How many players have a snapshot. Diagnostics, and a test asserts it stops growing. */
-    public static int snapshotCount() {
-        return SENT.size();
+    /** How many progress messages have been produced for one reason, to anybody. Diagnostics. */
+    public static int messagesSent(int reason) {
+        int total = 0;
+        for (Map.Entry<Told, Integer> each : MESSAGES.entrySet()) {
+            if (each.getKey().reason() == reason) {
+                total += each.getValue();
+            }
+        }
+        return total;
+    }
+
+    /** How many progress messages one player has been sent for one reason. Diagnostics. */
+    public static int messagesSentTo(int reason, UUID player) {
+        return MESSAGES.getOrDefault(new Told(reason, player), 0);
+    }
+
+    /** How many progress messages have been produced in total, whatever the reason. */
+    public static int messagesSent() {
+        int total = 0;
+        for (int count : MESSAGES.values()) {
+            total += count;
+        }
+        return total;
     }
 
     /** Sends progress to every member of a team, for a change one of them caused. */
