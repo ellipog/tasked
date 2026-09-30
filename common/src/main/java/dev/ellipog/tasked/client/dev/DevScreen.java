@@ -301,8 +301,14 @@ public final class DevScreen extends ArmatureScreen {
 
         // The list, clipped to its own body: a scrolled row is cut at the edge rather than drawn over
         // the bands below it, which is the same clip the party panel's body has.
+        //
+        // **`right` and `bottom`, not width and height** -- the renderer's four-argument form takes the
+        // far edges, exactly as the game's own `enableScissor` does, and this passed the size instead.
+        // The rectangle came out 36 pixels narrow and 60 short, so the list was cut off partway down the
+        // card and the swatches at its right edge were outside it: a report of "the highlights cut off
+        // halfway down the screen" that reads like a layout fault and is an argument order.
         try (GuiRenderer.Scoped clip = r.clip(frame.body().x(), frame.body().y(),
-                frame.body().width(), frame.body().height())) {
+                frame.body().right(), frame.body().bottom())) {
             for (DevLayout.Action row : allRows()) {
                 Slot slot = listLayout.slot(row.key());
                 if (slot == null) {
@@ -411,5 +417,40 @@ public final class DevScreen extends ArmatureScreen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    /**
+     * The bar is a control, not decoration: a press on the track jumps the thumb to the pointer and drags
+     * from there, exactly as the sidebar's and the party panel's do.
+     *
+     * <p>It was drawn and not wired, which reads as a frozen bar rather than as a missing feature -- and it
+     * is the same three calls the other two scroll views make, so the omission was mine rather than a gap
+     * in the kit.
+     */
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (listView.scrollbarHit(mouseX, mouseY)) {
+            listView.beginThumbDrag(mouseY);
+            listView.dragThumbTo(mouseY);
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (listView.draggingThumb()) {
+            listView.dragThumbTo(mouseY);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (listView.endThumbDrag()) {
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
     }
 }
