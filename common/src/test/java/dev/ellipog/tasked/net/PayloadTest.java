@@ -96,14 +96,25 @@ class PayloadTest {
     }
 
     @Test
-    @DisplayName("the four payloads this mod declares are all present, at the paths expected")
+    @DisplayName("every payload this mod declares is present, and none has appeared unlisted")
     void declaredPayloadsAreTheExpectedOnes() {
         List<String> ids = ArmatureNetwork.registrations().stream()
                 .map(registration -> registration.type().id().toString())
                 .sorted()
                 .toList();
 
-        assertEquals(List.of("tasked:claim_reward", "tasked:progress_sync", "tasked:quest_sync",
+        // Written out in full rather than counted, because the failure this test exists to catch is a
+        // payload registered under a wrong path -- and a count would pass while a name was wrong.
+        //
+        // `tasked:party_sync` is the fifth, and it arrived with the party panel. Listing it here is the
+        // whole of what adding a payload costs: the two assertions above are written over *every*
+        // registration rather than over a list of them, so a new payload is covered by the namespace and
+        // colon checks the moment it is declared. Only this one, which names them, has to be told.
+        assertEquals(List.of(
+                "tasked:claim_reward",
+                "tasked:party_sync",
+                "tasked:progress_sync",
+                "tasked:quest_sync",
                 "tasked:submit_task"), ids);
     }
 
@@ -116,6 +127,9 @@ class PayloadTest {
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:progress_sync"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:submit_task"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_reward"));
+        // A roster is server state, so it goes one way. Registered the other way round it would never
+        // arrive, and the panel would sit on its empty state with nothing in either log.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:party_sync"));
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {

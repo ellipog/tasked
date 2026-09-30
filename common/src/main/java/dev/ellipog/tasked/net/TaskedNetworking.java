@@ -3,12 +3,14 @@ package dev.ellipog.tasked.net;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.api.teams.Team;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.TaskedQuests;
 
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -116,6 +118,20 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_SERVER,
                 null,
                 TaskedNetworking::handleClaim));
+
+        // --- a party's roster, server to client ---
+        //
+        // Declared on both sides, and useless on a server, which is what every TO_CLIENT payload is: a
+        // dedicated server never receives its own roster message. It costs one line in a table that both
+        // loaders register from, and declaring it only on the client would mean the two loaders had
+        // different payload lists -- which is the shape of bug that presents as "the panel works on
+        // Fabric" and nothing says why.
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                PartySyncPayload.TYPE,
+                PartySyncPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handlePartySync,
+                null));
 
         declared = ArmatureNetwork.registeredCount();
         Constants.LOG.info("Tasked: declared {} payload(s)", declared);
@@ -285,6 +301,11 @@ public final class TaskedNetworking {
             return;
         }
         QuestSync.sendEverythingTo(player, server);
+        // And their party's roster, which is the third thing a client has no way to know and needs
+        // before it can draw a panel. Without it a player who is already in a party when they log in
+        // sees the empty state until somebody joins or leaves, which is indistinguishable from having
+        // been removed from their party.
+        sendPartyToTeam(server, ProgressService.progressOwner(server, player));
     }
 
     /** Pushes the tree to every connected player, then their progress. Called after a reload. */
@@ -424,6 +445,89 @@ public final class TaskedNetworking {
         if (alsoThis != null) {
             sendProgressToPlayer(server, alsoThis, ProgressSyncPayload.REASON_TEAM_CHANGED);
         }
+    }
+
+    /**
+     * A party's roster, from the server.
+     *
+     * <h2>Unpacked here rather than trusted as fields</h2>
+     *
+     * <p>Because the roster arrives as one string — see {@link PartySyncPayload} — and there is exactly
+     * one place that knows how to read it. {@code PartySnapshot.unpack} never throws and skips what it
+     * cannot read, so a malformed message draws "no party" rather than disconnecting the client: a
+     * payload that was only ever going to fill a side panel is not worth a lost connection.
+     */
+    private static void handlePartySync(PartySyncPayload payload) {
+        ClientPartyCache.accept(payload.packed());
+        Constants.LOG.debug("tasked: party roster received ({} member(s))",
+                ClientPartyCache.memberCount());
+    }
+
+    /**
+     * Pushes a party's roster to everyone who can see it.
+     *
+     * <h2>Who is told, and why it is not only the members</h2>
+     *
+     * <p>The members, because their own panel is describing themselves. And <b>nobody else</b> — a
+     * roster is not public information, and a server that broadcast every party's membership would be
+     * telling players who is grouped with whom without being asked to.
+     *
+     * <h2>Called from the same places as the progress push</h2>
+     *
+     * <p>Which is what makes it nearly free. A membership change already sends every member a progress
+     * sync — that is what {@code sendTeamChange} is for — so the roster rides along on a message that
+     * was going out anyway, and an idle tick sends nothing at all.
+     */
+    public static void sendPartyToTeam(MinecraftServer server, UUID teamId) {
+        PartySnapshot snapshot = PartySnapshot.of(server, teamId);
+        if (!snapshot.isPresent()) {
+            // The team is gone, or nobody is in it. An empty roster tells nobody, and that is not a
+            // gap: whoever the roster *would* name is named by the caller instead -- see sendNoPartyTo
+            // and its note on why a disband has to send something rather than nothing.
+            return;
+        }
+        for (PartySnapshot.Member member : snapshot.members()) {
+            sendRosterTo(server, member.id(), snapshot);
+        }
+    }
+
+    /** One player's roster, if they are still connected. */
+    public static void sendRosterTo(MinecraftServer server, UUID playerId, PartySnapshot snapshot) {
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        send(player, new PartySyncPayload(snapshot.teamId(), snapshot.pack()));
+    }
+
+    /**
+     * Tells one player they are in no party.
+     *
+     * <h2>Why an empty roster has to be sent rather than inferred</h2>
+     *
+     * <p>Because a client's cache is <b>stale by default</b>: it holds whatever it was last told, and if
+     * a party is disbanded while a panel is open, nothing else would ever tell that client. The panel
+     * would go on drawing a party that no longer exists — with real player names in it, which is what
+     * makes it convincing. So a disband sends this to each former member rather than sending nothing.
+     */
+    public static void sendNoPartyTo(MinecraftServer server, UUID playerId) {
+        sendRosterTo(server, playerId, PartySnapshot.none());
+    }
+
+    /**
+     * Sends one payload, tolerating a player who has gone.
+     *
+     * <p>The check is not defensive noise. A sync is produced by several paths that run on a tick — the
+     * engine reporting a change, a team membership change, a command — and a player can disconnect
+     * between the moment a change is noticed and the moment it is sent. Sending to a disconnected player
+     * is a no-op on Fabric and throws on NeoForge, which is the worst combination: it works on one loader
+     * and breaks the other, from the same source file.
+     */
+    private static void send(ServerPlayer player, CustomPacketPayload payload) {
+        if (player.connection == null || player.hasDisconnected()) {
+            return;
+        }
+        ArmatureNetwork.sendToPlayer(player, payload);
     }
 
     /** Everyone online who shares this player's progress. */

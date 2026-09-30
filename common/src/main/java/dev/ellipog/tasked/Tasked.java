@@ -246,12 +246,18 @@ public final class Tasked {
             Constants.LOG.info("Tasked: team '{}' created; {} progress now comes from it",
                     team.name(), team.owner());
             TaskedNetworking.sendTeamChange(eventServer, team, null);
+            // And the roster, beside the progress rather than instead of it. The two messages answer
+            // different questions -- "what does my questline look like now" and "who is in my party"
+            // -- and a client that heard only the first would draw the right questline under a
+            // heading that names the wrong members.
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
         });
 
         TeamEvents.MEMBER_JOINED.register((eventServer, team, player) -> {
             Constants.LOG.info("Tasked: {} joined team '{}'; progress now comes from team {}",
                     player, team.name(), team.id());
             TaskedNetworking.sendTeamChange(eventServer, team, null);
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
         });
         TeamEvents.MEMBER_LEFT.register((eventServer, team, player, reason) -> {
             Constants.LOG.info("Tasked: {} left team '{}' ({})", player, team.name(), reason);
@@ -262,6 +268,11 @@ public final class Tasked {
                 return;
             }
             TaskedNetworking.sendTeamChange(eventServer, team, player);
+            // The team as it now is, so the people still in it watch the leaving row go. The leaver is
+            // not in it -- which is exactly why they are named separately: they are in no party at all
+            // now, so their panel goes to the empty state rather than merely losing a row.
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+            TaskedNetworking.sendNoPartyTo(eventServer, player);
         });
 
         // The party's chosen progress mode goes with the party.
