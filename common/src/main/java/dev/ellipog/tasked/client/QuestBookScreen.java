@@ -1449,6 +1449,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
 
         toolsView.clear();
+        // Wholly-visible rows only: the panel's widgets are drawn by the book's widget pass, which is
+        // clipped to the book -- not to this list -- so a row half scrolled out of the list would be
+        // painted over the sample above it. That is a report, and this is the flag for it.
+        toolsView.whole(true);
         toolsView.viewport().bounds(toolsFrame.list().x(), toolsFrame.list().y(),
                 toolsFrame.list().width(), toolsFrame.list().height());
 

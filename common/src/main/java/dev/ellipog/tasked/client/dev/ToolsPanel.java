@@ -224,10 +224,14 @@ public final class ToolsPanel {
         node(r, sample.nodeA(), ArmatureTheme.nodeEdgeAvailable(), ArmatureTheme.hoverRing());
         node(r, sample.nodeB(), ArmatureTheme.nodeEdgeComplete(), 0);
 
+        // The card is square and its contents are round, exactly as the book draws them: the outer panel
+        // has no radius and every surface inside it follows the theme's. The first version drew all of
+        // them with flat fills, so a theme with a radius of six showed a sample of square corners -- the
+        // report was "some corners staying square under bent corners".
         ArmatureTheme.panel(r, sample.card().x(), sample.card().y(), sample.card().width(),
                 sample.card().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        r.fill(sample.raised().x(), sample.raised().y(), sample.raised().right(), sample.raised().bottom(),
-                ArmatureTheme.raised());
+        ArmatureTheme.fillSurface(r, sample.raised().x(), sample.raised().y(), sample.raised().width(),
+                sample.raised().height(), ArmatureTheme.raised(), ArmatureTheme.CORNERS_TOP);
         r.fill(sample.track().x(), sample.track().y(), sample.track().right(), sample.track().bottom(),
                 ArmatureTheme.scrollTrack());
         r.fill(sample.track().x(), sample.track().y(), sample.track().right(),
@@ -240,17 +244,26 @@ public final class ToolsPanel {
         r.text("Body", textX, textY + 10, ArmatureTheme.body());
         r.text("faint", textX + r.textWidth("Body") + 5, textY + 10, ArmatureTheme.faint());
 
-        r.fill(sample.row().x(), sample.row().y(), sample.row().right(), sample.row().bottom(),
-                Colour.translucent(ArmatureTheme.rowHover(), 0.5F));
+        ArmatureTheme.fillSurface(r, sample.row().x(), sample.row().y(), sample.row().width(),
+                sample.row().height(), Colour.translucent(ArmatureTheme.rowHover(), 0.5F),
+                ArmatureTheme.CORNERS_ALL);
         r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().bottom(),
                 ArmatureTheme.recessed());
         r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().y() + 1,
                 ArmatureTheme.panelEdge());
 
-        ArmatureTheme.panel(r, sample.button().x(), sample.button().y(), sample.button().width(),
-                sample.button().height(), ArmatureTheme.raised(), ArmatureTheme.controlEdge());
-        ArmatureTheme.panel(r, sample.tooltip().x(), sample.tooltip().y(), sample.tooltip().width(),
-                sample.tooltip().height(), ArmatureTheme.tooltipFill(), ArmatureTheme.tooltipEdge());
+        // A rounded surface with a border, drawn as the toolkit draws one: the edge colour fills the whole
+        // shape and the face sits one pixel inside it.
+        ArmatureTheme.fillSurface(r, sample.button().x(), sample.button().y(), sample.button().width(),
+                sample.button().height(), ArmatureTheme.controlEdge(), ArmatureTheme.CORNERS_ALL);
+        ArmatureTheme.fillSurface(r, sample.button().x() + 1, sample.button().y() + 1,
+                Math.max(0, sample.button().width() - 2), Math.max(0, sample.button().height() - 2),
+                ArmatureTheme.raised(), ArmatureTheme.CORNERS_ALL);
+        ArmatureTheme.fillSurface(r, sample.tooltip().x(), sample.tooltip().y(), sample.tooltip().width(),
+                sample.tooltip().height(), ArmatureTheme.tooltipEdge(), ArmatureTheme.CORNERS_ALL);
+        ArmatureTheme.fillSurface(r, sample.tooltip().x() + 1, sample.tooltip().y() + 1,
+                Math.max(0, sample.tooltip().width() - 2), Math.max(0, sample.tooltip().height() - 2),
+                ArmatureTheme.tooltipFill(), ArmatureTheme.CORNERS_ALL);
 
         BookGeometry.Rect region = regionOf(selected, sample);
         if (region != null) {
