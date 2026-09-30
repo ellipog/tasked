@@ -487,8 +487,18 @@ public final class QuestBookScreen extends ArmatureScreen {
     private boolean pressMoved;
     private double pressX;
     private double pressY;
-    private int panAtPressX;
-    private int panAtPressY;
+
+    /**
+     * The content point the pan is holding, not the offset it started at.
+     *
+     * <p>In content coordinates because a drag says "I am holding this bit of the world", and a zoom
+     * during the drag moves the world. The offset captured at press was the first version and it had a
+     * visible fault: hold the canvas and turn the wheel, and each mouse move slid the canvas back to
+     * where the drag began -- because the pan put back an offset that the zoom had deliberately
+     * changed. See {@code Viewport.dragTo}, which is that arithmetic with a test.
+     */
+    private float panContentX;
+    private float panContentY;
 
     /** The node under the pointer when the press began, if any. */
     private String pressedNode;
@@ -3699,8 +3709,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             pressMoved = false;
             pressX = mouseX;
             pressY = mouseY;
-            panAtPressX = viewport().offsetX();
-            panAtPressY = viewport().offsetY();
+            panContentX = viewport().contentX(mouseX);
+            panContentY = viewport().contentY(mouseY);
 
             String chapter = effectiveChapter();
             ClientQuestCache.Entry under = chapter == null ? null
@@ -3737,11 +3747,13 @@ public final class QuestBookScreen extends ArmatureScreen {
             if (Math.abs(mouseX - pressX) > DRAG_THRESHOLD || Math.abs(mouseY - pressY) > DRAG_THRESHOLD) {
                 pressMoved = true;
             }
-            // From the offset the press started at, not from the previous frame's. Accumulating the
-            // per-event deltas drifts by a pixel each time, so a drag of any length lands somewhere the
-            // pointer is not — and it reads as the canvas slipping rather than as an arithmetic fault.
-            viewport().setOffset(panAtPressX + (int) (mouseX - pressX),
-                    panAtPressY + (int) (mouseY - pressY));
+            // The grabbed content point goes under the pointer, from the scale as it is *now*. Written
+            // this way rather than as `panAtPress + (mouse - press)` for two reasons, and both of them
+            // were faults: an offset captured at press is thrown away by anything else that moves the
+            // view -- a zoom while the drag is held slid the canvas back to where the drag started, once
+            // per wheel notch -- and the delta form accumulates a pixel per event unless it is anchored.
+            // `Viewport.dragTo` is the one expression, and its test sweeps it against both.
+            viewport().dragTo(mouseX, mouseY, panContentX, panContentY);
             return true;
         }
         return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
