@@ -93,6 +93,18 @@ public final class ToolsLayout {
     public static final String MOTION = "motion";
 
     /** The one foldable section. Pressing its heading folds it. */
+    /** The shape section: one row, the corner radius, and it is selected through the band like a colour. */
+    public static final String SHAPE_SECTION = "section:shape";
+
+    /**
+     * The radius, as a row key and as a selection.
+     *
+     * <p>Selected the same way a colour is, so the band edits it with the same steppers and Revert puts it
+     * back -- rather than a second control with its own conventions. The band draws one line for it
+     * instead of four, and the letters are left out: "Radius 6" needs no channel name.
+     */
+    public static final String RADIUS = "shape:radius";
+
     /**
      * A palette list used to sit above the colours, and it is gone.
      *
@@ -272,6 +284,10 @@ public final class ToolsLayout {
         List<Action> rows = new ArrayList<>();
         rows.add(Action.toggle(EDIT, "Edit mode", editOn ? "On" : "Off"));
         rows.add(Action.toggle(MOTION, "Motion", motionOn ? "On" : "Off"));
+
+        // Shape before colours: the two knobs that are not a colour, then the palette.
+        rows.add(Action.heading(SHAPE_SECTION, "Shape"));
+        rows.add(Action.row(RADIUS, "Border radius"));
 
         rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25be " : "\u25b8 ") + "Colours"));
         if (coloursOpen) {

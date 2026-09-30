@@ -78,10 +78,16 @@ class ToolsLayoutTest {
         assertEquals(0, folded.stream().filter(row -> ToolsLayout.tokenId(row.key()) != null).count(),
                 "a folded colour section has no colours");
         for (ToolsLayout.Action row : folded) {
+            // The switches, the shape's one row, and headings -- and *no* colour, which is the assertion
+            // that matters: folding the section puts its forty-one rows away and nothing else.
             assertTrue(row.key().equals(ToolsLayout.EDIT) || row.key().equals(ToolsLayout.MOTION)
-                            || row.isHeading(),
+                            || row.key().equals(ToolsLayout.RADIUS) || row.isHeading(),
                     () -> "a folded panel kept a row it should not have: " + row.key());
         }
+        assertTrue(open().stream().anyMatch(row -> row.key().equals(ToolsLayout.RADIUS)),
+                "the shape's row is in the panel");
+        assertTrue(folded.stream().anyMatch(row -> row.key().equals(ToolsLayout.RADIUS)),
+                "and folding the colours does not take it away -- it belongs to another section");
         assertTrue(openRows.size() > folded.size(), "unfolding shows more, which is the whole point");
     }
 

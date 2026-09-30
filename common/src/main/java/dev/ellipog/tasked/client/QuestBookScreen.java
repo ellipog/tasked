@@ -1494,7 +1494,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
 
         control(ToolsLayout.revert(toolsFrame.actions()),
-                Component.translatable("tasked.dev.reset"), this::revertColour);
+                Component.translatable("tasked.dev.reset"), this::revertSelected);
         control(ToolsLayout.save(toolsFrame.actions()),
                 Component.translatable("tasked.dev.save"), this::saveTheme);
 
@@ -1515,6 +1515,13 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** A theme row, or a colour row. */
     private void pressToolsRow(String key) {
+        // The radius is selected like a colour: one selection, one band, one Revert. It is not a colour
+        // and it has no id, so it is compared as the sentinel it is.
+        if (ToolsLayout.RADIUS.equals(key)) {
+            toolsSelected = ToolsLayout.RADIUS.equals(toolsSelected) ? null : ToolsLayout.RADIUS;
+            rebuildWidgets();
+            return;
+        }
         String token = ToolsLayout.tokenId(key);
         if (token != null) {
             toolsSelected = token.equals(toolsSelected) ? null : token;
@@ -1530,9 +1537,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
     }
 
-    /** One channel stepper: eight steps of one channel of the selected colour. */
+    /** One channel stepper: eight steps of one channel of the selected colour, or one step of radius. */
     private void nudgeChannel(String channel, int step) {
         String token = toolsSelected;
+        if (ToolsLayout.RADIUS.equals(token)) {
+            int next = net.minecraft.util.Mth.clamp(Appearance.radius() + (step > 0 ? 1 : -1),
+                    Appearance.MIN_RADIUS, Appearance.MAX_RADIUS);
+            Appearance.setRadius(next);
+            status("Border radius " + Appearance.radius(), false);
+            rebuildWidgets();
+            return;
+        }
         if (token == null) {
             return;
         }
@@ -1548,10 +1563,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         rebuildWidgets();
     }
 
-    /** Undoes the edits to the selected colour alone. */
-    private void revertColour() {
+    /** Undoes the edits to whatever is selected: a colour, or the corner radius. */
+    private void revertSelected() {
         if (toolsSelected == null) {
             status("Press a colour first", true);
+            rebuildWidgets();
+            return;
+        }
+        if (ToolsLayout.RADIUS.equals(toolsSelected)) {
+            Appearance.clearRadius();
+            status("Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }

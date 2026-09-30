@@ -129,6 +129,20 @@ public final class ToolsPanel {
         String token = ToolsLayout.tokenId(row.key());
         boolean hovered = onScreen.contains(mouseX, mouseY);
 
+        if (ToolsLayout.RADIUS.equals(row.key())) {
+            // The shape's one row: its value at the right, drawn like a colour's hex so the two rows read
+            // as the same kind of thing. The steppers live in the band.
+            String value = "radius " + Appearance.radius() + (Appearance.radiusChosen() ? " *" : "");
+            int width = r.textWidth(value);
+            if (Appearance.radiusChosen()) {
+                r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
+                        Colour.translucent(ArmatureTheme.rowHover(), hovered ? 0.4F : 0.2F));
+            }
+            r.text(value, onScreen.right() - 4 - width, textY(slot, onScreen, r),
+                    Appearance.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
+            return;
+        }
+
         if (token != null) {
             int argb = Appearance.main().colour(token);
             boolean isSelected = token.equals(state.selected());
@@ -156,7 +170,8 @@ public final class ToolsPanel {
     /** The selected colour, its channels with their numbers, and the two actions. */
     private static void drawBand(GuiRenderer r, ToolsLayout.Frame frame, State state, Measure measure) {
         String token = state.selected();
-        int argb = token == null ? 0 : Appearance.main().colour(token);
+        boolean radius = ToolsLayout.RADIUS.equals(token);
+        int argb = token == null || radius ? 0 : Appearance.main().colour(token);
 
         BookGeometry.Rect swatch = frame.swatch();
         int box = swatch.height() - 4;
@@ -166,14 +181,29 @@ public final class ToolsPanel {
             r.fill(swatch.x() + 1, boxY, swatch.x() + 1 + box, boxY + box, argb);
         }
 
-        String name = token == null ? "Press a colour to edit it"
-                : labelOf(token) + "  " + String.format("#%08X", argb);
+        String name;
+        if (radius) {
+            name = "Border radius  " + Appearance.radius()
+                    + (Appearance.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : "");
+        }
+        else {
+            name = token == null ? "Press a colour to edit it"
+                    : labelOf(token) + "  " + String.format("#%08X", argb);
+        }
         r.text(Measure.truncate(name, Math.max(0, swatch.width() - box - 10), measure),
                 swatch.x() + box + 8, swatch.y() + (swatch.height() - r.lineHeight()) / 2,
                 token == null ? ArmatureTheme.faint() : ArmatureTheme.body());
 
-        // The channels: the letter, the value, and two buttons that are widgets.
+        // The channels: the letter, the value, and two buttons that are widgets. A radius selection uses
+        // the first line and nothing else -- and draws no letter, because its name is in the line above.
         Map<String, Slot> beats = ToolsLayout.beats(frame.channels());
+        if (radius) {
+            Slot value = beats.get("beat:R");
+            String number = String.valueOf(Appearance.radius());
+            r.text(number, value.x() + (value.width() - r.textWidth(number)) / 2,
+                    value.y() + (value.height() - r.lineHeight()) / 2, ArmatureTheme.title());
+            return;
+        }
         for (int i = 0; i < ToolsLayout.CHANNELS.size(); i++) {
             String channel = ToolsLayout.CHANNELS.get(i);
             Slot value = beats.get("beat:" + channel);
@@ -196,6 +226,12 @@ public final class ToolsPanel {
             default -> 24;
         };
         return (argb >>> shift) & 0xFF;
+    }
+
+    /** The radius the theme underneath asks for, for the band's own reference. */
+    private static int themeRadius() {
+        var theme = dev.ellipog.armature.client.ui.Themes.any(Appearance.currentName());
+        return theme == null ? 0 : theme.cornerRadius();
     }
 
     /** A token's name, from the catalogue rather than from its id. */
