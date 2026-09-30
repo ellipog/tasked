@@ -44,8 +44,14 @@ public final class ToolsPanel {
     private ToolsPanel() {
     }
 
-    /** What the panel is showing: the selected colour, and the last thing that happened. */
-    public record State(String selected, String feedback, boolean feedbackIsError) {
+    /**
+     * What the panel is showing: the selected colour, the last thing that happened, and whether the hex
+     * field is on the band.
+     *
+     * @param hexEditable true when a colour is selected, so the band leaves room for the field instead of
+     *     drawing the value as text -- one place showing the number, and it is the one you can type into
+     */
+    public record State(String selected, String feedback, boolean feedbackIsError, boolean hexEditable) {
     }
 
     /**
@@ -130,15 +136,16 @@ public final class ToolsPanel {
         boolean hovered = onScreen.contains(mouseX, mouseY);
 
         if (ToolsLayout.RADIUS.equals(row.key())) {
-            // The shape's one row: its value at the right, drawn like a colour's hex so the two rows read
-            // as the same kind of thing. The steppers live in the band.
-            String value = "radius " + Appearance.radius() + (Appearance.radiusChosen() ? " *" : "");
-            int width = r.textWidth(value);
-            if (Appearance.radiusChosen()) {
-                r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
-                        Colour.translucent(ArmatureTheme.rowHover(), hovered ? 0.4F : 0.2F));
-            }
-            r.text(value, onScreen.right() - 4 - width, textY(slot, onScreen, r),
+            // The shape's row: the number sits between its own two arrows, which are widgets. An override
+            // is said with the number's colour rather than a marker -- bright when it is the player's, faint
+            // when it is still the theme's -- so nothing has to explain an asterisk.
+            BookGeometry.Rect rowBox = BookGeometry.Rect.at(onScreen.x(), onScreen.y(), slot.width(),
+                    slot.height());
+            Slot between = ToolsLayout.stepperValue(new Slot(row.key(), rowBox.x(), rowBox.y(),
+                    rowBox.width(), rowBox.height()));
+            String number = String.valueOf(Appearance.radius());
+            r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
+                    textY(slot, onScreen, r),
                     Appearance.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
             return;
         }
@@ -181,18 +188,21 @@ public final class ToolsPanel {
             r.fill(swatch.x() + 1, boxY, swatch.x() + 1 + box, boxY + box, argb);
         }
 
+        // One line, and the value is in the field when there is a field: a name and a hex code *and* a box
+        // holding the same hex code is the same fact twice.
+        BookGeometry.Rect hexBox = ToolsLayout.hexField(frame.swatch(), state.hexEditable());
+        int nameRoom = hexBox == null ? swatch.width() - box - 10 : hexBox.x() - swatch.x() - box - 12;
         String name;
         if (radius) {
-            name = "Border radius  " + Appearance.radius()
-                    + (Appearance.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : "");
+            name = "Border radius";
         }
         else {
             name = token == null ? "Press a colour to edit it"
-                    : labelOf(token) + "  " + String.format("#%08X", argb);
+                    : labelOf(token) + (state.hexEditable() ? "" : "  " + String.format("#%08X", argb));
         }
-        r.text(Measure.truncate(name, Math.max(0, swatch.width() - box - 10), measure),
+        r.text(Measure.truncate(name, Math.max(0, nameRoom), measure),
                 swatch.x() + box + 8, swatch.y() + (swatch.height() - r.lineHeight()) / 2,
-                token == null ? ArmatureTheme.faint() : ArmatureTheme.body());
+                token == null && !radius ? ArmatureTheme.faint() : ArmatureTheme.body());
 
         // The channels: the letter, the value, and two buttons that are widgets. A radius selection uses
         // the first line and nothing else -- and draws no letter, because its name is in the line above.

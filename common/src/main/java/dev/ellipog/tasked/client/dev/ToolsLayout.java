@@ -97,11 +97,11 @@ public final class ToolsLayout {
     public static final String SHAPE_SECTION = "section:shape";
 
     /**
-     * The radius, as a row key and as a selection.
+     * The radius's row key.
      *
-     * <p>Selected the same way a colour is, so the band edits it with the same steppers and Revert puts it
-     * back -- rather than a second control with its own conventions. The band draws one line for it
-     * instead of four, and the letters are left out: "Radius 6" needs no channel name.
+     * <p>It was briefly selectable -- a click put the radius in the band, which then showed one line of
+     * steppers. That was a second step for one number, and the report said so: the arrows belong in the
+     * row, beside the number they move.
      */
     public static final String RADIUS = "shape:radius";
 
@@ -245,7 +245,9 @@ public final class ToolsLayout {
             /** The whole row is the control. */
             ROW,
             /** A section's name, which folds it. */
-            HEADING
+            HEADING,
+            /** A label whose own controls sit inside the row. */
+            STEPPER
         }
 
         public static Action toggle(String key, String label, String buttonLabel) {
@@ -260,6 +262,11 @@ public final class ToolsLayout {
             return new Action(key, label, null, Kind.HEADING);
         }
 
+        /** A label with its own controls in the row -- placed from {@link ToolsLayout#stepper}. */
+        public static Action stepper(String key, String label) {
+            return new Action(key, label, null, Kind.STEPPER);
+        }
+
         public boolean hasButton() {
             return kind == Kind.SWITCH && buttonLabel != null;
         }
@@ -270,6 +277,11 @@ public final class ToolsLayout {
 
         public boolean isHeading() {
             return kind == Kind.HEADING;
+        }
+
+        /** Whether this row places its own controls rather than being one. */
+        public boolean isStepper() {
+            return kind == Kind.STEPPER;
         }
     }
 
@@ -287,7 +299,9 @@ public final class ToolsLayout {
 
         // Shape before colours: the two knobs that are not a colour, then the palette.
         rows.add(Action.heading(SHAPE_SECTION, "Shape"));
-        rows.add(Action.row(RADIUS, "Border radius"));
+        // A stepper row rather than a selectable one: its controls are placed from `stepper(row)` and it
+        // takes no selection, so the band stays about colours.
+        rows.add(Action.stepper(RADIUS, "Border radius"));
 
         rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25be " : "\u25b8 ") + "Colours"));
         if (coloursOpen) {
@@ -318,7 +332,7 @@ public final class ToolsLayout {
             switch (row.kind()) {
                 case HEADING -> stack.row(row.key(), HEADING_HEIGHT);
                 case SWITCH -> stack.row(row.key(), SWITCH_HEIGHT, stripRoom());
-                case ROW -> stack.row(row.key(), ROW_HEIGHT);
+                case ROW, STEPPER -> stack.row(row.key(), ROW_HEIGHT);
             }
         }
         return stack;
@@ -496,6 +510,47 @@ public final class ToolsLayout {
 
     /** The channels, in the order the band draws them. */
     public static final List<String> CHANNELS = List.of("R", "G", "B", "A");
+
+    /**
+     * The box the selected colour's hex code is typed into, or null when nothing is selected.
+     *
+     * <p>On the swatch's own line, at its right, where the hex value used to be *drawn*: it was a display
+     * of the answer, and the report was that the answer should be editable in place -- *"hex code direct
+     * injection, like text field editing on hex"*.
+     */
+    public static BookGeometry.Rect hexField(BookGeometry.Rect swatch, boolean anySelection) {
+        if (!anySelection) {
+            return null;
+        }
+        int width = Math.min(96, Math.max(0, swatch.width() - 60));
+        return BookGeometry.Rect.at(swatch.right() - width, swatch.y() + 3, width, 18);
+    }
+
+    /**
+     * A row's own stepper: `- value +`, inside the row, at its right.
+     *
+     * <p>The shape's row is edited in place rather than by selecting it and using the band, which was the
+     * report: *"instead of selecting then adding, just have the number in middle of 2 arrows that make it
+     * go up or down"*. Two arrows and a number is a control that needs no explanation and no second step.
+     */
+    public static Map<String, Slot> stepper(Slot row) {
+        int button = 16;
+        int number = 22;
+        int right = row.right() - STRIP_INSET;
+        int left = Math.max(row.x(), right - (button * 2 + number));
+        Map<String, Slot> out = new LinkedHashMap<>();
+        out.put("down", new Slot("down", left, row.y(), button, row.height()));
+        out.put("up", new Slot("up", right - button, row.y(), button, row.height()));
+        return out;
+    }
+
+    /** Where a stepper's number is drawn: between its two buttons. */
+    public static Slot stepperValue(Slot row) {
+        Map<String, Slot> buttons = stepper(row);
+        Slot down = buttons.get("down");
+        Slot up = buttons.get("up");
+        return new Slot("value", down.right(), row.y(), Math.max(0, up.x() - down.right()), row.height());
+    }
 
     /** Revert and Save, side by side in the actions row. */
     public static BookGeometry.Rect revert(BookGeometry.Rect actions) {

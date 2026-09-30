@@ -1493,6 +1493,30 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         }
 
+        // The shape's stepper, inside its own row: two arrows with the number between them, which is what
+        // was asked for -- *"instead of selecting then adding, just have the number in middle of 2 arrows"*.
+        dev.ellipog.armature.client.ui.kit.Slot radiusRow = toolsLayout.slot(ToolsLayout.RADIUS);
+        if (radiusRow != null) {
+            Map<String, dev.ellipog.armature.client.ui.kit.Slot> step = ToolsLayout.stepper(radiusRow);
+            for (String way : List.of("down", "up")) {
+                var slot = step.get(way);
+                int delta = way.equals("down") ? -1 : 1;
+                control(slot.x(), slot.y(), slot.width(), slot.height(),
+                        Component.literal(way.equals("down") ? "\u2212" : "+"), () -> stepRadius(delta));
+            }
+        }
+
+        // And the hex code, editable where it is shown: a field over the swatch's line, holding the
+        // selected colour's value. Creating it here rather than drawing it is the whole point of having a
+        // text widget -- the number is typed, not watched.
+        BookGeometry.Rect hex = ToolsLayout.hexField(toolsFrame.swatch(), toolsSelected != null);
+        if (hex != null) {
+            var field = addRenderableWidget(new dev.ellipog.armature.client.ArmatureTextField(
+                    hex.x(), hex.y(), hex.width(), hex.height(), hexOf(toolsSelected)));
+            field.onSubmit(this::applyHex);
+            field.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
+        }
+
         control(ToolsLayout.revert(toolsFrame.actions()),
                 Component.translatable("tasked.dev.reset"), this::revertSelected);
         control(ToolsLayout.save(toolsFrame.actions()),
@@ -1515,13 +1539,6 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** A theme row, or a colour row. */
     private void pressToolsRow(String key) {
-        // The radius is selected like a colour: one selection, one band, one Revert. It is not a colour
-        // and it has no id, so it is compared as the sentinel it is.
-        if (ToolsLayout.RADIUS.equals(key)) {
-            toolsSelected = ToolsLayout.RADIUS.equals(toolsSelected) ? null : ToolsLayout.RADIUS;
-            rebuildWidgets();
-            return;
-        }
         String token = ToolsLayout.tokenId(key);
         if (token != null) {
             toolsSelected = token.equals(toolsSelected) ? null : token;
@@ -1537,17 +1554,79 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
     }
 
-    /** One channel stepper: eight steps of one channel of the selected colour, or one step of radius. */
-    private void nudgeChannel(String channel, int step) {
-        String token = toolsSelected;
-        if (ToolsLayout.RADIUS.equals(token)) {
-            int next = net.minecraft.util.Mth.clamp(Appearance.radius() + (step > 0 ? 1 : -1),
-                    Appearance.MIN_RADIUS, Appearance.MAX_RADIUS);
-            Appearance.setRadius(next);
-            status("Border radius " + Appearance.radius(), false);
+    /** The shape row's arrows: one step of corner radius each. */
+    private void stepRadius(int delta) {
+        Appearance.setRadius(net.minecraft.util.Mth.clamp(Appearance.radius() + delta,
+                Appearance.MIN_RADIUS, Appearance.MAX_RADIUS));
+        status("Border radius " + Appearance.radius()
+                + (Appearance.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : ""), false);
+        rebuildWidgets();
+    }
+
+    /** The theme's own radius, for the message: what a Revert would go back to. */
+    private static int themeRadius() {
+        var theme = Themes.any(Appearance.currentName());
+        return theme == null ? 0 : theme.cornerRadius();
+    }
+
+    /** The selected colour's value, as the field should show it. */
+    private String hexOf(String token) {
+        return token == null ? "" : String.format("#%06X", Appearance.main().colour(token) & 0xFFFFFF);
+    }
+
+    /**
+     * A hex code typed into the band's field.
+     *
+     * <p>Accepts what a person types: `#RRGGBB`, `RRGGBB`, or `#AARRGGBB` when the alpha matters. Only RGB
+     * keeps the colour's own alpha, because setting a colour to translucent by mistake is not recoverable
+     * by looking at it -- and three of the forty-one tokens are translucent on purpose.
+     *
+     * <p>A value it cannot read is reported and changes nothing: the field is rebuilt from the colour, so a
+     * typo costs a message rather than a broken theme.
+     */
+    private void applyHex(String typed) {
+        String text = typed == null ? "" : typed.trim();
+        if (text.isEmpty()) {
+            return;
+        }
+        String digits = text.startsWith("#") ? text.substring(1) : text;
+        int argb = -1;
+        try {
+            long parsed = Long.parseLong(digits, 16);
+            if (digits.length() == 6) {
+                argb = 0xFF000000 | (int) parsed;
+            }
+            else if (digits.length() == 8) {
+                argb = (int) parsed;
+            }
+            else if (digits.length() == 3) {
+                // The short form every colour picker accepts: #abc means #aabbcc.
+                int r = (int) ((parsed >> 8) & 0xF);
+                int g = (int) ((parsed >> 4) & 0xF);
+                int b = (int) (parsed & 0xF);
+                argb = 0xFF000000 | (r * 17) << 16 | (g * 17) << 8 | (b * 17);
+            }
+        }
+        catch (NumberFormatException e) {
+            argb = -1;
+        }
+
+        if (argb < 0 || toolsSelected == null) {
+            status("\"" + text + "\" is not a hex colour - try #4A90D9", true);
             rebuildWidgets();
             return;
         }
+        if (digits.length() == 6) {
+            argb = (Appearance.main().colour(toolsSelected) & 0xFF000000) | (argb & 0xFFFFFF);
+        }
+        Appearance.setCustom(toolsSelected, argb);
+        status(labelOfToken(toolsSelected) + " set to " + String.format("#%08X", argb), false);
+        rebuildWidgets();
+    }
+
+    /** One channel stepper: eight steps of one channel of the selected colour. */
+    private void nudgeChannel(String channel, int step) {
+        String token = toolsSelected;
         if (token == null) {
             return;
         }
@@ -1563,10 +1642,14 @@ public final class QuestBookScreen extends ArmatureScreen {
         rebuildWidgets();
     }
 
-    /** Undoes the edits to whatever is selected: a colour, or the corner radius. */
+    /**
+     * Undoes the edits to what the panel is about: the selected colour, or -- with nothing selected --
+     * the corner radius, which has no selection of its own now that its arrows live in its row.
+     */
     private void revertSelected() {
         if (toolsSelected == null) {
-            status("Press a colour first", true);
+            Appearance.clearRadius();
+            status("Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }
@@ -2805,7 +2888,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
-                new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError),
+                new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
+                        toolsSelected != null),
                 mouseX, mouseY);
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
         // call the sidebar and the party panel make. It was missing entirely, which left a list that
