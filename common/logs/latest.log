@@ -1,10 +1,358 @@
-[01:16:01] [Test worker/INFO]: Loaded 1291 recipes
-[01:16:01] [Test worker/INFO]: Loaded 1400 advancements
-[01:16:02] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
-[01:16:02] [Worker-Main-12/INFO]: Preparing spawn area: 2%
-[01:16:02] [Server thread/INFO]: Time elapsed: 164 ms
-[01:16:03] [Test worker/INFO]: Tasked: loaded 132 file(s) cleanly
-[01:16:03] [Test worker/INFO]: Tasked: quest tree (110 quests in 18 chapters)
+[03:39:44] [Test worker/INFO]: Tasked: declared 4 payload(s)
+[03:39:48] [Test worker/INFO]: tasked: progress is now for team 77f7d837-7e5f-4e2f-b562-05543e7bc508 (was 70dcfe7c-974f-40c0-be63-226420ec21ce)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: progress is now for team ffffffff-ffff-ffff-ffff-ffffffffffff (was 3f2a1b4c-5d6e-7f80-9a0b-1c2d3e4f5061)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/ERROR]: tasked: the server sent progress this client could not read
+com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Expected value at line 1 column 1 path $
+	at com.google.gson.internal.Streams.parse(Streams.java:61) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:102) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:70) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseProgress(ClientQuestCache.java:626) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:436) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:392) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest.malformedProgressIsDiscarded(QuestSyncTest.java:1005) ~[test/:?]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
+Caused by: com.google.gson.stream.MalformedJsonException: Expected value at line 1 column 1 path $
+	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:599) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
+	at com.google.gson.internal.Streams.parse(Streams.java:47) ~[gson-2.10.1.jar:?]
+	... 88 more
+[03:39:48] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
+com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest.malformedTreeIsDiscarded(QuestSyncTest.java:996) ~[test/:?]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
+Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
+	... 86 more
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 0 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
+com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
+	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
+	at dev.ellipog.tasked.net.QuestSyncTest$Revision.movesForAnUnreadableTree(QuestSyncTest.java:683) ~[test/:?]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
+	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
+	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
+	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
+Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
+	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551) ~[gson-2.10.1.jar:?]
+	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
+	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
+	... 96 more
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/WARN]: tasked: the server sent a version 9 quest tree and this client understands up to version 2. Anything it added will not be drawn.
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/WARN]: tasked: refused a progress delta for team ea137855-5abb-4916-b90b-9e3ebe2a2142 -- this client holds no full sync for it (it holds null), so there is nothing for the delta to be relative to. The server sends a full sync on join and on reload.
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/WARN]: tasked: ignored an unreadable progress message from the server: unknown sync message flag 116 -- this build writes 0 (raw) and 1 (deflate)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: progress is now for team 71039468-88e0-4089-84f1-e3169577197a (was 46904ea5-3b5d-4688-84a7-5cb0434cfdee)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/WARN]: tasked: ignored an unplaceable tree chunk from the server: chunk 5 is outside a message of 2 chunk(s)
+[03:39:48] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
+[03:39:48] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:50] [Test worker/INFO]: [STDOUT]:     seeded 132 example questline(s) into build\playthrough\config\tasked\quests
+[03:39:51] [Test worker/INFO]: Loaded 1291 recipes
+[03:39:51] [Test worker/INFO]: Loaded 1400 advancements
+[03:39:52] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
+[03:39:52] [Worker-Main-4/INFO]: Preparing spawn area: 2%
+[03:39:52] [Server thread/INFO]: Time elapsed: 154 ms
+[03:39:52] [Test worker/INFO]: Tasked: loaded 132 file(s) cleanly
+[03:39:52] [Test worker/INFO]: Tasked: quest tree (110 quests in 18 chapters)
   Getting Started
     First Steps  [first_steps]
       Punch a Tree  [punch_a_tree]  1 task(s), 1 reward(s)
@@ -137,38 +485,39 @@
       Offline  [neon_gate]  2 task(s), 0 reward(s), after [neon_count, neon_repeat]
       Packet Capture  [neon_read]  2 task(s), 1 reward(s), after [neon_gate]
       Ghost in the Machine  [neon_end]  1 task(s), 1 reward(s), after [neon_read]
-[01:16:03] [Server thread/INFO]: tasked-tester[embedded] logged in with entity id 1 at (9.5, -60.0, -7.5)
-[01:16:04] [Server thread/INFO]: tasked-tester joined the game
-[01:16:04] [Test worker/INFO]: [STDOUT]:     server up: 110 quest(s) in 18 chapter(s), 4 chapter group(s)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     player 'tasked-tester' is on the player list: 1
-[01:16:04] [Test worker/INFO]: [STDOUT]:     the seeded examples are 110 quest(s) in 18 chapter(s) in 4 group(s), from 132 file(s)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 0
+[03:39:52] [Server thread/INFO]: tasked-tester[embedded] logged in with entity id 1 at (8.5, -60.0, 6.5)
+[03:39:52] [Server thread/INFO]: tasked-tester joined the game
+[03:39:52] [Test worker/INFO]: [STDOUT]:     server up: 110 quest(s) in 18 chapter(s), 4 chapter group(s)
+[03:39:52] [Test worker/INFO]: [STDOUT]:     player 'tasked-tester' is on the player list: 1
+[03:39:52] [Test worker/INFO]: [STDOUT]:     the seeded examples are 110 quest(s) in 18 chapter(s) in 4 group(s), from 132 file(s)
+[03:39:52] [Server thread/INFO]: armature: teams come from 'stored'
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 0
         tasked.command.complete.locked
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit punch_a_tree 0                        -> 0
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked submit punch_a_tree 0                        -> 0
         tasked.command.submit.refused
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 0
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 0
         tasked.command.submit.refused
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /give @s minecraft:oak_log 8                         -> 1
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /give @s minecraft:oak_log 8                         -> 1
         Gave 8 [Oak Log] to tasked-tester
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'punch_a_tree' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 989ccad7-0f56-41ae-98d5-40ef1a0485c9)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'punch_a_tree' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 5157db0e-4710-4039-a97e-c6da5e20fd9d)
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
         tasked.command.claim.done
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 0
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 0
         tasked.command.claim.nothing
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'read_the_sign' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 1
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'read_the_sign' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked submit read_the_sign 0                       -> 1
         tasked.command.submit.done
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
         tasked.command.complete.done
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'stone_tools' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete stone_tools                         -> 1
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'stone_tools' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete stone_tools                         -> 1
         tasked.command.complete.done
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'the_underground' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 1
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'the_underground' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete the_underground                     -> 1
         tasked.command.complete.done
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked progress                                     -> 21
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked progress                                     -> 21
         tasked.command.progress.header
           §acompleted§r Somewhere to Work  §8[make_a_table]  §6(rewards waiting - /tasked claim make_a_table)
               §7[  ]§r §70§r minecraft:crafting_table  §70/1
@@ -213,387 +562,40 @@
               §7[  ]§r §70§r minecraft:redstone x8  §70/8
           §funlocked§r Jack In  §8[neon_start]
               §7[  ]§r §70§r minecraft:glowstone x8  §70/8
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked reset make_a_table                           -> 1
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked reset make_a_table                           -> 1
         tasked.command.reset.done
-[01:16:04] [Test worker/INFO]: [STDOUT]:     after resetting make_a_table: stone_tools=COMPLETED the_underground=COMPLETED (recorded, not asserted -- see the comment)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 0  (never ran: Incorrect argument for command at position 7: tasked <--[HERE])
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 989ccad7-0f56-41ae-98d5-40ef1a0485c9 -- rewards waiting
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
+[03:39:52] [Test worker/INFO]: [STDOUT]:     after resetting make_a_table: stone_tools=COMPLETED the_underground=COMPLETED (recorded, not asserted -- see the comment)
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 0  (never ran: Incorrect argument for command at position 7: tasked <--[HERE])
+[03:39:52] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 5157db0e-4710-4039-a97e-c6da5e20fd9d -- rewards waiting
+[03:39:52] [Test worker/INFO]: [STDOUT]:     /tasked complete make_a_table                        -> 1
         tasked.command.complete.done
-[01:16:04] [Server thread/INFO]: tasked-friend[embedded] logged in with entity id 3 at (-5.5, -60.0, -2.5)
-[01:16:04] [Server thread/INFO]: tasked-friend joined the game
-[01:16:04] [Test worker/INFO]: [STDOUT]:     spawned 'tasked-friend', a second real player on the server
-[01:16:04] [Server thread/INFO]: armature: team 'the playthrough party' created by 989ccad7-0f56-41ae-98d5-40ef1a0485c9
-[01:16:04] [Server thread/INFO]: armature: 7fdc8deb-db72-4043-acc5-5c1eb21bfb27 joined team 'the playthrough party'
-[01:16:04] [Server thread/INFO]: tasked: tasked-friend completed 'punch_a_tree' for team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a -- rewards waiting
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
+[03:39:52] [Server thread/INFO]: tasked-friend[embedded] logged in with entity id 3 at (3.5, -60.0, -9.5)
+[03:39:52] [Server thread/INFO]: tasked-friend joined the game
+[03:39:52] [Test worker/INFO]: [STDOUT]:     spawned 'tasked-friend', a second real player on the server
+[03:39:52] [Server thread/INFO]: armature: team 'the playthrough party' created by 5157db0e-4710-4039-a97e-c6da5e20fd9d
+[03:39:52] [Server thread/INFO]: armature: db91f77d-09ea-44fe-b189-dfe4a3246dda joined team 'the playthrough party'
+[03:39:52] [Server thread/INFO]: tasked: tasked-friend completed 'punch_a_tree' for team 97ff3fab-46ff-4fc0-9e29-cf43bde8f5a8 -- rewards waiting
+[03:39:53] [Server thread/INFO]: tasked: tasked-tester collected the rewards for 'punch_a_tree' (team 97ff3fab-46ff-4fc0-9e29-cf43bde8f5a8)
+[03:39:53] [Test worker/INFO]: [STDOUT]:     /tasked claim punch_a_tree                           -> 1
         tasked.command.claim.done
-[01:16:04] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a -- rewards waiting
-[01:16:04] [Server thread/INFO]: tasked: tasked-friend collected the rewards for 'make_a_table' (team 23d1eb16-450d-4d97-9dcf-6d4840f3e86a)
-[01:16:04] [Test worker/INFO]: [STDOUT]:     /tasked claim make_a_table                           -> 1
+[03:39:53] [Server thread/INFO]: tasked: tasked-tester completed 'make_a_table' for team 97ff3fab-46ff-4fc0-9e29-cf43bde8f5a8 -- rewards waiting
+[03:39:53] [Server thread/INFO]: tasked: tasked-friend collected the rewards for 'make_a_table' (team 97ff3fab-46ff-4fc0-9e29-cf43bde8f5a8)
+[03:39:53] [Test worker/INFO]: [STDOUT]:     /tasked claim make_a_table                           -> 1
         tasked.command.claim.done
-[01:16:04] [Test worker/INFO]: [STDOUT]:     after tasked-friend left: the party sees punch_a_tree=COMPLETED, and their own progress says UNLOCKED
-[01:16:04] [Test worker/INFO]: [STDOUT]:     after the owner left: solo progress is intact, punch_a_tree=COMPLETED the_underground=COMPLETED
-[01:16:04] [Test worker/INFO]: [STDOUT]:     NOT PROVEN by these tests: that the same progress-sharing holds when the server is a real dedicated server with a real client attached. Every part Tasked owns is covered, and nothing in Tasked branches on isDedicatedServer -- but the loader's dedicated bootstrap and the client's packet decode are not exercised here. That needs a real client, and it is the one item on the list that does.
-[01:16:04] [Test worker/INFO]: [STDOUT]:     an idle tick reports nothing: the engine's own output is empty, so the sync it drives costs nothing on the ticks where nothing happened
-[01:16:04] [Test worker/INFO]: [STDOUT]:     playthrough transcript: C:\Users\Ellio\Documents\GitHub\minecraft\tasked\common\build\playthrough\transcript.txt
-[01:16:04] [Server thread/INFO]: Stopping server
-[01:16:04] [Server thread/INFO]: Saving players
-[01:16:04] [Server thread/INFO]: tasked-tester lost connection: Server closed
-[01:16:04] [Server thread/INFO]: tasked-tester left the game
-[01:16:04] [Server thread/INFO]: Saving worlds
-[01:16:04] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:overworld
-[01:16:05] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_end
-[01:16:05] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_nether
-[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (playthrough): All chunks are saved
-[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
-[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
-[01:16:05] [Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved
-[01:16:05] [Test worker/INFO]: Tasked: declared 4 payload(s)
-[01:16:05] [Test worker/INFO]: tasked: progress is now for team 877e74c4-0701-493c-a4e4-8fcd4ebb5cdf (was 28be1700-41f8-499b-891c-021e1915ed34)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: progress is now for team ffffffff-ffff-ffff-ffff-ffffffffffff (was 3f2a1b4c-5d6e-7f80-9a0b-1c2d3e4f5061)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/ERROR]: tasked: the server sent progress this client could not read
-com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Expected value at line 1 column 1 path $
-	at com.google.gson.internal.Streams.parse(Streams.java:61) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:102) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:70) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.parseProgress(ClientQuestCache.java:626) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:436) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptProgress(ClientQuestCache.java:392) ~[main/:?]
-	at dev.ellipog.tasked.net.QuestSyncTest.malformedProgressIsDiscarded(QuestSyncTest.java:1005) ~[test/:?]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
-	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
-Caused by: com.google.gson.stream.MalformedJsonException: Expected value at line 1 column 1 path $
-	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:599) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
-	at com.google.gson.internal.Streams.parse(Streams.java:47) ~[gson-2.10.1.jar:?]
-	... 88 more
-[01:16:05] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
-com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
-	at dev.ellipog.tasked.net.QuestSyncTest.malformedTreeIsDiscarded(QuestSyncTest.java:996) ~[test/:?]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
-	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
-Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
-	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
-	... 86 more
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 0 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/ERROR]: tasked: the server sent a quest tree this client could not read
-com.google.gson.JsonSyntaxException: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:76) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseString(JsonParser.java:51) ~[gson-2.10.1.jar:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.parseTree(ClientQuestCache.java:481) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:357) ~[main/:?]
-	at dev.ellipog.tasked.client.ClientQuestCache.acceptTree(ClientQuestCache.java:345) ~[main/:?]
-	at dev.ellipog.tasked.net.QuestSyncTest$Revision.movesForAnUnreadableTree(QuestSyncTest.java:683) ~[test/:?]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728) ~[junit-platform-commons-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69) ~[junit-jupiter-engine-5.10.2.jar:5.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596) ~[?:?]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54) ~[junit-platform-engine-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58) ~[junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47) [junit-platform-launcher-1.10.2.jar:1.10.2]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.processAllTestClasses(JUnitPlatformTestClassProcessor.java:124) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor$CollectAllTestClassesExecutor.access$000(JUnitPlatformTestClassProcessor.java:99) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.junitplatform.JUnitPlatformTestClassProcessor.stop(JUnitPlatformTestClassProcessor.java:94) [gradle-testing-junit-platform-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.stop(SuiteTestClassProcessor.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103) ~[?:?]
-	at java.base/java.lang.reflect.Method.invoke(Method.java:580) ~[?:?]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(ContextClassLoaderDispatch.java:33) [gradle-messaging-8.10.jar:8.10]
-	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92) [gradle-messaging-8.10.jar:8.10]
-	at jdk.proxy1/jdk.proxy1.$Proxy4.stop(Unknown Source) [?:?]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker$3.run(TestWorker.java:200) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63) [gradle-testing-base-infrastructure-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:121) [gradle-worker-main-8.10.jar:8.10]
-	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(SystemApplicationClassLoaderWorker.java:71) [gradle-worker-main-8.10.jar:8.10]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69) [gradle-worker.jar:?]
-	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74) [gradle-worker.jar:?]
-Caused by: com.google.gson.stream.MalformedJsonException: Use JsonReader.setLenient(true) to accept malformed JSON at line 1 column 6 path $
-	at com.google.gson.stream.JsonReader.syntaxError(JsonReader.java:1659) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.checkLenient(JsonReader.java:1465) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.doPeek(JsonReader.java:551) ~[gson-2.10.1.jar:?]
-	at com.google.gson.stream.JsonReader.peek(JsonReader.java:433) ~[gson-2.10.1.jar:?]
-	at com.google.gson.JsonParser.parseReader(JsonParser.java:71) ~[gson-2.10.1.jar:?]
-	... 96 more
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/WARN]: tasked: the server sent a version 9 quest tree and this client understands up to version 2. Anything it added will not be drawn.
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 2 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/WARN]: tasked: refused a progress delta for team 44c94eb4-54d2-487f-bed5-7fedc7eec051 -- this client holds no full sync for it (it holds null), so there is nothing for the delta to be relative to. The server sends a full sync on join and on reload.
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/WARN]: tasked: ignored an unreadable progress message from the server: unknown sync message flag 116 -- this build writes 0 (raw) and 1 (deflate)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: progress is now for team fc8590ef-a639-4568-bba2-b00b5964a6ed (was ad40dad7-7ad8-4f8c-baf2-2b94a5a0e58a)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/WARN]: tasked: ignored an unplaceable tree chunk from the server: chunk 5 is outside a message of 2 chunk(s)
-[01:16:05] [Test worker/INFO]: tasked: received 2 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 1 quest(s) in 1 chapter(s)
-[01:16:05] [Test worker/INFO]: tasked: received 3 quest(s) in 1 chapter(s)
+[03:39:53] [Test worker/INFO]: [STDOUT]:     after tasked-friend left: the party sees punch_a_tree=COMPLETED, and their own progress says UNLOCKED
+[03:39:53] [Test worker/INFO]: [STDOUT]:     after the owner left: solo progress is intact, punch_a_tree=COMPLETED the_underground=COMPLETED
+[03:39:53] [Test worker/INFO]: [STDOUT]:     NOT PROVEN by these tests: that the same progress-sharing holds when the server is a real dedicated server with a real client attached. Every part Tasked owns is covered, and nothing in Tasked branches on isDedicatedServer -- but the loader's dedicated bootstrap and the client's packet decode are not exercised here. That needs a real client, and it is the one item on the list that does.
+[03:39:53] [Test worker/INFO]: [STDOUT]:     an idle tick reports nothing: the engine's own output is empty, so the sync it drives costs nothing on the ticks where nothing happened
+[03:39:53] [Test worker/INFO]: [STDOUT]:     playthrough transcript: C:\Users\Ellio\Documents\GitHub\minecraft\tasked\common\build\playthrough\transcript.txt
+[03:39:53] [Server thread/INFO]: Stopping server
+[03:39:53] [Server thread/INFO]: Saving players
+[03:39:53] [Server thread/INFO]: tasked-tester lost connection: Server closed
+[03:39:53] [Server thread/INFO]: tasked-tester left the game
+[03:39:53] [Server thread/INFO]: Saving worlds
+[03:39:53] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:overworld
+[03:39:53] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_end
+[03:39:53] [Server thread/INFO]: Saving chunks for level 'ServerLevel[Tasked playthrough]'/minecraft:the_nether
+[03:39:53] [Server thread/INFO]: ThreadedAnvilChunkStorage (playthrough): All chunks are saved
+[03:39:53] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+[03:39:53] [Server thread/INFO]: ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+[03:39:53] [Server thread/INFO]: ThreadedAnvilChunkStorage: All dimensions are saved

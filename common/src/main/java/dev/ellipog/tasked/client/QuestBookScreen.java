@@ -22,6 +22,7 @@ import dev.ellipog.tasked.net.SubmitTaskPayload;
 import dev.ellipog.tasked.progress.QuestState;
 
 import net.minecraft.client.Minecraft;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -343,6 +344,11 @@ public final class QuestBookScreen extends Screen {
      * <p>The viewport is fixed-scale: a sidebar does not zoom, and a view that reported a zoom range of
      * one would be a view whose zoom controls are drawn, enabled, and do nothing.
      *
+     * <p>The bar this view draws is also <b>draggable</b>, which the view owns rather than this screen:
+     * {@link ScrollView#scrollbarHit} decides whether a press belongs to it and
+     * {@link ScrollView#dragThumbTo} maps a pointer's y back onto a scroll offset. That mapping is the
+     * inverse of the drawing's own formula, so it lives beside it — see that class's note.
+     *
      * <p>It is <b>not</b> cleared on a resize, and that is deliberate. {@code init} runs on every resize
      * and on every rebuild, and the outline's expansion state — and so the player's collapses — lives in
      * {@link #sidebar}, which is keyed on the tree rather than on the window. The scroll offset lives in
@@ -394,6 +400,22 @@ public final class QuestBookScreen extends Screen {
      * what {@link #drawTooltips} does.
      */
     private final List<ArmatureButton> buttons = new ArrayList<>();
+
+    /**
+     * Close, which is in {@link #buttons} but is not drawn by the widget pass.
+     *
+     * <h2>Why this is a field rather than one more entry in the list</h2>
+     *
+     * <p>Because Close is the only control that lives in the header, and the widget pass is clipped
+     * from the sidebar's list top downwards — so that a scrolled row can never be drawn through the
+     * title bar. That clip would swallow Close, which is why it is drawn by hand in the chrome layer
+     * instead. The field is what lets that happen; see {@link #chromeControl}.
+     *
+     * <p>It is still in {@link #buttons} as well, and that is deliberate rather than redundant:
+     * {@code drawTooltips} walks that list, so a control missing from it would draw and respond and
+     * simply have no tooltip.
+     */
+    private ArmatureButton closeButton;
 
     public QuestBookScreen() {
         super(Component.translatable("tasked.screen.quest_book.title"));
@@ -494,13 +516,30 @@ public final class QuestBookScreen extends Screen {
         return sidebarView.viewport().bounds(rect.x(), rect.y(), rect.width(), rect.height());
     }
 
-    /** The sidebar's scrollbar, when there is more to scroll than fits. */
+    /**
+     * The sidebar's scrollbar, when there is more to scroll than fits.
+     *
+     * <h2>The colours are the theme's own tokens now, and they were not</h2>
+     *
+     * <p>This passed {@code ArmatureTheme.panelEdge()} and {@code ArmatureTheme.available()} — a border
+     * colour and the <b>bright blue that means "this quest can be started"</b>. The bar came out as a
+     * saturated strip down the side of a dark panel, and the report was immediate: <i>"make it not such
+     * an obnoxious colour by default"</i>.
+     *
+     * <p>The theme had {@code scrollTrack} and {@code scrollThumb} the whole time, and their own
+     * javadoc says why this happened: <i>"a colour borrowed for a job it was not chosen for is a colour
+     * that will be wrong for one of the two jobs."</i> That is exactly what {@code available} was —
+     * chosen to read as a ring around a node, used as a scrollbar grip.
+     *
+     * <p>The replacement pair is a token per theme, so a light theme gets a bar that reads on light.
+     * That is the whole point of the token, and it was being bypassed.
+     */
     private void drawSidebarScrollbar(GuiRenderer r) {
         // Re-bound here, not assumed. The scrollbar's geometry comes from the viewport, so the viewport
         // has to describe the current window before it is drawn -- and this is the first thing in the
         // frame that needs it, because the drawing itself happens before the widget pass.
         sidebarViewport();
-        sidebarView.drawScrollbar(r, ArmatureTheme.panelEdge(), ArmatureTheme.available());
+        sidebarView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
     }
 
     // ------------------------------------------------------------------
@@ -855,6 +894,38 @@ public final class QuestBookScreen extends Screen {
     }
 
     /**
+     * Creates a control in the header: added for <b>input</b>, drawn by hand instead.
+     *
+     * <h2>Why a second registration path exists at all</h2>
+     *
+     * <p>{@code Screen} keeps two lists, and until now nothing here cared. {@code addRenderableWidget}
+     * puts a widget in both: {@code children} for input — clicks, hover, keyboard, narration — and
+     * {@code renderables} for the base class's single drawing pass. {@code addWidget} puts it in
+     * {@code children} only, which is exactly the arrangement a control in the header needs.
+     *
+     * <p>The reason is the clip. The widget pass is now clipped to start at the sidebar's list top, so
+     * that a scrolled row cannot be drawn through the title bar — see {@code render}. Close sits above
+     * that line, so the base pass would never draw it. Registering it here keeps every part of it that
+     * is about <i>behaviour</i> with the base class, and moves only the drawing to the chrome layer,
+     * which is also where a close button belongs: above the canvas, at the raised Z.
+     *
+     * <p>The alternative was to duplicate press and hover handling for one button, which would be a
+     * second implementation of {@code AbstractWidget}'s own logic — the class of mistake this screen
+     * has already been bitten by once, when the preview carried its own copy of the control styles.
+     *
+     * <p>Remembered in {@link #buttons} as well, so tooltips still find it.
+     */
+    private ArmatureButton chromeControl(BookGeometry.Rect rect, Component label, Runnable onPress) {
+        if (rect == null) {
+            return null;
+        }
+        ArmatureButton button = new ArmatureButton(rect.x(), rect.y(), rect.width(), rect.height(),
+                label, onPress);
+        buttons.add(button);
+        return addWidget(button);
+    }
+
+    /**
      * Creates the sidebar's rows as widgets, over the current outline.
      *
      * <h2>The four steps, in this order, and why the order is this method's business</h2>
@@ -904,8 +975,16 @@ public final class QuestBookScreen extends Screen {
             ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
                     () -> pressSidebarRow(row.key()));
 
+            // Left-aligned, every row. A column of centred labels has a ragged left edge, so nothing
+            // lines up and a short title floats away from the row it names -- see ArmatureButton on
+            // why the alignment is the caller's decision rather than a heuristic in the control.
+            button.alignLeft(true);
+
             if (heading) {
-                button.flat(true).textColour(ArmatureTheme.title());
+                // A section, not flat. Flat draws nothing at all, which is what the headings were, and
+                // a row whose whole width is clickable reading as plain text is the report that came
+                // back: "no like thing to make the categories look like buttons".
+                button.section(true);
             }
             else {
                 button.selected(isSelected)
@@ -922,6 +1001,10 @@ public final class QuestBookScreen extends Screen {
     protected void init() {
         clearWidgets();
         buttons.clear();
+        // Nulled with the list it came from. `init` rebuilds Close only on the branch that builds the
+        // book, so leaving this set would have `render` draw a control the screen no longer owns — see
+        // the guard at the drawing site for what that looks like.
+        closeButton = null;
 
         // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
         // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
@@ -973,10 +1056,14 @@ public final class QuestBookScreen extends Screen {
         // sitting permanently under the chapter list — the picker beside the editor, and the motion
         // switch beside the accessibility settings it duplicates. See BookGeometry.controls for why the
         // geometry went with them and why the space went back to the chapter list.
-        control(controls.get("close"), Component.literal("\u2715"), this::onClose)
-                .textColour(ArmatureTheme.body())
-                .tooltip(List.of(Component.literal("Close the book"),
-                        Component.literal("Escape does the same")));
+        // `chromeControl`, not `control`: Close is in the header, which the widget clip now excludes.
+        // See that method for why the input half stays with the base class and only the drawing moves.
+        closeButton = chromeControl(controls.get("close"), Component.literal("\u2715"), this::onClose);
+        if (closeButton != null) {
+            closeButton.textColour(ArmatureTheme.body())
+                    .tooltip(List.of(Component.literal("Close the book"),
+                            Component.literal("Escape does the same")));
+        }
 
         // The view cluster: three square buttons in the canvas's own top-left corner.
         //
@@ -1154,30 +1241,135 @@ public final class QuestBookScreen extends Screen {
         GuiRenderer renderer = new GuiGraphicsRenderer(graphics);
         renderWith(renderer, mouseX, mouseY, partialTick);
 
-        // The widget pass is clipped to the book itself, and this is the only place the clip can be
-        // pushed: the controls are AbstractWidgets and the base class draws them in one call, so there
-        // is no way to clip one group of them and not another.
+        // Everything from here on is the **chrome layer**, and it is drawn at a raised Z. Read the
+        // next few paragraphs before moving any of it: this is a fix for a defect that no draw ORDER
+        // can fix, and it was misdiagnosed once already.
         //
-        // The consequence is worth stating, because the tidier version is not available. The clip is
-        // the *panel*, not the sidebar's own viewport, so it stops a row escaping the book without
-        // stopping one reaching the header -- and clipping to the viewport instead would also clip the
-        // Close button, which lives in the header and has to stay visible.
+        // An item icon is not a fill. `GuiGraphics.renderItem` translates the pose to Z = 150 and then
+        // calls `flush()` itself, and `flush()` is `disableDepthTest(); endBatch(); enableDepthTest()`
+        // -- so depth testing is switched back ON the moment an icon is drawn, and the icon has
+        // written depth 150. GUI fills draw at Z = 0 and do not write depth at all.
         //
-        // What keeps rows off the header is therefore the scroll rather than the clip: every scroll is
-        // snapped to a whole row pitch by `scrollSidebar`, so a row is never left half past the top
-        // edge. The clip then bounds what is left, which is a row half past the *bottom* -- it can
-        // reach the panel's own edge and no further, and the last few pixels of a scrolled row showing
-        // in the margin is the one visible seam of the arrangement. It is bounded, it is inside the
-        // book, and the alternative is a second clip that cannot be placed.
-        BookGeometry.Rect book = panelRect();
-        try (GuiRenderer.Scoped clip = renderer.clip(book.x(), book.y(), book.right(), book.bottom())) {
-            super.render(graphics, mouseX, mouseY, partialTick);
-        }
+        // The consequence is the whole of the bug: a fill drawn *after* an icon at Z = 0 fails the
+        // depth test where the icon is and is **never drawn there**, however late it is drawn. That is
+        // why the node's icon punched through the cluster panel and hid the third view button -- and
+        // why the `flush()` that used to be the fix for this changed nothing, because the ordering was
+        // never wrong. Verified against the compiled bytecode rather than recalled:
+        // `tmp-verify/probe_managed.py` prints both methods.
+        //
+        // So the chrome is translated up instead: at Z = 400 a control beats an icon at Z = 150 by
+        // depth rather than by order, which is what "this is the top layer" actually means.
+        //
+        // The pose is pushed here rather than inside `renderWith` because the pose is a `GuiGraphics`
+        // thing and `renderWith` deliberately sees only a `GuiRenderer` -- that is what lets it be
+        // driven by a RecordingRenderer with no client. This override is the one place that has the
+        // unwrapped context, so it is the one place this can be done.
+        PoseStack pose = graphics.pose();
+        pose.pushPose();
+        pose.translate(0F, 0F, CHROME_Z);
+        try {
+            // The view cluster's backing panel, and it is drawn here rather than in `drawBook` for
+            // exactly this reason: it has to be inside the raised Z, and `drawBook` cannot raise it.
+            //
+            // Nothing else moved: the panel is still positioned and sized by `BookGeometry`, and it is
+            // still drawn before the widgets so the three buttons sit on top of it.
+            // Guarded on having data, which is the same condition `drawBook` returns early on: with no
+            // quests there are no widgets in the cluster, so the panel would be a raised box with three
+            // things missing from it. `drawBook` used to reach this line only after that early return,
+            // and moving the panel here would have quietly dropped the guard with it.
+            if (overlay == Overlay.NONE && ClientQuestCache.hasData()) {
+                BookGeometry.Rect cluster = viewControls();
+                ArmatureTheme.panel(renderer, cluster.x(), cluster.y(), cluster.width(),
+                        cluster.height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+            }
 
-        // Outside the clip, deliberately: a tooltip belongs over everything, including the edge it
-        // happens to reach past.
-        drawTooltips(renderer, mouseX, mouseY);
+            // The widget pass, clipped from the sidebar's list top downwards.
+            //
+            // **Clipping at the list top rather than at the panel is the fix, not a tightening.**
+            //
+            // This used to clip to the panel and rely on the *scroll* to keep rows off the header:
+            // every wheel notch was snapped to a whole row pitch, so a row was never left half past the
+            // top edge. That was true, and then the scrollbar became draggable — which sets arbitrary
+            // offsets, because the thumb has to follow the pointer. The first drag left a row sitting
+            // through the title bar, and the picture of it is what this comment is answering. The old
+            // note here said "what keeps rows off the header is therefore the scroll rather than the
+            // clip", which was a correct description of an arrangement that one input later stopped
+            // holding.
+            //
+            // So the clip does the work now, which is the only version that survives a second way to
+            // scroll: snapping is a property of one input and a clip is a property of the drawing.
+            // Whatever a row does, it does it below `chapterListTop()`.
+            //
+            // `chapterListTop()` rather than the sidebar's own viewport rectangle, because the base
+            // class draws every widget in one call and there is no way to clip one group of them and
+            // not another — so this is one rectangle for the whole screen. Using the list's *top* as
+            // the bound is what makes one rectangle do the job: it excludes the header and the gap
+            // under it, and the only widgets it has to spare are the three view buttons, which start
+            // below it. `BookGeometryTest` asserts that clearance, because two pixels of margin is
+            // exactly the kind of thing a later layout change eats without anybody noticing.
+            //
+            // Close is above this line, so it is drawn by hand in the chrome layer below — see
+            // `chromeControl`, which keeps it receiving input while taking it out of this pass.
+            BookGeometry.Rect book = panelRect();
+            try (GuiRenderer.Scoped clip = renderer.clip(book.x(), geometry().chapterListTop(),
+                    book.right(), book.bottom())) {
+                super.render(graphics, mouseX, mouseY, partialTick);
+            }
+
+            // Close, drawn by hand rather than by the widget pass above.
+            //
+            // It is in the header, and the widget clip now starts at the list's top edge so that
+            // sidebar rows cannot be drawn through the title bar. That clip would swallow Close, so
+            // the one control that lives above it is drawn here instead -- at the chrome Z, which is
+            // also where a close button belongs.
+            //
+            // It is still a widget in every other respect: it was added with `addWidget`, so it
+            // receives presses and hover from the base class's own input handling. What it does not do
+            // is get *drawn* by that pass. See `chromeControl` for why the state has to move with the
+            // drawing rather than being duplicated here.
+            // Guarded on the overlay being shut, because `closeButton` is only rebuilt by the branch of
+            // `init` that builds the book. Opening an overlay clears every widget and builds the
+            // overlay's two controls instead, so without this the field would still be pointing at a
+            // control that has been removed — and `draw` checks `visible`, not membership, so it would
+            // cheerfully draw Close over the quest card.
+            if (overlay == Overlay.NONE && closeButton != null) {
+                closeButton.draw(renderer);
+            }
+
+            // Inside the raised Z as well, and that is not tidiness. A tooltip is a panel and some
+            // text at Z = 0, so one overlapping a node's icon would have a hole punched in it by the
+            // same mechanism -- and a tooltip is the last thing on the screen that should be see-through.
+            //
+            // Outside the clip, deliberately: a tooltip belongs over everything, including the edge it
+            // happens to reach past.
+            drawTooltips(renderer, mouseX, mouseY);
+        }
+        finally {
+            pose.popPose();
+        }
     }
+
+    /**
+     * How far above the canvas the chrome layer is drawn.
+     *
+     * <h2>Why a Z at all, in a 2D interface</h2>
+     *
+     * <p>Because vanilla's GUI is not flat: {@code GuiGraphics.renderItem} puts item icons at <b>150</b>
+     * precisely so they render over text and fills, and it writes that depth. Every other GUI primitive
+     * is at 0 and does not write depth. So an icon and a control are ordered by depth whether anybody
+     * asked for that or not — and a control drawn afterwards at 0 loses to the icon.
+     *
+     * <p>400 is above the item layer and below nothing that matters. Vanilla's own tooltips sit around
+     * the same figure, which is a coincidence rather than a dependency; what matters is only that it is
+     * greater than 150, and the value is a named constant so that the two figures can be compared by
+     * reading rather than by recalling.
+     *
+     * <p>It would be better if this were not needed, and the honest alternative is worse: clip the
+     * canvas around the cluster, which means drawing the canvas twice, splitting any node that straddles
+     * the boundary, and re-rendering every item icon for the privilege. Raising the chrome's Z costs a
+     * pose push.
+     */
+    private static final float CHROME_Z = 400F;
 
     /** The whole book, as a rectangle. Used by the render clip and by nothing else. */
     private BookGeometry.Rect panelRect() {
@@ -1299,8 +1491,9 @@ public final class QuestBookScreen extends Screen {
                 ArmatureTheme.panelEdge());
 
         // The sidebar's scrollbar. Drawn here rather than by the widget pass, because it is chrome
-        // rather than a control -- nothing is clickable about it -- and because every number it needs
-        // comes from the viewport, so the thumb and the rows it describes come from one object.
+        // rather than a widget -- though it *is* clickable, and `mouseClicked`/`mouseDragged` route its
+        // drag through the same ScrollView. Every number it needs comes from the viewport, so the thumb
+        // and the rows it describes come from one object.
         drawSidebarScrollbar(r);
 
         r.text(title.getString(), left + 10, top + 9, ArmatureTheme.title());
@@ -1336,12 +1529,18 @@ public final class QuestBookScreen extends Screen {
             drawCanvas(r, mouseX, mouseY, questsIn(chapter), now);
         }
 
-        // The view cluster's backing panel, over the canvas. The buttons have fills of their own, so
-        // this is not what makes them visible — it is what makes them read as one tool group rather
-        // than as three controls that happen to be stacked.
-        BookGeometry.Rect cluster = viewControls();
-        ArmatureTheme.panel(r, cluster.x(), cluster.y(), cluster.width(), cluster.height(),
-                ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        // The canvas is done, and the view cluster's backing panel is *not* drawn here any more.
+        //
+        // It used to be, with a `flush()` in front of it and a comment claiming the flush was what put
+        // the panel over the nodes. That comment was wrong and the flush was not the fix: a node's icon
+        // is at Z=150 and writes depth, so a panel drawn after it at Z=0 is rejected by the depth test
+        // whatever the draw order is. The panel now lives in `render`, inside the raised chrome Z, which
+        // is where the ordering it actually needs can be expressed. See CHROME_Z.
+        //
+        // The flush stays, because draining the canvas here is still right: it puts the nodes on screen
+        // before the chrome layer is queued, so the two are in separate batches and nothing about the
+        // chrome depends on how the canvas happened to batch.
+        r.flush();
     }
 
     /**
@@ -1913,7 +2112,9 @@ public final class QuestBookScreen extends Screen {
         // The bar, and it draws nothing when the content fits. Its geometry comes from the same
         // viewport as the clip and the clamp, so a thumb that stops short of the end is not a thing
         // that can happen here.
-        overlayView.drawScrollbar(r, ArmatureTheme.recessed(), ArmatureTheme.controlEdge());
+        // The theme's own scrollbar tokens, for the same reason the sidebar's uses them: the overlay's
+        // bar was drawn from `recessed` and `controlEdge`, neither of which was chosen for the job.
+        overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
     }
 
     /**
@@ -2325,6 +2526,20 @@ public final class QuestBookScreen extends Screen {
             return true;
         }
 
+        // Then the sidebar's scrollbar, which is not a widget -- it is chrome this screen draws and
+        // hit-tests itself, in the margin to the right of the rows. It has to be checked here rather
+        // than left to the widget pass for that reason, and it cannot steal a click from a row because
+        // its grab band starts just past the viewport's right edge.
+        //
+        // A press anywhere on the track jumps the thumb to the pointer and then drags from there, which
+        // is what every list on every platform does. `beginThumbDrag` before `dragThumbTo` matters:
+        // without the first, the second returns immediately because no drag is in progress.
+        if (overlay == Overlay.NONE && sidebarView.scrollbarHit(mouseX, mouseY)) {
+            sidebarView.beginThumbDrag(mouseY);
+            sidebarView.dragThumbTo(mouseY);
+            return true;
+        }
+
         if (overlay == Overlay.QUEST) {
             // Anywhere outside the overlay's card closes it, which is what a full-screen panel should
             // do. Inside it, the click belongs to the panel and does nothing.
@@ -2365,6 +2580,14 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        // The scrollbar's drag, before the canvas pan and before the widgets. It has to be first
+        // because a drag that started on the bar must stay on the bar: the pan would otherwise take
+        // the movement, and the canvas would slide sideways while the pointer was over a scrollbar.
+        if (sidebarView.draggingThumb()) {
+            sidebarView.dragThumbTo(mouseY);
+            return true;
+        }
+
         if (dragging) {
             if (Math.abs(mouseX - pressX) > DRAG_THRESHOLD || Math.abs(mouseY - pressY) > DRAG_THRESHOLD) {
                 pressMoved = true;
@@ -2381,6 +2604,14 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        // Consumed unconditionally once a drag is in progress, and deliberately not "only if the
+        // pointer is still over the bar". Letting go outside the bar is how a drag ends in every
+        // program ever written, and releasing on the last position the bar saw is what makes the end
+        // of a drag land where the pointer was when it was let go.
+        if (sidebarView.endThumbDrag()) {
+            return true;
+        }
+
         if (dragging) {
             dragging = false;
 

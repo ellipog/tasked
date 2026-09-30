@@ -17,19 +17,54 @@ because somebody ran the script below.
 
 The four are four different *designs* rather than four difficulties of the same thing:
 
-| File | What it is for |
+| Group folder | What it is for |
 |---|---|
-| `01_stone_age.json` | The basics. A short chain, a couple of item tasks that do not consume, one checkmark. The one to read first, and the one the playthrough test plays. |
-| `02_toolsmith.json` | The mechanics. A branch, an OR-gate, an exclusive pair, a repeatable job with a cooldown, sequential tasks, an optional task, and a quest that stays hidden until it is done. |
-| `03_desert_road.json` | Linear progression with names drawn under the nodes, so a chapter where the list order *is* the progression is demonstrated rather than described. |
-| `04_theme_gallery.json` | One chapter per shipped UI theme **apart from `default`** — fifteen of them — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. |
+| `getting_started/` | The basics. One chapter, five quests: a short chain, a couple of item tasks that do not consume, one checkmark. The one to read first, and the one the playthrough test plays. |
+| `the_trade/` | The mechanics. One chapter, nine quests: a branch, an OR-gate, an exclusive pair, a repeatable job with a cooldown, sequential tasks, an optional task, and a quest that stays hidden until it is done. |
+| `the_road/` | Linear progression with names drawn under the nodes, so a chapter where the list order *is* the progression is demonstrated rather than described. |
+| `theme_gallery/` | One chapter per shipped UI theme **apart from `default`** — fifteen of them, six quests each — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. |
 
 `QuestIndexTest` asserts all of that, so a future tidy-up cannot quietly turn four demonstrations
 into four copies of the first one.
 
+### The layout, which is the format
+
+A questline is a **folder tree**, not one file per questline. There is no `01_stone_age.json` any
+more and there is no `version` field to write:
+
+```
+quests/
+  getting_started/            a group. Its folder name IS its id.
+    group.json                title, and the chapter folders in order
+    first_steps/              a chapter. Folder name is its id too.
+      chapter.json            title, and the quest file names in order
+      punch_a_tree.json       one whole quest per file
+      make_a_table.json
+  _schema/                    editor schemas. Never loaded, never copied.
+```
+
+Three rules worth knowing before you edit anything here:
+
+  * **A folder's name is its id**, and its manifest has to agree. Disagreement is an error naming
+    both sides, because the folder name is what every path in the tree is built from.
+  * **Order is declared twice, and by different things.** Group folders come in *folder-name* order
+    — which means renaming a group folder can reorder the book, including which chapter you land on.
+    Chapters inside a group and quests inside a chapter come from their manifest's list, so that
+    order is yours and it is load-bearing: a `LINEAR` chapter's progression **is** its quest list.
+  * **A file nobody lists is an error, not silence.** A chapter folder the group's `chapters` list
+    does not name will never load, and the loader says so rather than skipping it quietly.
+
+`_schema/` holds a JSON Schema per kind, so your editor autocompletes a `group.json`, a
+`chapter.json` and a quest file. It is skipped by the `_` prefix rule everywhere — by the loader, by
+the seeding script, and by the tests — which is the same convention the deliberately-broken fixtures
+in a test combo use.
+
+`QuestFilesTest` and `QuestFormatMigrationTest` cover all three rules, including that a chapter
+written both ways — one flat file versus a folder tree — produces a **byte-identical** quest tree.
+
 ### The theme gallery, and why it is built the way it is
 
-`04_theme_gallery.json` is the odd one out and the only example whose *design* is about something
+`theme_gallery/` is the odd one out and the only example whose *design* is about something
 other than quest mechanics. Its fifteen chapters — `gallery_modern`, `gallery_tome`,
 `gallery_vanilla_plus`, `gallery_high_contrast`, `gallery_monochrome`, `gallery_paper`,
 `gallery_obsidian`, `gallery_amethyst`, `gallery_copper`, `gallery_redstone`, `gallery_nether`,
@@ -136,9 +171,36 @@ Files beginning with `_` in `quests/` are skipped, and deliberately: they are th
 loader ignores by that prefix, and copying one would install a questline whose only purpose is to
 fail.
 
-A newly-added example is **created** rather than kept, so adding `04_theme_gallery.json` reached every
+A newly-added example is **created** rather than kept, so adding `theme_gallery/` reached every
 profile and combo on the next `--workspace` run without `--force`. `--force` is only needed to
-*replace* the three that were already there.
+*replace* files that were already there.
+
+## The one thing it deletes, and why
+
+Converting an install from the old flat format to folders means the same questline exists **twice** —
+once as `01_stone_age.json`, once as `getting_started/`. That is worse than a stale copy. It is two
+questlines, and every group, chapter and quest in the pair is reported as a duplicate id, naming a
+file *inside a folder* as the second claimant. That message reads as a broken conversion rather than
+as a file that needs deleting.
+
+So on every run the script removes a root-level `*.json` **if and only if** every chapter-group id it
+declares is also provided by a group folder that was just copied. Everything else at that level is
+**kept and named, with the reason**:
+
+```
+  - 01_stone_age.json  removed: a version-1 file whose group(s) 'getting_started' are now in folders beside it
+  ! mine.json  KEPT -- it declares 'my_own_group', which no copied group folder provides.
+      A version-1 file beside the folders would load as a second copy of whatever it
+      declares, so every shared id is reported as a duplicate. Delete it, or move it
+      somewhere the loader does not read.
+```
+
+Matching on declared **ids** rather than on file names is the point. A name list would go stale, and
+it would delete `01_stone_age.json` even if you had rewritten it into something of your own. A file
+that will not parse is never deleted. No folder is ever deleted. `_`-prefixed files are not touched.
+
+If you have a `mine.json` of your own, move it into a folder of its own or rename it with a leading
+`_`, and the warning goes away.
 
 ## Why this is not in `.utils/`
 

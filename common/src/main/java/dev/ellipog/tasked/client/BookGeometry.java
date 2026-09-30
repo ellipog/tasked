@@ -91,8 +91,24 @@ public final class BookGeometry {
     // Dimensions
     // ------------------------------------------------------------------
 
-    /** The chapter list down the left. */
-    public static final int SIDEBAR_WIDTH = 132;
+    /**
+     * The chapter list down the left.
+     *
+     * <p>156 rather than the 132 it was, and the reason is the grouped sidebar rather than taste. A
+     * heading's label and a chapter's are now at two different indents inside one column, so the room
+     * a title has is {@code 156 - EDGE*2 - SIDEBAR_SCROLLBAR - SIDEBAR_INDENT} = 124 rather than the
+     * 116 the flat list had — and the flat list was already truncating {@code "Getting Started"}.
+     * Grouping the list without widening it would have made the truncation worse and blamed it on the
+     * grouping.
+     *
+     * <p>Worth recording what the number is measured against, since a sidebar is easy to over-widen: the
+     * gallery's longest chapter title is {@code "High Contrast"} and the longest heading is
+     * {@code "Getting Started"}, so 124 is roughly twice what the content asks for. That margin is
+     * deliberate — a pack author's titles are not this file's — and it costs the canvas 24 pixels out
+     * of a 200-pixel minimum, which is why {@link #MIN_PANEL_WIDTH} still fits a screenshot-sized
+     * window comfortably.
+     */
+    public static final int SIDEBAR_WIDTH = 156;
 
     /** The title bar across the top of the panel. Holds the title, the count and Close. */
     public static final int HEADER_HEIGHT = 26;
@@ -129,8 +145,22 @@ public final class BookGeometry {
      */
     public static final int SIDEBAR_ROW_HEIGHT = ROW_HEIGHT;
 
-    /** Between two rows of the sidebar's list. Equal to {@link #ROW_GAP} for the same reason. */
-    public static final int SIDEBAR_ROW_GAP = ROW_GAP;
+    /**
+     * Between two rows of the sidebar's list.
+     *
+     * <h2>Half {@link #ROW_GAP}, and this is where the two stop agreeing</h2>
+     *
+     * <p>This was {@code ROW_GAP} — 4 — on the reasoning that a sidebar row and a control are the same
+     * kind of thing. They are, and they are not laid out the same way. A stack of buttons is two or
+     * three controls that each do something different; a sidebar is <b>nineteen rows in one list</b>,
+     * and spacing between list items is not spacing between unrelated controls. Four pixels of gap
+     * around eighteen-pixel rows spends a fifth of the column on nothing, and the report was exact:
+     * <i>"not utilizing its space well enough"</i>.
+     *
+     * <p>Two, so the pitch is 20 rather than 22. On a 174-pixel sidebar that is eight full rows instead
+     * of seven, and the rows still read as separate items because each has its own box.
+     */
+    public static final int SIDEBAR_ROW_GAP = 2;
 
     /**
      * How far a row is indented per level of nesting.
@@ -141,11 +171,13 @@ public final class BookGeometry {
      * of any depth, and a second constant here would be this class disagreeing with it about a question
      * it does not need to have an opinion on.
      *
-     * <p>Ten, which is a little over half a row's height. Wide enough that the indent reads as nesting
-     * rather than as a random left margin, and narrow enough that a two-level list in a 132-pixel column
-     * still has room for a word.
+     * <p>Eight, which is a little under half a row's height. Wide enough that the indent reads as
+     * nesting rather than as a random left margin, and narrow enough that the widest chapter title in
+     * the shipped examples still fits — see {@link #SIDEBAR_WIDTH} for that arithmetic. It was ten,
+     * and it came down by two when the column widened: the indent has to be <i>visible</i> rather than
+     * large, and every pixel of it is taken off the label.
      */
-    public static final int SIDEBAR_INDENT = 10;
+    public static final int SIDEBAR_INDENT = 8;
 
     /**
      * The width the scroll view's bar needs, taken off the right of the list.
