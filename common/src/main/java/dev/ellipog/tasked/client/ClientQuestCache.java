@@ -77,7 +77,11 @@ public final class ClientQuestCache {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                return Component.translatableWithFallback(label, labelFallback);
+                // The count as the key's argument, because these keys are written with one:
+                // "tasked.reward.xp.points" is "%s XP", and without the argument the row reads "%s XP"
+                // -- which is what a reward row did. The fallback needs no argument, since it is
+                // already whole English; Minecraft uses it verbatim when the key has no translation.
+                return Component.translatableWithFallback(label, labelFallback, count);
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
@@ -95,7 +99,8 @@ public final class ClientQuestCache {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                return Component.translatableWithFallback(label, labelFallback);
+                // The count, for the same reason as the task label above: the key is written with one.
+                return Component.translatableWithFallback(label, labelFallback, count);
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
@@ -155,7 +160,13 @@ public final class ClientQuestCache {
      * send it — reads as "nothing to claim", which is the direction that cannot show a button that
      * does nothing.
      */
-    private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean claimable) {
+    private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean claimable,
+                            Map<Integer, Map<UUID, Integer>> contributors) {
+
+        /** Who is holding what toward one task, in the order the server named them. Empty for nobody. */
+        Map<UUID, Integer> contributorsOf(int taskIndex) {
+            return contributors.getOrDefault(taskIndex, Map.of());
+        }
     }
 
     private static volatile List<Entry> entries = List.of();
@@ -198,6 +209,22 @@ public final class ClientQuestCache {
      */
     private static volatile long treeRevision;
 
+    /**
+     * Which progress this cache holds, as a counter that only ever moves.
+     *
+     * <h2>Why progress needs one when the tree has one</h2>
+     *
+     * <p>They are read for different reasons. The tree's revision says whether the <i>rows</i> a screen
+     * built are still the rows to draw; this one says whether what those rows are <i>about</i> has
+     * moved, which is a different question with a different answer at a different moment — a quest
+     * becoming claimable puts a Claim button on the screen, and a panel that only watched the tree
+     * would show it for the first time when the player reopened the book.
+     *
+     * <p>Moved on the message rather than on the contents, like both counters above it: "progress
+     * arrived" is a fact about a message, and two messages may describe the same state.
+     */
+    private static volatile long progressRevision;
+
     /** Whether the tree has arrived — even an empty one. */
     public static boolean hasTree() {
         return treeReceived;
@@ -238,6 +265,11 @@ public final class ClientQuestCache {
      */
     public static long treeRevision() {
         return treeRevision;
+    }
+
+    /** Which progress this cache holds. See the field's note for why a screen watches it. */
+    public static long progressRevision() {
+        return progressRevision;
     }
 
     /**
@@ -287,6 +319,18 @@ public final class ClientQuestCache {
     }
 
     /** How far along a task is, as the server last reported. Zero for anything unknown. */
+    /**
+     * Who is holding what toward one task, in the order the server named them.
+     *
+     * <p>Empty for a quest this client has no progress for, for a task nobody is carrying anything
+     * toward, and for every task of a server that predates the field — one answer for all three, and
+     * the safe one: no faces drawn rather than a wrong name beside a task.
+     */
+    public static Map<UUID, Integer> contributorsOf(String questId, int taskIndex) {
+        Progress found = progress.get(questId);
+        return found == null ? Map.of() : found.contributorsOf(taskIndex);
+    }
+
     public static int taskProgressOf(String questId, int taskIndex) {
         Progress found = progress.get(questId);
         if (found == null || taskIndex < 0 || taskIndex >= found.tasks().size()) {
@@ -467,6 +511,10 @@ public final class ClientQuestCache {
         // receiving does: a screen that seeded an outline at the old revision would otherwise keep
         // drawing that tree's rows for a cache that has nothing in it.
         treeRevision++;
+        // And the progress counter, for the same reason again: an empty cache is not the progress that
+        // was there a moment ago, and a panel holding a Claim button for it is holding a button for a
+        // server this client has left.
+        progressRevision++;
         // And the pack's theme, for the reason in this method's javadoc: it describes a connection, so
         // leaving it set would show one server's look on the next one -- an appearance nobody chose,
         // with nothing on screen saying where it came from.
@@ -643,14 +691,59 @@ public final class ClientQuestCache {
                     }
                 }
 
+                // Who is holding what, by task position. Absent for a task nobody is carrying anything
+                // toward, and for every task of a server that predates the field -- so its absence is
+                // simply "no faces to draw", which is the direction that cannot show a wrong name.
+                Map<Integer, Map<UUID, Integer>> contributors = new LinkedHashMap<>();
+                if (one.has("who")) {
+                    for (Map.Entry<String, JsonElement> task : one.getAsJsonObject("who").entrySet()) {
+                        int index = taskIndex(task.getKey());
+                        if (index < 0) {
+                            continue;
+                        }
+                        Map<UUID, Integer> picture = new LinkedHashMap<>();
+                        for (Map.Entry<String, JsonElement> held : task.getValue().getAsJsonObject().entrySet()) {
+                            UUID who = memberId(held.getKey());
+                            if (who != null) {
+                                picture.put(who, held.getValue().getAsInt());
+                            }
+                        }
+                        if (!picture.isEmpty()) {
+                            contributors.put(index, Map.copyOf(picture));
+                        }
+                    }
+                }
+
                 next.put(entry.getKey(), new Progress(
                         readState(str(one, "state")),
                         one.has("cooldown") ? one.get("cooldown").getAsLong() : 0L,
                         List.copyOf(tasks),
-                        one.has("claimable") && one.get("claimable").getAsBoolean()));
+                        one.has("claimable") && one.get("claimable").getAsBoolean(),
+                        Map.copyOf(contributors)));
             }
         }
         progress = Map.copyOf(next);
+        progressRevision++;
+    }
+
+    /** A task position from the wire, or -1 for one that is not a position. */
+    private static int taskIndex(String raw) {
+        try {
+            return Integer.parseInt(raw);
+        }
+        catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** A member's id from the wire, or null for one this client cannot read. */
+    private static UUID memberId(String raw) {
+        try {
+            return UUID.fromString(raw);
+        }
+        catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static QuestState readState(String raw) {

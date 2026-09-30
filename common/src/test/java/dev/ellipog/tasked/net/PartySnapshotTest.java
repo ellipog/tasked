@@ -47,7 +47,8 @@ class PartySnapshotTest {
                         new PartySnapshot.Member(MEMBER, "Tester", TeamRole.MEMBER)),
                 List.of(new PartySnapshot.Invite(TEAM, "another party")),
                 List.of("Ellipog", "Tester"),
-                "pooled");
+                "pooled",
+                List.of(OWNER));
     }
 
     @Nested
@@ -71,6 +72,10 @@ class PartySnapshotTest {
             assertEquals(1, back.invites().size(), "an invitation is a reason the panel has a button");
             assertEquals("another party", back.invites().get(0).teamName());
             assertEquals(List.of("Ellipog", "Tester"), back.online());
+            assertEquals(List.of(OWNER), back.present(),
+                    "and who was connected, which is what the marker on a member's row is drawn from "
+                            + "-- a field the round trip would otherwise drop in silence, on a test whose "
+                            + "name says every field survives");
         }
 
         @Test
@@ -96,7 +101,7 @@ class PartySnapshotTest {
             // than one with a character removed from a name, so the direction of the fallback matters.
             PartySnapshot hostile = new PartySnapshot(TEAM, "cre" + SEP + "w", OWNER,
                     List.of(new PartySnapshot.Member(OWNER, "Elli" + SEP + "pog", TeamRole.OWNER)),
-                    List.of(), List.of(), "one_member");
+                    List.of(), List.of(), "one_member", List.of());
 
             PartySnapshot back = PartySnapshot.unpack(hostile.pack());
 
@@ -225,6 +230,31 @@ class PartySnapshotTest {
         }
 
         @Test
+        @DisplayName("a member's marker comes from the ids that travelled rather than from their name")
+        void presenceIsById() {
+            // The check this replaced compared a member's name against the online *names*, which is a
+            // guess where the server has the answer: it goes wrong on a rename, and it disagrees with
+            // itself about case. Two members whose names are swapped is the case that tells them apart.
+            PartySnapshot swapped = new PartySnapshot(TEAM, "the crew", OWNER,
+                    List.of(new PartySnapshot.Member(OWNER, "Tester", TeamRole.OWNER),
+                            new PartySnapshot.Member(MEMBER, "Ellipog", TeamRole.MEMBER)),
+                    List.of(), List.of("Ellipog"), "one_member", List.of(MEMBER));
+
+            PartyRoster roster = PartySnapshot.toRoster(swapped, OWNER);
+
+            assertTrue(memberFor(roster, MEMBER).online(),
+                    "the member whose *id* was named as present is online, whatever they are called");
+            assertFalse(memberFor(roster, OWNER).online(),
+                    "and the one whose id was not named is not -- by name this would be exactly "
+                            + "backwards, since the online list holds the other one's new name");
+        }
+
+        private static PartyRoster.Member memberFor(PartyRoster roster, UUID id) {
+            return roster.members().stream()
+                    .filter(member -> member.id().equals(id)).findFirst().orElseThrow();
+        }
+
+        @Test
         @DisplayName("the viewer is the only thing that decides which row is theirs")
         void theViewerDecidesWhichRowIsTheirs() {
             PartyRoster asOwner = PartySnapshot.toRoster(sample(), OWNER);
@@ -235,6 +265,51 @@ class PartySnapshotTest {
             assertFalse(asMember.members().get(0).self(),
                     "the two views differ, which is what makes this a check rather than a constant");
             assertNotEquals(asOwner.members().get(0).self(), asMember.members().get(0).self());
+        }
+    }
+
+    @Nested
+    @DisplayName("A roster built for the player who is arriving")
+    class Arrival {
+
+        /**
+         * The player list a login can offer: everybody <b>except</b> the player who is arriving.
+         *
+         * <p>That is the whole of the fault these two cases pin. {@code PLAYER_JOIN} fires while the
+         * connection is still being accepted, so the list does not answer for the player who is joining
+         * — and a roster that trusted it about them named their own row with eight characters of their
+         * id, and marked them offline to themselves.
+         */
+        private PartySnapshot arriving() {
+            return sample().withSelf(sample().members(), MEMBER, "Tester", List.of("Ellipog"), List.of());
+        }
+
+        @Test
+        @DisplayName("names them from the one list that does not have them yet")
+        void theArrivingPlayerIsNamed() {
+            PartySnapshot.Member mine = arriving().members().stream()
+                    .filter(member -> member.id().equals(MEMBER))
+                    .findFirst().orElseThrow();
+
+            assertEquals("Tester", mine.name(),
+                    "the arriving player's own row must carry their name, not the first eight "
+                            + "characters of their id -- which is what a lookup that cannot answer falls "
+                            + "back to, and what a login drew");
+        }
+
+        @Test
+        @DisplayName("has them online to themselves, and touches nobody else")
+        void theArrivingPlayerIsOnline() {
+            PartySnapshot arriving = arriving();
+
+            assertTrue(arriving.online().contains("Tester"),
+                    "they are online to themselves: they are missing from the list this was built from, "
+                            + "and the roster a login sends is the one that has to say so");
+            assertTrue(arriving.online().contains("Ellipog"),
+                    "and the entries the list did have are still there");
+            assertEquals("Ellipog", arriving.members().get(0).name(),
+                    "the other rows kept their names");
+            assertEquals(2, arriving.members().size(), "and nobody was added or dropped");
         }
     }
 }

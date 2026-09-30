@@ -138,13 +138,20 @@ public final class Tasked {
 
         ArmatureEvents.PLAYER_JOIN.register(player -> {
             Constants.LOG.info("Tasked: {} joined", player.getScoreboardName());
+            // And every party's panel, because a party lists the players who are not in it: somebody
+            // arriving is news to panels they are nowhere near. See sendRostersToAllParties.
+            TaskedNetworking.sendRostersToAllParties(player.getServer());
             // The whole point of Stage 4: without this the quest book opens on an empty cache and
             // says so, which is indistinguishable from having no quests loaded at all.
             TaskedNetworking.sendEverythingTo(player);
         });
 
-        ArmatureEvents.PLAYER_LEAVE.register(player ->
-                Constants.LOG.info("Tasked: {} left", player.getScoreboardName()));
+        ArmatureEvents.PLAYER_LEAVE.register(player -> {
+            Constants.LOG.info("Tasked: {} left", player.getScoreboardName());
+            // The other half: a player leaving takes their Invite row with them, and their dot off
+            // every roster they were on.
+            TaskedNetworking.sendRostersToAllParties(player.getServer());
+        });
 
         // The engine. Runs once per player tick, and dedupes internally -- see
         // ProgressService.tick, which has to, because this hook fires per player and the work it
@@ -265,6 +272,13 @@ public final class Tasked {
             if (reason == TeamEvents.Reason.DISBANDED) {
                 TaskedNetworking.sendProgressToPlayer(eventServer, player,
                         ProgressSyncPayload.REASON_TEAM_CHANGED);
+                // And the roster, which this branch left out -- harmlessly, until the panel stopped
+                // closing on every press. The client's party cache is written by the roster message and
+                // nothing else empties it, so a member with the panel open while the party was disbanded
+                // went on reading a party that no longer existed. One message per member is the audience
+                // the progress sync above is already addressed to -- the event names each of them, which
+                // is the same reason this branch avoids walking the team.
+                TaskedNetworking.sendNoPartyTo(eventServer, player);
                 return;
             }
             TaskedNetworking.sendTeamChange(eventServer, team, player);

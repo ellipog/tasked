@@ -4,6 +4,7 @@ import dev.ellipog.armature.api.teams.Team;
 import dev.ellipog.armature.api.teams.TeamRole;
 
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,7 +52,8 @@ import java.util.UUID;
  * @param members  everyone in it, in no particular order. The client sorts for display
  */
 public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Member> members,
-                            List<Invite> invites, List<String> online, String mode) {
+                            List<Invite> invites, List<String> online, String mode,
+                            List<UUID> present) {
 
     /** The field separator. See the class note on why it is stripped from names. */
     private static final String SEP = "\u001f";
@@ -90,7 +92,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     /** A snapshot of nobody being in any party, which is a real answer rather than an absent one. */
     public static PartySnapshot none() {
         return new PartySnapshot(new UUID(0L, 0L), "", new UUID(0L, 0L), List.of(), List.of(), List.of(),
-                "one_member");
+                "one_member", List.of());
     }
 
     /** Whether this describes a party at all. False is the answer for a player who is alone. */
@@ -130,6 +132,16 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
             // action goes through a command at all.
             out.append('o').append(SEP).append(clean(name)).append('\n');
         }
+        for (UUID who : present) {
+            // Which members are connected, by **id**, as a line of its own rather than as a field on the
+            // member's line. Two reasons, and the second is what decided it: the member line is split
+            // with a limit, so a fourth field would be read as part of the name by anybody who did not
+            // know about it -- and this tag is skipped by a reader that does not recognise it, which is
+            // the tolerance the format already states. The check the client used to make, a member's
+            // name against the online *names*, is a guess where the server has the answer: it goes wrong
+            // on a rename, and it disagrees with itself about case.
+            out.append('p').append(SEP).append(who).append('\n');
+        }
         return out.toString();
     }
 
@@ -160,6 +172,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         List<Member> members = new ArrayList<>();
         List<Invite> invites = new ArrayList<>();
         List<String> online = new ArrayList<>();
+        List<UUID> present = new ArrayList<>();
 
         // One tagged line per entry, so the three lists can grow independently and a reader that does
         // not know a tag skips it rather than mis-parsing the rest. That is the property that makes the
@@ -192,6 +205,12 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                         online.add(body);
                     }
                 }
+                case 'p' -> {
+                    UUID who = uuidOrNull(body);
+                    if (who != null) {
+                        present.add(who);
+                    }
+                }
                 default -> {
                     // An older format, or a newer one: skipped rather than guessed at.
                 }
@@ -199,7 +218,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
 
         return new PartySnapshot(teamId, lines[1], owner, List.copyOf(members),
-                List.copyOf(invites), List.copyOf(online), lines[3]);
+                List.copyOf(invites), List.copyOf(online), lines[3], List.copyOf(present));
     }
 
     /** An invitation, or null for a line this build cannot read. */
@@ -319,7 +338,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         // this method's only argument is a team id, and neither list is a property of a team. See
         // `withPlayers`.
         return new PartySnapshot(team.id(), team.name(), team.owner(), List.copyOf(members),
-                List.of(), List.of(), "one_member");
+                List.of(), List.of(), "one_member", List.of());
     }
 
     /**
@@ -336,20 +355,82 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     public PartySnapshot withPlayers(MinecraftServer server, UUID recipient,
                                      java.util.function.Function<UUID, List<Invite>> invitesFor) {
         List<String> names = new ArrayList<>();
+        List<UUID> present = new ArrayList<>();
         for (var player : server.getPlayerList().getPlayers()) {
             names.add(player.getScoreboardName());
+            present.add(player.getUUID());
         }
         // Sorted, because the player list has no defined order and a roster that shuffled between
         // frames would make the Invite buttons jump under the pointer.
         names.sort(String::compareToIgnoreCase);
 
         return new PartySnapshot(teamId, teamName, owner, members,
-                List.copyOf(invitesFor.apply(recipient)), List.copyOf(names), mode);
+                List.copyOf(invitesFor.apply(recipient)), List.copyOf(names), mode, List.copyOf(present));
     }
 
     /** The same snapshot with the party's counting mode filled in. See {@link #mode}. */
     public PartySnapshot withMode(String counted) {
-        return new PartySnapshot(teamId, teamName, owner, members, invites, online, counted);
+        return new PartySnapshot(teamId, teamName, owner, members, invites, online, counted, present);
+    }
+
+    /**
+     * The same snapshot, filled for a player who is <b>arriving</b>.
+     *
+     * <h2>Why the player object, when {@link #withPlayers} takes the list</h2>
+     *
+     * <p>Because at {@code PLAYER_JOIN} the player list does not answer for the player who is joining —
+     * and that one fact produced three separate symptoms on a login, all of them looking like different
+     * faults:
+     *
+     * <ul>
+     *   <li>{@link #nameOf} fell through to eight characters of the id, so a player's own row read
+     *       {@code 5d5cfed6} instead of their name.</li>
+     *   <li>{@code online} was built from the list, so the player was missing from it and their own row
+     *       drew as <b>offline</b>.</li>
+     *   <li>and the roster itself was addressed through the list, so it was never sent at all.</li>
+     * </ul>
+     *
+     * <p>This is the one place that knows it is building for an arrival: its recipient is a
+     * {@code ServerPlayer}, so their name is in hand and their presence is a fact rather than a lookup.
+     * Everything else about the snapshot — the other members, the invitations — still comes from the
+     * server.
+     */
+    public PartySnapshot withArriving(MinecraftServer server, ServerPlayer self,
+                                      java.util.function.Function<UUID, List<Invite>> invitesFor) {
+        List<String> listed = new ArrayList<>();
+        for (ServerPlayer online : server.getPlayerList().getPlayers()) {
+            listed.add(online.getScoreboardName());
+        }
+        return withSelf(members, self.getUUID(), self.getScoreboardName(), listed,
+                invitesFor.apply(self.getUUID()));
+    }
+
+    /**
+     * The pure half of {@link #withArriving}: a roster as the player who is arriving must receive it.
+     *
+     * <h2>Why this is split from the server</h2>
+     *
+     * <p>Because both things it does are list arithmetic — put the arriving player's own name on their
+     * row, and put them into the online list they are missing from — and both are things a login got
+     * wrong. A test that had to build a server to reach them would be testing the harness; this is held
+     * by {@code PartySnapshotTest}, which has none.
+     */
+    PartySnapshot withSelf(List<Member> members, UUID self, String selfName, List<String> listed,
+                           List<Invite> invites) {
+        List<Member> named = new ArrayList<>(members.size());
+        for (Member member : members) {
+            named.add(member.id().equals(self) ? new Member(self, selfName, member.role()) : member);
+        }
+
+        List<String> online = new ArrayList<>(listed);
+        // Said rather than implied: the list a login hands over is the one that does not have them.
+        if (online.stream().noneMatch(selfName::equalsIgnoreCase)) {
+            online.add(selfName);
+        }
+        online.sort(String::compareToIgnoreCase);
+
+        return new PartySnapshot(teamId, teamName, owner, List.copyOf(named), List.copyOf(invites),
+                List.copyOf(online), mode, present);
     }
 
     /** The mode this party counts by, or the default when an older server sent none. */
@@ -395,8 +476,11 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         // `isReal()` is false, the panel draws "you are not in a party", and the tooltip says so too.
         if (!snapshot.isPresent()) {
             UUID who = viewer == null ? new UUID(0L, 0L) : viewer;
+            // Nobody is online in a roster of nobody -- and the person reading it is looking at a
+            // panel, not at a list of themselves.
             return dev.ellipog.armature.client.ui.party.PartyRoster.of(
-                    Team.solo(who), who, id -> id.toString());
+                    Team.solo(who), who, id -> id.toString(), dev.ellipog.armature.client.ui.party
+                            .PartyRoster.Online.NOBODY);
         }
 
         java.util.Map<UUID, String> names = new java.util.HashMap<>();
@@ -417,6 +501,11 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                         .collect(java.util.stream.Collectors.toMap(
                                 Member::id, Member::role, (a, b) -> a, java.util.LinkedHashMap::new)),
                 viewer,
-                id -> names.getOrDefault(id, id.toString()));
+                id -> names.getOrDefault(id, id.toString()),
+                // Who was connected when the server built this, by id. A server that predates the
+                // field sends nobody and every row reads as offline, which is the honest reading of
+                // "nobody told me" -- and better than the guess this replaced, which joined two lists
+                // by a player's name.
+                snapshot.present()::contains);
     }
 }

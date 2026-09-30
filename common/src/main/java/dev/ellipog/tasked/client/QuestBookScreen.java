@@ -4,6 +4,8 @@ import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
 import dev.ellipog.armature.client.Appearance;
 import dev.ellipog.armature.client.ArmatureTheme;
+import dev.ellipog.armature.client.ui.ArmatureLive;
+import dev.ellipog.armature.client.ui.ArmatureScreen;
 import dev.ellipog.armature.client.ui.Theme;
 import dev.ellipog.armature.client.ui.Themes;
 import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
@@ -18,7 +20,6 @@ import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
 import dev.ellipog.tasked.net.PartySnapshot;
-import dev.ellipog.tasked.party.PartyMode;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.net.ClaimRewardPayload;
@@ -111,7 +112,7 @@ import java.util.UUID;
  * <p>{@code 0xAARRGGBB}, alpha included, and all of them live in {@link ArmatureTheme}. On 1.21.1 a
  * colour written without alpha happens to come out opaque; from 1.21.6 it does not.
  */
-public final class QuestBookScreen extends Screen {
+public final class QuestBookScreen extends ArmatureScreen {
 
     // ------------------------------------------------------------------
     // Layout constants. See the class comment for why these are shared.
@@ -128,7 +129,6 @@ public final class QuestBookScreen extends Screen {
     /** The sidebar's footer, as two rows of its own. Four controls do not fit across one. */
     private static final int ROW_HEIGHT = BookGeometry.ROW_HEIGHT;
     private static final int ROW_GAP = BookGeometry.ROW_GAP;
-    private static final int EDGE = BookGeometry.EDGE;
 
     /**
      * The layout, rebuilt when the window changes size.
@@ -180,6 +180,22 @@ public final class QuestBookScreen extends Screen {
 
     /** The item box in an overlay row. The layout reserved this box; the icon fills it. */
     private static final int ROW_ICON = OverlayLayout.ROW_ICON;
+
+    /** A contributor's face in a task row, its gaps, and how many rows of them fit before "+n". */
+    private static final int CONTRIBUTOR_FACE = 8;
+    private static final int CONTRIBUTOR_COUNT_GAP = 2;
+    private static final int CONTRIBUTOR_GAP = 6;
+    private static final int MAX_CONTRIBUTORS = 3;
+
+    /**
+     * How far a contributor's number sits below the row's own text line.
+     *
+     * <p>The same optical point as the party panel's {@link PartyPanelLayout#NAME_DROP}: a label's line
+     * box carries descender space under the baseline, so a number sharing a line with a face centred on
+     * its own box reads a pixel high. One, rather than that panel's two, because this row's text already
+     * sits above the icon's centre.
+     */
+    private static final int CONTRIBUTOR_TEXT_DROP = 1;
 
     private static final int HEADER_ICON = 20;
 
@@ -313,67 +329,76 @@ public final class QuestBookScreen extends Screen {
     private String overlayQuest;
 
     /**
-     * The party panel's laid-out rows, and where they were placed.
+     * The party panel's laid-out rows, and the scroll view that places its controls from them.
      *
      * <h2>Why the layout is a field rather than a local of the widget pass</h2>
      *
-     * <p>Because the Remove buttons are <b>widgets</b>, and a widget's position is fixed at construction
-     * -- {@code ScrollView} exists for exactly that, to move controls when content scrolls. So the layout
-     * that placed those buttons has to be the one the drawing reads, or the row a member's name is
-     * written on and the button that removes them would come from two computations that agree until one
-     * of them changed.
+     * <p>Because the Remove buttons and the action buttons are <b>widgets</b>, and a widget's position is
+     * fixed at construction. So the layout that placed those buttons has to be the one the drawing reads,
+     * or the row a member's name is written on and the button that removes them would come from two
+     * computations that agree until one of them changed — and the panel scrolls, so the two also have to
+     * agree about how far it has been scrolled.
      *
-     * <p>The origin is separate because a layout is built in the card's own coordinates, starting at
-     * (0,0), while the card is somewhere on the screen. One expression for "where is the panel", used by
-     * the drawing and by the controls alike.
+     * <p>The scroll is a {@link ScrollView} rather than a pair of origin fields, and that is the whole of
+     * what closed the panel's stated limitation: it was "clipped rather than scrollable", which meant a
+     * roster taller than its card simply lost its last rows — the drawing skipped them and the widgets
+     * were never placed. A control now gets its rectangle from the same viewport the drawing reads, and
+     * the ones outside it are hidden rather than misplaced, which is also what stops a row scrolled past
+     * the card's edge from answering the pointer. See {@code PartyPanelLayout} for the layout and
+     * {@code ScrollView} for the placement; between them there is one expression for where a row is.
      */
     private Layout partyLayout;
-    private int partyOriginX;
-    private int partyOriginY;
+    private final ScrollView partyView = ScrollView.of(Viewport.fixed());
 
     /**
-     * The panel's action rows, with the rectangles they were placed in.
+     * The card the panel was built into: what the widgets were placed inside, and what the drawing and
+     * the click-outside test read.
+     *
+     * <h2>Why this is a field rather than a second computation</h2>
+     *
+     * <p>Because the card is now sized from the panel's own layout -- {@code modalFramed(layout.height(),
+     * ...)} -- so "where is the card" and "where do the rows go" come from one pass. A drawing that
+     * re-derived it would be the second arithmetic this whole round removed: the two agree until a row
+     * is added, and the disagreement is a card that does not hold what is drawn in it.
+     */
+    private BookGeometry.Rect partyCard;
+
+    /**
+     * The panel's action rows: Create, an Accept per invitation, an Invite per online player, and the
+     * mode row.
      *
      * <h2>Why kept, when the widgets already carry their own positions</h2>
      *
      * <p>Because each row's *label* is drawn by the panel rather than by a widget -- a row is a label
      * with an optional button beside it, and only the button is a control. So the drawing needs the
-     * same rectangles the buttons were made from, and a second derivation of them is how a name ends up
+     * same rows the buttons were made from, and a second derivation of them is how a name ends up
      * beside somebody else's button.
      */
-    private List<PlacedPartyRow> partyRows = new ArrayList<>();
-
-    /** A row and where it went. Produced by the widget pass, read by the drawing. */
-    private record PlacedPartyRow(PartyRow row, BookGeometry.Rect rect) {
-    }
+    private List<PartyPanelLayout.Action> partyRows = new ArrayList<>();
 
     /**
-     * How wide a row's action button is.
+     * The footer's Disband control, and whether it has been pressed once and is waiting for a second.
      *
-     * <p>Wider than the footer's Leave and Disband, because these labels are "Create", "Accept" and
-     * "Invite" rather than "Leave" -- and because a row's button sits against the card's edge rather
-     * than in a footer where three things share one line. Sized from the longest of them at the same
-     * six-pixels-a-character measurement the footer uses; see `BookGeometry.PARTY_SHORT_LABEL_WIDTH`.
+     * <h2>Why Disband asks and the rest do not</h2>
+     *
+     * <p>Because it is the only control on the panel whose mistake cannot be undone by pressing
+     * something else: Remove takes one player out and Leave takes you out, and the party survives both.
+     * Disband ends it for everybody in it, including the members who are offline and cannot be asked.
+     *
+     * <p>The control is kept rather than found by key because the label is changed <b>on it</b>. A
+     * rebuild would be the other way to change a label, and it cannot be: a rebuild goes through
+     * {@code init}, which clears this flag -- so arming and rebuilding would be the same press, and the
+     * second press would send.
      */
-    private static final int PARTY_ROW_BUTTON = 62;
+    private ArmatureButton disbandButton;
+    private boolean disbandArmed;
 
     /**
-     * Where the party card's body starts and ends, measured from the card's own edges.
+     * The member row's own metrics live in {@link PartyPanelLayout}, where the row's composition is.
      *
-     * <h2>Why not the quest overlay's `BODY_TOP` and `BODY_BOTTOM`</h2>
-     *
-     * <p>Because those are the *quest* overlay's: its header is a title and an icon strip, and its
-     * footer is a rule plus a control row, so its stops are measured for that card. The party card has
-     * a one-line title and the same footer as anything else. Reusing the quest numbers meant writing
-     * `BODY_TOP - 24` at three call sites, which is one adjustment expressed as a subtraction in three
-     * places -- and a fourth place that forgot it is how the rows came to be drawn through the title.
-     *
-     * <p>{@code MODAL_CHROME} in {@code BookGeometry} is {@code PARTY_BODY_TOP + PARTY_BODY_BOTTOM},
-     * which is the invariant the two have to satisfy: the card's own chrome is whatever is not body.
+     * <p>They were six private constants here, which is where they were unreadable from: a drawing
+     * metric in the one class in either mod that cannot be asked anything. See that class's note.
      */
-    private static final int PARTY_BODY_TOP = BODY_TOP - 24;
-
-    private static final int PARTY_BODY_BOTTOM = BODY_BOTTOM + EDGE;
 
     /**
      * The party strip's control, so the drawing can keep its label current.
@@ -501,32 +526,6 @@ public final class QuestBookScreen extends Screen {
     private int bookButtonCount;
 
     /**
-     * Where the sidebar's rows end in {@link #buttons}, and where the header's controls end.
-     *
-     * <h2>Why two indices rather than one, and why neither is {@link #bookButtonCount}</h2>
-     *
-     * <p>The book's controls are built in three groups, in this order: the sidebar's rows, then the
-     * header's two controls, then the view cluster. All three belong to the book and all three are
-     * built while a modal is open, because the book is <b>drawn</b> behind the modal rather than
-     * replaced by it.
-     *
-     * <p>Drawn is right and inert is also right, and the two groups are not the same set. The header's
-     * pair must stay <b>live</b> — Close closes the dialog and the party button opens the panel, which
-     * are wanted precisely when a modal is up — while the rows and the cluster must not answer the
-     * pointer at all. {@code bookButtonCount} marks where the <i>modal's</i> controls begin and so
-     * cannot express either, and deactivating up to it would have made Close dead exactly when a dialog
-     * was open: the fault this round is about, reintroduced by its own fix.
-     *
-     * <p>So the two boundaries are recorded rather than derived. An index is the right shape for it
-     * because which buttons belong to the book is a fact about how they were <b>constructed</b>:
-     * testing a rectangle would be a layout fact that happens to agree, and deriving the count from the
-     * geometry would make {@code setBookControlsActive} agree with {@code init} by construction, which
-     * is the property that makes a layout test worthless.
-     */
-    private int sidebarRowEnd;
-    private int headerChromeEnd;
-
-    /**
      * How many rosters had arrived when the party panel was last built.
      *
      * <h2>Why a counter, and why the panel needs one at all</h2>
@@ -545,7 +544,37 @@ public final class QuestBookScreen extends Screen {
      * its own answer for an identical re-send. {@code -1} rather than {@code 0} so the initial value
      * cannot be mistaken for a real roster that has been drawn.
      */
-    private static long partyRevision = -1;
+    /**
+     * Whether this client has told Armature what the book's panels watch.
+     *
+     * <h2>Why the list is here, and why it is guarded</h2>
+     *
+     * <p>Because a panel that watches nothing is exactly the failure this replaces — the one that has to
+     * be closed and reopened — and the sources are <b>this screen's own</b>: each is a cache it draws
+     * from. Registering on the first {@code init} keeps the list beside the drawing that depends on it,
+     * rather than in a loader's setup file, once per loader, which is where the third panel's entry gets
+     * forgotten.
+     *
+     * <p>Guarded because {@code init} runs on every resize and after every automatic rebuild, and the
+     * registry is a list: registering again on each pass would grow it with the number of times the
+     * window was resized.
+     *
+     * <p>What each one buys: the <b>tree</b> is the sidebar's rows, so a reload rebuilds them; the
+     * <b>progress</b> is what the rows say and whether a Claim button belongs on the screen, which is
+     * the one part of progress that is a widget rather than something drawn; the <b>party</b> is the
+     * roster's rows and the Remove buttons placed in them.
+     */
+    private static boolean watchingSources;
+
+    private static void watchSources() {
+        if (watchingSources) {
+            return;
+        }
+        watchingSources = true;
+        ArmatureLive.watch("tasked.tree", ClientQuestCache::treeRevision);
+        ArmatureLive.watch("tasked.progress", ClientQuestCache::progressRevision);
+        ArmatureLive.watch("tasked.party", ClientPartyCache::rosterRevision);
+    }
 
     /**
      * Close, which is in {@link #buttons} but is not drawn by the widget pass.
@@ -555,7 +584,7 @@ public final class QuestBookScreen extends Screen {
      * <p>Because Close is the only control that lives in the header, and the widget pass is clipped
      * from the sidebar's list top downwards — so that a scrolled row can never be drawn through the
      * title bar. That clip would swallow Close, which is why it is drawn by hand in the chrome layer
-     * instead. The field is what lets that happen; see {@link #chromeControl}.
+     * instead. The field is what lets that happen; see `buildHeaderChrome`.
      *
      * <p>It is still in {@link #buttons} as well, and that is deliberate rather than redundant:
      * {@code drawTooltips} walks that list, so a control missing from it would draw and respond and
@@ -939,6 +968,23 @@ public final class QuestBookScreen extends Screen {
                 overlayHeight() - BODY_TOP - BODY_BOTTOM);
     }
 
+    /**
+     * The party card's body rectangle, as a viewport: the one rectangle the clip, the scroll clamp and
+     * the scrollbar all read.
+     *
+     * <p>Re-applied on every use, like {@link #overlayBody()} and for the same reason — a resize gives a
+     * new card, and bounds from the previous window would clamp a scroll against a rectangle that is no
+     * longer on screen. Empty rather than absent for a card that has not been built: the input handlers
+     * read this too, and a click before the first frame is a click on a panel that does not exist yet.
+     */
+    private Viewport partyBody() {
+        if (partyCard == null) {
+            return partyView.viewport().bounds(0, 0, 0, 0);
+        }
+        BookGeometry.Rect body = BookGeometry.modalBody(partyCard);
+        return partyView.viewport().bounds(body.x(), body.y(), body.width(), body.height());
+    }
+
     private int nodeSize(ClientQuestCache.Entry entry) {
         int base = Mth.clamp(entry.size(), 26, 48);
         return Math.max(12, Math.round(base * viewport().scale()));
@@ -1077,29 +1123,17 @@ public final class QuestBookScreen extends Screen {
      *
      * <p>Remembered in {@link #buttons} as well, so tooltips still find it.
      */
-    private ArmatureButton chromeControl(BookGeometry.Rect rect, Component label, Runnable onPress) {
-        if (rect == null) {
-            return null;
-        }
-        ArmatureButton button = new ArmatureButton(rect.x(), rect.y(), rect.width(), rect.height(),
-                label, onPress);
-        buttons.add(button);
-        return addWidget(button);
-    }
-
     /**
      * The party panel's controls: a Remove button per member the roster permits, plus Leave, Disband and
      * Back.
      *
      * <h2>What is deliberately not a widget, and why</h2>
      *
-     * <p>The member <b>rows</b>. {@code PartyPanelLayout.controlKeys} lists them because a caller may want
-     * to route a click to one, and this caller does not: a press on a member would either do nothing or
-     * remove somebody, and a control that removes a player on one click with no confirmation is not
-     * something to add merely because a key was available. So the rows are drawn and the Remove buttons
-     * are controls, which is the shape the roster itself describes -- {@code PartyRoster.removeSlot}
-     * returns null for a member the viewer may not remove, and this makes a widget only where a slot
-     * exists.
+     * <p>The member <b>rows</b>. A press on a member would either do nothing or remove somebody, and a
+     * control that removes a player on one click with no confirmation is not something to add merely
+     * because a row is clickable. So the rows are drawn and the Remove buttons are controls, which is
+     * the shape the roster itself describes -- {@code PartyRoster.removeSlot} returns null for a member
+     * the viewer may not remove, and this makes a widget only where a slot exists.
      *
      * <h2>Why the member geometry is not from BookGeometry</h2>
      *
@@ -1150,193 +1184,91 @@ public final class QuestBookScreen extends Screen {
     }
 
     /**
-     * One row of the party panel: a label on the left, and optionally a button on the right.
+     * The rows the panel shows, as the panel's own class decides them.
      *
-     * <h2>Why a record rather than a widget per case</h2>
-     *
-     * <p>Because the three states of this panel -- no party, an invitation waiting, a roster -- are all
-     * "a list of rows with an action beside some of them", and the differences between them are what
-     * the rows <i>say</i> rather than how they are placed. So the placement is one loop over this list,
-     * and a state is a different list.
-     *
-     * @param key         what places this row
-     * @param label       what the row says, drawn at its left
-     * @param buttonLabel the button's label, or null for a row with no action
-     * @param command     the command the button sends, or null when there is no button
+     * <p>The rule moved to {@link PartyPanelLayout#actions}, and it moved because a screen cannot be
+     * asked anything: while it lived here, the only way to find out what a party of three with two
+     * players online offers was to open the book and look. What stays is the one thing this class knows
+     * and that method cannot -- who is looking.
      */
-    private record PartyRow(String key, String label, String buttonLabel, String command) {
-    }
-
-    /**
-     * The rows the panel shows, given the roster and what the client was last told.
-     *
-     * <h2>What this does not do, and the reason it is worth stating</h2>
-     *
-     * <p>It does not decide permissions. Every command behind these buttons re-checks on the server --
-     * that is the whole design -- so a row offered wrongly is a refusal rather than a wrong change. The
-     * panel's job is to offer the useful thing, not to be the authority.
-     *
-     * <p>Offers <b>Invite</b> for every online player who is not already in the party, including players
-     * already invited: the server refuses a duplicate, and hiding the row would mean the panel had to
-     * know who was already invited, which is a fact it would then have to keep in step.
-     */
-    private List<PartyRow> partyRows(PartyRoster roster, PartySnapshot snapshot) {
-        List<PartyRow> rows = new ArrayList<>();
+    private List<PartyPanelLayout.Action> partyRows(PartyRoster roster, PartySnapshot snapshot) {
         String self = minecraft == null || minecraft.player == null
                 ? "" : minecraft.player.getScoreboardName();
-
-        if (!roster.isReal()) {
-            // Creating needs a name and there is no text field in the kit, so the name is derived from
-            // the player's own. **Every character in it has to survive Brigadier**, and the first
-            // version did not: it built `Ellipog's party`, and an apostrophe is not a character the
-            // parser is obliged to accept in an unquoted argument -- so the button produced a command
-            // the server refused.
-            //
-            // A player name *can* contain characters Brigadier would rather quote, so the whole thing
-            // is sanitised to letters, digits, spaces, underscores and hyphens. A name is cosmetic; a
-            // command that fails is not.
-            String base = self.isEmpty() ? "My" : sanitise(self);
-            rows.add(new PartyRow("create", "Not in a party", "Create",
-                    "/tasked party create " + base + " party"));
-
-            for (PartySnapshot.Invite invite : snapshot.invites()) {
-                rows.add(new PartyRow("accept:" + invite.teamId(),
-                        "Invited to " + invite.teamName(), "Accept", "/tasked party accept"));
-            }
-        }
-        else {
-            // The mode row, and its label says which mode is *in force* rather than only offering to
-            // change it. That is the honest reading of a cycling button: the thing you want to know
-            // before pressing it is what it is now.
-            PartyMode current = snapshot.modeOr();
-            rows.add(new PartyRow("mode", "Counts: " + current.id(), "Change",
-                    "/tasked party mode " + nextMode(current).id()));
-        }
-
-        for (String name : snapshot.online()) {
-            if (!name.equalsIgnoreCase(self)) {
-                rows.add(new PartyRow("invite:" + name, name, "Invite",
-                        "/tasked party invite " + name));
-            }
-        }
-        return List.copyOf(rows);
-    }
-
-    /**
-     * A string that can be an unquoted command argument.
-     *
-     * <p>Letters, digits, spaces, underscores and hyphens; everything else becomes an underscore. That
-     * is a superset of what Brigadier's unquoted argument accepts and a subset of what a Minecraft name
-     * can contain, which is the whole point: the set of characters a name <i>may</i> hold and the set an
-     * argument may hold are not the same, and the panel builds one from the other.
-     */
-    private static String sanitise(String raw) {
-        StringBuilder out = new StringBuilder(raw.length());
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            out.append(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-' ? c : '_');
-        }
-        return out.toString();
-    }
-
-    /**
-     * The mode after this one, for a button that cycles.
-     *
-     * <p>A cycle rather than a picker, because a picker is three controls and a cycling button is one --
-     * and the tooltip can say what the <i>next</i> mode means, which is the thing a player wants from a
-     * button that changes something.
-     */
-    private static PartyMode nextMode(PartyMode current) {
-        // A cycle, so one button reaches all three modes and the player can see where they are from the
-        // row's own label. It used to return `all[0]` unconditionally, because the client had no way to
-        // learn which mode was in force -- so the button set the default every time: a no-op from the
-        // default and a visible lie from any other mode. That was a control that did nothing, which is
-        // worse than no control. The mode travels on the snapshot now.
-        PartyMode[] all = PartyMode.values();
-        for (int i = 0; i < all.length; i++) {
-            if (all[i] == current) {
-                return all[(i + 1) % all.length];
-            }
-        }
-        return PartyMode.DEFAULT;
+        return PartyPanelLayout.actions(roster, snapshot, self);
     }
 
     private void buildPartyWidgets() {
         PartyRoster roster = partyRoster();
-        // The card, sized to this roster. The footer is placed inside *it* rather than inside the
-        // overlay's rectangle, which is the whole of what makes a smaller card work: every control
-        // inside reads the card's own edges.
-        // The action rows are computed *first*, because where the member rows go depends on how tall
-        // they are. That ordering is the fix for the third fault: both lists used to start at the body's
-        // top, so with a real party the "Counts:" row drew straight through the owner's name.
-        List<PartyRow> wanted = partyRows(roster, ClientPartyCache.snapshot());
-        int actionsHeight = wanted.isEmpty() ? 0
-                : wanted.size() * PartyRoster.ROW_HEIGHT
-                        + (wanted.size() - 1) * PartyRoster.ROW_GAP + PartyRoster.ROW_GAP * 3;
+        List<PartyPanelLayout.Action> wanted = partyRows(roster, ClientPartyCache.snapshot());
 
-        BookGeometry.Rect card = geometry().modal(partyBodyHeight(roster, wanted.size()),
+        // The width first, with the height unknown. `modalFramed`'s width does not depend on its height
+        // -- asserted in `BookGeometryTest` -- and that is what lets a card be sized from a layout which
+        // needs the card's width to be built. Both numbers are then the layout's, and the body is the
+        // card's own inset rather than a margin written here.
+        int bodyWidth = Math.max(0, geometry().modalFramed(0, BookGeometry.PARTY_MODAL_WIDTH).width()
+                - BookGeometry.MODAL_INSET * 2);
+
+        // One layout for the whole panel -- title, roster, actions -- and it is what the card is sized
+        // from. The measure is never consulted: every element `PartyPanelLayout` contributes is a `row`,
+        // whose height is declared rather than wrapped, and `SidebarLayout` uses the same stand-in for
+        // the same reason.
+        partyLayout = PartyPanelLayout.build(roster, wanted, bodyWidth, Measure.monospace(6, 9));
+
+        BookGeometry.Rect card = geometry().modalFramed(partyLayout.height(),
                 BookGeometry.PARTY_MODAL_WIDTH);
+        partyCard = card;
+        partyRows = wanted;
+
+        // The scroll view is emptied and refilled per build, and its bounds are set from the card
+        // before anything is registered -- `apply` clamps the offset against them, so registering
+        // first would place the rows against the previous window's body on a resize.
+        partyView.clear();
+        Viewport body = partyBody();
+
         Map<String, BookGeometry.Rect> footer =
                 geometry().modalControls(card, partyActionCount(roster), true);
 
-        // The card's body, in the layout's own coordinates. The measure is never consulted -- every
-        // element PartyPanelLayout contributes is a `row`, whose height is declared rather than wrapped
-        // -- and SidebarLayout uses the same stand-in for the same reason.
-        // The card, and the origin is *its* corner. `_card2` reads this too, so the box and the rows
-        // inside it come from one arithmetic -- a card sized to a prediction of its content is how a
-        // list ends up three rows tall in a box built for eight.
-        int bodyWidth = Math.max(0, card.width() - EDGE * 4);
-        partyLayout = PartyPanelLayout.build(roster, bodyWidth, Measure.monospace(6, 9));
-        partyOriginX = card.x() + EDGE * 2;
-        partyOriginY = card.y() + PARTY_BODY_TOP + actionsHeight;
-
-        for (String key : PartyPanelLayout.controlKeys(roster)) {
-            UUID target = PartyRoster.removeTarget(key);
-            if (target == null) {
+        // The Remove buttons, one per member the roster permits. The permission is asked once, at the
+        // moment the widget is made, and the button's rectangle is a *strip* of its row -- so the
+        // derivation travels to the scroll view with the registration rather than being computed here.
+        // A widget created at 0,0 with no size is the sidebar's own shape (`buildSidebarWidgets`):
+        // `apply` sets x, y, width and height from the slot, and a button created at its final size
+        // would be a second description of where a row goes.
+        for (PartyRoster.Member member : roster.members()) {
+            if (!member.canRemove()) {
                 continue;
             }
-            PartyRoster.Member member = memberOf(roster, target);
-            if (member == null) {
-                continue;
-            }
-            Slot slot = PartyPanelLayout.removeSlot(roster, partyLayout, member);
-            if (slot == null) {
-                continue;
-            }
-
-            // Translated to the card once, at the moment the widget is made -- which is why the layout
-            // is kept rather than rebuilt, since a widget's position is fixed at construction.
-            control(partyOriginX + slot.x(), partyOriginY + slot.y(), slot.width(), slot.height(),
+            ArmatureButton remove = control(0, 0, 0, 0,
                     Component.translatable("tasked.screen.party.remove"),
-                    () -> runPartyCommand("/tasked party kick " + member.name()))
-                    .tooltip(List.of(
-                            Component.literal("Remove " + member.name() + " from the party"),
-                            Component.literal("They keep their own progress, as always")));
+                    () -> runPartyCommand("/tasked party kick " + member.name()));
+            if (remove != null) {
+                remove.tooltip(List.of(
+                        Component.literal("Remove " + member.name() + " from the party"),
+                        Component.literal("They keep their own progress, as always")));
+                partyView.put(member.key(), remove, row -> PartyRoster.removeSlot(member, row));
+            }
         }
 
-        // The action rows: create, accept, invite, change-mode. Placed from `BookGeometry.bodyRows`,
-        // so a row's label and its button come from one rectangle rather than two that agree.
-        List<BookGeometry.Rect> rects = BookGeometry.bodyRows(
-                card, wanted.size(), PARTY_BODY_TOP, PARTY_BODY_BOTTOM);
-        partyRows = new ArrayList<>();
-
-        for (int i = 0; i < rects.size(); i++) {
-            PartyRow row = wanted.get(i);
-            BookGeometry.Rect rect = rects.get(i);
-            partyRows.add(new PlacedPartyRow(row, rect));
-
-            if (row.buttonLabel() == null) {
+        // The action rows, placed by the same layout their labels are drawn from -- so a row's label and
+        // its button cannot come from two computations that agree until one of them changes.
+        for (PartyPanelLayout.Action action : wanted) {
+            if (!action.hasButton()) {
                 continue;
             }
-            ArmatureButton action = control(rect.right() - PARTY_ROW_BUTTON, rect.y(),
-                    PARTY_ROW_BUTTON, rect.height(),
-                    Component.literal(row.buttonLabel()),
-                    () -> runPartyCommand(row.command()));
-            if (action != null) {
-                action.tooltip(List.of(Component.literal(row.buttonLabel() + ": " + row.label()),
-                        Component.literal(row.command())));
+            ArmatureButton button = control(0, 0, 0, 0,
+                    Component.literal(action.buttonLabel()),
+                    () -> runPartyCommand(action.command()));
+            if (button != null) {
+                button.tooltip(List.of(Component.literal(action.buttonLabel() + ": " + action.label()),
+                        Component.literal(action.command())));
+                partyView.put(action.key(), button, PartyPanelLayout::buttonStrip);
             }
         }
+
+        // One call that sets the scroll range from the layout's height, places every control at the
+        // rectangle its own derivation gave it, and hides the ones outside the card. The drawing re-runs
+        // it each frame, so a scroll moves the widgets with the rows they belong to.
+        partyView.apply(partyLayout, body.viewWidth());
 
         ArmatureButton leave = control(footer.get("leave"),
                 Component.translatable("tasked.screen.party.leave"),
@@ -1348,14 +1280,59 @@ public final class QuestBookScreen extends Screen {
 
         ArmatureButton disband = control(footer.get("disband"),
                 Component.translatable("tasked.screen.party.disband"),
-                () -> runPartyCommand("/tasked party disband"));
+                this::pressDisband);
         if (disband != null) {
             disband.tooltip(List.of(Component.literal("Dissolve the party"),
                     Component.literal("Only the owner may do this")));
+            disbandButton = disband;
         }
 
         control(footer.get("back"), Component.translatable("tasked.screen.party.back"),
                 this::closeOverlay);
+    }
+
+    /**
+     * Disband, which takes two presses. See {@link #disbandArmed} for why it is the only one that asks.
+     *
+     * <p>The label is changed on the control rather than by rebuilding the panel, and that is not a
+     * shortcut: a rebuild goes through {@code init}, which clears the flag, so arming and rebuilding
+     * cannot be the same press.
+     */
+    private void pressDisband() {
+        if (disbandArmed) {
+            disarmDisband();
+            runPartyCommand("/tasked party disband");
+            return;
+        }
+        disbandArmed = true;
+        if (disbandButton != null) {
+            disbandButton.setMessage(Component.translatable("tasked.screen.party.confirm"));
+            disbandButton.tooltip(List.of(Component.literal("Press again to dissolve the party"),
+                    Component.literal("Everybody keeps the progress they earned")));
+        }
+    }
+
+    /** Undoes an armed Disband. Every other press on the panel does this, and so does a rebuild. */
+    private void disarmDisband() {
+        disbandArmed = false;
+        if (disbandButton != null) {
+            disbandButton.setMessage(Component.translatable("tasked.screen.party.disband"));
+        }
+    }
+
+    /**
+     * A panel row's key, at the position it is drawn and placed at.
+     *
+     * <h2>Why the viewport and not an origin</h2>
+     *
+     * <p>Because the panel scrolls, so "where does this row go" is the card's body origin <i>minus the
+     * scroll</i>. Both halves are the viewport's, and the widget placement asks the same object the same
+     * question — so a row's label, its hover wash and the button beside it cannot come from two
+     * expressions that agree until the panel is scrolled.
+     */
+    private static Slot screenSlot(Viewport body, Slot slot) {
+        return new Slot(slot.key(), body.screenX(slot.x()), body.screenY(slot.y()),
+                slot.width(), slot.height());
     }
 
     /** How many of Leave and Disband the viewer may use, 0 to 2. What the footer is built for. */
@@ -1370,19 +1347,13 @@ public final class QuestBookScreen extends Screen {
         return count;
     }
 
-    /** The roster's member for an id, or null. Turns a Remove key back into a name to send. */
-    private static PartyRoster.Member memberOf(PartyRoster roster, UUID id) {
-        for (PartyRoster.Member member : roster.members()) {
-            if (member.id().equals(id)) {
-                return member;
-            }
-        }
-        return null;
-    }
-
     private void openPartyOverlay() {
         overlay = Overlay.PARTY;
         overlayQuest = null;
+        // Opened at the top, and reset before the rebuild rather than after: the rebuild's own `apply`
+        // clamps against the new content, and an offset left from a previous party would be clamped
+        // into range rather than forgotten -- a panel that opened halfway down for no visible reason.
+        partyView.scrollTo(0);
         rebuildWidgets();
     }
 
@@ -1401,13 +1372,22 @@ public final class QuestBookScreen extends Screen {
      * validates. A modified client asking for an unpermitted kick gets the refusal the command would
      * have given it, and nothing changes.
      *
-     * <h2>Why the panel closes, and why the roster is not updated here</h2>
+     * <h2>Why the panel stays open, and why the roster is not updated here</h2>
      *
-     * <p>Because every one of these actions changes the roster the panel is drawing. Leaving or being
-     * removed closes it outright -- there is nothing left to show -- and removing somebody else leaves an
-     * open panel describing a row that is about to vanish. The client's own cache is what it rebuilds
-     * from when the server's roster message arrives a moment later; updating it here would be a second
-     * source of truth for one fact, and the one that is wrong whenever the server refuses.
+     * <p>The panel used to close on every press, and that was the wrong shape for what these actions
+     * are: inviting somebody, accepting an invite, changing your mind about a kick -- all of them mean
+     * pressing more than one button, and a panel that shut after each press made every step cost a
+     * reopen. The report was plain: <i>"stop making it close every time i do something, just auto
+     * update"</i>.
+     *
+     * <p>So it stays open, and the redraw is not done here either. The server answers a party change by
+     * pushing the new roster to everyone it concerns, the cache moves its revision when that arrives,
+     * and the screen rebuilds itself -- see {@link ArmatureLive}, which is where that noticing lives now
+     * that it is every panel's problem rather than this one's.
+     *
+     * <p>Updating the panel from the press would be the tempting alternative and the wrong one: it is a
+     * second source of truth for one fact, and the one that is wrong whenever the server refuses. A
+     * refused kick would be drawn as a successful one for as long as it took the real roster to land.
      */
     private void runPartyCommand(String command) {
         if (minecraft == null || minecraft.getConnection() == null) {
@@ -1423,7 +1403,7 @@ public final class QuestBookScreen extends Screen {
         // logged, because a control press is not something the player said.
         minecraft.getConnection().sendCommand(
                 command.startsWith("/") ? command.substring(1) : command);
-        closeOverlay();
+        // No close. The panel redraws from the roster the server sends back -- see the note above.
     }
 
     /**
@@ -1500,6 +1480,9 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     protected void init() {
+        // First, because everything below is built from the caches it names -- and the frame that
+        // must notice them moving is the one after this returns. See `watchSources`.
+        watchSources();
         clearWidgets();
         buttons.clear();
         // Nulled with the list it came from. `init` rebuilds Close only on the branch that builds the
@@ -1508,13 +1491,22 @@ public final class QuestBookScreen extends Screen {
         closeButton = null;
         partyButton = null;
         // Cleared with them: the rows are drawn from this list, so a rebuild that left it alone would
-        // draw the previous panel's rows over the new one.
+        // draw the previous panel's rows over the new one. The card and the layout go with it, because
+        // one pass records them together and a card left behind would draw a box for a panel that no
+        // longer exists.
         partyRows = new ArrayList<>();
-        // The two boundaries are per-open state, so they are reset here rather than left to whatever
-        // the last `init` recorded -- a branch that forgot to set one would otherwise inherit the
-        // previous branch's index and deactivate the wrong buttons.
-        sidebarRowEnd = 0;
-        headerChromeEnd = 0;
+        partyCard = null;
+        partyLayout = null;
+        // And the scroll view's widgets, for the reason the three above are cleared: they belong to the
+        // panel being replaced. `buildPartyWidgets` clears it too, but only on the branch that builds a
+        // panel — a rebuild for a quest would otherwise leave the scroll view holding controls that are
+        // no longer on the screen.
+        partyView.clear();
+        // And the armed Disband, because a rebuild is a new panel: the row a player armed may not be
+        // there any more, and a control that says "Confirm" for a press it no longer remembers is
+        // worse than one that forgot.
+        disbandButton = null;
+        disbandArmed = false;
 
         // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
         // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
@@ -1530,12 +1522,10 @@ public final class QuestBookScreen extends Screen {
             // The book's own controls as well, because the book is drawn *behind* the modal rather than
             // replaced by it -- so the column behind the card is not empty.
             buildSidebarWidgets();
-            sidebarRowEnd = buttons.size();
             // And the header's. This is the fix for a Close button that vanished exactly when a dialog
             // was open: it was built by the book's branch alone, so opening a modal cleared every widget
             // and left `closeButton` pointing at one no longer in `children`.
             buildHeaderChrome();
-            headerChromeEnd = buttons.size();
             // And the view cluster, which the book's branch alone used to build. That is why the three
             // map buttons went missing behind a modal: the modal branches built the sidebar and the
             // header and stopped, so the cluster was simply absent. It belongs to the book, and the
@@ -1551,16 +1541,11 @@ public final class QuestBookScreen extends Screen {
 
         if (overlay == Overlay.PARTY) {
             buildSidebarWidgets();
-            sidebarRowEnd = buttons.size();
             buildHeaderChrome();
-            headerChromeEnd = buttons.size();
             buildViewCluster();
             bookButtonCount = buttons.size();
 
             buildPartyWidgets();
-            // Which roster this panel was built from, so `renderWith` can tell that a later one is a
-            // reason to rebuild. See the field.
-            partyRevision = ClientPartyCache.rosterRevision();
             setBookControlsActive(false);
             return;
         }
@@ -1585,7 +1570,6 @@ public final class QuestBookScreen extends Screen {
         // job is to say so. What the chapter loop's comment said about selection is still true and now
         // lives in `buildSidebarWidgets`, because that is where the chapter rows are made.
         buildSidebarWidgets();
-        sidebarRowEnd = buttons.size();
 
         // Close, in the header's right corner. A modal panel is closed by the thing in its corner, and
         // the header had a mostly empty right end.
@@ -1600,7 +1584,6 @@ public final class QuestBookScreen extends Screen {
         // switch beside the accessibility settings it duplicates. See BookGeometry.controls for why the
         // geometry went with them and why the space went back to the chapter list.
         buildHeaderChrome();
-        headerChromeEnd = buttons.size();
 
         // The view cluster: three square buttons in the canvas's own top-left corner.
         //
@@ -1673,13 +1656,13 @@ public final class QuestBookScreen extends Screen {
      * `children`. That is why Close disappeared exactly when a dialog was open: the one control every
      * dialog has, gone at the moment it was wanted.
      *
-     * <h2>Both are `chromeControl`, not `control`</h2>
+     * <h2>Both are ordinary controls, and that is a fix</h2>
      *
-     * <p>They are in the header, and the widget pass is clipped from the sidebar list's top *downwards*
-     * so that a scrolled row cannot be drawn through the title bar. That clip swallows everything above
-     * it, so these two are drawn by hand in the chrome layer -- see {@code render}. `chromeControl`
-     * keeps them in `children` so they still receive input, while leaving them out of `renderables` so
-     * the base pass does not try to draw them behind the clip.
+     * <p>They are in the header, and the widget pass is clipped to the sidebar's column so that a
+     * scrolled row cannot be drawn through the title bar. That clip used to span the whole panel, which
+     * swallowed these two: they were drawn by hand in the raised layer instead -- and a control drawn by
+     * hand is one the base class never tells about the pointer, so neither of them ever faded under it.
+     * The clip is the sidebar's column now, and the pass draws them like everything else.
      */
     private void buildHeaderChrome() {
         Map<String, BookGeometry.Rect> controls = geometry().controls();
@@ -1687,7 +1670,7 @@ public final class QuestBookScreen extends Screen {
         // Close closes the *modal* when one is open, and the book otherwise. That is what Escape does
         // already -- see `keyPressed` -- and the two have to agree, because they are the same gesture
         // and a player will use whichever they reach for.
-        closeButton = chromeControl(controls.get("close"), Component.literal("\u2715"), () -> {
+        closeButton = control(controls.get("close"), Component.literal("\u2715"), () -> {
             if (overlay != Overlay.NONE) {
                 closeOverlay();
             }
@@ -1708,7 +1691,7 @@ public final class QuestBookScreen extends Screen {
         // What changes with the roster is not the label -- "Party" says the same thing whoever is in it
         // -- but the tooltip, and a stale tooltip costs a hover line where a stale label cost the whole
         // control.
-        partyButton = chromeControl(controls.get("party"),
+        partyButton = control(controls.get("party"),
                 Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
         if (partyButton != null) {
             partyButton.textColour(ArmatureTheme.body());
@@ -1732,16 +1715,32 @@ public final class QuestBookScreen extends Screen {
      * <p>The buttons stay in {@code children} rather than being cleared, so the scroll view's own state
      * survives: closing the modal has to restore a chapter list scrolled where the player left it.
      */
+    /**
+     * Makes the book's own controls answer the pointer, or not.
+     *
+     * <h2>Everything the book built, and nothing the modal did</h2>
+     *
+     * <p>The book's controls are everything before {@link #bookButtonCount} -- the sidebar's rows, the
+     * header's Close and Party, and the view cluster -- and a modal's are everything after it. An open
+     * modal makes the first group inert and leaves the second live, which is the whole of the rule.
+     *
+     * <h2>The header's two used to be exempt, and that was the reported fault</h2>
+     *
+     * <p>The exemption's argument was that Close closes the dialog and Party opens the panel, so both
+     * are wanted <i>because</i> a modal is up. What it missed is that the header is drawn <b>under</b>
+     * the card like everything else: a control the player cannot see is a control they cannot aim at,
+     * so a press there is a press on whatever happens to be under the pointer at the time. The report
+     * was exactly that -- <i>"i can click on party and x in top right from behind a modal"</i> -- and
+     * the fix is to stop special-casing them. A modal is left by its own Back, by Escape, or by a
+     * click outside it, which are the three ways the card itself offers.
+     *
+     * <p>With the exemption gone so are the two indices it needed, and that is the simplification
+     * rather than a loss: "the book's controls" is one range, and one range is one boundary to get
+     * wrong instead of three.
+     */
     private void setBookControlsActive(boolean active) {
         int end = Math.min(bookButtonCount, buttons.size());
         for (int i = 0; i < end; i++) {
-            // The header's two controls stay live whatever happens here. Close closes the dialog and
-            // the party button opens the panel; both are wanted *because* a modal is open, so a rule
-            // that made the book inert would take them with it. See the fields for why the two
-            // boundaries are recorded rather than derived.
-            if (i >= sidebarRowEnd && i < headerChromeEnd) {
-                continue;
-            }
             buttons.get(i).active = active;
         }
     }
@@ -1815,18 +1814,19 @@ public final class QuestBookScreen extends Screen {
      *
      * <h2>One expression, for two cards of two sizes</h2>
      *
-     * <p>The two modals are different rectangles -- `modal()` for a quest and
-     * `modal(partyCardHeight(...), PARTY_MODAL_WIDTH)` for a roster -- so a caller asking "is this
-     * outside" has to ask the right one. This asks the same way the drawing does, by re-deriving the
-     * card from the same call, which is the property that stops a click being measured against a card
-     * that is not on screen.
+     * <p>The two modals are different rectangles -- the quest's is `modal()`, and a roster's is the card
+     * the widget pass built, sized from its own layout -- so a caller asking "is this outside" has to
+     * ask about the right one. This reads the party's card from {@link #partyCard}, which is the same
+     * object the drawing draws and the widgets were placed inside: a second computation would be a
+     * click measured against a card that is not on screen, which is the class of fault this file's
+     * geometry exists to prevent.
      *
      * <p>A click inside a card but not on a control does nothing, deliberately: it belongs to the
      * panel. A click outside closes it, which is what every dialog does.
      */
     private boolean clickedOutsideCard(double mouseX, double mouseY) {
-        BookGeometry.Rect card = overlay == Overlay.PARTY
-                ? geometry().modal(partyBodyHeight(partyRoster()), BookGeometry.PARTY_MODAL_WIDTH)
+        BookGeometry.Rect card = overlay == Overlay.PARTY && partyCard != null
+                ? partyCard
                 : geometry().modal();
 
         return mouseX < card.x() || mouseX > card.right()
@@ -1852,9 +1852,25 @@ public final class QuestBookScreen extends Screen {
     }
 
     /** The first task a player hands over by hand, or -1. */
+    /**
+     * The first task a player hands over by hand <b>and still has to</b>, or -1.
+     *
+     * <h2>Why "still has to" is part of the question</h2>
+     *
+     * <p>Because a checkmark task stays a manual task after it has been handed in -- that is its type,
+     * not its state -- so a caller asking only "is there a manual task" was answered yes forever, and the
+     * Submit button stayed on screen after the press that used it. The report was exact: <i>"submit
+     * should disappear after it has been submitted, it doesn't now"</i>.
+     *
+     * <p>Reaching the task's count is the test rather than a submitted flag, because that is what the
+     * server records and what the button's own effect produces: submitting moves the progress, the
+     * progress sync arrives, and the screen rebuilds -- so the button goes because the reason it existed
+     * has gone, and not because a copy of the answer was kept here.
+     */
     private static int firstManualTask(ClientQuestCache.Entry quest) {
         for (int i = 0; i < quest.tasks().size(); i++) {
-            if (quest.tasks().get(i).manual()) {
+            ClientQuestCache.TaskEntry task = quest.tasks().get(i);
+            if (task.manual() && ClientQuestCache.taskProgressOf(quest.id(), i) < task.count()) {
                 return i;
             }
         }
@@ -1913,7 +1929,20 @@ public final class QuestBookScreen extends Screen {
         // And the tooltip is drawn last of all, after the controls, which is the whole of the fix for
         // a tooltip that appeared *underneath* the button it described.
         GuiRenderer renderer = new GuiGraphicsRenderer(graphics);
+
+        // The world behind the book, softened before the book is drawn over it -- the same look a
+        // vanilla menu has, and the thing that stops an open book from looking like a window cut into a
+        // live world. `blur` restores the pipeline afterwards, so the book itself is drawn crisp.
+        //
+        // Only when no modal is open, and that is the whole of the placement: with a card up, the blur
+        // below runs once over the world *and* the book, and blurring here as well would put the world
+        // through two passes while the book got one -- a seam at the card's edge that nothing explains.
+        if (overlay == Overlay.NONE) {
+            renderer.blur(partialTick);
+        }
+
         renderWith(renderer, mouseX, mouseY, partialTick);
+
 
         // Everything from here on is the **chrome layer**, and it is drawn at a raised Z. Read the
         // next few paragraphs before moving any of it: this is a fix for a defect that no draw ORDER
@@ -1987,8 +2016,17 @@ public final class QuestBookScreen extends Screen {
             // exactly the kind of thing a later layout change eats without anybody noticing.
             //
             // Close is above this line, so it is drawn by hand in the chrome layer below — see
-            // `chromeControl`, which keeps it receiving input while taking it out of this pass.
+            // the narrow clip, which is what keeps it out of the pass's own drawing.
             BookGeometry.Rect book = panelRect();
+            // The clip is a **horizontal band**: the chapter list's top edge down, across the panel. It
+            // is what keeps a scrolled row from being drawn up through the title bar.
+            //
+            // It therefore excludes the header, which is above it -- and that is why the header's two
+            // controls cannot be drawn by this pass. A round tried narrowing it to the sidebar's column
+            // as a fix for their hover; that was the wrong axis (the header is above the band, not beside
+            // it) and it cut the canvas's view cluster out of the pass as well, since the cluster is to
+            // the right of that column. Reverted, and their hover is fixed where it belongs: see the
+            // chrome layer below, which now draws them through the widget's own `render`.
             try (GuiRenderer.Scoped clip = renderer.clip(book.x(), geometry().chapterListTop(),
                     book.right(), book.bottom())) {
                 super.render(graphics, mouseX, mouseY, partialTick);
@@ -2001,10 +2039,10 @@ public final class QuestBookScreen extends Screen {
             // the one control that lives above it is drawn here instead -- at the chrome Z, which is
             // also where a close button belongs.
             //
-            // It is still a widget in every other respect: it was added with `addWidget`, so it
-            // receives presses and hover from the base class's own input handling. What it does not do
-            // is get *drawn* by that pass. See `chromeControl` for why the state has to move with the
-            // drawing rather than being duplicated here.
+            // It is still a widget in every other respect: it is registered, so presses reach it
+            // through the base class's own input handling, and -- since this round -- so does hover,
+            // which `addWidget` alone never gave it. What it does not do is get *drawn* by that pass:
+            // the clip discards it, and the drawing that counts is here.
             // Guarded on the overlay being shut, because `closeButton` is only rebuilt by the branch of
             // `init` that builds the book. Opening an overlay clears every widget and builds the
             // overlay's two controls instead, so without this the field would still be pointing at a
@@ -2014,30 +2052,40 @@ public final class QuestBookScreen extends Screen {
             // guard read `overlay == Overlay.NONE`, so the one control every dialog has disappeared at
             // the moment a dialog was open. It closes the modal rather than the book when one is up --
             // see `buildHeaderChrome` -- which is what Escape already does.
-            if (closeButton != null) {
-                closeButton.draw(renderer);
-            }
-
-            // The party button, for the same reason and in the same place as Close: it is in the
-            // header, and the widget clip starts at the list's top edge, so the base class's pass
-            // would never draw it. It was registered with `control` -- which puts a widget in both
-            // `children` and `renderables` -- so it received input and drew its own tooltip while
-            // never being drawn itself. The report was exactly that: "invisible party button", with
-            // the words "Your party" floating over an empty gap.
-            if (partyButton != null) {
-                partyButton.draw(renderer);
-            }
-
-            // The modal card, drawn last of the chrome so it is genuinely on top of everything:
-            // the book, the scrim, the widget pass, and the sidebar's rows that are still built
-            // behind it. See `drawModal` for why this is not in `renderWith`.
+            // Close and Party are drawn here rather than by the pass -- and now they are drawn by the
+            // widget's **own `render`**, which is the difference between a control that fades under the
+            // pointer and one that never did.
             //
-            // The clock is read here rather than threaded in from `renderWith`, and it is the
-            // chrome layer's own for a reason: this layer already owns its pose, it is drawn last,
-            // and nothing in it depends on a value computed before the widget pass. `renderWith`
-            // reads its own from the same source for the same reason -- see its note on why nothing
-            // in this screen or the toolkit reads a clock itself.
+            // The pass cannot draw them: its clip is the band below the header, so anything in the header
+            // is discarded. And a control the pass never renders is a control whose hover is never worked
+            // out -- `isHovered` is set in `render`, from the pointer -- which is why these two were the
+            // only controls in the book that did not fade.
+            //
+            // So this layer tells them, on the way past: `hoverTold` is a control's hover said out loud
+            // by the caller that draws it, and `isMouseOver` is vanilla's own test -- which answers false
+            // for an inert control too, so neither of these fades while a modal has the book behind it
+            // and neither of them can be pressed.
+            if (closeButton != null) {
+                closeButton.hoverTold(closeButton.isMouseOver(mouseX, mouseY)).draw(renderer);
+            }
+            if (partyButton != null) {
+                partyButton.hoverTold(partyButton.isMouseOver(mouseX, mouseY)).draw(renderer);
+            }
             if (overlay != Overlay.NONE) {
+                // A modal softens what is behind it, and this is the moment that does it: everything
+                // behind the card is drawn by now -- the book, its scrim, and the widget pass above,
+                // which is where the buttons are. Blurring any earlier left them crisp, which was the
+                // report: "doesn't blur buttons etc".
+                //
+                // Outside the clip above, deliberately: a post-process leaves the scissor set for its
+                // own passes, and `blur` puts it back -- which it can only do honestly when no clip of
+                // ours is open. See `GuiRenderer.blur`, including the card that vanished before it did.
+                //
+                // The modal's own controls are drawn below, on top of the card, so the copy of them the
+                // widget pass just drew is blurred and then covered. Which is the right way round: they
+                // belong to the card, and the card is crisp.
+                renderer.blur(partialTick);
+
                 drawModal(renderer, mouseX, mouseY, net.minecraft.Util.getMillis());
 
                 // And the modal's **own controls, redrawn on top of the card**.
@@ -2139,16 +2187,6 @@ public final class QuestBookScreen extends Screen {
             rebuildWidgets();
         }
 
-        // And the same for a roster, one panel over. A party's membership can change <b>while the panel
-        // describing it is open</b> -- that is the case `PartySyncPayload` names as the reason the roster
-        // cannot be sent only on request -- and the panel's widgets were placed once, in `init`. So a
-        // roster that has arrived since is a reason to rebuild, and the counter is
-        // `ClientPartyCache.rosterRevision()`. See `partyRevision` for why a counter rather than a
-        // comparison of two snapshots.
-        if (overlay == Overlay.PARTY && partyRevision != ClientPartyCache.rosterRevision()) {
-            rebuildWidgets();
-        }
-
         // The animation clock, read once per frame and handed down. Nothing in this screen or in the
         // toolkit reads a clock itself -- see Tween's javadoc for why that is the property that makes
         // every animation here testable, and `Motion.tween` for how the client's setting reaches it.
@@ -2158,12 +2196,14 @@ public final class QuestBookScreen extends Screen {
         // overlay was open, so opening a modal replaced the whole book with a flat dim -- and the
         // request was to keep it: "dont close whats behind them, just have it in the background".
         //
-        // A scrim rather than a blur, and that is a real limitation rather than a preference.
-        // Minecraft's blur is `gameRenderer.processBlurEffect`, a post-process over the framebuffer --
-        // which is precisely what a previous round had to remove, because running it after this
-        // screen's text was drawn blurred the text as well as the world. A blur that does not do that
-        // needs the book rendered to its own target first, which is a render-target change rather than
-        // a layout one. So: dimmed, legibly, and named here as a thing not done.
+        // A scrim under a blur, and the two are one decision made in two places: the scrim is what says
+        // the book is inert, and the blur -- the call in `render`, once this method has drawn the book --
+        // is what makes the card readable over it.
+        //
+        // This note used to say the blur was a thing deliberately not done, and then that it had been
+        // tried and erased the card. Both are worth keeping in view: the fault was real, and its cause
+        // was that a post-process leaves the pipeline set for its own passes, so the one layer drawn
+        // with no clip of its own had nothing to draw into. `GuiRenderer.blur` puts the pipeline back.
         drawBook(renderer, mouseX, mouseY, now);
         if (overlay != Overlay.NONE) {
             renderer.fill(0, 0, width, height, ArmatureTheme.dim());
@@ -2196,69 +2236,7 @@ public final class QuestBookScreen extends Screen {
         // as well as testing it.
     }
     /**
-     * The party panel's card: a centred box with caps, sized to the roster it will hold.
-     *
-     * <h2>Why the height is computed here rather than asked of the layout</h2>
-     *
-     * <p>Because the layout does not know the card, and the card does not know the layout -- they are
-     * mutual. So the height is computed from the same numbers the layout is built from: the heading, a
-     * row per member, the gap before the actions, the actions themselves, and the card's own chrome.
-     * That is a second expression of the layout's content, and the honest note is that the two could
-     * drift.
-     *
-     * <p>What keeps them from drifting is that this reads {@code PartyPanelLayout}'s own constants
-     * rather than writing 18 and 10 again -- so a change to a row height moves both. What it does not
-     * catch is a change to the *number of elements*, and that is what {@code PartyPanelLayoutTest}
-     * holds: it asserts the layout's height against the same terms written longhand.
-     */
-    private int partyBodyHeight(PartyRoster roster) {
-        return partyBodyHeight(roster, partyRows(roster, ClientPartyCache.snapshot()).size());
-    }
-
-    /**
-     * The body's height: the action rows, then the member rows.
-     *
-     * <h2>What this used to be, and the two faults in it</h2>
-     *
-     * <p>It returned {@code MODAL_CHROME + content} while {@link BookGeometry#modal(int, int)} adds
-     * {@code MODAL_CHROME} itself -- so every card was eighty-four pixels taller than the content it
-     * held, which is most of why the panel read as blank: a box built for a list, with the list at the
-     * top and a hand's width of nothing under it.
-     *
-     * <p>And it counted member rows only. The action rows -- Create, an Accept per invitation, an
-     * Invite per online player -- had no room reserved at all, so a player list longer than the card
-     * overflowed it without anything saying so.
-     *
-     * <h2>What it returns now, and who adds the chrome</h2>
-     *
-     * <p>The body alone. {@code modal} adds the card's own top and bottom, and
-     * {@code PARTY_BODY_TOP + PARTY_BODY_BOTTOM} is what it adds -- so the two numbers that describe
-     * where the body sits are the same two numbers that decide how tall the card is, and a change to
-     * either cannot leave the other behind.
-     *
-     * @param actions how many action rows, passed in rather than counted again because the caller has
-     *                the list already and this is called twice per frame
-     */
-    private int partyBodyHeight(PartyRoster roster, int actions) {
-        int members = roster.isReal() ? roster.memberCount() : 0;
-
-        int height = 0;
-        if (actions > 0) {
-            height += actions * PartyRoster.ROW_HEIGHT + (actions - 1) * PartyRoster.ROW_GAP;
-        }
-        if (members > 0) {
-            // A wider gap between the two groups than between rows within one, so the action list and
-            // the roster read as two lists rather than as one of mixed kinds.
-            if (actions > 0) {
-                height += PartyRoster.ROW_GAP * 3;
-            }
-            height += members * PartyRoster.ROW_HEIGHT + (members - 1) * PartyRoster.ROW_GAP;
-        }
-        return height;
-    }
-
-    /**
-     * The party panel's card: a heading, the roster, and the actions.
+     * The party panel's card: a title, the roster, and the actions.
      *
      * <h2>Every row comes from the layout the widgets were placed from</h2>
      *
@@ -2267,81 +2245,162 @@ public final class QuestBookScreen extends Screen {
      * appears when a party has the wrong number of members in it -- the case a single-member test never
      * reaches.
      *
-     * <h2>Clipped by skipping, not by a scissor</h2>
+     * <h2>Scrolled, and clipped by a scissor</h2>
      *
-     * <p>A row whose bottom would fall past the body is not drawn, which is what makes an over-full
-     * roster a limitation rather than a fault: nothing is painted over the header. A scissor would be
-     * more general and would also be a second mechanism for something one comparison already handles
-     * here, where the only overflowing content is a column of rows.
+     * <p>The body is a {@link ScrollView}'s viewport, so a roster taller than its card is reachable
+     * rather than lost. Three things come from that one rectangle: the clip the drawing is wrapped in,
+     * the scroll clamp, and where each row lands — because the panel's rows are placed by
+     * {@code apply} and drawn here, and both ask the viewport. A row half past the card's edge is cut
+     * off by the clip rather than skipped, which is the shape the old "skip a row past the body"
+     * comparison had, generalised to a region that moves.
+     *
+     * <p>The clip is the one place a scissor is right, and it replaced a comparison: skipping whole
+     * rows cannot express a partially visible one, and a partially visible row is what a scroll is.
      */
     private void drawPartyOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
         PartyRoster roster = partyRoster();
+        BookGeometry.Rect card = partyCard;
+        Layout layout = partyLayout;
+        if (card == null || layout == null) {
+            // Not built: `buildPartyWidgets` records the card and the layout together, so neither can
+            // be set without the other, and a card derived here would be the second arithmetic this
+            // round removed.
+            return;
+        }
 
-        // The card, sized from the body it holds -- actions and members together. See `partyBodyHeight`
-        // for the two faults this replaced: an eighty-four pixel overcount and a set of rows with no
-        // room reserved.
-        BookGeometry.Rect card = geometry().modal(partyBodyHeight(roster),
-                BookGeometry.PARTY_MODAL_WIDTH);
+        // Re-applied here rather than only at build time, like the overlay's own body: a scroll that
+        // happened since the last frame is already in the widget positions, and a resize cannot leave
+        // the clamp measuring the previous window.
+        Viewport body = partyBody();
+        partyView.apply(layout, body.viewWidth());
 
         // No dim: `renderWith` fills one before dispatching to an overlay, and a second put two
         // translucent blacks over a world that is not otherwise drawn.
         ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
-        r.text(Component.translatable("tasked.screen.party.title").getString(),
-                card.x() + EDGE * 2, card.y() + 10, ArmatureTheme.title());
-
-        // The action rows, drawn whether or not there is a party -- and that is the fix for the fourth
-        // fault, which is what "still almost blank" was: this method returned early when there was no
-        // party, *before* reaching these rows, so the Create button that exists to replace the command
-        // hint was never drawn at all. A panel whose empty state is a dead end is the thing this round
-        // was about.
-        for (PlacedPartyRow placed : partyRows) {
-            BookGeometry.Rect rect = placed.rect();
-            int textY = rect.y() + (rect.height() - r.lineHeight()) / 2;
-            int room = rect.width() - (placed.row().buttonLabel() == null ? 4 : PARTY_ROW_BUTTON + 8);
-            r.text(Measure.truncate(placed.row().label(), Math.max(0, room), textMeasure(r)),
-                    rect.x() + 2, textY, ArmatureTheme.body());
+        // Everything below is content, and content is clipped to the body. The card is not: it is the
+        // frame the content moves inside.
+        try (GuiRenderer.Scoped clip = r.clip(body)) {
+            drawPartyRows(r, layout, roster, body, now);
         }
 
-        if (!roster.isReal() || partyLayout == null) {
+        // The bar, from the same viewport as the clip and the clamp, and drawn only when there is more
+        // than fits. Like the quest overlay's, it is not draggable -- the sidebar's is, because a list is
+        // a thing a pointer is already in; a modal's bar is read, and the wheel is how it is moved.
+        partyView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+    }
+
+    /** The panel's content, drawn at the positions the viewport puts its rows in. */
+    private void drawPartyRows(GuiRenderer r, Layout layout, PartyRoster roster, Viewport body,
+                               long now) {
+        // The title, placed by the layout like every other row. Its key *is* its translation key -- see
+        // `PartyPanelLayout.TITLE` -- so there is no second table mapping one to the other.
+        rowLabel(r, layout, PartyPanelLayout.TITLE, body,
+                Component.translatable(PartyPanelLayout.TITLE).getString(), ArmatureTheme.title());
+
+        if (roster.isReal()) {
+            for (PartyRoster.Member member : roster.members()) {
+                Slot slot = layout.slot(member.key());
+                if (slot == null) {
+                    continue;
+                }
+                Slot onScreen = screenSlot(body, slot);
+
+                rowHover.update(member.key(), now);
+                float hover = rowHover.amount(member.key(), now);
+                if (hover > 0F) {
+                    rowWash(r, onScreen, onScreen.right(), hover);
+                }
+
+                // The portrait, then the marker for who is connected, then the name. The marker is drawn
+                // whether or not the face drew, so a player with no skin cannot take the one part of
+                // this row that is about presence with it. Where the fact comes from: the roster's own
+                // member, which the server answered -- see `PartyRoster.Member`.
+                int portraitX = onScreen.x() + PartyPanelLayout.HEAD_INSET;
+                r.face(member.id(), portraitX,
+                        onScreen.y() + (onScreen.height() - PartyPanelLayout.HEAD_BOX) / 2,
+                        PartyPanelLayout.HEAD_BOX);
+
+                int markerX = portraitX + PartyPanelLayout.HEAD_BOX + PartyPanelLayout.HEAD_GAP;
+                int dotY = onScreen.y() + (onScreen.height() - PartyPanelLayout.STATUS_DOT) / 2;
+                r.fill(markerX, dotY, markerX + PartyPanelLayout.STATUS_DOT,
+                        dotY + PartyPanelLayout.STATUS_DOT,
+                        member.online() ? ArmatureTheme.title() : ArmatureTheme.faint());
+
+                int nameX = markerX + PartyPanelLayout.STATUS_DOT + PartyPanelLayout.STATUS_GAP;
+                int textY = onScreen.y() + (onScreen.height() - r.lineHeight()) / 2
+                        + PartyPanelLayout.NAME_DROP;
+                // The name stops short of the room the row reserved for its Remove button, so it cannot
+                // run under the button or the rank that sits inside it.
+                r.text(Measure.truncate(member.label(),
+                                Math.max(0, onScreen.width() - (nameX - onScreen.x()) - 4), textMeasure(r)),
+                        nameX, textY,
+                        member.self() ? ArmatureTheme.title() : ArmatureTheme.body());
+
+                // The rank, right-aligned in the room the row reserved for its Remove button -- the same
+                // reservation the button is placed inside, so the word and the button cannot overlap.
+                String role = member.roleLabel();
+                int roleX = onScreen.right() - PartyRoster.REMOVE_WIDTH
+                        - PartyRoster.REMOVE_INSET * 2 - r.textWidth(role);
+                if (roleX > onScreen.x() + 4) {
+                    r.text(role, roleX, textY, ArmatureTheme.faint());
+                }
+            }
+        }
+        else {
+            // The empty state's two lines, from the same layout -- see `PartyPanelLayout` for why a
+            // player with no party is shown a panel rather than nothing.
+            rowLabel(r, layout, PartyPanelLayout.NO_PARTY, body,
+                    Component.translatable(PartyPanelLayout.NO_PARTY).getString(), ArmatureTheme.body());
+            rowLabel(r, layout, PartyPanelLayout.HINT, body,
+                    Component.translatable(PartyPanelLayout.HINT).getString(), ArmatureTheme.faint());
+        }
+
+        // The rule between the roster and the actions: a one-pixel row the layout placed, so where the
+        // two lists meet is not a second expression of how tall the roster was.
+        Slot rule = layout.slot(PartyPanelLayout.RULE);
+        if (rule != null) {
+            Slot onScreen = screenSlot(body, rule);
+            r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
+                    ArmatureTheme.panelEdge());
+        }
+
+        // The action rows' labels. Their buttons are widgets; only the text is drawn here, and the room
+        // it may use is the slot the button was placed from -- so a label cannot be given the width of a
+        // row that already spent part of it on a control.
+        for (PartyPanelLayout.Action action : partyRows) {
+            rowLabel(r, layout, action.key(), body, action.label(), ArmatureTheme.body());
+        }
+    }
+
+    /**
+     * One row's label, drawn where its slot is.
+     *
+     * <p>Centred in the row and truncated to the row's own width, with a small pad either side. Every row
+     * of the party panel goes through here, so a title and an action label cannot disagree about where a
+     * line of text sits in its row.
+     */
+    private void rowLabel(GuiRenderer r, Slot onScreen, String text, int colour) {
+        int textY = onScreen.y() + (onScreen.height() - r.lineHeight()) / 2;
+        r.text(Measure.truncate(text, Math.max(0, onScreen.width() - 8), textMeasure(r)),
+                onScreen.x() + 4, textY, colour);
+    }
+
+    /**
+     * The same, for a row looked up by its key in the panel's own layout.
+     *
+     * <p>Rows past the body are clipped by the caller's scissor rather than skipped here, because a
+     * scrolled row is partly visible: a test that only asked "is it past the bottom" could not describe
+     * one. A key the layout does not hold draws nothing, as before.
+     */
+    private void rowLabel(GuiRenderer r, Layout layout, String key, Viewport body, String text,
+                          int colour) {
+        Slot slot = layout.slot(key);
+        if (slot == null) {
             return;
         }
-
-        int bodyBottom = card.bottom() - PARTY_BODY_BOTTOM;
-
-        for (PartyRoster.Member member : roster.members()) {
-            Slot slot = partyLayout.slot(member.key());
-            if (slot == null) {
-                continue;
-            }
-            Slot onScreen = slot.moved(partyOriginX, partyOriginY);
-            if (onScreen.bottom() > bodyBottom) {
-                // Past the body. Skipped rather than drawn: an over-full roster is a limitation, and
-                // painting a row over the footer would be a fault.
-                continue;
-            }
-
-            rowHover.update(member.key(), now);
-            float hover = rowHover.amount(member.key(), now);
-            if (hover > 0F) {
-                rowWash(r, onScreen, onScreen.right(), hover);
-            }
-
-            int textY = onScreen.y() + (onScreen.height() - r.lineHeight()) / 2;
-            r.text(Measure.truncate(member.label(), Math.max(0, onScreen.width() - 8), textMeasure(r)),
-                    onScreen.x() + 4, textY,
-                    member.self() ? ArmatureTheme.title() : ArmatureTheme.body());
-
-            // The rank, right-aligned in the room the row reserved for its Remove button -- the same
-            // reservation the button is placed inside, so the word and the button cannot overlap.
-            String role = member.roleLabel();
-            int roleX = onScreen.right() - PartyRoster.REMOVE_WIDTH
-                    - PartyRoster.REMOVE_INSET * 2 - r.textWidth(role);
-            if (roleX > onScreen.x() + 4) {
-                r.text(role, roleX, textY, ArmatureTheme.faint());
-            }
-        }
+        rowLabel(r, screenSlot(body, slot), text, colour);
     }
 
     private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
@@ -2393,7 +2452,9 @@ public final class QuestBookScreen extends Screen {
             partyButton.tooltip(partyTooltip());
         }
 
-        r.text(title.getString(), left + 10, top + 9, ArmatureTheme.title());
+        // The header's own inset, shared with Close's rectangle -- see `BookGeometry.HEADER_INSET`,
+        // where the two ends of the header are one number rather than a literal here and a margin there.
+        r.text(title.getString(), left + BookGeometry.HEADER_INSET, top + 9, ArmatureTheme.title());
         if (ClientQuestCache.hasData()) {
             String summary = ClientQuestCache.questCount() + " quests  \u00b7  "
                     + Math.round(viewport().scale() * 100) + "%";
@@ -2996,7 +3057,12 @@ public final class QuestBookScreen extends Screen {
         // And the two rules. Square, deliberately: they are one pixel tall, and a radius applied to a
         // one-pixel rule would either vanish or produce a dotted line.
         r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
-        r.fill(left + 1, top + h - 38, left + w - 1, top + h - 37, ArmatureTheme.panelEdge());
+        // The footer band is exactly the region the card's own chrome reserves for the footer -- the
+        // gap above the controls, the controls, and the inset below them -- so the band and the row it
+        // holds come from one arithmetic. It was 38, an eighth number that agreed with none of the
+        // three, and the report was the control sitting three pixels high in its own band.
+        r.fill(left + 1, top + h - BookGeometry.MODAL_FOOTER_HEIGHT, left + w - 1,
+                top + h - BookGeometry.MODAL_FOOTER_HEIGHT + 1, ArmatureTheme.panelEdge());
 
         // --- header ---
 
@@ -3155,11 +3221,28 @@ public final class QuestBookScreen extends Screen {
                                 double mouseX, double mouseY) {
         for (String key : keys) {
             Slot slot = placed(layout, body, key);
-            if (slot != null && slot.contains(mouseX, mouseY)) {
+            if (slot != null && rowBox(slot).contains(mouseX, mouseY)) {
                 return key;
             }
         }
         return null;
+    }
+
+    /**
+     * The row's own box inside its slot: the icon's height, at the slot's top.
+     *
+     * <h2>Because a slot is an advance, not a row</h2>
+     *
+     * <p>{@code OverlayLayout} places a task or a reward as {@code ROW_ADVANCE} tall — the row, plus the
+     * space under it before the next one starts — so a hit test against the slot whole reaches six pixels
+     * into the gap below the row and none of the gap above it. That is the report exactly: <i>"I hold
+     * under a task and it glows"</i>. Every row draws its content from the slot's top edge, so the box a
+     * pointer should find is the top {@code ROW_ICON} of it, and the wash and the test both come from
+     * here rather than from two readings of one slot.
+     */
+    private static Slot rowBox(Slot slot) {
+        return new Slot(slot.key(), slot.x(), slot.y(), slot.width(),
+                Math.min(ROW_ICON, slot.height()));
     }
 
     private void drawRewards(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout, Viewport body,
@@ -3364,12 +3447,23 @@ public final class QuestBookScreen extends Screen {
         int tagX = tag == null ? 0 : x + availableWidth - r.textWidth(tag)
                 - (manual && optional ? r.textWidth("optional") + 6 : 0);
 
+        // Who is contributing, right-aligned before the tag. Placed here rather than down at the
+        // drawing, because the wash behind the row reaches the same edge -- two expressions of "where
+        // the faces end" that happen to agree today is the fault this file's geometry exists against.
+        int facesRight = tag == null ? x + availableWidth : tagX - 6;
+        List<Contributor> contributors = placeContributors(r, entry.id(), index, facesRight,
+                barX + barWidth + 8);
+
         int contentRight = Math.max(measuredTextRight, barX + barWidth);
         if (tag != null) {
             contentRight = Math.max(contentRight, tagX + r.textWidth(tag));
         }
+        if (!contributors.isEmpty()) {
+            contentRight = Math.max(contentRight, facesRight);
+        }
 
-        rowWash(r, slot, contentRight, hover);
+        // The row's own box rather than its slot: see `rowBox` for the six pixels of gap between them.
+        rowWash(r, rowBox(slot), contentRight, hover);
 
         // --- drawn ---
 
@@ -3404,12 +3498,80 @@ public final class QuestBookScreen extends Screen {
             }
         }
 
+        // The contributors, from the list placed above: each member's face and what they hold. The face
+        // is the part that answers "who", and the number beside it is what makes the answer worth
+        // reading -- a party's total says how the quest is going, this says who is doing it.
+        //
+        // Drawn for a finished task as well, on purpose: the picture is frozen at the evaluation that
+        // completed the task, so a done row says who did it. See `ProgressService.CONTRIBUTIONS`.
+        for (Contributor contributor : contributors) {
+            r.face(contributor.who(), contributor.x(), y + (ROW_ICON - CONTRIBUTOR_FACE) / 2,
+                    CONTRIBUTOR_FACE);
+            r.text(contributor.count(), contributor.countX(), textY + CONTRIBUTOR_TEXT_DROP,
+                    ArmatureTheme.faint());
+        }
+
         if (optional) {
             r.text("optional", x + availableWidth - r.textWidth("optional"), textY, ArmatureTheme.faint());
         }
         if (manual) {
             r.text("hand in", tagX, textY, ArmatureTheme.available());
         }
+    }
+
+    /** One member's mark in a task row: their face, what they hold, and where both go. */
+    private record Contributor(UUID who, String count, int x, int countX) {
+    }
+
+    /**
+     * The contributing members a task row can show, placed right-aligned from {@code right}.
+     *
+     * <h2>Measured once, drawn from the result</h2>
+     *
+     * <p>The alternative is measuring the cluster to decide the wash's width and then re-walking the
+     * members to draw them, which is two expressions of one layout -- and the second one is the one
+     * that would drift. So this returns positions and the drawing reads them.
+     *
+     * <h2>Empty rather than squeezed</h2>
+     *
+     * <p>A row with no room for faces draws none: a narrow overlay, or a long task name. Returning
+     * nothing is the honest answer where overlapping the name would be a fault, and the caller has one
+     * thing to check instead of a special case per reason.
+     */
+    private static List<Contributor> placeContributors(GuiRenderer r, String questId, int taskIndex,
+                                                       int right, int leftLimit) {
+        Map<UUID, Integer> picture = ClientQuestCache.contributorsOf(questId, taskIndex);
+        if (picture.isEmpty()) {
+            return List.of();
+        }
+
+        List<Contributor> placed = new ArrayList<>();
+        int x = right;
+        int shown = 0;
+        for (Map.Entry<UUID, Integer> each : picture.entrySet()) {
+            String count = String.valueOf(each.getValue());
+            if (shown == MAX_CONTRIBUTORS) {
+                // The rest as a count of their own, so a party of eight does not push the row's own
+                // text off it -- and so the row still says that somebody is missing from it.
+                count = "+" + (picture.size() - MAX_CONTRIBUTORS);
+                x -= r.textWidth(count);
+                placed.add(new Contributor(null, count, x, x));
+                break;
+            }
+            int width = CONTRIBUTOR_FACE + CONTRIBUTOR_COUNT_GAP + r.textWidth(count);
+            x -= width + CONTRIBUTOR_GAP;
+            placed.add(new Contributor(each.getKey(), count, x,
+                    x + CONTRIBUTOR_FACE + CONTRIBUTOR_COUNT_GAP));
+            shown++;
+        }
+
+        // Measured against what the row already holds -- its name, its count and its bar -- and not
+        // against the row's edge. A cluster that reaches back past them would be printed over the
+        // task's own name, and "no faces" is a smaller fault than a face on top of a word.
+        if (x < leftLimit) {
+            return List.of();
+        }
+        return List.copyOf(placed);
     }
 
     /**
@@ -3437,7 +3599,8 @@ public final class QuestBookScreen extends Screen {
             contentRight += 5 + r.textWidth(count);
         }
 
-        rowWash(r, slot, contentRight, hover);
+        // The row's own box rather than its slot: see `rowBox` for the six pixels of gap between them.
+        rowWash(r, rowBox(slot), contentRight, hover);
 
         int textX = x;
         ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
@@ -3463,14 +3626,36 @@ public final class QuestBookScreen extends Screen {
         // method ever reached its overlay branch. The card is modal in the sense that matters: nothing
         // behind it answers the pointer at all.
         //
-        // The branch returns rather than falling through, so `super` is never reached while an overlay
-        // is open. Its own controls answer here instead, through `super` called below.
+        // What stops the book's controls taking this click is `setBookControlsActive`, not the branch
+        // below: `super` walks *every* widget, so a book control left active is a book control that
+        // answers. That is why the header's Close and Party are deactivated with the rest -- see that
+        // method for the report that made them so.
         if (overlay != Overlay.NONE) {
+            // Whether this press is the armed Disband's, asked before the press is handled: a press on
+            // anything else is a change of mind, and the label a player is looking at has to match what
+            // the next press on Disband will do.
+            boolean onDisband = disbandButton != null && disbandButton.isMouseOver(mouseX, mouseY);
             if (super.mouseClicked(mouseX, mouseY, button)) {
                 // One of the modal's own controls took it. Everything behind stays untouched.
+                if (!onDisband) {
+                    disarmDisband();
+                }
                 return true;
             }
-            if (clickedOutsideCard(mouseX, mouseY)) {
+            // The panel's bar first, and on the same terms as the sidebar's: a press anywhere on the
+            // track jumps the thumb to the pointer and then drags from there. `beginThumbDrag` before
+            // `dragThumbTo` matters -- without the first, the second returns immediately because no drag
+            // is in progress.
+            //
+            // Before the outside test rather than after, because the grab band is deliberately wider
+            // than the three-pixel bar (`ScrollView.scrollbarHit`) and its outer edge reaches one pixel
+            // past the card -- so the order decides whether that pixel drags the bar or closes the
+            // panel, and a scrollbar you can miss by a pixel is the thing the wide band exists to fix.
+            if (overlay == Overlay.PARTY && partyView.scrollbarHit(mouseX, mouseY)) {
+                partyView.beginThumbDrag(mouseY);
+                partyView.dragThumbTo(mouseY);
+            }
+            else if (clickedOutsideCard(mouseX, mouseY)) {
                 closeOverlay();
             }
             return true;
@@ -3538,8 +3723,13 @@ public final class QuestBookScreen extends Screen {
         // The scrollbar's drag, before the canvas pan and before the widgets. It has to be first
         // because a drag that started on the bar must stay on the bar: the pan would otherwise take
         // the movement, and the canvas would slide sideways while the pointer was over a scrollbar.
-        if (sidebarView.draggingThumb()) {
-            sidebarView.dragThumbTo(mouseY);
+        if (sidebarView.draggingThumb() || partyView.draggingThumb()) {
+            if (sidebarView.draggingThumb()) {
+                sidebarView.dragThumbTo(mouseY);
+            }
+            else {
+                partyView.dragThumbTo(mouseY);
+            }
             return true;
         }
 
@@ -3563,7 +3753,7 @@ public final class QuestBookScreen extends Screen {
         // pointer is still over the bar". Letting go outside the bar is how a drag ends in every
         // program ever written, and releasing on the last position the bar saw is what makes the end
         // of a drag land where the pointer was when it was let go.
-        if (sidebarView.endThumbDrag()) {
+        if (sidebarView.endThumbDrag() || partyView.endThumbDrag()) {
             return true;
         }
 
@@ -3597,10 +3787,12 @@ public final class QuestBookScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (overlay == Overlay.PARTY) {
-            // Absorbed, and that is the fix for a hole the same shape as the click-through one: this
-            // method used to test only for QUEST, so the wheel went on scrolling the sidebar and
-            // zooming the canvas behind a party panel. A modal that answers the pointer but not the
-            // wheel is a modal with a hole in it.
+            // Scrolls the panel, and absorbs the wheel whether or not there is anywhere to go: this
+            // method used to test only for QUEST, so the wheel went on scrolling the sidebar and zooming
+            // the canvas behind a party panel. A modal that answers the pointer but not the wheel is a
+            // modal with a hole in it -- and one that answers the wheel by doing nothing is still
+            // answering it, which is what stops the list behind it from moving.
+            partyView.scrollBy(-(int) (scrollY * 30));
             return true;
         }
 
@@ -3718,11 +3910,6 @@ public final class QuestBookScreen extends Screen {
         // happens to share.
         sidebar = null;
         sidebarRevision = -1;
-        // And the party's, for the same reason: a roster is a fact about a server this client is no
-        // longer connected to, so the next connection's first roster has to count as new. Left alone,
-        // `-1` is also what makes the panel rebuild on the first frame of a session rather than only
-        // when a second roster happens to arrive.
-        partyRevision = -1;
     }
 
     @Override

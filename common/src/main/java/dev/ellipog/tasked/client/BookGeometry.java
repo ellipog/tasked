@@ -122,6 +122,25 @@ public final class BookGeometry {
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
 
+    /**
+     * How far the header's **text** sits from the panel's edge — the title at the left, the quest count
+     * at the right.
+     */
+    public static final int HEADER_INSET = 10;
+
+    /**
+     * How far a header **control's box** sits from the panel's edge. See {@link #HEADER_INSET}.
+     *
+     * <h2>Why a box is inset by less than a label</h2>
+     *
+     * <p>Because a label starts where it is drawn and a control's glyph sits inside its own box: put the
+     * box at the label's inset and the resting gap to the X reads wider than the gap to the title. How
+     * much wider is the button's own padding, and it was measured by eye across two reports rather than
+     * derived — "a tiny bit too much space to the right of the x", then "move them 4 pixels to the right",
+     * then two more. Six, in total, and it is subtracted once here rather than at any call site.
+     */
+    public static final int HEADER_CONTROL_INSET = HEADER_INSET - 6;
+
 
     // --- the sidebar's list --------------------------------------------------
 
@@ -334,21 +353,81 @@ public final class BookGeometry {
     public static final int MODAL_MARGIN = 24;
 
     /**
-     * The card's own chrome: a title, the gap under it, and the footer's rule and controls.
+     * How far a modal's content sits from its card's edge — the same on all four sides.
      *
-     * <p>What {@link #modal(int)} adds to a body's height. Written out rather than derived from the
-     * screen's body insets, which belong to the quest overlay's own layout: a card whose height depended
-     * on those would resize when they were adjusted for a reason that has nothing to do with it.
+     * <h2>One number, and it replaced four that disagreed</h2>
+     *
+     * <p>A card's padding was 16 on the left and right ({@code EDGE * 2}), 10 at the top, 8 at the
+     * bottom, and the footer's controls were nudged by a further half a control's height on the right
+     * for no stated reason. The report was exact and is the reason this is one constant: <i>"there is
+     * more space on the x axis border than y, fix that, make it basically equal"</i>.
+     *
+     * <p>It is worth saying why four numbers ever looked acceptable. Each of them was arrived at
+     * separately and each was defensible on its own — {@code EDGE * 2} because a row inside the card
+     * should line up with a row inside the panel, 10 because a title's line box is only nine pixels
+     * tall, 8 because it was {@code EDGE}, reused. None of them was ever compared with the others,
+     * which is the whole of the fault: padding is a <b>single</b> decision, and four decisions that
+     * happen to be plausible are four different answers to one question.
+     *
+     * <p>Twelve, because it has to be at least the panel's own {@link #EDGE} to read as a card rather
+     * than as content touching its frame, and because it is the figure a footer's controls already sat
+     * close to — so the card's height changes by a hair and its look changes completely.
      */
-    public static final int MODAL_CHROME = 84;
+    public static final int MODAL_INSET = 12;
 
-    // --- the full-screen overlay ---------------------------------------------
+    /**
+     * Between the body's bottom and the footer's controls. Not an inset: it separates two things.
+     *
+     * <p>Twelve, and that it equals {@link #MODAL_INSET} is the point rather than a coincidence: the
+     * overlay draws its footer as one band, the controls are {@code MODAL_INSET} above the card's bottom,
+     * and a band with anything else above them has them off its centre — which is what a report about a
+     * Back button sitting high turned out to be. Ten was a number chosen on its own, next to twelve
+     * chosen on its own, and the two never met until the band was drawn around both.
+     */
+    public static final int MODAL_FOOTER_GAP = 12;
 
     /**
      * The height of a control in the overlay's footer. Taller than a sidebar row: the overlay is the
      * screen where a player hands something in, so its controls are the primary thing on it.
+     *
+     * <h2>Why it is declared above the modal constants rather than with the overlay's own</h2>
+     *
+     * <p>Because {@link #MODAL_CHROME} is derived from it, and a static initializer cannot read a field
+     * declared below it. That is a rule about the language rather than a preference, and it points the
+     * right way here: a modal reserves exactly one control's height for its footer whether it is the
+     * full-screen overlay or a content-sized card, so this number belongs to both and is declared
+     * between them rather than with one.
      */
     public static final int OVERLAY_CONTROL_HEIGHT = 20;
+
+    /**
+     * The card's own chrome: the top inset, the body-to-footer gap, the controls, and the bottom inset.
+     *
+     * <p>What {@link #modalFramed} adds to a body's height, and it is now <b>derived</b> from the four
+     * numbers that actually place things rather than written out as a figure of its own. It used to be
+     * 84, a number that agreed with none of them: a body built for content plus 84 was 30 pixels taller
+     * than the footer and the padding accounted for, so a card sized to a short roster had a hand's
+     * width of nothing between its last row and its buttons. That is half of what the reported
+     * "still almost blank" panel was.
+     *
+     * <p>Written as the sum because the sum is the definition. A reader who wants to know how tall a
+     * card has to be should be able to read it off the four constants that decide it, not multiply
+     * {@code MODAL_CHROME} by one and check {@link #modalControls} by eye.
+     */
+    public static final int MODAL_CHROME =
+            MODAL_INSET + MODAL_FOOTER_GAP + OVERLAY_CONTROL_HEIGHT + MODAL_INSET;
+
+    /**
+     * The footer's whole region: the gap above the controls, the controls, and the inset below them.
+     *
+     * <p>What the card reserves for its footer, and what the overlay draws as the footer's band. One
+     * constant rather than two expressions, because the band's height and the row's position are the
+     * same decision: a band computed separately is a band the controls are not centred in.
+     */
+    public static final int MODAL_FOOTER_HEIGHT =
+            MODAL_FOOTER_GAP + OVERLAY_CONTROL_HEIGHT + MODAL_INSET;
+
+    // --- the full-screen overlay ---------------------------------------------
 
     /**
      * Submit's width, and Back's.
@@ -420,7 +499,7 @@ public final class BookGeometry {
      * two things -- a name on the left and a rank on the right -- and the two drift apart into a gap
      * nobody reads across if the card is narrow. Its own constant rather than the panel's width,
      * because "how wide should this card be" is a question each modal answers for itself; see
-     * {@link #modal(int, int)}.
+     * {@link #modalFramed(int, int)}.
      */
     public static final int PARTY_MODAL_WIDTH = 320;
 
@@ -592,15 +671,6 @@ public final class BookGeometry {
      * directions rather than downwards from a fixed top. A list that added a row and moved every row
      * above it would be the alternative.
      *
-     * @param contentHeight how much room the body needs, in pixels. Clamped to the caps.
-     */
-    public Rect modal(int contentHeight) {
-        return modal(contentHeight, MAX_MODAL_WIDTH);
-    }
-
-    /**
-     * A modal card sized to its content and to the width <i>it</i> asks for.
-     *
      * <h2>Why the width is a parameter rather than one number for every modal</h2>
      *
      * <p>Because a roster and a quest's prose want different cards, and a single width makes one of them
@@ -611,14 +681,56 @@ public final class BookGeometry {
      * half a caller cannot know. A width larger than {@link #MAX_MODAL_WIDTH} is capped rather than
      * refused, so a caller asking for "as wide as you can" gets the cap and not an exception.
      *
+     * <h2>The width does not depend on the height, and a caller relies on it</h2>
+     *
+     * <p>{@code modalFramed(0, width).width() == modalFramed(anything, width).width()}, always. It reads
+     * as an incidental truth and it is a load-bearing one: a panel whose height comes from its own
+     * layout cannot know that height until it has built the layout, and it cannot build the layout
+     * without knowing how wide the card is. So it asks for the width first, with the height unknown, and
+     * that is only meaningful because the height is not an input to the width.
+     *
+     * <p>Stated here and asserted in {@code BookGeometryTest} rather than left to be noticed. A caller
+     * asking twice and getting two answers would place every row it drew against a card that is not the
+     * one on screen — which is the class of fault this whole file exists to prevent, arriving through a
+     * parameter that reads as harmless.
+     *
      * @param contentHeight   how much room the body needs, in pixels
      * @param preferredWidth  how wide the card would like to be
      */
-    public Rect modal(int contentHeight, int preferredWidth) {
+    public Rect modalFramed(int contentHeight, int preferredWidth) {
         Rect base = modal();
         int width = Math.max(MIN_MODAL_WIDTH, Math.min(base.width(), preferredWidth));
         int height = Math.max(MIN_MODAL_HEIGHT, Math.min(base.height(), contentHeight + MODAL_CHROME));
         return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
+    }
+
+    /**
+     * The region inside a card that its content may use: the card, inset, less the footer's row.
+     *
+     * <h2>Why this is here and the row height is not</h2>
+     *
+     * <p>Because "where inside this card may content go" is a framing question — this class's whole
+     * subject — and "where do row <i>n</i> of my list go" is not, since that depends on how many rows
+     * there are. So this answers the first and a {@code Stack} answers the second, and the two compose:
+     * a caller builds its layout at {@code modalBody(card).width()} and skips a row whose bottom is past
+     * {@code modalBody(card).height()}.
+     *
+     * <p>That is what replaced {@code bodyRows(card, count, top, bottom)}, which took a count and handed
+     * back rectangles. It had a fault that no test caught and no reading would find: its {@code top} and
+     * {@code bottom} arguments were the <i>caller's</i> idea of where the body starts and ends, so the
+     * card's height and the rows inside it came from two different sums — the exact fault this class
+     * exists to prevent, living inside the class. It has no callers now, and the panel it was written
+     * for sizes its card from its layout instead.
+     *
+     * <p>The footer's row is {@link #OVERLAY_CONTROL_HEIGHT}, not the footer's actual controls: this says
+     * how much room is <b>reserved</b> for them, and a caller that wanted to know where a specific button
+     * went asks {@link #modalControls} instead. Two questions, two methods, and neither re-derives the
+     * other's answer.
+     */
+    public static Rect modalBody(Rect card) {
+        int height = card.height() - MODAL_INSET * 2 - MODAL_FOOTER_GAP - OVERLAY_CONTROL_HEIGHT;
+        return Rect.at(card.x() + MODAL_INSET, card.y() + MODAL_INSET,
+                Math.max(0, card.width() - MODAL_INSET * 2), Math.max(0, height));
     }
 
     /**
@@ -693,7 +805,7 @@ public final class BookGeometry {
 
     /** The close button: a row-height square in the header, against the panel's right edge. */
     public Rect closeRect() {
-        return Rect.at(panel.right() - EDGE - ROW_HEIGHT,
+        return Rect.at(panel.right() - HEADER_CONTROL_INSET - ROW_HEIGHT,
                 panel.y() + (HEADER_HEIGHT - ROW_HEIGHT) / 2, ROW_HEIGHT, ROW_HEIGHT);
     }
 
@@ -743,53 +855,6 @@ public final class BookGeometry {
     public Rect viewControls() {
         return Rect.at(canvas.x() + EDGE - VIEW_MAT, canvas.y() + EDGE - VIEW_MAT,
                 VIEW_BUTTON + VIEW_MAT * 2, VIEW_COLUMN_HEIGHT + VIEW_MAT * 2);
-    }
-
-    /**
-     * The body rows of a modal card: one rectangle per row, top-down.
-     *
-     * <h2>Why this is here and not in the screen or the layout</h2>
-     *
-     * <p>Because "where do the rows go inside this card" is a framing question, which is this class's
-     * whole subject, and because how *many* rows there are is not -- that depends on how many players
-     * are online. So this takes a count and returns the rectangles, and both the drawing and the
-     * buttons read them, which is the property that keeps a row's label and the button beside it from
-     * coming from two computations.
-     *
-     * <p>Reused by the party panel's action list and by its member list, deliberately: a roster row and
-     * an action row are the same kind of thing at the same size, and two methods that agreed today is
-     * how they would come to disagree.
-     *
-     * <p>Returns no more rows than fit, so a list longer than the card is clipped rather than drawn
-     * through the footer -- the caller does not have to know how tall the card is.
-     *
-     * @param card  the card to lay them out in
-     * @param count how many rows were asked for
-     * @param top   where the body starts, measured from the card's top
-     * @param bottom where the body ends, measured from the card's bottom
-     */
-    public static java.util.List<Rect> bodyRows(Rect card, int count, int top, int bottom) {
-        java.util.List<Rect> out = new java.util.ArrayList<>();
-        if (count <= 0) {
-            return out;
-        }
-
-        int y = card.y() + top;
-        int limit = card.bottom() - bottom;
-        int width = Math.max(0, card.width() - EDGE * 4);
-
-        for (int i = 0; i < count; i++) {
-            int rowHeight = ROW_HEIGHT;
-            if (y + rowHeight > limit) {
-                // Out of room. Everything past this is dropped rather than squeezed, which is what makes
-                // a long player list a limit rather than a fault -- the same choice the roster's own
-                // overflow makes, and stated for the same reason.
-                break;
-            }
-            out.add(Rect.at(card.x() + EDGE * 2, y, width, rowHeight));
-            y += rowHeight + ROW_GAP;
-        }
-        return out;
     }
 
     /** The width available inside the sidebar, between its two edges. */
@@ -900,12 +965,15 @@ public final class BookGeometry {
     public Map<String, Rect> questFooter(Rect card, boolean hasSubmit) {
         Map<String, Rect> out = new LinkedHashMap<>();
         int height = OVERLAY_CONTROL_HEIGHT;
-        int rowY = card.bottom() - EDGE - height;
+        // The same inset as the body and the footer, and the same on both sides. See MODAL_INSET: this
+        // row used to be 8 from the bottom edge and 16 from the left, with Back a further half a
+        // control's height in from the right for no reason anybody could state.
+        int rowY = card.bottom() - MODAL_INSET - height;
 
-        Rect back = Rect.at(card.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
+        Rect back = Rect.at(card.right() - MODAL_INSET - BACK_WIDTH, rowY, BACK_WIDTH, height);
 
         if (hasSubmit) {
-            Rect submit = Rect.at(card.x() + EDGE + 8, rowY, SUBMIT_WIDTH, height);
+            Rect submit = Rect.at(card.x() + MODAL_INSET, rowY, SUBMIT_WIDTH, height);
             if (submit.intersects(back)) {
                 back = Rect.at(back.x(), rowY - height - ROW_GAP, BACK_WIDTH, height);
             }
@@ -956,11 +1024,13 @@ public final class BookGeometry {
     public Map<String, Rect> modalControls(Rect card, int actions, boolean hasBack) {
         Map<String, Rect> out = new LinkedHashMap<>();
         int height = OVERLAY_CONTROL_HEIGHT;
-        int rowY = card.bottom() - EDGE - height;
+        // The same equal inset as the quest footer and as the panel's own rows. See MODAL_INSET for the
+        // four numbers this replaced.
+        int rowY = card.bottom() - MODAL_INSET - height;
 
         Rect back = null;
         if (hasBack) {
-            back = Rect.at(card.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
+            back = Rect.at(card.right() - MODAL_INSET - BACK_WIDTH, rowY, BACK_WIDTH, height);
         }
 
         if (actions <= 0) {
@@ -970,7 +1040,7 @@ public final class BookGeometry {
             return out;
         }
 
-        Rect first = Rect.at(card.x() + EDGE * 2, rowY, PARTY_ACTION_WIDTH, height);
+        Rect first = Rect.at(card.x() + MODAL_INSET, rowY, PARTY_ACTION_WIDTH, height);
         out.put("leave", first);
         if (actions >= 2) {
             out.put("disband", Rect.at(first.right() + ROW_GAP, rowY, PARTY_ACTION_WIDTH, height));

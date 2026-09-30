@@ -20,7 +20,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static dev.ellipog.tasked.quest.Fixtures.q;
@@ -784,6 +786,42 @@ class QuestSyncTest {
 
         assertEquals(QuestState.UNLOCKED, ClientQuestCache.stateOf("punch_a_tree"));
         assertEquals(QuestState.LOCKED, ClientQuestCache.stateOf("make_a_table"));
+    }
+
+    @Test
+    @DisplayName("who is contributing arrives with the quest, and reaches the client's cache")
+    void contributionsArrive() {
+        // The whole of the feature's plumbing in one test: the engine's per-member picture, through the
+        // JSON the client is sent, into the cache the book draws from. Every part of it was already
+        // there except the picture, which the engine computed and threw away.
+        QuestIndex index = twoQuests();
+        TeamProgress progress = progressWith(index, "punch_a_tree",
+                QuestProgress.NONE.recordTask(0, 4));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+
+        UUID ellio = UUID.fromString("00000000-0000-0000-0000-00000000000a");
+        UUID friend = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+
+        // Ordered, as the engine hands it over: the client's delta compares JSON text, so a picture
+        // that came out in a different order for the same numbers would re-send the quest forever.
+        Map<UUID, Integer> picture = new LinkedHashMap<>();
+        picture.put(ellio, 4);
+        picture.put(friend, 2);
+
+        dev.ellipog.tasked.progress.ProgressService.Contributors contributors = (questId, taskIndex) ->
+                questId.equals("punch_a_tree") && taskIndex == 0 ? picture : Map.of();
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(resolution, progress, index, contributors), CLIENT_TICK);
+
+        Map<UUID, Integer> arrived = ClientQuestCache.contributorsOf("punch_a_tree", 0);
+        assertEquals(4, arrived.get(ellio),
+                "the member holding four logs has to arrive holding four");
+        assertEquals(2, arrived.get(friend), "and so does the one holding two");
+        assertEquals(4, ClientQuestCache.taskProgressOf("punch_a_tree", 0),
+                "and the party's own total is unchanged by any of this");
+        assertTrue(ClientQuestCache.contributorsOf("punch_a_tree", 1).isEmpty(),
+                "a task nobody is carrying anything toward names nobody");
     }
 
     @Test

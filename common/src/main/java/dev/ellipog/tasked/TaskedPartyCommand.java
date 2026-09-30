@@ -429,6 +429,11 @@ public final class TaskedPartyCommand {
         // best count it has seen.
         TaskedNetworking.sendProgressToTeam(server, player, ProgressSyncPayload.REASON_CHANGED);
 
+        // And the roster, because the mode travels on it and the party panel now draws it as a line of
+        // text. Without this a party watching the panel would keep reading the old rule until a member
+        // joined or left -- which is the shape of "the button did nothing" that the row answers.
+        TaskedNetworking.sendPartyToTeam(server, owner);
+
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.mode_set",
                 mode.get().id(), mode.get().description()), false);
         return 1;

@@ -78,9 +78,11 @@
     "tasked.screen.party.button": "Party",
     "tasked.screen.party.strip": "Party",
     "tasked.screen.party.none": "You are not in a party.",
+    "tasked.screen.party.hint": "Make one with the buttons below.",
     "tasked.screen.party.remove": "Remove",
     "tasked.screen.party.leave": "Leave",
     "tasked.screen.party.disband": "Disband",
+    "tasked.screen.party.confirm": "Confirm",
     "tasked.screen.party.back": "Back",
 
     "tasked.reward.xp.levels": "%s level(s)",

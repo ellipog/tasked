@@ -1007,20 +1007,37 @@ class QuestPlaythroughTest {
                 "and a refused mode writes nothing -- a typo must not leave a party counting by a rule "
                         + "nobody chose");
 
+        // A window, so the counts below are this command's and not the fixture's traffic.
+        server.callOnServerThread(() -> {
+            TaskedNetworking.forgetRosters();
+            return null;
+        });
+
         HeadlessServer.Outcome set = asOperator("/tasked party mode pooled");
         assertEquals(1, set.result(),
                 () -> "/tasked party mode pooled should have been accepted. It said:\n" + set.text());
         assertEquals(PartyMode.POOLED, modeOf(player), "and the store has it");
+
+        // The party is told, because the panel draws the rule as a line of text rather than as a button
+        // a player presses and watches. Without the push the row would keep reading the old rule until
+        // something else moved a member -- which is exactly how the cycling button read as doing
+        // nothing, one round ago.
+        assertEquals(1, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(player.getUUID())),
+                "setting the mode should have pushed the roster that carries it");
 
         // Setting it again is a no-op rather than a change, so it reports 0 -- the same convention
         // every other command here follows, where the return value is the assertion.
         HeadlessServer.Outcome same = asOperator("/tasked party mode pooled");
         assertRefused(same, "nothing changed, so nothing happened worth reporting");
         assertEquals(PartyMode.POOLED, modeOf(player), "and it is still set");
+        assertEquals(1, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(player.getUUID())),
+                "and a refusal is not news, so nothing was sent for it");
 
         HeadlessServer.Outcome back = asOperator("/tasked party mode one_member");
         assertEquals(1, back.result(), "an explicit return to the default is a change and reports one");
         assertEquals(PartyMode.ONE_MEMBER, modeOf(player));
+        assertEquals(2, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(player.getUUID())),
+                "and the second real change was pushed as well as the first");
 
         // Stored and greppable, which is the half a party's mode has to survive: a restart re-reads
         // this file, and a reader opening it should be able to see why a party counts as it does.
@@ -1190,6 +1207,119 @@ class QuestPlaythroughTest {
         note("the party's roster read back off the server with " + roundTripped.members().size()
                 + " member(s) and survived the packed form the client is sent -- the lookup that was "
                 + "returning nobody's-team for every real party now returns the party");
+    }
+
+    @Test
+    @Order(23)
+    @DisplayName("a disband names every member, and the roster it sends is what an open panel redraws from")
+    void aDisbandTellsEveryMemberTheyAreInNoParty() {
+        // **Driven by hand, for the same reason order 18 is**, and the limitation is the one stated
+        // there: Tasked's listeners on Armature's team events are registered from
+        // `Tasked.listenToTeams`, which hangs off SERVER_STARTED, and no loader fires that in a test
+        // JVM. So `disband` below fires one MEMBER_LEFT per member into no listener at all, and the
+        // push the listener's DISBANDED branch performs is exercised by calling the method it calls,
+        // once per member, with the arguments that branch passes.
+        //
+        // What that leaves unasserted is the subscription. What it pins is the thing that was wrong:
+        // the disband branch sent every member their progress and returned, so no client was ever told
+        // the party was gone. That was invisible while the party panel closed on every press, and it is
+        // a panel describing a party that does not exist now that the panel stays open -- see
+        // `TaskedNetworking.rostersSentTo`.
+        assertNotNull(commandPartyId, "orders 19-22 should have left a party of two to disband");
+
+        List<UUID> members = server.callOnServerThread(() -> Teams.of(server.server())
+                .byId(commandPartyId)
+                .map(team -> List.copyOf(team.memberIds()))
+                .orElse(List.of()));
+        assertEquals(2, members.size(),
+                "the party orders 19-21 built should have two members for a disband to be news to: "
+                        + members);
+
+        server.callOnServerThread(() -> {
+            TaskedNetworking.forgetRosters();
+            return null;
+        });
+
+        HeadlessServer.Outcome disbanded = asOperator("/tasked party disband");
+        assertEquals(1, disbanded.result(),
+                () -> "the owner should have been able to disband their own party:\n"
+                        + disbanded.text());
+        assertTrue(server.callOnServerThread(
+                        () -> Teams.of(server.server()).byId(commandPartyId).isEmpty()),
+                "and the party is gone, so \"you are in no party\" is the true thing to tell them");
+
+        for (UUID member : members) {
+            server.callOnServerThread(() -> {
+                TaskedNetworking.sendNoPartyTo(server.server(), member);
+                return null;
+            });
+        }
+
+        // One apiece rather than one per member: a disband arrives as one MEMBER_LEFT per member, each
+        // naming its own player, so each of them is the whole audience of their own event. A count of
+        // two for either would mean something walked the team instead.
+        for (UUID member : members) {
+            assertEquals(1, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(member)),
+                    () -> member + " was not told their party is gone. Their panel is open, so this "
+                            + "message is the only thing that can take it back to the empty state -- "
+                            + "the disband fault was progress being sent without it");
+        }
+
+        note("a disband's members were each told they are in no party -- the roster message an open "
+                + "panel redraws its empty state from");
+    }
+
+    @Test
+    @Order(24)
+    @DisplayName("a login is told about its party, and told when it has none")
+    void aLoginIsToldAboutItsParty() {
+        // **The regression test for a party a rejoin could not see.** The join push used to ask
+        // `ProgressService.progressOwner` which team to send -- a second lookup, where every other push
+        // in the mod passes a team id it already holds. A manager still reading its store answers that
+        // lookup with a synthesised solo team keyed by the *player's* id, `PartySnapshot.of` finds no
+        // such team, and `sendPartyToTeam` returns at its first line. The shape on screen was exact: a
+        // party every command knew about, and a panel showing the empty state on every login.
+        assertNotNull(commandPartyId, "order 19 should have created a party for this to recreate");
+
+        HeadlessServer.Outcome created = asOperator("/tasked party create the-login-party");
+        assertEquals(1, created.result(),
+                () -> "a party to log in to should have been created:\n" + created.text());
+
+        server.callOnServerThread(() -> {
+            TaskedNetworking.forgetRosters();
+            return null;
+        });
+
+        // The exact call the PLAYER_JOIN hook makes.
+        server.callOnServerThread(() -> {
+            TaskedNetworking.sendEverythingTo(player);
+            return null;
+        });
+
+        assertEquals(1, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(player.getUUID())),
+                "logging in with a party has to tell the client which one. Nothing else ever will --"
+                        + " the panel is built from that message, and until the next member joins or"
+                        + " leaves, the empty state is what it draws");
+
+        HeadlessServer.Outcome left = asOperator("/tasked party leave");
+        assertEquals(1, left.result(), () -> "and the party should be leavable:\n" + left.text());
+
+        server.callOnServerThread(() -> {
+            TaskedNetworking.forgetRosters();
+            return null;
+        });
+        server.callOnServerThread(() -> {
+            TaskedNetworking.sendEverythingTo(player);
+            return null;
+        });
+
+        assertEquals(1, server.callOnServerThread(() -> TaskedNetworking.rostersSentTo(player.getUUID())),
+                "and a login with no party is told that too. A client's cache holds whatever roster it"
+                        + " was last sent, so silence here is a panel describing a party from the"
+                        + " previous world -- which one client can see two of in a row");
+
+        note("a login with a party was sent its roster, and a login without one was told so -- the two"
+                + " halves of the join push, both silent while the panel was the only thing asking");
     }
 
     // ------------------------------------------------------------------

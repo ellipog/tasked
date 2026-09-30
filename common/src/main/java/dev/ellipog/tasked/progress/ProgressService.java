@@ -99,6 +99,31 @@ public final class ProgressService {
     private static final Map<UUID, Map<String, Long>> LAST_EVALUATED = new LinkedHashMap<>();
 
     /**
+     * Each member's own count toward a task, as of the last time that task was evaluated.
+     *
+     * <h2>Why the engine keeps this at all</h2>
+     *
+     * <p>Because it was already computing it and throwing it away. The loop below asks every member what
+     * they are holding toward a task, so that the party's mode can add the answers up — and the list it
+     * adds up was the only record of <i>who</i> was carrying what, discarded the moment the total was
+     * known. So "Ellio has four of the eight logs" was known to the server every second and told to
+     * nobody, which is why a quest book could say how much a party had collected and never who
+     * collected it.
+     *
+     * <p>Keyed the way {@code LAST_EVALUATED} is, and for the same reasons: by team, then by the
+     * task's {@code quest#index} key. Live numbers rather than stored progress — they go <b>down</b> as
+     * well as up, because they are inventories — so they are not saved and they are not part of
+     * {@code TeamProgress}.
+     *
+     * <p>A member's entry is present while they hold something, and a task's picture <b>outlives the
+     * task</b>: once a task is satisfied it is never evaluated again, so the last picture stands as the
+     * record of who did the work — which for a consuming task is the only record there could be, since
+     * the items are taken and every member's count falls to zero on the next tick.
+     */
+    private static final Map<UUID, Map<String, Map<UUID, Integer>>> CONTRIBUTIONS =
+            new LinkedHashMap<>();
+
+    /**
      * The server and tick the last full evaluation ran on.
      *
      * <p>Needed because the hook is a <i>player</i> tick: with four players online it fires four times
@@ -117,6 +142,40 @@ public final class ProgressService {
     // ------------------------------------------------------------------
 
     /** The team a player's progress belongs to. */
+    /** A task's key in the evaluator's maps: the quest, and the task's position in it. */
+    private static String keyOf(dev.ellipog.tasked.quest.Quest quest, int taskIndex) {
+        return keyOf(quest.id(), taskIndex);
+    }
+
+    /** The same key, from a quest's id, for a caller that has no {@code Quest} to hand. */
+    private static String keyOf(String questId, int taskIndex) {
+        return questId + "#" + taskIndex;
+    }
+
+    /**
+     * Who is holding what toward a task, as the progress sync asks it.
+     *
+     * <h2>Why a function rather than the map itself</h2>
+     *
+     * <p>Because the key a picture is filed under — {@code quest#index} — is this class's business, and a
+     * caller that built the same string for itself would be the second place that knows the format. So
+     * the sync asks a question in the terms it has ("who is contributing to task 3 of this quest") and
+     * the keying stays here.
+     */
+    @FunctionalInterface
+    public interface Contributors {
+        Map<UUID, Integer> of(String questId, int taskIndex);
+    }
+
+    /** The contributors of one team's tasks, captured when it is asked for. */
+    public static Contributors contributors(UUID owner) {
+        if (owner == null) {
+            return (questId, taskIndex) -> Map.of();
+        }
+        Map<String, Map<UUID, Integer>> mine = CONTRIBUTIONS.getOrDefault(owner, Map.of());
+        return (questId, taskIndex) -> mine.getOrDefault(keyOf(questId, taskIndex), Map.of());
+    }
+
     public static UUID progressOwner(MinecraftServer server, ServerPlayer player) {
         return Teams.teamOf(server, player.getUUID()).id();
     }
@@ -195,6 +254,9 @@ public final class ProgressService {
         // seems inconsistent at the very least". It is not inconsistent -- it is the second world.
         if (server != lastEvaluatedServer) {
             LAST_EVALUATED.clear();
+            // And the pictures, which are per-world in exactly the same way: a team id is stable across
+            // worlds, so a stale picture would be attributed to the new world's party.
+            CONTRIBUTIONS.clear();
         }
 
         lastEvaluatedServer = server;
@@ -282,6 +344,8 @@ public final class ProgressService {
         ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, working, now);
 
         Map<String, Long> lastEvaluated = LAST_EVALUATED.computeIfAbsent(owner, key -> new LinkedHashMap<>());
+        Map<String, Map<UUID, Integer>> contributions =
+                CONTRIBUTIONS.computeIfAbsent(owner, key -> new LinkedHashMap<>());
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
@@ -303,6 +367,13 @@ public final class ProgressService {
                 QuestTask task = quest.tasks().get(taskIndex);
 
                 if (ProgressionEngine.isTaskSatisfied(quest, taskIndex, questProgress)) {
+                    // Skipped, and that is all: the picture this task was last given <b>stays</b>.
+                    //
+                    // It is the only record anywhere of who did the work -- the counts themselves are
+                    // inventories and go to zero the moment a consuming task takes the items -- and the
+                    // evaluation that satisfied the task is the last one that saw them. So the map holds
+                    // "who did what" for a finished task and "who is doing what" for a live one, from
+                    // the same entry, with nothing to distinguish them because nothing needs to.
                     continue;
                 }
 
@@ -320,7 +391,7 @@ public final class ProgressService {
                     continue;
                 }
 
-                String key = quest.id() + "#" + taskIndex;
+                String key = keyOf(quest, taskIndex);
                 int interval = task.common().autoSubmitTicks();
 
                 // The scheduling decision, which belongs to `isDue` rather than to this loop. It is a
@@ -355,6 +426,31 @@ public final class ProgressService {
                 List<Integer> perMember = new ArrayList<>(members.size());
                 for (ServerPlayer member : members) {
                     perMember.add(behaviour.get().current(task, new TaskContext(member, index, now)));
+                }
+
+                // Kept, not just added up: this list is what the panel's rows name, and it used to be
+                // the tally's private business. See CONTRIBUTIONS.
+                Map<UUID, Integer> held = new LinkedHashMap<>();
+                for (int m = 0; m < members.size(); m++) {
+                    int heldByMember = perMember.get(m);
+                    if (heldByMember > 0) {
+                        held.put(members.get(m).getUUID(), heldByMember);
+                    }
+                }
+                // Handed over as it is rather than copied through an unordered map: the client's delta
+                // is built by comparing JSON *text*, so a picture whose members came out in a different
+                // order for the same numbers would read as a change on every tick and re-send the quest
+                // forever. It is freshly built here and never touched again, so there is nothing to
+                // defend against by copying.
+                Map<UUID, Integer> shown = held.isEmpty() ? null : held;
+                Map<UUID, Integer> was = shown == null
+                        ? contributions.remove(key)
+                        : contributions.put(key, shown);
+                // News even when the party's total did not move: somebody going from two logs to three,
+                // with eight already counted, changes nothing about the quest and everything about the
+                // row that names them.
+                if (!java.util.Objects.equals(was, shown)) {
+                    changed = true;
                 }
                 PartyMode.Tally tally = mode.combine(perMember, ownerIndex);
                 int current = tally.counted();

@@ -70,6 +70,14 @@ public final class QuestSync {
      */
     private static final Map<UUID, Sent> SENT = new HashMap<>();
 
+    /**
+     * Nobody is contributing to anything: the answer for a caller with no team behind it.
+     *
+     * <p>The full-progress form and the tests both use it, and it exists rather than a null so that
+     * {@code oneQuestAsJson} has one thing to call.
+     */
+    private static final ProgressService.Contributors NOBODY = (questId, taskIndex) -> Map.of();
+
     /** One player's last sent state: which team it was for, and the exact JSON sent per quest. */
     private record Sent(UUID teamId, Map<String, String> quests) {
     }
@@ -387,7 +395,21 @@ public final class QuestSync {
     public static byte[] progressAsJson(ProgressionEngine.Resolution resolution,
                                         TeamProgress progress,
                                         QuestIndex index) {
-        return progressDelta(resolution, progress, index, null).json();
+        return progressAsJson(resolution, progress, index, NOBODY);
+    }
+
+    /**
+     * The same, with the per-member pictures the engine keeps: who is holding what toward each task.
+     *
+     * <p>A separate form rather than a wider one because the pictures are not part of a quest's
+     * <i>state</i> -- they are live numbers that go down as well as up, and a caller that has no team
+     * behind it (a dump, a test) has none to give.
+     */
+    public static byte[] progressAsJson(ProgressionEngine.Resolution resolution,
+                                        TeamProgress progress,
+                                        QuestIndex index,
+                                        ProgressService.Contributors contributors) {
+        return progressDelta(resolution, progress, index, null, contributors).json();
     }
 
     /**
@@ -442,12 +464,21 @@ public final class QuestSync {
                                       TeamProgress progress,
                                       QuestIndex index,
                                       Map<String, String> previous) {
+        return progressDelta(resolution, progress, index, previous, NOBODY);
+    }
+
+    /** The same, with the per-member pictures. See {@link #progressAsJson} for why they are separate. */
+    public static Delta progressDelta(ProgressionEngine.Resolution resolution,
+                                      TeamProgress progress,
+                                      QuestIndex index,
+                                      Map<String, String> previous,
+                                      ProgressService.Contributors contributors) {
         JsonObject changed = new JsonObject();
         Map<String, String> snapshot = new LinkedHashMap<>();
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
-            String encoded = oneQuestAsJson(resolution, progress, quest);
+            String encoded = oneQuestAsJson(resolution, progress, quest, contributors);
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -493,7 +524,8 @@ public final class QuestSync {
      */
     private static String oneQuestAsJson(ProgressionEngine.Resolution resolution,
                                          TeamProgress progress,
-                                         Quest quest) {
+                                         Quest quest,
+                                         ProgressService.Contributors contributors) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
@@ -528,6 +560,30 @@ public final class QuestSync {
             tasks.add(stored.progressOf(i));
         }
         one.add("tasks", tasks);
+
+        // Who is holding what toward each task, by task position -- the "Ellio has four of the eight"
+        // line a quest book could never draw, because the engine added those parts up and threw them
+        // away. See `ProgressService.CONTRIBUTIONS`, including why a finished task still names its
+        // contributors: for a consuming task that picture is the only record of who did the work.
+        //
+        // Sparse in both directions: a task nobody is carrying anything toward is absent, and so is a
+        // member holding nothing. A party's whole picture is a few small numbers, and a player who is
+        // alone has none of it until they pick something up.
+        JsonObject who = new JsonObject();
+        for (int i = 0; i < quest.tasks().size(); i++) {
+            Map<UUID, Integer> picture = contributors.of(quest.id(), i);
+            if (picture.isEmpty()) {
+                continue;
+            }
+            JsonObject holders = new JsonObject();
+            for (Map.Entry<UUID, Integer> each : picture.entrySet()) {
+                holders.addProperty(each.getKey().toString(), each.getValue());
+            }
+            who.add(String.valueOf(i), holders);
+        }
+        if (!who.isEmpty()) {
+            one.add("who", who);
+        }
 
         return one.toString();
     }
@@ -609,7 +665,8 @@ public final class QuestSync {
         TeamProgress progress = ProgressService.progressFor(server, owner);
         ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, gameTime);
 
-        Delta delta = progressDelta(resolution, progress, index, full ? null : last.quests());
+        Delta delta = progressDelta(resolution, progress, index, full ? null : last.quests(),
+                ProgressService.contributors(owner));
         SENT.put(player.getUUID(), new Sent(owner, delta.snapshot()));
 
         // Counted here rather than at the `send` calls below. One logical message can be several

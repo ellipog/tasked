@@ -543,7 +543,10 @@ class SyncWiringTest {
         String packed = new PartySnapshot(party, "the crew", self,
                 List.of(new PartySnapshot.Member(self, "TaskedTester", TeamRole.OWNER),
                         new PartySnapshot.Member(friend, "SomebodyElse", TeamRole.MEMBER)),
-                List.of(), List.of("TaskedTester", "SomebodyElse"), "pooled").pack();
+                List.of(), List.of("TaskedTester", "SomebodyElse"), "pooled",
+                // Both of them connected, which is what a client's marker is drawn from now: the
+                // presence travels as its own lines, by id, rather than being guessed at by name.
+                List.of(self, friend)).pack();
 
         long before = ClientPartyCache.rosterRevision();
 

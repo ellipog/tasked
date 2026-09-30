@@ -16,7 +16,10 @@ import net.minecraft.server.level.ServerPlayer;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -53,7 +56,38 @@ public final class TaskedNetworking {
     private static final SyncWire.Reassembler TREE = new SyncWire.Reassembler();
     private static final SyncWire.Reassembler PROGRESS = new SyncWire.Reassembler();
 
+    /**
+     * Every roster message sent, by the player it went to.
+     *
+     * <h2>Why a tally lives in production code</h2>
+     *
+     * <p>{@code QuestSync} keeps the same kind of count for the same reason, and its note applies here
+     * word for word: the playthrough drives a real server and has no client, so the client's cache --
+     * the thing a panel actually draws from -- cannot be read from a test. What <i>is</i> observable is
+     * the message leaving this class, and that is the half a wrong listener gets wrong.
+     *
+     * <p>It is worth counting because a fault of exactly that shape was found here: the disband path
+     * sent every member their progress and no roster, which was invisible while the panel closed on
+     * every press and is a panel left reading a party that no longer exists now that it stays open.
+     * This is what lets a test say "both members were told" rather than "the code that should have told
+     * them was written".
+     *
+     * <p>A plain {@code HashMap}, written from the server thread and read through
+     * {@code callOnServerThread} -- {@code QuestSync}'s arrangement, and its reasoning.
+     */
+    private static final Map<UUID, Integer> ROSTERS_SENT = new HashMap<>();
+
     private TaskedNetworking() {
+    }
+
+    /** How many roster messages one player has been sent. Diagnostics, as {@code QuestSync}'s are. */
+    public static int rostersSentTo(UUID player) {
+        return ROSTERS_SENT.getOrDefault(player, 0);
+    }
+
+    /** Forgets the roster counts, so a caller can measure a window rather than a session. */
+    public static void forgetRosters() {
+        ROSTERS_SENT.clear();
     }
 
     /** How many payloads were declared. For a log line that says the wiring happened. */
@@ -302,10 +336,9 @@ public final class TaskedNetworking {
         }
         QuestSync.sendEverythingTo(player, server);
         // And their party's roster, which is the third thing a client has no way to know and needs
-        // before it can draw a panel. Without it a player who is already in a party when they log in
-        // sees the empty state until somebody joins or leaves, which is indistinguishable from having
-        // been removed from their party.
-        sendPartyToTeam(server, ProgressService.progressOwner(server, player));
+        // before it can draw a panel. Sent through the player object rather than looked up by id --
+        // see `sendOwnRosterTo` for the whole of that fault.
+        sendOwnRosterTo(player);
     }
 
     /** Pushes the tree to every connected player, then their progress. Called after a reload. */
@@ -459,7 +492,10 @@ public final class TaskedNetworking {
      */
     private static void handlePartySync(PartySyncPayload payload) {
         ClientPartyCache.accept(payload.packed());
-        Constants.LOG.debug("tasked: party roster received ({} member(s))",
+        // Info rather than debug, paired with the sender's line: "the server sent it" and "the client
+        // took it" are two claims, and a panel that shows the wrong party is almost always one of them
+        // being false while the other looks fine.
+        Constants.LOG.info("tasked: roster received ({} member(s))",
                 ClientPartyCache.memberCount());
     }
 
@@ -522,9 +558,93 @@ public final class TaskedNetworking {
     public static void sendRosterTo(MinecraftServer server, UUID playerId, PartySnapshot snapshot) {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         if (player == null) {
+            // Debug rather than info, and it is the one silent exit left in this path: a member who has
+            // disconnected between a change and the push. The *expected* null -- the joining player,
+            // who is not in the list yet -- no longer comes through here at all. See `sendOwnRosterTo`.
+            Constants.LOG.debug("tasked: no player {} to send a roster to", playerId);
             return;
         }
+        sendRoster(player, snapshot);
+    }
+
+    /**
+     * A roster, to one player, through the player object rather than through a lookup.
+     *
+     * <h2>Why a message's recipient must not be found by id</h2>
+     *
+     * <p>Because at {@code PLAYER_JOIN} the lookup has not been populated yet: the event fires while the
+     * connection is still being accepted, and {@code getPlayerList().getPlayer(uuid)} answers null for
+     * the player who is joining. Every other push in this class can afford that -- a party change
+     * happens long after everybody is listed -- and the join push cannot, because its whole audience is
+     * the one player who is not in the list yet. Which is exactly what a party did: the tree and the
+     * progress arrived on a login, because they are sent through the {@code ServerPlayer} the event
+     * hands over, and the roster -- the only message that looked its own recipient up -- was dropped
+     * without a word, on every login, with every command still insisting the party existed.
+     */
+    private static void sendRoster(ServerPlayer player, PartySnapshot snapshot) {
+        ROSTERS_SENT.merge(player.getUUID(), 1, Integer::sum);
+        // Logged at info rather than debug, and one line per message: a party's messages are a handful
+        // per session, and "was the client told" is the question every fault in this area has turned
+        // on. Both halves of it are logged -- see `handlePartySync` for the receiving side.
+        Constants.LOG.info("Tasked: roster -> {} ({} member(s))",
+                player.getScoreboardName(), snapshot.members().size());
         send(player, new PartySyncPayload(snapshot.teamId(), snapshot.pack()));
+    }
+
+    /**
+     * Every party's roster, to its members: for a change that is not about any one party.
+     *
+     * <h2>Why a player joining the server moves a panel they are not in</h2>
+     *
+     * <p>Because a party's panel lists the players who are <b>not</b> in it — an Invite row each — and
+     * marks which members are online. Both of those are facts about the server rather than about the
+     * party, so somebody logging in or out changes every open panel on it, and no team event fires to
+     * say so: TEAM_CREATED, MEMBER_JOINED and MEMBER_LEFT are all about membership.
+     *
+     * <p>The cost is one message per member per party, on an event that happens when somebody joins or
+     * leaves the server. That is worth naming rather than leaving to be discovered: on a large server it
+     * is a push per party per arrival, and the alternative is a panel whose Invite list is as stale as
+     * the server is busy.
+     */
+    public static void sendRostersToAllParties(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        for (Team team : dev.ellipog.armature.api.teams.Teams.of(server).teams()) {
+            // Skips itself for a team that is gone or has nobody in it, which is what makes this safe
+            // to call for every team the source knows about.
+            sendPartyToTeam(server, team.id());
+        }
+    }
+
+    /**
+     * The roster of the player who is logging in, sent to them.
+     *
+     * <h2>Why this exists beside {@code sendEverythingTo}'s other half</h2>
+     *
+     * <p>Because the login is the one moment a player is not in the player list, so it is the one push
+     * that has to carry its own recipient. See {@link #sendRoster} for the fault that made that
+     * concrete: a party that no login could see, while every command and every event knew about it.
+     *
+     * <p>The caller is the join hook, so the player is by definition not in a team of one: this asks
+     * the team source, and a player with no party is <b>told</b> they have none rather than left in
+     * silence. That matters across a relog in a single client -- one client can open two worlds, and a
+     * cache that is never told otherwise describes the previous world's party.
+     */
+    public static void sendOwnRosterTo(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        Optional<Team> mine = dev.ellipog.armature.api.teams.Teams.of(server).realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            sendRoster(player, PartySnapshot.none());
+            return;
+        }
+        UUID teamId = mine.get().id();
+        sendRoster(player, PartySnapshot.of(server, teamId)
+                .withArriving(server, player, id -> invitesFor(server, id))
+                .withMode(dev.ellipog.tasked.party.PartyStore.of(server).modeOf(teamId).id()));
     }
 
     /**
