@@ -119,6 +119,12 @@ public final class BookGeometry {
     /** Between two stacked controls. */
     public static final int ROW_GAP = 4;
 
+    /** The `[Edit]` half of the author's split control: a word, so wider than a square. */
+    public static final int EDIT_BUTTON_WIDTH = 44;
+
+    /** The `[gear]` half: square, the height of a control. */
+    public static final int TOOLS_BUTTON_SIZE = ROW_HEIGHT;
+
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
 
@@ -847,6 +853,29 @@ public final class BookGeometry {
     }
 
     /**
+     * The author's split control: `[Edit]` toggles edit mode, and the square `⚙` opens the tools panel.
+     *
+     * <h2>Why one unit rather than two buttons</h2>
+     *
+     * <p>Because they are one thing -- "the author's controls" -- and both are drawn only for a player who
+     * may edit the questline, which is the same permission `/tasked reload` asks for. Placed left of the
+     * party button, so the header reads: `[Edit] [gear] [Party] [Close]`.
+     *
+     * <p>The square half is the height of a control, so the two read as a unit rather than as a wide
+     * button and an accident.
+     */
+    public Rect toolsButton() {
+        return Rect.at(partyButton().x() - ROW_GAP - TOOLS_BUTTON_SIZE, partyButton().y(),
+                TOOLS_BUTTON_SIZE, ROW_HEIGHT);
+    }
+
+    /** The `[Edit]` half. Wider: it carries a word. */
+    public Rect editButton() {
+        return Rect.at(toolsButton().x() - ROW_GAP - EDIT_BUTTON_WIDTH, toolsButton().y(),
+                EDIT_BUTTON_WIDTH, ROW_HEIGHT);
+    }
+
+    /**
      * The backing panel behind the three view buttons.
      *
      * <p>Three pixels larger than the buttons on every side, and it is what makes them read as one
@@ -909,6 +938,12 @@ public final class BookGeometry {
         // for the reason every other entry is: the overlap sweep walks this, so a control that is not
         // in it is a control nothing checks against the ones that are.
         out.put("party", partyButton());
+
+        // The author's split control, left of the party button. Always in the map and drawn only for a
+        // player who may edit: geometry is what the overlap sweep checks, and a control that appeared in
+        // the map only sometimes would be a control the sweep tests in one build and not the next.
+        out.put("edit", editButton());
+        out.put("tools", toolsButton());
 
         // The theme and motion controls are deliberately absent, and their absence is a decision worth
         // recording because the geometry for them existed and worked.

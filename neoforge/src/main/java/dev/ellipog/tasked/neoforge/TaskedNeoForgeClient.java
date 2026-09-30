@@ -12,7 +12,6 @@ import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.QuestBookScreen;
-import dev.ellipog.tasked.client.dev.DevScreen;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -52,16 +51,7 @@ public final class TaskedNeoForgeClient {
                 "key.categories.tasked",
                 () -> ArmatureClient.openScreen(Tasked.QUEST_BOOK_SCREEN));
 
-        // And the developer screen, registered and keyed unconditionally -- see the Fabric side's
-        // comment for why a screen behind the mode it turns on could not work.
-        ArmatureScreens.register(Tasked.DEV_SCREEN, DevScreen::new);
-
-        ArmatureClient.registerKeyMapping(
-                Tasked.DEV_SCREEN,
-                InputConstants.KEY_F9,
-                "key.categories.tasked",
-                () -> ArmatureClient.openScreen(Tasked.DEV_SCREEN));
-
+        // No developer screen and no F9: the tools are a panel in the book, reached from its header.
         DevMode.loadFromConfig();
 
         // The game bus: ticking a running client is not a startup concern.

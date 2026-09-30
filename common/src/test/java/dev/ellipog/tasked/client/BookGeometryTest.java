@@ -361,8 +361,8 @@ class BookGeometryTest {
         }
 
         /** The sidebar's fixed chrome: controls in the column that are not chapter rows. */
-        /** The header's controls: Close, and the party button beside it. */
-        private static final Set<String> HEADER_CONTROLS = Set.of("close", "party");
+        /** The header's controls: Close, the party button, and the author's [Edit] [gear] pair. */
+        private static final Set<String> HEADER_CONTROLS = Set.of("close", "party", "edit", "tools");
 
         /** The view cluster, top-left on the graph. The only things that sit on the canvas. */
         private static final Set<String> CANVAS_CONTROLS = Set.of("zoomIn", "zoomOut", "centre");
@@ -797,7 +797,7 @@ class BookGeometryTest {
         // of close and are gone; the two appearance rows were between close and the cluster and are gone
         // -- see the note in that method for why each went, and `BookGeometry.MIN_PANEL_HEIGHT` for what
         // their absence did to the sidebar's term.
-        assertEquals(List.of("close", "party", "zoomIn", "zoomOut", "centre"),
+        assertEquals(List.of("close", "party", "edit", "tools", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

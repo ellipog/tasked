@@ -3,7 +3,6 @@
 
     "key.categories.tasked": "Tasked",
     "key.tasked.quest_book": "Open Quest Book",
-    "key.tasked.dev": "Developer Screen",
 
     "tasked.command.version": "Tasked %s, on Armature %s",
     "tasked.command.echo": "Tasked echo %s",

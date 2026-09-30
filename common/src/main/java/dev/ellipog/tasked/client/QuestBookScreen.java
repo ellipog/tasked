@@ -13,12 +13,15 @@ import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Hover;
 import dev.ellipog.armature.client.ui.kit.Layout;
+import dev.ellipog.armature.client.ui.Themes;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.ScrollView;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
+import dev.ellipog.tasked.client.dev.ToolsLayout;
+import dev.ellipog.tasked.client.dev.ToolsPanel;
 import dev.ellipog.tasked.client.editor.EditorSession;
 import dev.ellipog.tasked.client.editor.QuestEditor;
 import dev.ellipog.tasked.net.PartySnapshot;
@@ -514,6 +517,34 @@ public final class QuestBookScreen extends ArmatureScreen {
      * another chapter must not throw it away.
      */
     private EditorSession editors;
+
+    /** Whether the tools panel is open. See {@link #buildToolsWidgets} and {@link #drawTools}. */
+    private boolean toolsOpen;
+
+    /** The colour the band is editing, or null. */
+    private String toolsSelected;
+
+    /** The panel's own one-line status, and whether it is bad news. */
+    private String toolsFeedback;
+    private boolean toolsFeedbackIsError;
+
+    /** Which of the panel's two sections are unfolded. Both start open: a folded section is one the
+     *  author cannot see is there. */
+    private boolean toolsThemesOpen = true;
+    private boolean toolsColoursOpen = true;
+
+    /** The panel's list: its rows are widgets, so they move when it scrolls. */
+    private final dev.ellipog.armature.client.ui.kit.ScrollView toolsView =
+            dev.ellipog.armature.client.ui.kit.ScrollView.of(
+                    dev.ellipog.armature.client.ui.kit.Viewport.fixed());
+
+    private ToolsLayout.Frame toolsFrame;
+    private Layout toolsLayout;
+    private List<ToolsLayout.Action> toolsRows = List.of();
+
+    /** The panel's own controls, so the chrome layer can draw them: the header's pair. */
+    private ArmatureButton editButton;
+    private ArmatureButton toolsButton;
 
     /** The node being dragged on the canvas, if developer mode is on and the press landed on one. */
     private String draggedNode;
@@ -1379,6 +1410,186 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * The tools panel's controls: its switches, its rows, its channel steppers and its two actions.
+     *
+     * <h2>What is a widget and what is drawn</h2>
+     *
+     * <p>A row is a widget when pressing it does something -- a theme, a colour, a fold. The colour a row
+     * *shows* is drawn by {@link ToolsPanel}, because a swatch is a rectangle and no widget draws those;
+     * the rows are flat, so the two do not fight over the same pixels. That is the same split the
+     * developer screen learned the hard way, one screen earlier.
+     *
+     * <p>The panel's geometry is {@link ToolsLayout}'s, and the widgets are placed from its layout by the
+     * scroll view -- so a row added there appears here, and the two cannot disagree about where a row is.
+     */
+    private void buildToolsWidgets() {
+        toolsFrame = ToolsLayout.frame(geometry().canvas());
+        toolsRows = ToolsLayout.rows(DevMode.on(), Appearance.motion(),
+                Themes.everything().stream().map(theme -> theme.displayName()).toList(),
+                Appearance.main().displayName(), toolsThemesOpen, toolsColoursOpen);
+        toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
+
+        toolsView.clear();
+        toolsView.viewport().bounds(toolsFrame.list().x(), toolsFrame.list().y(),
+                toolsFrame.list().width(), toolsFrame.list().height());
+
+        for (ToolsLayout.Action row : toolsRows) {
+            if (row.hasButton()) {
+                ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.buttonLabel()),
+                        () -> pressToolsSwitch(row.key()));
+                toolsView.put(row.key(), button, ToolsLayout::strip);
+            }
+            else if (row.isControl()) {
+                ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
+                        () -> pressToolsRow(row.key()));
+                button.alignLeft(true).flat(true);
+                toolsView.put(row.key(), button);
+            }
+            else if (row.key().equals(ToolsLayout.THEME_SECTION)
+                    || row.key().equals(ToolsLayout.COLOUR_SECTION)) {
+                // A section's heading is the only heading that is pressable: it folds. A group's name
+                // inside the colours is drawn and does nothing, because a row that selects nothing is a
+                // row that lies.
+                ArmatureButton button = control(0, 0, 0, 0, Component.literal(""), () -> fold(row.key()));
+                button.flat(true);
+                toolsView.put(row.key(), button);
+            }
+        }
+
+        Map<String, dev.ellipog.armature.client.ui.kit.Slot> beats = ToolsLayout.beats(toolsFrame.channels());
+        for (String channel : ToolsLayout.CHANNELS) {
+            for (String way : List.of("down", "up")) {
+                var slot = beats.get(way + ":" + channel);
+                int step = way.equals("down") ? -8 : 8;
+                ArmatureButton button = control(slot.x(), slot.y(), slot.width(), slot.height(),
+                        Component.literal(way.equals("down") ? "\u25c2" : "\u25b8"),
+                        () -> nudgeChannel(channel, step));
+                button.textColour(ArmatureTheme.body());
+            }
+        }
+
+        control(ToolsLayout.revert(toolsFrame.actions()),
+                Component.translatable("tasked.dev.reset"), this::revertColour);
+        control(ToolsLayout.save(toolsFrame.actions()),
+                Component.translatable("tasked.dev.save"), this::saveTheme);
+
+        toolsView.apply(toolsLayout, toolsFrame.list().width());
+    }
+
+    /** One of the two switches. */
+    private void pressToolsSwitch(String key) {
+        if (key.equals(ToolsLayout.EDIT)) {
+            setEditing(!DevMode.on());
+        }
+        else if (key.equals(ToolsLayout.MOTION)) {
+            Appearance.setMotion(!Appearance.motion());
+            status(Appearance.motion() ? "Motion on" : "Motion off", false);
+            rebuildWidgets();
+        }
+    }
+
+    /** A theme row, or a colour row. */
+    private void pressToolsRow(String key) {
+        String theme = ToolsLayout.themeName(key);
+        if (theme != null) {
+            // The row carries the *display* name and the lookup key is the id, so the row can read
+            // "High contrast" while `setTheme` gets "high_contrast". The two are distinct across the
+            // catalogue -- asserted in Armature, which is what makes a lookup by label safe rather than
+            // merely convenient.
+            for (var candidate : Themes.everything()) {
+                if (candidate.displayName().equals(theme) && Appearance.setTheme(candidate.name())) {
+                    status("Theme: " + candidate.displayName(), false);
+                    break;
+                }
+            }
+            rebuildWidgets();
+            return;
+        }
+        String token = ToolsLayout.tokenId(key);
+        if (token != null) {
+            toolsSelected = token.equals(toolsSelected) ? null : token;
+            rebuildWidgets();
+        }
+    }
+
+    /** A section's heading: folds or unfolds it. */
+    private void fold(String key) {
+        if (key.equals(ToolsLayout.THEME_SECTION)) {
+            toolsThemesOpen = !toolsThemesOpen;
+        }
+        else {
+            toolsColoursOpen = !toolsColoursOpen;
+        }
+        rebuildWidgets();
+    }
+
+    /** One channel stepper: eight steps of one channel of the selected colour. */
+    private void nudgeChannel(String channel, int step) {
+        String token = toolsSelected;
+        if (token == null) {
+            return;
+        }
+        int argb = Appearance.main().colour(token);
+        int shift = switch (channel) {
+            case "R" -> 16;
+            case "G" -> 8;
+            case "B" -> 0;
+            default -> 24;
+        };
+        int value = net.minecraft.util.Mth.clamp(((argb >>> shift) & 0xFF) + step, 0, 255);
+        Appearance.setCustom(token, (argb & ~(0xFF << shift)) | (value << shift));
+        rebuildWidgets();
+    }
+
+    /** Undoes the edits to the selected colour alone. */
+    private void revertColour() {
+        if (toolsSelected == null) {
+            status("Press a colour first", true);
+            rebuildWidgets();
+            return;
+        }
+        Appearance.clearCustom(toolsSelected);
+        status("Reverted " + labelOfToken(toolsSelected), false);
+        rebuildWidgets();
+    }
+
+    /**
+     * Writes the edits out as a theme and switches to it.
+     *
+     * <p>No name is passed: {@code saveAsTheme} derives one from the theme being edited, which is why a
+     * save never has to be refused for want of a text field -- and the button's tooltip names the file
+     * before it is written.
+     */
+    private void saveTheme() {
+        String saved = Appearance.saveAsTheme(null);
+        status(saved == null ? "The theme could not be written - see the log" : "Saved as " + saved,
+                saved == null);
+        rebuildWidgets();
+    }
+
+    private static String labelOfToken(String token) {
+        var found = dev.ellipog.armature.client.ui.ThemeToken.byId(token);
+        return found == null ? token : found.label();
+    }
+
+    /** The panel's status line, and the chat, because a panel can be covered by the inventory. */
+    private void status(String message, boolean error) {
+        toolsFeedback = message;
+        toolsFeedbackIsError = error;
+        if (error) {
+            say("\u00a7c" + message);
+        }
+    }
+
+    /** Where the pointer is, relative to the panel. Null when the panel is shut. */
+    private boolean inTools(double mouseX, double mouseY) {
+        if (!toolsOpen || toolsFrame == null) {
+            return false;
+        }
+        return toolsFrame.panel().contains(mouseX, mouseY);
+    }
+
+        /**
      * Disband, which takes two presses. See {@link #disbandArmed} for why it is the only one that asks.
      *
      * <p>The label is changed on the control rather than by rebuilding the panel, and that is not a
@@ -1637,6 +1848,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
 
+        if (toolsOpen) {
+            buildToolsWidgets();
+        }
+
         // Every rectangle below comes from BookGeometry's control map, which is what BookGeometryTest
         // asserts on. That sharing is the whole point: the test cannot see the screen, so the screen
         // has to build itself from the thing the test can see. The previous version created controls
@@ -1783,6 +1998,54 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (partyButton != null) {
             partyButton.textColour(ArmatureTheme.body());
         }
+
+        // The author's split control, and it exists only for a player who may edit the questline -- the
+        // same permission `/tasked reload` asks for, which is what makes "who may edit" one rule rather
+        // than two. A player who is not an operator sees the book exactly as it was: two controls in the
+        // header and nothing else, which is the point of gating it here rather than greying it out.
+        editButton = null;
+        toolsButton = null;
+        if (mayEdit()) {
+            editButton = control(controls.get("edit"),
+                    Component.literal("Edit"), () -> setEditing(!DevMode.on()));
+            if (editButton != null) {
+                editButton.textColour(ArmatureTheme.body())
+                        .selected(DevMode.on())
+                        .tooltip(List.of(Component.literal("Edit this questline"),
+                                Component.literal("Drag nodes, create, duplicate, delete"),
+                                Component.literal("Ctrl+S saves, Ctrl+Z undoes")));
+            }
+
+            toolsButton = control(controls.get("tools"),
+                    Component.literal("\u2699"), () -> {
+                        toolsOpen = !toolsOpen;
+                        rebuildWidgets();
+                    });
+            if (toolsButton != null) {
+                toolsButton.textColour(ArmatureTheme.body())
+                        .selected(toolsOpen)
+                        .tooltip(List.of(Component.literal("Tools"),
+                                Component.literal("Theme, colours and the preview")));
+            }
+        }
+    }
+
+    /**
+     * Whether this player may edit the questline.
+     *
+     * <p>Permission level two: the level `/tasked reload` declares, read here through the player rather
+     * than through a command source. The two cannot drift because there is one number and this comment
+     * names it -- and the day the rule changes, the command is where it should change.
+     */
+    private boolean mayEdit() {
+        return minecraft != null && minecraft.player != null && minecraft.player.hasPermissions(2);
+    }
+
+    /** Edit mode on or off, with the header control and the panel following. */
+    private void setEditing(boolean on) {
+        DevMode.setOn(on);
+        report(on ? "Edit mode on" : "Edit mode off");
+        rebuildWidgets();
     }
 
     /**
@@ -2153,6 +2416,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             if (partyButton != null) {
                 partyButton.hoverTold(partyButton.isMouseOver(mouseX, mouseY)).draw(renderer);
             }
+            if (editButton != null) {
+                // The author's split control. Drawn here for the same reason Close and Party are: the
+                // widget pass is clipped to the band below the header, so a control in the header that
+                // relied on it would never be drawn.
+                editButton.hoverTold(editButton.isMouseOver(mouseX, mouseY)).draw(renderer);
+            }
+            if (toolsButton != null) {
+                toolsButton.hoverTold(toolsButton.isMouseOver(mouseX, mouseY)).draw(renderer);
+            }
             if (overlay != Overlay.NONE) {
                 // A modal softens what is behind it, and this is the moment that does it: everything
                 // behind the card is drawn by now -- the book, its scrim, and the widget pass above,
@@ -2290,6 +2562,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (overlay != Overlay.NONE) {
             renderer.fill(0, 0, width, height, ArmatureTheme.dim());
         }
+
+        // The tools panel: over the book, under its own controls, and shut while a modal is open --
+        // two things in front is one too many, and the panel keeps its state either way.
+        drawTools(renderer, mouseX, mouseY);
 
         // The overlay is NOT drawn here any more. It is chrome, and chrome is drawn by
         // `render`, in the raised-Z layer, after the widget pass -- see `drawModal`. Two things
@@ -2483,6 +2759,27 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         rowLabel(r, screenSlot(body, slot), text, colour);
+    }
+
+    /**
+     * The tools panel, over the canvas.
+     *
+     * <p>Drawn after the book and before the widget pass, which is the only order that works: the panel's
+     * own fills and text are {@link ToolsPanel}'s, and its controls are widgets the base class draws
+     * afterwards -- the same split every panel here has.
+     *
+     * <p>Shut while a modal is open. The panel and a card are both "the thing in front", and two of them
+     * at once is a stack nobody asked for; the panel keeps its state, so closing the card brings it back
+     * exactly as it was.
+     */
+    private void drawTools(GuiRenderer r, int mouseX, int mouseY) {
+        if (!toolsOpen || overlay != Overlay.NONE || toolsFrame == null || toolsLayout == null) {
+            return;
+        }
+        ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
+                new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
+                        Appearance.main().displayName()),
+                mouseX, mouseY);
     }
 
     private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
@@ -3763,6 +4060,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         // A press anywhere on the track jumps the thumb to the pointer and then drags from there, which
         // is what every list on every platform does. `beginThumbDrag` before `dragThumbTo` matters:
         // without the first, the second returns immediately because no drag is in progress.
+        // The panel first, and it swallows everything inside its own rectangle: a press on the panel is
+        // never a press on the canvas, or choosing a colour would pan the graph underneath it.
+        if (inTools(mouseX, mouseY)) {
+            if (toolsView.scrollbarHit(mouseX, mouseY)) {
+                toolsView.beginThumbDrag(mouseY);
+                toolsView.dragThumbTo(mouseY);
+            }
+            return true;
+        }
+
         if (overlay == Overlay.NONE && sidebarView.scrollbarHit(mouseX, mouseY)) {
             sidebarView.beginThumbDrag(mouseY);
             sidebarView.dragThumbTo(mouseY);
@@ -3826,6 +4133,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The scrollbar's drag, before the canvas pan and before the widgets. It has to be first
         // because a drag that started on the bar must stay on the bar: the pan would otherwise take
         // the movement, and the canvas would slide sideways while the pointer was over a scrollbar.
+        if (toolsView.draggingThumb()) {
+            toolsView.dragThumbTo(mouseY);
+            return true;
+        }
+
         if (sidebarView.draggingThumb() || partyView.draggingThumb()) {
             if (sidebarView.draggingThumb()) {
                 sidebarView.dragThumbTo(mouseY);
@@ -3868,7 +4180,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         // pointer is still over the bar". Letting go outside the bar is how a drag ends in every
         // program ever written, and releasing on the last position the bar saw is what makes the end
         // of a drag land where the pointer was when it was let go.
-        if (sidebarView.endThumbDrag() || partyView.endThumbDrag()) {
+        if (sidebarView.endThumbDrag() || partyView.endThumbDrag() || toolsView.endThumbDrag()) {
             return true;
         }
 
@@ -3923,6 +4235,13 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        // Over the panel, the wheel scrolls it -- and does not zoom the canvas behind it, for the same
+        // reason a press on it does not pan: it is a surface, not a hole.
+        if (inTools(mouseX, mouseY)) {
+            toolsView.scrollBy(-(int) (scrollY * 30));
+            return true;
+        }
+
         if (overlay == Overlay.PARTY) {
             // Scrolls the panel, and absorbs the wheel whether or not there is anywhere to go: this
             // method used to test only for QUEST, so the wheel went on scrolling the sidebar and zooming
