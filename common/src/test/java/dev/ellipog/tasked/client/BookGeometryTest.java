@@ -348,7 +348,7 @@ class BookGeometryTest {
          * test worthless. A control that moves surface should fail here.
          */
         private static Rect surfaceFor(BookGeometry geometry, String key) {
-            if (key.startsWith("chapter")) {
+            if (key.startsWith("chapter") || SIDEBAR_CONTROLS.contains(key)) {
                 return geometry.sidebar();
             }
             if (HEADER_CONTROLS.contains(key)) {
@@ -360,12 +360,25 @@ class BookGeometryTest {
             return null;
         }
 
-        // There was a SIDEBAR_CONTROLS set here holding `theme` and `motion`, and its removal is worth a
-        // line because the list was doing real work. It named the two appearance rows, which were
-        // controls on the sidebar that were not chapters -- so `key.startsWith("chapter")` was not enough
-        // to place them, and this test would have refused to check them at all without that set. With
-        // both rows gone, every sidebar control *is* a chapter row again, and the remaining two sets are
-        // a control each.
+        // There was a SIDEBAR_CONTROLS set here holding `theme` and `motion`, it was removed, and it is
+        // back. That is worth recording rather than quietly reverting, because the note that removed it
+        // made an argument that was true and has stopped being true.
+        //
+        // It said: with both appearance rows gone, every sidebar control *is* a chapter row again, so
+        // `key.startsWith("chapter")` covers the column and the set is dead weight. That was correct at
+        // the time. The **party strip** is a sidebar control that is not a chapter row, so the set has
+        // work to do again -- and this test caught exactly that, by refusing to check a control it had
+        // been given and no surface for:
+        //
+        //     "party is a control this test has no surface for, at 160x100. Add it to the list for the
+        //      surface it is drawn on -- one of them has to be right, and guessing which is how it ended
+        //      up checked against the canvas."
+        //
+        // Which is the design working. A control added to `controls()` and to nothing else fails here
+        // rather than being checked against a plausible rectangle, and the failure says what to do.
+
+        /** The sidebar's fixed chrome: controls in the column that are not chapter rows. */
+        private static final Set<String> SIDEBAR_CONTROLS = Set.of("party");
 
         /** Close, in the header's right corner. */
         private static final Set<String> HEADER_CONTROLS = Set.of("close");
@@ -803,7 +816,7 @@ class BookGeometryTest {
         // of close and are gone; the two appearance rows were between close and the cluster and are gone
         // -- see the note in that method for why each went, and `BookGeometry.MIN_PANEL_HEIGHT` for what
         // their absence did to the sidebar's term.
-        assertEquals(List.of("close", "zoomIn", "zoomOut", "centre"),
+        assertEquals(List.of("close", "party", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

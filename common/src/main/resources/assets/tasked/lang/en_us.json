@@ -74,6 +74,14 @@
     "tasked.screen.quest_book.submit": "Submit",
     "tasked.screen.quest_book.claim": "Claim",
 
+    "tasked.screen.party.title": "Your Party",
+    "tasked.screen.party.strip": "Party",
+    "tasked.screen.party.none": "You are not in a party.",
+    "tasked.screen.party.remove": "Remove",
+    "tasked.screen.party.leave": "Leave",
+    "tasked.screen.party.disband": "Disband",
+    "tasked.screen.party.back": "Back",
+
     "tasked.reward.xp.levels": "%s level(s)",
     "tasked.reward.xp.points": "%s XP"
 }

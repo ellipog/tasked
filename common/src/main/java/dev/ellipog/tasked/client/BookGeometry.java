@@ -197,6 +197,40 @@ public final class BookGeometry {
     /** Between the header and the top of the sidebar's list. */
     public static final int CHAPTER_GAP = 6;
 
+    /**
+     * The party strip: one always-visible line in the sidebar's foot, saying whether you are in a party
+     * and who with. Clicking it opens the roster.
+     *
+     * <h2>Why a strip and not the roster itself</h2>
+     *
+     * <p>Because the arithmetic does not fit, and that is worth stating as a measurement rather than as
+     * a preference. The column gives a row 132 pixels; a Remove button is 54 and its insets 4, leaving
+     * <b>74 pixels for a name</b>. A party of three with a heading, three rows and a stacked
+     * Leave/Disband pair comes to roughly 124 -- against a 200-pixel panel in the screenshot this
+     * project debugs against, which is 427x240 GUI pixels. So a roster drawn there is either a scrollbar
+     * inside a scrollbar in one column, or a chapter list three rows long.
+     *
+     * <p>What the column genuinely owes a player is the <b>state</b>: am I in a party, and who with.
+     * That is one line, and it is the thing you want without asking. The work -- removing somebody,
+     * leaving, disbanding -- needs room, so it gets a panel of its own.
+     *
+     * <h2>And it costs the chapter list nothing, which is a measurement rather than a hope</h2>
+     *
+     * <p>{@link #MIN_PANEL_HEIGHT} takes the larger of two terms, and the canvas's is 77. The sidebar's
+     * was 32 -- which is the 45 pixels of slack left when the theme picker and motion switch came off
+     * the sidebar, recorded in {@code controls}. The strip and the gap above it come to 22, so the
+     * sidebar's term is 54 and the canvas's still decides: <b>{@code MIN_PANEL_HEIGHT} is unchanged at
+     * 103.</b>
+     *
+     * <p>That is worth saying out loud, because an unchanged constant is otherwise read as evidence that
+     * nothing happened. What happened is that a feature fitted into slack that already existed, and the
+     * margin is now 23 pixels rather than 45.
+     */
+    public static final int PARTY_STRIP_HEIGHT = ROW_HEIGHT;
+
+    /** Between the bottom of the chapter list and the top of the party strip. */
+    public static final int PARTY_GAP = ROW_GAP;
+
     /** The gap inside the full-screen overlay, between its edge and its content. */
     public static final int OVERLAY_MARGIN = 24;
 
@@ -276,19 +310,20 @@ public final class BookGeometry {
      * check, and the useful half of this paragraph is that the canvas's term is the one that did not
      * move, for a reason that can be stated.
      *
-     * <p>The numbers: the sidebar needs {@code 32} and the canvas needs {@code (8 - 3) + (58 + 6) + 8}
-     * = <b>77</b>. So the canvas decides it, by a wide margin, and {@code MIN_PANEL_HEIGHT} is
-     * {@code 26 + 77 = 103}. Changing {@link #VIEW_BUTTON} therefore cannot silently invalidate it: the
-     * sum is written in terms of that constant.
+     * <p>The numbers: the sidebar needs {@code 6 + 18 + 4 + 18 + 8 = 54} -- a gap, one row, the gap
+     * above the party strip, the strip, and the panel's edge -- and the canvas needs
+     * {@code (8 - 3) + (58 + 6) + 8} = <b>77</b>. So the canvas decides it, and
+     * {@code MIN_PANEL_HEIGHT} is {@code 26 + 77 = 103}. Changing {@link #VIEW_BUTTON} therefore cannot
+     * silently invalidate it: the sum is written in terms of that constant.
      *
-     * <p>It is also worth recording that the two terms are now <b>unrelated</b> — one is a list, the
-     * other a cluster of tools — where they used to be two measurements of the same column. So the
-     * margin between them no longer means "the footer is shorter than the chapter list"; it means the
-     * canvas has more chrome than the sidebar has, which is a fact about the design rather than about
-     * an accident of layout.
+     * <p><b>The margin narrowing is the number to watch, and it is why both terms are written out
+     * rather than one being carried.</b> It was 45 when the theme controls left the sidebar; the party
+     * strip spent 22 of it, and 23 is what is left. The next feature that wants a home in this column
+     * has 23 pixels of room before the sidebar starts deciding the minimum -- and a reader who does not
+     * know that finds out from a screenshot.
      */
     public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
-            CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE,
+            CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + PARTY_GAP + PARTY_STRIP_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /** Enough canvas to be worth showing beside the sidebar. */
@@ -324,6 +359,24 @@ public final class BookGeometry {
     public static final int SUBMIT_WIDTH = 130;
 
     public static final int BACK_WIDTH = 88;
+
+    /**
+     * Leave's and Disband's width, in the party panel's footer.
+     *
+     * <h2>Why these are not {@link #SUBMIT_WIDTH}</h2>
+     *
+     * <p>Because a 130-pixel button is sized for the one action a screen is about -- handing a task in.
+     * "Leave" and "Disband" are six- and seven-letter words with a whole roster above them, and two of
+     * them at Submit's width would take 260 of the 379 pixels a 427-wide window gives the card, pushing
+     * Back onto a second row for no reason.
+     *
+     * <p>Wide enough for the longer word with the control's own insets: "Disband" is seven characters,
+     * around 42 pixels at the font this UI draws with, plus the button's padding either side. The margin
+     * above that is deliberate rather than measured to the pixel -- a translated label is longer than
+     * the English one in most languages, and a button that truncates its own label reads as a fault in
+     * whichever language noticed it first.
+     */
+    public static final int PARTY_ACTION_WIDTH = 64;
 
     // --- labels --------------------------------------------------------------
 
@@ -513,10 +566,31 @@ public final class BookGeometry {
      */
     public Rect sidebarViewport() {
         int top = chapterListTop();
-        int bottom = panel.bottom() - EDGE;
+        // To the party strip, not to the panel's edge, and that is what the strip costs the list. The
+        // alternative -- letting the rows run the full height and drawing the strip over them -- is the
+        // class of fault this whole class exists to prevent: a row that stays clickable under a control
+        // drawn on top of it.
+        int bottom = partyStrip().y() - PARTY_GAP;
         return Rect.at(panel.x() + EDGE, top,
                 Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR),
                 Math.max(0, bottom - top));
+    }
+
+    /**
+     * The party strip: one line at the foot of the sidebar.
+     *
+     * <p>Full width of the inner column, less the scrollbar's room -- because it sits directly under the
+     * list that reserves that room, and a strip stopping short of it would leave a step in the column's
+     * right edge that reads as a missing control.
+     *
+     * <p>The bottom edge is the panel's own {@link #EDGE}, so the strip is the last thing in the column.
+     * That is what lets {@link #sidebarViewport} be measured <i>from</i> it rather than the other way
+     * round: the strip is anchored to the panel and the list gives up what the strip needs. Reversing it
+     * would mean a strip whose height depended on how many chapters there are.
+     */
+    public Rect partyStrip() {
+        return Rect.at(panel.x() + EDGE, panel.bottom() - EDGE - PARTY_STRIP_HEIGHT,
+                Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR), PARTY_STRIP_HEIGHT);
     }
 
     /** The close button: a row-height square in the header, against the panel's right edge. */
@@ -595,6 +669,11 @@ public final class BookGeometry {
         // Close, in the header's right corner.
         out.put("close", closeRect());
 
+        // The party strip, at the foot of the column. In this map rather than placed by the drawing,
+        // for the reason every other entry is: the overlap sweep walks this, so a control that is not
+        // in it is a control nothing checks against the ones that are.
+        out.put("party", partyStrip());
+
         // The theme and motion controls are deliberately absent, and their absence is a decision worth
         // recording because the geometry for them existed and worked.
         //
@@ -647,6 +726,64 @@ public final class BookGeometry {
         }
 
         out.put("back", back);
+        return out;
+    }
+
+    /**
+     * The party panel's footer: up to two short actions on the left, Back on the right.
+     *
+     * <h2>Why this is a separate shape rather than reusing the quest one</h2>
+     *
+     * <p>Because its controls are not a Submit/Back pair, and pretending they are would put a 130-pixel
+     * button in a card whose real actions are "Leave" and "Disband". Reusing {@code overlayControls(boolean)}
+     * would also mean asking it a question it cannot answer -- whether the viewer may leave is a fact about
+     * a roster, not about a quest -- and the overloads say so in their signatures.
+     *
+     * <h2>The two actions share a row, and Back moves rather than collides</h2>
+     *
+     * <p>Same fallback the quest overlay uses, applied to a different set: measure against the card, and
+     * move Back up a row if the three do not fit. One expression for the decision rather than a
+     * per-control check, so two controls cannot disagree about whether they collided.
+     *
+     * <p>The action origin is the same whether there is one action or two, so a party of one and a party
+     * of three put "Leave" in the same place. That matters because the panel's footer is the one part of
+     * it whose position does not move when the membership does.
+     *
+     * @param actions  how many of Leave and Disband the viewer may use, 0 to 2
+     * @param hasBack  whether to place Back at all -- a caller drawing a preview may not want it
+     */
+    public Map<String, Rect> overlayControls(int actions, boolean hasBack) {
+        Map<String, Rect> out = new LinkedHashMap<>();
+        Rect box = overlay;
+        int height = OVERLAY_CONTROL_HEIGHT;
+        int rowY = box.bottom() - EDGE - height;
+
+        Rect back = null;
+        if (hasBack) {
+            back = Rect.at(box.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
+        }
+
+        if (actions <= 0) {
+            if (back != null) {
+                out.put("back", back);
+            }
+            return out;
+        }
+
+        Rect first = Rect.at(box.x() + EDGE + 8, rowY, PARTY_ACTION_WIDTH, height);
+        out.put("leave", first);
+        if (actions >= 2) {
+            out.put("disband", Rect.at(first.right() + ROW_GAP, rowY, PARTY_ACTION_WIDTH, height));
+        }
+
+        if (back != null) {
+            if (back.x() < first.right() + ROW_GAP) {
+                // Not room for all three on one row, so Back moves up and keeps its right alignment.
+                back = Rect.at(back.x(), rowY - height - ROW_GAP, BACK_WIDTH, height);
+            }
+            out.put("back", back);
+        }
+
         return out;
     }
 
