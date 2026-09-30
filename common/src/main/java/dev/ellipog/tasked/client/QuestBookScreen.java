@@ -70,8 +70,9 @@ import java.util.UUID;
  * <p>So {@code super.render()} calls {@code renderBackground} whether the subclass wants it or not,
  * and that is where vanilla's menu blur comes from. This screen called {@code super.render()}
  * <b>last</b>, so the blur post-effect processed a framebuffer that already contained this screen's
- * text — which is why the text was soft as well as the world. Overriding {@link #renderBackground} to
- * do nothing is the whole fix, and it is one method.
+ * text — which is why the text was soft as well as the world. Overriding {@code renderBackground} to
+ * do nothing is the whole fix, and it is one method — which now lives on {@code ArmatureScreen}, so
+ * that the next panel cannot forget it: the developer screen did, and shipped washed out.
  *
  * <h2>Three ways to look around</h2>
  *
@@ -1991,15 +1992,10 @@ public final class QuestBookScreen extends ArmatureScreen {
     /**
      * Deliberately empty.
      *
-     * <p>The base implementation blurs the framebuffer and draws vanilla's menu texture over it, and
-     * {@code super.render()} calls it whether a subclass asks or not. Overriding it here is what stops
-     * this screen — and its text — being blurred. See the class comment for the mechanism.
+     * <p>The background this screen draws over the world is its own scrim, and vanilla's blurred menu
+     * background is suppressed on {@code ArmatureScreen} — the base class — so no panel has to remember
+     * it. See this class's comment for the mechanism and that class's for why it moved.
      */
-    @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // No blur, no panorama, no menu texture. This screen draws its own background.
-    }
-
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         // The one forced signature in this class for drawing, and the whole of the seam at this call

@@ -113,11 +113,18 @@ public final class DevScreen extends ArmatureScreen {
                 listView.put(row.key(), button, DevLayout::strip);
             }
             else if (row.isControl()) {
-                // The whole row is the control, and its label is the token's own name -- left-aligned,
-                // because a column of centred names has a ragged left edge and nothing to line up with.
+                // The whole row is the control. It is **flat** -- no fill, no border -- because the row's
+                // appearance is its name, the swatch of the colour it holds and a wash when it is the one
+                // being edited. A button that painted its own fill covered exactly the colour this screen
+                // exists to show, which is what the first version did: forty-one rows of grey, and not one
+                // swatch visible.
+                //
+                // The name is still the widget's, drawn left-aligned -- a column of centred names has a
+                // ragged left edge and nothing to line up with. The swatch, the hex and the washes are
+                // this screen's, drawn where the colour is.
                 ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
                         () -> select(row.key()));
-                button.alignLeft(true);
+                button.alignLeft(true).flat(true);
                 listView.put(row.key(), button);
             }
         }
@@ -275,10 +282,10 @@ public final class DevScreen extends ArmatureScreen {
     @Override
     protected void renderContent(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
         renderer.fill(0, 0, width, height, ArmatureTheme.dim());
-        draw(renderer);
+        draw(renderer, mouseX, mouseY);
     }
 
-    private void draw(GuiRenderer r) {
+    private void draw(GuiRenderer r, int mouseX, int mouseY) {
         if (frame == null || listLayout == null) {
             return;
         }
@@ -307,7 +314,7 @@ public final class DevScreen extends ArmatureScreen {
                             onScreen.x(), textY(slot, onScreen, r), ArmatureTheme.faint());
                 }
                 else if (row.isControl()) {
-                    drawColourRow(r, row, slot, onScreen, measure);
+                    drawColourRow(r, row, slot, onScreen, measure, mouseX, mouseY);
                 }
                 else {
                     // A switch row's label stops short of the strip its button was placed in, so a long
@@ -323,36 +330,42 @@ public final class DevScreen extends ArmatureScreen {
         listView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
     }
 
-    /** One colour row: its name, a swatch of the colour it holds now, and that colour as hex. */
+    /**
+     * One colour row: a swatch of the colour it holds now, and that colour as hex.
+     *
+     * <p>The row's <i>name</i> is not here. It is the widget's label, because the whole row is a control
+     * -- and what is here is the colour, which no widget can draw, since a swatch is a filled rectangle
+     * and not a string. The two washes say which row the channel buttons will edit and which row the
+     * pointer is over.
+     */
     private void drawColourRow(GuiRenderer r, DevLayout.Action row, Slot slot, Slot onScreen,
-                               Measure measure) {
+                               Measure measure, int mouseX, int mouseY) {
         String id = DevLayout.tokenId(row.key());
         int argb = Appearance.main().colour(id);
         boolean isSelected = id != null && id.equals(selected);
+        // `onScreen`, not `slot`: the slot is in the list's own content coordinates and the pointer is
+        // in screen coordinates, so asking the slot would light up the wrong row by exactly the
+        // viewport's origin -- and by the scroll on top of it.
+        boolean hovered = !isSelected && onScreen.contains(mouseX, mouseY);
+
+        if (isSelected || hovered) {
+            // A wash rather than a border, and the pointer's is fainter than the selection's: one is a
+            // state of the list and the other is where the mouse happens to be.
+            r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
+                    Colour.translucent(ArmatureTheme.rowHover(), isSelected ? 0.5F : 0.22F));
+        }
 
         String hex = String.format("#%06X", argb & 0xFFFFFF);
         int hexWidth = r.textWidth(hex);
         int swatchX = onScreen.right() - 6 - hexWidth - SWATCH_GAP - SWATCH;
-
-        if (isSelected) {
-            // A wash rather than a border: being selected for editing is a state of the list, not a
-            // control. The party panel's hover wash is the same idea at a different moment.
-            r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
-                    Colour.translucent(ArmatureTheme.rowHover(), 0.5F));
-        }
-
-        r.text(Measure.truncate(row.label(), Math.max(0, swatchX - onScreen.x() - 6), measure),
-                onScreen.x() + 4, textY(slot, onScreen, r),
-                isSelected ? ArmatureTheme.title() : ArmatureTheme.body());
-
         int swatchY = onScreen.y() + (slot.height() - SWATCH) / 2;
-        // The border is drawn as the larger rectangle underneath rather than as four fills, which the
-        // renderer's own `outline` would be: one call, and a swatch of the card's own colour is still
-        // visible.
+        // The border is the larger rectangle underneath rather than four fills, which the renderer's own
+        // `outline` would be: one call, and a swatch of the card's own colour is still visible.
         r.fill(swatchX - 1, swatchY - 1, swatchX + SWATCH + 1, swatchY + SWATCH + 1,
                 ArmatureTheme.panelEdge());
         r.fill(swatchX, swatchY, swatchX + SWATCH, swatchY + SWATCH, argb);
-        r.text(hex, onScreen.right() - 6 - hexWidth, textY(slot, onScreen, r), ArmatureTheme.faint());
+        r.text(hex, onScreen.right() - 6 - hexWidth, textY(slot, onScreen, r),
+                isSelected ? ArmatureTheme.title() : ArmatureTheme.faint());
     }
 
     /** The line under the list: what the channel buttons will edit, or what to do to pick something. */
