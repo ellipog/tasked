@@ -17,6 +17,8 @@ import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.net.TaskedNetworking;
+import dev.ellipog.tasked.party.PartyMode;
+import dev.ellipog.tasked.party.PartyStore;
 
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;
@@ -123,6 +125,16 @@ class QuestPlaythroughTest {
 
     /** The party's own id, which is also the key its progress is stored under. */
     private static UUID partyId;
+
+    /**
+     * The party {@code /tasked party create} formed, which is a different party from {@link #partyId}.
+     *
+     * <p>Kept separate rather than reusing {@code partyId}, and the reason is that they are built by
+     * different means: {@code partyId} comes from Armature's API directly, and this one from the
+     * command. Reusing the field would leave the command's tests unable to tell "the command used the
+     * party that already existed" from "the command formed one".
+     */
+    private static UUID commandPartyId;
 
     /** What the last tick of the engine reported as changed. Empty when nothing moved. */
     private static java.util.Set<UUID> lastTick = java.util.Set.of();
@@ -889,6 +901,243 @@ class QuestPlaythroughTest {
     }
 
     // ------------------------------------------------------------------
+    // T4's other half: /tasked party, and the modes it sets
+    // ------------------------------------------------------------------
+
+    /**
+     * <h2>Why the party is built by command here when orders 11 to 14 built one through the API</h2>
+     *
+     * <p>Because those two are not the same test, and the difference is the whole of what this round
+     * added. Orders 11 to 14 drive {@code Teams.of(server)} directly, which proves the <i>engine</i>
+     * shares progress across a team. Everything below goes through {@code /tasked party}, which is a
+     * different set of code on top of the same API — and the parts of it that can be wrong are the
+     * parts a command adds: a permission question answered the wrong way, an argument read under the
+     * wrong name, a mode written to the wrong team's key.
+     *
+     * <h2>What is deliberately not asserted, and it is the same gap as the team listeners</h2>
+     *
+     * <p>Nothing here counts the messages a party command produces. It cannot: the stored source
+     * answers {@code firesEvents()} true, so {@code pushMembershipChange} correctly declines to push
+     * and leaves it to the event — and those listeners are registered from {@code SERVER_STARTED},
+     * which no test JVM fires. See order 18. So a party built by command here tells nobody anything,
+     * and that is the harness's shape rather than a fault in the command.
+     *
+     * <p>What <i>is</i> asserted is everything the command is responsible for that has a state to
+     * read back: the party exists, the player's progress moved onto it, and the mode reached the store
+     * and then the engine.
+     */
+
+    @Test
+    @Order(19)
+    @DisplayName("/tasked party creates a real party, and moves the creator's progress onto it")
+    void thePartyCommandCreatesARealParty() {
+        // Out of whatever party a previous test left this player in, and *through the command*, so that
+        // `leave` is exercised by the same route a player uses rather than only through Armature's API.
+        //
+        // This line is load-bearing and was missing on the first run, which failed here with an owner
+        // id that was neither this player's nor anything the test had made: order 18 creates a party to
+        // prove the team-change push and never disbands it, so "starts from a solo player" was simply
+        // false. The fix is not to assume the state but to establish it -- and establishing it through
+        // `leave` covers a subcommand that nothing else does.
+        HeadlessServer.Outcome leave = asOperator("/tasked party leave");
+        assertEquals(1, leave.result(),
+                () -> "this player should have been in a party to leave. It said:\n" + leave.text());
+
+        assertEquals(player.getUUID(), ownerOf(player),
+                "so this player is solo again, and their progress is keyed by their own id");
+
+        HeadlessServer.Outcome created = asOperator("/tasked party create the-command-party");
+        assertEquals(1, created.result(),
+                () -> "/tasked party create should have formed a party. It said:\n" + created.text());
+
+        // The assertion that matters, and it is the one a command can get wrong in a way nothing else
+        // notices: the creator's *progress owner* has to have moved. A party that exists while its
+        // owner's progress stays keyed to their solo id is a party whose questline is invisible to
+        // everybody in it, and every line of output above would still look right.
+        commandPartyId = ownerOf(player);
+        assertNotEquals(player.getUUID(), commandPartyId,
+                "the creator's progress must now be keyed by the party, not by themselves -- otherwise "
+                        + "they are in a party whose progress nobody in it can see");
+
+        assertTrue(server.callOnServerThread(() -> Teams.of(server.server())
+                        .realTeamOf(player.getUUID()).isPresent()),
+                "and a real team exists for them, rather than a synthesised solo one");
+
+        // Fresh, so the party starts empty rather than inheriting the four quests this player has
+        // already completed alone. That is ProgressStore's deliberate rule and worth re-checking here,
+        // because a command that passed the wrong id would look exactly like a party that inherited.
+        assertNotEquals(QuestState.COMPLETED, stateOf("punch_a_tree"),
+                "a new party's progress is empty, whatever its creator did before it");
+
+        HeadlessServer.Outcome again = asOperator("/tasked party create another-one");
+        assertRefused(again, "the player is already in a party");
+        assertEquals(commandPartyId, ownerOf(player), "and the refusal changed nothing");
+
+        HeadlessServer.Outcome info = asOperator("/tasked party");
+        assertEquals(1, info.result(), () -> "/tasked party should report. It said:\n" + info.text());
+
+        // Read from the manager rather than from the command's output, and that is the rule this file
+        // states at the top: a dedicated server has no language file, so `getString()` on a translatable
+        // returns the *key* -- which is why nothing here asserts on output text. An earlier version of
+        // this line checked that the listing contained the word "stored", which could never have passed
+        // whatever the command did.
+        assertEquals("stored", server.callOnServerThread(() -> Teams.of(server.server()).name()),
+                "the listing's source line is about naming which mod provides these parties, and this "
+                        + "is the answer it reports -- read here rather than from the rendered string");
+
+        note("the party command formed a real party; progress is now keyed by " + commandPartyId
+                + " rather than by " + player.getUUID());
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("a party's progress mode is set by command, and read back from the store")
+    void theModeIsSetByCommand() {
+        assertEquals(PartyMode.DEFAULT, modeOf(player),
+                "a new party counts the default way, which is what the engine did before there was a "
+                        + "choice -- so no file and no command has to exist for sharing to work");
+
+        HeadlessServer.Outcome read = asOperator("/tasked party mode");
+        assertEquals(1, read.result(), () -> "/tasked party mode should report. It said:\n" + read.text());
+
+        HeadlessServer.Outcome bad = asOperator("/tasked party mode nonsense");
+        assertRefused(bad, "there is no such mode");
+        assertEquals(PartyMode.DEFAULT, modeOf(player),
+                "and a refused mode writes nothing -- a typo must not leave a party counting by a rule "
+                        + "nobody chose");
+
+        HeadlessServer.Outcome set = asOperator("/tasked party mode pooled");
+        assertEquals(1, set.result(),
+                () -> "/tasked party mode pooled should have been accepted. It said:\n" + set.text());
+        assertEquals(PartyMode.POOLED, modeOf(player), "and the store has it");
+
+        // Setting it again is a no-op rather than a change, so it reports 0 -- the same convention
+        // every other command here follows, where the return value is the assertion.
+        HeadlessServer.Outcome same = asOperator("/tasked party mode pooled");
+        assertRefused(same, "nothing changed, so nothing happened worth reporting");
+        assertEquals(PartyMode.POOLED, modeOf(player), "and it is still set");
+
+        HeadlessServer.Outcome back = asOperator("/tasked party mode one_member");
+        assertEquals(1, back.result(), "an explicit return to the default is a change and reports one");
+        assertEquals(PartyMode.ONE_MEMBER, modeOf(player));
+
+        // Stored and greppable, which is the half a party's mode has to survive: a restart re-reads
+        // this file, and a reader opening it should be able to see why a party counts as it does.
+        assertTrue(server.callOnServerThread(() ->
+                        PartyStore.of(server.server()).has(commandPartyId)),
+                "a party that has chosen is recorded, so the choice outlives the session");
+
+        note("the mode round-tripped through the command and the store; a typo was refused and wrote "
+                + "nothing");
+    }
+
+    @Test
+    @Order(21)
+    @DisplayName("the mode reaches the engine: one_member cannot finish what pooled can")
+    void theModeChangesWhatTheEngineCounts() {
+        // The whole point of the round, in one test. Everything above proves the mode is stored and
+        // readable; this proves the engine applies it, which is the only reason it exists.
+        //
+        // Two members of one party, four oak logs each, and punch_a_tree wants eight. Under the
+        // default neither member has eight, so the party has not finished it; under pooled they have
+        // eight between them, so it has. The two modes disagree about the *same two inventories*, which
+        // is what makes this an assertion about the mode rather than about the items.
+        assertTrue(server.callOnServerThread(() -> {
+                    Teams.of(server.server()).invite(commandPartyId, friend.getUUID());
+                    return Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent();
+                }),
+                "the friend should have joined the command-created party");
+
+        assertEquals(commandPartyId, ownerOf(friend),
+                "both members resolve to the party, so there is one progress record between them");
+
+        clearInventories();
+        server.onServerThread(() -> {
+            player.getInventory().add(new ItemStack(Items.OAK_LOG, 4));
+            player.getInventory().setChanged();
+            friend.getInventory().add(new ItemStack(Items.OAK_LOG, 4));
+            friend.getInventory().setChanged();
+        });
+
+        assertEquals(4, countInInventoryOf(player, Items.OAK_LOG));
+        assertEquals(4, countInInventoryOf(friend, Items.OAK_LOG));
+
+        // Tick for a while and check it does NOT complete. Ticking first and asserting the negative
+        // afterwards is the order that makes this mean something: an assertion that the quest is
+        // incomplete, with no ticks in between, would pass on a party the engine had never looked at.
+        tickUntil(() -> false, Duration.ofSeconds(3));
+
+        assertEquals(PartyMode.ONE_MEMBER, modeOf(player), "this half runs under the default");
+        assertEquals(QuestState.LOCKED, stateOf("the_underground"),
+                "and the party's questline starts where a locked quest starts");
+        assertNotEquals(QuestState.COMPLETED, stateOf("punch_a_tree"),
+                () -> "four logs each is four logs a member for the default mode, and this quest wants "
+                        + "eight. It completed anyway, which means the mode is being ignored and the "
+                        + "members' counts are being added regardless."
+                        + "\n  the owner's task 0 is recorded at "
+                        + recordedTaskFor(player, "punch_a_tree", 0));
+
+        HeadlessServer.Outcome set = asOperator("/tasked party mode pooled");
+        assertEquals(1, set.result(), () -> "setting the mode should have worked:\n" + set.text());
+
+        boolean completed = tickUntil(() -> stateFor(player, "punch_a_tree") == QuestState.COMPLETED,
+                Duration.ofSeconds(20));
+
+        assertTrue(completed, () -> "with the same four logs each, pooled mode did not complete "
+                + "punch_a_tree, which needs eight. The two counts add to exactly eight, so this is "
+                + "the mode not reaching the engine rather than the arithmetic being wrong -- see "
+                + "PartyModeTest, which pins the arithmetic on its own."
+                + "\n  the owner's task 0 is recorded at "
+                + recordedTaskFor(player, "punch_a_tree", 0)
+                + " and the state is " + stateOf("punch_a_tree"));
+
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "punch_a_tree"),
+                "and both members see it, because there is one record and the mode decided it");
+
+        note("four oak logs each: refused under one_member, completed under pooled. The same two "
+                + "inventories, two different answers, which is the mode being applied rather than "
+                + "described");
+
+        // ---- and now the third mode, on a different quest, so the completed one is not in the way.
+
+        HeadlessServer.Outcome ownerOnly = asOperator("/tasked party mode owner_only");
+        assertEquals(1, ownerOnly.result(),
+                () -> "setting owner_only should have worked:\n" + ownerOnly.text());
+
+        clearInventories();
+        server.onServerThread(() -> {
+            friend.getInventory().add(new ItemStack(Items.CRAFTING_TABLE, 1));
+            friend.getInventory().setChanged();
+        });
+
+        tickUntil(() -> false, Duration.ofSeconds(3));
+
+        assertEquals(0, countInInventoryOf(player, Items.CRAFTING_TABLE),
+                "the owner is holding nothing");
+        assertEquals(1, countInInventoryOf(friend, Items.CRAFTING_TABLE), "and the friend is holding one");
+        assertNotEquals(QuestState.COMPLETED, stateFor(player, "make_a_table"),
+                () -> "owner_only counts the owner and nobody else, so the friend holding the crafting "
+                        + "table must not complete make_a_table. It did, which means the mode is being "
+                        + "ignored for the second quest after being honoured for the first."
+                        + "\n  the owner's task 0 is recorded at "
+                        + recordedTaskFor(player, "make_a_table", 0));
+
+        server.onServerThread(() -> {
+            player.getInventory().add(new ItemStack(Items.CRAFTING_TABLE, 1));
+            player.getInventory().setChanged();
+        });
+
+        boolean ownerCompleted = tickUntil(
+                () -> stateFor(player, "make_a_table") == QuestState.COMPLETED, Duration.ofSeconds(20));
+
+        assertTrue(ownerCompleted, () -> "the owner holding the crafting table should complete "
+                + "make_a_table under owner_only. The state is " + stateOf("make_a_table"));
+
+        note("and under owner_only the friend's crafting table counted for nothing until the owner "
+                + "held one -- so all three modes reach the engine");
+    }
+
+    // ------------------------------------------------------------------
     // Driving and reading
     // ------------------------------------------------------------------
 
@@ -1056,6 +1305,18 @@ class QuestPlaythroughTest {
     /** How far along one task is recorded to be. Zero for a task nothing has ever written. */
     private static int recordedTask(String questId, int taskIndex) {
         return recordedTaskFor(player, questId, taskIndex);
+    }
+
+    /**
+     * How the party this player is in currently counts.
+     *
+     * <p>Read through the server thread like every other read here, and through {@code PartyStore}
+     * rather than through the command's output — so the assertion is about the state a restart would
+     * read back, not about the wording of a message.
+     */
+    private static PartyMode modeOf(ServerPlayer who) {
+        return server.callOnServerThread(() ->
+                PartyStore.of(server.server()).modeOf(ProgressService.progressOwner(server.server(), who)));
     }
 
     /** The same, for whichever player's progress is the interesting one. */

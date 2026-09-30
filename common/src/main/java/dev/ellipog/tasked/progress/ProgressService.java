@@ -1,6 +1,8 @@
 package dev.ellipog.tasked.progress;
 
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.party.PartyMode;
+import dev.ellipog.tasked.party.PartyStore;
 import dev.ellipog.tasked.quest.Chapter;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
@@ -57,9 +59,18 @@ import java.util.UUID;
  * {@code evaluateTeam} for the full note. {@code QuestPlaythroughTest} now gathers in each direction
  * in turn, precisely so the answer cannot depend on which member is chosen.
  *
- * <p>What is still <b>not</b> built is the rest of T4: the party chooses nothing. Counting as a
- * maximum across members is the least that makes sharing true, and it is a decision rather than a
- * default — see the note in {@code evaluateTeam} on why max and not sum.
+ * <p><b>A party now chooses how it counts, and the maximum is one of three modes rather than the
+ * rule.</b> {@link PartyMode} is the choice — the largest single member, the members added together,
+ * or the owner alone — and {@code evaluateTeam} applies it. That paragraph above used to end by
+ * saying the party chose nothing and that counting as a maximum was "the least that makes sharing
+ * true", which was the right answer while a counting bug was being fixed and the wrong one
+ * afterwards: a rule about who pays is not something to invent while fixing arithmetic, but neither
+ * is it something to leave as an accident of which member the loop happened to ask first.
+ *
+ * <p>A mode changes the <i>count</i> and, for {@link PartyMode#POOLED}, the paying too — since a
+ * count spread across four inventories cannot be settled by reaching into one of them. See
+ * {@link PartyMode} on why it lives in Tasked rather than in Armature, and {@code consumeAcross}
+ * below on the half of it that a count alone cannot express.
  *
  * <h2>Finishing a quest and collecting its reward are two calls</h2>
  *
@@ -242,10 +253,21 @@ public final class ProgressService {
         // spawn order and therefore who logged in first. So the same party, doing the same thing,
         // would pass or fail depending on that -- and the failure looks like "the quest never
         // completes", which sends you to the quest file rather than to the loop.
-        List<ServerPlayer> members = onlineMembersOf(server, owner);
+        Team team = teamFor(server, owner);
+        List<ServerPlayer> members = onlineMembersOf(server, team);
         if (members.isEmpty()) {
             return false;
         }
+
+        // How this party wants those members' counts combined, and which of them the owner is.
+        //
+        // Read once for the whole pass rather than once per task. It is a map lookup either way, but
+        // the property that matters is that one evaluation sees one rule: read inside the loop, a
+        // command that changed the mode midway through would have some of a quest's tasks counted by
+        // one mode and the rest by another, and a quest could then be completed by a rule that was
+        // never in force for all of it.
+        PartyMode mode = PartyStore.of(server).modeOf(owner);
+        int ownerIndex = indexOfMember(members, team.owner());
 
         // Whether anything moved, for the caller's return value and for the write below.
         //
@@ -318,25 +340,25 @@ public final class ProgressService {
 
                 int required = behaviour.get().required(task);
 
-                // Asked of every member, and the largest answer wins.
+                // Every member is asked, and the party's mode decides what the answers add up to.
                 //
-                // The largest, not the sum, and the difference is a decision rather than a slip.
-                // Max means "somebody in this party has eight logs", which is what makes one player
-                // gathering work for both. Sum means "the party's pooled logs come to eight", which
-                // is a different and more generous rule: eight members each carrying one log would
-                // finish a gather-eight quest, and a consuming task would take one log from each of
-                // them. Pooling is a party *mode*, and party modes are T4 in the plan; this is the
-                // least that makes "share progress correctly" true, and it is deliberately the least
-                // because a rule about who pays is not one to invent while fixing a counting bug.
-                int current = 0;
-                ServerPlayer holder = null;
+                // The asks used to be folded here, as a running maximum with a comment explaining why
+                // max and not sum. That reasoning is now PartyMode.ONE_MEMBER's, and it is worth
+                // keeping in view because it is still the default: max means "somebody in this party
+                // has eight logs", which is what makes one player gathering work for both, where sum
+                // means "the party's pooled logs come to eight" — a more generous rule where eight
+                // members carrying one log each would finish a gather-eight quest.
+                //
+                // Both are now answers a party can choose, so the fold moved to where the rule can be
+                // read on its own and asserted without a server. What stayed here is the asking, which
+                // is the part that needs a world.
+                List<Integer> perMember = new ArrayList<>(members.size());
                 for (ServerPlayer member : members) {
-                    int value = behaviour.get().current(task, new TaskContext(member, index, now));
-                    if (value > current) {
-                        current = value;
-                        holder = member;
-                    }
+                    perMember.add(behaviour.get().current(task, new TaskContext(member, index, now)));
                 }
+                PartyMode.Tally tally = mode.combine(perMember, ownerIndex);
+                int current = tally.counted();
+                ServerPlayer holder = tally.hasPayer() ? members.get(tally.payer()) : null;
 
                 // Progress only ever goes up. A consuming task zeroes its own count the moment the
                 // items are taken, so without this the task would un-complete itself.
@@ -360,12 +382,25 @@ public final class ProgressService {
                 }
 
                 if (best >= required && consumes(task, chapterConsumes)) {
-                    // Taken from the member who has them, which is the same member who was counted.
-                    // With the count now taken as a maximum across the party, the holder is
-                    // guaranteed to be holding at least `required` -- so this takes what it says it
-                    // takes, rather than finding less and leaving the task recorded as satisfied
-                    // with the items still in somebody's pocket.
-                    consume(holder != null ? holder : earner, task, required);
+                    // Where the items come from, and the mode decides it -- see takesFromEveryone.
+                    //
+                    // For the two modes that count one member, the payer is that member and is
+                    // guaranteed to be holding at least `required`, because the count *is* their
+                    // inventory. So the take is what it says it is, rather than finding less and
+                    // leaving the task recorded as satisfied with the items still in somebody's
+                    // pocket.
+                    //
+                    // POOLED is the mode where that guarantee does not hold and cannot: the count is
+                    // the party's while the payer is only its largest holder, so eight logs across
+                    // four members is a satisfied task and an inventory holding two. Taking from one
+                    // would take two and call it four. So this is a real difference in behaviour
+                    // rather than a tidier way to spell the same take.
+                    if (mode.takesFromEveryone()) {
+                        consumeAcross(members, task, required);
+                    }
+                    else {
+                        consume(holder != null ? holder : earner, task, required);
+                    }
                 }
             }
 
@@ -690,28 +725,43 @@ public final class ProgressService {
     // ------------------------------------------------------------------
 
     /**
-     * The members of {@code owner}'s team who are online, in a stable order.
+     * The team a progress owner's id resolves to — a real team, or a solo one.
      *
-     * <p>A solo player is a team of one whose id is their own UUID — see {@code Team.solo} — so the
-     * two cases differ only in where the ids come from, and neither needs a branch at the call site.
+     * <p>A solo player is a team of one whose id <b>is</b> their own UUID — see {@code Team.solo} —
+     * so the two cases differ only in where the ids come from, and neither needs a branch at the call
+     * site. That is the whole reason progress for a lone player is addressable without storing
+     * anything.
+     *
+     * <p>Split out from {@link #onlineMembersOf} because the team itself is now needed twice: for its
+     * members, and for <b>who its owner is</b>, which {@link PartyMode#OWNER_ONLY} cannot be applied
+     * without. Reading the team once and passing it is what keeps those two answers from being
+     * fetched separately and disagreeing — the shape of fault this file has already paid for once,
+     * when "near the bottom right" was written twice.
+     */
+    private static Team teamFor(MinecraftServer server, UUID owner) {
+        return Teams.of(server).byId(owner).orElseGet(() -> Team.solo(owner));
+    }
+
+    /**
+     * The members of {@code team} who are online, in a stable order.
      *
      * <p>Sorted by id, and the sort is doing real work. {@code Team.memberIds()} comes from an
      * immutable map, whose iteration order is deliberately unspecified; without this, "the first
      * online member" would be a different player from one run to the next, and the reward fallback
      * above would be arbitrary in a way that looks like flakiness.
      *
+     * <p>The sort is load-bearing a second time now that a mode can name a member by <i>index</i>:
+     * {@code PartyMode.ONE_MEMBER} pays the earliest member holding the largest count, and a party
+     * whose two members both hold eight logs would otherwise hand the reward to whichever of them the
+     * map felt like iterating first. An arbitrary choice that is stable is inspectable; one that is
+     * not is a bug report nobody can reproduce.
+     *
      * <p>Offline members are skipped rather than found, and that is the honest reading: an inventory
-     * that is not loaded cannot be counted. It also means a party does not lose what it recorded
-     * when somebody logs off — the count only ever went up, and it stays where it got to.
+     * that is not loaded cannot be counted. It also means a party does not lose what it recorded when
+     * somebody logs off — the count only ever went up, and it stays where it got to.
      */
-    private static List<ServerPlayer> onlineMembersOf(MinecraftServer server, UUID owner) {
-        Optional<Team> team = Teams.of(server).byId(owner);
-        if (team.isEmpty()) {
-            ServerPlayer alone = server.getPlayerList().getPlayer(owner);
-            return alone == null ? List.of() : List.of(alone);
-        }
-
-        List<UUID> ids = new ArrayList<>(team.get().memberIds());
+    private static List<ServerPlayer> onlineMembersOf(MinecraftServer server, Team team) {
+        List<UUID> ids = new ArrayList<>(team.memberIds());
         ids.sort(Comparator.comparing(UUID::toString));
 
         List<ServerPlayer> online = new ArrayList<>(ids.size());
@@ -722,6 +772,28 @@ public final class ProgressService {
             }
         }
         return online;
+    }
+
+    /**
+     * Where {@code player} sits in the online member list, or −1 if they are not in it.
+     *
+     * <p>Against {@link #onlineMembersOf}'s sorted order, which is the same list the counts were
+     * gathered from — so an index handed to a mode refers to the same member the count at that index
+     * came from. Computing the order twice, in two places, is exactly how those two would come to
+     * disagree.
+     *
+     * <p>Returns −1 rather than throwing for a player who is not online. That is a real state rather
+     * than a caller's mistake: {@code OWNER_ONLY} asked of a party whose owner has logged off has no
+     * owner to point at, and the mode's own answer to that — nothing counts — is the right one. See
+     * {@code PartyMode.OWNER_ONLY}.
+     */
+    private static int indexOfMember(List<ServerPlayer> members, UUID player) {
+        for (int i = 0; i < members.size(); i++) {
+            if (members.get(i).getUUID().equals(player)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
@@ -804,14 +876,21 @@ public final class ProgressService {
      * <p>Removes from the first matching slots and, where a slot held more than was needed, shrinks
      * that stack rather than removing it — so taking three of five logs leaves two behind rather than
      * eating the whole stack.
+     *
+     * <h2>Why this returns what it took</h2>
+     *
+     * <p>Because under {@link PartyMode#POOLED} the caller is {@link #consumeAcross}, which has to
+     * know when to stop asking players. A method that took what it could and returned nothing would
+     * leave that loop guessing — and the guess available to it is "assume it took everything it was
+     * asked for", which is precisely the assumption that is false in the case the loop exists for.
      */
-    private static void consume(ServerPlayer player, QuestTask task, int count) {
+    private static int consume(ServerPlayer player, QuestTask task, int count) {
         if (!(task instanceof dev.ellipog.tasked.quest.task.ItemTask item)) {
-            return;
+            return 0;
         }
         ItemStack template = item.item().toStack();
         if (template.isEmpty()) {
-            return;
+            return 0;
         }
 
         int remaining = count;
@@ -827,6 +906,46 @@ public final class ProgressService {
             inventory.setItem(slot, stack.isEmpty() ? ItemStack.EMPTY : stack);
         }
         inventory.setChanged();
+        return count - remaining;
+    }
+
+    /**
+     * Takes {@code count} matching items from the party, across as many members as it needs.
+     *
+     * <h2>Why pooling needs this and the other two modes do not</h2>
+     *
+     * <p>Because the two halves of a mode have to agree. {@code POOLED} says the party's task is
+     * satisfied when its members' counts <b>add up</b> to the requirement — so the natural way to pay
+     * for it is the same way it was counted, and taking the whole amount from one member would take
+     * what happened to be in that pocket and record the rest as handed over. Four members holding two
+     * logs each would finish a gather-eight quest and surrender two logs, and the difference would
+     * never be visible: the task is recorded as satisfied either way.
+     *
+     * <p>So the mode carries both answers — see {@link PartyMode#takesFromEveryone} — and this is the
+     * second one. The two cannot drift, because they are read off the same mode that did the counting.
+     *
+     * <h2>The order is the member order, which is stable</h2>
+     *
+     * <p>Members are paid from in the same sorted order the counts were read in, so which pockets get
+     * lighter is reproducible rather than dependent on map iteration. That matters for a player
+     * noticing that their stack went down instead of their friend's, and it matters more for a
+     * failure that has to be re-creatable.
+     *
+     * <p>Stopping early when {@code remaining} reaches zero is the common case rather than an
+     * optimisation: the first member usually holds most of it, and the party usually has one member.
+     */
+    private static void consumeAcross(List<ServerPlayer> members, QuestTask task, int count) {
+        int remaining = count;
+        for (ServerPlayer member : members) {
+            if (remaining <= 0) {
+                return;
+            }
+            remaining -= consume(member, task, remaining);
+        }
+        // Falling out of the loop with `remaining` above zero is possible in principle and not worth
+        // a warning: the count was taken from live inventories a moment ago, and the only way to get
+        // here is for an inventory to have changed between the count and the take. What it means is
+        // that the party gave what it had, which is all a consuming task can ask of anybody.
     }
 
     private static Optional<Chapter> chapterOf(QuestIndex index, QuestIndex.QuestEntry entry) {

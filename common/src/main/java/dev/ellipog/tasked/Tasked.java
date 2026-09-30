@@ -5,6 +5,7 @@ import dev.ellipog.armature.api.event.ArmatureEvents;
 import dev.ellipog.armature.api.teams.TeamEvents;
 import dev.ellipog.armature.api.teams.Teams;
 
+import dev.ellipog.tasked.party.PartyStore;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
@@ -235,8 +236,18 @@ public final class Tasked {
         //     walking the team there would send N messages to each of N members for one disband. Each
         //     member's own event names them, so the named player is the whole audience.
         //
-        // TEAM_CREATED is deliberately not subscribed: a new team is empty and nobody's progress
-        // belongs to it yet, so there is nothing to tell anybody.
+        //   - CREATED: **the creator's progress owner changes**, which is the case that looks like it
+        //     can be skipped and cannot. Forming a party moves their progress from their own solo id
+        //     to the party's, so their client is holding a solo questline being drawn against a
+        //     party's empty progress. This listener was first written *declining* to subscribe to it,
+        //     on the reasoning that "a new team is empty and nobody's progress belongs to it yet" --
+        //     which is true of everybody except the one player who just created it.
+        TeamEvents.TEAM_CREATED.register((eventServer, team) -> {
+            Constants.LOG.info("Tasked: team '{}' created; {} progress now comes from it",
+                    team.name(), team.owner());
+            TaskedNetworking.sendTeamChange(eventServer, team, null);
+        });
+
         TeamEvents.MEMBER_JOINED.register((eventServer, team, player) -> {
             Constants.LOG.info("Tasked: {} joined team '{}'; progress now comes from team {}",
                     player, team.name(), team.id());
@@ -252,5 +263,16 @@ public final class Tasked {
             }
             TaskedNetworking.sendTeamChange(eventServer, team, player);
         });
+
+        // The party's chosen progress mode goes with the party.
+        //
+        // Here rather than nowhere, and here *only* for a source that fires events -- which is why
+        // the command's own disband clears it too. A source that fires nothing never tells anybody a
+        // party is gone, so on such a server this listener never runs and the entry is cleared by the
+        // command or not at all. A party disbanded through a foreign mod's own screen still leaves a
+        // line behind, and that is stated rather than implied: the id is a fresh UUID every time, so
+        // the entry is unreadable rather than wrong. See PartyStore.clear.
+        TeamEvents.TEAM_DISBANDED.register((eventServer, team) ->
+                PartyStore.of(eventServer).clear(team.id()));
     }
 }

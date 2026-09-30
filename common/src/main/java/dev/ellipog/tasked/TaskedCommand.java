@@ -106,6 +106,12 @@ public final class TaskedCommand {
                 .then(Commands.literal("types")
                         .executes(TaskedCommand::types))
 
+                // The party commands, in their own file. Not a tidiness split: this one is 598 lines
+                // about quests, and party membership is a different subject with a different owner --
+                // Armature's teams. Two subjects, two files, and the boundary is where a reader would
+                // look for it.
+                .then(TaskedPartyCommand.node())
+
                 // `/tasked theme` and `/tasked motion` were here. They are gone, and where they went
                 // is the point rather than the tidy-up.
                 //
