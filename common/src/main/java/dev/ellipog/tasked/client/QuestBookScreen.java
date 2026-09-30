@@ -501,6 +501,53 @@ public final class QuestBookScreen extends Screen {
     private int bookButtonCount;
 
     /**
+     * Where the sidebar's rows end in {@link #buttons}, and where the header's controls end.
+     *
+     * <h2>Why two indices rather than one, and why neither is {@link #bookButtonCount}</h2>
+     *
+     * <p>The book's controls are built in three groups, in this order: the sidebar's rows, then the
+     * header's two controls, then the view cluster. All three belong to the book and all three are
+     * built while a modal is open, because the book is <b>drawn</b> behind the modal rather than
+     * replaced by it.
+     *
+     * <p>Drawn is right and inert is also right, and the two groups are not the same set. The header's
+     * pair must stay <b>live</b> — Close closes the dialog and the party button opens the panel, which
+     * are wanted precisely when a modal is up — while the rows and the cluster must not answer the
+     * pointer at all. {@code bookButtonCount} marks where the <i>modal's</i> controls begin and so
+     * cannot express either, and deactivating up to it would have made Close dead exactly when a dialog
+     * was open: the fault this round is about, reintroduced by its own fix.
+     *
+     * <p>So the two boundaries are recorded rather than derived. An index is the right shape for it
+     * because which buttons belong to the book is a fact about how they were <b>constructed</b>:
+     * testing a rectangle would be a layout fact that happens to agree, and deriving the count from the
+     * geometry would make {@code setBookControlsActive} agree with {@code init} by construction, which
+     * is the property that makes a layout test worthless.
+     */
+    private int sidebarRowEnd;
+    private int headerChromeEnd;
+
+    /**
+     * How many rosters had arrived when the party panel was last built.
+     *
+     * <h2>Why a counter, and why the panel needs one at all</h2>
+     *
+     * <p>Because a party's roster is <b>pushed while the panel describing it is open</b>.
+     * {@code PartySyncPayload}'s own note names that as the case that stops the roster being
+     * request-only: somebody accepts an invite or an officer removes somebody, and the person looking
+     * at the panel is owed a redraw. The widgets are created in {@code init} and placed once, so a
+     * message arriving in between changes {@link ClientPartyCache} and nothing else — the panel goes on
+     * drawing the roster it was built with, which is a party that has since gained or lost a member.
+     * Every row in it is still a real name, which is what makes it convincing.
+     *
+     * <p>Compared against a counter rather than against the two snapshots, and that is
+     * {@code ClientQuestCache.treeRevision}'s argument read the other way: "a roster arrived" is a fact
+     * about a message, while "the roster differs" is a judgement this screen would have to make with
+     * its own answer for an identical re-send. {@code -1} rather than {@code 0} so the initial value
+     * cannot be mistaken for a real roster that has been drawn.
+     */
+    private static long partyRevision = -1;
+
+    /**
      * Close, which is in {@link #buttons} but is not drawn by the widget pass.
      *
      * <h2>Why this is a field rather than one more entry in the list</h2>
@@ -1139,10 +1186,18 @@ public final class QuestBookScreen extends Screen {
                 ? "" : minecraft.player.getScoreboardName();
 
         if (!roster.isReal()) {
-            // Creating needs a name and there is no text field in the kit -- see `partyRows`' own note
-            // on the compromise. The player's own name is the one sensible default to hand.
+            // Creating needs a name and there is no text field in the kit, so the name is derived from
+            // the player's own. **Every character in it has to survive Brigadier**, and the first
+            // version did not: it built `Ellipog's party`, and an apostrophe is not a character the
+            // parser is obliged to accept in an unquoted argument -- so the button produced a command
+            // the server refused.
+            //
+            // A player name *can* contain characters Brigadier would rather quote, so the whole thing
+            // is sanitised to letters, digits, spaces, underscores and hyphens. A name is cosmetic; a
+            // command that fails is not.
+            String base = self.isEmpty() ? "My" : sanitise(self);
             rows.add(new PartyRow("create", "Not in a party", "Create",
-                    "/tasked party create " + (self.isEmpty() ? "My" : self) + "'s party"));
+                    "/tasked party create " + base + " party"));
 
             for (PartySnapshot.Invite invite : snapshot.invites()) {
                 rows.add(new PartyRow("accept:" + invite.teamId(),
@@ -1165,6 +1220,23 @@ public final class QuestBookScreen extends Screen {
             }
         }
         return List.copyOf(rows);
+    }
+
+    /**
+     * A string that can be an unquoted command argument.
+     *
+     * <p>Letters, digits, spaces, underscores and hyphens; everything else becomes an underscore. That
+     * is a superset of what Brigadier's unquoted argument accepts and a subset of what a Minecraft name
+     * can contain, which is the whole point: the set of characters a name <i>may</i> hold and the set an
+     * argument may hold are not the same, and the panel builds one from the other.
+     */
+    private static String sanitise(String raw) {
+        StringBuilder out = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            out.append(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-' ? c : '_');
+        }
+        return out.toString();
     }
 
     /**
@@ -1341,10 +1413,16 @@ public final class QuestBookScreen extends Screen {
         if (minecraft == null || minecraft.getConnection() == null) {
             return;
         }
-        // A slash-prefixed command through the connection, which is what a chat keybind sends and what
-        // the server accepts from any player. `sendCommand` rather than `sendChat` precisely so no chat
-        // message is produced or logged: this is a control press, not something the player said.
-        minecraft.getConnection().sendCommand(command);
+        // **No leading slash.** `ClientPacketListener.sendCommand` takes a bare command -- which is
+        // why `ChatScreen` strips the slash before calling it -- and passing one is not harmless:
+        // the server's dispatcher reads the first token as the command name, so `/tasked party create
+        // X` was parsed as a command called `/tasked` and answered "Unknown or incomplete command".
+        //
+        // That was every button on this panel, because they all go through here. `sendCommand` rather
+        // than `sendChat` for the other half of the same reason: no chat message is produced or
+        // logged, because a control press is not something the player said.
+        minecraft.getConnection().sendCommand(
+                command.startsWith("/") ? command.substring(1) : command);
         closeOverlay();
     }
 
@@ -1385,11 +1463,6 @@ public final class QuestBookScreen extends Screen {
      * would make it read as the current chapter — the confusion the fill exists to prevent, one level up.
      */
     private void buildSidebarWidgets() {
-        // Recorded here rather than in `init`, because this is the last thing built that belongs to the
-        // book -- see `bookButtonCount`. `init` calls this and then builds either the book's chrome or an
-        // overlay's controls, so the count is correct at the moment it is read.
-        bookButtonCount = buttons.size();
-
         SidebarLayout layout = sidebar();
         sidebarView.clear();
 
@@ -1437,6 +1510,11 @@ public final class QuestBookScreen extends Screen {
         // Cleared with them: the rows are drawn from this list, so a rebuild that left it alone would
         // draw the previous panel's rows over the new one.
         partyRows = new ArrayList<>();
+        // The two boundaries are per-open state, so they are reset here rather than left to whatever
+        // the last `init` recorded -- a branch that forgot to set one would otherwise inherit the
+        // previous branch's index and deactivate the wrong buttons.
+        sidebarRowEnd = 0;
+        headerChromeEnd = 0;
 
         // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
         // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
@@ -1449,17 +1527,41 @@ public final class QuestBookScreen extends Screen {
         // and a canvas reads the chapter, and neither has an order dependency on the other.
 
         if (overlay == Overlay.QUEST) {
-            // The book's own controls as well, because the book is now drawn *behind* the modal rather
-            // than replaced by it -- and the sidebar's rows are widgets, so without this the column
-            // behind the card would be empty.
+            // The book's own controls as well, because the book is drawn *behind* the modal rather than
+            // replaced by it -- so the column behind the card is not empty.
             buildSidebarWidgets();
+            sidebarRowEnd = buttons.size();
+            // And the header's. This is the fix for a Close button that vanished exactly when a dialog
+            // was open: it was built by the book's branch alone, so opening a modal cleared every widget
+            // and left `closeButton` pointing at one no longer in `children`.
+            buildHeaderChrome();
+            headerChromeEnd = buttons.size();
+            // And the view cluster, which the book's branch alone used to build. That is why the three
+            // map buttons went missing behind a modal: the modal branches built the sidebar and the
+            // header and stopped, so the cluster was simply absent. It belongs to the book, and the
+            // book is drawn behind the card, so it is built here too and made inert with the rest.
+            buildViewCluster();
+            // Where the book's controls end and this modal's begin. See `bookButtonCount`.
+            bookButtonCount = buttons.size();
+
             buildOverlayWidgets();
+            setBookControlsActive(false);
             return;
         }
 
         if (overlay == Overlay.PARTY) {
             buildSidebarWidgets();
+            sidebarRowEnd = buttons.size();
+            buildHeaderChrome();
+            headerChromeEnd = buttons.size();
+            buildViewCluster();
+            bookButtonCount = buttons.size();
+
             buildPartyWidgets();
+            // Which roster this panel was built from, so `renderWith` can tell that a later one is a
+            // reason to rebuild. See the field.
+            partyRevision = ClientPartyCache.rosterRevision();
+            setBookControlsActive(false);
             return;
         }
 
@@ -1469,8 +1571,6 @@ public final class QuestBookScreen extends Screen {
         // from numbers written here by hand, and a test asserting on a *parallel* description would
         // have passed while the screen still overlapped -- which is worse than no test at all, because
         // it would have been believed.
-        Map<String, BookGeometry.Rect> controls = geometry().controls();
-
         // The chapter list, which is no longer this method's to place.
         //
         // It used to be a loop right here: BookGeometry handed out chapter0, chapter1, ... and this
@@ -1485,6 +1585,7 @@ public final class QuestBookScreen extends Screen {
         // job is to say so. What the chapter loop's comment said about selection is still true and now
         // lives in `buildSidebarWidgets`, because that is where the chapter rows are made.
         buildSidebarWidgets();
+        sidebarRowEnd = buttons.size();
 
         // Close, in the header's right corner. A modal panel is closed by the thing in its corner, and
         // the header had a mostly empty right end.
@@ -1498,37 +1599,8 @@ public final class QuestBookScreen extends Screen {
         // sitting permanently under the chapter list — the picker beside the editor, and the motion
         // switch beside the accessibility settings it duplicates. See BookGeometry.controls for why the
         // geometry went with them and why the space went back to the chapter list.
-        // `chromeControl`, not `control`: Close is in the header, which the widget clip now excludes.
-        // See that method for why the input half stays with the base class and only the drawing moves.
-        closeButton = chromeControl(controls.get("close"), Component.literal("\u2715"), this::onClose);
-        if (closeButton != null) {
-            closeButton.textColour(ArmatureTheme.body())
-                    .tooltip(List.of(Component.literal("Close the book"),
-                            Component.literal("Escape does the same")));
-        }
-
-        // The party strip, at the foot of the column. A `control` rather than a `chromeControl`,
-        // because it sits below the sidebar's clip line -- the clip starts at the list's top -- so the
-        // base widget pass draws it where it belongs and there is nothing to hand-draw.
-        //
-        // Its label is written by `drawPartyStrip` rather than fixed here, deliberately: the roster it
-        // describes changes whenever a payload arrives, and a label set at construction would go stale
-        // on the one screen whose whole subject is whether a roster is up to date.
-        // **Labelled here rather than by the drawing**, and that is a fix rather than a preference. The
-        // strip this replaces had its message written in `drawBook`, which runs before the widget pass
-        // within a frame, so the first frame after `init` drew an empty control and any frame where the
-        // widget pass came first drew nothing at all. The report was exactly that: no text on the party
-        // button.
-        //
-        // A widget's message belongs where the widget is made. What changes with the roster is not the
-        // label -- "Party" says the same thing whoever is in it -- but the tooltip, and a stale tooltip
-        // costs a hover line where a stale label cost the whole control.
-        partyButton = chromeControl(controls.get("party"),
-                Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
-        if (partyButton != null) {
-            partyButton.textColour(ArmatureTheme.body())
-                    .tooltip(partyTooltip());
-        }
+        buildHeaderChrome();
+        headerChromeEnd = buttons.size();
 
         // The view cluster: three square buttons in the canvas's own top-left corner.
         //
@@ -1536,6 +1608,37 @@ public final class QuestBookScreen extends Screen {
         // column, which is *why* the footer needed two rows at all. They are map controls, so they
         // belong on the map: that is where a player looks for them, and it costs the chapter list
         // nothing. The rectangles come from the same map the overlap test walks.
+        buildViewCluster();
+
+        // Every other branch of this method returns early, so this is the book's own end: past here
+        // there is nothing but the book's controls, and no overlay's. See `bookButtonCount`.
+        bookButtonCount = buttons.size();
+        setBookControlsActive(true);
+    }
+
+    /**
+     * The three map buttons, in the canvas's own top-left corner.
+     *
+     * <h2>Why this is a method rather than three calls in one branch of {@code init}</h2>
+     *
+     * <p>Because it used to be three calls in one branch, and the branch that mattered was another one.
+     * The cluster was built by the book's branch alone, so opening a modal -- which rebuilds every
+     * widget -- left the canvas without its three buttons. That is a control that is <i>absent</i>
+     * rather than inert, and it is what "the main UI buttons top left" being missing was: the modal
+     * branches built the sidebar and the header and stopped.
+     *
+     * <p>So the cluster is built by every branch, like the sidebar and the header, and it is made inert
+     * with them -- it belongs to the book, and the book is drawn behind the card. The order in
+     * {@code init} is what makes that work: this runs before {@code bookButtonCount} is recorded, so
+     * the cluster is on the book's side of that boundary and is not drawn a second time by the modal's
+     * own redraw.
+     *
+     * <p>The rectangles come from the same map the overlap test walks, which is the reason the three
+     * calls were written this way to begin with.
+     */
+    private void buildViewCluster() {
+        Map<String, BookGeometry.Rect> controls = geometry().controls();
+
         control(controls.get("zoomIn"), Component.literal("+"), () -> zoomCentre(1.25F))
                 .tooltip(List.of(Component.literal("Zoom in"),
                         Component.literal("Or scroll up over the canvas")))
@@ -1546,8 +1649,8 @@ public final class QuestBookScreen extends Screen {
                         Component.literal("Or scroll down over the canvas")))
                 .textColour(ArmatureTheme.body());
 
-        // A glyph rather than the word "Centre", because it is an 18-pixel square now: "Centre" in that
-        // box would be cut off by the button's own font measurement — and it was that measurement that
+        // A glyph rather than the word "Centre", because it is an 18-pixel square: "Centre" in that
+        // box would be cut off by the button's own font measurement -- and it was that measurement that
         // fixed the chapter titles, so the fix here is to pass a label that fits rather than to widen
         // the control back out. The tooltip carries the word.
         control(controls.get("centre"), Component.literal("\u25c9"), () -> {
@@ -1557,7 +1660,90 @@ public final class QuestBookScreen extends Screen {
                 .tooltip(List.of(Component.literal("Re-centre the view"),
                         Component.literal("Drag with left or middle to pan")))
                 .textColour(ArmatureTheme.body());
+    }
 
+    /**
+     * The two controls in the header: Close and the party button.
+     *
+     * <h2>Why this is a method rather than a block in one branch of `init`</h2>
+     *
+     * <p>Because all three branches need it, and only one of them had it. The header chrome was built
+     * by the branch that builds the book, so opening a modal -- which clears every widget and builds
+     * the modal's controls instead -- left both fields pointing at controls that were no longer in
+     * `children`. That is why Close disappeared exactly when a dialog was open: the one control every
+     * dialog has, gone at the moment it was wanted.
+     *
+     * <h2>Both are `chromeControl`, not `control`</h2>
+     *
+     * <p>They are in the header, and the widget pass is clipped from the sidebar list's top *downwards*
+     * so that a scrolled row cannot be drawn through the title bar. That clip swallows everything above
+     * it, so these two are drawn by hand in the chrome layer -- see {@code render}. `chromeControl`
+     * keeps them in `children` so they still receive input, while leaving them out of `renderables` so
+     * the base pass does not try to draw them behind the clip.
+     */
+    private void buildHeaderChrome() {
+        Map<String, BookGeometry.Rect> controls = geometry().controls();
+
+        // Close closes the *modal* when one is open, and the book otherwise. That is what Escape does
+        // already -- see `keyPressed` -- and the two have to agree, because they are the same gesture
+        // and a player will use whichever they reach for.
+        closeButton = chromeControl(controls.get("close"), Component.literal("\u2715"), () -> {
+            if (overlay != Overlay.NONE) {
+                closeOverlay();
+            }
+            else {
+                onClose();
+            }
+        });
+        if (closeButton != null) {
+            closeButton.textColour(ArmatureTheme.body());
+        }
+
+        // Labelled here rather than by the drawing, and that is a fix rather than a preference. The
+        // strip this replaces had its message written in `drawBook`, which runs before the widget pass
+        // within a frame -- so the first frame after `init` drew an empty control, and any frame where
+        // the widget pass came first drew nothing at all. The report was exactly that: no text on the
+        // party button.
+        //
+        // What changes with the roster is not the label -- "Party" says the same thing whoever is in it
+        // -- but the tooltip, and a stale tooltip costs a hover line where a stale label cost the whole
+        // control.
+        partyButton = chromeControl(controls.get("party"),
+                Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
+        if (partyButton != null) {
+            partyButton.textColour(ArmatureTheme.body());
+        }
+    }
+
+    /**
+     * Makes the book's own controls inert while a modal is open.
+     *
+     * <h2>Why `active` and not a check in `mouseClicked`</h2>
+     *
+     * <p>Because this method already returns early for an open overlay -- and that was not enough. The
+     * early return stops <i>this</i> method reaching its own logic, but the modal's controls are reached
+     * through {@code super.mouseClicked}, which walks every widget. So the report was right: a sidebar
+     * row under the card still took a click and still scrolled.
+     *
+     * <p>{@code AbstractWidget.mouseClicked} returns false for an inactive widget and {@code draw}
+     * returns immediately, so one flag per button turns off input and painting together -- which is the
+     * point. Disabling input alone would leave the rows drawn over the card wherever the two overlap.
+     *
+     * <p>The buttons stay in {@code children} rather than being cleared, so the scroll view's own state
+     * survives: closing the modal has to restore a chapter list scrolled where the player left it.
+     */
+    private void setBookControlsActive(boolean active) {
+        int end = Math.min(bookButtonCount, buttons.size());
+        for (int i = 0; i < end; i++) {
+            // The header's two controls stay live whatever happens here. Close closes the dialog and
+            // the party button opens the panel; both are wanted *because* a modal is open, so a rule
+            // that made the book inert would take them with it. See the fields for why the two
+            // boundaries are recorded rather than derived.
+            if (i >= sidebarRowEnd && i < headerChromeEnd) {
+                continue;
+            }
+            buttons.get(i).active = active;
+        }
     }
 
     private void buildOverlayWidgets() {
@@ -1765,7 +1951,11 @@ public final class QuestBookScreen extends Screen {
             // quests there are no widgets in the cluster, so the panel would be a raised box with three
             // things missing from it. `drawBook` used to reach this line only after that early return,
             // and moving the panel here would have quietly dropped the guard with it.
-            if (overlay == Overlay.NONE && ClientQuestCache.hasData()) {
+            // Drawn whether or not a modal is open, because the cluster is built in every branch now
+            // and the mat is what makes the three buttons read as one group. The guard used to include
+            // `overlay == Overlay.NONE`, which was right while only the book's branch built the buttons
+            // and wrong the moment the modal branches did too: three controls with no panel behind them.
+            if (ClientQuestCache.hasData()) {
                 BookGeometry.Rect cluster = viewControls();
                 ArmatureTheme.panel(renderer, cluster.x(), cluster.y(), cluster.width(),
                         cluster.height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
@@ -1820,7 +2010,11 @@ public final class QuestBookScreen extends Screen {
             // overlay's two controls instead, so without this the field would still be pointing at a
             // control that has been removed — and `draw` checks `visible`, not membership, so it would
             // cheerfully draw Close over the quest card.
-            if (overlay == Overlay.NONE && closeButton != null) {
+            // Drawn whether or not an overlay is open, and its absence here was a reported fault: the
+            // guard read `overlay == Overlay.NONE`, so the one control every dialog has disappeared at
+            // the moment a dialog was open. It closes the modal rather than the book when one is up --
+            // see `buildHeaderChrome` -- which is what Escape already does.
+            if (closeButton != null) {
                 closeButton.draw(renderer);
             }
 
@@ -1830,19 +2024,41 @@ public final class QuestBookScreen extends Screen {
             // `children` and `renderables` -- so it received input and drew its own tooltip while
             // never being drawn itself. The report was exactly that: "invisible party button", with
             // the words "Your party" floating over an empty gap.
-            if (overlay == Overlay.NONE && partyButton != null) {
+            if (partyButton != null) {
                 partyButton.draw(renderer);
             }
 
             // The modal card, drawn last of the chrome so it is genuinely on top of everything:
             // the book, the scrim, the widget pass, and the sidebar's rows that are still built
             // behind it. See `drawModal` for why this is not in `renderWith`.
+            //
             // The clock is read here rather than threaded in from `renderWith`, and it is the
             // chrome layer's own for a reason: this layer already owns its pose, it is drawn last,
             // and nothing in it depends on a value computed before the widget pass. `renderWith`
             // reads its own from the same source for the same reason -- see its note on why nothing
             // in this screen or the toolkit reads a clock itself.
-            drawModal(renderer, mouseX, mouseY, net.minecraft.Util.getMillis());
+            if (overlay != Overlay.NONE) {
+                drawModal(renderer, mouseX, mouseY, net.minecraft.Util.getMillis());
+
+                // And the modal's **own controls, redrawn on top of the card**.
+                //
+                // **This is the ordering fix, and it is what "buttons invisible" was.** `super.render`
+                // above drew every widget -- including the overlay's Create, Accept and Invite buttons
+                // -- and then this layer painted the card over them. So they existed, were placed
+                // correctly, took clicks, and could not be seen.
+                //
+                // Redrawing is right rather than resorting the pass: a widget knows how to paint
+                // itself, so drawing one again is idempotent and costs a rounded box. The alternative
+                // is asking the base class to do half its job -- draw some renderables but not others
+                // -- which is the version of this that breaks the next time anything is added to the
+                // list.
+                //
+                // From `bookButtonCount` to the end, which is exactly the controls this `init` built
+                // for the modal rather than for the book.
+                for (int i = Math.min(bookButtonCount, buttons.size()); i < buttons.size(); i++) {
+                    buttons.get(i).draw(renderer);
+                }
+            }
 
             // Inside the raised Z as well, and that is not tidiness. A tooltip is a panel and some
             // text at Z = 0, so one overlapping a node's icon would have a hole punched in it by the
@@ -1920,6 +2136,16 @@ public final class QuestBookScreen extends Screen {
         // and nothing reads the sidebar, so the revision would stay stale and this would rebuild every
         // frame. `closeOverlay` rebuilds on the way out, which is where the sidebar comes back.
         if (overlay == Overlay.NONE && sidebarRevision != ClientQuestCache.treeRevision()) {
+            rebuildWidgets();
+        }
+
+        // And the same for a roster, one panel over. A party's membership can change <b>while the panel
+        // describing it is open</b> -- that is the case `PartySyncPayload` names as the reason the roster
+        // cannot be sent only on request -- and the panel's widgets were placed once, in `init`. So a
+        // roster that has arrived since is a reason to rebuild, and the counter is
+        // `ClientPartyCache.rosterRevision()`. See `partyRevision` for why a counter rather than a
+        // comparison of two snapshots.
+        if (overlay == Overlay.PARTY && partyRevision != ClientPartyCache.rosterRevision()) {
             rebuildWidgets();
         }
 
@@ -3492,6 +3718,11 @@ public final class QuestBookScreen extends Screen {
         // happens to share.
         sidebar = null;
         sidebarRevision = -1;
+        // And the party's, for the same reason: a roster is a fact about a server this client is no
+        // longer connected to, so the next connection's first roster has to count as new. Left alone,
+        // `-1` is also what makes the panel rebuild on the first frame of a session rather than only
+        // when a second roster happens to arrive.
+        partyRevision = -1;
     }
 
     @Override
