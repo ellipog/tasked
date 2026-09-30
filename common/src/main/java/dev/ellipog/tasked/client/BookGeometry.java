@@ -745,6 +745,53 @@ public final class BookGeometry {
                 VIEW_BUTTON + VIEW_MAT * 2, VIEW_COLUMN_HEIGHT + VIEW_MAT * 2);
     }
 
+    /**
+     * The body rows of a modal card: one rectangle per row, top-down.
+     *
+     * <h2>Why this is here and not in the screen or the layout</h2>
+     *
+     * <p>Because "where do the rows go inside this card" is a framing question, which is this class's
+     * whole subject, and because how *many* rows there are is not -- that depends on how many players
+     * are online. So this takes a count and returns the rectangles, and both the drawing and the
+     * buttons read them, which is the property that keeps a row's label and the button beside it from
+     * coming from two computations.
+     *
+     * <p>Reused by the party panel's action list and by its member list, deliberately: a roster row and
+     * an action row are the same kind of thing at the same size, and two methods that agreed today is
+     * how they would come to disagree.
+     *
+     * <p>Returns no more rows than fit, so a list longer than the card is clipped rather than drawn
+     * through the footer -- the caller does not have to know how tall the card is.
+     *
+     * @param card  the card to lay them out in
+     * @param count how many rows were asked for
+     * @param top   where the body starts, measured from the card's top
+     * @param bottom where the body ends, measured from the card's bottom
+     */
+    public static java.util.List<Rect> bodyRows(Rect card, int count, int top, int bottom) {
+        java.util.List<Rect> out = new java.util.ArrayList<>();
+        if (count <= 0) {
+            return out;
+        }
+
+        int y = card.y() + top;
+        int limit = card.bottom() - bottom;
+        int width = Math.max(0, card.width() - EDGE * 4);
+
+        for (int i = 0; i < count; i++) {
+            int rowHeight = ROW_HEIGHT;
+            if (y + rowHeight > limit) {
+                // Out of room. Everything past this is dropped rather than squeezed, which is what makes
+                // a long player list a limit rather than a fault -- the same choice the roster's own
+                // overflow makes, and stated for the same reason.
+                break;
+            }
+            out.add(Rect.at(card.x() + EDGE * 2, y, width, rowHeight));
+            y += rowHeight + ROW_GAP;
+        }
+        return out;
+    }
+
     /** The width available inside the sidebar, between its two edges. */
     private int sidebarInner() {
         return SIDEBAR_WIDTH - EDGE * 2;
@@ -831,19 +878,35 @@ public final class BookGeometry {
      * it 379 and the two fit; a 300-wide one gives 252 and they would not.
      */
     public Map<String, Rect> overlayControls(boolean hasSubmit) {
-        Map<String, Rect> out = new LinkedHashMap<>();
-        Rect box = overlay;
-        int height = OVERLAY_CONTROL_HEIGHT;
-        int rowY = box.bottom() - EDGE - height;
+        // **Measured against the card, not against the `overlay` field** -- and that was a real
+        // fault rather than a tidy-up. The field is the old full-screen rectangle, computed once
+        // in the constructor; the card is `modal()`, which is a different rectangle now. So Submit
+        // and Back were placed outside the card they belong to: Back just past its bottom-right
+        // corner, which is what the screenshot showed.
+        //
+        // The fault is the one this class exists to prevent, one level up: two rectangles describing
+        // one panel, agreeing until the panel changed shape.
+        return questFooter(modal(), hasSubmit);
+    }
 
-        Rect back = Rect.at(box.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
+    /**
+     * The quest overlay's footer, inside a card the caller supplies.
+     *
+     * <p>Submit on the left and Back on the right, and Back moves up a row when the two would
+     * collide. Kept separate from {@link #modalControls} because the two cards hold different
+     * controls -- see that method's note -- and this one takes its own width for Submit rather
+     * than the short party actions'.
+     */
+    public Map<String, Rect> questFooter(Rect card, boolean hasSubmit) {
+        Map<String, Rect> out = new LinkedHashMap<>();
+        int height = OVERLAY_CONTROL_HEIGHT;
+        int rowY = card.bottom() - EDGE - height;
+
+        Rect back = Rect.at(card.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
 
         if (hasSubmit) {
-            Rect submit = Rect.at(box.x() + EDGE + 8, rowY, SUBMIT_WIDTH, height);
+            Rect submit = Rect.at(card.x() + EDGE + 8, rowY, SUBMIT_WIDTH, height);
             if (submit.intersects(back)) {
-                // Not enough room on one row. Back moves up by its own height plus the usual gap,
-                // keeping its right alignment, and Submit keeps the bottom-left corner it is read from
-                // -- after the tasks and rewards, which is where the overlay's text ends.
                 back = Rect.at(back.x(), rowY - height - ROW_GAP, BACK_WIDTH, height);
             }
             out.put("submit", submit);

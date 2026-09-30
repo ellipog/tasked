@@ -486,9 +486,36 @@ public final class TaskedNetworking {
             // and its note on why a disband has to send something rather than nothing.
             return;
         }
+        // Two lists travel per *recipient* rather than with the party, and that is what `withPlayers`
+        // is for: two members of one party receive different snapshots, because each has their own
+        // invitations. The online list is the same for both, and is filled here anyway so there is one
+        // call that produces a complete snapshot rather than two that have to agree.
+        //
+        // This is also what makes the panel usable without typing: an invitation the client cannot see
+        // is an invitation it cannot offer an Accept button for.
         for (PartySnapshot.Member member : snapshot.members()) {
-            sendRosterTo(server, member.id(), snapshot);
+            sendRosterTo(server, member.id(), snapshot
+                    .withPlayers(server, member.id(), id -> invitesFor(server, id))
+                    .withMode(dev.ellipog.tasked.party.PartyStore.of(server).modeOf(teamId).id()));
         }
+    }
+
+    /**
+     * The invitations a player is holding, as the snapshot's own record.
+     *
+     * <h2>Why the adapter is here rather than in the snapshot</h2>
+     *
+     * <p>Because the snapshot is a plain value -- it holds ids, names and an enum, and nothing about
+     * teams -- and `TeamInvite` would drag Armature's teams into a message format. So the conversion
+     * from a {@code Team} to the two fields the client needs happens at the one place that already
+     * deals with both, and the format stays a format.
+     */
+    private static java.util.List<PartySnapshot.Invite> invitesFor(MinecraftServer server, UUID player) {
+        java.util.List<PartySnapshot.Invite> out = new java.util.ArrayList<>();
+        for (Team team : dev.ellipog.armature.api.teams.Teams.of(server).invitesFor(player)) {
+            out.add(new PartySnapshot.Invite(team.id(), team.name()));
+        }
+        return out;
     }
 
     /** One player's roster, if they are still connected. */

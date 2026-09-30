@@ -17,6 +17,8 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
+import dev.ellipog.tasked.net.PartySnapshot;
+import dev.ellipog.tasked.party.PartyMode;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.net.ClaimRewardPayload;
@@ -328,6 +330,32 @@ public final class QuestBookScreen extends Screen {
     private Layout partyLayout;
     private int partyOriginX;
     private int partyOriginY;
+
+    /**
+     * The panel's action rows, with the rectangles they were placed in.
+     *
+     * <h2>Why kept, when the widgets already carry their own positions</h2>
+     *
+     * <p>Because each row's *label* is drawn by the panel rather than by a widget -- a row is a label
+     * with an optional button beside it, and only the button is a control. So the drawing needs the
+     * same rectangles the buttons were made from, and a second derivation of them is how a name ends up
+     * beside somebody else's button.
+     */
+    private List<PlacedPartyRow> partyRows = new ArrayList<>();
+
+    /** A row and where it went. Produced by the widget pass, read by the drawing. */
+    private record PlacedPartyRow(PartyRow row, BookGeometry.Rect rect) {
+    }
+
+    /**
+     * How wide a row's action button is.
+     *
+     * <p>Wider than the footer's Leave and Disband, because these labels are "Create", "Accept" and
+     * "Invite" rather than "Leave" -- and because a row's button sits against the card's edge rather
+     * than in a footer where three things share one line. Sized from the longest of them at the same
+     * six-pixels-a-character measurement the footer uses; see `BookGeometry.PARTY_SHORT_LABEL_WIDTH`.
+     */
+    private static final int PARTY_ROW_BUTTON = 62;
 
     /**
      * The party strip's control, so the drawing can keep its label current.
@@ -1056,6 +1084,93 @@ public final class QuestBookScreen extends Screen {
         return List.copyOf(lines);
     }
 
+    /**
+     * One row of the party panel: a label on the left, and optionally a button on the right.
+     *
+     * <h2>Why a record rather than a widget per case</h2>
+     *
+     * <p>Because the three states of this panel -- no party, an invitation waiting, a roster -- are all
+     * "a list of rows with an action beside some of them", and the differences between them are what
+     * the rows <i>say</i> rather than how they are placed. So the placement is one loop over this list,
+     * and a state is a different list.
+     *
+     * @param key         what places this row
+     * @param label       what the row says, drawn at its left
+     * @param buttonLabel the button's label, or null for a row with no action
+     * @param command     the command the button sends, or null when there is no button
+     */
+    private record PartyRow(String key, String label, String buttonLabel, String command) {
+    }
+
+    /**
+     * The rows the panel shows, given the roster and what the client was last told.
+     *
+     * <h2>What this does not do, and the reason it is worth stating</h2>
+     *
+     * <p>It does not decide permissions. Every command behind these buttons re-checks on the server --
+     * that is the whole design -- so a row offered wrongly is a refusal rather than a wrong change. The
+     * panel's job is to offer the useful thing, not to be the authority.
+     *
+     * <p>Offers <b>Invite</b> for every online player who is not already in the party, including players
+     * already invited: the server refuses a duplicate, and hiding the row would mean the panel had to
+     * know who was already invited, which is a fact it would then have to keep in step.
+     */
+    private List<PartyRow> partyRows(PartyRoster roster, PartySnapshot snapshot) {
+        List<PartyRow> rows = new ArrayList<>();
+        String self = minecraft == null || minecraft.player == null
+                ? "" : minecraft.player.getScoreboardName();
+
+        if (!roster.isReal()) {
+            // Creating needs a name and there is no text field in the kit -- see `partyRows`' own note
+            // on the compromise. The player's own name is the one sensible default to hand.
+            rows.add(new PartyRow("create", "Not in a party", "Create",
+                    "/tasked party create " + (self.isEmpty() ? "My" : self) + "'s party"));
+
+            for (PartySnapshot.Invite invite : snapshot.invites()) {
+                rows.add(new PartyRow("accept:" + invite.teamId(),
+                        "Invited to " + invite.teamName(), "Accept", "/tasked party accept"));
+            }
+        }
+        else {
+            // The mode row, and its label says which mode is *in force* rather than only offering to
+            // change it. That is the honest reading of a cycling button: the thing you want to know
+            // before pressing it is what it is now.
+            PartyMode current = snapshot.modeOr();
+            rows.add(new PartyRow("mode", "Counts: " + current.id(), "Change",
+                    "/tasked party mode " + nextMode(current).id()));
+        }
+
+        for (String name : snapshot.online()) {
+            if (!name.equalsIgnoreCase(self)) {
+                rows.add(new PartyRow("invite:" + name, name, "Invite",
+                        "/tasked party invite " + name));
+            }
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * The mode after this one, for a button that cycles.
+     *
+     * <p>A cycle rather than a picker, because a picker is three controls and a cycling button is one --
+     * and the tooltip can say what the <i>next</i> mode means, which is the thing a player wants from a
+     * button that changes something.
+     */
+    private static PartyMode nextMode(PartyMode current) {
+        // A cycle, so one button reaches all three modes and the player can see where they are from the
+        // row's own label. It used to return `all[0]` unconditionally, because the client had no way to
+        // learn which mode was in force -- so the button set the default every time: a no-op from the
+        // default and a visible lie from any other mode. That was a control that did nothing, which is
+        // worse than no control. The mode travels on the snapshot now.
+        PartyMode[] all = PartyMode.values();
+        for (int i = 0; i < all.length; i++) {
+            if (all[i] == current) {
+                return all[(i + 1) % all.length];
+            }
+        }
+        return PartyMode.DEFAULT;
+    }
+
     private void buildPartyWidgets() {
         PartyRoster roster = partyRoster();
         // The card, sized to this roster. The footer is placed inside *it* rather than inside the
@@ -1098,6 +1213,31 @@ public final class QuestBookScreen extends Screen {
                     .tooltip(List.of(
                             Component.literal("Remove " + member.name() + " from the party"),
                             Component.literal("They keep their own progress, as always")));
+        }
+
+        // The action rows: create, accept, invite, change-mode. Placed from `BookGeometry.bodyRows`,
+        // so a row's label and its button come from one rectangle rather than two that agree.
+        java.util.List<PartyRow> wanted = partyRows(roster, ClientPartyCache.snapshot());
+        java.util.List<BookGeometry.Rect> rects = BookGeometry.bodyRows(
+                card, wanted.size(), BODY_TOP - 24, BODY_BOTTOM + EDGE);
+        partyRows = new ArrayList<>();
+
+        for (int i = 0; i < rects.size(); i++) {
+            PartyRow row = wanted.get(i);
+            BookGeometry.Rect rect = rects.get(i);
+            partyRows.add(new PlacedPartyRow(row, rect));
+
+            if (row.buttonLabel() == null) {
+                continue;
+            }
+            ArmatureButton action = control(rect.right() - PARTY_ROW_BUTTON, rect.y(),
+                    PARTY_ROW_BUTTON, rect.height(),
+                    Component.literal(row.buttonLabel()),
+                    () -> runPartyCommand(row.command()));
+            if (action != null) {
+                action.tooltip(List.of(Component.literal(row.buttonLabel() + ": " + row.label()),
+                        Component.literal(row.command())));
+            }
         }
 
         ArmatureButton leave = control(footer.get("leave"),
@@ -1268,6 +1408,9 @@ public final class QuestBookScreen extends Screen {
         // the guard at the drawing site for what that looks like.
         closeButton = null;
         partyButton = null;
+        // Cleared with them: the rows are drawn from this list, so a rebuild that left it alone would
+        // draw the previous panel's rows over the new one.
+        partyRows = new ArrayList<>();
 
         // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
         // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
@@ -1453,6 +1596,29 @@ public final class QuestBookScreen extends Screen {
             back.textColour(ArmatureTheme.body())
                     .tooltip(Component.literal("Escape also closes this"));
         }
+    }
+
+    /**
+     * Whether a point is outside whichever card is open.
+     *
+     * <h2>One expression, for two cards of two sizes</h2>
+     *
+     * <p>The two modals are different rectangles -- `modal()` for a quest and
+     * `modal(partyCardHeight(...), PARTY_MODAL_WIDTH)` for a roster -- so a caller asking "is this
+     * outside" has to ask the right one. This asks the same way the drawing does, by re-deriving the
+     * card from the same call, which is the property that stops a click being measured against a card
+     * that is not on screen.
+     *
+     * <p>A click inside a card but not on a control does nothing, deliberately: it belongs to the
+     * panel. A click outside closes it, which is what every dialog does.
+     */
+    private boolean clickedOutsideCard(double mouseX, double mouseY) {
+        BookGeometry.Rect card = overlay == Overlay.PARTY
+                ? geometry().modal(partyCardHeight(partyRoster()), BookGeometry.PARTY_MODAL_WIDTH)
+                : geometry().modal();
+
+        return mouseX < card.x() || mouseX > card.right()
+                || mouseY < card.y() || mouseY > card.bottom();
     }
 
     private void openOverlay(String questId) {
@@ -1642,6 +1808,16 @@ public final class QuestBookScreen extends Screen {
                 partyButton.draw(renderer);
             }
 
+            // The modal card, drawn last of the chrome so it is genuinely on top of everything:
+            // the book, the scrim, the widget pass, and the sidebar's rows that are still built
+            // behind it. See `drawModal` for why this is not in `renderWith`.
+            // The clock is read here rather than threaded in from `renderWith`, and it is the
+            // chrome layer's own for a reason: this layer already owns its pose, it is drawn last,
+            // and nothing in it depends on a value computed before the widget pass. `renderWith`
+            // reads its own from the same source for the same reason -- see its note on why nothing
+            // in this screen or the toolkit reads a clock itself.
+            drawModal(renderer, mouseX, mouseY, net.minecraft.Util.getMillis());
+
             // Inside the raised Z as well, and that is not tidiness. A tooltip is a panel and some
             // text at Z = 0, so one overlapping a node's icon would have a hole punched in it by the
             // same mechanism -- and a tooltip is the last thing on the screen that should be see-through.
@@ -1741,30 +1917,15 @@ public final class QuestBookScreen extends Screen {
             renderer.fill(0, 0, width, height, ArmatureTheme.dim());
         }
 
-        if (overlay == Overlay.PARTY) {
-            // Chrome's palette, not a chapter's, and that difference is the point of the scoped-theme
-            // arrangement: a party is not content belonging to a questline, so no chapter's theme may
-            // reach it. Drawing it outside every scope is how that is expressed.
-            drawPartyOverlay(renderer, mouseX, mouseY, now);
-        }
-        else if (overlay == Overlay.QUEST) {
-            // The overlay is content: it describes the quest you opened, so it is drawn in the palette
-            // that quest belongs to rather than in the chrome's. Your answer put it inside the
-            // viewport's scope explicitly, and it is also the reading that keeps the screen coherent --
-            // clicking a node in a violet chapter and getting a blue panel reads as the theme having
-            // stopped working at the moment it was being used.
-            //
-            // The controls stay chrome, and they are drawn by `render` after this returns, so they are
-            // outside the scope without having to ask. That is the property the whole feature rests on:
-            // the button that leaves a chapter must not be recoloured by the chapter.
-            try (ArmatureTheme.Scope ignored = ArmatureTheme.scope(viewportTheme())) {
-                drawOverlay(renderer, mouseX, mouseY, now);
-            }
-        }
-        else {
-            // Nothing: the book is drawn before the scrim now, so an overlay sits over it rather than
-            // replacing it. This branch used to be the only place the book was drawn.
-        }
+        // The overlay is NOT drawn here any more. It is chrome, and chrome is drawn by
+        // `render`, in the raised-Z layer, after the widget pass -- see `drawModal`. Two things
+        // follow, and both were reported faults: the card is genuinely on top of the quest
+        // canvas's item icons (which write depth at Z = 150 and so beat a card at Z = 0 whatever
+        // the draw order), and the sidebar's rows behind it are *under* it rather than over it.
+        //
+        // What stays here is the scrim, because the scrim belongs to the book: it is the thing
+        // that says the book is inert, and it is drawn while the book's own pixels are still the
+        // most recent ones.
 
         // Tooltips are deliberately NOT drawn here, and that is a bug fix rather than a preference.
         //
@@ -1864,16 +2025,26 @@ public final class QuestBookScreen extends Screen {
         }
 
         if (!roster.isReal()) {
-            // Two lines rather than one: "no party" is the fact, and the command is the useful part.
-            r.text(Component.translatable("tasked.screen.party.none").getString(),
-                    partyOriginX, partyOriginY, ArmatureTheme.body());
-            r.text("/tasked party create <name>", partyOriginX,
-                    partyOriginY + r.lineHeight() + 4, ArmatureTheme.faint());
+            // No empty state of its own any more, and its absence is the point of this round. It used
+            // to say "you are not in a party" and name a command to type -- which is what the request
+            // was about: *"dont just say oh create a party with commands, have buttons"*. The rows
+            // drawn below it now carry a Create button, an Accept per invitation, and an Invite per
+            // online player, so the words are the first row's label rather than a dead end.
             return;
         }
 
         if (partyLayout == null) {
             return;
+        }
+
+        // The action rows first, because they are the top of the body when there is no party and the
+        // bottom of it when there is -- see `partyRows` for why the order is what it is.
+        for (PlacedPartyRow placed : partyRows) {
+            BookGeometry.Rect rect = placed.rect();
+            int textY = rect.y() + (rect.height() - r.lineHeight()) / 2;
+            int room = rect.width() - (placed.row().buttonLabel() == null ? 4 : PARTY_ROW_BUTTON + 8);
+            r.text(Measure.truncate(placed.row().label(), Math.max(0, room), textMeasure(r)),
+                    rect.x() + 2, textY, ArmatureTheme.body());
         }
 
         for (PartyRoster.Member member : roster.members()) {
@@ -1990,7 +2161,12 @@ public final class QuestBookScreen extends Screen {
         }
 
         String chapter = effectiveChapter();
-        if (chapter != null) {
+        // Skipped while a modal is open, and that is belt as well as braces. The card is drawn in the
+        // chrome layer now, so it is genuinely on top of the canvas -- but the canvas's item icons are
+        // 3D renders that write depth, and a graph *behind* a modal is a distracting thing to see
+        // moving under a scrim. The sidebar and the header stay, because those are what "have it in the
+        // background" is about: where you are, not what you were looking at.
+        if (chapter != null && overlay == Overlay.NONE) {
             drawCanvas(r, mouseX, mouseY, questsIn(chapter), now);
         }
 
@@ -2506,6 +2682,36 @@ public final class QuestBookScreen extends Screen {
      * than letting it draw over the controls, and being scoped it cannot be left open by an early
      * return.
      */
+    /**
+     * Draws whichever modal is open, in the raised-Z chrome layer.
+     *
+     * <h2>Why this is not called from `renderWith`</h2>
+     *
+     * <p>Because a modal is chrome and `renderWith` draws the book. The card has to be over the widget
+     * pass -- the sidebar's rows are widgets and they stay built behind the scrim -- and over the quest
+     * canvas's item icons, which are 3D renders that translate to Z = 150 and write depth. A card drawn
+     * at Z = 0 before either of them loses to both, whatever the draw order, which is exactly the fault
+     * the view cluster's backing panel had and the reason `CHROME_Z` exists.
+     *
+     * <p>So this is the one drawing call that belongs beside Close and the party button rather than
+     * beside the book, and the scrim stays in `renderWith` because the scrim is about the *book* being
+     * inert rather than about the card being present.
+     */
+    private void drawModal(GuiRenderer r, int mouseX, int mouseY, long now) {
+        if (overlay == Overlay.PARTY) {
+            drawPartyOverlay(r, mouseX, mouseY, now);
+        }
+        else if (overlay == Overlay.QUEST) {
+            // The quest overlay is content: it describes the quest you opened, so it is drawn in the
+            // palette that quest belongs to rather than in the chrome's. The controls stay chrome and
+            // are drawn by the widget pass, which is outside this scope -- so the button that leaves a
+            // chapter cannot be recoloured by the chapter. That is the property the feature rests on.
+            try (ArmatureTheme.Scope ignored = ArmatureTheme.scope(viewportTheme())) {
+                drawOverlay(r, mouseX, mouseY, now);
+            }
+        }
+    }
+
     private void drawOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
         ClientQuestCache.Entry entry = entryFor(overlayQuest);
         if (entry == null) {
@@ -2990,6 +3196,25 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // **The modal first, before the widgets**, and this is a fix rather than an ordering
+        // preference. `super.mouseClicked` walks every widget, and the book's own controls are still
+        // built behind the scrim -- so a sidebar row underneath the card took the click before this
+        // method ever reached its overlay branch. The card is modal in the sense that matters: nothing
+        // behind it answers the pointer at all.
+        //
+        // The branch returns rather than falling through, so `super` is never reached while an overlay
+        // is open. Its own controls answer here instead, through `super` called below.
+        if (overlay != Overlay.NONE) {
+            if (super.mouseClicked(mouseX, mouseY, button)) {
+                // One of the modal's own controls took it. Everything behind stays untouched.
+                return true;
+            }
+            if (clickedOutsideCard(mouseX, mouseY)) {
+                closeOverlay();
+            }
+            return true;
+        }
+
         // Widgets first. A control that was clicked must keep the event.
         if (super.mouseClicked(mouseX, mouseY, button)) {
             return true;
@@ -3007,19 +3232,6 @@ public final class QuestBookScreen extends Screen {
             sidebarView.beginThumbDrag(mouseY);
             sidebarView.dragThumbTo(mouseY);
             return true;
-        }
-
-        if (overlay == Overlay.PARTY) {
-            // The same rule the quest overlay obeys: outside the card closes, inside belongs to the
-            // panel. Its own branch rather than a shared one because the two cards are free to be
-            // different sizes -- BookGeometry gives them one rectangle today, and a shared branch would
-            // be the thing that had to change if that stopped being true.
-            if (mouseX < overlayLeft() || mouseX > overlayLeft() + overlayWidth()
-                    || mouseY < overlayTop() || mouseY > overlayTop() + overlayHeight()) {
-                closeOverlay();
-                return true;
-            }
-            return false;
         }
 
         if (overlay == Overlay.QUEST) {
@@ -3123,6 +3335,14 @@ public final class QuestBookScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (overlay == Overlay.PARTY) {
+            // Absorbed, and that is the fix for a hole the same shape as the click-through one: this
+            // method used to test only for QUEST, so the wheel went on scrolling the sidebar and
+            // zooming the canvas behind a party panel. A modal that answers the pointer but not the
+            // wheel is a modal with a hole in it.
+            return true;
+        }
+
         if (overlay == Overlay.QUEST) {
             // Inside the overlay the wheel scrolls the text, which is what a long description wants.
             // Zooming here would be wrong: there is no canvas to zoom.
@@ -3158,7 +3378,11 @@ public final class QuestBookScreen extends Screen {
     /** Escape closes the overlay rather than the book, if one is open. */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (overlay == Overlay.QUEST && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+        // Any overlay, not just the quest one. This tested `overlay == Overlay.QUEST`, which was the
+        // whole of the truth while there was one overlay and stopped being true the moment a second
+        // existed: the party panel could then be left by clicking outside or pressing Back, and not by
+        // the key every player reaches for first. A key that closes a dialog closes the dialog.
+        if (overlay != Overlay.NONE && keyCode == GLFW.GLFW_KEY_ESCAPE) {
             closeOverlay();
             return true;
         }

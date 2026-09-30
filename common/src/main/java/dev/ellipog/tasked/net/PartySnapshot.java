@@ -50,7 +50,8 @@ import java.util.UUID;
  * @param owner    who owns it
  * @param members  everyone in it, in no particular order. The client sorts for display
  */
-public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Member> members) {
+public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Member> members,
+                            List<Invite> invites, List<String> online, String mode) {
 
     /** The field separator. See the class note on why it is stripped from names. */
     private static final String SEP = "\u001f";
@@ -70,9 +71,26 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     public record Member(UUID id, String name, TeamRole role) {
     }
 
+    /**
+     * A party this player has been asked to join, and has not answered.
+     *
+     * <h2>Why an invitation travels at all</h2>
+     *
+     * <p>Because the panel is meant to work without typing, and "you have been invited" is a thing the
+     * client cannot derive: an invitation is server state that lives against a player who is not in the
+     * party yet, so nothing in the roster or the tree implies it. A panel without this shows an empty
+     * state and no way to answer an invitation that is waiting.
+     *
+     * @param teamId   the party that invited them
+     * @param teamName its name, so the client does not need a second round trip to say what it is
+     */
+    public record Invite(UUID teamId, String teamName) {
+    }
+
     /** A snapshot of nobody being in any party, which is a real answer rather than an absent one. */
     public static PartySnapshot none() {
-        return new PartySnapshot(new UUID(0L, 0L), "", new UUID(0L, 0L), List.of());
+        return new PartySnapshot(new UUID(0L, 0L), "", new UUID(0L, 0L), List.of(), List.of(), List.of(),
+                "one_member");
     }
 
     /** Whether this describes a party at all. False is the answer for a player who is alone. */
@@ -90,11 +108,27 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
      */
     public String pack() {
         StringBuilder out = new StringBuilder();
-        out.append(teamId).append('\n').append(clean(teamName)).append('\n').append(owner).append('\n');
+        // The mode on the header line, because it belongs to the party rather than to a player: one
+        // string whose absence is answered with the default, so a snapshot from an older server reads
+        // as counting the default way rather than as unreadable.
+        out.append(teamId).append('\n').append(clean(teamName)).append('\n').append(owner).append('\n')
+                .append(clean(mode)).append('\n');
         for (Member member : members) {
-            out.append(member.id()).append(SEP)
+            out.append('m').append(SEP)
+                    .append(member.id()).append(SEP)
                     .append(member.role().name()).append(SEP)
                     .append(clean(member.name())).append('\n');
+        }
+        for (Invite invite : invites) {
+            out.append('i').append(SEP)
+                    .append(invite.teamId()).append(SEP)
+                    .append(clean(invite.teamName())).append('\n');
+        }
+        for (String name : online) {
+            // No id: the client invites by *name*, because a command takes a name and the player it
+            // names may not be anyone this client has a uuid for. See PartySnapshot's note on why the
+            // action goes through a command at all.
+            out.append('o').append(SEP).append(clean(name)).append('\n');
         }
         return out.toString();
     }
@@ -113,7 +147,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
 
         String[] lines = packed.split("\n", -1);
-        if (lines.length < 3) {
+        if (lines.length < 4) {
             return none();
         }
 
@@ -124,14 +158,58 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
 
         List<Member> members = new ArrayList<>();
-        for (int i = 3; i < lines.length; i++) {
-            Member member = memberOrNull(lines[i]);
-            if (member != null) {
-                members.add(member);
+        List<Invite> invites = new ArrayList<>();
+        List<String> online = new ArrayList<>();
+
+        // One tagged line per entry, so the three lists can grow independently and a reader that does
+        // not know a tag skips it rather than mis-parsing the rest. That is the property that makes the
+        // format tolerant of an older client: an unknown prefix is ignored, and everything it does
+        // understand still arrives.
+        for (int i = 4; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isEmpty()) {
+                continue;
+            }
+            char tag = line.charAt(0);
+            String body = line.length() > 1 && line.charAt(1) == SEP.charAt(0)
+                    ? line.substring(2) : "";
+
+            switch (tag) {
+                case 'm' -> {
+                    Member member = memberOrNull(body);
+                    if (member != null) {
+                        members.add(member);
+                    }
+                }
+                case 'i' -> {
+                    Invite invite = inviteOrNull(body);
+                    if (invite != null) {
+                        invites.add(invite);
+                    }
+                }
+                case 'o' -> {
+                    if (!body.isEmpty()) {
+                        online.add(body);
+                    }
+                }
+                default -> {
+                    // An older format, or a newer one: skipped rather than guessed at.
+                }
             }
         }
 
-        return new PartySnapshot(teamId, lines[1], owner, List.copyOf(members));
+        return new PartySnapshot(teamId, lines[1], owner, List.copyOf(members),
+                List.copyOf(invites), List.copyOf(online), lines[3]);
+    }
+
+    /** An invitation, or null for a line this build cannot read. */
+    private static Invite inviteOrNull(String body) {
+        String[] parts = body.split(java.util.regex.Pattern.quote(SEP), 2);
+        if (parts.length < 2) {
+            return null;
+        }
+        UUID teamId = uuidOrNull(parts[0]);
+        return teamId == null ? null : new Invite(teamId, parts[1]);
     }
 
     private static Member memberOrNull(String line) {
@@ -205,7 +283,47 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         List<Member> members = new ArrayList<>(team.size());
         team.members().forEach((id, role) -> members.add(new Member(id, nameOf(server, id), role)));
 
-        return new PartySnapshot(team.id(), team.name(), team.owner(), List.copyOf(members));
+        // The invitations and the online list are filled by the caller that has the server, not here:
+        // this method's only argument is a team id, and neither list is a property of a team. See
+        // `withPlayers`.
+        return new PartySnapshot(team.id(), team.name(), team.owner(), List.copyOf(members),
+                List.of(), List.of(), "one_member");
+    }
+
+    /**
+     * The same snapshot with the invitations and the online players filled in.
+     *
+     * <h2>Why this is a second call rather than an argument to {@link #of}</h2>
+     *
+     * <p>Because the two lists belong to the *player being told*, not to the party. Two members of one
+     * party receive different snapshots -- each has their own invitations, and each may see a different
+     * player list -- so a method keyed only on a team id cannot produce them. Splitting it keeps
+     * {@code of} honest about what a team determines and puts the rest where the caller that knows the
+     * recipient already is.
+     */
+    public PartySnapshot withPlayers(MinecraftServer server, UUID recipient,
+                                     java.util.function.Function<UUID, List<Invite>> invitesFor) {
+        List<String> names = new ArrayList<>();
+        for (var player : server.getPlayerList().getPlayers()) {
+            names.add(player.getScoreboardName());
+        }
+        // Sorted, because the player list has no defined order and a roster that shuffled between
+        // frames would make the Invite buttons jump under the pointer.
+        names.sort(String::compareToIgnoreCase);
+
+        return new PartySnapshot(teamId, teamName, owner, members,
+                List.copyOf(invitesFor.apply(recipient)), List.copyOf(names), mode);
+    }
+
+    /** The same snapshot with the party's counting mode filled in. See {@link #mode}. */
+    public PartySnapshot withMode(String counted) {
+        return new PartySnapshot(teamId, teamName, owner, members, invites, online, counted);
+    }
+
+    /** The mode this party counts by, or the default when an older server sent none. */
+    public dev.ellipog.tasked.party.PartyMode modeOr() {
+        return dev.ellipog.tasked.party.PartyMode.byId(mode)
+                .orElse(dev.ellipog.tasked.party.PartyMode.DEFAULT);
     }
 
     private static String nameOf(MinecraftServer server, UUID player) {
