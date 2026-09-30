@@ -268,15 +268,47 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     // ------------------------------------------------------------------
 
     /**
-     * The snapshot of whoever owns {@code teamId}, read from the server's teams.
+     * The snapshot of the party with this id, read from the server's teams.
      *
      * <p>Resolves names from the player list, and falls back to a truncated id for a member who is
      * offline — which is a real state rather than an edge case: a party's roster includes people who
      * have logged off, and a panel that showed them as blank would look like a parsing fault.
+     *
+     * <h2>{@code byId}, and why that one word is the whole of a reported fault</h2>
+     *
+     * <p>This asked for {@code teamOf(teamId)} — and {@code teamOf} takes a <b>player's</b> id. It is
+     * "the team a player is in, or a solo team of one", so handing it a team id looks up a player who
+     * does not exist, finds no team, and synthesises {@code Team.solo(teamId)} — whose own javadoc says
+     * {@code persistent} is false. So the guard below was taken on <b>every</b> party that has ever
+     * existed, and this method returned "nobody is in a party" for all of them.
+     *
+     * <p>That is what "the party UI does not update" was, and it is worth being exact about because the
+     * symptom points somewhere else entirely. The panel, the roster, the buttons and the commands were
+     * all working; {@code sendPartyToTeam} returned early on an empty snapshot at the first line, so no
+     * roster message was ever put on the wire. A client that is never told anything draws the empty
+     * state — at creation, and again after reopening, which is why both halves of the report have one
+     * cause rather than two.
+     *
+     * <p>The trap is that the two lookups are one word apart and both compile. {@code teamOf} returns a
+     * {@code Team} and never fails, so a wrong id produces a plausible solo team rather than an error;
+     * {@code byId} returns an {@code Optional} and is the only one of the two that can answer "there is
+     * no such team". {@code Teams} is a source of teams <i>and</i> a source of teams-by-player, and the
+     * argument's meaning is entirely which of the two is called.
      */
     public static PartySnapshot of(MinecraftServer server, UUID teamId) {
-        Team team = dev.ellipog.armature.api.teams.Teams.of(server).teamOf(teamId);
+        // `byId`, not `teamOf`. See above: `teamOf` takes a player and would answer for nobody.
+        Optional<Team> found = dev.ellipog.armature.api.teams.Teams.of(server).byId(teamId);
+        if (found.isEmpty()) {
+            // No such party. A disbanded one, or an id from a message that outlived its team — and
+            // `none()` is the honest answer rather than a synthesised team of one.
+            return none();
+        }
+        Team team = found.get();
         if (!team.persistent()) {
+            // Redundant for a stored source, whose `byId` only ever returns real teams, and kept for
+            // the ones it is not redundant for: an adapter over somebody else's parties mod answers
+            // `byId` from that mod, and a source that reconstructed a solo team there would otherwise
+            // reach the panel as a party whose only member is its own id.
             return none();
         }
 

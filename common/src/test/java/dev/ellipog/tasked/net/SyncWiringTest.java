@@ -1,6 +1,8 @@
 package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
+import dev.ellipog.armature.api.teams.TeamRole;
+import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestProgress;
@@ -30,6 +32,7 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -99,6 +102,10 @@ class SyncWiringTest {
         // The cache is static state shared by every test in this JVM, which is how the client works:
         // one connection, one cache. Every test here has to start from nothing.
         ClientQuestCache.clear();
+        // And the party's, for the same reason and with the same hazard: a roster left over from an
+        // earlier test would be read by the pair test's "has a party" assertion, which would pass
+        // without the handler having done anything.
+        ClientPartyCache.clear();
         TaskedNetworking.forgetTransfers();
     }
 
@@ -510,6 +517,62 @@ class SyncWiringTest {
         assertTrue(ClientQuestCache.teamId().isEmpty(),
                 "a message that could not be read must leave the client with no team, so that the "
                         + "next delta is refused as well rather than applied onto the wreckage");
+    }
+
+    // ------------------------------------------------------------------
+    // The party roster, which is the one channel with no client-side parser
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a roster sent through the registered handler reaches the cache, and moves its revision")
+    void aRosterArrivesThroughTheHandler() {
+        // The party's counterpart to the tree test above, and the half of the reported fault this file
+        // is in a position to hold. Two separate things could leave the panel empty and they fail in
+        // different places: **the server may never send a roster** (see
+        // `QuestPlaythroughTest.aPartysRosterIsReadBackOffTheServer`) and **the client may never act on
+        // one**. This is the second: registration, codec, handler and cache, through the registry the
+        // loader is handed, so a registration pointed at the wrong method fails here.
+        //
+        // The revision is asserted alongside the contents, and it is not a formality. The panel is
+        // rebuilt when the counter moves, so a handler that filled the cache without moving the counter
+        // would leave a roster that arrives while the panel is open undrawn -- which is exactly the
+        // case `PartySyncPayload` says the roster cannot be request-only for.
+        UUID party = UUID.randomUUID();
+        UUID self = UUID.randomUUID();
+        UUID friend = UUID.randomUUID();
+        String packed = new PartySnapshot(party, "the crew", self,
+                List.of(new PartySnapshot.Member(self, "TaskedTester", TeamRole.OWNER),
+                        new PartySnapshot.Member(friend, "SomebodyElse", TeamRole.MEMBER)),
+                List.of(), List.of("TaskedTester", "SomebodyElse"), "pooled").pack();
+
+        long before = ClientPartyCache.rosterRevision();
+
+        Consumer<PartySyncPayload> handler = clientHandler("party_sync");
+        handler.accept(throughTheCodec(PartySyncPayload.CODEC, new PartySyncPayload(party, packed)));
+
+        assertTrue(ClientPartyCache.hasParty(),
+                "the roster did not reach the cache, so a client in a party of two would draw the "
+                        + "empty state for the rest of the session");
+        assertEquals(2, ClientPartyCache.memberCount());
+        assertEquals(party, ClientPartyCache.snapshot().teamId());
+        assertEquals("the crew", ClientPartyCache.snapshot().teamName(),
+                "both header fields came through, not just the one the assertions above name");
+        assertEquals(2, ClientPartyCache.snapshot().online().size(),
+                "and the online list, which is what the panel builds its Invite buttons from");
+
+        assertNotEquals(before, ClientPartyCache.rosterRevision(),
+                "a roster arrived, so the counter the panel compares must have moved -- a handler that "
+                        + "filled the cache silently would leave an open panel showing the roster it "
+                        + "was built with");
+
+        // A roster of nobody is a real message rather than an absent one: it is what a disband sends,
+        // and the client has to be able to tell "I am in no party" from "I have heard nothing".
+        handler.accept(throughTheCodec(PartySyncPayload.CODEC,
+                new PartySyncPayload(party, PartySnapshot.none().pack())));
+
+        assertFalse(ClientPartyCache.hasParty(),
+                "an empty roster must clear the party rather than be ignored, which is the whole "
+                        + "reason `sendNoPartyTo` sends something instead of nothing");
     }
 
     // ------------------------------------------------------------------

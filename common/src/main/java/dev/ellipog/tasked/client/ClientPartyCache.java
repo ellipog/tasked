@@ -34,12 +34,46 @@ public final class ClientPartyCache {
 
     private static volatile PartySnapshot snapshot = PartySnapshot.none();
 
+    /**
+     * How many rosters have arrived, so a screen can tell whether the one it drew is still current.
+     *
+     * <h2>Why an arriving roster is not the same event as a changed one</h2>
+     *
+     * <p>This is {@code ClientQuestCache.treeRevision}'s argument one panel over, and it exists because
+     * of the same reported fault read from the other end. {@code PartySyncPayload}'s own note says the
+     * roster is sent <b>when the membership changes and on join</b> — and the case it names as the
+     * reason it cannot be request-only is that <i>the panel is open while the membership changes</i>:
+     * somebody accepts an invite, an officer removes somebody. So a client with the panel open is owed
+     * a redraw, and nothing was asking for one.
+     *
+     * <p>An identity check on the snapshot would not do it, and the distinction is the point: two
+     * messages may describe the same party, and the useful question is not "is this roster different"
+     * but "has a roster arrived since I drew". The payload is the server saying "this is current now",
+     * which is a fact about the message rather than about its contents — and a screen that unpacked
+     * both to compare them would be answering a different question with its own answer for the
+     * re-send that happened to be identical.
+     *
+     * <p>{@code volatile} for the same reason the snapshot is: written from a payload handler, read
+     * from a screen, and a disconnect may clear it from another thread.
+     */
+    private static volatile long revision;
+
     private ClientPartyCache() {
     }
 
     /** The roster the server sent. Never null; {@link PartySnapshot#none()} until one arrives. */
     public static PartySnapshot snapshot() {
         return snapshot;
+    }
+
+    /**
+     * Which roster this cache holds. A caller compares it to decide whether what it drew is stale.
+     *
+     * <p>Only equality is ever asked of it, so nothing depends on the absolute value; it never
+     * decreases, for the same reason the tree's does not.
+     */
+    public static long rosterRevision() {
+        return revision;
     }
 
     /**
@@ -56,12 +90,23 @@ public final class ClientPartyCache {
         // roster that cannot be read becomes "no party" rather than an exception, because the only
         // thing this payload can do is fill a side panel, and losing a connection over one would be a
         // worse failure than showing the empty state.
+        //
+        // The revision moves on the message rather than on the contents, so it moves here -- after the
+        // null guard, so a message that never arrived does not count as a roster. A malformed string
+        // counts, deliberately: it became the empty state, the panel has to be redrawn to show that,
+        // and "the empty state arrived" is exactly as much a reason to redraw as any other roster. See
+        // the field's own note.
         snapshot = PartySnapshot.unpack(packed);
+        revision++;
     }
 
     /** Records that this client is in no party, which is what a disconnect means. */
     public static void clear() {
         snapshot = PartySnapshot.none();
+        // Moved rather than left alone, because clearing changes what the cache holds as surely as
+        // receiving does -- the same argument ClientQuestCache.clear makes for its own revision. A
+        // screen that kept its revision would otherwise go on drawing the last server's party.
+        revision++;
     }
 
     /** Whether anything has been received describing a party. */

@@ -14,6 +14,7 @@ import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.net.PartySnapshot;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.net.TaskedNetworking;
@@ -1135,6 +1136,60 @@ class QuestPlaythroughTest {
 
         note("and under owner_only the friend's crafting table counted for nothing until the owner "
                 + "held one -- so all three modes reach the engine");
+    }
+
+    @Test
+    @Order(22)
+    @DisplayName("a party's roster can be read back off the server, which is what the client is sent")
+    void aPartysRosterIsReadBackOffTheServer() {
+        // **The regression test for the fault this round is about**, and it is the whole of it in one
+        // assertion. `PartySnapshot.of` asked Armature for `teamOf(teamId)` — and `teamOf` takes a
+        // *player's* id, so handing it a team id found no such player, found no team, and synthesised
+        // `Team.solo(teamId)`, whose `persistent` is false. The guard below that turned every real
+        // party into "nobody is in a party", so `sendPartyToTeam` returned at its first line and no
+        // roster was ever put on the wire. The panel was correct and was never told anything.
+        //
+        // So this asserts the one thing that was false: a party that really exists, looked up by its
+        // own id, reads back as a party with members in it. Nothing about the client, nothing about
+        // the panel -- just the lookup, because that is where the fault was and a test that went
+        // through the UI would be able to fail in more places than the one being described.
+        //
+        // The party is order 19's, created by `/tasked party create`, and it has the friend in it from
+        // order 21 — so this is a party of two real players rather than a fixture.
+        assertNotNull(commandPartyId, "order 19 should have created a party for this test to read");
+
+        PartySnapshot snapshot = server.callOnServerThread(
+                () -> PartySnapshot.of(server.server(), commandPartyId));
+
+        assertTrue(snapshot.isPresent(),
+                "the party " + commandPartyId + " exists on this server and has members, so reading "
+                        + "it back by its own id must not report that nobody is in it. An empty or "
+                        + "absent snapshot here is the reported fault: the roster never reaches a "
+                        + "client, so the party panel draws its empty state for a party that exists");
+
+        assertEquals(commandPartyId, snapshot.teamId(),
+                "and it is *this* party that was read, not a synthesised team of one keyed by the same "
+                        + "id -- which is precisely what asking for a team by a player's id produces");
+
+        assertEquals(2, snapshot.members().size(),
+                "two members: the player who created it in order 19, and the friend who joined in "
+                        + "order 21. One means the lookup found something other than the real team");
+
+        assertTrue(snapshot.members().stream().anyMatch(member -> member.id().equals(player.getUUID())),
+                "the creator is in the roster the server would send");
+        assertTrue(snapshot.members().stream().anyMatch(member -> member.id().equals(friend.getUUID())),
+                "and so is the friend, so this is the party rather than a party of one");
+
+        // Read through the format the client actually receives, so this covers the packing as well as
+        // the lookup. A snapshot that read back correctly and packed into something the client could
+        // not parse would pass every assertion above and leave the panel empty anyway.
+        PartySnapshot roundTripped = PartySnapshot.unpack(snapshot.pack());
+        assertEquals(2, roundTripped.members().size(),
+                "the roster survives the wire format the payload carries it in");
+
+        note("the party's roster read back off the server with " + roundTripped.members().size()
+                + " member(s) and survived the packed form the client is sent -- the lookup that was "
+                + "returning nobody's-team for every real party now returns the party");
     }
 
     // ------------------------------------------------------------------
