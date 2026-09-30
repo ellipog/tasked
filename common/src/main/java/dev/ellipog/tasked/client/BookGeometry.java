@@ -589,7 +589,26 @@ public final class BookGeometry {
     private final Rect sidebar;
     private final Rect overlay;
 
+    /** The book with a margin around it: the shape every player sees. */
     public BookGeometry(int screenWidth, int screenHeight) {
+        this(screenWidth, screenHeight, false);
+    }
+
+    /**
+     * The book, either as a card with a margin or full-bleed.
+     *
+     * <h2>Why an author gets the whole window</h2>
+     *
+     * <p>Because the margin and the maximum size are there to keep a <i>reading</i> panel from looking
+     * like a wall of text -- and an author is not reading. While the tools are reachable, every pixel the
+     * window is not using is a pixel of canvas or of colour list, and the report was exact: <i>"make the
+     * quest book menu itself take up 100% of the screen instead of just almost 100%"</i>.
+     *
+     * <p>It is one flag rather than two geometries because every rectangle here is derived from the panel:
+     * the header, the sidebar, the canvas and the tools panel all follow from this one decision, which is
+     * the property this class exists to keep.
+     */
+    public BookGeometry(int screenWidth, int screenHeight, boolean fullBleed) {
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
 
@@ -597,10 +616,14 @@ public final class BookGeometry {
         // cannot show the book sensibly at any layout, so the choice is between a panel that runs off
         // the edge -- which is clipped, and obviously the window being too small -- and a panel whose
         // own contents overlap, which looks like a bug in the drawing code.
-        int panelWidth = clamp(Math.min(MAX_PANEL_WIDTH, screenWidth - PANEL_MARGIN * 2),
-                MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
-        int panelHeight = clamp(Math.min(MAX_PANEL_HEIGHT, screenHeight - PANEL_MARGIN * 2),
-                MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT);
+        // Full bleed: the panel is the window, margins and maximums and all. The minimums still apply to
+        // the *card*, since a window smaller than the book cannot show it either way.
+        int panelWidth = fullBleed ? screenWidth
+                : clamp(Math.min(MAX_PANEL_WIDTH, screenWidth - PANEL_MARGIN * 2),
+                        MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
+        int panelHeight = fullBleed ? screenHeight
+                : clamp(Math.min(MAX_PANEL_HEIGHT, screenHeight - PANEL_MARGIN * 2),
+                        MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT);
 
         // Integer division, so a panel of odd width sits one pixel further left than right rather
         // than leaving a half pixel. Every other rectangle is derived from these two, so an odd

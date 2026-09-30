@@ -218,133 +218,90 @@ public final class ToolsPanel {
     // The preview
     // ------------------------------------------------------------------
 
-    /**
-     * A small quest, drawn in the theme as it stands, with the selected group's region ringed.
-     *
-     * <h2>What the sample is, and why it changed</h2>
-     *
-     * <p>The first version was abstract bars: a panel, two strips, three words and some boxes, placed at
-     * fixed insets that did not fit the rectangle they were in. It read as a rendering fault -- which it
-     * was -- and it answered nothing: nobody could tell which bar was a reward row.
-     *
-     * <p>This is the two things a theme actually paints, arranged the way the book arranges them: a
-     * <b>node</b> with its connecting line on the canvas, and a <b>quest popover</b> below -- a raised
-     * title strip, a title, a body line, a faint word, a reward row with an item's square, and a Claim
-     * button, with a scrollbar down the card's right edge and a tooltip hanging off its corner. Eight
-     * parts for eight groups, and selecting a colour rings the part its group paints.
-     *
-     * <p>Every position is a fraction of the rectangle it is drawn in, so the sample survives a narrow or
-     * short panel. And it is a <b>sample</b>: the shape is always the rounded one, the text is literal and
-     * the item is a square, because a preview that claimed to be the screen would be a second description
-     * of the screen.
-     */
+    /** The sample, drawn from the parts the layout computed. */
     private static void drawPreview(GuiRenderer r, BookGeometry.Rect preview, String selected) {
-        int x = preview.x();
-        int y = preview.y();
+        ToolsLayout.Preview sample = ToolsLayout.previewParts(preview);
         int w = preview.width();
         int h = preview.height();
-        r.fill(x, y, x + w, y + h, ArmatureTheme.canvas());
+        r.fill(sample.canvas().x(), sample.canvas().y(), sample.canvas().right(), sample.canvas().bottom(),
+                ArmatureTheme.canvas());
         if (w < 60 || h < 60) {
-            // No room for a sample: the canvas alone, rather than a smear of overlapping parts.
             return;
         }
 
-        // The nodes, on the canvas, joined by a line: the STATE and GRAPH groups.
-        int nodeSize = Math.max(12, Math.min(NODE, h / 4));
-        int nodeY = y + h / 5 - nodeSize / 2;
-        int firstX = x + w / 8;
-        int secondX = x + w / 2;
-        BookGeometry.Rect line = BookGeometry.Rect.at(firstX + nodeSize, nodeY + nodeSize / 2 - 1,
-                Math.max(6, secondX - firstX - nodeSize), 2);
-        r.fill(line.x(), line.y(), line.right(), line.bottom(), ArmatureTheme.lineDone());
-        node(r, firstX, nodeY, nodeSize, ArmatureTheme.nodeEdgeAvailable(), ArmatureTheme.hoverRing());
-        node(r, secondX, nodeY, nodeSize, ArmatureTheme.nodeEdgeComplete(), 0);
+        r.fill(sample.line().x(), sample.line().y(), sample.line().right(), sample.line().bottom(),
+                ArmatureTheme.lineDone());
+        node(r, sample.nodeA(), ArmatureTheme.nodeEdgeAvailable(), ArmatureTheme.hoverRing());
+        node(r, sample.nodeB(), ArmatureTheme.nodeEdgeComplete(), 0);
 
-        // The popover, which is what the quest overlay is.
-        BookGeometry.Rect card = BookGeometry.Rect.at(x + w / 10, y + h / 2, w - w / 5, h / 2 - 8);
-        ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
-                ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-
-        // Its title strip: the raised surface the header draws.
-        BookGeometry.Rect raised = BookGeometry.Rect.at(card.x() + 1, card.y() + 1, card.width() - 2, 11);
-        r.fill(raised.x(), raised.y(), raised.right(), raised.bottom(), ArmatureTheme.raised());
-
-        // And its scrollbar, down the right edge.
-        BookGeometry.Rect track = BookGeometry.Rect.at(card.right() - 5, card.y() + 4, 3,
-                Math.max(0, card.height() - 8));
-        r.fill(track.x(), track.y(), track.right(), track.bottom(), ArmatureTheme.scrollTrack());
-        r.fill(track.x(), track.y(), track.right(), track.y() + Math.max(3, track.height() / 3),
+        ArmatureTheme.panel(r, sample.card().x(), sample.card().y(), sample.card().width(),
+                sample.card().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        r.fill(sample.raised().x(), sample.raised().y(), sample.raised().right(), sample.raised().bottom(),
+                ArmatureTheme.raised());
+        r.fill(sample.track().x(), sample.track().y(), sample.track().right(), sample.track().bottom(),
+                ArmatureTheme.scrollTrack());
+        r.fill(sample.track().x(), sample.track().y(), sample.track().right(),
+                sample.track().y() + Math.max(3, sample.track().height() / 3),
                 ArmatureTheme.scrollThumb());
 
-        // The text: a title, a body line, a faint word.
-        int textX = card.x() + 4;
-        int textY = raised.bottom() + 3;
+        int textX = sample.text().x();
+        int textY = sample.text().y();
         r.text("Title", textX, textY, ArmatureTheme.title());
         r.text("Body", textX, textY + 10, ArmatureTheme.body());
         r.text("faint", textX + r.textWidth("Body") + 5, textY + 10, ArmatureTheme.faint());
 
-        // The reward row: a washed row with an item's square at its left.
-        BookGeometry.Rect row = BookGeometry.Rect.at(textX - 2, textY + 20,
-                Math.max(0, card.width() - 54), 12);
-        r.fill(row.x(), row.y(), row.right(), row.bottom(),
+        r.fill(sample.row().x(), sample.row().y(), sample.row().right(), sample.row().bottom(),
                 Colour.translucent(ArmatureTheme.rowHover(), 0.5F));
-        int item = Math.max(6, Math.min(10, row.height() - 2));
-        r.fill(row.x() + 1, row.y() + 1, row.x() + 1 + item, row.y() + 1 + item,
+        r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().bottom(),
                 ArmatureTheme.recessed());
-        r.fill(row.x() + 1, row.y(), row.x() + 1 + item + 1, row.y() + 1, ArmatureTheme.panelEdge());
+        r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().y() + 1,
+                ArmatureTheme.panelEdge());
 
-        // The button beside it, and a tooltip hanging off the card's top corner.
-        BookGeometry.Rect button = BookGeometry.Rect.at(card.right() - 44, row.y() - 1, 40, 14);
-        ArmatureTheme.panel(r, button.x(), button.y(), button.width(), button.height(),
-                ArmatureTheme.raised(), ArmatureTheme.controlEdge());
+        ArmatureTheme.panel(r, sample.button().x(), sample.button().y(), sample.button().width(),
+                sample.button().height(), ArmatureTheme.raised(), ArmatureTheme.controlEdge());
+        ArmatureTheme.panel(r, sample.tooltip().x(), sample.tooltip().y(), sample.tooltip().width(),
+                sample.tooltip().height(), ArmatureTheme.tooltipFill(), ArmatureTheme.tooltipEdge());
 
-        BookGeometry.Rect tooltip = BookGeometry.Rect.at(card.right() - 58, card.y() - 13, 56, 12);
-        ArmatureTheme.panel(r, tooltip.x(), tooltip.y(), tooltip.width(), tooltip.height(),
-                ArmatureTheme.tooltipFill(), ArmatureTheme.tooltipEdge());
-
-        BookGeometry.Rect region = regionOf(selected, card, raised, row, line, firstX, nodeY, nodeSize,
-                button, tooltip);
+        BookGeometry.Rect region = regionOf(selected, sample);
         if (region != null) {
             ring(r, region);
         }
     }
 
-    /** One node: its fill, its edge in a state's colour, and its ring when it is the hovered one. */
-    private static void node(GuiRenderer r, int x, int y, int size, int edge, int ringColour) {
+    /** One node: fill, an edge in the state's colour, and a ring when it is the hovered one. */
+    private static void node(GuiRenderer r, BookGeometry.Rect rect, int edge, int ringColour) {
         if (ringColour != 0) {
-            ArmatureTheme.shapePanel(r, x - 1, y - 1, size + 2, ArmatureTheme.nodeFill(), ringColour,
-                    QuestShape.ROUNDED::span);
+            ArmatureTheme.shapePanel(r, rect.x() - 1, rect.y() - 1, rect.width() + 2,
+                    ArmatureTheme.nodeFill(), ringColour, QuestShape.ROUNDED::span);
         }
-        ArmatureTheme.shapePanel(r, x, y, size, ArmatureTheme.nodeFill(), edge, QuestShape.ROUNDED::span);
+        ArmatureTheme.shapePanel(r, rect.x(), rect.y(), rect.width(), ArmatureTheme.nodeFill(), edge,
+                QuestShape.ROUNDED::span);
     }
 
     /**
      * Which part of the sample a group's colours paint.
      *
-     * <p>Eight groups, eight parts, one entry each -- so a colour's group is a fact about this table
-     * rather than about how the sample happens to be drawn. No selection, and a token this build does not
+     * <p>Eight groups, eight parts, one entry each -- a colour's group is a fact about this table rather
+     * than about where the sample happens to put things. No selection, and a token this build does not
      * know, give no ring: a ring around the wrong thing is worse than none.
      */
-    private static BookGeometry.Rect regionOf(String tokenId, BookGeometry.Rect card,
-                                              BookGeometry.Rect raised, BookGeometry.Rect row,
-                                              BookGeometry.Rect line, int nodeX, int nodeY, int nodeSize,
-                                              BookGeometry.Rect button, BookGeometry.Rect tooltip) {
+    private static BookGeometry.Rect regionOf(String tokenId, ToolsLayout.Preview sample) {
         ThemeToken token = ThemeToken.byId(tokenId);
         if (token == null) {
             return null;
         }
         int pad = 2;
         return switch (token.group()) {
-            case SURFACE -> expand(card, pad);
-            case TEXT -> BookGeometry.Rect.at(raised.x(), raised.bottom() + 1,
-                    Math.max(0, raised.width() - 4), 24);
-            case STATE, GRAPH -> BookGeometry.Rect.at(nodeX - pad, nodeY - pad,
-                    Math.max(0, line.right() - nodeX + pad), nodeSize + pad * 2);
-            case ROW -> expand(row, pad);
-            case SCROLL -> BookGeometry.Rect.at(card.right() - 7, card.y() + 2, 6,
-                    Math.max(0, card.height() - 4));
-            case OVERLAY -> expand(tooltip, pad);
-            case CONTROL -> expand(button, pad);
+            case SURFACE -> expand(sample.card(), pad);
+            case TEXT -> expand(sample.text(), 1);
+            case STATE, GRAPH -> BookGeometry.Rect.at(sample.nodeA().x() - pad, sample.nodeA().y() - pad,
+                    Math.max(0, sample.line().right() - sample.nodeA().x() + pad),
+                    sample.nodeA().height() + pad * 2);
+            case ROW -> expand(sample.row(), pad);
+            case SCROLL -> BookGeometry.Rect.at(sample.card().right() - ToolsLayout.SAMPLE_INSET - 3,
+                    sample.card().y() + 2, 5, Math.max(0, sample.card().height() - 4));
+            case OVERLAY -> expand(sample.tooltip(), pad);
+            case CONTROL -> expand(sample.button(), pad);
         };
     }
 

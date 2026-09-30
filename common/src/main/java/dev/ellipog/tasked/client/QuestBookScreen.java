@@ -157,7 +157,10 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     private BookGeometry geometry() {
         if (geometry == null || geometryWidth != width || geometryHeight != height) {
-            geometry = new BookGeometry(width, height);
+            // Full-bleed for an author, a card for a reader. See `BookGeometry`'s constructor: the margin
+            // and the maximum size exist so a reading panel does not read as a wall, and an author is not
+            // reading -- every spare pixel is canvas or colour list.
+            geometry = new BookGeometry(width, height, mayEdit());
             geometryWidth = width;
             geometryHeight = height;
         }

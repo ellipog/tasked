@@ -242,6 +242,44 @@ class ToolsLayoutTest {
     }
 
     @Test
+    @DisplayName("the sample's parts are inside the preview, and inside the card they belong to")
+    void theSampleFits() {
+        for (int[] size : new int[][] {{288, 96}, {200, 70}, {120, 60}, {420, 150}}) {
+            BookGeometry.Rect preview = BookGeometry.Rect.at(10, 20, size[0], size[1]);
+            ToolsLayout.Preview parts = ToolsLayout.previewParts(preview);
+            String at = " in a " + size[0] + "x" + size[1] + " sample";
+
+            for (BookGeometry.Rect part : List.of(parts.nodeA(), parts.nodeB(), parts.line(), parts.card(),
+                    parts.tooltip())) {
+                assertTrue(inside(part, preview), () -> "a part left the preview" + at + ": " + part);
+            }
+            for (BookGeometry.Rect part : List.of(parts.raised(), parts.text(), parts.track(), parts.row(),
+                    parts.button())) {
+                assertTrue(inside(part, parts.card()),
+                        () -> "a part left the card" + at + ": " + part + " in " + parts.card());
+            }
+            assertTrue(inside(parts.item(), parts.row()), () -> "the item left its row" + at);
+
+            // And nothing stands on a border, which is what the screenshot showed: a button and a
+            // scrollbar drawn over the card's own edge, and a reward row running past it.
+            int inset = ToolsLayout.SAMPLE_INSET;
+            assertTrue(parts.row().right() <= parts.button().x(),
+                    () -> "the reward row runs under the button" + at);
+            assertTrue(parts.button().right() <= parts.card().right() - inset,
+                    () -> "the button stands on the card's border" + at);
+            assertTrue(parts.track().right() <= parts.card().right() - inset,
+                    () -> "the scrollbar stands on the card's border" + at);
+            assertTrue(parts.line().right() <= parts.nodeB().x() + 1,
+                    () -> "the connecting line runs into the second node" + at);
+        }
+    }
+
+    private static boolean inside(BookGeometry.Rect inner, BookGeometry.Rect outer) {
+        return inner.x() >= outer.x() && inner.y() >= outer.y()
+                && inner.right() <= outer.right() && inner.bottom() <= outer.bottom();
+    }
+
+    @Test
     @DisplayName("a colour's channel value comes out of the packed colour it is drawn from")
     void channelValues() {
         int argb = 0x80402010;

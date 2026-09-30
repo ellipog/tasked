@@ -349,6 +349,110 @@ public final class ToolsLayout {
     }
 
     // ------------------------------------------------------------------
+    // The sample in the preview
+    // ------------------------------------------------------------------
+
+    /**
+     * The parts of the preview's sample: a node pair on a canvas and a quest popover under them.
+     *
+     * <h2>Why this is here and not in the drawing</h2>
+     *
+     * <p>Because the first version put the arithmetic in {@code ToolsPanel} and the parts overflowed
+     * their own rectangle -- a button standing on the card's border, a reward row running past it -- and no
+     * test could see it, because a drawing method cannot be called without a client. Geometry this class's,
+     * colour the panel's: the same split as every other rectangle in either mod, and the parts are asserted
+     * to be inside the preview and inside one another's containers.
+     */
+    public record Preview(BookGeometry.Rect canvas, BookGeometry.Rect nodeA, BookGeometry.Rect nodeB,
+                          BookGeometry.Rect line, BookGeometry.Rect card, BookGeometry.Rect raised,
+                          BookGeometry.Rect text, BookGeometry.Rect track, BookGeometry.Rect row,
+                          BookGeometry.Rect item, BookGeometry.Rect button, BookGeometry.Rect tooltip) {
+    }
+
+    /** How much of the sample's card is left as margin. Nothing may touch a border. */
+    public static final int SAMPLE_INSET = 4;
+
+    /**
+     * A part of the sample, kept inside the card it belongs to.
+     *
+     * <p>The same rule the panel's own bands learned: a part is clamped in <b>both</b> dimensions and in
+     * its <b>position</b>, not only in its size. A zero-height reward row placed below the card's bottom is
+     * a part outside its container -- which the sample's test found twice, at 288x96 and at 200x70, and
+     * which no amount of reading the arithmetic had caught.
+     */
+    private static BookGeometry.Rect part(int x, int y, int width, int height,
+                                          BookGeometry.Rect inside) {
+        return part(x, y, width, height, inside, SAMPLE_INSET);
+    }
+
+    /**
+     * The same, with the inset named.
+     *
+     * <p>Because the inset is the *container's* margin and not a constant of the sample: an item sits one
+     * pixel inside its reward row, and a row sits four inside the card. A single inset made the item's
+     * clamp land three pixels below a one-pixel-tall row -- which the test found, again.
+     */
+    private static BookGeometry.Rect part(int x, int y, int width, int height,
+                                          BookGeometry.Rect inside, int inset) {
+        // The *position* is clamped to the container's own edges and the *size* to the inset, and the two
+        // clamps are deliberately different. Clamping the position to the inset as well is what kept a
+        // zero-height reward row's item one pixel outside it: a part with no size still has to be
+        // somewhere inside, and `inside.bottom()` is somewhere inside.
+        int left = Math.max(inside.x(), Math.min(x, inside.right()));
+        int top = Math.max(inside.y(), Math.min(y, inside.bottom()));
+        int w = Math.max(0, Math.min(width, inside.right() - inset - left));
+        int h = Math.max(0, Math.min(height, inside.bottom() - inset - top));
+        return BookGeometry.Rect.at(left, top, w, h);
+    }
+
+    /** The sample, placed inside the rectangle it is given. */
+    public static Preview previewParts(BookGeometry.Rect preview) {
+        int x = preview.x();
+        int y = preview.y();
+        int w = preview.width();
+        int h = preview.height();
+
+        int node = Math.max(10, Math.min(24, h / 4));
+        int nodeY = y + h / 5 - node / 2;
+        int firstX = x + Math.max(4, w / 10);
+        int secondX = x + w / 2;
+        BookGeometry.Rect nodeA = BookGeometry.Rect.at(firstX, nodeY, node, node);
+        BookGeometry.Rect nodeB = BookGeometry.Rect.at(secondX, nodeY, node, node);
+        BookGeometry.Rect line = BookGeometry.Rect.at(nodeA.right(), nodeY + node / 2 - 1,
+                Math.max(2, secondX - nodeA.right()), 2);
+
+        BookGeometry.Rect card = BookGeometry.Rect.at(x + Math.max(2, w / 12), y + h / 2,
+                Math.max(0, w - Math.max(4, w / 6)), Math.max(0, h / 2 - 8));
+        BookGeometry.Rect raised = BookGeometry.Rect.at(card.x() + 1, card.y() + 1,
+                Math.max(0, card.width() - 2), Math.min(11, Math.max(0, card.height() - 2)));
+        // Clamped like everything else here: a sample eight pixels tall cannot hold three lines of text
+        // and a reward row, and an unclamped height is a part outside its own card.
+        int textTop = raised.bottom() + 2;
+        BookGeometry.Rect text = part(card.x() + SAMPLE_INSET, textTop,
+                card.width() - SAMPLE_INSET * 2, 22, card);
+
+        int line2 = text.y() + 20;
+        BookGeometry.Rect row = part(text.x(), line2, card.width() - SAMPLE_INSET * 2 - 50, 12, card);
+        // The item is inside the row whatever the row's height is, which on a short sample is two pixels.
+        // A fixed ten-pixel square is a thing that only fits the sample it was written for.
+        int itemSize = Math.max(0, Math.min(10, Math.min(row.width(), row.height()) - 2));
+        BookGeometry.Rect item = part(row.x() + 1, row.y() + 1, itemSize, itemSize, row, 1);
+        // Height-clamped like the text: the button shares the reward row's line, and on a short sample
+        // that line is a couple of pixels from the card's bottom -- which is exactly where the first
+        // version put a fourteen-pixel button, eight pixels of it below the card.
+        BookGeometry.Rect button = part(card.right() - SAMPLE_INSET - 44, row.y(), 44, 14, card);
+        // Three pixels wide, ending *at* the inset rather than two pixels short of it: the arithmetic that
+        // matters is `right <= card.right - SAMPLE_INSET`, and writing it as the x is how the first
+        // version was one pixel out.
+        BookGeometry.Rect track = part(card.right() - SAMPLE_INSET - 3, card.y() + 4, 3,
+                card.height() - 8, card);
+        BookGeometry.Rect tooltip = BookGeometry.Rect.at(card.x() + SAMPLE_INSET + 4, card.y() - 14, 56, 12);
+
+        return new Preview(preview, nodeA, nodeB, line, card, raised, text, track, row, item, button,
+                tooltip);
+    }
+
+    // ------------------------------------------------------------------
     // The band's controls
     // ------------------------------------------------------------------
 

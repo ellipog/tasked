@@ -770,6 +770,30 @@ class BookGeometryTest {
     }
 
     @Test
+    @DisplayName("full bleed: the panel is the whole window, and everything follows it")
+    void fullBleed() {
+        for (int[] size : new int[][] {{854, 480}, {427, 240}}) {
+            BookGeometry window = new BookGeometry(size[0], size[1], true);
+            String at = " at " + size[0] + "x" + size[1];
+
+            assertEquals(BookGeometry.Rect.at(0, 0, size[0], size[1]), window.panel(),
+                    () -> "the full-bleed panel is not the window" + at);
+
+            for (BookGeometry.Rect part : List.of(window.header(), window.sidebar(), window.canvas(),
+                    window.controls().get("close"), window.controls().get("edit"),
+                    window.controls().get("tools"))) {
+                assertTrue(part.x() >= 0 && part.y() >= 0 && part.right() <= size[0]
+                                && part.bottom() <= size[1],
+                        () -> "a part left the window" + at + ": " + part);
+            }
+
+            // And the card shape is unchanged: the flag moves the panel, not the parts.
+            BookGeometry card = new BookGeometry(size[0], size[1]);
+            assertTrue(card.panel().width() < size[0] || card.panel().height() < size[1],
+                    () -> "the card should keep its margin" + at);
+        }
+    }
+
     @DisplayName("the same size always gives the same rectangles")
     void geometryIsDeterministic() {
         // The screen rebuilds its geometry whenever the size changes and asks for the control map on
