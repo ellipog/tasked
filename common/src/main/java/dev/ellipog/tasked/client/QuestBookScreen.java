@@ -19,6 +19,8 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
+import dev.ellipog.tasked.client.editor.EditorSession;
+import dev.ellipog.tasked.client.editor.QuestEditor;
 import dev.ellipog.tasked.net.PartySnapshot;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.client.ClientPartyCache;
@@ -502,6 +504,24 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The node under the pointer when the press began, if any. */
     private String pressedNode;
+
+    /**
+     * The editors this session has open, by chapter. Created on first use.
+     *
+     * <p>Null until the book is in a state where editing is possible at all — see {@link #editor()} — and
+     * a field rather than a local because an editor holds unsaved work: a rebuild, a resize or a glance at
+     * another chapter must not throw it away.
+     */
+    private EditorSession editors;
+
+    /** The node being dragged on the canvas, if developer mode is on and the press landed on one. */
+    private String draggedNode;
+
+    /** Where that node is now, in content coordinates, and where inside it the pointer grabbed it. */
+    private float dragX;
+    private float dragY;
+    private float dragGrabX;
+    private float dragGrabY;
 
     /**
      * This screen's own controls, in the order they were created.
@@ -1001,11 +1021,67 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     private int nodeScreenX(ClientQuestCache.Entry entry) {
-        return viewport().screenX(entry.x());
+        return viewport().screenX(nodeX(entry));
     }
 
     private int nodeScreenY(ClientQuestCache.Entry entry) {
-        return viewport().screenY(entry.y());
+        return viewport().screenY(nodeY(entry));
+    }
+
+    /**
+     * Where a node's x is, for the drawing and for the hit test.
+     *
+     * <h2>Three answers, in this order</h2>
+     *
+     * <p>The node being dragged right now; else a position the editor has changed but the server has not
+     * sent back yet; else what the server sent. The first two exist because the canvas draws the
+     * <i>server's</i> tree and the editor writes <i>files</i>: between a drag and the reload that follows
+     * it, the server's answer is stale, and a canvas that used it would snap the node back under the
+     * pointer — which reads as a drag that did nothing.
+     *
+     * <p>One method, used by the drawing, the hit test and the dependency lines, because the alternative
+     * is three places that each have to remember the same exception. A node dragged with its line left
+     * behind is the picture of what that costs.
+     */
+    private float nodeX(ClientQuestCache.Entry entry) {
+        if (entry.id().equals(draggedNode)) {
+            return dragX;
+        }
+        return editors != null && editors.hasMoved(entry.id())
+                ? (float) editors.movedX(entry.id()) : entry.x();
+    }
+
+    /** The same, for y. See {@link #nodeX}. */
+    private float nodeY(ClientQuestCache.Entry entry) {
+        if (entry.id().equals(draggedNode)) {
+            return dragY;
+        }
+        return editors != null && editors.hasMoved(entry.id())
+                ? (float) editors.movedY(entry.id()) : entry.y();
+    }
+
+    /**
+     * The editor for the chapter on screen, or null.
+     *
+     * <h2>Two conditions, and both are about whether an edit could work at all</h2>
+     *
+     * <p><b>Developer mode</b>, because this is a tool. And <b>a singleplayer host</b>, because the quest
+     * files are on the server's disk: a client joined to somebody else's server can read its own
+     * {@code config/tasked/quests}, which is not the questline it is looking at — an editor that wrote
+     * there would appear to work and change nothing anybody would ever see. So it refuses, and the
+     * developer screen says why rather than leaving a dead key.
+     *
+     * <p>Null is the answer for both, and every caller treats it as "no editing here" rather than as an
+     * error: this is the state of every player who is not a pack author.
+     */
+    private QuestEditor editor() {
+        if (minecraft == null || !DevMode.on() || !minecraft.hasSingleplayerServer()) {
+            return null;
+        }
+        if (editors == null) {
+            editors = new EditorSession(EditorSession.root());
+        }
+        return editors.editor(effectiveChapter());
     }
 
     /**
@@ -2414,6 +2490,13 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
+        if (editors != null) {
+            // The server's own answer for a moved node arrives with a tree, and that is the moment the
+            // editor's remembered position is no longer needed. Noticed here rather than in a handler
+            // because this is a comparison of two numbers on the frame path that already reads them.
+            editors.onRevision(ClientQuestCache.treeRevision());
+        }
+
         int left = panelLeft();
         int top = panelTop();
         int panelW = panelWidth();
@@ -3701,9 +3784,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             return false;
         }
 
-        // Left or middle on the canvas: begin a pan. Whether it becomes a pan or a click is decided by
-        // whether the pointer moves, which is why nothing is selected yet — and why a pan that happens
-        // to start on a node does not change the selection.
+        // Left or middle on the canvas: begin a pan, or — in developer mode — pick a node up. Whether it
+        // becomes a pan or a click is decided by whether the pointer moves, which is why nothing is
+        // selected yet — and why a pan that happens to start on a node does not change the selection.
         if ((button == 0 || button == 2) && inCanvas(mouseX, mouseY)) {
             dragging = true;
             pressMoved = false;
@@ -3721,6 +3804,20 @@ public final class QuestBookScreen extends ArmatureScreen {
             // middle-click that happens not to move would select whatever it landed on.
             if (button == 2) {
                 pressedNode = null;
+            }
+
+            // A left press *on* a node, with an editor open, picks the node up rather than panning. The
+            // two cannot share the button, and this is the split every graph editor makes: a press on a
+            // node is about that node, and a press on the canvas is about the view. The middle button
+            // still pans from anywhere, which is what a trackpad-less mouse reaches for.
+            if (button == 0 && under != null && editor() != null) {
+                draggedNode = under.id();
+                dragX = nodeX(under);
+                dragY = nodeY(under);
+                // Where inside the node the pointer took hold, so the node does not jump to put its
+                // corner under the pointer.
+                dragGrabX = viewport().contentX(mouseX) - dragX;
+                dragGrabY = viewport().contentY(mouseY) - dragY;
             }
             return true;
         }
@@ -3740,6 +3837,16 @@ public final class QuestBookScreen extends ArmatureScreen {
             else {
                 partyView.dragThumbTo(mouseY);
             }
+            return true;
+        }
+
+        if (draggedNode != null) {
+            // A picked-up node follows the pointer, in content coordinates so the zoom does not matter.
+            // Committed on release rather than here: a drag is one edit, and a file write per mouse move
+            // would be a file write per mouse move.
+            pressMoved = true;
+            dragX = viewport().contentX(mouseX) - dragGrabX;
+            dragY = viewport().contentY(mouseY) - dragGrabY;
             return true;
         }
 
@@ -3766,6 +3873,28 @@ public final class QuestBookScreen extends ArmatureScreen {
         // program ever written, and releasing on the last position the bar saw is what makes the end
         // of a drag land where the pointer was when it was let go.
         if (sidebarView.endThumbDrag() || partyView.endThumbDrag()) {
+            return true;
+        }
+
+        if (draggedNode != null) {
+            String id = draggedNode;
+            float x = dragX;
+            float y = dragY;
+            boolean moved = pressMoved;
+            draggedNode = null;
+            dragging = false;
+            pressedNode = null;
+
+            if (moved) {
+                commitMove(id, x, y);
+            }
+            else {
+                // A press that never moved is still a click: it selects and opens, exactly as it did
+                // before there was a drag to tell it apart from. The gesture is one gesture, and the
+                // developer mode only changed what "moved" means.
+                selectedQuest = id.equals(selectedQuest) ? null : id;
+                openOverlay(id);
+            }
             return true;
         }
 
@@ -3851,7 +3980,159 @@ public final class QuestBookScreen extends ArmatureScreen {
             closeOverlay();
             return true;
         }
+
+        // The editor's keys, and they are all modified or unclaimed: Ctrl+S is a save in every program
+        // ever written, Ctrl+Z and Ctrl+Y are undo and redo, Ctrl+D duplicates, Ctrl+N is new. Delete is
+        // the one bare key, and it only does anything when a node is selected — which is a state the
+        // author put the screen in by clicking one.
+        QuestEditor editor = editor();
+        if (editor != null && keysForEditor(keyCode, editor)) {
+            return true;
+        }
+
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    /** @return whether the key was one of the editor's, and was handled */
+    private boolean keysForEditor(int keyCode, QuestEditor editor) {
+        boolean ctrl = Screen.hasControlDown();
+
+        if (ctrl && keyCode == GLFW.GLFW_KEY_S) {
+            saveEditor();
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
+            if (Screen.hasShiftDown() ? editor.redo() : editor.undo()) {
+                // An undo moves files -- it can put a deleted one back -- so the server has to be told,
+                // and a reload is how this mod tells it anything about its quest files.
+                report(Screen.hasShiftDown() ? "Redo" : "Undo");
+                reloadQuests();
+            }
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_Y) {
+            if (editor.redo()) {
+                report("Redo");
+                reloadQuests();
+            }
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_N) {
+            createQuest(editor);
+            return true;
+        }
+        if (ctrl && keyCode == GLFW.GLFW_KEY_D && selectedQuest != null) {
+            // Saved first, because this changes the *set* of files: the reload below is what makes the
+            // server notice, and a reload reads the disk. Writing first is what keeps the canvas, the
+            // files and the editor's memory saying the same thing -- the alternative is a duplicate that
+            // appears while the moves beside it silently revert.
+            if (saveEditor()) {
+                String copy = editor.duplicate(selectedQuest);
+                if (copy != null) {
+                    selectedQuest = copy;
+                    report("Duplicated as " + copy);
+                    reloadQuests();
+                }
+            }
+            return true;
+        }
+        if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
+                && selectedQuest != null && !editor.quest(selectedQuest).equals(null)
+                && saveEditor() && editor.delete(selectedQuest)) {
+            report("Deleted " + selectedQuest + " (its file is beside it, renamed .deleted)");
+            selectedQuest = null;
+            reloadQuests();
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Commits a finished drag.
+     *
+     * <p>The position is rounded to whole content units, which is the grid a quest file is authored on:
+     * a node at x=37.4182 is a number nobody typed on purpose, and the canvas is drawn at a zoom where
+     * the difference is invisible — so the file would carry noise that only shows up in a diff.
+     */
+    private void commitMove(String id, float x, float y) {
+        QuestEditor editor = editor();
+        if (editor == null) {
+            return;
+        }
+        long revision = ClientQuestCache.treeRevision();
+        if (editor.move(id, Math.round(x), Math.round(y))) {
+            // Remembered until a reload says the same thing: the canvas draws the server's tree, and the
+            // server has not heard about this yet. See `EditorSession`.
+            editors.moved(id, Math.round(x), Math.round(y), revision);
+        }
+    }
+
+    /** Something changed in the editor that the canvas has to redraw. */
+    private void movedByEditor() {
+        rebuildWidgets();
+    }
+
+    /**
+     * Writes the chapter, and asks the server to read it again.
+     *
+     * <p>Validating first is the model's job — {@link QuestEditor#save()} refuses the whole save if any
+     * file would not load — so what is left here is telling the author what happened: the count on
+     * success, and the loader's own messages on refusal, in the chat because that is where this mod's
+     * commands answer and a list of problems does not fit on a panel.
+     */
+    private boolean saveEditor() {
+        QuestEditor editor = editor();
+        if (editor == null) {
+            return false;
+        }
+        QuestEditor.SaveResult result = editor.save();
+        if (!result.ok()) {
+            for (String message : result.messages()) {
+                say("\u00a7c" + message);
+            }
+            report("Not saved: " + result.messages().size() + " problem(s), listed in the chat");
+            return false;
+        }
+        if (result.written() == 0) {
+            report("Nothing to save");
+            return true;
+        }
+        report("Saved " + result.written() + " file(s)");
+        reloadQuests();
+        return true;
+    }
+
+    /** Adds a quest where the middle of the view is, which is where the author is looking. */
+    private void createQuest(QuestEditor editor) {
+        if (!saveEditor()) {
+            return;
+        }
+        float x = viewport().contentX(canvasLeft() + (canvasRight() - canvasLeft()) / 2.0);
+        float y = viewport().contentY(canvasTop() + (canvasBottom() - canvasTop()) / 2.0);
+        String id = editor.create(Math.round(x), Math.round(y));
+        if (id == null) {
+            report("A new quest could not be written - see the log");
+            return;
+        }
+        selectedQuest = id;
+        report("Added " + id + " - Ctrl+S saves it");
+        reloadQuests();
+    }
+
+    /** Asks the server to read the quest files again, which is what puts an edit on the canvas. */
+    private void reloadQuests() {
+        runPartyCommand("tasked reload");
+    }
+
+    /** One line in the chat, for something the author did. */
+    private void report(String message) {
+        say("\u00a77" + message);
+    }
+
+    private void say(String message) {
+        if (minecraft != null && minecraft.gui != null) {
+            minecraft.gui.getChat().addMessage(Component.literal(message));
+        }
     }
 
     /** A quest book should not stop the world ticking — you want to read it mid-fight. */
