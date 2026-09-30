@@ -1,7 +1,7 @@
 package dev.ellipog.tasked.client;
 
 import dev.ellipog.armature.api.ArmatureApi;
-import dev.ellipog.armature.client.Appearance;
+import dev.ellipog.armature.client.Look;
 import dev.ellipog.tasked.Constants;
 
 import java.nio.file.Path;
@@ -27,6 +27,19 @@ public final class ClientAppearance {
     /** Where a theme saved from the editor is written. */
     public static final String THEMES_DIRECTORY = "themes";
 
+    /**
+     * Tasked's look: the one instance this mod draws with.
+     *
+     * <p>An instance rather than a static on the library's class, and that is the whole of the last
+     * correction: a library that holds *the* current theme makes every mod built on it share one player's
+     * one choice, so two different looks in one client are not expressible. Here, they are -- another mod
+     * owns another {@code Look}, and neither can see the other's.
+     *
+     * <p>Static <i>here</i> is fine and is the point: it is this mod's own field, in this mod's own class.
+     * The rule is who owns it, not whether it is reachable.
+     */
+    public static final Look LOOK = new Look();
+
     private ClientAppearance() {
     }
 
@@ -46,6 +59,6 @@ public final class ClientAppearance {
                     + " The default theme is in use.", e);
             return;
         }
-        Appearance.load(config.resolve(FILE_NAME), config.resolve(THEMES_DIRECTORY));
+        ClientAppearance.LOOK.load(config.resolve(FILE_NAME), config.resolve(THEMES_DIRECTORY));
     }
 }

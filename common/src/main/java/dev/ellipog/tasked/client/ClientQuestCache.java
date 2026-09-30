@@ -4,7 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.ellipog.armature.client.Appearance;
+import dev.ellipog.armature.client.Look;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.progress.QuestState;
@@ -404,12 +404,12 @@ public final class ClientQuestCache {
             treeReceived = true;
 
             // The pack's main theme, applied before anything is drawn from this tree. It only takes
-            // effect for a player who has never chosen a theme of their own -- `Appearance.main`
+            // effect for a player who has never chosen a theme of their own -- `ClientAppearance.LOOK.main`
             // decides that, and this class has no business knowing the rule. Null rather than "leave it
             // alone" when the tree carries none: a server that stops sending one must stop influencing
             // the client, or a player would carry one pack's look onto the next server with nothing on
             // screen to explain it.
-            Appearance.setServerDefault(packTheme);
+            ClientAppearance.LOOK.setServerDefault(packTheme);
             Constants.LOG.info("tasked: received {} quest(s) in {} chapter(s)", quests, chapters);
         }
         catch (RuntimeException e) {
@@ -518,7 +518,7 @@ public final class ClientQuestCache {
         // And the pack's theme, for the reason in this method's javadoc: it describes a connection, so
         // leaving it set would show one server's look on the next one -- an appearance nobody chose,
         // with nothing on screen saying where it came from.
-        Appearance.setServerDefault(null);
+        ClientAppearance.LOOK.setServerDefault(null);
     }
 
     // ------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.client.dev;
 
-import dev.ellipog.armature.client.Appearance;
+import dev.ellipog.armature.client.Look;
+import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.ThemeToken;
@@ -143,15 +144,15 @@ public final class ToolsPanel {
                     slot.height());
             Slot between = ToolsLayout.stepperValue(new Slot(row.key(), rowBox.x(), rowBox.y(),
                     rowBox.width(), rowBox.height()));
-            String number = String.valueOf(Appearance.radius());
+            String number = String.valueOf(ClientAppearance.LOOK.radius());
             r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
                     textY(slot, onScreen, r),
-                    Appearance.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
+                    ClientAppearance.LOOK.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
             return;
         }
 
         if (token != null) {
-            int argb = Appearance.main().colour(token);
+            int argb = ClientAppearance.LOOK.main().colour(token);
             boolean isSelected = token.equals(state.selected());
             if (isSelected || hovered) {
                 r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
@@ -178,7 +179,7 @@ public final class ToolsPanel {
     private static void drawBand(GuiRenderer r, ToolsLayout.Frame frame, State state, Measure measure) {
         String token = state.selected();
         boolean radius = ToolsLayout.RADIUS.equals(token);
-        int argb = token == null || radius ? 0 : Appearance.main().colour(token);
+        int argb = token == null || radius ? 0 : ClientAppearance.LOOK.main().colour(token);
 
         BookGeometry.Rect swatch = frame.swatch();
         int box = swatch.height() - 4;
@@ -209,7 +210,7 @@ public final class ToolsPanel {
         Map<String, Slot> beats = ToolsLayout.beats(frame.channels());
         if (radius) {
             Slot value = beats.get("beat:R");
-            String number = String.valueOf(Appearance.radius());
+            String number = String.valueOf(ClientAppearance.LOOK.radius());
             r.text(number, value.x() + (value.width() - r.textWidth(number)) / 2,
                     value.y() + (value.height() - r.lineHeight()) / 2, ArmatureTheme.title());
             return;
@@ -240,7 +241,7 @@ public final class ToolsPanel {
 
     /** The radius the theme underneath asks for, for the band's own reference. */
     private static int themeRadius() {
-        var theme = dev.ellipog.armature.client.ui.Themes.any(Appearance.currentName());
+        var theme = dev.ellipog.armature.client.ui.Themes.any(ClientAppearance.LOOK.currentName());
         return theme == null ? 0 : theme.cornerRadius();
     }
 

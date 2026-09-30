@@ -2,7 +2,7 @@ package dev.ellipog.tasked.client;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
-import dev.ellipog.armature.client.Appearance;
+import dev.ellipog.armature.client.Look;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.ui.ArmatureLive;
 import dev.ellipog.armature.client.ui.ArmatureScreen;
@@ -1445,7 +1445,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void buildToolsWidgets() {
         toolsFrame = ToolsLayout.frame(geometry().canvas());
-        toolsRows = ToolsLayout.rows(DevMode.on(), Appearance.motion(), toolsColoursOpen);
+        toolsRows = ToolsLayout.rows(DevMode.on(), ClientAppearance.LOOK.motion(), toolsColoursOpen);
         toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
 
         toolsView.clear();
@@ -1531,8 +1531,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             setEditing(!DevMode.on());
         }
         else if (key.equals(ToolsLayout.MOTION)) {
-            Appearance.setMotion(!Appearance.motion());
-            status(Appearance.motion() ? "Motion on" : "Motion off", false);
+            ClientAppearance.LOOK.setMotion(!ClientAppearance.LOOK.motion());
+            status(ClientAppearance.LOOK.motion() ? "Motion on" : "Motion off", false);
             rebuildWidgets();
         }
     }
@@ -1556,22 +1556,22 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The shape row's arrows: one step of corner radius each. */
     private void stepRadius(int delta) {
-        Appearance.setRadius(net.minecraft.util.Mth.clamp(Appearance.radius() + delta,
-                Appearance.MIN_RADIUS, Appearance.MAX_RADIUS));
-        status("Border radius " + Appearance.radius()
-                + (Appearance.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : ""), false);
+        ClientAppearance.LOOK.setRadius(net.minecraft.util.Mth.clamp(ClientAppearance.LOOK.radius() + delta,
+                Look.MIN_RADIUS, Look.MAX_RADIUS));
+        status("Border radius " + ClientAppearance.LOOK.radius()
+                + (ClientAppearance.LOOK.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : ""), false);
         rebuildWidgets();
     }
 
     /** The theme's own radius, for the message: what a Revert would go back to. */
     private static int themeRadius() {
-        var theme = Themes.any(Appearance.currentName());
+        var theme = Themes.any(ClientAppearance.LOOK.currentName());
         return theme == null ? 0 : theme.cornerRadius();
     }
 
     /** The selected colour's value, as the field should show it. */
     private String hexOf(String token) {
-        return token == null ? "" : String.format("#%06X", Appearance.main().colour(token) & 0xFFFFFF);
+        return token == null ? "" : String.format("#%06X", ClientAppearance.LOOK.main().colour(token) & 0xFFFFFF);
     }
 
     /**
@@ -1617,9 +1617,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         if (digits.length() == 6) {
-            argb = (Appearance.main().colour(toolsSelected) & 0xFF000000) | (argb & 0xFFFFFF);
+            argb = (ClientAppearance.LOOK.main().colour(toolsSelected) & 0xFF000000) | (argb & 0xFFFFFF);
         }
-        Appearance.setCustom(toolsSelected, argb);
+        ClientAppearance.LOOK.setCustom(toolsSelected, argb);
         status(labelOfToken(toolsSelected) + " set to " + String.format("#%08X", argb), false);
         rebuildWidgets();
     }
@@ -1630,7 +1630,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (token == null) {
             return;
         }
-        int argb = Appearance.main().colour(token);
+        int argb = ClientAppearance.LOOK.main().colour(token);
         int shift = switch (channel) {
             case "R" -> 16;
             case "G" -> 8;
@@ -1638,7 +1638,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             default -> 24;
         };
         int value = net.minecraft.util.Mth.clamp(((argb >>> shift) & 0xFF) + step, 0, 255);
-        Appearance.setCustom(token, (argb & ~(0xFF << shift)) | (value << shift));
+        ClientAppearance.LOOK.setCustom(token, (argb & ~(0xFF << shift)) | (value << shift));
         rebuildWidgets();
     }
 
@@ -1648,18 +1648,18 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void revertSelected() {
         if (toolsSelected == null) {
-            Appearance.clearRadius();
+            ClientAppearance.LOOK.clearRadius();
             status("Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }
         if (ToolsLayout.RADIUS.equals(toolsSelected)) {
-            Appearance.clearRadius();
+            ClientAppearance.LOOK.clearRadius();
             status("Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }
-        Appearance.clearCustom(toolsSelected);
+        ClientAppearance.LOOK.clearCustom(toolsSelected);
         status("Reverted " + labelOfToken(toolsSelected), false);
         rebuildWidgets();
     }
@@ -1672,7 +1672,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      * before it is written.
      */
     private void saveTheme() {
-        String saved = Appearance.saveAsTheme(null);
+        String saved = ClientAppearance.LOOK.saveAsTheme(null);
         status(saved == null ? "The theme could not be written - see the log" : "Saved as " + saved,
                 saved == null);
         rebuildWidgets();
@@ -2637,6 +2637,17 @@ public final class QuestBookScreen extends ArmatureScreen {
      * missing call. {@code ArmatureTheme.scopeDepth} is the blunt check for the same thing.
      */
     public void renderWith(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
+        // **Tasked's look, scoped to Tasked's drawing.** The theme is an instance this mod owns now, and
+        // this is where it reaches the toolkit: a scope opened around the whole of the book's own drawing,
+        // closed however this returns. Another mod's screens open their own and see their own -- which is
+        // the property the library had made impossible by holding one global theme for everybody.
+        try (ArmatureTheme.Scope look = ArmatureTheme.scope(ClientAppearance.LOOK.main())) {
+            renderBook(renderer, mouseX, mouseY, partialTick);
+        }
+    }
+
+    /** The book's own drawing, inside the look's scope. See {@link #renderWith}. */
+    private void renderBook(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
         centreCanvas();
 
         // A tree that arrived since the sidebar was built means the outline is describing a questline
@@ -4702,18 +4713,18 @@ public final class QuestBookScreen extends ArmatureScreen {
     private static Theme viewportTheme() {
         String chapter = effectiveChapter();
         if (chapter == null) {
-            return Appearance.main();
+            return ClientAppearance.LOOK.main();
         }
 
         String named = ClientQuestCache.chapterTheme(chapter);
         if (named == null) {
-            return Appearance.main();
+            return ClientAppearance.LOOK.main();
         }
 
         Theme found = Themes.any(named);
         if (found == null) {
             warnAboutThemeOnce(chapter, named);
-            return Appearance.main();
+            return ClientAppearance.LOOK.main();
         }
         return found;
     }
@@ -4744,8 +4755,8 @@ public final class QuestBookScreen extends ArmatureScreen {
     // ------------------------------------------------------------------
     //
     // `cycleTheme()` and `toggleMotion()` were the callbacks for the sidebar's two appearance rows, and
-    // both have gone with the buttons. Neither did any work: one called `Appearance.cycleTheme()` and
-    // the other `Appearance.setMotion(!Appearance.motion())`, and what they added was a `rebuildWidgets()`
+    // both have gone with the buttons. Neither did any work: one called `ClientAppearance.LOOK.cycleTheme()` and
+    // the other `ClientAppearance.LOOK.setMotion(!ClientAppearance.LOOK.motion())`, and what they added was a `rebuildWidgets()`
     // to refresh a label that no longer exists.
     //
     // That is the right split rather than a deletion that loses something. The operations live in
