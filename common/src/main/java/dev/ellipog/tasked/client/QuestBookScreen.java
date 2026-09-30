@@ -358,6 +358,24 @@ public final class QuestBookScreen extends Screen {
     private static final int PARTY_ROW_BUTTON = 62;
 
     /**
+     * Where the party card's body starts and ends, measured from the card's own edges.
+     *
+     * <h2>Why not the quest overlay's `BODY_TOP` and `BODY_BOTTOM`</h2>
+     *
+     * <p>Because those are the *quest* overlay's: its header is a title and an icon strip, and its
+     * footer is a rule plus a control row, so its stops are measured for that card. The party card has
+     * a one-line title and the same footer as anything else. Reusing the quest numbers meant writing
+     * `BODY_TOP - 24` at three call sites, which is one adjustment expressed as a subtraction in three
+     * places -- and a fourth place that forgot it is how the rows came to be drawn through the title.
+     *
+     * <p>{@code MODAL_CHROME} in {@code BookGeometry} is {@code PARTY_BODY_TOP + PARTY_BODY_BOTTOM},
+     * which is the invariant the two have to satisfy: the card's own chrome is whatever is not body.
+     */
+    private static final int PARTY_BODY_TOP = BODY_TOP - 24;
+
+    private static final int PARTY_BODY_BOTTOM = BODY_BOTTOM + EDGE;
+
+    /**
      * The party strip's control, so the drawing can keep its label current.
      *
      * <p>Nulled in {@code init} with the list it comes from, exactly as {@link #closeButton} is: leaving
@@ -1176,7 +1194,16 @@ public final class QuestBookScreen extends Screen {
         // The card, sized to this roster. The footer is placed inside *it* rather than inside the
         // overlay's rectangle, which is the whole of what makes a smaller card work: every control
         // inside reads the card's own edges.
-        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster), BookGeometry.PARTY_MODAL_WIDTH);
+        // The action rows are computed *first*, because where the member rows go depends on how tall
+        // they are. That ordering is the fix for the third fault: both lists used to start at the body's
+        // top, so with a real party the "Counts:" row drew straight through the owner's name.
+        List<PartyRow> wanted = partyRows(roster, ClientPartyCache.snapshot());
+        int actionsHeight = wanted.isEmpty() ? 0
+                : wanted.size() * PartyRoster.ROW_HEIGHT
+                        + (wanted.size() - 1) * PartyRoster.ROW_GAP + PartyRoster.ROW_GAP * 3;
+
+        BookGeometry.Rect card = geometry().modal(partyBodyHeight(roster, wanted.size()),
+                BookGeometry.PARTY_MODAL_WIDTH);
         Map<String, BookGeometry.Rect> footer =
                 geometry().modalControls(card, partyActionCount(roster), true);
 
@@ -1189,7 +1216,7 @@ public final class QuestBookScreen extends Screen {
         int bodyWidth = Math.max(0, card.width() - EDGE * 4);
         partyLayout = PartyPanelLayout.build(roster, bodyWidth, Measure.monospace(6, 9));
         partyOriginX = card.x() + EDGE * 2;
-        partyOriginY = card.y() + BODY_TOP - 24;
+        partyOriginY = card.y() + PARTY_BODY_TOP + actionsHeight;
 
         for (String key : PartyPanelLayout.controlKeys(roster)) {
             UUID target = PartyRoster.removeTarget(key);
@@ -1217,9 +1244,8 @@ public final class QuestBookScreen extends Screen {
 
         // The action rows: create, accept, invite, change-mode. Placed from `BookGeometry.bodyRows`,
         // so a row's label and its button come from one rectangle rather than two that agree.
-        java.util.List<PartyRow> wanted = partyRows(roster, ClientPartyCache.snapshot());
-        java.util.List<BookGeometry.Rect> rects = BookGeometry.bodyRows(
-                card, wanted.size(), BODY_TOP - 24, BODY_BOTTOM + EDGE);
+        List<BookGeometry.Rect> rects = BookGeometry.bodyRows(
+                card, wanted.size(), PARTY_BODY_TOP, PARTY_BODY_BOTTOM);
         partyRows = new ArrayList<>();
 
         for (int i = 0; i < rects.size(); i++) {
@@ -1614,7 +1640,7 @@ public final class QuestBookScreen extends Screen {
      */
     private boolean clickedOutsideCard(double mouseX, double mouseY) {
         BookGeometry.Rect card = overlay == Overlay.PARTY
-                ? geometry().modal(partyCardHeight(partyRoster()), BookGeometry.PARTY_MODAL_WIDTH)
+                ? geometry().modal(partyBodyHeight(partyRoster()), BookGeometry.PARTY_MODAL_WIDTH)
                 : geometry().modal();
 
         return mouseX < card.x() || mouseX > card.right()
@@ -1959,24 +1985,50 @@ public final class QuestBookScreen extends Screen {
      * catch is a change to the *number of elements*, and that is what {@code PartyPanelLayoutTest}
      * holds: it asserts the layout's height against the same terms written longhand.
      */
-    private int partyCardHeight(PartyRoster roster) {
-        int content = PartyPanelLayout.HEADING_HEIGHT + PartyPanelLayout.HEADING_TAIL;
+    private int partyBodyHeight(PartyRoster roster) {
+        return partyBodyHeight(roster, partyRows(roster, ClientPartyCache.snapshot()).size());
+    }
 
-        if (!roster.isReal()) {
-            content += PartyPanelLayout.EMPTY_ADVANCE + 6 + OverlayLayout.LINE_HEIGHT;
+    /**
+     * The body's height: the action rows, then the member rows.
+     *
+     * <h2>What this used to be, and the two faults in it</h2>
+     *
+     * <p>It returned {@code MODAL_CHROME + content} while {@link BookGeometry#modal(int, int)} adds
+     * {@code MODAL_CHROME} itself -- so every card was eighty-four pixels taller than the content it
+     * held, which is most of why the panel read as blank: a box built for a list, with the list at the
+     * top and a hand's width of nothing under it.
+     *
+     * <p>And it counted member rows only. The action rows -- Create, an Accept per invitation, an
+     * Invite per online player -- had no room reserved at all, so a player list longer than the card
+     * overflowed it without anything saying so.
+     *
+     * <h2>What it returns now, and who adds the chrome</h2>
+     *
+     * <p>The body alone. {@code modal} adds the card's own top and bottom, and
+     * {@code PARTY_BODY_TOP + PARTY_BODY_BOTTOM} is what it adds -- so the two numbers that describe
+     * where the body sits are the same two numbers that decide how tall the card is, and a change to
+     * either cannot leave the other behind.
+     *
+     * @param actions how many action rows, passed in rather than counted again because the caller has
+     *                the list already and this is called twice per frame
+     */
+    private int partyBodyHeight(PartyRoster roster, int actions) {
+        int members = roster.isReal() ? roster.memberCount() : 0;
+
+        int height = 0;
+        if (actions > 0) {
+            height += actions * PartyRoster.ROW_HEIGHT + (actions - 1) * PartyRoster.ROW_GAP;
         }
-        else {
-            content += PartyRoster.ROW_HEIGHT * roster.memberCount()
-                    + PartyRoster.ROW_GAP * Math.max(0, roster.memberCount() - 1);
-            if (partyActionCount(roster) > 0) {
-                content += PartyPanelLayout.ACTIONS_GAP + PartyPanelLayout.ACTION_HEIGHT;
-                if (partyActionCount(roster) >= 2) {
-                    content += PartyPanelLayout.ACTION_GAP + PartyPanelLayout.ACTION_HEIGHT;
-                }
+        if (members > 0) {
+            // A wider gap between the two groups than between rows within one, so the action list and
+            // the roster read as two lists rather than as one of mixed kinds.
+            if (actions > 0) {
+                height += PartyRoster.ROW_GAP * 3;
             }
+            height += members * PartyRoster.ROW_HEIGHT + (members - 1) * PartyRoster.ROW_GAP;
         }
-
-        return BookGeometry.MODAL_CHROME + content;
+        return height;
     }
 
     /**
@@ -1999,46 +2051,25 @@ public final class QuestBookScreen extends Screen {
     private void drawPartyOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
         PartyRoster roster = partyRoster();
 
-        // The card, computed once and used for every position inside it. That is what makes a smaller
-        // card work: the body and the footer read the card's own edges rather than the screen's, so
-        // shrinking it moves the contents instead of clipping them.
-        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster), BookGeometry.PARTY_MODAL_WIDTH);
+        // The card, sized from the body it holds -- actions and members together. See `partyBodyHeight`
+        // for the two faults this replaced: an eighty-four pixel overcount and a set of rows with no
+        // room reserved.
+        BookGeometry.Rect card = geometry().modal(partyBodyHeight(roster),
+                BookGeometry.PARTY_MODAL_WIDTH);
 
-        // No dim here, and its absence is a fix. `renderWith` fills the whole screen with one before
-        // dispatching to the overlay, so a second fill put **two** translucent blacks over a world that
-        // is not otherwise drawn -- which is a black screen rather than a dimmed one. One dim, in one
-        // place, and that place is the dispatcher that knows an overlay is open.
+        // No dim: `renderWith` fills one before dispatching to an overlay, and a second put two
+        // translucent blacks over a world that is not otherwise drawn.
         ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
         r.text(Component.translatable("tasked.screen.party.title").getString(),
                 card.x() + EDGE * 2, card.y() + 10, ArmatureTheme.title());
 
-        // The body: below the heading, above the footer's row.
-        int bodyTop = card.y() + BODY_TOP - 24;
-        int bodyBottom = card.bottom() - BODY_BOTTOM - EDGE;
-
-        if (bodyBottom <= bodyTop) {
-            // A window too short to hold the card's own chrome. Drawing nothing beats drawing rows
-            // through the heading, which is what a negative body height produces.
-            return;
-        }
-
-        if (!roster.isReal()) {
-            // No empty state of its own any more, and its absence is the point of this round. It used
-            // to say "you are not in a party" and name a command to type -- which is what the request
-            // was about: *"dont just say oh create a party with commands, have buttons"*. The rows
-            // drawn below it now carry a Create button, an Accept per invitation, and an Invite per
-            // online player, so the words are the first row's label rather than a dead end.
-            return;
-        }
-
-        if (partyLayout == null) {
-            return;
-        }
-
-        // The action rows first, because they are the top of the body when there is no party and the
-        // bottom of it when there is -- see `partyRows` for why the order is what it is.
+        // The action rows, drawn whether or not there is a party -- and that is the fix for the fourth
+        // fault, which is what "still almost blank" was: this method returned early when there was no
+        // party, *before* reaching these rows, so the Create button that exists to replace the command
+        // hint was never drawn at all. A panel whose empty state is a dead end is the thing this round
+        // was about.
         for (PlacedPartyRow placed : partyRows) {
             BookGeometry.Rect rect = placed.rect();
             int textY = rect.y() + (rect.height() - r.lineHeight()) / 2;
@@ -2047,6 +2078,12 @@ public final class QuestBookScreen extends Screen {
                     rect.x() + 2, textY, ArmatureTheme.body());
         }
 
+        if (!roster.isReal() || partyLayout == null) {
+            return;
+        }
+
+        int bodyBottom = card.bottom() - PARTY_BODY_BOTTOM;
+
         for (PartyRoster.Member member : roster.members()) {
             Slot slot = partyLayout.slot(member.key());
             if (slot == null) {
@@ -2054,15 +2091,14 @@ public final class QuestBookScreen extends Screen {
             }
             Slot onScreen = slot.moved(partyOriginX, partyOriginY);
             if (onScreen.bottom() > bodyBottom) {
-                // Past the body. Skipped rather than drawn -- see this method's note on clipping.
+                // Past the body. Skipped rather than drawn: an over-full roster is a limitation, and
+                // painting a row over the footer would be a fault.
                 continue;
             }
 
             rowHover.update(member.key(), now);
             float hover = rowHover.amount(member.key(), now);
             if (hover > 0F) {
-                // The same wash the overlay's rows use, so a hovered row reads the same on both panels.
-                // `hover` is 0 to 1 and the alpha is that fraction of the accent's own.
                 rowWash(r, onScreen, onScreen.right(), hover);
             }
 
@@ -2072,8 +2108,7 @@ public final class QuestBookScreen extends Screen {
                     member.self() ? ArmatureTheme.title() : ArmatureTheme.body());
 
             // The rank, right-aligned in the room the row reserved for its Remove button -- the same
-            // reservation the button is placed inside, so the word and the button cannot overlap. A
-            // member who may not be removed still shows a rank here, which is why every row reserves it.
+            // reservation the button is placed inside, so the word and the button cannot overlap.
             String role = member.roleLabel();
             int roleX = onScreen.right() - PartyRoster.REMOVE_WIDTH
                     - PartyRoster.REMOVE_INSET * 2 - r.textWidth(role);
