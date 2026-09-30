@@ -1,3 +1,7 @@
+---
+maturity: draft
+---
+
 # Design preview
 
 Every element these docs can render, on one page. It exists so the design can be judged against real
@@ -7,6 +11,34 @@ content rather than against the two short documents that happened to exist first
 > [!NOTE]
 > Nothing on this page describes Tasked. It is a test fixture that happens to be readable. If you are
 > looking for how to use the mod, this is the wrong page.
+
+## Linking between mods
+
+The thing that makes several mods read as one manual rather than several websites. A link names the
+mod and the page, never a URL:
+
+`[[armature:index]]` renders as [[armature:index]] — the target's own title, taken at build time.
+
+That matters more than it looks. Rename Armature's page and every link to it updates itself, because
+the text is read from the index rather than typed. And a link to a page that does not exist **fails the
+build**, with the file it was found in — which is the only way a cross-mod link can be kept honest,
+since the author cannot see the target while writing.
+
+Your own text, if the title does not fit the sentence: `[[armature:index|the Armature manual]]` becomes
+[[armature:index|the Armature manual]].
+
+An anchor works the same way: `[[tasked:index#where-to-start]]` points at
+[[tasked:index#where-to-start]].
+
+## Glossary terms
+
+Write a term in double brackets with no colon and it picks up its definition. Hover one, or tab to it:
+this paragraph is about the [[canvas]], where a [[quest]] sits at its own coordinates and a [[chapter]]
+frames it. Hover over [[validator]] to see what happens when a file is wrong.
+
+Terms are defined once, in `glossary.json` at the site root, and every use of one is listed on the
+[glossary page](/docs/glossary/). The definition is always in the page for a screen reader, not
+injected on hover — which is the difference between a tooltip that works and one that does not.
 
 ## Callouts
 
@@ -87,7 +119,8 @@ looks like a mistake in the content.
 |---|---|
 | `id` | The quest's identifier. Unique across every file. |
 | `title` | What the player sees. |
-| `tasks` | What has to be done. All of them, unless `minRequired` says otherwise. |
+| `tasks` <Since v="0.1.0" /> | What has to be done. All of them, unless `minRequired` says otherwise. |
+| `dimension` <Since v="0.2.0" /> | A destination the player has to reach. Arrives with the full task set. |
 | `dependsOn` | Quest ids that must be complete first. |
 
 ## Steps
@@ -127,7 +160,8 @@ writing: `code` for an identifier, **bold** for the thing that matters, *italic*
 2. A second.
 3. A third.
 
-A line with `tasked:item` inline, a **required** field, and a *subtle* distinction.
+A line with `tasked:item` inline, a **required** field, a *subtle* distinction, and a
+<Since v="0.2.0" /> chip sitting in the middle of a sentence without disturbing the line height.
 
 ## Collapsed detail
 
