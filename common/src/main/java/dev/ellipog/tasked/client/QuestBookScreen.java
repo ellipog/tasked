@@ -4022,26 +4022,36 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_D && selectedQuest != null) {
-            // Saved first, because this changes the *set* of files: the reload below is what makes the
-            // server notice, and a reload reads the disk. Writing first is what keeps the canvas, the
-            // files and the editor's memory saying the same thing -- the alternative is a duplicate that
-            // appears while the moves beside it silently revert.
+            // Saved on both sides of the change, and the reason is the *manifest*: duplicating writes the
+            // copy's file, but the chapter's list of quests is a second file, and it is the list the
+            // loader walks. The save after the change is what puts the name in it -- and a save validates
+            // and reloads, so the canvas and the disk agree in one step.
+            if (!saveEditor()) {
+                return true;
+            }
+            String copy = editor.duplicate(selectedQuest);
+            if (copy == null) {
+                report("The copy could not be written - see the log");
+                return true;
+            }
+            selectedQuest = copy;
             if (saveEditor()) {
-                String copy = editor.duplicate(selectedQuest);
-                if (copy != null) {
-                    selectedQuest = copy;
-                    report("Duplicated as " + copy);
-                    reloadQuests();
-                }
+                report("Duplicated as " + copy);
             }
             return true;
         }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
-                && selectedQuest != null && !editor.quest(selectedQuest).equals(null)
-                && saveEditor() && editor.delete(selectedQuest)) {
-            report("Deleted " + selectedQuest + " (its file is beside it, renamed .deleted)");
-            selectedQuest = null;
-            reloadQuests();
+                && selectedQuest != null && editor.quest(selectedQuest) != null) {
+            String going = selectedQuest;
+            if (!saveEditor()) {
+                return true;
+            }
+            if (editor.delete(going) && saveEditor()) {
+                // Cleared only once the chapter is on disk without it: a selection naming a quest whose
+                // file is still listed would be a Delete key that claims to have deleted something.
+                selectedQuest = null;
+                report("Deleted " + going + " (its file is beside it, renamed .deleted)");
+            }
             return true;
         }
         return false;
@@ -4104,6 +4114,11 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** Adds a quest where the middle of the view is, which is where the author is looking. */
     private void createQuest(QuestEditor editor) {
+        // Saved before *and* after: before so that an error in one of the chapter's other files is
+        // reported here rather than overwritten, and after because the manifest -- the list the loader
+        // walks -- is a second file that `create` only changes in memory. The save after the change is
+        // what writes it, and a save validates and reloads, so there is nothing left for this method to
+        // do but say what happened.
         if (!saveEditor()) {
             return;
         }
@@ -4115,8 +4130,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         selectedQuest = id;
-        report("Added " + id + " - Ctrl+S saves it");
-        reloadQuests();
+        if (saveEditor()) {
+            report("Added " + id);
+        }
     }
 
     /** Asks the server to read the quest files again, which is what puts an edit on the canvas. */
