@@ -75,6 +75,7 @@
     "tasked.screen.quest_book.claim": "Claim",
 
     "tasked.screen.party.title": "Your Party",
+    "tasked.screen.party.button": "Party",
     "tasked.screen.party.strip": "Party",
     "tasked.screen.party.none": "You are not in a party.",
     "tasked.screen.party.remove": "Remove",

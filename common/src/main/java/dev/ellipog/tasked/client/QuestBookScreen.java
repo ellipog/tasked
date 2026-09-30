@@ -521,19 +521,6 @@ public final class QuestBookScreen extends Screen {
     private int chapterListTop() {
         return geometry().chapterListTop();
     }
-
-    /**
-     * The party strip in the sidebar's foot: the panel's trigger, and the whole of it.
-     *
-     * <p>The strip <b>is</b> the button rather than holding one, and that is a decision about targets: a
-     * 132-pixel row saying who is in your party is exactly what a player would press to find out more,
-     * and a separate "Party" control beside it would be one affordance described twice -- the fault the
-     * sidebar's own chevron avoids by living inside its row's label.
-     */
-    private BookGeometry.Rect partyStrip() {
-        return geometry().partyStrip();
-    }
-
     /**
      * The local player's id, or null when there is none.
      *
@@ -1015,18 +1002,57 @@ public final class QuestBookScreen extends Screen {
      * the case this is for, and the alternative is a second {@code ScrollView} that moves these widgets
      * the way the sidebar's does. Named here so whoever raises the limit knows what they are raising.
      */
+    /**
+     * The party button's tooltip: the roster, in words.
+     *
+     * <h2>Why the state lives here and not on the label</h2>
+     *
+     * <p>A label is fixed at construction and a tooltip is read per frame, and the roster is the thing
+     * that changes. So the button says "Party", true whether you are in one or not, and the answer to
+     * which party is one hover away. That also keeps the button's width a property of its label rather
+     * than of the longest possible roster, which is what made the hand-written widths in this file wrong
+     * in the first place.
+     *
+     * <p>Three states, and the middle one is why {@code isReal} exists rather than a member count: alone
+     * in a party of one is not the same as having no party, and the two have the same number of members.
+     */
+    private List<Component> partyTooltip() {
+        PartyRoster roster = partyRoster();
+
+        if (!roster.isReal()) {
+            return List.of(Component.literal("No party"),
+                    Component.literal("Click to see how to make one"));
+        }
+
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.literal(roster.memberCount() == 1
+                ? "Your party (just you)"
+                : "Your party (" + roster.memberCount() + ")"));
+        for (PartyRoster.Member member : roster.members()) {
+            lines.add(Component.literal("  " + member.label() + " - " + member.roleLabel()));
+        }
+        return List.copyOf(lines);
+    }
+
     private void buildPartyWidgets() {
         PartyRoster roster = partyRoster();
+        // The card, sized to this roster. The footer is placed inside *it* rather than inside the
+        // overlay's rectangle, which is the whole of what makes a smaller card work: every control
+        // inside reads the card's own edges.
+        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster));
         Map<String, BookGeometry.Rect> footer =
-                geometry().overlayControls(partyActionCount(roster), true);
+                geometry().modalControls(card, partyActionCount(roster), true);
 
         // The card's body, in the layout's own coordinates. The measure is never consulted -- every
         // element PartyPanelLayout contributes is a `row`, whose height is declared rather than wrapped
         // -- and SidebarLayout uses the same stand-in for the same reason.
-        int bodyWidth = Math.max(0, overlayWidth() - EDGE * 4);
+        // The card, and the origin is *its* corner. `_card2` reads this too, so the box and the rows
+        // inside it come from one arithmetic -- a card sized to a prediction of its content is how a
+        // list ends up three rows tall in a box built for eight.
+        int bodyWidth = Math.max(0, card.width() - EDGE * 4);
         partyLayout = PartyPanelLayout.build(roster, bodyWidth, Measure.monospace(6, 9));
-        partyOriginX = overlayLeft() + EDGE * 2;
-        partyOriginY = overlayTop() + BODY_TOP;
+        partyOriginX = card.x() + EDGE * 2;
+        partyOriginY = card.y() + BODY_TOP - 24;
 
         for (String key : PartyPanelLayout.controlKeys(roster)) {
             UUID target = PartyRoster.removeTarget(key);
@@ -1287,12 +1313,20 @@ public final class QuestBookScreen extends Screen {
         // Its label is written by `drawPartyStrip` rather than fixed here, deliberately: the roster it
         // describes changes whenever a payload arrives, and a label set at construction would go stale
         // on the one screen whose whole subject is whether a roster is up to date.
-        partyButton = control(controls.get("party"), Component.empty(), this::openPartyOverlay);
+        // **Labelled here rather than by the drawing**, and that is a fix rather than a preference. The
+        // strip this replaces had its message written in `drawBook`, which runs before the widget pass
+        // within a frame, so the first frame after `init` drew an empty control and any frame where the
+        // widget pass came first drew nothing at all. The report was exactly that: no text on the party
+        // button.
+        //
+        // A widget's message belongs where the widget is made. What changes with the roster is not the
+        // label -- "Party" says the same thing whoever is in it -- but the tooltip, and a stale tooltip
+        // costs a hover line where a stale label cost the whole control.
+        partyButton = control(controls.get("party"),
+                Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
         if (partyButton != null) {
-            partyButton.alignLeft(true)
-                    .textColour(ArmatureTheme.body())
-                    .tooltip(List.of(Component.literal("Your party"),
-                            Component.literal("Click to see who is in it")));
+            partyButton.textColour(ArmatureTheme.body())
+                    .tooltip(partyTooltip());
         }
 
         // The view cluster: three square buttons in the canvas's own top-left corner.
@@ -1692,107 +1726,40 @@ public final class QuestBookScreen extends Screen {
         // A screenshot found it in five seconds, which is the honest argument for looking at the UI
         // as well as testing it.
     }
-
     /**
-     * Keeps the party strip's message current, and its enabled state.
+     * The party panel's card: a centred box with caps, sized to the roster it will hold.
      *
-     * <h2>What this deliberately does not do: draw the strip</h2>
+     * <h2>Why the height is computed here rather than asked of the layout</h2>
      *
-     * <p>The strip is an {@code ArmatureButton} in the control map, so it fills its own background,
-     * draws its own border and label, runs its own hover and pressed states, and truncates its own text
-     * through {@code ArmatureControlStyle}. The first version of this method drew a background and wrote
-     * a truncated label anyway, which put a second description of one appearance on screen -- and the
-     * fault is worth recording because it is the same one this project has hit before, most expensively
-     * when the quest-book preview carried a hand-written copy of the control rules and drew the selected
-     * chapter differently from the screen.
+     * <p>Because the layout does not know the card, and the card does not know the layout -- they are
+     * mutual. So the height is computed from the same numbers the layout is built from: the heading, a
+     * row per member, the gap before the actions, the actions themselves, and the card's own chrome.
+     * That is a second expression of the layout's content, and the honest note is that the two could
+     * drift.
      *
-     * <p>So what is left is what is genuinely the drawing's: the <b>content</b>. A roster changes
-     * whenever a payload arrives, and a widget's message is fixed at construction, so this is the one
-     * thing that has to be re-stated each frame. Everything else about how the strip looks is the
-     * control's, which is what one description of an appearance means.
-     *
-     * <h2>And the enabled state, which is the caption case</h2>
-     *
-     * <p>In no party the strip says so and does not respond: a press would open a panel with nothing in
-     * it. {@code active(false)} makes that true of the whole control at once -- fill, text, hover and
-     * input -- rather than a colour chosen here that the pressed state would then contradict.
-     *
-     * <h2>The three states it distinguishes, and the one a row count cannot</h2>
-     *
-     * <ul>
-     *   <li><b>In no party.</b> It says so, rather than going quiet. The strip is the only place in the
-     *       interface where that is stated, so it speaks when the answer is "no".</li>
-     *   <li><b>Alone in a party.</b> A different sentence, and the case a member count cannot reach:
-     *       {@code PartyRoster.isReal} is what tells a party of one from no party at all, and they have
-     *       the same number of members.</li>
-     *   <li><b>With others.</b> The names, and the remainder when they do not all fit -- a list that
-     *       silently dropped the fourth member would be worse than one saying "+2".</li>
-     * </ul>
+     * <p>What keeps them from drifting is that this reads {@code PartyPanelLayout}'s own constants
+     * rather than writing 18 and 10 again -- so a change to a row height moves both. What it does not
+     * catch is a change to the *number of elements*, and that is what {@code PartyPanelLayoutTest}
+     * holds: it asserts the layout's height against the same terms written longhand.
      */
-    private void drawPartyStrip() {
-        if (partyButton == null) {
-            return;
-        }
+    private int partyCardHeight(PartyRoster roster) {
+        int content = PartyPanelLayout.HEADING_HEIGHT + PartyPanelLayout.HEADING_TAIL;
 
-        PartyRoster roster = partyRoster();
-        String label = stripLabel(roster);
-
-        // The message, and nothing else. **This method does not draw the strip**, and that is worth
-        // stating because the first version did: it filled a background and wrote a truncated label,
-        // and the strip is an `ArmatureButton` -- which fills its own background, draws its own border,
-        // runs its own hover and pressed states and truncates its own label. So the drawing was a
-        // second background under the first and a second truncation of text the button was already
-        // measuring, which is the shape of fault this project keeps recording: two descriptions of one
-        // appearance, and the wrong one on top.
-        //
-        // What is genuinely the drawing's is the *content*, because a roster changes whenever a payload
-        // arrives and a widget's message is fixed at construction. So this sets the message every frame
-        // and the control owns everything else -- including how it looks, which is what
-        // `ArmatureControlStyle` is for and what a hand-drawn fill here was competing with.
-        partyButton.setMessage(Component.literal(label));
-
-        // And whether it is a control at all. In no party the strip is a caption: it says so, and it
-        // does not respond to a press that would open a panel with nothing in it.
-        //
-        // A field rather than a method, which the compiler said plainly: `AbstractWidget.active` is
-        // `public boolean active`, and the setter a reader expects from the naming convention does not
-        // exist. Assigning it is what makes "not a control right now" true of the whole widget at once
-        // -- fill, text colour, hover and input -- rather than a colour chosen here that the pressed
-        // state would then contradict.
-        partyButton.active = roster.isReal();
-    }
-
-    /**
-     * What the strip says, given a roster.
-     *
-     * <p>Separated from the drawing so it can be asserted without a renderer, which is the only part of
-     * the strip that has wording worth checking. The truncation is the drawing's business and a
-     * {@code Measure} answers it exactly.
-     */
-    static String stripLabel(PartyRoster roster) {
         if (!roster.isReal()) {
-            return "No party";
+            content += PartyPanelLayout.EMPTY_ADVANCE + 6 + OverlayLayout.LINE_HEIGHT;
         }
-        if (roster.memberCount() == 1) {
-            return "Party: just you";
+        else {
+            content += PartyRoster.ROW_HEIGHT * roster.memberCount()
+                    + PartyRoster.ROW_GAP * Math.max(0, roster.memberCount() - 1);
+            if (partyActionCount(roster) > 0) {
+                content += PartyPanelLayout.ACTIONS_GAP + PartyPanelLayout.ACTION_HEIGHT;
+                if (partyActionCount(roster) >= 2) {
+                    content += PartyPanelLayout.ACTION_GAP + PartyPanelLayout.ACTION_HEIGHT;
+                }
+            }
         }
 
-        StringBuilder names = new StringBuilder();
-        int shown = 0;
-        for (PartyRoster.Member member : roster.members()) {
-            String name = member.self() ? "you" : member.name();
-            if (shown > 0 && names.length() + name.length() + 2 > 22) {
-                // The remainder, and the count of it. `memberCount() - shown` rather than a second
-                // walk, so the number matches the names printed above it by construction.
-                return names + " +" + (roster.memberCount() - shown);
-            }
-            if (shown > 0) {
-                names.append(", ");
-            }
-            names.append(name);
-            shown++;
-        }
-        return names.toString();
+        return BookGeometry.MODAL_CHROME + content;
     }
 
     /**
@@ -1815,14 +1782,30 @@ public final class QuestBookScreen extends Screen {
     private void drawPartyOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
         PartyRoster roster = partyRoster();
 
-        r.fill(0, 0, width, height, ArmatureTheme.dim());
-        ArmatureTheme.panel(r, overlayLeft(), overlayTop(), overlayWidth(), overlayHeight(),
+        // The card, computed once and used for every position inside it. That is what makes a smaller
+        // card work: the body and the footer read the card's own edges rather than the screen's, so
+        // shrinking it moves the contents instead of clipping them.
+        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster));
+
+        // No dim here, and its absence is a fix. `renderWith` fills the whole screen with one before
+        // dispatching to the overlay, so a second fill put **two** translucent blacks over a world that
+        // is not otherwise drawn -- which is a black screen rather than a dimmed one. One dim, in one
+        // place, and that place is the dispatcher that knows an overlay is open.
+        ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
         r.text(Component.translatable("tasked.screen.party.title").getString(),
-                overlayLeft() + EDGE * 2, overlayTop() + 14, ArmatureTheme.title());
+                card.x() + EDGE * 2, card.y() + 10, ArmatureTheme.title());
 
-        int bodyBottom = overlayTop() + overlayHeight() - BODY_BOTTOM - EDGE;
+        // The body: below the heading, above the footer's row.
+        int bodyTop = card.y() + BODY_TOP - 24;
+        int bodyBottom = card.bottom() - BODY_BOTTOM - EDGE;
+
+        if (bodyBottom <= bodyTop) {
+            // A window too short to hold the card's own chrome. Drawing nothing beats drawing rows
+            // through the heading, which is what a negative body height produces.
+            return;
+        }
 
         if (!roster.isReal()) {
             // Two lines rather than one: "no party" is the fact, and the command is the useful part.
@@ -1915,7 +1898,12 @@ public final class QuestBookScreen extends Screen {
         // The party strip, drawn here beside the sidebar's scrollbar because it is chrome rather than
         // content: it describes the player's own situation, not the questline on screen, so no chapter's
         // theme may reach it. Drawing it in the book's pass is what keeps it outside every scope.
-        drawPartyStrip();
+        // The party button's tooltip, refreshed here, because that is where the roster's state goes now:
+        // the label says "Party" and the tooltip says who is in it. A tooltip the drawing rebuilds cannot
+        // go stale, which is the one thing a label set at construction can do.
+        if (partyButton != null) {
+            partyButton.tooltip(partyTooltip());
+        }
 
         r.text(title.getString(), left + 10, top + 9, ArmatureTheme.title());
         if (ClientQuestCache.hasData()) {

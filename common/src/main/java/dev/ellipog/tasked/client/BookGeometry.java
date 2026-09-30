@@ -197,39 +197,6 @@ public final class BookGeometry {
     /** Between the header and the top of the sidebar's list. */
     public static final int CHAPTER_GAP = 6;
 
-    /**
-     * The party strip: one always-visible line in the sidebar's foot, saying whether you are in a party
-     * and who with. Clicking it opens the roster.
-     *
-     * <h2>Why a strip and not the roster itself</h2>
-     *
-     * <p>Because the arithmetic does not fit, and that is worth stating as a measurement rather than as
-     * a preference. The column gives a row 132 pixels; a Remove button is 54 and its insets 4, leaving
-     * <b>74 pixels for a name</b>. A party of three with a heading, three rows and a stacked
-     * Leave/Disband pair comes to roughly 124 -- against a 200-pixel panel in the screenshot this
-     * project debugs against, which is 427x240 GUI pixels. So a roster drawn there is either a scrollbar
-     * inside a scrollbar in one column, or a chapter list three rows long.
-     *
-     * <p>What the column genuinely owes a player is the <b>state</b>: am I in a party, and who with.
-     * That is one line, and it is the thing you want without asking. The work -- removing somebody,
-     * leaving, disbanding -- needs room, so it gets a panel of its own.
-     *
-     * <h2>And it costs the chapter list nothing, which is a measurement rather than a hope</h2>
-     *
-     * <p>{@link #MIN_PANEL_HEIGHT} takes the larger of two terms, and the canvas's is 77. The sidebar's
-     * was 32 -- which is the 45 pixels of slack left when the theme picker and motion switch came off
-     * the sidebar, recorded in {@code controls}. The strip and the gap above it come to 22, so the
-     * sidebar's term is 54 and the canvas's still decides: <b>{@code MIN_PANEL_HEIGHT} is unchanged at
-     * 103.</b>
-     *
-     * <p>That is worth saying out loud, because an unchanged constant is otherwise read as evidence that
-     * nothing happened. What happened is that a feature fitted into slack that already existed, and the
-     * margin is now 23 pixels rather than 45.
-     */
-    public static final int PARTY_STRIP_HEIGHT = ROW_HEIGHT;
-
-    /** Between the bottom of the chapter list and the top of the party strip. */
-    public static final int PARTY_GAP = ROW_GAP;
 
     /** The gap inside the full-screen overlay, between its edge and its content. */
     public static final int OVERLAY_MARGIN = 24;
@@ -323,7 +290,7 @@ public final class BookGeometry {
      * know that finds out from a screenshot.
      */
     public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
-            CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + PARTY_GAP + PARTY_STRIP_HEIGHT + EDGE,
+            CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /** Enough canvas to be worth showing beside the sidebar. */
@@ -338,6 +305,42 @@ public final class BookGeometry {
 
     /** How far the panel is inset from the window's edge, when the window is big enough for that. */
     public static final int PANEL_MARGIN = 20;
+
+    // --- the modal card ------------------------------------------------------
+
+    /**
+     * The widest a modal card gets.
+     *
+     * <p>The overlay used to be <code>screenWidth - 48</code> by <code>screenHeight - 48</code>, which
+     * at a 640-pixel GUI is a 592-by-300 card: not a panel but a second screen with a border. A six-row
+     * roster inside one is a small list in a large empty room, and a column of prose inside one is
+     * mostly margin.
+     *
+     * <p>380 is a compromise with a reason rather than a round number: the quest overlay's prose wraps
+     * at this width to about sixty characters, which is where a line of text stays readable, and a
+     * roster two hundred pixels wider than its longest name is the empty room the report was about.
+     */
+    public static final int MAX_MODAL_WIDTH = 380;
+
+    /** The tallest a modal card gets. Past this the body scrolls rather than the card growing. */
+    public static final int MAX_MODAL_HEIGHT = 260;
+
+    /** Below this a card cannot hold a control and its label without the two colliding. */
+    public static final int MIN_MODAL_WIDTH = 200;
+
+    public static final int MIN_MODAL_HEIGHT = 120;
+
+    /** How far a modal card is inset from the window's edge, when the window is too small for the cap. */
+    public static final int MODAL_MARGIN = 24;
+
+    /**
+     * The card's own chrome: a title, the gap under it, and the footer's rule and controls.
+     *
+     * <p>What {@link #modal(int)} adds to a body's height. Written out rather than derived from the
+     * screen's body insets, which belong to the quest overlay's own layout: a card whose height depended
+     * on those would resize when they were adjusted for a reason that has nothing to do with it.
+     */
+    public static final int MODAL_CHROME = 84;
 
     // --- the full-screen overlay ---------------------------------------------
 
@@ -376,7 +379,39 @@ public final class BookGeometry {
      * the English one in most languages, and a button that truncates its own label reads as a fault in
      * whichever language noticed it first.
      */
-    public static final int PARTY_ACTION_WIDTH = 64;
+    /**
+     * How wide a control has to be for a short word, at the font this UI draws with.
+     *
+     * <h2>Why this exists, and what it is a fix for</h2>
+     *
+     * <p>64 and 88 were both chosen against an estimate of the font, and the estimate was short. The
+     * screenshot came back with Leave drawn as "e" and Back as "Bac", because {@code ArmatureButton}
+     * truncates against the real font at the client's GUI scale. A width written out by hand is a width
+     * that is wrong on somebody else's window, and wrong in the direction that reads as a bug in the
+     * button rather than in the constant.
+     *
+     * <p>Six pixels a character is close to the advance of the default font for the characters in these
+     * labels, and it is measured rather than invented: "Disband" is seven characters, "Leave" five,
+     * "Back" four. The padding either side is the button's own and is larger than a bare control's,
+     * because the label sits inside a bordered box.
+     *
+     * <p>This deliberately does not measure the real font, because a geometry class has no font and must
+     * not grow one; {@code Measure} exists for that and lives in the kit. So it is a margin of safety
+     * for a known set of short English words, and a longer translation will be tight.
+     */
+    public static final int PARTY_SHORT_LABEL_WIDTH = 7 * 6 + 24;
+
+    /** Leave's and Disband's width, in the party panel's footer. See {@link #PARTY_SHORT_LABEL_WIDTH}. */
+    public static final int PARTY_ACTION_WIDTH = PARTY_SHORT_LABEL_WIDTH;
+
+    /**
+     * The party button's width, in the header.
+     *
+     * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
+     * labels that happen to be a similar length today -- and a button whose width followed a word it
+     * does not contain would be a coincidence rather than a measurement.
+     */
+    public static final int PARTY_BUTTON_WIDTH = 52;
 
     // --- labels --------------------------------------------------------------
 
@@ -514,8 +549,55 @@ public final class BookGeometry {
     }
 
     /** The full-screen quest view. */
+    /**
+     * The modal card: a centred box with caps.
+     *
+     * <p>See {@link #MAX_MODAL_WIDTH} for the report this answers. Two consequences worth stating: a
+     * modal no longer changes shape when the window is resized past the cap, and a caller that needs to
+     * know how much room it has asks this rather than subtracting a margin of its own, which is the
+     * fault this class exists to prevent one level up.
+     *
+     * <p>The floors matter as much as the caps. A window smaller than the cap plus its margins gets what
+     * is left rather than the cap, so the card never runs off the screen.
+     */
+    public Rect modal() {
+        int width = Math.max(MIN_MODAL_WIDTH, Math.min(MAX_MODAL_WIDTH, screenWidth - MODAL_MARGIN * 2));
+        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(MAX_MODAL_HEIGHT, screenHeight - MODAL_MARGIN * 2));
+        return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
+    }
+
+    /**
+     * A modal card sized to the content it will hold, within the caps.
+     *
+     * <h2>Why a second entry point exists</h2>
+     *
+     * <p>Because a roster and a quest's prose want opposite things from a box. A roster is a short list:
+     * three rows is three rows, and a card two hundred and sixty pixels tall holding sixty pixels of
+     * content is the thing the report complained about. Prose fills whatever it is given and then
+     * scrolls. So a caller that knows its content's height says so, and one that does not gets
+     * {@link #modal()}.
+     *
+     * <p>The result is centred on the same centre, so a card that grows as members join grows in both
+     * directions rather than downwards from a fixed top. A list that added a row and moved every row
+     * above it would be the alternative.
+     *
+     * @param contentHeight how much room the body needs, in pixels. Clamped to the caps.
+     */
+    public Rect modal(int contentHeight) {
+        Rect base = modal();
+        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(base.height(), contentHeight + MODAL_CHROME));
+        return Rect.at(base.x(), (screenHeight - height) / 2, base.width(), height);
+    }
+
+    /**
+     * The modal card, for a caller that does not know how tall its content is.
+     *
+     * <p>An alias rather than a second rectangle: the quest overlay was written against a much larger
+     * box and every position inside it is relative, so pointing it at the card shrinks the whole panel
+     * with no arithmetic of its own changing. Two rectangles would be two things to keep in step.
+     */
     public Rect overlay() {
-        return overlay;
+        return modal();
     }
 
     // ------------------------------------------------------------------
@@ -570,28 +652,12 @@ public final class BookGeometry {
         // alternative -- letting the rows run the full height and drawing the strip over them -- is the
         // class of fault this whole class exists to prevent: a row that stays clickable under a control
         // drawn on top of it.
-        int bottom = partyStrip().y() - PARTY_GAP;
+        int bottom = panel.bottom() - EDGE;
         return Rect.at(panel.x() + EDGE, top,
                 Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR),
                 Math.max(0, bottom - top));
     }
 
-    /**
-     * The party strip: one line at the foot of the sidebar.
-     *
-     * <p>Full width of the inner column, less the scrollbar's room -- because it sits directly under the
-     * list that reserves that room, and a strip stopping short of it would leave a step in the column's
-     * right edge that reads as a missing control.
-     *
-     * <p>The bottom edge is the panel's own {@link #EDGE}, so the strip is the last thing in the column.
-     * That is what lets {@link #sidebarViewport} be measured <i>from</i> it rather than the other way
-     * round: the strip is anchored to the panel and the list gives up what the strip needs. Reversing it
-     * would mean a strip whose height depended on how many chapters there are.
-     */
-    public Rect partyStrip() {
-        return Rect.at(panel.x() + EDGE, panel.bottom() - EDGE - PARTY_STRIP_HEIGHT,
-                Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR), PARTY_STRIP_HEIGHT);
-    }
 
     /** The close button: a row-height square in the header, against the panel's right edge. */
     public Rect closeRect() {
@@ -607,7 +673,33 @@ public final class BookGeometry {
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
      */
     public int headerRightLimit() {
-        return closeRect().x() - 10;
+        // Measured from the party button rather than from Close, because that is now the leftmost thing
+        // in the header's right-hand cluster. When Close was the only control there, ten pixels left of
+        // it was correct; adding a second control beside it would have left the quest count running
+        // underneath, which is exactly the class of mistake this method exists to prevent.
+        return partyButton().x() - 10;
+    }
+
+    /**
+     * The party button, in the header to the left of Close.
+     *
+     * <h2>Why it moved here from the sidebar's foot</h2>
+     *
+     * <p>The column is a list of chapters and everything in it is about the questline; a party is not.
+     * The header is where a screen puts the controls that act on the screen rather than on its content,
+     * which is what Close is doing there -- and the request named the spot precisely: a small button top
+     * right, left of the close, next to where a Claim All will go.
+     *
+     * <p>It also gives the sidebar its twenty-two pixels back. The strip and its gap were taken off the
+     * chapter list; nothing needs that room now, so {@link #sidebarViewport} measures to the panel's
+     * edge again.
+     *
+     * <p>Anchored right to left from Close, so a future Claim All goes to its left and pushes nothing.
+     * A cluster laid out forwards from an origin would move every control when one was added.
+     */
+    public Rect partyButton() {
+        return Rect.at(closeRect().x() - ROW_GAP - PARTY_BUTTON_WIDTH, closeRect().y(),
+                PARTY_BUTTON_WIDTH, ROW_HEIGHT);
     }
 
     /**
@@ -672,7 +764,7 @@ public final class BookGeometry {
         // The party strip, at the foot of the column. In this map rather than placed by the drawing,
         // for the reason every other entry is: the overlap sweep walks this, so a control that is not
         // in it is a control nothing checks against the ones that are.
-        out.put("party", partyStrip());
+        out.put("party", partyButton());
 
         // The theme and motion controls are deliberately absent, and their absence is a decision worth
         // recording because the geometry for them existed and worked.
@@ -753,14 +845,27 @@ public final class BookGeometry {
      * @param hasBack  whether to place Back at all -- a caller drawing a preview may not want it
      */
     public Map<String, Rect> overlayControls(int actions, boolean hasBack) {
+        return modalControls(modal(), actions, hasBack);
+    }
+
+    /**
+     * The same, placed inside a caller's own card.
+     *
+     * <h2>Why this takes the card rather than using {@link #overlay()}</h2>
+     *
+     * <p>Because a modal sized to its content has a rectangle the caller computed, and a footer placed
+     * against a *different* rectangle is a footer outside its card -- the fault this class exists to
+     * prevent, and one that a smaller card makes reachable: at the old size the two rectangles were
+     * nearly the same, so using the wrong one looked almost right.
+     */
+    public Map<String, Rect> modalControls(Rect card, int actions, boolean hasBack) {
         Map<String, Rect> out = new LinkedHashMap<>();
-        Rect box = overlay;
         int height = OVERLAY_CONTROL_HEIGHT;
-        int rowY = box.bottom() - EDGE - height;
+        int rowY = card.bottom() - EDGE - height;
 
         Rect back = null;
         if (hasBack) {
-            back = Rect.at(box.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
+            back = Rect.at(card.right() - EDGE - height / 2 - BACK_WIDTH, rowY, BACK_WIDTH, height);
         }
 
         if (actions <= 0) {
@@ -770,7 +875,7 @@ public final class BookGeometry {
             return out;
         }
 
-        Rect first = Rect.at(box.x() + EDGE + 8, rowY, PARTY_ACTION_WIDTH, height);
+        Rect first = Rect.at(card.x() + EDGE * 2, rowY, PARTY_ACTION_WIDTH, height);
         out.put("leave", first);
         if (actions >= 2) {
             out.put("disband", Rect.at(first.right() + ROW_GAP, rowY, PARTY_ACTION_WIDTH, height));
