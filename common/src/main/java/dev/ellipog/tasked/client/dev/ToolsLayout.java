@@ -92,31 +92,30 @@ public final class ToolsLayout {
     public static final String EDIT = "edit";
     public static final String MOTION = "motion";
 
-    /** The two foldable sections. Pressing a heading folds it. */
-    public static final String THEME_SECTION = "section:theme";
+    /** The one foldable section. Pressing its heading folds it. */
+    /**
+     * A palette list used to sit above the colours, and it is gone.
+     *
+     * <p>A theme <b>is</b> a set of colours, so a list of themes beside a list of colours offered the same
+     * decision twice -- and one that would load sixteen palettes over whatever an author had already
+     * changed. Starting from another palette is a hand-edit of {@code config/armature/themes}, which is
+     * where a palette belongs; the panel edits the colours in front of it.
+     */
+    private static final String UNUSED_THEME_SECTION = "section:theme";
     public static final String COLOUR_SECTION = "section:colours";
 
     /** The band's actions. */
     public static final String REVERT = "revert";
     public static final String SAVE = "save";
 
-    /** A colour, or a theme, as a row key. */
+    /** A colour's row key. */
     public static String tokenKey(String tokenId) {
         return "token:" + tokenId;
-    }
-
-    public static String themeKey(String name) {
-        return "theme:" + name;
     }
 
     /** The colour a row key names, or null for a key that is not one. */
     public static String tokenId(String key) {
         return key != null && key.startsWith("token:") ? key.substring("token:".length()) : null;
-    }
-
-    /** The theme a row key names, or null. */
-    public static String themeName(String key) {
-        return key != null && key.startsWith("theme:") ? key.substring("theme:".length()) : null;
     }
 
     private ToolsLayout() {
@@ -263,29 +262,16 @@ public final class ToolsLayout {
     }
 
     /**
-     * The list's rows: the two switches, then the two foldable sections.
+     * The list's rows: the two switches, then the colours.
      *
      * @param editOn      what the Edit switch says
      * @param motionOn    what the Motion switch says
-     * @param themes      every theme's name, with the current one marked by {@code current}
-     * @param current     the theme in use
      * @param coloursOpen whether the colour section is unfolded
-     * @param themesOpen  whether the theme section is unfolded
      */
-    public static List<Action> rows(boolean editOn, boolean motionOn, List<String> themes, String current,
-                                    boolean themesOpen, boolean coloursOpen) {
-        Objects.requireNonNull(themes, "themes");
-
+    public static List<Action> rows(boolean editOn, boolean motionOn, boolean coloursOpen) {
         List<Action> rows = new ArrayList<>();
         rows.add(Action.toggle(EDIT, "Edit mode", editOn ? "On" : "Off"));
         rows.add(Action.toggle(MOTION, "Motion", motionOn ? "On" : "Off"));
-
-        rows.add(Action.heading(THEME_SECTION, (themesOpen ? "\u25be " : "\u25b8 ") + "Theme"));
-        if (themesOpen) {
-            for (String name : themes) {
-                rows.add(Action.row(themeKey(name), name.equals(current) ? name + "  \u2713" : name));
-            }
-        }
 
         rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25be " : "\u25b8 ") + "Colours"));
         if (coloursOpen) {

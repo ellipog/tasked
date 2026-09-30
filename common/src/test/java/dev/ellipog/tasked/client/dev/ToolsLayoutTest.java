@@ -35,10 +35,8 @@ class ToolsLayoutTest {
 
     private static final Measure MEASURE = Measure.monospace(6, 9);
 
-    private static final List<String> THEMES = List.of("Modern", "Tome", "High contrast");
-
     private static List<ToolsLayout.Action> open() {
-        return ToolsLayout.rows(true, false, THEMES, "Modern", true, true);
+        return ToolsLayout.rows(true, true, true);
     }
 
     // ------------------------------------------------------------------
@@ -72,18 +70,13 @@ class ToolsLayoutTest {
     }
 
     @Test
-    @DisplayName("both sections fold, and a folded one keeps nothing but its heading")
+    @DisplayName("the colour section folds, and a folded one keeps nothing but its heading")
     void sectionsFold() {
         List<ToolsLayout.Action> openRows = open();
-        List<ToolsLayout.Action> folded = ToolsLayout.rows(true, false, THEMES, "Modern", false, false);
+        List<ToolsLayout.Action> folded = ToolsLayout.rows(true, false, false);
 
-        assertEquals(THEMES.size(),
-                openRows.stream().filter(row -> ToolsLayout.themeName(row.key()) != null).count());
-        assertEquals(0, folded.stream().filter(row -> ToolsLayout.themeName(row.key()) != null).count(),
-                "a folded theme section has no themes in it");
         assertEquals(0, folded.stream().filter(row -> ToolsLayout.tokenId(row.key()) != null).count(),
-                "and a folded colour section has no colours");
-
+                "a folded colour section has no colours");
         for (ToolsLayout.Action row : folded) {
             assertTrue(row.key().equals(ToolsLayout.EDIT) || row.key().equals(ToolsLayout.MOTION)
                             || row.isHeading(),
@@ -97,24 +90,22 @@ class ToolsLayoutTest {
     void theRowsSayWhatTheyAre() {
         List<ToolsLayout.Action> rows = open();
 
-        ToolsLayout.Action themeSection = rows.stream()
-                .filter(row -> row.key().equals(ToolsLayout.THEME_SECTION)).findFirst().orElseThrow();
-        assertTrue(themeSection.label().startsWith("\u25be"), "an open section points down");
-        assertTrue(ToolsLayout.rows(true, false, THEMES, "Modern", false, true).stream()
-                        .filter(row -> row.key().equals(ToolsLayout.THEME_SECTION)).findFirst().orElseThrow()
+        ToolsLayout.Action section = rows.stream()
+                .filter(row -> row.key().equals(ToolsLayout.COLOUR_SECTION)).findFirst().orElseThrow();
+        assertTrue(section.label().startsWith("\u25be"), "an open section points down");
+        assertTrue(ToolsLayout.rows(true, true, false).stream()
+                        .filter(row -> row.key().equals(ToolsLayout.COLOUR_SECTION)).findFirst().orElseThrow()
                         .label().startsWith("\u25b8"), "a folded one points sideways");
 
         ToolsLayout.Action edit = rows.stream()
                 .filter(row -> row.key().equals(ToolsLayout.EDIT)).findFirst().orElseThrow();
         assertTrue(edit.hasButton());
         assertEquals("On", edit.buttonLabel(), "the button says what pressing it will do");
-        assertEquals("Off", ToolsLayout.rows(false, false, THEMES, "Modern", true, true).stream()
+        assertEquals("Off", ToolsLayout.rows(false, false, true).stream()
                 .filter(row -> row.key().equals(ToolsLayout.EDIT)).findFirst().orElseThrow().buttonLabel());
 
-        ToolsLayout.Action theme = rows.stream()
-                .filter(row -> row.key().equals(ToolsLayout.themeKey("Modern"))).findFirst().orElseThrow();
-        assertTrue(theme.isControl(), "a theme row is the control");
-        assertTrue(theme.label().contains("\u2713"), "and the one in use is marked");
+        assertTrue(rows.stream().noneMatch(row -> row.key().startsWith("theme:")),
+                "no palette list: a theme is a set of colours, and the colours are the section");
     }
 
     @Test
@@ -122,7 +113,7 @@ class ToolsLayoutTest {
     void theListIsPlaced() {
         for (boolean themes : new boolean[] {true, false}) {
             for (boolean colours : new boolean[] {true, false}) {
-                List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, THEMES, "Tome", themes, colours);
+                List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true);
                 Layout layout = ToolsLayout.build(rows, 288, MEASURE);
 
                 List<Slot> slots = layout.slots();
@@ -237,7 +228,6 @@ class ToolsLayoutTest {
         assertEquals(12, beats.size(), "four channels, three slots each");
         assertTrue(beats.get("down:R").y() < beats.get("down:B").y(),
                 "the first two channels are on the first line and the last two on the second");
-        assertNull(ToolsLayout.tokenId("theme:Modern"), "a theme key is not a colour key");
         assertEquals("panel", ToolsLayout.tokenId(ToolsLayout.tokenKey("panel")));
     }
 
@@ -287,7 +277,7 @@ class ToolsLayoutTest {
         assertEquals(0x40, ToolsPanel.channelValue(argb, "R"));
         assertEquals(0x20, ToolsPanel.channelValue(argb, "G"));
         assertEquals(0x10, ToolsPanel.channelValue(argb, "B"));
-        assertFalse(ToolsLayout.rows(true, true, List.of(), "", true, true).isEmpty(),
-                "a client with no themes still gets its switches");
+        assertFalse(ToolsLayout.rows(true, true, true).isEmpty(),
+                "the switches are always there, whatever else is folded");
     }
 }

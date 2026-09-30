@@ -44,8 +44,8 @@ public final class ToolsPanel {
     private ToolsPanel() {
     }
 
-    /** What the panel is showing: the selected colour, the last thing that happened, and the theme. */
-    public record State(String selected, String feedback, boolean feedbackIsError, String currentTheme) {
+    /** What the panel is showing: the selected colour, and the last thing that happened. */
+    public record State(String selected, String feedback, boolean feedbackIsError) {
     }
 
     /**
@@ -104,8 +104,7 @@ public final class ToolsPanel {
     /** A section's name, a rule under it, and a marker for a group inside a section. */
     private static void drawHeading(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                     Measure measure) {
-        boolean section = row.key().equals(ToolsLayout.THEME_SECTION)
-                || row.key().equals(ToolsLayout.COLOUR_SECTION);
+        boolean section = row.key().equals(ToolsLayout.COLOUR_SECTION);
         r.text(Measure.truncate(row.label(), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - r.lineHeight()) / 2,
                 section ? ArmatureTheme.title() : ArmatureTheme.heading());
@@ -128,7 +127,6 @@ public final class ToolsPanel {
     private static void drawRow(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                 Measure measure, State state, int mouseX, int mouseY) {
         String token = ToolsLayout.tokenId(row.key());
-        String theme = ToolsLayout.themeName(row.key());
         boolean hovered = onScreen.contains(mouseX, mouseY);
 
         if (token != null) {
@@ -148,15 +146,7 @@ public final class ToolsPanel {
             r.fill(swatchX, swatchY, swatchX + swatch, swatchY + swatch, argb);
             r.text(hex, onScreen.right() - 4 - hexWidth, textY(slot, onScreen, r),
                     isSelected ? ArmatureTheme.title() : ArmatureTheme.faint());
-            return;
         }
-
-        boolean current = theme != null && theme.equals(state.currentTheme());
-        if (current || hovered) {
-            r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
-                    Colour.translucent(ArmatureTheme.rowHover(), current ? 0.4F : 0.2F));
-        }
-        // The name is the widget's, and the mark for the theme in use is already in that name.
     }
 
     // ------------------------------------------------------------------

@@ -13,7 +13,6 @@ import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Hover;
 import dev.ellipog.armature.client.ui.kit.Layout;
-import dev.ellipog.armature.client.ui.Themes;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.ScrollView;
 import dev.ellipog.armature.client.ui.kit.Slot;
@@ -531,9 +530,8 @@ public final class QuestBookScreen extends ArmatureScreen {
     private String toolsFeedback;
     private boolean toolsFeedbackIsError;
 
-    /** Which of the panel's two sections are unfolded. Both start open: a folded section is one the
-     *  author cannot see is there. */
-    private boolean toolsThemesOpen = true;
+    /** Whether the colour section is unfolded. Open by default: a folded section is one the author
+     *  cannot see is there. */
     private boolean toolsColoursOpen = true;
 
     /** The panel's list: its rows are widgets, so they move when it scrolls. */
@@ -1447,9 +1445,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void buildToolsWidgets() {
         toolsFrame = ToolsLayout.frame(geometry().canvas());
-        toolsRows = ToolsLayout.rows(DevMode.on(), Appearance.motion(),
-                Themes.everything().stream().map(theme -> theme.displayName()).toList(),
-                Appearance.main().displayName(), toolsThemesOpen, toolsColoursOpen);
+        toolsRows = ToolsLayout.rows(DevMode.on(), Appearance.motion(), toolsColoursOpen);
         toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
 
         toolsView.clear();
@@ -1468,8 +1464,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 button.alignLeft(true).flat(true);
                 toolsView.put(row.key(), button);
             }
-            else if (row.key().equals(ToolsLayout.THEME_SECTION)
-                    || row.key().equals(ToolsLayout.COLOUR_SECTION)) {
+            else if (row.key().equals(ToolsLayout.COLOUR_SECTION)) {
                 // A section's heading is the only heading that is pressable: it folds. A group's name
                 // inside the colours is drawn and does nothing, because a row that selects nothing is a
                 // row that lies.
@@ -1516,21 +1511,6 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** A theme row, or a colour row. */
     private void pressToolsRow(String key) {
-        String theme = ToolsLayout.themeName(key);
-        if (theme != null) {
-            // The row carries the *display* name and the lookup key is the id, so the row can read
-            // "High contrast" while `setTheme` gets "high_contrast". The two are distinct across the
-            // catalogue -- asserted in Armature, which is what makes a lookup by label safe rather than
-            // merely convenient.
-            for (var candidate : Themes.everything()) {
-                if (candidate.displayName().equals(theme) && Appearance.setTheme(candidate.name())) {
-                    status("Theme: " + candidate.displayName(), false);
-                    break;
-                }
-            }
-            rebuildWidgets();
-            return;
-        }
         String token = ToolsLayout.tokenId(key);
         if (token != null) {
             toolsSelected = token.equals(toolsSelected) ? null : token;
@@ -1538,15 +1518,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
     }
 
-    /** A section's heading: folds or unfolds it. */
+    /** The section's heading: folds or unfolds it. */
     private void fold(String key) {
-        if (key.equals(ToolsLayout.THEME_SECTION)) {
-            toolsThemesOpen = !toolsThemesOpen;
-        }
-        else {
+        if (key.equals(ToolsLayout.COLOUR_SECTION)) {
             toolsColoursOpen = !toolsColoursOpen;
+            rebuildWidgets();
         }
-        rebuildWidgets();
     }
 
     /** One channel stepper: eight steps of one channel of the selected colour. */
@@ -2803,8 +2780,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
-                new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
-                        Appearance.main().displayName()),
+                new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError),
                 mouseX, mouseY);
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
         // call the sidebar and the party panel make. It was missing entirely, which left a list that
