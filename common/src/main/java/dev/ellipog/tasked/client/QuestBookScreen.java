@@ -433,6 +433,28 @@ public final class QuestBookScreen extends Screen {
     private final List<ArmatureButton> buttons = new ArrayList<>();
 
     /**
+     * How many of {@link #buttons} belong to the book rather than to an open overlay.
+     *
+     * <h2>What this is for, and why an index rather than a rectangle</h2>
+     *
+     * <p>The book is drawn <b>behind</b> a modal rather than replaced by it, so its sidebar rows are
+     * built and visible while one is open. Visible is right -- that is what "dont close whats behind
+     * them" asked for -- but *interactive* is not, and the one place that leaked is
+     * {@link #drawTooltips}: it walks every button and draws the hovered one's tooltip, so a pointer
+     * over a row underneath the scrim would draw a chapter name on top of the party roster.
+     *
+     * <p>An index rather than a test on each button's position, and the distinction is the point: which
+     * buttons belong to the overlay is a fact about how they were constructed, and a rectangle would be
+     * a layout fact that happens to agree. {@code buildSidebarWidgets} records this before the overlay's
+     * own controls are added, so the first N are always the book's.
+     *
+     * <p>Clipped input is not affected: {@code mouseClicked} returns early for an open overlay and never
+     * reaches the sidebar, which is why this is needed for tooltips alone -- they are drawn from
+     * {@code render}, which has no such early return.
+     */
+    private int bookButtonCount;
+
+    /**
      * Close, which is in {@link #buttons} but is not drawn by the widget pass.
      *
      * <h2>Why this is a field rather than one more entry in the list</h2>
@@ -1039,7 +1061,7 @@ public final class QuestBookScreen extends Screen {
         // The card, sized to this roster. The footer is placed inside *it* rather than inside the
         // overlay's rectangle, which is the whole of what makes a smaller card work: every control
         // inside reads the card's own edges.
-        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster));
+        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster), BookGeometry.PARTY_MODAL_WIDTH);
         Map<String, BookGeometry.Rect> footer =
                 geometry().modalControls(card, partyActionCount(roster), true);
 
@@ -1197,6 +1219,11 @@ public final class QuestBookScreen extends Screen {
      * would make it read as the current chapter — the confusion the fill exists to prevent, one level up.
      */
     private void buildSidebarWidgets() {
+        // Recorded here rather than in `init`, because this is the last thing built that belongs to the
+        // book -- see `bookButtonCount`. `init` calls this and then builds either the book's chrome or an
+        // overlay's controls, so the count is correct at the moment it is read.
+        bookButtonCount = buttons.size();
+
         SidebarLayout layout = sidebar();
         sidebarView.clear();
 
@@ -1253,11 +1280,16 @@ public final class QuestBookScreen extends Screen {
         // and a canvas reads the chapter, and neither has an order dependency on the other.
 
         if (overlay == Overlay.QUEST) {
+            // The book's own controls as well, because the book is now drawn *behind* the modal rather
+            // than replaced by it -- and the sidebar's rows are widgets, so without this the column
+            // behind the card would be empty.
+            buildSidebarWidgets();
             buildOverlayWidgets();
             return;
         }
 
         if (overlay == Overlay.PARTY) {
+            buildSidebarWidgets();
             buildPartyWidgets();
             return;
         }
@@ -1322,7 +1354,7 @@ public final class QuestBookScreen extends Screen {
         // A widget's message belongs where the widget is made. What changes with the roster is not the
         // label -- "Party" says the same thing whoever is in it -- but the tooltip, and a stale tooltip
         // costs a hover line where a stale label cost the whole control.
-        partyButton = control(controls.get("party"),
+        partyButton = chromeControl(controls.get("party"),
                 Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
         if (partyButton != null) {
             partyButton.textColour(ArmatureTheme.body())
@@ -1600,6 +1632,16 @@ public final class QuestBookScreen extends Screen {
                 closeButton.draw(renderer);
             }
 
+            // The party button, for the same reason and in the same place as Close: it is in the
+            // header, and the widget clip starts at the list's top edge, so the base class's pass
+            // would never draw it. It was registered with `control` -- which puts a widget in both
+            // `children` and `renderables` -- so it received input and drew its own tooltip while
+            // never being drawn itself. The report was exactly that: "invisible party button", with
+            // the words "Your party" floating over an empty gap.
+            if (overlay == Overlay.NONE && partyButton != null) {
+                partyButton.draw(renderer);
+            }
+
             // Inside the raised Z as well, and that is not tidiness. A tooltip is a panel and some
             // text at Z = 0, so one overlapping a node's icon would have a hole punched in it by the
             // same mechanism -- and a tooltip is the last thing on the screen that should be see-through.
@@ -1684,7 +1726,20 @@ public final class QuestBookScreen extends Screen {
         // every animation here testable, and `Motion.tween` for how the client's setting reaches it.
         long now = Util.getMillis();
 
-        renderer.fill(0, 0, width, height, ArmatureTheme.dim());
+        // The book first, always, and then a scrim over it. It used to be drawn *only* when no
+        // overlay was open, so opening a modal replaced the whole book with a flat dim -- and the
+        // request was to keep it: "dont close whats behind them, just have it in the background".
+        //
+        // A scrim rather than a blur, and that is a real limitation rather than a preference.
+        // Minecraft's blur is `gameRenderer.processBlurEffect`, a post-process over the framebuffer --
+        // which is precisely what a previous round had to remove, because running it after this
+        // screen's text was drawn blurred the text as well as the world. A blur that does not do that
+        // needs the book rendered to its own target first, which is a render-target change rather than
+        // a layout one. So: dimmed, legibly, and named here as a thing not done.
+        drawBook(renderer, mouseX, mouseY, now);
+        if (overlay != Overlay.NONE) {
+            renderer.fill(0, 0, width, height, ArmatureTheme.dim());
+        }
 
         if (overlay == Overlay.PARTY) {
             // Chrome's palette, not a chapter's, and that difference is the point of the scoped-theme
@@ -1707,7 +1762,8 @@ public final class QuestBookScreen extends Screen {
             }
         }
         else {
-            drawBook(renderer, mouseX, mouseY, now);
+            // Nothing: the book is drawn before the scrim now, so an overlay sits over it rather than
+            // replacing it. This branch used to be the only place the book was drawn.
         }
 
         // Tooltips are deliberately NOT drawn here, and that is a bug fix rather than a preference.
@@ -1785,7 +1841,7 @@ public final class QuestBookScreen extends Screen {
         // The card, computed once and used for every position inside it. That is what makes a smaller
         // card work: the body and the footer read the card's own edges rather than the screen's, so
         // shrinking it moves the contents instead of clipping them.
-        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster));
+        BookGeometry.Rect card = geometry().modal(partyCardHeight(roster), BookGeometry.PARTY_MODAL_WIDTH);
 
         // No dim here, and its absence is a fix. `renderWith` fills the whole screen with one before
         // dispatching to the overlay, so a second fill put **two** translucent blacks over a world that
@@ -1959,7 +2015,11 @@ public final class QuestBookScreen extends Screen {
      * Drawn here, after the widgets, so it is over everything and not clipped by the canvas scissor.
      */
     public void drawTooltips(GuiRenderer r, int mouseX, int mouseY) {
-        for (ArmatureButton button : buttons) {
+        // With an overlay open, the book's controls are drawn behind the scrim but must not answer a
+        // hover -- see `bookButtonCount`. The overlay's own controls come after that index and are the
+        // only ones whose tooltips belong on top of it.
+        for (int i = overlay == Overlay.NONE ? 0 : bookButtonCount; i < buttons.size(); i++) {
+            ArmatureButton button = buttons.get(i);
             if (button.tooltip() != null && button.isMouseOver(mouseX, mouseY)) {
                 drawTooltip(r, button.tooltip(), mouseX, mouseY);
                 return;

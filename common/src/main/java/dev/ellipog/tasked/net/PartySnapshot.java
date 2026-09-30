@@ -232,6 +232,23 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
      * the client has no team to read.
      */
     public static dev.ellipog.armature.client.ui.party.PartyRoster toRoster(PartySnapshot snapshot, UUID viewer) {
+        // **A snapshot of nobody is a roster of nobody, and this guard is the fix for a blank card.**
+        //
+        // `fromParts` below reconstructs a team with `persistent = true` unconditionally, because the
+        // only thing it was built from is a membership that arrived over a wire -- and a membership
+        // that arrived is a real party by construction. That reasoning is right for a snapshot with
+        // members and wrong for one without: an empty snapshot became a party that `isReal()` says is
+        // real and that `members()` says is empty. So the panel skipped its empty state *and* drew no
+        // rows, which is an entirely blank card -- what the screenshot showed.
+        //
+        // A solo team is the honest answer: `PartyRoster.of` reads `Team.solo` as not persistent, so
+        // `isReal()` is false, the panel draws "you are not in a party", and the tooltip says so too.
+        if (!snapshot.isPresent()) {
+            UUID who = viewer == null ? new UUID(0L, 0L) : viewer;
+            return dev.ellipog.armature.client.ui.party.PartyRoster.of(
+                    Team.solo(who), who, id -> id.toString());
+        }
+
         java.util.Map<UUID, String> names = new java.util.HashMap<>();
         for (Member member : snapshot.members()) {
             names.put(member.id(), member.name());

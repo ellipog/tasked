@@ -320,10 +320,10 @@ public final class BookGeometry {
      * at this width to about sixty characters, which is where a line of text stays readable, and a
      * roster two hundred pixels wider than its longest name is the empty room the report was about.
      */
-    public static final int MAX_MODAL_WIDTH = 380;
+    public static final int MAX_MODAL_WIDTH = 520;
 
     /** The tallest a modal card gets. Past this the body scrolls rather than the card growing. */
-    public static final int MAX_MODAL_HEIGHT = 260;
+    public static final int MAX_MODAL_HEIGHT = 340;
 
     /** Below this a card cannot hold a control and its label without the two colliding. */
     public static final int MIN_MODAL_WIDTH = 200;
@@ -412,6 +412,17 @@ public final class BookGeometry {
      * does not contain would be a coincidence rather than a measurement.
      */
     public static final int PARTY_BUTTON_WIDTH = 52;
+
+    /**
+     * How wide the party panel's card wants to be.
+     *
+     * <p>Wider than a paragraph needs and wider than the default cap was, because a roster is rows of
+     * two things -- a name on the left and a rank on the right -- and the two drift apart into a gap
+     * nobody reads across if the card is narrow. Its own constant rather than the panel's width,
+     * because "how wide should this card be" is a question each modal answers for itself; see
+     * {@link #modal(int, int)}.
+     */
+    public static final int PARTY_MODAL_WIDTH = 320;
 
     // --- labels --------------------------------------------------------------
 
@@ -584,9 +595,30 @@ public final class BookGeometry {
      * @param contentHeight how much room the body needs, in pixels. Clamped to the caps.
      */
     public Rect modal(int contentHeight) {
+        return modal(contentHeight, MAX_MODAL_WIDTH);
+    }
+
+    /**
+     * A modal card sized to its content and to the width <i>it</i> asks for.
+     *
+     * <h2>Why the width is a parameter rather than one number for every modal</h2>
+     *
+     * <p>Because a roster and a quest's prose want different cards, and a single width makes one of them
+     * wrong. A roster is a name, a gap, and a rank: too wide and the eye has to cross the gap to read
+     * them as one row. Prose is lines of text: too narrow and every paragraph wraps twice as often.
+     *
+     * <p>So each caller says what it wants and this clamps it to what the window can hold, which is the
+     * half a caller cannot know. A width larger than {@link #MAX_MODAL_WIDTH} is capped rather than
+     * refused, so a caller asking for "as wide as you can" gets the cap and not an exception.
+     *
+     * @param contentHeight   how much room the body needs, in pixels
+     * @param preferredWidth  how wide the card would like to be
+     */
+    public Rect modal(int contentHeight, int preferredWidth) {
         Rect base = modal();
+        int width = Math.max(MIN_MODAL_WIDTH, Math.min(base.width(), preferredWidth));
         int height = Math.max(MIN_MODAL_HEIGHT, Math.min(base.height(), contentHeight + MODAL_CHROME));
-        return Rect.at(base.x(), (screenHeight - height) / 2, base.width(), height);
+        return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
     }
 
     /**
