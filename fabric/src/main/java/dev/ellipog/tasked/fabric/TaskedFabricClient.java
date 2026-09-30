@@ -10,7 +10,9 @@ import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
+import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.QuestBookScreen;
+import dev.ellipog.tasked.client.dev.DevScreen;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -55,6 +57,21 @@ public final class TaskedFabricClient implements ClientModInitializer {
                 InputConstants.KEY_B,
                 "key.categories.tasked",
                 () -> ArmatureClient.openScreen(Tasked.QUEST_BOOK_SCREEN));
+
+        // And the developer screen, which is also where developer mode is turned on. Registered and keyed
+        // unconditionally, because a screen that only exists once a mode is on is a screen nobody can use
+        // to turn that mode on -- and the mode is off in a fresh config by definition.
+        ArmatureScreens.register(Tasked.DEV_SCREEN, DevScreen::new);
+
+        ArmatureClient.registerKeyMapping(
+                Tasked.DEV_SCREEN,
+                InputConstants.KEY_F9,
+                "key.categories.tasked",
+                () -> ArmatureClient.openScreen(Tasked.DEV_SCREEN));
+
+        // The setting the screen above edits, read before anything can draw it: a key pressed in the
+        // first second of a session must not find the mode off because the file had not been read yet.
+        DevMode.loadFromConfig();
 
         // The client half of Fabric's two-part payload registration.
         FabricClientNetworking.registerClientReceivers();

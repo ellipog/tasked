@@ -3,6 +3,7 @@
 
     "key.categories.tasked": "Tasked",
     "key.tasked.quest_book": "Open Quest Book",
+    "key.tasked.dev": "Developer Screen",
 
     "tasked.command.version": "Tasked %s, on Armature %s",
     "tasked.command.echo": "Tasked echo %s",
@@ -84,6 +85,12 @@
     "tasked.screen.party.disband": "Disband",
     "tasked.screen.party.confirm": "Confirm",
     "tasked.screen.party.back": "Back",
+
+    "tasked.dev.title": "Developer Tools",
+    "tasked.dev.reset": "Reset",
+    "tasked.dev.save": "Save theme",
+    "tasked.dev.close": "Close",
+    "tasked.dev.pick": "Press a colour to edit it.",
 
     "tasked.reward.xp.levels": "%s level(s)",
     "tasked.reward.xp.points": "%s XP"

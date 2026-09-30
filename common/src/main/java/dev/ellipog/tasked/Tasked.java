@@ -32,6 +32,14 @@ public final class Tasked {
     /** The quest book screen, opened by id so that common code never names a client class. */
     public static final ResourceLocation QUEST_BOOK_SCREEN = ResourceLocation.fromNamespaceAndPath(MOD_ID, "quest_book");
 
+    /**
+     * The developer screen: the mode's switch and the theme editor, opened by id for the same reason.
+     *
+     * <p>Reached by a key of its own rather than from the book, because it is where the *mode* is turned
+     * on -- a control that only appears once the mode is on is a control nobody finds the first time.
+     */
+    public static final ResourceLocation DEV_SCREEN = ResourceLocation.fromNamespaceAndPath(MOD_ID, "dev");
+
     /** Whether {@link #listenToTeams} has run. See its comment for why a flag is needed. */
     private static boolean teamListenersInstalled;
 
