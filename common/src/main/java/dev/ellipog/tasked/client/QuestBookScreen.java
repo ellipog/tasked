@@ -689,8 +689,28 @@ public final class QuestBookScreen extends ArmatureScreen {
         return geometry().canvas().x();
     }
 
+    /**
+     * The canvas' right edge, less whatever the tools panel is holding.
+     *
+     * <h2>Docked, and this is the whole of it</h2>
+     *
+     * <p>The panel does not float over the canvas; the canvas gives up the strip it sits in, and the
+     * graph re-clamps into what is left. That is what the first version got wrong: it drew the panel on
+     * top of the nodes, so the thing an author was looking at disappeared behind the tool for looking at
+     * it. The cost is that opening the panel moves the graph -- which is what docking means, and it is
+     * the half that does not surprise anybody.
+     *
+     * <p>Everything that reads the canvas reads this: the viewport (so panning and zooming clamp to the
+     * narrow canvas), the hit test and the node drawing. One expression, so a node cannot be drawn in the
+     * strip the panel occupies.
+     */
     private int canvasRight() {
-        return geometry().canvas().right();
+        return geometry().canvas().right() - toolsWidth();
+    }
+
+    /** How much of the canvas the tools panel takes, or nothing when it is shut. */
+    private int toolsWidth() {
+        return toolsOpen ? ToolsLayout.frame(geometry().canvas()).panel().width() + ToolsLayout.GAP : 0;
     }
 
     private int canvasTop() {
@@ -1462,7 +1482,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                 var slot = beats.get(way + ":" + channel);
                 int step = way.equals("down") ? -8 : 8;
                 ArmatureButton button = control(slot.x(), slot.y(), slot.width(), slot.height(),
-                        Component.literal(way.equals("down") ? "\u25c2" : "\u25b8"),
+                        // `-` and `+`, which this UI already uses and the font certainly has: the
+                        // first version's triangles are not in Minecraft's default font and drew as
+                        // missing-glyph boxes.
+                        Component.literal(way.equals("down") ? "\u2212" : "+"),
                         () -> nudgeChannel(channel, step));
                 button.textColour(ArmatureTheme.body());
             }
@@ -2017,7 +2040,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
 
             toolsButton = control(controls.get("tools"),
-                    Component.literal("\u2699"), () -> {
+                    Component.literal("Tools"), () -> {
                         toolsOpen = !toolsOpen;
                         rebuildWidgets();
                     });
@@ -2780,6 +2803,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                 new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
                         Appearance.main().displayName()),
                 mouseX, mouseY);
+        // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
+        // call the sidebar and the party panel make. It was missing entirely, which left a list that
+        // scrolled with nothing on screen saying so.
+        toolsView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
     }
 
     private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {

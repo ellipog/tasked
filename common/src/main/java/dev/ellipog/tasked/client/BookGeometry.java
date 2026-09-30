@@ -122,8 +122,15 @@ public final class BookGeometry {
     /** The `[Edit]` half of the author's split control: a word, so wider than a square. */
     public static final int EDIT_BUTTON_WIDTH = 44;
 
-    /** The `[gear]` half: square, the height of a control. */
-    public static final int TOOLS_BUTTON_SIZE = ROW_HEIGHT;
+    /**
+     * The tools half of the split control.
+     *
+     * <p>A word rather than a glyph, and that is a fix rather than a preference: it was `\u2699`, which
+     * Minecraft's default font does not carry, so the button drew as the missing-glyph box -- a control
+     * that reads as a rendering fault. The glyphs this UI already uses are the ones the font has:
+     * {@code +}, {@code -}, {@code \u25c9} for centre and {@code \u2715} for close.
+     */
+    public static final int TOOLS_BUTTON_WIDTH = 46;
 
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
@@ -823,11 +830,13 @@ public final class BookGeometry {
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
      */
     public int headerRightLimit() {
-        // Measured from the party button rather than from Close, because that is now the leftmost thing
-        // in the header's right-hand cluster. When Close was the only control there, ten pixels left of
-        // it was correct; adding a second control beside it would have left the quest count running
-        // underneath, which is exactly the class of mistake this method exists to prevent.
-        return partyButton().x() - 10;
+        // Measured from the **leftmost** control in the header's right-hand cluster, whatever that is.
+        // It was the party button while that was the leftmost; then the author's split control was added
+        // beside it and the quest count ran underneath the word "Edit" -- which is exactly the class of
+        // mistake this method's comment has warned about twice, made a third time. The fix is the same
+        // each time and it is the reason the limit is a method rather than a constant: ask the cluster
+        // where it starts.
+        return editButton().x() - 10;
     }
 
     /**
@@ -865,8 +874,8 @@ public final class BookGeometry {
      * button and an accident.
      */
     public Rect toolsButton() {
-        return Rect.at(partyButton().x() - ROW_GAP - TOOLS_BUTTON_SIZE, partyButton().y(),
-                TOOLS_BUTTON_SIZE, ROW_HEIGHT);
+        return Rect.at(partyButton().x() - ROW_GAP - TOOLS_BUTTON_WIDTH, partyButton().y(),
+                TOOLS_BUTTON_WIDTH, ROW_HEIGHT);
     }
 
     /** The `[Edit]` half. Wider: it carries a word. */

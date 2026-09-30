@@ -117,7 +117,14 @@ public final class ToolsPanel {
         }
     }
 
-    /** A row that is itself the control: a theme, a group's name, or a colour. */
+    /**
+     * A row that is itself the control: a theme, a group's name, or a colour.
+     *
+     * <p>The row's <i>name</i> is not drawn here. Every one of these rows is a widget -- flat, so it
+     * paints nothing but its own label -- and the first version drew the name here as well, so every row
+     * carried two copies of it a few pixels apart. The screenshot read as a font fault and was a
+     * duplicated string.
+     */
     private static void drawRow(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                 Measure measure, State state, int mouseX, int mouseY) {
         String token = ToolsLayout.tokenId(row.key());
@@ -149,8 +156,7 @@ public final class ToolsPanel {
             r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
                     Colour.translucent(ArmatureTheme.rowHover(), current ? 0.4F : 0.2F));
         }
-        r.text(Measure.truncate(row.label(), slot.width() - 4, measure), onScreen.x() + 2,
-                textY(slot, onScreen, r), current ? ArmatureTheme.title() : ArmatureTheme.body());
+        // The name is the widget's, and the mark for the theme in use is already in that name.
     }
 
     // ------------------------------------------------------------------
@@ -215,102 +221,136 @@ public final class ToolsPanel {
     /**
      * A small quest, drawn in the theme as it stands, with the selected group's region ringed.
      *
-     * <p>The eight regions are the eight groups, and each is one rectangle the sample uses for that
-     * group's colours: the background stack, the text lines, the node, the graph line, the row wash, the
-     * scrollbar mark, the tooltip, and the button. A group with nothing selected is not ringed, and a
-     * token whose group is unknown is not either — a ring around the wrong thing would be worse than none.
+     * <h2>What the sample is, and why it changed</h2>
+     *
+     * <p>The first version was abstract bars: a panel, two strips, three words and some boxes, placed at
+     * fixed insets that did not fit the rectangle they were in. It read as a rendering fault -- which it
+     * was -- and it answered nothing: nobody could tell which bar was a reward row.
+     *
+     * <p>This is the two things a theme actually paints, arranged the way the book arranges them: a
+     * <b>node</b> with its connecting line on the canvas, and a <b>quest popover</b> below -- a raised
+     * title strip, a title, a body line, a faint word, a reward row with an item's square, and a Claim
+     * button, with a scrollbar down the card's right edge and a tooltip hanging off its corner. Eight
+     * parts for eight groups, and selecting a colour rings the part its group paints.
+     *
+     * <p>Every position is a fraction of the rectangle it is drawn in, so the sample survives a narrow or
+     * short panel. And it is a <b>sample</b>: the shape is always the rounded one, the text is literal and
+     * the item is a square, because a preview that claimed to be the screen would be a second description
+     * of the screen.
      */
     private static void drawPreview(GuiRenderer r, BookGeometry.Rect preview, String selected) {
-        BookGeometry.Rect rect = BookGeometry.Rect.at(preview.x(), preview.y(), preview.width(),
-                preview.height());
-        r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.canvas());
+        int x = preview.x();
+        int y = preview.y();
+        int w = preview.width();
+        int h = preview.height();
+        r.fill(x, y, x + w, y + h, ArmatureTheme.canvas());
+        if (w < 60 || h < 60) {
+            // No room for a sample: the canvas alone, rather than a smear of overlapping parts.
+            return;
+        }
 
-        int x = rect.x() + 6;
-        int y = rect.y() + 6;
-        int w = rect.width() - 12;
+        // The nodes, on the canvas, joined by a line: the STATE and GRAPH groups.
+        int nodeSize = Math.max(12, Math.min(NODE, h / 4));
+        int nodeY = y + h / 5 - nodeSize / 2;
+        int firstX = x + w / 8;
+        int secondX = x + w / 2;
+        BookGeometry.Rect line = BookGeometry.Rect.at(firstX + nodeSize, nodeY + nodeSize / 2 - 1,
+                Math.max(6, secondX - firstX - nodeSize), 2);
+        r.fill(line.x(), line.y(), line.right(), line.bottom(), ArmatureTheme.lineDone());
+        node(r, firstX, nodeY, nodeSize, ArmatureTheme.nodeEdgeAvailable(), ArmatureTheme.hoverRing());
+        node(r, secondX, nodeY, nodeSize, ArmatureTheme.nodeEdgeComplete(), 0);
 
-        // The background stack: a panel with a raised strip and a recessed strip inside it.
-        BookGeometry.Rect panel = BookGeometry.Rect.at(x, y, w, rect.height() - 12);
-        ArmatureTheme.panel(r, panel.x(), panel.y(), panel.width(), panel.height(),
+        // The popover, which is what the quest overlay is.
+        BookGeometry.Rect card = BookGeometry.Rect.at(x + w / 10, y + h / 2, w - w / 5, h / 2 - 8);
+        ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        BookGeometry.Rect raised = BookGeometry.Rect.at(panel.x() + 6, panel.y() + 6,
-                Math.max(0, panel.width() - 12), 14);
+
+        // Its title strip: the raised surface the header draws.
+        BookGeometry.Rect raised = BookGeometry.Rect.at(card.x() + 1, card.y() + 1, card.width() - 2, 11);
         r.fill(raised.x(), raised.y(), raised.right(), raised.bottom(), ArmatureTheme.raised());
-        BookGeometry.Rect recessed = BookGeometry.Rect.at(raised.x(), raised.bottom() + 4,
-                Math.max(0, raised.width() - 60), 12);
-        r.fill(recessed.x(), recessed.y(), recessed.right(), recessed.bottom(),
-                ArmatureTheme.recessed());
 
-        // The graph line, under the node, so the GRAPH group has a region of its own.
-        BookGeometry.Rect line = BookGeometry.Rect.at(recessed.right() + 8, recessed.y() + 5,
-                Math.max(0, panel.right() - recessed.right() - 14), 2);
-        r.fill(line.x(), line.y(), line.right(), line.bottom(), ArmatureTheme.line());
+        // And its scrollbar, down the right edge.
+        BookGeometry.Rect track = BookGeometry.Rect.at(card.right() - 5, card.y() + 4, 3,
+                Math.max(0, card.height() - 8));
+        r.fill(track.x(), track.y(), track.right(), track.bottom(), ArmatureTheme.scrollTrack());
+        r.fill(track.x(), track.y(), track.right(), track.y() + Math.max(3, track.height() / 3),
+                ArmatureTheme.scrollThumb());
 
-        // The node, in the state the STATE group's colours describe: available, with its ring.
-        int nodeX = panel.right() - NODE - 8;
-        int nodeY = raised.bottom() + 6;
-        r.fill(nodeX - 1, nodeY - 1, nodeX + NODE + 1, nodeY + NODE + 1, ArmatureTheme.nodeFill());
-        ArmatureTheme.shapePanel(r, nodeX, nodeY, NODE, ArmatureTheme.nodeFill(),
-                ArmatureTheme.nodeEdgeAvailable(), QuestShape.ROUNDED::span);
-
-        // The text lines: a title, body and faint line inside the panel.
-        int textX = panel.x() + 6;
-        int textY = recessed.bottom() + 6;
+        // The text: a title, a body line, a faint word.
+        int textX = card.x() + 4;
+        int textY = raised.bottom() + 3;
         r.text("Title", textX, textY, ArmatureTheme.title());
-        r.text("Body text", textX, textY + 11, ArmatureTheme.body());
-        r.text("faint", textX + r.textWidth("Body text") + 6, textY + 11, ArmatureTheme.faint());
+        r.text("Body", textX, textY + 10, ArmatureTheme.body());
+        r.text("faint", textX + r.textWidth("Body") + 5, textY + 10, ArmatureTheme.faint());
 
-        // The row wash, under the lines.
-        BookGeometry.Rect row = BookGeometry.Rect.at(textX - 2, textY + 22, Math.max(0, w / 2), 10);
+        // The reward row: a washed row with an item's square at its left.
+        BookGeometry.Rect row = BookGeometry.Rect.at(textX - 2, textY + 20,
+                Math.max(0, card.width() - 54), 12);
         r.fill(row.x(), row.y(), row.right(), row.bottom(),
                 Colour.translucent(ArmatureTheme.rowHover(), 0.5F));
+        int item = Math.max(6, Math.min(10, row.height() - 2));
+        r.fill(row.x() + 1, row.y() + 1, row.x() + 1 + item, row.y() + 1 + item,
+                ArmatureTheme.recessed());
+        r.fill(row.x() + 1, row.y(), row.x() + 1 + item + 1, row.y() + 1, ArmatureTheme.panelEdge());
 
-        // The button: raised, with the control edge the Controls group owns.
-        BookGeometry.Rect button = BookGeometry.Rect.at(row.right() + 8, row.y() - 2, 52, 14);
+        // The button beside it, and a tooltip hanging off the card's top corner.
+        BookGeometry.Rect button = BookGeometry.Rect.at(card.right() - 44, row.y() - 1, 40, 14);
         ArmatureTheme.panel(r, button.x(), button.y(), button.width(), button.height(),
                 ArmatureTheme.raised(), ArmatureTheme.controlEdge());
 
-        // The tooltip, floating over the panel's bottom-right corner.
-        BookGeometry.Rect tooltip = BookGeometry.Rect.at(panel.right() - 74, panel.bottom() - 22, 68, 16);
+        BookGeometry.Rect tooltip = BookGeometry.Rect.at(card.right() - 58, card.y() - 13, 56, 12);
         ArmatureTheme.panel(r, tooltip.x(), tooltip.y(), tooltip.width(), tooltip.height(),
                 ArmatureTheme.tooltipFill(), ArmatureTheme.tooltipEdge());
 
-        // The scrollbar mark, against the panel's right edge.
-        BookGeometry.Rect track = BookGeometry.Rect.at(panel.right() - 5, panel.y() + 4, 3,
-                Math.max(0, panel.height() - 8));
-        r.fill(track.x(), track.y(), track.right(), track.bottom(), ArmatureTheme.scrollTrack());
-        r.fill(track.x(), track.y(), track.right(), track.y() + track.height() / 2,
-                ArmatureTheme.scrollThumb());
-
-        // And the ring, around the region the selected token's group paints.
-        BookGeometry.Rect region = regionOf(selected, panel, raised, row, line, nodeX, nodeY, button,
-                tooltip);
+        BookGeometry.Rect region = regionOf(selected, card, raised, row, line, firstX, nodeY, nodeSize,
+                button, tooltip);
         if (region != null) {
             ring(r, region);
         }
     }
 
-    /** Which part of the sample a group's colours paint. Null for no selection and for an unknown one. */
-    private static BookGeometry.Rect regionOf(String tokenId, BookGeometry.Rect panel,
+    /** One node: its fill, its edge in a state's colour, and its ring when it is the hovered one. */
+    private static void node(GuiRenderer r, int x, int y, int size, int edge, int ringColour) {
+        if (ringColour != 0) {
+            ArmatureTheme.shapePanel(r, x - 1, y - 1, size + 2, ArmatureTheme.nodeFill(), ringColour,
+                    QuestShape.ROUNDED::span);
+        }
+        ArmatureTheme.shapePanel(r, x, y, size, ArmatureTheme.nodeFill(), edge, QuestShape.ROUNDED::span);
+    }
+
+    /**
+     * Which part of the sample a group's colours paint.
+     *
+     * <p>Eight groups, eight parts, one entry each -- so a colour's group is a fact about this table
+     * rather than about how the sample happens to be drawn. No selection, and a token this build does not
+     * know, give no ring: a ring around the wrong thing is worse than none.
+     */
+    private static BookGeometry.Rect regionOf(String tokenId, BookGeometry.Rect card,
                                               BookGeometry.Rect raised, BookGeometry.Rect row,
-                                              BookGeometry.Rect line, int nodeX, int nodeY,
+                                              BookGeometry.Rect line, int nodeX, int nodeY, int nodeSize,
                                               BookGeometry.Rect button, BookGeometry.Rect tooltip) {
         ThemeToken token = ThemeToken.byId(tokenId);
         if (token == null) {
             return null;
         }
+        int pad = 2;
         return switch (token.group()) {
-            case SURFACE -> panel;
-            case TEXT -> BookGeometry.Rect.at(raised.x(), raised.bottom() + 4, raised.width() - 60, 34);
-            case STATE -> BookGeometry.Rect.at(nodeX, nodeY, NODE, NODE);
-            case GRAPH -> BookGeometry.Rect.at(line.x() - 2, line.y() - 14,
-                    Math.max(0, line.width() + 4), 30);
-            case ROW -> row;
-            case SCROLL -> BookGeometry.Rect.at(panel.right() - 7, panel.y() + 2, 7,
-                    Math.max(0, panel.height() - 4));
-            case OVERLAY -> tooltip;
-            case CONTROL -> button;
+            case SURFACE -> expand(card, pad);
+            case TEXT -> BookGeometry.Rect.at(raised.x(), raised.bottom() + 1,
+                    Math.max(0, raised.width() - 4), 24);
+            case STATE, GRAPH -> BookGeometry.Rect.at(nodeX - pad, nodeY - pad,
+                    Math.max(0, line.right() - nodeX + pad), nodeSize + pad * 2);
+            case ROW -> expand(row, pad);
+            case SCROLL -> BookGeometry.Rect.at(card.right() - 7, card.y() + 2, 6,
+                    Math.max(0, card.height() - 4));
+            case OVERLAY -> expand(tooltip, pad);
+            case CONTROL -> expand(button, pad);
         };
+    }
+
+    private static BookGeometry.Rect expand(BookGeometry.Rect rect, int by) {
+        return BookGeometry.Rect.at(rect.x() - by, rect.y() - by, rect.width() + by * 2,
+                rect.height() + by * 2);
     }
 
     /** A one-pixel ring that follows a rectangle, drawn just outside it. */
