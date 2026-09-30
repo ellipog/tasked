@@ -3,6 +3,7 @@ package dev.ellipog.tasked.quest;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.quest.task.ItemTask;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -433,7 +434,7 @@ class QuestIndexTest {
      *
      * <p><b>Not</b> in {@code src/main/resources}. They used to be: {@code /tasked/default_quests/} in
      * the jar, copied into {@code config/tasked/quests} by the loader. They moved out for two reasons,
-     * and the first is the important one — a mod that installs three example chapters into every
+     * and the first is the important one — a mod that installs example chapters into every
      * player's config directory has decided something that is not its to decide, and the first thing a
      * pack author would have to do is delete somebody else's content.
      *
@@ -598,11 +599,16 @@ class QuestIndexTest {
     }
 
     @Test
-    @DisplayName("the examples are four different designs, not one four times")
+    @DisplayName("the examples are seven different designs, not one design seven times")
     void theExampleQuestlinesExerciseDifferentThings() throws java.io.IOException {
         // A test that says what the example content is *for*, so a future tidy-up cannot quietly turn
-        // four demonstrations into four copies of the first one. The descriptions in the files already
+        // an exhibition into seven copies of the first file. The descriptions in the files already
         // claim all of this; this is the version a compiler reads.
+        //
+        // It grew with the exhibition, and the pattern is worth naming: every time a mechanism had no
+        // example, the mechanism was the thing nobody could see how to write. So the assertions below
+        // are not a checklist of the engine -- they are the list of things a reader is entitled to
+        // find a worked example of.
         QuestLoader.Result loaded = loadExamples(temp.resolve("varied"));
 
         assertTrue(loaded.ok(), "fixture sanity -- the examples should be clean first:"
@@ -621,11 +627,86 @@ class QuestIndexTest {
         assertTrue(all.stream().anyMatch(quest -> quest.minRequired() > 0), "an OR-gate");
         assertTrue(all.stream().anyMatch(quest -> quest.tasks().stream().anyMatch(QuestTask::optional)),
                 "an optional task");
-        assertTrue(all.stream().anyMatch(quest -> quest.tasks().isEmpty() == false
-                        && quest.tasks().stream().anyMatch(task -> task instanceof
-                        dev.ellipog.tasked.quest.task.ItemTask item
-                        && item.consumes(false))),
-                "a task that takes the items");
+
+        // A task that takes the items, said on the task. The assertion this replaces checked
+        // `consumes(false)` under the message "a task that takes the items", which is the check
+        // inverted -- it was satisfied by every item task in the collection and proved nothing. What
+        // must exist is a task whose own flag *takes* what it asks for.
+        assertTrue(all.stream().anyMatch(quest -> quest.tasks().stream().anyMatch(task ->
+                        task instanceof ItemTask item && item.consumeItems().orElse(false))),
+                "no example task asks for something and keeps it: a consumeItems of true on the task");
+
+        // And the chapter-level version of the same field, which is the inheritance the field exists
+        // for -- plus the task that declines it, because a default nothing ever overrides reads as a
+        // fact rather than as a default.
+        assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                        .anyMatch(Chapter::defaultConsumeItems),
+                "no example chapter sets defaultConsumeItems, so the inheritance is never demonstrated");
+        assertTrue(all.stream().anyMatch(quest -> quest.tasks().stream().anyMatch(task ->
+                        task instanceof ItemTask item && item.consumeItems().orElse(true) == false)),
+                "no example task declines its chapter's consume default, so the exception -- the whole"
+                        + " point of a default -- is missing");
+
+        // The prerequisite modes, all four of them plus the count that none of them can express:
+        // a quest that overrides the mode on itself, and a chapter that changes the default for
+        // everything in it.
+        assertTrue(all.stream().anyMatch(quest -> quest.prerequisiteMode().isPresent()),
+                "no example quest states a prerequisiteMode of its own");
+        assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter).anyMatch(
+                        chapter -> chapter.defaultPrerequisiteMode() != PrerequisiteMode.ALL_COMPLETED),
+                "every example chapter keeps the default prerequisite mode, so a chapter's own rule is"
+                        + " never seen");
+        for (PrerequisiteMode mode : PrerequisiteMode.values()) {
+            // The *effective* mode, which is what a player experiences: a quest may state one, or may
+            // inherit the chapter's. Both are demonstrations, and ONE_STARTED is deliberately the
+            // inherited kind -- the chapter rule is the file whose whole point is that it says nothing.
+            assertTrue(index.quests().stream().anyMatch(entry -> !entry.quest().dependencies().isEmpty()
+                            && entry.quest().prerequisiteMode(entry.chapter().defaultPrerequisiteMode())
+                            == mode),
+                    "no example quest waits on anything under the " + mode + " rule");
+        }
+
+        // Aliases, at all three levels, and the one thing that makes them more than decoration: a
+        // dependency written against an alias rather than against an id.
+        Set<String> ids = all.stream().map(Quest::id).collect(Collectors.toSet());
+        Set<String> aliases = all.stream().flatMap(quest -> quest.aliases().stream())
+                .collect(Collectors.toSet());
+        assertTrue(!aliases.isEmpty(), "no example quest declares an alias");
+        assertTrue(all.stream().anyMatch(quest -> quest.dependencies().stream()
+                        .anyMatch(dep -> !ids.contains(dep.id()) && aliases.contains(dep.id()))),
+                "no example dependency is written against an alias, so nothing shows that a second"
+                        + " name resolves everywhere a first one does");
+        assertTrue(index.chapters().stream().anyMatch(entry -> !entry.chapter().aliases().isEmpty()),
+                "no example chapter declares an alias");
+        assertTrue(index.groups().stream().anyMatch(entry -> !entry.group().aliases().isEmpty()),
+                "no example chapter group declares an alias");
+
+        // The two sides of the folder-tree format that are otherwise invisible: a group collapsed by
+        // default, and a chapter dressed in a theme of its own outside the gallery.
+        assertTrue(index.groups().stream().anyMatch(entry -> entry.group().collapsedByDefault()),
+                "no example group is collapsed by default, so the field that decides what a sidebar"
+                        + " looks like on first sight is only ever read by its own test");
+        assertTrue(index.chapters().stream().anyMatch(entry -> entry.chapter().theme().isPresent()
+                        && !entry.groupId().equals("theme_gallery")),
+                "the only chapters that name a theme are the gallery's, which makes a chapter's theme"
+                        + " look like a feature of the gallery rather than of the format");
+
+        // Text written as a translation key with a fallback -- the other spelling a text field takes,
+        // and the one a pack that wants its questline translated needs.
+        assertTrue(all.stream().anyMatch(quest -> quest.title().translatable()
+                        && quest.title().fallback().isPresent()),
+                "no example text is written as a translation key with an English fallback");
+
+        // And the two numeric fields that are dull until they are extreme: a task checked on a long
+        // timer, and a count big enough that the client draws a progress bar rather than a number.
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task.common().autoSubmitTicks() != 20),
+                "no example task changes autoSubmitTicks, so the field that keeps an expensive check"
+                        + " from running twenty times a second has no worked example");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream()).anyMatch(task ->
+                        task instanceof ItemTask item && item.item().count() >= 256),
+                "no example asks for a count in the hundreds, which is the size at which the progress"
+                        + " bar is the point");
 
         // Every shape, because the shapes are the thing a still cannot show the difference between
         // unless the content actually varies -- which was the defect this project already had once.
@@ -634,16 +715,54 @@ class QuestIndexTest {
                     "no example quest uses the " + shape + " shape, so nothing exercises it");
         }
 
-        // And a chapter that is LINEAR, because the list order being the progression is a whole
-        // mechanism that is otherwise never read by anything outside a test fixture.
-        //
-        // Asked of `index.chapters()` rather than by walking the files, which is what this did. That
-        // walk was one of six copies of the same flattening loop, and the flattened result is exactly
-        // what `chapters()` already is.
-        boolean linear = index.chapters().stream()
-                .map(QuestIndex.ChapterEntry::chapter)
-                .anyMatch(chapter -> chapter.progressionMode() == ProgressionMode.LINEAR);
-        assertTrue(linear, "no example chapter is LINEAR");
+        // Both ends of the two ranges a node has. A 16-pixel speck and a 224-pixel moon are the same
+        // field, and a reader who has only seen 48-pixel nodes does not know that.
+        assertTrue(all.stream().anyMatch(quest -> quest.layout().size() <= 16),
+                "no example node is drawn at the smallest size there is");
+        assertTrue(all.stream().anyMatch(quest -> quest.layout().size() >= 200),
+                "no example node is a landmark, so the top of the size range is never seen");
+        assertTrue(all.stream().anyMatch(quest -> quest.layout().iconScale() >= 1.0),
+                "no example icon fills its node corner to corner");
+        assertTrue(all.stream().anyMatch(quest -> quest.layout().iconScale() <= 0.5),
+                "no example icon sits small inside a large node");
+
+        // A LINEAR chapter, and not a small one: the list order being the progression is a mechanism
+        // that is otherwise never read by anything outside a test fixture, and the mosaic is the
+        // chapter that makes it visible -- forty-odd nodes whose *positions* are the picture the
+        // order fills in.
+        var mosaic = index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                .filter(chapter -> chapter.progressionMode() == ProgressionMode.LINEAR)
+                .max(java.util.Comparator.comparingInt(chapter -> chapter.quests().size()));
+        assertTrue(mosaic.isPresent() && mosaic.get().quests().size() >= 40,
+                "no example is a large LINEAR chapter, so nothing shows the list order being used as"
+                        + " more than a chain of six");
+
+        // And a dependency that leaves its own chapter group, because the format allows one and a
+        // reader should be able to find out what that looks like before writing one.
+        boolean crossesGroups = false;
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            for (QuestRef dependency : entry.quest().dependencies()) {
+                var target = index.quest(dependency.id());
+                if (target.isPresent() && !target.get().groupId().equals(entry.groupId())) {
+                    crossesGroups = true;
+                }
+            }
+        }
+        assertTrue(crossesGroups, "no example dependency leaves its own chapter group, so a"
+                + " cross-group edge is only ever described and never shown");
+
+        // The examples come in sizes, so that 'what does a real questline look like' has more than one
+        // answer: something you can read in a minute, and something you scroll.
+        List<Integer> sizes = index.groups().stream()
+                .map(entry -> entry.group().chapters().stream()
+                        .mapToInt(chapter -> chapter.quests().size()).sum())
+                .toList();
+        assertTrue(sizes.stream().anyMatch(size -> size <= 8),
+                "no small example questline, so the smallest answer to 'how much is a questline' is"
+                        + " missing: " + sizes);
+        assertTrue(sizes.stream().anyMatch(size -> size >= 40),
+                "no large example questline, so nothing shows what a chapter of many quests is like: "
+                        + sizes);
 
         // And the two defaults, by their absence: most quests draw no name and take no items, which is
         // what makes the exceptions in the files mean something.
@@ -656,8 +775,8 @@ class QuestIndexTest {
     @Test
     @DisplayName("the theme gallery's fifteen chapters are the same layout with different content")
     void theThemeGalleryIsComparable() throws java.io.IOException {
-        // The fourth example has exactly one job: let someone switch theme and see what changed. That
-        // only works if the three chapters differ in **nothing but their palette** -- otherwise a
+        // The gallery has exactly one job: let someone switch theme and see what changed. That only
+        // works if its chapters differ in **nothing but their palette** -- otherwise a
         // difference on screen could be the theme or the content, and an exhibit that varies two things
         // at once demonstrates neither.
         //
@@ -665,12 +784,12 @@ class QuestIndexTest {
         //
         //   - **Geometry identical**, quest for quest, position and shape and size and icon scale. That
         //     is what makes flipping between chapters a comparison rather than a new screen.
-        //   - **Titles all different**, because three chapters with identical tiles would be one chapter
-        //     written three times, which is the thing the test above this one exists to prevent.
+        //   - **Titles all different**, because fifteen chapters with identical tiles would be one
+        //     chapter written fifteen times, which is the thing the test above this one exists to prevent.
         //
-        // The interesting failure this catches is not a typo. It is somebody later "tidying" the third
+        // The interesting failure this catches is not a typo. It is somebody later "tidying" one
         // chapter's positions because they looked arbitrary, which would silently turn the one piece of
-        // content whose whole design is comparability into three unrelated chapters.
+        // content whose whole design is comparability into fifteen unrelated chapters.
         QuestIndex index = loadExamples(temp.resolve("gallery")).index();
 
         // Found by group id rather than by file name, because there is no longer a file that *is* the
@@ -767,7 +886,7 @@ class QuestIndexTest {
         // above mean something. A gallery of fifteen chapters naming fifteen names, one of which is a
         // typo, passes the distinctness check and shows the player fourteen themes -- so the two
         // together are the property, not either on its own. `exampleThemesExist` below covers the same
-        // ground for all four shipped files; this narrows it to the one where a missing theme is
+        // ground for every shipped file; this narrows it to the one where a missing theme is
         // invisible rather than merely wrong.
         for (String theme : themes) {
             assertNotNull(dev.ellipog.armature.client.ui.Themes.byName(theme),

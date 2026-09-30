@@ -10,6 +10,7 @@ import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
+import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
@@ -63,6 +64,7 @@ public final class TaskedFabricClient implements ClientModInitializer {
         // The setting the screen above edits, read before anything can draw it: a key pressed in the
         // first second of a session must not find the mode off because the file had not been read yet.
         DevMode.loadFromConfig();
+        ClientAppearance.loadFromConfig();
 
         // The client half of Fabric's two-part payload registration.
         FabricClientNetworking.registerClientReceivers();

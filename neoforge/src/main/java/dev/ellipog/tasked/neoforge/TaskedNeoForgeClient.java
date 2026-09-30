@@ -10,6 +10,7 @@ import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
+import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
@@ -53,6 +54,7 @@ public final class TaskedNeoForgeClient {
 
         // No developer screen and no F9: the tools are a panel in the book, reached from its header.
         DevMode.loadFromConfig();
+        ClientAppearance.loadFromConfig();
 
         // The game bus: ticking a running client is not a startup concern.
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> {
