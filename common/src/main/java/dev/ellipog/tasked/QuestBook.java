@@ -29,7 +29,41 @@ public final class QuestBook {
     /** Held so a later stage can hand it out, or put it in a quest reward. */
     public static Item ITEM;
 
+    /** Whether {@link #register} has run. See its javadoc for why the side effect guards itself. */
+    private static boolean registered;
+
+    /**
+     * Registers the quest book item, once.
+     *
+     * <h2>Why the guard is here as well as on {@code Tasked.init}</h2>
+     *
+     * <p>Both are needed and they guard different things. {@code init}'s flag stops a second entry
+     * point from re-running <i>initialisation</i>; this one stops <i>this registration</i> from
+     * happening twice, however many callers appear. A registration is a one-shot write to a global
+     * registry, so the flag belongs at the write — a third entry point, a reload hook or a test that
+     * calls this directly would otherwise reintroduce exactly the bug below.
+     *
+     * <h2>What a second call used to do, because it is silent by default</h2>
+     *
+     * <p>Nothing threw. {@code MappedRegistry.register} builds a duplicate-key
+     * {@code IllegalStateException} and then feeds it to {@code Util.pauseInIde}, which
+     * <i>returns</i> it and whose return value the caller discards — so it only ever reports anything
+     * when {@code SharedConstants.IS_RUNNING_IN_IDE} is true. In a released game the registry simply
+     * gains a second item under the same name with a different raw id, and the failure surfaces much
+     * later and elsewhere: joining a server, where {@code fabric-registry-sync} cannot remap the
+     * client's item-model map and disconnects with
+     * <i>"Map contained two equal IDs … (tasked:quest_book/1335 -> tasked:quest_book/1334)"</i>.
+     *
+     * <p>Armature's {@code FabricRegistrar} now refuses a duplicate id for every mod, which is where
+     * a general fix belongs — this flag is the specific one, and it means the mistake cannot be made
+     * here at all.
+     */
     public static void register() {
+        if (registered) {
+            return;
+        }
+        registered = true;
+
         Registrar registrar = ArmatureApi.registrar().forMod(Tasked.MOD_ID);
 
         registrar.register(BuiltInRegistries.ITEM, ITEM_ID,

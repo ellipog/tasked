@@ -21,7 +21,19 @@ out
 build
 .gradle
 
+# Build output redirected by hand, which then got committed by mistake.
+#
+# Nothing in either repo writes or reads this -- it is `gradlew build > build-output.txt` run once and
+# added. So ignoring it costs nothing and stops every build dirtying the working tree, which is worse
+# than untidy: a tracked file that changes on every build is one you learn to skim past, and it twice
+# read as though the build had modified something it had not.
+build-output.txt
+
 # other
 eclipse
 run
 runs
+
+# Test-server logs. A headless run writes these, so tracking them dirties the tree on every test --
+# the same fault as build-output.txt above, one directory over.
+common/logs/

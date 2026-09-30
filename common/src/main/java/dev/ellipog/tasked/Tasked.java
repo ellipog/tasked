@@ -34,10 +34,70 @@ public final class Tasked {
     /** Whether {@link #listenToTeams} has run. See its comment for why a flag is needed. */
     private static boolean teamListenersInstalled;
 
+    /**
+     * Whether {@link #init} has run.
+     *
+     * <p><b>Not an optimisation.</b> See {@link #init}'s javadoc — without this, a Fabric client
+     * registers the quest book twice and is then disconnected from every world it tries to join.
+     */
+    private static boolean initialised;
+
     private Tasked() {
     }
 
+    /**
+     * Constructs everything Tasked owns. Runs at most once per process, on any loader.
+     *
+     * <h2>Called twice on a client, which is the whole reason this is guarded</h2>
+     *
+     * <p>Every loader gives Tasked <b>two</b> entry points, and a client runs both:
+     * {@code TaskedFabric.onInitialize} and {@code TaskedFabricClient.onInitializeClient} on Fabric,
+     * {@code TaskedNeoForge} and {@code TaskedNeoForgeClient} on NeoForge. Dedicated servers run only
+     * the first of each pair, which is why the server log has always shown one line and this was
+     * never seen from there. Both client initialisers call {@code init()} on purpose — each is
+     * written to work even if the other ran second, so that payload registration cannot depend on a
+     * load order the loader does not promise.
+     *
+     * <p>So the guard is what makes that "defensively, whatever order" claim true rather than
+     * hopeful. Two of the three things below were already independently idempotent —
+     * {@code TaskedNetworking.declare} has its own flag for exactly this hazard, and
+     * {@code ArmatureNetwork.install} keeps the first backend — and the third did not.
+     *
+     * <h2>What happened without it, since it is a genuinely misleading failure</h2>
+     *
+     * <p>{@code QuestBook.register()} wrote the same id twice, and <b>vanilla does not refuse
+     * that</b>. {@code MappedRegistry.register} checks and then does not act on the result:
+     *
+     * <pre>{@code
+     * if (this.byLocation.containsKey(key.location())) {
+     *     Util.pauseInIde(new IllegalStateException("Adding duplicate key '" + key + "'"));
+     * }   // <- no `throw`. The return value is discarded.
+     * }</pre>
+     *
+     * <p>and {@code Util.pauseInIde} <i>returns</i> the exception rather than throwing it —
+     * {@code if (IS_RUNNING_IN_IDE) { LOGGER.error(...); doPause(...); } return t;}. In a released game
+     * that branch is false, so the entire check is a no-op and the registry ends up holding two items
+     * under one name with two different raw ids.
+     *
+     * <p>The symptom then appears somewhere else entirely, twenty minutes later and at the one moment
+     * a player is doing something: joining a world. {@code fabric-registry-sync} remaps the client's
+     * registries to the server's and refuses —
+     * <i>"Map contained two equal IDs 1334 (tasked:quest_book/1335 -> tasked:quest_book/1334)"</i> —
+     * which disconnects the client before it finishes connecting. Nothing in that message names
+     * Tasked's init, an entry point, or the item; it names a map inside Minecraft's client.
+     *
+     * <p><b>The tell was in the log the whole time.</b> The line below is inside this guard, so
+     * {@code "Tasked loaded on Fabric (production)"} appearing <i>twice</i> in one startup is exactly
+     * the thing that pointed here — which is worth keeping in mind the next time two lines that
+     * should be one appear in a log. Armature's {@code FabricRegistrar} now refuses a duplicate id
+     * outright, so this class of bug fails at construction with the id named rather than at connect.
+     */
     public static void init() {
+        if (initialised) {
+            return;
+        }
+        initialised = true;
+
         Constants.LOG.info("Tasked loaded on {} ({})",
                 ArmatureApi.platform().name(), ArmatureApi.platform().environmentName());
 

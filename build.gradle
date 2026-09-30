@@ -57,15 +57,21 @@ def registerDeploy = { String taskName, String subproject, String jarTask, Strin
                 println "deploy: ${built.name} -> ${target}"
             }
             catch (java.nio.file.FileSystemException e) {
-                // See armature/build.gradle for the full reasoning. In short: a jar Minecraft has open
+                // See armature/build.gradle for the full reasoning. In short: a jar something has open
                 // cannot be replaced, that is a normal condition rather than a broken build, and
                 // failing here would also stop the test combos being updated -- which are the thing
                 // that does not care whether the game is running.
+                //
+                // "Something", not "Minecraft": this has been observed with no java.exe running at all.
+                // The wording points at check_deploy.py instead of guessing, because that is what
+                // actually establishes whether the profile received the new jar.
                 logger.warn("deploy: SKIPPED ${target.name}")
                 logger.warn("deploy:   ${e.reason ?: 'the file is locked'}")
                 logger.warn("deploy:   ${target}")
-                logger.warn("deploy:   Minecraft is probably running. Close it and run this again for")
-                logger.warn("deploy:   the game profile; the test combos are deployed either way.")
+                logger.warn("deploy:   Something is holding this file open -- usually Minecraft, and not")
+                logger.warn("deploy:   necessarily. Close the game and anything else that has scanned the")
+                logger.warn("deploy:   folder, then re-run. The test combos are deployed either way, and")
+                logger.warn("deploy:   check_deploy.py says whether this profile actually got the new jar.")
             }
         }
     }
