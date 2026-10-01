@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_rise",
+  "title": "The Rise",
+  "description": [
+    "Four membranes, and something that only comes out at night."
+  ],
+  "icon": { "item": "minecraft:phantom_membrane" },
+  "x": 1248,
+  "y": 816,
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_shoal"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:phantom_membrane", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 6 }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_orchard",
+  "title": "The Orchard",
+  "description": [
+    "Trees you planted on purpose."
+  ],
+  "icon": { "item": "minecraft:apple" },
+  "x": 96,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:apple", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:oak_sapling", "count": 16 }
+  ]
+}

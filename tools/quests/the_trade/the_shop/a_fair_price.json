@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "a_fair_price",
+  "title": "A Fair Price",
+  "subtitle": "Twelve wheat, and the sign does not lie",
+  "description": [
+    "Twelve wheat, paid at the rate the sign says, because the sign is",
+    "the shop's whole reputation."
+  ],
+  "icon": { "item": "minecraft:wheat" },
+  "x": 264,
+  "y": 0,
+  "dependsOn": [
+    "open_the_shop"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 4 }
+  ]
+}

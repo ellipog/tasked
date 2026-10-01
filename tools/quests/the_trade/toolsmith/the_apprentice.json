@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_apprentice",
+  "title": "The Slow Count",
+  "subtitle": "autoSubmitTicks: 200, which is ten seconds",
+  "description": [
+    "Every task is re-checked on a timer -- twenty ticks by default, so",
+    "once a second. This one says `autoSubmitTicks: 200`, so the engine",
+    "looks at your iron once every ten seconds instead.",
+    "",
+    "The field exists for a task whose check is expensive, and a count of",
+    "iron is not one; it is set here so you can see where the number",
+    "goes. Nothing about the quest's behaviour changes except how often",
+    "the count is taken."
+  ],
+  "icon": { "item": "minecraft:iron_nugget" },
+  "x": 0,
+  "y": 104,
+  "dependsOn": [
+    "smelt_iron"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8, "autoSubmitTicks": 200 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 8 }
+  ]
+}

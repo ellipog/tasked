@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_cold_cellar",
+  "title": "The Cold Cellar",
+  "description": [
+    "The quietest room in the base."
+  ],
+  "icon": { "item": "minecraft:snow_block" },
+  "x": 144,
+  "y": 96,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:snowball", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:snow_block", "count": 4 }
+  ]
+}

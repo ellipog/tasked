@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_quorum",
+  "title": "The Quorum",
+  "subtitle": "All started: all_started",
+  "description": [
+    "`prerequisiteMode: all_started` -- every trial has to have been",
+    "*begun*, not finished. Nothing needs completing, so this unlocks",
+    "the moment the third trial is started.",
+    "",
+    "The mode is on the quest here rather than inherited, which is how",
+    "one node can play by a different rule than the rest of its",
+    "chapter."
+  ],
+  "icon": { "item": "minecraft:lectern" },
+  "x": 0,
+  "y": 528,
+  "showTitle": true,
+  "dependsOn": [
+    "trial_of_the_deep",
+    "trial_of_the_grove",
+    "trial_of_the_ember"
+  ],
+  "prerequisiteMode": "all_started",
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "The table is full" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

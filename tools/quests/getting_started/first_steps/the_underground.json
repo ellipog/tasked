@@ -2,17 +2,22 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "the_underground",
   "title": "Down There",
+  "subtitle": "Sixteen coal, and the chapter is done",
   "description": [
-    "There is a whole other game below y=0,",
-    "and none of it is pleased to see you."
+    "There is a whole other game below y=0, and none of it is pleased to",
+    "see you.",
+    "",
+    "Sixteen coal completes the chain, and thirty-two torches is the reward",
+    "for going down there. The hexagon is the last of this chapter's four",
+    "shapes -- every example in this collection uses all four, somewhere."
   ],
   "icon": { "item": "minecraft:torch" },
   "x": 264,
   "y": 104,
   "shape": "hexagon",
-
-  "dependsOn": ["stone_tools"],
-
+  "dependsOn": [
+    "stone_tools"
+  ],
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:coal", "count": 16 }
   ],

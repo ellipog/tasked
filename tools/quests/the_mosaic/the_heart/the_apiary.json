@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_apiary",
+  "title": "The Apiary",
+  "description": [
+    "The bees do not care about the rest of the base."
+  ],
+  "icon": { "item": "minecraft:bee_nest" },
+  "x": 144,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:honeycomb", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:candle", "count": 4 }
+  ]
+}

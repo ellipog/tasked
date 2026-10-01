@@ -6,7 +6,7 @@ Nothing in this folder is compiled, and nothing in it ships in the jar.
 
 ## `quests/` — the worked examples
 
-Four complete questlines, and the reason they are here rather than in `src/main/resources` is worth
+Seven complete questlines, and the reason they are here rather than in `src/main/resources` is worth
 stating: **Tasked ships no quests.** It is a quest engine, and a mod that installs example chapters
 into every player's config directory has made a decision that is not its to make. The first thing a
 pack author would have to do is delete somebody else's content, and every file a mod ships is a file
@@ -15,17 +15,60 @@ that has to keep working forever against a format that is still moving.
 So the examples are authoring documentation, and they arrive in a `config/tasked/quests` directory
 because somebody ran the script below.
 
-The four are four different *designs* rather than four difficulties of the same thing:
+They are seven different *designs* rather than seven difficulties of the same thing, and they run
+from five quests to ninety:
 
-| Group folder | What it is for |
+| Group folder | What it is for | Quests |
+|---|---|---|
+| `getting_started/` | The basics: one chain, a couple of item tasks that do not consume, one checkmark. The one to read first, and the one the playthrough test plays. | 5 |
+| `the_road/` | Linear progression with a name under every node, so a chapter where the list order *is* the progression is walked rather than described. Six stops out, six back, and the canvas draws the road. | 12 |
+| `the_trade/` | The mechanics, one per quest: a branch, an OR-gate, an exclusive pair, a repeatable job with a cooldown, sequential tasks, an optional task, a hidden quest, an alias, a slow check and a count of 512 — plus a second chapter whose whole lesson is one inherited default and the one task that declines it. | 17 |
+| `the_council/` | Four prerequisite modes side by side: four quests waiting on the same three trials under four different rules, and a fifth that does nothing but inherit the chapter's. Holds the only dependency in the collection that leaves its own group. | 10 |
+| `the_constellation/` | A canvas with no grid in it: twenty-four nodes placed by hand to draw a serpent in the sky, most of them sixteen pixels across, with one 224-pixel moon. The extreme of position, size and icon scale. | 24 |
+| `the_mosaic/` | A picture made of quest nodes: forty-six tiles on a 48-pixel grid forming a heart, filled in by a LINEAR chapter's own list order. The largest single chapter and the one to look at rather than read. | 46 |
+| `theme_gallery/` | One chapter per shipped UI theme **apart from `default`** — fifteen of them, six quests each — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. | 90 |
+
+`QuestIndexTest` asserts all of it — every mechanism, all four prerequisite modes, aliases at all
+three levels and a dependency that resolves through one, the extremes of size and icon scale, a
+cross-group edge, the linear chapter of forty-odd nodes, and that the sizes really do run from a
+handful to a scroll — so a future tidy-up cannot quietly turn an exhibition into seven copies of the
+first file.
+
+Two of the seven are meant to be looked at rather than read: `the_mosaic` is a heart you colour in,
+and `the_constellation` is a sky. `/tasked complete <quest>` walks either of them a node at a time,
+which is how both are meant to be seen.
+
+### Where to look for a particular field
+
+Every field the format has is exercised somewhere, and this is the index from "I want to see one" to
+the file that has it:
+
+| If you want to see… | read |
 |---|---|
-| `getting_started/` | The basics. One chapter, five quests: a short chain, a couple of item tasks that do not consume, one checkmark. The one to read first, and the one the playthrough test plays. |
-| `the_trade/` | The mechanics. One chapter, nine quests: a branch, an OR-gate, an exclusive pair, a repeatable job with a cooldown, sequential tasks, an optional task, and a quest that stays hidden until it is done. |
-| `the_road/` | Linear progression with names drawn under the nodes, so a chapter where the list order *is* the progression is demonstrated rather than described. |
-| `theme_gallery/` | One chapter per shipped UI theme **apart from `default`** — fifteen of them, six quests each — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. |
-
-`QuestIndexTest` asserts all of that, so a future tidy-up cannot quietly turn four demonstrations
-into four copies of the first one.
+| an item task that counts itself, without consuming | `getting_started/first_steps/punch_a_tree.json` |
+| a checkmark you hand in by hand | `getting_started/first_steps/read_the_sign.json` |
+| a linear chapter, with no `dependsOn` anywhere | `the_road/desert_road/` |
+| `showTitle`, and shapes and sizes used as drawing | `the_road/desert_road/` — `a_little_green.json` and `a_landmark.json` are the two extremes |
+| an OR-gate (`minRequired`) | `the_trade/toolsmith/build_all_the_things.json` (one of two) and `the_council/the_round_table/the_two_witnesses.json` (two of three) |
+| an exclusive pair | `the_trade/toolsmith/specialise_blade.json` and its sibling |
+| repeatable, with a cooldown | `the_trade/toolsmith/tend_the_forge.json` |
+| sequential tasks | `the_trade/toolsmith/the_long_road.json` |
+| an optional task | `the_trade/toolsmith/optional_curiosity.json` |
+| a quest hidden until it is done | `the_trade/toolsmith/the_hoard.json`, and the last tile of `the_mosaic/the_heart/` |
+| an alias, and a dependency written against one | `the_trade/toolsmith/smelt_iron.json` declares it; `forge_a_hammer.json` depends on it |
+| `autoSubmitTicks` | `the_trade/toolsmith/the_apprentice.json` |
+| a count big enough that the bar is the point | `the_trade/toolsmith/the_storeroom.json` |
+| a text written as a translation key | the title of `the_trade/toolsmith/the_storeroom.json` |
+| `defaultConsumeItems`, inherited and then declined | `the_trade/the_shop/chapter.json`, `a_favour_for_a_friend.json` |
+| all four prerequisite modes | `the_council/the_round_table/` — the four nodes in the lower row |
+| `defaultPrerequisiteMode` | `the_council/the_round_table/chapter.json` |
+| a dependency in another chapter group | `the_council/the_round_table/the_outsider.json` |
+| a chapter alias and a group alias | `the_council/the_round_table/chapter.json`, `the_council/group.json` |
+| a group collapsed by default | `theme_gallery/group.json` |
+| the smallest node there is, and the largest | `the_constellation/the_wyrm/the_ember.json` (16px) and `the_moon.json` (224px) |
+| `iconScale` at both ends | the same two files (1.0 and 0.3) |
+| a chapter wearing a theme of its own | any chapter with a `theme` field; the gallery is the fifteen that exist to be compared |
+| a picture made of positions | `the_mosaic/the_heart/` — and `the_constellation/the_wyrm/` for one drawn freehand |
 
 ### The layout, which is the format
 

@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_redstone_wiring",
+  "title": "The Redstone Wiring",
+  "description": [
+    "Half of a door, and all of a headache."
+  ],
+  "icon": { "item": "minecraft:redstone" },
+  "x": 96,
+  "y": 192,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:redstone", "count": 32 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:repeater", "count": 4 }
+  ]
+}

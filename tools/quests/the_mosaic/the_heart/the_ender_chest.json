@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_ender_chest",
+  "title": "The Ender Chest",
+  "description": [
+    "One chest, in every base at once."
+  ],
+  "icon": { "item": "minecraft:ender_chest" },
+  "x": 144,
+  "y": 240,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:ender_eye", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:ender_chest" }
+  ]
+}

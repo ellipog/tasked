@@ -2,15 +2,16 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "melt_the_glass",
   "title": "Melt It Clear",
+  "subtitle": "Eight sand, one furnace, and patience",
   "description": [
-    "A hexagon. The shape is only ever a drawing instruction,",
-    "and this is the chapter where all four appear together."
+    "A hexagon. The shape is only ever a drawing instruction, and this is",
+    "one of the chapters where all four of them appear together."
   ],
   "icon": { "item": "minecraft:glass" },
   "x": 264,
   "y": 0,
   "shape": "hexagon",
-
+  "showTitle": true,
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:glass", "count": 8 }
   ],

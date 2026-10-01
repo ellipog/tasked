@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "floorboards",
+  "title": "Floorboards",
+  "description": [
+    "A floor is a luxury nobody appreciates until they dig one."
+  ],
+  "icon": { "item": "minecraft:oak_planks" },
+  "x": 0,
+  "y": 48,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_planks", "count": 32 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:ladder", "count": 8 }
+  ]
+}

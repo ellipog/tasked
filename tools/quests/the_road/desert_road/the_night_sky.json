@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_night_sky",
+  "title": "The Night Sky",
+  "subtitle": "You have to stop for the night eventually",
+  "description": [
+    "Sixteen torches' worth of not being able to see the stars, and then a",
+    "fire to sit at and look up from.",
+    "",
+    "There is a whole other example about looking up: see The",
+    "Constellation, where every node is a star and the canvas is the",
+    "night."
+  ],
+  "icon": { "item": "minecraft:torch" },
+  "x": 264,
+  "y": 144,
+  "size": 44,
+  "showTitle": true,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:campfire" },
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

@@ -3,11 +3,18 @@
   "id": "the_trade",
   "title": "The Trade",
   "description": [
-    "What a blacksmith's shop actually is, which is a pile of",
-    "iron and a person who has decided to be patient with it."
+    "What a blacksmith's shop actually is, which is a pile of iron and a person who has",
+    "decided to be patient with it -- and, more to the point, every mechanism the",
+    "format has, one per quest.",
+    "",
+    "A branch that converges, an OR-gate, two quests that lock each other out, a job you",
+    "can do forever, an order that matters, a task you may skip, a quest that hides",
+    "until it is done, an alias, a slow check, and a number big enough to need the",
+    "progress bar. None of it is a special case in the engine: every one is a field on",
+    "a quest or a task, and every one is named in the file that uses it."
   ],
-
   "chapters": [
-    "toolsmith"
+    "toolsmith",
+    "the_shop"
   ]
 }

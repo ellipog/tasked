@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_wyrm_awakens",
+  "title": "The Wyrm Awakens",
+  "description": [
+    "The end of the figure, and a minRequired of 2 over the three sightings: the eye, the horn and the moon, any two of which will do."
+  ],
+  "icon": { "item": "minecraft:elytra" },
+  "x": 1728,
+  "y": 552,
+  "size": 48,
+  "iconScale": 0.85,
+  "showTitle": true,
+  "dependsOn": [
+    "the_eye",
+    "the_horn",
+    "the_moon"
+  ],
+  "minRequired": 2,
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I have seen the whole of it" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:elytra" },
+    { "type": "tasked:xp", "amount": 30, "levels": true }
+  ]
+}

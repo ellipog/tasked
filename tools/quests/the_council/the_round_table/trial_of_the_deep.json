@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "trial_of_the_deep",
+  "title": "Trial of the Deep",
+  "subtitle": "Down, and back, with iron",
+  "description": [
+    "Thirty-two cobblestone and eight iron: the trial of anyone who",
+    "volunteers to go down first."
+  ],
+  "icon": { "item": "minecraft:iron_pickaxe" },
+  "x": 132,
+  "y": 264,
+  "dependsOn": [
+    "take_your_seat"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 32 },
+    { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:iron_block" },
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_maw",
+  "title": "The Maw",
+  "description": [
+    "Sixteen bones, and none of them yours."
+  ],
+  "icon": { "item": "minecraft:bone" },
+  "x": 1536,
+  "y": 744,
+  "size": 20,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_eye"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:bone", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 4 }
+  ]
+}

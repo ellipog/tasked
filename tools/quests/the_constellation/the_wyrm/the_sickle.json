@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_sickle",
+  "title": "The Sickle",
+  "description": [
+    "The curve at the end of the tail, drawn in dust."
+  ],
+  "icon": { "item": "minecraft:glowstone_dust" },
+  "x": 192,
+  "y": 696,
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_ember"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glowstone_dust", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 3 }
+  ]
+}

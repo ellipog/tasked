@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_anvil",
+  "title": "The Anvil",
+  "description": [
+    "Thirty-one ingots. Nobody believes it the first time."
+  ],
+  "icon": { "item": "minecraft:anvil" },
+  "x": 384,
+  "y": 96,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 31 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:anvil" }
+  ]
+}

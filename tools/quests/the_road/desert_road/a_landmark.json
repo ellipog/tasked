@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "a_landmark",
+  "title": "A Landmark",
+  "subtitle": "Size 64, and nothing else on the road is",
+  "description": [
+    "The largest node on the road, at size 64, and the only one that is not",
+    "really a stop -- it is a thing you can see from the next three.",
+    "",
+    "A size is just a number between 16 and 512. Nothing stops a chapter",
+    "drawing one node half the canvas wide; the bound exists so a typo of",
+    "6400 fails at load instead of at draw time."
+  ],
+  "icon": { "item": "minecraft:chiseled_sandstone" },
+  "x": 660,
+  "y": 144,
+  "size": 64,
+  "iconScale": 0.8,
+  "showTitle": true,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:chiseled_sandstone", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:spyglass" }
+  ]
+}

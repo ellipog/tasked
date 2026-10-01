@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "a_door_that_closes",
+  "title": "A Door That Closes",
+  "description": [
+    "A door is a promise that the inside is yours."
+  ],
+  "icon": { "item": "minecraft:oak_door" },
+  "x": 48,
+  "y": 48,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_door", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:stick", "count": 8 }
+  ]
+}

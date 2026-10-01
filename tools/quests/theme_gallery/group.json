@@ -2,6 +2,7 @@
   "$schema": "../_schema/group.schema.json",
   "id": "theme_gallery",
   "title": "Theme Gallery",
+  "collapsedByDefault": true,
   "description": [
     "Fifteen chapters, one per theme this mod ships apart from the default. Click them in the",
     "sidebar and the canvas changes colour -- no command, no setting to find first.",

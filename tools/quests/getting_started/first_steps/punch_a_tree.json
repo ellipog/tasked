@@ -2,18 +2,24 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "punch_a_tree",
   "title": "Punch a Tree",
+  "subtitle": "Eight logs, and it counts them itself",
   "description": [
-    "Everything worth having starts with a tree,",
-    "and everything worth having ends with you hitting it."
+    "Everything worth having starts with a tree, and everything worth",
+    "having ends with you hitting it.",
+    "",
+    "The task below is an item task that does not consume, so there is no",
+    "Submit button on it: the moment eight oak logs are in your inventory the",
+    "quest completes, and the logs stay where they are. Most of the examples",
+    "work this way, because silently taking a player's items is the more",
+    "surprising of the two behaviours."
   ],
   "icon": { "item": "minecraft:oak_log" },
   "x": 0,
   "y": 0,
-
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:wooden_axe", "count": 1 }
+    { "type": "tasked:item", "item": "minecraft:wooden_axe" }
   ]
 }

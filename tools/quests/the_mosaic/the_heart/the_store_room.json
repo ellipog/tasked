@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_store_room",
+  "title": "The Store Room",
+  "description": [
+    "A chest is a promise to sort it out later."
+  ],
+  "icon": { "item": "minecraft:chest" },
+  "x": 240,
+  "y": 96,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_planks", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:chest", "count": 2 }
+  ]
+}

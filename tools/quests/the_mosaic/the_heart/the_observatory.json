@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_observatory",
+  "title": "The Observatory",
+  "description": [
+    "Up, instead of down, for once."
+  ],
+  "icon": { "item": "minecraft:spyglass" },
+  "x": 192,
+  "y": 288,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:spyglass" }
+  ]
+}

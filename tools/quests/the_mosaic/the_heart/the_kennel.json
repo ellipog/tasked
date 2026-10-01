@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_kennel",
+  "title": "The Kennel",
+  "description": [
+    "The best room in the base, and the dog agrees."
+  ],
+  "icon": { "item": "minecraft:bone" },
+  "x": 336,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:bone", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:wolf_armor" }
+  ]
+}

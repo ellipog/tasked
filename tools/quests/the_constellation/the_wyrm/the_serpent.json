@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_serpent",
+  "title": "The Serpent",
+  "description": [
+    "The coil the whole figure turns around."
+  ],
+  "icon": { "item": "minecraft:nautilus_shell" },
+  "x": 672,
+  "y": 408,
+  "size": 24,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_keeper"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:nautilus_shell", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 6 }
+  ]
+}

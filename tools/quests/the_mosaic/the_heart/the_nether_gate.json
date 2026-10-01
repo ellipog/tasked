@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_nether_gate",
+  "title": "The Nether Gate",
+  "description": [
+    "Ten obsidian, and the base stops being the only place."
+  ],
+  "icon": { "item": "minecraft:obsidian" },
+  "x": 48,
+  "y": 192,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:obsidian", "count": 10 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:flint_and_steel" }
+  ]
+}

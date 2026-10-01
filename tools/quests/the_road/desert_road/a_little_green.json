@@ -2,15 +2,16 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "a_little_green",
   "title": "Something Green",
+  "subtitle": "A cactus, because it was there",
   "description": [
-    "A circle, and the smallest node in the chapter.",
-    "A circle is a poor shape for a dense tree and a good one",
-    "for a landmark, which is what this is meant to be.",
+    "A circle, and the smallest node on the road -- a poor shape for a dense",
+    "tree and a good one for a landmark, which is what this is meant to",
+    "be.",
     "",
-    "iconScale 0.6 with a size of 40 -- small node, small icon,",
-    "so this reads as a marker on the road rather than a stop.",
-    "The scale is a fraction of the largest square that fits,",
-    "so it composes with the size instead of overriding it."
+    "iconScale 0.6 with a size of 40: a small node holding a small icon,",
+    "so this reads as a marker on the road rather than as a stop on it.",
+    "The scale is a fraction of the largest square that fits the node, so",
+    "it composes with the size instead of overriding it."
   ],
   "icon": { "item": "minecraft:cactus" },
   "x": 396,
@@ -18,7 +19,7 @@
   "shape": "circle",
   "size": 40,
   "iconScale": 0.6,
-
+  "showTitle": true,
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:cactus", "count": 2 }
   ],

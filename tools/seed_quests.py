@@ -3,7 +3,7 @@ seed_quests.py - put the example questlines into a config directory.
 
 Why this is a script and not something the mod does
 ---------------------------------------------------
-Tasked ships no quests. It is a quest *engine*, and a mod that installs three example chapters into
+Tasked ships no quests. It is a quest *engine*, and a mod that installs example chapters into
 every player's config directory has decided something that is not its to decide: the first thing a
 pack author would have to do is delete somebody else's content, and every file a mod ships is a file
 that has to keep working forever against a format that is still moving.

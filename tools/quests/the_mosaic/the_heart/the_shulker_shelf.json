@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_shulker_shelf",
+  "title": "The Shulker Shelf",
+  "description": [
+    "Two shells, and the sorting problem admits it was never about space."
+  ],
+  "icon": { "item": "minecraft:shulker_box" },
+  "x": 192,
+  "y": 240,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:shulker_shell", "count": 2 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:shulker_box" }
+  ]
+}

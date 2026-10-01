@@ -4,20 +4,24 @@
   "title": "The Tools",
   "subtitle": "The other one",
   "description": [
-    "The pickaxe instead of the sword. Cheaper to maintain,",
-    "less good at being a sword."
+    "The pickaxe instead of the sword. Cheaper to maintain, less good at",
+    "being a sword.",
+    "",
+    "Locked out by the same exclusive group as its sibling -- and because",
+    "the two share a group rather than naming each other, either one may",
+    "be deleted from the chapter without breaking the other."
   ],
   "icon": { "item": "minecraft:iron_pickaxe" },
   "x": 396,
   "y": 0,
-
-  "dependsOn": ["forge_a_hammer"],
+  "dependsOn": [
+    "forge_a_hammer"
+  ],
   "exclusiveGroup": "specialisation",
-
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:oak_planks", "count": 8 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+    { "type": "tasked:item", "item": "minecraft:diamond" }
   ]
 }

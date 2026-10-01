@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_horn",
+  "title": "The Horn",
+  "description": [
+    "One note, held for a very long time."
+  ],
+  "icon": { "item": "minecraft:goat_horn" },
+  "x": 1632,
+  "y": 648,
+  "size": 24,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_maw"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:goat_horn", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 8 }
+  ]
+}

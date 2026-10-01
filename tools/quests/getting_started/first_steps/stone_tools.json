@@ -2,18 +2,27 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "stone_tools",
   "title": "Stone Tools",
+  "subtitle": "Two tasks, both counted",
+  "description": [
+    "Three cobblestone and two sticks, in one quest. A quest may ask for",
+    "several things; every one of them has to be satisfied before it",
+    "completes, and the panel draws each on its own row.",
+    "",
+    "The reward is a pickaxe you could have made yourself, which is the joke",
+    "every questing mod is quietly in on."
+  ],
   "icon": { "item": "minecraft:stone_pickaxe" },
   "x": 264,
   "y": 0,
-
-  "dependsOn": ["make_a_table"],
-
+  "dependsOn": [
+    "make_a_table"
+  ],
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 3 },
     { "type": "tasked:item", "item": "minecraft:stick", "count": 2 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:stone_pickaxe", "count": 1 },
+    { "type": "tasked:item", "item": "minecraft:stone_pickaxe" },
     { "type": "tasked:xp", "amount": 2, "levels": true }
   ]
 }

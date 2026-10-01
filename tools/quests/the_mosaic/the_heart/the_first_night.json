@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_night",
+  "title": "The First Night",
+  "description": [
+    "Somewhere to be when the sun goes."
+  ],
+  "icon": { "item": "minecraft:campfire" },
+  "x": 96,
+  "y": 0,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_log", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:cooked_beef", "count": 4 }
+  ]
+}

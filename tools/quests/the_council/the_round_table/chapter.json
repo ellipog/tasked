@@ -1,0 +1,39 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_round_table",
+  "title": "The Round Table",
+  "subtitle": "Four ways to wait on three things",
+  "description": [
+    "This chapter's house rule is `one_started`: a quest here unlocks when any",
+    "one of its dependencies has been started rather than completed. The three",
+    "trials use it without saying so, one quest demonstrates it deliberately,",
+    "and two quests override it -- because a chapter default is a default, not",
+    "a fact.",
+    "",
+    "The layout is the argument. Read it as three arrows leaving the trials and",
+    "arriving at four different answers, and then at the verdict in the middle",
+    "of the row below.",
+    "",
+    "Everything here is completable alone except The Outsider, which waits on a",
+    "quest in The Trade -- the one cross-group dependency in the collection,",
+    "left deliberately visible."
+  ],
+  "aliases": [
+    "round_table"
+  ],
+  "defaultPrerequisiteMode": "one_started",
+  "theme": "amethyst",
+  "icon": { "item": "minecraft:bell" },
+  "quests": [
+    "take_your_seat.json",
+    "trial_of_the_deep.json",
+    "trial_of_the_grove.json",
+    "trial_of_the_ember.json",
+    "the_quorum.json",
+    "the_two_witnesses.json",
+    "the_first_voice.json",
+    "the_chapter_rule.json",
+    "the_outsider.json",
+    "the_verdict.json"
+  ]
+}

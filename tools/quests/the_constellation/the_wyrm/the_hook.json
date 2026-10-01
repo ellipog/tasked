@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_hook",
+  "title": "The Hook",
+  "description": [
+    "The bend where the tail leaves the water."
+  ],
+  "icon": { "item": "minecraft:fishing_rod" },
+  "x": 864,
+  "y": 504,
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_coil"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:fishing_rod", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

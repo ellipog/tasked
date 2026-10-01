@@ -1,0 +1,26 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_mosaic",
+  "title": "The Mosaic",
+  "description": [
+    "A picture drawn out of quest nodes. Forty-six of them sit on a 48-pixel grid and",
+    "make a heart, and the chapter is linear -- so the list order is the order you",
+    "fill it in, and the canvas draws the pen stroke as a line from one tile to the",
+    "next.",
+    "",
+    "It is the largest example here and the least dramatic one to read: every file is",
+    "a room of a base and a pile of building materials. The point is the canvas. Open",
+    "the chapter and zoom out and the questline is a heart; work through it and you",
+    "are colouring it in.",
+    "",
+    "The whole thing is placed by hand. Positions are free integers, and this is the",
+    "example that takes that at its word -- nothing is snapped to a grid, because",
+    "nothing had to be."
+  ],
+  "aliases": [
+    "mosaic"
+  ],
+  "chapters": [
+    "the_heart"
+  ]
+}

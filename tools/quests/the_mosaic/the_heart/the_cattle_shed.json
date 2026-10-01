@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_cattle_shed",
+  "title": "The Cattle Shed",
+  "description": [
+    "Sixteen hides and somewhere to ride."
+  ],
+  "icon": { "item": "minecraft:leather" },
+  "x": 240,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:leather", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:saddle" }
+  ]
+}

@@ -4,19 +4,27 @@
   "title": "Iron, Twice",
   "subtitle": "The first one is a lesson",
   "description": [
-    "Three ingots. The first one teaches you to make a furnace,",
-    "the second teaches you to stand next to it, and the third",
-    "is the one you get to keep."
+    "Three ingots. The first one teaches you to make a furnace, the second",
+    "teaches you to stand next to it, and the third is the one you get to",
+    "keep.",
+    "",
+    "This quest answers to two names. `smelt_iron` is its id, and",
+    "`iron_lesson` is an alias it declares beside it -- and the quest to the",
+    "right depends on the alias rather than on the id. That is what an",
+    "alias is for: a rename costs nothing, because progress and every",
+    "reference still resolve."
   ],
   "icon": { "item": "minecraft:iron_ingot" },
   "x": 0,
   "y": 0,
   "showTitle": true,
-
+  "aliases": [
+    "iron_lesson"
+  ],
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 3 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:iron_block", "count": 1 }
+    { "type": "tasked:item", "item": "minecraft:iron_block" }
   ]
 }

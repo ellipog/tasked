@@ -4,20 +4,20 @@
   "title": "One Thing at a Time",
   "subtitle": "Sequential tasks",
   "description": [
-    "Two checkmarks, and the second one cannot be handed in",
-    "until the first is done. Open the quest and the Submit",
-    "button moves down to task two, because the first is behind it.",
+    "Two checkmarks, and the second cannot be handed in until the first is",
+    "done. Open the quest and the Submit button moves down to task two,",
+    "because the first is behind it.",
     "",
-    "Sequential tasks are how an order matters. Without the flag",
-    "the two could be handed in in either order, or both at once."
+    "Sequential tasks are how an order matters. Without the flag the two",
+    "could be handed in in either order, or both at once."
   ],
   "icon": { "item": "minecraft:oak_boat" },
   "x": 132,
   "y": 208,
-
-  "dependsOn": ["build_all_the_things"],
+  "dependsOn": [
+    "build_all_the_things"
+  ],
   "sequentialTasks": true,
-
   "tasks": [
     { "type": "tasked:checkmark", "title": "I found the wood" },
     { "type": "tasked:checkmark", "title": "And I found the iron" }

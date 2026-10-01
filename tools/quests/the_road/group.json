@@ -3,10 +3,14 @@
   "id": "the_road",
   "title": "The Road",
   "description": [
-    "A chapter with no dependsOn in it at all. The order of the",
-    "quests list is the progression, because the chapter says so."
+    "One chapter, no dependencies anywhere in it, and a name drawn under every node:",
+    "the chapter where the order of the quest list *is* the progression, and you can",
+    "watch yourself walk it.",
+    "",
+    "There is not one dependsOn field in this group. The chapter says 'linear' once and",
+    "the list below it is the road -- which also means the road is the one thing you",
+    "edit to reorder it."
   ],
-
   "chapters": [
     "desert_road"
   ]

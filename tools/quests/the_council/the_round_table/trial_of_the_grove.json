@@ -1,0 +1,24 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "trial_of_the_grove",
+  "title": "Trial of the Grove",
+  "subtitle": "The one that keeps everyone fed",
+  "description": [
+    "Sixteen logs and eight wheat: the trial of anyone who volunteers",
+    "to feed the table while the others are underground."
+  ],
+  "icon": { "item": "minecraft:oak_sapling" },
+  "x": 396,
+  "y": 264,
+  "dependsOn": [
+    "take_your_seat"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_log", "count": 16 },
+    { "type": "tasked:item", "item": "minecraft:wheat", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:apple", "count": 8 },
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

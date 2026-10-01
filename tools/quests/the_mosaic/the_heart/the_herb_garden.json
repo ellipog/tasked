@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_herb_garden",
+  "title": "The Herb Garden",
+  "description": [
+    "Sixteen seeds, and the first thing you check every morning."
+  ],
+  "icon": { "item": "minecraft:wheat" },
+  "x": 48,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat_seeds", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:bone_meal", "count": 8 }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_ember",
+  "title": "The Ember",
+  "description": [
+    "Four shards of something that fell, a long time ago."
+  ],
+  "icon": { "item": "minecraft:amethyst_shard" },
+  "x": 96,
+  "y": 744,
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "first_light"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 3 }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_storeroom",
+  "title": { "translate": "tasked.example.the_storeroom", "fallback": "The Store Room" },
+  "subtitle": "A count big enough to need the bar",
+  "description": [
+    "Five hundred and twelve cobblestone. The bar fills in over",
+    "several screens of mining, which is the point: a count is drawn as",
+    "a bar, and this is the count that makes the bar worth looking at.",
+    "",
+    "The title above is written as a translation key with an English",
+    "fallback -- the other spelling a text field accepts, for a pack or",
+    "a mod shipping a questline it wants translated. Nothing else in",
+    "this title differs; the key resolves, and the fallback is what",
+    "stops a missing translation from drawing a raw key."
+  ],
+  "icon": { "item": "minecraft:barrel" },
+  "x": 0,
+  "y": 208,
+  "dependsOn": [
+    "the_apprentice"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 512 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:shulker_box" },
+    { "type": "tasked:xp", "amount": 20 }
+  ]
+}

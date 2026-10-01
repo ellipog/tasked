@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_stable",
+  "title": "The Stable",
+  "description": [
+    "Hay, a saddle, and somewhere to be at dawn."
+  ],
+  "icon": { "item": "minecraft:saddle" },
+  "x": 384,
+  "y": 144,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:hay_block", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:iron_horse_armor" }
+  ]
+}

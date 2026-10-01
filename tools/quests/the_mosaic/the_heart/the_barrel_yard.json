@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_barrel_yard",
+  "title": "The Barrel Yard",
+  "description": [
+    "Barrels, because chests are for people with plans."
+  ],
+  "icon": { "item": "minecraft:barrel" },
+  "x": 192,
+  "y": 96,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_slab", "count": 6 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:barrel", "count": 4 }
+  ]
+}

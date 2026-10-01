@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "trial_of_the_ember",
+  "title": "Trial of the Ember",
+  "subtitle": "The fire, kept lit",
+  "description": [
+    "Twenty-four coal and eight charcoal: the trial of anyone who",
+    "volunteers to keep the fire lit, which is the trial everyone",
+    "else is quietly grateful for."
+  ],
+  "icon": { "item": "minecraft:blaze_powder" },
+  "x": 660,
+  "y": 264,
+  "dependsOn": [
+    "take_your_seat"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:coal", "count": 24 },
+    { "type": "tasked:item", "item": "minecraft:charcoal", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 16 },
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

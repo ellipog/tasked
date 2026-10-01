@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_voice",
+  "title": "The First Voice",
+  "subtitle": "Any one completed: one_completed",
+  "description": [
+    "`prerequisiteMode: one_completed` -- a single finished trial is",
+    "enough to stop waiting. Where minRequired counts to two, this",
+    "one settles for the first thing that lands."
+  ],
+  "icon": { "item": "minecraft:ink_sac" },
+  "x": 528,
+  "y": 528,
+  "showTitle": true,
+  "dependsOn": [
+    "trial_of_the_deep",
+    "trial_of_the_grove",
+    "trial_of_the_ember"
+  ],
+  "prerequisiteMode": "one_completed",
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "One voice is enough" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

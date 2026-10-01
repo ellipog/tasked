@@ -1,0 +1,22 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_fangtip",
+  "title": "The Fangtip",
+  "description": [
+    "The end of the second branch, and nothing beyond it."
+  ],
+  "icon": { "item": "minecraft:slime_ball" },
+  "x": 960,
+  "y": 288,
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_fang"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:slime_ball", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 4 }
+  ]
+}

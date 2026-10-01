@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_lamp",
+  "title": "The Lamp",
+  "description": [
+    "The difference between a cave and a room."
+  ],
+  "icon": { "item": "minecraft:lantern" },
+  "x": 144,
+  "y": 48,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:lantern", "count": 2 }
+  ]
+}

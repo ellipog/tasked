@@ -2,16 +2,20 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "make_a_table",
   "title": "Somewhere to Work",
-  "subtitle": "A crafting table",
+  "subtitle": "A crafting table, and a reward you will use",
   "description": [
-    "Four planks, a square, and suddenly you have options."
+    "Four planks, a square, and suddenly you have options.",
+    "",
+    "This one also counts itself complete, and its reward is deliberately the",
+    "boring one -- eight sticks, which is most of what the next quest asks",
+    "you for."
   ],
   "icon": { "item": "minecraft:crafting_table" },
   "x": 132,
   "y": 0,
-
-  "dependsOn": ["punch_a_tree"],
-
+  "dependsOn": [
+    "punch_a_tree"
+  ],
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:crafting_table", "count": 1 }
   ],

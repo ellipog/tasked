@@ -4,14 +4,14 @@
   "title": "The Hoard",
   "subtitle": "Invisible until you have it",
   "description": [
-    "You cannot see this node until the quest is complete.",
-    "Sort by chapter and there will be a gap where it sits,",
-    "which is the honest thing for a hidden quest to do --",
-    "a hidden node that leaves no gap tells you where it is.",
+    "You cannot see this node until the quest is complete. Sort by",
+    "chapter and there is a gap where it sits, which is the honest",
+    "thing for a hidden quest to do -- a hidden node that leaves no gap",
+    "tells you where it is.",
     "",
-    "iconScale 0.95, the other end of the range from the forge",
-    "above: nearly the whole node, because a hoard should look",
-    "like it is overflowing the thing holding it."
+    "iconScale 0.95, the other end of the range from the forge above:",
+    "nearly the whole node, because a hoard should look like it is",
+    "overflowing the thing holding it."
   ],
   "icon": { "item": "minecraft:diamond" },
   "x": 396,
@@ -19,14 +19,14 @@
   "shape": "tome",
   "size": 36,
   "iconScale": 0.95,
+  "dependsOn": [
+    "tend_the_forge"
+  ],
   "invisible": true,
-
-  "dependsOn": ["tend_the_forge"],
-
   "tasks": [
     { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 }
+    { "type": "tasked:item", "item": "minecraft:diamond" }
   ]
 }

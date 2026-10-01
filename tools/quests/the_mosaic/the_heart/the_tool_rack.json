@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_tool_rack",
+  "title": "The Tool Rack",
+  "description": [
+    "Every tool gets a place, and every place gets a tool."
+  ],
+  "icon": { "item": "minecraft:item_frame" },
+  "x": 384,
+  "y": 48,
+  "size": 40,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:stick", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:item_frame", "count": 4 }
+  ]
+}
