@@ -400,6 +400,60 @@ class QuestValidatorTest {
                 + messages(problems));
     }
 
+    // ------------------------------------------------------------------
+    // A type's own required fields, which the field-name checks cannot see
+    // ------------------------------------------------------------------
+
+    /** A quest document on its own, the way the loader reads one. */
+    private static Problems validateQuest(String json) {
+        JsonDocument document = Fixtures.document("quest.json", json);
+        Problems problems = new Problems();
+        QuestValidator.validateQuestDocument(document, problems);
+        return problems;
+    }
+
+    @Test
+    @DisplayName("an item task with no \"item\" is an error -- this is the one the loader used to catch")
+    void itemTaskNeedsItsItem() {
+        // The report that made this a test: the picker's clear row deleted "item" from a task, the
+        // field-name checks saw nothing wrong (an absent field is not an unknown one), the save was
+        // allowed, and the next load dropped the quest from the tree -- the node simply vanished.
+        // The codec always knew. Only the loader ever asked it, and only after the write.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:item", "count": 1}]}""");
+
+        DataProblem problem = containing(problems, "No key item");
+        assertTrue(problem.severity() == DataProblem.Severity.ERROR,
+                "an unloadable file is an error, not a warning");
+        assertTrue(problem.message().contains("tasked:item"),
+                "and it says which type the fields failed to make, got: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("a reward's own codec gets the last word too")
+    void itemRewardNeedsItsItem() {
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "rewards": [{"type": "tasked:item", "count": 1}]}""");
+
+        assertTrue(containing(problems, "No key item").severity() == DataProblem.Severity.ERROR,
+                "the reward half has the same gap and the same fix");
+    }
+
+    @Test
+    @DisplayName("an icon object with no item was already refused, and stays refused")
+    void iconWithoutAnItemIsRefused() {
+        // Pinned because the picker's clear row is about to rely on it: clearing an icon has to remove
+        // the whole object, since removing only the leaf leaves this -- which does not load either.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One", "icon": {}}""");
+
+        assertTrue(containing(problems, "missing required field item").severity()
+                        == DataProblem.Severity.ERROR,
+                "the icon's required item is the existing check the clear path is built around");
+    }
+
     private static String file(String quest) {
         return "{\"version\": 1, \"chapterGroups\": [{\"id\": \"g\", \"title\": \"G\", "
                 + "\"chapters\": [{\"id\": \"c\", \"title\": \"C\", \"quests\": [" + quest + "]}]}]}";

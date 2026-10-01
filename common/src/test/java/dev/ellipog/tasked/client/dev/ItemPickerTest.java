@@ -84,6 +84,20 @@ class ItemPickerTest {
     }
 
     @Test
+    @DisplayName("only the icon may be cleared, and clearing it takes the whole object")
+    void whatMayBeCleared() {
+        // The defect this pins: a clear row on a task deleted "item", the field-name validator saw
+        // nothing wrong, the save was allowed, and the quest left the tree at the next load. A task's
+        // item is required, so there is nothing a clear row could do there but corrupt the file.
+        // The icon is the one optional item field -- and clearing it removes the whole "icon" object,
+        // because deleting only the leaf would leave {"icon": {}}, which the codec refuses too.
+        assertEquals("icon", ItemPicker.clearPath("icon.item"));
+        assertNull(ItemPicker.clearPath("tasks.0.item"), "an item task needs its item");
+        assertNull(ItemPicker.clearPath("rewards.2.item"));
+        assertNull(ItemPicker.clearPath("title"));
+    }
+
+    @Test
     @DisplayName("the typed id wins outright -- Enter on a real id does not mean \"the first match\"")
     void theTypedIdWins() {
         List<ItemPicker.Entry> matches =

@@ -68,7 +68,9 @@ public final class QuestEditor {
     public static final String SUFFIX = ".json";
 
     /** Where a new quest's {@code $schema} points, appended to the chapter's own prefix. */
-    private static final String QUEST_SCHEMA = "_schema/quest.schema.json";
+    /** The schema's file name, and the path to it from a chapter with no schema of its own. */
+    private static final String QUEST_FILE = "quest.schema.json";
+    private static final String QUEST_SCHEMA = "_schema/" + QUEST_FILE;
 
     /** How many steps back the editor remembers. Deep enough for a session's worth of dragging. */
     private static final int HISTORY = 60;
@@ -738,8 +740,12 @@ public final class QuestEditor {
         if (slash < 0) {
             return QUEST_SCHEMA;
         }
+        // The prefix already ends in the schema directory -- "../../_schema/" -- so only the file name
+        // is appended. Appending the whole path here wrote "_schema/_schema/quest.schema.json" into
+        // every quest created in game, which resolves to nothing; it was found in a player's profile
+        // before it was found here, which is the wrong order for a two-line bug.
         String prefix = chapters.substring(0, slash + 1);
-        return prefix + QUEST_SCHEMA;
+        return prefix + QUEST_FILE;
     }
 
     private String idOf(Path path) {

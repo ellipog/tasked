@@ -29,6 +29,11 @@ public final class RewardTypes {
                          Function<QuestReward, RewardDisplay> display, Supplier<QuestReward> defaults) {
     }
 
+    /** The registered type's own codec; the reward half of {@link dev.ellipog.tasked.quest.task.TaskTypes#codecOf}. */
+    public static java.util.Optional<MapCodec<QuestReward>> codecOf(ResourceLocation id) {
+        return REGISTRY.get(id).map(entry -> entry.spec().codec());
+    }
+
     private static final SimpleRegistry<Entry> REGISTRY = SimpleRegistry.create("quest reward types");
 
     /** {@code tasked:item} — some items. */

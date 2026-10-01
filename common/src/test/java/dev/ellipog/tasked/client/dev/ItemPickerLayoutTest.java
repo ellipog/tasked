@@ -29,6 +29,10 @@ class ItemPickerLayoutTest {
     private static final ItemPicker.Entry STICK =
             new ItemPicker.Entry("minecraft:stick", "Stick", 1);
 
+    /** The same item as it comes from the registry: carried counts belong to the inventory's rows. */
+    private static final ItemPicker.Entry OAK_REGISTRY =
+            new ItemPicker.Entry("minecraft:oak_log", "Oak Log", 0);
+
     /** A frame with a real search box and a list 100 tall, so the scroll rules have somewhere to go. */
     private static ItemPickerLayout.Frame frame() {
         return new ItemPickerLayout.Frame(
@@ -49,11 +53,16 @@ class ItemPickerLayoutTest {
                 ItemPickerLayout.compose(List.of(OAK, STICK), List.of(), true, "");
 
         assertEquals(ItemPickerLayout.Kind.CLEAR, rows.get(0).kind(), "clear first, above everything");
+        assertEquals("Clear", rows.get(0).label(), "and it says what the press does");
+        assertEquals("goes back to the default", rows.get(0).secondary());
         assertEquals(ItemPickerLayout.Kind.HEADING, rows.get(1).kind());
         assertEquals("In your inventory", rows.get(1).label());
-        assertEquals("minecraft:oak_log", rows.get(2).id());
-        assertEquals("x8", rows.get(2).secondary(), "a count worth saying is said");
-        assertEquals("", rows.get(3).secondary(), "one is not a count");
+        assertEquals("x8 Oak Log", rows.get(2).label(),
+                "the row is the item's name; a count worth saying rides in front");
+        assertEquals("minecraft:oak_log", rows.get(2).secondary(),
+                "and the id is shown, because it is what a typed answer matches");
+        assertEquals("Stick", rows.get(3).label());
+        assertEquals("minecraft:stick", rows.get(3).secondary());
         assertEquals(4, rows.size(), "no query, no All-items section");
     }
 
@@ -61,12 +70,14 @@ class ItemPickerLayoutTest {
     @DisplayName("a query opens the All-items section, and the inventory keeps its own")
     void aQueryOpensTheList() {
         List<ItemPickerLayout.Row> rows =
-                ItemPickerLayout.compose(List.of(STICK), List.of(OAK), false, "oak");
+                ItemPickerLayout.compose(List.of(STICK), List.of(OAK_REGISTRY), false, "oak");
 
         assertFalse(rows.get(0).kind() == ItemPickerLayout.Kind.CLEAR, "no current value, no clear row");
         assertEquals("In your inventory", rows.get(0).label());
         assertEquals("All items", rows.get(2).label());
         assertEquals("minecraft:oak_log", rows.get(3).id());
+        assertEquals("Oak Log", rows.get(3).label(), "a name search's results read as names");
+        assertEquals("minecraft:oak_log", rows.get(3).secondary());
     }
 
     @Test

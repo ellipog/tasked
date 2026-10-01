@@ -117,6 +117,33 @@ class QuestEditorTest {
     }
 
     @Test
+    @DisplayName("a created quest points at the schema beside its chapter's, not one directory deeper")
+    void createdQuestSchemaPath() throws IOException {
+        // The path is derived from the chapter's own, so a new file resolves at whatever depth the
+        // chapter sits. The first version appended "_schema/quest.schema.json" to a prefix that already
+        // ended in "_schema/", so every quest created in game carried
+        // "../../_schema/_schema/quest.schema.json" -- a path that resolves to nothing. It was found in
+        // a player's profile before it was found here, which is the wrong order for a two-line bug.
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        Files.writeString(folder.resolve("chapter.json"), """
+                {
+                  "$schema": "../../_schema/chapter.schema.json",
+                  "id": "first_steps",
+                  "title": "First Steps",
+                  "quests": [ "one.json", "two.json" ]
+                }
+                """, StandardCharsets.UTF_8);
+
+        QuestEditor editor = open();
+        String id = editor.create(16, 16);
+
+        String text = Files.readString(folder.resolve(id + ".json"), StandardCharsets.UTF_8);
+        com.google.gson.JsonObject created = com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+        assertEquals("../../_schema/quest.schema.json", created.get("$schema").getAsString(),
+                "the chapter's directory, and the quest schema's own name -- got: " + text);
+    }
+
+    @Test
     @DisplayName("a chapter that is not there, or a root that is not there, is unavailable rather than new")
     void refusesWhatItCannotOpen(@TempDir Path empty) {
         assertTrue(QuestEditor.open(root, "no_such_chapter").isEmpty());

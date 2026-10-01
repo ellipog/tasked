@@ -82,6 +82,19 @@ public final class ItemPicker {
     }
 
     /**
+     * The path a field's clear row removes, or null when the field may not be cleared at all.
+     *
+     * <p>The icon is the one optional item field: when the whole {@code "icon"} object is absent the
+     * format's default applies, so clearing removes <b>that</b> -- deleting only {@code "icon.item"}
+     * would leave {@code {"icon": {}}}, which the codec refuses. And a task's or a reward's item is
+     * required by its type, so there is nothing a clear row could do there but corrupt the file: the
+     * defect this method exists to make unreachable. The row is simply not offered.
+     */
+    public static String clearPath(String fieldPath) {
+        return "icon.item".equals(fieldPath) ? "icon" : null;
+    }
+
+    /**
      * The id the typed text itself names, or null when it names nothing in the list.
      *
      * <p>This is what makes the box a field as well as a search: an author who knows the id types it

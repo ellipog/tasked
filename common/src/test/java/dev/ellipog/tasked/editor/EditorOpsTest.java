@@ -376,6 +376,33 @@ class EditorOpsTest {
     }
 
     @Test
+    @DisplayName("deleting a task's item is refused whole -- the loader would drop the quest")
+    void aRequiredFieldCannotBeDeleted() throws IOException {
+        QuestEditor editor = open();
+        JsonObject task = new JsonObject();
+        task.addProperty("type", "tasked:item");
+        task.addProperty("item", "minecraft:oak_log");
+        assertTrue(EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, task)).ok());
+
+        String before = file("one");
+        assertFalse(EditorOps.apply(editor, new EditorOp.SetField("one", "tasks.0.item", null)).ok(),
+                "an item task with no item is a quest the loader drops, so the save must refuse it");
+        assertEquals(before, file("one"), "a refused edit leaves the bytes exactly as they were");
+    }
+
+    @Test
+    @DisplayName("clearing the icon is legal -- it is the one item field the format can do without")
+    void theIconMayBeCleared() throws IOException {
+        // The other half of the pin above, and the reason the picker's clear row is allowed to exist
+        // at all: the icon is optional, the default applies when the whole object is absent, and the
+        // clear removes the object rather than the leaf -- {"icon": {}} does not load either.
+        QuestEditor editor = open();
+        assertTrue(EditorOps.apply(editor, new EditorOp.SetField("one", "icon", null)).ok(),
+                "an absent icon falls back to the default, so this save must be allowed");
+        assertFalse(file("one").contains("\"icon\""), "and the file no longer names one");
+    }
+
+    @Test
     @DisplayName("a removed entry is gone from the file, and an impossible index changes nothing")
     void removingAnEntry() {
         QuestEditor editor = open();

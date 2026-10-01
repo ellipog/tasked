@@ -2,6 +2,8 @@ package dev.ellipog.tasked.quest;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mojang.serialization.JsonOps;
+import com.mojang.serialization.MapCodec;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
@@ -559,6 +561,14 @@ public final class QuestValidator {
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);
         }
+
+        // And the type's own codec gets the last word. The checks above are about names and value
+        // shapes; whether the fields that are there *make a value* is the codec's question, and it is
+        // the difference between a save that refuses and a file the loader drops at the next read.
+        // This gap had a live defect behind it -- deleting an item task's "item" saved cleanly and
+        // took the quest out of the tree -- and the loader's own message asked for it to be closed.
+        type.ifPresent(id -> TaskTypes.codecOf(id)
+                .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
     }
 
     private static void checkRewards(JsonDocument document, String path, Problems problems) {
@@ -589,6 +599,30 @@ public final class QuestValidator {
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);
         }
+
+        // The reward half of the codec check in checkTask, for the same defect and the same reason.
+        type.ifPresent(id -> RewardTypes.codecOf(id)
+                .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+    }
+
+    /**
+     * Asks the entry's own codec whether its fields make a value.
+     *
+     * <p>This is the backstop the field-name checks cannot be: a codec's required fields are not
+     * derivable from a field list, and their absence is invisible to every rule above -- an absent
+     * field is not an unknown one. The failure is reported at the entry's own path with the codec's
+     * message under it, which names the key that is missing.
+     *
+     * <p>Called only for a type the validator already knows, because the loader's dispatch cannot
+     * decode an unknown type at all and that case has its own message above; this asks the narrower
+     * question on purpose, so an addon's type is not double-reported.
+     */
+    private static void decodeEntry(JsonDocument document, String path, ResourceLocation id,
+                                    MapCodec<?> codec, Problems problems) {
+        document.get(path).ifPresent(entry -> codec.codec().parse(JsonOps.INSTANCE, entry)
+                .error().ifPresent(error -> problems.error(document, path,
+                        "these fields do not form a " + id + ":\n    "
+                                + error.message().replace("\n", "\n    "))));
     }
 
     // ------------------------------------------------------------------

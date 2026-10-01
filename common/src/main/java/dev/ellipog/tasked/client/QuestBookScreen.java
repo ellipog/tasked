@@ -783,6 +783,14 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The value that field holds now, for the clear row; empty when there is none. */
     private String pickingItemCurrent = "";
 
+    /**
+     * The path a clear removes, when clearing is legal at all; null leaves the clear row off.
+     *
+     * <p>From {@link ItemPicker#clearPath}: the icon, and only the icon. A clear row on a task used
+     * to delete a required field, save, and take the quest out of the tree.
+     */
+    private String pickingItemClearPath;
+
     /** The picker's search box, while it is open. Read for its text and cleared with the picker. */
     private ArmatureTextField itemSearch;
 
@@ -3268,6 +3276,20 @@ public final class QuestBookScreen extends ArmatureScreen {
             itemSearch.onSubmit(text -> { });
             itemSearch.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
             addRenderableWidget(itemSearch);
+            // **Redrawn after the card, because the widget pass runs before it.** This is the third
+            // time this exact ordering has cost something: the modal's card is painted after
+            // `super.render`, so a field left to that pass is painted over -- every other field in
+            // this card carries the same redraw for the same reason. The placeholder goes after the
+            // field in the same redraw, because it is drawn over the field's own fill; and only when
+            // the box is empty, which is the whole of what a placeholder is.
+            modalRedraws.add(r -> {
+                itemSearch.render(r);
+                if (itemSearch.value().isEmpty()) {
+                    r.text("Search items \u2014 name or id", frame.search().x() + 4,
+                            frame.search().y() + (frame.search().height() - 8) / 2,
+                            ArmatureTheme.faint());
+                }
+            });
             setFocused(itemSearch);
         }
         else {
@@ -4392,6 +4414,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         JsonObject quest = replicaQuest();
         JsonElement current = quest == null ? null : QuestPanelLayout.get(quest, target.path());
         pickingItemCurrent = current != null && current.isJsonPrimitive() ? current.getAsString() : "";
+        pickingItemClearPath = ItemPicker.clearPath(target.path());
         pickerEntries = catalogue();
         pickerInventory = carried();
         pickerMatches = List.of();
@@ -4407,6 +4430,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void closeItemPicker() {
         pickingItemPath = null;
         pickingItemCurrent = "";
+        pickingItemClearPath = null;
         pickerEntries = List.of();
         pickerInventory = List.of();
         pickerMatches = List.of();
@@ -4457,17 +4481,34 @@ public final class QuestBookScreen extends ArmatureScreen {
                 : "No item matches \"" + query + "\"", true);
     }
 
-    /** One edit: the field becomes this id, or is removed when there is none. */
+    /**
+     * One edit: the field becomes this id, or the clear path is removed when there is one.
+     *
+     * <p>A clear with nothing legal to clear is refused before it reaches the wire -- the row is not
+     * drawn for such a field, and this is the second gate in case anything ever draws one anyway.
+     */
     private void commitPicker(String id) {
         String quest = editTarget();
         String path = pickingItemPath;
+        String clearPath = pickingItemClearPath;
         closeItemPicker();
         if (!mayEditNow() || quest == null || path == null) {
             rebuildWidgets();
             return;
         }
-        send(new EditorOp.SetField(quest, path, id == null ? null : new JsonPrimitive(id)));
-        status(id == null ? "Field cleared" : "Set to " + id, false);
+        if (id == null) {
+            if (clearPath == null) {
+                status("That field cannot be cleared", true);
+                rebuildWidgets();
+                return;
+            }
+            send(new EditorOp.SetField(quest, clearPath, null));
+            status("Cleared", false);
+            rebuildWidgets();
+            return;
+        }
+        send(new EditorOp.SetField(quest, path, new JsonPrimitive(id)));
+        status("Set to " + id, false);
         rebuildWidgets();
     }
 
@@ -4493,7 +4534,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         pickerMatches = ItemPicker.rank(pickerEntries, query, ItemPicker.LIMIT);
         pickerRows = ItemPickerLayout.compose(pickerInventory, pickerMatches,
-                !pickingItemCurrent.isEmpty(), query);
+                pickingItemClearPath != null && !pickingItemCurrent.isEmpty(), query);
         pickerScroll = Math.max(0,
                 Math.min(pickerScroll, ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
         int selected = pickerSelected < 0

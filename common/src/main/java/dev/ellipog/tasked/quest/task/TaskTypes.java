@@ -183,6 +183,20 @@ public final class TaskTypes {
         return REGISTRY.get(id).map(entry -> entry.spec().fields()).orElse(Set.of());
     }
 
+    /**
+     * The registered type's own codec, for validating one entry on its own.
+     *
+     * <p>Not the dispatch: the dispatch reads {@code "type"} and is what the loader runs over a whole
+     * file. This is for asking a single already-typed entry whether its fields make a value -- the
+     * question the field-name validator cannot answer, and the one whose absence let a task with its
+     * {@code "item"} deleted save cleanly and vanish from the tree at the next load.
+     *
+     * <p>Empty for an unregistered type, which by then the validator has already refused.
+     */
+    public static Optional<MapCodec<QuestTask>> codecOf(ResourceLocation id) {
+        return REGISTRY.get(id).map(entry -> entry.spec().codec());
+    }
+
     /** How to evaluate a task. Empty for an unregistered type, which cannot have decoded. */
     public static Optional<TaskBehaviour<QuestTask>> behaviourOf(QuestTask task) {
         return REGISTRY.get(task.type()).map(Entry::behaviour);

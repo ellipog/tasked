@@ -77,7 +77,9 @@ public final class ItemPickerLayout {
                                     boolean hasCurrent, String query) {
         List<Row> rows = new ArrayList<>();
         if (hasCurrent) {
-            rows.add(new Row(Kind.CLEAR, "", "Nothing", "remove this item"));
+            // The row the caller has already decided is legal -- it is only ever offered for the
+            // quest's icon, where "clear" means the optional field goes and the default applies.
+            rows.add(new Row(Kind.CLEAR, "", "Clear", "goes back to the default"));
         }
         if (!inventory.isEmpty()) {
             rows.add(heading("In your inventory"));
@@ -201,8 +203,13 @@ public final class ItemPickerLayout {
     }
 
     private static Row item(ItemPicker.Entry entry) {
-        return new Row(Kind.ITEM, entry.id(), entry.id(),
-                entry.count() > 1 ? "x" + entry.count() : "");
+        // The name is the row and the id is the small print, which is the other way round from the
+        // first version and the fix for a real report: a name search matched but every row showed an
+        // id, so the match looked like it had not happened. A count rides in front of the name,
+        // because it is the one thing about a carried stack that is not already in the id.
+        String name = entry.label() == null || entry.label().isBlank() ? entry.id() : entry.label();
+        String counted = entry.count() > 1 ? "x" + entry.count() + " " + name : name;
+        return new Row(Kind.ITEM, entry.id(), counted, entry.id());
     }
 
     private ItemPickerLayout() {
