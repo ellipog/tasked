@@ -151,9 +151,13 @@ class ServerEditorsTest {
     @DisplayName("an edit the validator refuses leaves the chapter open and the disk untouched")
     void aRefusalKeepsTheChapter() throws IOException {
         String before = titleOnDisk();
+        // An unknown type, not a missing item: a missing item is a warning now (kept and marked), and
+        // this test needs a fault the loader truly refuses.
+        com.google.gson.JsonObject mystery = new com.google.gson.JsonObject();
+        mystery.addProperty("type", "addon:missing");
 
-        EditorOps.Applied refused = editors.apply("first_steps", new EditorOp.SetField("one", "icon.item",
-                new JsonPrimitive("minecraft:not_a_real_item")));
+        EditorOps.Applied refused = editors.apply("first_steps",
+                new EditorOp.Insert("one", "tasks", 0, mystery));
 
         assertFalse(refused.ok());
         assertTrue(editors.isOpen("first_steps"), "the chapter is still the one being edited");

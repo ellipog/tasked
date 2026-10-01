@@ -236,14 +236,18 @@ class EditorOpsTest {
     void aRefusedEditCostsNothing() throws IOException {
         String before = file("one");
         QuestEditor editor = open();
+        // An unknown *type*, because that is what is still fatal: a missing item became a warning this
+        // round (the id is kept and the row marks it), so the refusal case needs a fault the loader
+        // genuinely cannot read -- and a type no build can dispatch is exactly that.
+        JsonObject mystery = new JsonObject();
+        mystery.addProperty("type", "addon:missing");
 
-        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.SetField("one", "icon.item",
-                new JsonPrimitive("minecraft:not_a_real_item")));
+        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, mystery));
 
         assertFalse(applied.ok(), "an unloadable chapter must not be written");
         assertFalse(applied.messages().isEmpty(), "and the reason has to be sayable");
         assertEquals(before, file("one"), "the file is byte for byte what it was");
-        assertEquals("minecraft:oak_log", editor.quest("one").text("icon.item", ""),
+        assertFalse(editor.quest("one").has("tasks"),
                 "and the model was put back, so memory and disk agree again");
         assertFalse(editor.dirty());
     }
