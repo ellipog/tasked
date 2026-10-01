@@ -76,6 +76,14 @@ dependencies {
 
 tasks.named('test', Test) {
     useJUnitPlatform()
+
+    // The worked examples are read by the tests from `tasked/tools/quests` (see `QuestIndexTest`) --
+    // outside every source set, so Gradle did not know a fixture edit was an input. The task stayed
+    // UP-TO-DATE across one, and the report from before the edit was read as a pass; a bad component
+    // spelling rode into a deployed build that way. Declaring the directory makes a fixture change
+    // re-run the tests.
+    inputs.dir(file('../tools/quests'))
+
     testLogging {
         // Full exception text. A failure that says "expected true but was false" without the
         // values is a test you have to re-run to understand, which is most of the point wasted.

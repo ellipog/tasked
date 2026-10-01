@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.quest;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.core.component.DataComponents;
@@ -72,18 +73,28 @@ class ItemRefTest {
     }
 
     @Test
-    @DisplayName("a custom name in a file is written the datapack's way, and comes out as the name")
+    @DisplayName("a custom name in a file is a string holding JSON, and comes out as the name")
     void aCustomNameInAFileReads() {
-        // The one spelling question in this feature, answered by running it rather than by recalling
-        // a wiki: what does `minecraft:custom_name` look like in quest JSON? This is the example the
-        // schema and the worked examples use.
+        // The one spelling question in this feature, and a broken worked example answered it the hard
+        // way: `custom_name`'s codec is Minecraft's FLAT_CODEC, which reads the JSON string and parses
+        // its *content* as a text component -- so the file form is a string holding JSON, and the bare
+        // "Tempered Pickaxe" only appears to work when the name is one word (`Renamed`): the lenient
+        // parse of a single bare word yields that word, and the parse of two chokes on the second.
+        // The codec writes the nested form below, which is why the editor round-trips and only a
+        // hand-written file could get it wrong. The schema states it too.
         ItemRef ref = ItemRef.CODEC.parse(JsonOps.INSTANCE,
-                com.google.gson.JsonParser.parseString("""
+                JsonParser.parseString("""
                         {"item": "minecraft:diamond_sword",
-                         "components": {"minecraft:custom_name": "Renamed"}}""")).getOrThrow();
+                         "components": {"minecraft:custom_name": "\\"Tempered Pickaxe\\""}}""")).getOrThrow();
 
-        assertEquals("Renamed", ref.toStack().getHoverName().getString(),
-                "a plain JSON string is a plain text component on JsonOps");
+        assertEquals("Tempered Pickaxe", ref.toStack().getHoverName().getString(),
+                "a string holding JSON is a text component on JsonOps");
+
+        JsonElement written = ItemRef.CODEC.encodeStart(JsonOps.INSTANCE, ref).getOrThrow();
+        assertEquals("\"Tempered Pickaxe\"",
+                written.getAsJsonObject().getAsJsonObject("components")
+                        .get("minecraft:custom_name").getAsString(),
+                "and the codec writes that same nested form, which is what the editor's files carry");
     }
 
     @Test
