@@ -25,10 +25,11 @@ import java.util.List;
  * <h2>What the widgets do and what this draws</h2>
  *
  * <p>A field's text box, a toggle's button and an action row are widgets, placed by the screen through
- * {@link InspectLayout#strip}; this draws the panel they sit on, every row's <b>label</b>, the read-only
- * values, and the fallback's raw text. A {@code FIELD} row's label is truncated to the room left of its
- * strip, which is the one truncation that matters: a label running under the field it names is the
- * oldest fault in this codebase's panels.
+ * {@link InspectLayout#strip}; this draws the panel they sit on, every row's <b>label</b>, the values that
+ * are not widgets, and the fallback value's text for an unknown type -- drawn here, and edited in the
+ * card's own JSON field (see {@code QuestPanelLayout}'s note on the fallback). A {@code FIELD} row's label
+ * is truncated to the room left of its strip, which is the one truncation that matters: a label running
+ * under the field it names is the oldest fault in this codebase's panels.
  */
 public final class QuestPanel {
 

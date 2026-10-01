@@ -225,10 +225,11 @@ public final class QuestEditor {
     /**
      * Changes one field of one quest.
      *
-     * <p>{@code value} is a {@code String}, a {@code Number}, a {@code Boolean} or a list of strings — the
-     * shapes the format uses, the list being the ones that are a list of ids. Anything else is refused rather
-     * than stringified, because a written file that the loader then refuses is worse than an edit that did
-     * nothing.
+     * <p>{@code value} is a {@code String}, a {@code Number}, a {@code Boolean}, a list of strings — the
+     * shapes the format uses, the list being the ones that are a list of ids — or a whole {@code JsonElement},
+     * which is the raw path: a value this build has no shape for (an unknown type's entry, an object field)
+     * is still the field's value, and stringifying it would write a file the loader refuses. Anything else is
+     * refused rather than stringified, for the same reason.
      *
      * @param path a dotted path, e.g. {@code "icon.item"} or {@code "title"}
      */

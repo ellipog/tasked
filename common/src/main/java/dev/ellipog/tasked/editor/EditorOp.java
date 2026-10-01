@@ -35,8 +35,10 @@ public sealed interface EditorOp {
     /**
      * Sets one field of one quest.
      *
-     * <p>The value is the JSON the field holds — a string, a number, a flag, a list of strings — and a null
-     * value removes the field, which is how a panel clears one rather than writing an empty string into it.
+     * <p>The value is the JSON the field holds — a string, a number, a flag, a list of strings, or a whole
+     * JSON value (an object, or an array that is not a list of ids), which is the raw-editing path a task or
+     * reward of an unknown type crosses on. A null value removes the field, which is how a panel clears one
+     * rather than writing an empty string into it.
      */
     record SetField(String id, String path, JsonElement value) implements EditorOp {
 

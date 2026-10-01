@@ -16,10 +16,10 @@ import java.util.Set;
  * the quest list in its authored order. Row keys are the dotted paths the commits go to, exactly as the
  * quest panel's are -- {@code EditorOp.SetChapter} is the op on the other end.
  *
- * <p>The quest list is shown in order and read-only here for now: reordering is a drag, and the drag is
- * built once for every list in the editor rather than three times. The list itself is worth showing
- * before it is draggable -- for a LINEAR chapter it <i>is</i> the progression, and an author can see
- * what they are about to reorder.
+ * <p>The quest list is shown in order, and it reorders: the rows drag, on the same gesture the card's
+ * tasks and rewards use -- one drag for every list, as the note here said it would be. For a LINEAR
+ * chapter the order <i>is</i> the progression, so the list is the thing being edited and not a summary
+ * of it.
  */
 public final class ChapterPanelLayout {
 

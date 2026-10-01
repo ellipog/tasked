@@ -42,10 +42,12 @@ import java.util.TreeSet;
  * it is stored. A fallback that invented rows for fields it did not understand would look like support;
  * showing the value cannot lie, and the tree's own preservation on save is what keeps it safe.
  *
- * <p>The fallback is shown <b>read-only</b> for now: committing a whole JSON object needs an op the
- * model does not have -- {@code SetField} carries a primitive or a list of strings, and the model
- * refuses an object on principle. The value is visible and survives every save; editing it is the
- * fallback's second half and waits for an op that can carry it.
+ * <p>The fallback row is this row model's shape of an unknown type; the <b>card</b> is where it is
+ * edited, in the multi-line JSON field, and {@code SetField} carries the parsed object whole. This
+ * paragraph used to say the opposite -- that the model refused an object on principle -- which stopped
+ * being true the day the op grew its {@code JsonElement} value. The stale note made the raw editor look
+ * unbuilt while the card had already shipped it, which is worth remembering: a comment that describes a
+ * limitation is a claim, and this one outlived its subject.
  */
 public final class QuestPanelLayout {
 
@@ -71,7 +73,7 @@ public final class QuestPanelLayout {
      *
      * <p>The card edits entries <b>in place</b> -- the row is the editor, not a form -- so a type's
      * fields are described as parts with a kind, and the screen draws and hits them without knowing
-     * which type it is looking at. {@link Kind#ITEM} opens the picker (an id field until it lands),
+     * which type it is looking at. {@link Kind#ITEM} opens the item picker,
      * {@link Kind#FLAG} toggles on the press, and the other two open an inline field.
      */
     public record Part(String path, Kind kind, String label) {

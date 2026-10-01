@@ -125,6 +125,12 @@ class EditorOpsTest {
 
         roundTrip(editor, new EditorOp.SetField("one", "title", new JsonPrimitive("Renamed")));
         roundTrip(editor, new EditorOp.SetField("two", "dependsOn", list));
+        // The raw path's shape: a whole object, the way an unknown type's entry crosses. It is the one
+        // value the typed setters cannot carry, and the reason `SetField` holds a `JsonElement` at all.
+        JsonObject icon = new JsonObject();
+        icon.addProperty("item", "minecraft:oak_log");
+        icon.addProperty("count", 2);
+        roundTrip(editor, new EditorOp.SetField("one", "icon", icon));
         roundTrip(editor, new EditorOp.SetField("two", "x", new JsonPrimitive(128)));
         roundTrip(editor, new EditorOp.SetField("one", "repeatable", new JsonPrimitive(true)));
         roundTrip(editor, new EditorOp.SetField("one", "title", JsonNull.INSTANCE));
