@@ -77,7 +77,7 @@
             {
               "type": "array",
               "items": { "$ref": "#/definitions/text" },
-              "description": "One string per paragraph. Also accepts a bare string, for a one-line description."
+              "description": "One string per paragraph. Also accepts a bare string, for a one-line description. Markdown is read in these strings: **bold**, *italic*, `code`, [links](https://example.com), `#` headings and `- ` bullets."
             }
           ],
           "description": "A list of paragraphs, as a chapter's and a quest's are. A bare string is also accepted."
@@ -102,7 +102,7 @@
         "description": {
           "type": "array",
           "items": { "$ref": "#/definitions/text" },
-          "description": "One string per paragraph. Separate from a single newline-containing string on purpose."
+          "description": "One string per paragraph. Separate from a single newline-containing string on purpose. Markdown is read in these strings."
         },
         "icon": { "$ref": "#/definitions/itemRef" },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
