@@ -43,14 +43,18 @@ class ItemPickerLayoutTest {
     @Test
     @DisplayName("an empty picker is no rows at all -- the empty state is the drawing's, not a row's")
     void emptyIsEmpty() {
-        assertTrue(ItemPickerLayout.compose(List.of(), List.of(), false, "").isEmpty());
+        assertTrue(ItemPickerLayout.compose(List.of(), List.of(), ItemPickerLayout.Current.NONE, null, "")
+                .isEmpty());
     }
+
+    private static final ItemPickerLayout.Current CLEARABLE =
+            new ItemPickerLayout.Current("minecraft:oak_log", true, true);
 
     @Test
     @DisplayName("the current value gets a clear row, the inventory its heading, and counts only over one")
     void sections() {
-        List<ItemPickerLayout.Row> rows =
-                ItemPickerLayout.compose(List.of(OAK, STICK), List.of(), true, "");
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(OAK, STICK), List.of(), CLEARABLE, null, "");
 
         assertEquals(ItemPickerLayout.Kind.CLEAR, rows.get(0).kind(), "clear first, above everything");
         assertEquals("Clear", rows.get(0).label(), "and it says what the press does");
@@ -67,17 +71,45 @@ class ItemPickerLayoutTest {
     }
 
     @Test
-    @DisplayName("a query opens the All-items section, and the inventory keeps its own")
+    @DisplayName("a query puts the results above the inventory, and the inventory keeps its own")
     void aQueryOpensTheList() {
-        List<ItemPickerLayout.Row> rows =
-                ItemPickerLayout.compose(List.of(STICK), List.of(OAK_REGISTRY), false, "oak");
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(STICK), List.of(OAK_REGISTRY), ItemPickerLayout.Current.NONE, null, "oak");
 
-        assertFalse(rows.get(0).kind() == ItemPickerLayout.Kind.CLEAR, "no current value, no clear row");
-        assertEquals("In your inventory", rows.get(0).label());
-        assertEquals("All items", rows.get(2).label());
-        assertEquals("minecraft:oak_log", rows.get(3).id());
-        assertEquals("Oak Log", rows.get(3).label(), "a name search's results read as names");
-        assertEquals("minecraft:oak_log", rows.get(3).secondary());
+        assertEquals("All items", rows.get(0).label(), "results first -- the list is what was asked for");
+        assertEquals("minecraft:oak_log", rows.get(1).id());
+        assertEquals("Oak Log", rows.get(1).label(), "a name search's results read as names");
+        assertEquals("minecraft:oak_log", rows.get(1).secondary());
+        assertEquals("In your inventory", rows.get(2).label(), "and what you carry follows");
+        assertEquals("Stick", rows.get(3).label());
+        assertEquals(4, rows.size());
+    }
+
+    @Test
+    @DisplayName("a current value the build does not have gets its own row, kept and marked")
+    void theMissingCurrentValueIsShown() {
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(), List.of(),
+                new ItemPickerLayout.Current("someothermod:widget", false, false), null, "");
+
+        assertEquals(ItemPickerLayout.Kind.MISSING, rows.get(0).kind());
+        assertEquals("someothermod:widget", rows.get(0).id(), "the id travels, so it can be kept");
+        assertEquals("missing - the id is kept", rows.get(0).secondary());
+        assertEquals(1, rows.size(), "and there is nothing else to show");
+    }
+
+    @Test
+    @DisplayName("a typed id that matches nothing is offered as a row, so it can be written on purpose")
+    void theTypedMissingIdIsOffered() {
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(), List.of(), ItemPickerLayout.Current.NONE,
+                "someothermod:widget", "someothermod:widget");
+
+        assertEquals(ItemPickerLayout.Kind.HEADING, rows.get(0).kind());
+        assertEquals("All items", rows.get(0).label());
+        assertEquals(ItemPickerLayout.Kind.MISSING, rows.get(1).kind());
+        assertEquals("someothermod:widget", rows.get(1).id());
+        assertEquals("not installed - use it anyway", rows.get(1).secondary());
     }
 
     @Test
@@ -99,7 +131,7 @@ class ItemPickerLayoutTest {
     void theScroll() {
         ItemPickerLayout.Frame frame = frame();
         List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
-                List.of(OAK, STICK), List.of(OAK, STICK), true, "oak");
+                List.of(OAK, STICK), List.of(OAK, STICK), CLEARABLE, null, "oak");
 
         int content = ItemPickerLayout.contentHeight(rows);
         assertTrue(content > frame.list().height(), "the fixture should overflow, or this proves nothing");
@@ -112,7 +144,8 @@ class ItemPickerLayoutTest {
     @DisplayName("a row is drawn and pressed at one rectangle, and the scroll moves both together")
     void rowsMapThroughTheScroll() {
         ItemPickerLayout.Frame frame = frame();
-        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(List.of(OAK), List.of(), false, "");
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(OAK), List.of(), ItemPickerLayout.Current.NONE, null, "");
 
         // Row 0 is the inventory heading, row 1 the item.
         BookGeometry.Rect at0 = ItemPickerLayout.rowRect(rows, frame, 0, 1);
@@ -129,8 +162,8 @@ class ItemPickerLayoutTest {
     @Test
     @DisplayName("the selection steps over headings, and a stale index lands on a real row")
     void theSelectionSteps() {
-        List<ItemPickerLayout.Row> rows =
-                ItemPickerLayout.compose(List.of(OAK, STICK), List.of(OAK), true, "oak");
+        List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
+                List.of(OAK, STICK), List.of(OAK), CLEARABLE, null, "oak");
 
         int first = ItemPickerLayout.firstPickable(rows);
         assertEquals(0, first, "the clear row is pickable");

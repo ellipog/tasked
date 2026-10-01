@@ -155,6 +155,26 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("an item's custom data crosses the wire and arrives on the icon's stack")
+    void itemComponentsArrive() {
+        // The wire sends the patch beside the id, in the file's own spelling, through the same codec
+        // `ItemRef` uses. This is the read half; without it, a renamed item's name would be a field
+        // the server sends and the client never applies -- the failure mode this whole test class is
+        // about.
+        String handWritten = "{\"version\":1,\"quests\":[{\"chapterId\":\"c\",\"chapterTitle\":\"C\","
+                + "\"id\":\"battered\",\"title\":\"Battered\",\"icon\":\"minecraft:diamond_sword\","
+                + "\"iconComponents\":{\"minecraft:damage\":5},"
+                + "\"x\":0,\"y\":0,\"size\":48,\"shape\":\"rounded\",\"iconScale\":1.0,"
+                + "\"showTitle\":false,\"description\":[],\"dependsOn\":[],\"tasks\":[],\"rewards\":[]}]}";
+        ClientQuestCache.acceptTree(1, 1, handWritten.getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(5, entryFor("battered").icon().getDamageValue(),
+                "the component arrived and was applied to the stack");
+        assertEquals("minecraft:diamond_sword", entryFor("battered").iconId(),
+                "and the id is kept beside it, which is what lets a missing item say so");
+    }
+
+    @Test
     @DisplayName("a linear chapter arrives marked linear, with its quests in order")
     void aLinearChapterTravels() {
         // A linear chapter declares no dependencies at all -- the list order is the progression -- so

@@ -222,18 +222,26 @@ class QuestValidatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("an item that does not exist is reported on the item's line")
+    @DisplayName("an item that does not exist warns, names it, and keeps the quest loadable")
     void unknownItem() {
         String json = Fixtures.file(
                 "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
                         + "[ {\"type\": \"tasked:item\", \"item\": \"minecraft:not_a_real_item\"} ]}");
 
-        DataProblem problem = containing(validate(json), "there is no item");
+        Problems problems = validate(json);
+        DataProblem problem = containing(problems, "there is no item");
 
         assertTrue(problem.message().contains("minecraft:not_a_real_item"), "should name it");
         assertTrue(problem.message().contains("check the spelling"),
                 "a minecraft: item missing is a typo, and the message should say so: " + problem.message());
         assertPointsAtValue(problem, json, "\"minecraft:not_a_real_item\"");
+        // Reversed deliberately, and this is where the reversal is pinned: a missing mod used to be an
+        // error, and an error skips the file -- so a pack whose mod had been removed lost the whole
+        // quest, node and all, with the id still sitting in the file. The id is kept, the quest loads,
+        // and the row draws it as missing.
+        assertTrue(problem.severity() == DataProblem.Severity.WARNING,
+                "a missing item is kept, not fatal");
+        assertFalse(problems.hasErrors(), "so the file still loads");
     }
 
     @Test
@@ -439,6 +447,19 @@ class QuestValidatorTest {
 
         assertTrue(containing(problems, "No key item").severity() == DataProblem.Severity.ERROR,
                 "the reward half has the same gap and the same fix");
+    }
+
+    @Test
+    @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")
+    void iconWithABrokenPatchIsRefused() {
+        // The icon's half of the per-type codec check: a component patch the codec cannot read would
+        // otherwise pass every field-name rule and reach the loader, which skips the whole file.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "icon": {"item": "minecraft:paper", "components": 5}}""");
+
+        DataProblem problem = containing(problems, "not a usable item reference");
+        assertTrue(problem.severity() == DataProblem.Severity.ERROR, "a file the loader drops is an error");
     }
 
     @Test

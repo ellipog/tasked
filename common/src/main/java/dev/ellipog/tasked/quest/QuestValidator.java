@@ -683,6 +683,14 @@ public final class QuestValidator {
         }
         Checks.rejectUnknown(document, path, ItemRef.FIELDS, problems);
         checkItem(document, path, problems);
+
+        // And the reference's own codec -- the icon's half of the entry check in checkTask: a
+        // component patch the codec cannot read would otherwise reach the loader, which skips the
+        // whole quest over it. The codec's own message names what it was unhappy about.
+        document.get(path).ifPresent(object -> ItemRef.CODEC.parse(JsonOps.INSTANCE, object)
+                .error().ifPresent(error -> problems.error(document, path,
+                        "this is not a usable item reference:\n    "
+                                + error.message().replace("\n", "\n    "))));
     }
 
     /**
@@ -696,9 +704,12 @@ public final class QuestValidator {
      * keeps every content check in one phase, and means an unknown item is reported at its own line and
      * column instead of as part of a batch of cross-file complaints afterwards.
      *
-     * <p>An item whose mod is not installed is an error rather than a warning: a quest requiring it can
-     * never be completed, and a pack that silently ships one has a broken questline. The message says
-     * which mod is probably missing, because that is the actual fix.
+     * <p>An item whose mod is not installed is a <b>warning</b>, and that is a reversal worth its
+     * sentence: it was an error, "a quest requiring it can never be completed" -- and an error skips
+     * the file, so a pack whose mod was removed lost the entire quest, node and all, with the id still
+     * sitting in the file. A missing mod is often temporary (an update, a server-side absence), so the
+     * id is kept, the quest loads, and the row says it is missing. The message still names the mod,
+     * because that is the actual fix.
      */
     private static void checkItem(JsonDocument document, String path, Problems problems) {
         String itemPath = path + ".item";
@@ -719,7 +730,8 @@ public final class QuestValidator {
                     ? " - check the spelling; minecraft: has no such item"
                     : " - the mod \"" + id.getNamespace()
                       + "\" is probably not installed, or is installed on one side only";
-            problems.error(document, itemPath, "there is no item " + id + hint);
+            problems.warn(document, itemPath, "there is no item " + id + hint
+                    + ". The id is kept and the quest still loads; its row will say the item is missing");
             // Note the messages here are deliberately ASCII. These lines end up in server logs, which
             // get read through terminals and editors with every encoding going; an em dash renders as
             // mojibake in at least one of them, and the message is worth more than the typography.

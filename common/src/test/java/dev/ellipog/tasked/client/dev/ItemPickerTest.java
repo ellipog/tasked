@@ -98,6 +98,22 @@ class ItemPickerTest {
     }
 
     @Test
+    @DisplayName("a typed id that matches nothing is offered anyway -- mods come and go")
+    void aTypedIdThatMatchesNothingIsStillAnAnswer() {
+        // "Allow items the build does not have" has to include writing one on purpose: an author
+        // building a pack before the mod is installed types the id and needs it kept.
+        List<ItemPicker.Entry> matches =
+                ItemPicker.rank(List.of(OAK), "someothermod:widget", ItemPicker.LIMIT);
+
+        assertEquals("someothermod:widget", ItemPicker.missingCandidate("someothermod:widget", matches));
+        assertNull(ItemPicker.missingCandidate("oak", matches), "a search is not an id to keep");
+        assertNull(ItemPicker.missingCandidate("not an id", matches), "and neither is a sentence");
+        assertNull(ItemPicker.missingCandidate("minecraft:oak_log",
+                        ItemPicker.rank(List.of(OAK), "minecraft:oak_log", ItemPicker.LIMIT)),
+                "an id that matches something is not missing");
+    }
+
+    @Test
     @DisplayName("the typed id wins outright -- Enter on a real id does not mean \"the first match\"")
     void theTypedIdWins() {
         List<ItemPicker.Entry> matches =

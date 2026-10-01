@@ -25,7 +25,7 @@ public record ItemReward(ItemRef item) implements QuestReward {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "item");
 
-    public static final Set<String> FIELDS = Set.of("item", "count");
+    public static final Set<String> FIELDS = Set.of("item", "count", "components");
 
     public static final MapCodec<ItemReward> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             ItemRef.MAP_CODEC.forGetter(ItemReward::item)

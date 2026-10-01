@@ -29,20 +29,34 @@ public final class ItemPickerLayout {
     /** One pickable row. */
     public static final int ROW_HEIGHT = 18;
 
-    /** What a row is for. Headings name a section; the other two can be pressed. */
+    /** What a row is for. Headings name a section; the others can be pressed. */
     public enum Kind {
         HEADING,
         CLEAR,
+        /** An id with no item behind it: the field's own value, or one typed on purpose. Kept, marked. */
+        MISSING,
         ITEM
     }
 
     /**
      * One row of the picker.
      *
-     * <p>{@code id} is empty for a heading; {@code secondary} is the count for a carried stack, said
-     * only when it is worth saying.
+     * <p>{@code id} is empty for a heading; {@code secondary} is the count for a carried stack, or the
+     * note that says why a missing row is missing.
      */
     public record Row(Kind kind, String id, String label, String secondary) {
+    }
+
+    /**
+     * The field as it stands: its id (empty when none), whether that id resolves to an item this
+     * build knows, and whether the caller has decided it may be cleared.
+     *
+     * <p>Passed in rather than derived, because "does an item exist" is the game's question and this
+     * class is arithmetic; {@link #NONE} is a field with no value at all.
+     */
+    public record Current(String id, boolean known, boolean clearable) {
+
+        public static final Current NONE = new Current("", true, false);
     }
 
     /** Where the search box is and where the list is, from the card's body rectangle. */
@@ -74,22 +88,33 @@ public final class ItemPickerLayout {
      * the keyboard can land on.
      */
     public static List<Row> compose(List<ItemPicker.Entry> inventory, List<ItemPicker.Entry> matches,
-                                    boolean hasCurrent, String query) {
+                                    Current current, String typedCandidate, String query) {
         List<Row> rows = new ArrayList<>();
-        if (hasCurrent) {
+        if (current.clearable() && !current.id().isEmpty()) {
             // The row the caller has already decided is legal -- it is only ever offered for the
             // quest's icon, where "clear" means the optional field goes and the default applies.
             rows.add(new Row(Kind.CLEAR, "", "Clear", "goes back to the default"));
         }
-        if (!inventory.isEmpty()) {
-            rows.add(heading("In your inventory"));
-            for (ItemPicker.Entry entry : inventory) {
+        if (!current.id().isEmpty() && !current.known()) {
+            // The field's own value when the build cannot resolve it: what a mod that went away looks
+            // like. Shown so it is never silent, and pickable so pressing it keeps it.
+            rows.add(new Row(Kind.MISSING, current.id(), current.id(), "missing - the id is kept"));
+        }
+        // The results above the inventory, because a query is about the whole registry and the list
+        // someone is reading is the answer -- what they carry is the fallback, not the headline.
+        if (query != null && !query.isBlank() && (!matches.isEmpty() || typedCandidate != null)) {
+            rows.add(heading("All items"));
+            if (typedCandidate != null) {
+                rows.add(new Row(Kind.MISSING, typedCandidate, typedCandidate,
+                        "not installed - use it anyway"));
+            }
+            for (ItemPicker.Entry entry : matches) {
                 rows.add(item(entry));
             }
         }
-        if (query != null && !query.isBlank() && !matches.isEmpty()) {
-            rows.add(heading("All items"));
-            for (ItemPicker.Entry entry : matches) {
+        if (!inventory.isEmpty()) {
+            rows.add(heading("In your inventory"));
+            for (ItemPicker.Entry entry : inventory) {
                 rows.add(item(entry));
             }
         }

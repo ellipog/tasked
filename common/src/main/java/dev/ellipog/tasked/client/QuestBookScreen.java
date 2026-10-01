@@ -3734,12 +3734,39 @@ public final class QuestBookScreen extends ArmatureScreen {
     private int drawPart(GuiRenderer r, BookGeometry.Rect box, QuestPanelLayout.Part part,
                          String value, String flagsOfAmount, boolean replaced, int mouseX, int mouseY) {
         if (part.kind() == QuestPanelLayout.Part.Kind.ITEM) {
-            r.icon(itemStack(value), box.x() + 1, box.y() + 1, Math.max(8, box.height() - 2));
+            int boxSize = Math.max(8, box.height() - 2);
+            boolean missing = !value.isEmpty() && itemStack(value).isEmpty();
+            if (missing) {
+                drawItemPlaceholder(r, box.x() + 1, box.y() + 1, boxSize);
+            }
+            else {
+                r.icon(itemStack(value), box.x() + 1, box.y() + 1, boxSize);
+            }
             String shown = value.isEmpty() ? "item" : value;
             if (!replaced) {
-                r.text(Measure.truncate(shown, box.width() - box.height() - 4, textMeasure(r)),
-                        box.x() + box.height() + 2, box.y() + (box.height() - 8) / 2,
-                        value.isEmpty() ? ArmatureTheme.faint() : ArmatureTheme.body());
+                int textX = box.x() + box.height() + 2;
+                int line = box.y() + (box.height() - 8) / 2;
+                if (missing) {
+                    // The id is kept and still shown -- that is the whole point -- and the word beside
+                    // it says why the box is a placeholder. Truncated against the tag's room, so the
+                    // tag itself is never the thing that gets cut.
+                    String tag = "missing";
+                    int tagWidth = r.textWidth(tag);
+                    r.text(Measure.truncate(shown, box.width() - box.height() - 6 - tagWidth,
+                            textMeasure(r)), textX, line, ArmatureTheme.blocked());
+                    r.text(tag, box.right() - 4 - tagWidth, line, ArmatureTheme.blocked());
+                    if (box.contains(mouseX, mouseY)) {
+                        pendingLabels.add(new PendingLabel(
+                                BookGeometry.Rect.at(box.x(), box.bottom() + 2,
+                                        r.textWidth("missing - the mod is not installed") + 8, 12),
+                                "missing - the mod is not installed; the id is kept"));
+                    }
+                }
+                else {
+                    r.text(Measure.truncate(shown, box.width() - box.height() - 4, textMeasure(r)),
+                            textX, line,
+                            value.isEmpty() ? ArmatureTheme.faint() : ArmatureTheme.body());
+                }
             }
             return box.x() + box.height() + 2;
         }
@@ -4448,9 +4475,21 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         ItemPickerLayout.Row row = pickerRows.get(index);
-        if (ItemPickerLayout.pickable(row)) {
-            commitPicker(row.kind() == ItemPickerLayout.Kind.CLEAR ? null : row.id());
+        if (!ItemPickerLayout.pickable(row)) {
+            return;
         }
+        if (row.kind() == ItemPickerLayout.Kind.CLEAR) {
+            commitPicker(null);
+            return;
+        }
+        if (row.kind() == ItemPickerLayout.Kind.MISSING && row.id().equals(pickingItemCurrent)) {
+            // The field's own missing value, pressed: it is already what the field says, so this is
+            // "keep it" -- the picker closes and no edit is spent saying nothing.
+            closeItemPicker();
+            rebuildWidgets();
+            return;
+        }
+        commitPicker(row.id());
     }
 
     /**
@@ -4469,7 +4508,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         ItemPickerLayout.Row row = pickerSelected >= 0 && pickerSelected < pickerRows.size()
                 ? pickerRows.get(pickerSelected) : null;
-        if (row != null && row.kind() == ItemPickerLayout.Kind.ITEM) {
+        if (row != null && (row.kind() == ItemPickerLayout.Kind.ITEM
+                || row.kind() == ItemPickerLayout.Kind.MISSING)) {
             commitPicker(row.id());
             return;
         }
@@ -4491,6 +4531,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         String quest = editTarget();
         String path = pickingItemPath;
         String clearPath = pickingItemClearPath;
+        String data = id == null ? "" : pickedDataOf(id);
         closeItemPicker();
         if (!mayEditNow() || quest == null || path == null) {
             rebuildWidgets();
@@ -4507,9 +4548,63 @@ public final class QuestBookScreen extends ArmatureScreen {
             rebuildWidgets();
             return;
         }
-        send(new EditorOp.SetField(quest, path, new JsonPrimitive(id)));
-        status("Set to " + id, false);
+        // A pick is id **and** custom data, written as one edit of the object that holds both: a
+        // task's or a reward's entry, or the quest's icon object. Two ops would be two saves, and a
+        // save between them is a field that briefly holds the new item with the old data.
+        JsonElement components = data.isEmpty()
+                ? null : com.google.gson.JsonParser.parseString(data);
+        if (("tasks".equals(memberOf(path)) || "rewards".equals(memberOf(path)))
+                && path.endsWith(".item")) {
+            JsonObject held = memberEntry(replicaQuest(), memberOf(path), indexOf(path));
+            JsonObject rebuilt = held == null ? new JsonObject() : held.deepCopy();
+            rebuilt.addProperty("item", id);
+            if (components == null) {
+                rebuilt.remove("components");
+            }
+            else {
+                rebuilt.add("components", components);
+            }
+            send(new EditorOp.SetField(quest, memberOf(path) + "." + indexOf(path), rebuilt));
+        }
+        else if ("icon.item".equals(path)) {
+            JsonObject icon = new JsonObject();
+            JsonElement existing = QuestPanelLayout.get(replicaQuest(), "icon");
+            if (existing != null && existing.isJsonObject()) {
+                icon = existing.getAsJsonObject().deepCopy();
+            }
+            icon.addProperty("item", id);
+            if (components == null) {
+                icon.remove("components");
+            }
+            else {
+                icon.add("components", components);
+            }
+            send(new EditorOp.SetField(quest, "icon", icon));
+        }
+        else {
+            send(new EditorOp.SetField(quest, path, new JsonPrimitive(id)));
+        }
+        status(data.isEmpty() ? "Set to " + id : "Set to " + id + " with its data", false);
         rebuildWidgets();
+    }
+
+    /** The member a dotted field path starts with, and the index it names -- for entry rebuilds. */
+    private static String memberOf(String path) {
+        int dot = path.indexOf('.');
+        return dot < 0 ? path : path.substring(0, dot);
+    }
+
+    private static int indexOf(String path) {
+        String[] parts = path.split("\\.");
+        if (parts.length < 2) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(parts[1]);
+        }
+        catch (NumberFormatException notAnEntry) {
+            return -1;
+        }
     }
 
     /**
@@ -4533,8 +4628,12 @@ public final class QuestBookScreen extends ArmatureScreen {
             pickerScroll = 0;
         }
         pickerMatches = ItemPicker.rank(pickerEntries, query, ItemPicker.LIMIT);
+        String typedCandidate = ItemPicker.missingCandidate(query, pickerMatches);
+        boolean currentKnown = pickingItemCurrent.isEmpty() || !itemStack(pickingItemCurrent).isEmpty();
         pickerRows = ItemPickerLayout.compose(pickerInventory, pickerMatches,
-                pickingItemClearPath != null && !pickingItemCurrent.isEmpty(), query);
+                new ItemPickerLayout.Current(pickingItemCurrent, currentKnown,
+                        pickingItemClearPath != null),
+                typedCandidate, query);
         pickerScroll = Math.max(0,
                 Math.min(pickerScroll, ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
         int selected = pickerSelected < 0
@@ -4542,7 +4641,11 @@ public final class QuestBookScreen extends ArmatureScreen {
                 : ItemPickerLayout.clamp(pickerRows, pickerSelected);
         pickerSelected = selected;
 
-        try (GuiRenderer.Scoped clip = r.clip(body)) {
+        // **Clipped to the list, not to the body.** A row half scrolled under the search box was
+        // painting into it -- and an item icon draws at its own depth, so it showed *through* the
+        // box's fill. A row's edge belongs at the box's edge, which is where the list starts.
+        try (GuiRenderer.Scoped clip = r.clip(pickerFrame.list().x(), pickerFrame.list().y(),
+                pickerFrame.list().right(), pickerFrame.list().bottom())) {
             if (pickerRows.isEmpty()) {
                 r.text("Type to search every item, or pick something you carry.",
                         pickerFrame.list().x() + 4, pickerFrame.list().y() + 4, ArmatureTheme.faint());
@@ -4572,21 +4675,41 @@ public final class QuestBookScreen extends ArmatureScreen {
                     drawEditAffordance(r, rect, true);
                 }
                 int textX = rect.x() + 4;
+                boolean missing = row.kind() == ItemPickerLayout.Kind.MISSING;
                 if (row.kind() == ItemPickerLayout.Kind.ITEM) {
                     r.icon(itemStack(row.id()), rect.x() + 1, rect.y() + 1,
                             Math.max(8, rect.height() - 2));
                     textX = rect.x() + 20;
                 }
-                boolean clear = row.kind() == ItemPickerLayout.Kind.CLEAR;
+                else if (missing) {
+                    // No item behind the id: a placeholder where the icon would be, and the note that
+                    // says so. The id itself is the label, so it is kept and visible either way.
+                    drawItemPlaceholder(r, rect.x() + 1, rect.y() + 1, Math.max(8, rect.height() - 2));
+                    textX = rect.x() + 20;
+                }
+                boolean blocked = missing || row.kind() == ItemPickerLayout.Kind.CLEAR;
                 r.text(Measure.truncate(row.label(), rect.width() - (textX - rect.x()) - 30, measure),
                         textX, rect.y() + (rect.height() - 8) / 2,
-                        clear ? ArmatureTheme.blocked() : ArmatureTheme.body());
+                        blocked ? ArmatureTheme.blocked() : ArmatureTheme.body());
                 if (!row.secondary().isEmpty()) {
                     r.text(row.secondary(), rect.right() - 4 - r.textWidth(row.secondary()),
-                            rect.y() + (rect.height() - 8) / 2, ArmatureTheme.faint());
+                            rect.y() + (rect.height() - 8) / 2,
+                            blocked ? ArmatureTheme.blocked() : ArmatureTheme.faint());
                 }
             }
         }
+    }
+
+    /**
+     * A stand-in for an item this build cannot draw: a recessed box and a question mark.
+     *
+     * <p>For an id with no item behind it -- a mod that is not installed, an item that was removed.
+     * The id is kept and drawn beside this, so the placeholder is what stops "cannot draw it" from
+     * reading as "there is nothing here".
+     */
+    private static void drawItemPlaceholder(GuiRenderer r, int x, int y, int box) {
+        r.fill(x + 1, y + 1, x + box - 1, y + box - 1, ArmatureTheme.recessed());
+        r.text("?", x + (box - r.textWidth("?")) / 2, y + (box - 8) / 2, ArmatureTheme.blocked());
     }
 
     /** Every item the registry holds, in registry order -- the ranking decides what a query shows. */
@@ -4619,6 +4742,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         var inventory = player.getInventory();
         Map<String, Integer> counts = new LinkedHashMap<>();
         Map<String, String> labels = new LinkedHashMap<>();
+        Map<String, String> data = new LinkedHashMap<>();
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             ItemStack stack = inventory.getItem(i);
             if (stack.isEmpty()) {
@@ -4628,12 +4752,41 @@ public final class QuestBookScreen extends ArmatureScreen {
                     .toString();
             counts.merge(id, stack.getCount(), Integer::sum);
             labels.putIfAbsent(id, stack.getHoverName().getString());
+            // The first stack's custom data wins a dedupe: two stacks of one item are one row, and the
+            // row's data is the thing a pick would copy -- showing one and copying another would make
+            // the list lie about what pressing it does.
+            data.putIfAbsent(id, componentsText(stack));
         }
         List<ItemPicker.Entry> out = new ArrayList<>();
         for (Map.Entry<String, Integer> each : counts.entrySet()) {
-            out.add(new ItemPicker.Entry(each.getKey(), labels.get(each.getKey()), each.getValue()));
+            out.add(new ItemPicker.Entry(each.getKey(), labels.get(each.getKey()), each.getValue(),
+                    data.get(each.getKey())));
         }
         return List.copyOf(out);
+    }
+
+    /**
+     * A stack's component patch as the JSON text an entry carries, or empty when there is nothing
+     * custom about it. The same codec and the same spelling the quest file uses.
+     */
+    private static String componentsText(ItemStack stack) {
+        var patch = stack.getComponentsPatch();
+        if (patch.isEmpty()) {
+            return "";
+        }
+        return net.minecraft.core.component.DataComponentPatch.CODEC
+                .encodeStart(com.mojang.serialization.JsonOps.INSTANCE, patch)
+                .result().map(Object::toString).orElse("");
+    }
+
+    /** The picked entry's custom data, from what the player carries. Unknown ids have none. */
+    private String pickedDataOf(String id) {
+        for (ItemPicker.Entry entry : pickerInventory) {
+            if (entry.id().equals(id)) {
+                return entry.data();
+            }
+        }
+        return "";
     }
 
     // ------------------------------------------------------------------
@@ -6269,7 +6422,19 @@ public final class QuestBookScreen extends ArmatureScreen {
         int iconBox = HEADER_ICON;
         int iconX = left + 14;
         int iconY = top + (46 - iconBox) / 2;
-        r.icon(entry.icon(), iconX, iconY, iconBox);
+        if (entry.icon().isEmpty() && !entry.iconId().isEmpty()) {
+            // An icon id the build cannot resolve: the placeholder where the item would be, a small
+            // mark beside it, and the sentence on hover -- the header has no room for a word, but the
+            // fact must not be silent. The editor's icon row and the picker both say it in full.
+            drawItemPlaceholder(r, iconX, iconY, iconBox);
+            r.text("!", iconX + iconBox - 2, iconY - 2, ArmatureTheme.blocked());
+            pendingLabels.add(new PendingLabel(
+                    BookGeometry.Rect.at(iconX, iconY + iconBox + 2, 170, 12),
+                    "missing item - the id is kept, so the mod can come back"));
+        }
+        else {
+            r.icon(entry.icon(), iconX, iconY, iconBox);
+        }
 
         int textX = iconX + iconBox + 6;
         // The title and the subtitle are drawn unless their own field is open and drawing them -- see
@@ -6740,7 +6905,11 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         // --- measured, so the wash can be drawn behind the row at the width it will occupy ---
 
-        String text = task.text().getString();
+        // An id with no item behind it is still the row's subject: the id is drawn where the item's
+        // name would be, in the ink that says something is wrong. The placeholder icon beside it says
+        // the same thing without words, and between them the row never reads as an ordinary task.
+        boolean missingItem = !task.hasItem() && !task.itemId().isEmpty();
+        String text = missingItem ? task.itemId() : task.text().getString();
         int measuredTextX = x + ROW_ICON + 5;
         int measuredTextRight = measuredTextX + r.textWidth(text);
 
@@ -6783,13 +6952,18 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         int textX = x;
         ItemStack toDraw = task.hasItem() ? task.item() : task.icon();
-        if (r.icon(toDraw, x, y, ROW_ICON)) {
+        if (missingItem) {
+            drawItemPlaceholder(r, x, y, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (r.icon(toDraw, x, y, ROW_ICON)) {
             // Only indent the text when something was actually drawn, so a task whose item the client
             // cannot resolve is not left with a gap where an icon should be.
             textX = x + ROW_ICON + 5;
         }
 
-        int colour = satisfied ? ArmatureTheme.complete()
+        int colour = missingItem ? ArmatureTheme.blocked()
+                : satisfied ? ArmatureTheme.complete()
                 : ClientQuestCache.stateOf(entry.id()) == QuestState.LOCKED ? ArmatureTheme.blocked()
                 : ArmatureTheme.body();
         r.text(text, textX, textY, colour);
@@ -6905,7 +7079,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         int y = slot.y();
         int textY = y + (ROW_ICON - 8) / 2;
 
-        String text = reward.text().getString();
+        // The task row's rule, one row over: a reward whose item is gone shows the id it names.
+        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+        String text = missingItem ? reward.itemId() : reward.text().getString();
         String count = reward.hasItem() && reward.count() > 1 ? "x" + reward.count() : null;
 
         int contentRight = x + ROW_ICON + 5 + r.textWidth(text);
@@ -6918,11 +7094,16 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         int textX = x;
         ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
-        if (r.icon(toDraw, x, y, ROW_ICON)) {
+        if (missingItem) {
+            drawItemPlaceholder(r, x, y, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (r.icon(toDraw, x, y, ROW_ICON)) {
             textX = x + ROW_ICON + 5;
         }
 
-        r.text(text, textX, textY, ArmatureTheme.body());
+        r.text(text, textX, textY,
+                missingItem ? ArmatureTheme.blocked() : ArmatureTheme.body());
         if (count != null) {
             r.text(count, textX + r.textWidth(text) + 5, textY, ArmatureTheme.faint());
         }

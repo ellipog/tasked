@@ -22,7 +22,8 @@
     { "type": "tasked:item", "item": "minecraft:stick", "count": 2 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:stone_pickaxe" },
+    { "type": "tasked:item", "item": "minecraft:stone_pickaxe",
+      "components": { "minecraft:custom_name": "Tempered Pickaxe" } },
     { "type": "tasked:xp", "amount": 2, "levels": true }
   ]
 }

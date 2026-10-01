@@ -346,7 +346,12 @@ public final class QuestPanelLayout {
         if (fields.isEmpty()) {
             fields = RewardTypes.ids().contains(id) ? RewardTypes.fieldsOf(id) : Set.of();
         }
-        return fields;
+        // `components` is a field of the format but not a row of this panel: it is an object, the
+        // picker writes it, and a text field for it would offer to write a *string* where the format
+        // holds an object -- a row that corrupts the file it is drawn from. The validator still knows
+        // the field (its set is the registry's), so files using it are clean.
+        return fields.stream().filter(field -> !"components".equals(field))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     // ------------------------------------------------------------------

@@ -4,6 +4,7 @@ import com.mojang.datafixers.util.Either;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.core.component.DataComponentPatch;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -27,7 +28,12 @@ import net.minecraft.world.item.Items;
  * <p>Doing it now also means the quest files never hold live game objects, so nothing in a loaded
  * questline can go stale across a reload or a datapack change.
  */
-public record ItemRef(ResourceLocation item, int count) {
+public record ItemRef(ResourceLocation item, int count, DataComponentPatch components) {
+
+    /** The common case: an item and a count, with nothing custom about it. */
+    public ItemRef(ResourceLocation item, int count) {
+        this(item, count, DataComponentPatch.EMPTY);
+    }
 
     /**
      * Used when a quest declares no icon.
@@ -45,13 +51,19 @@ public record ItemRef(ResourceLocation item, int count) {
      */
     public static final MapCodec<ItemRef> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             ResourceLocation.CODEC.fieldOf("item").forGetter(ItemRef::item),
-            Codec.intRange(1, 6400).optionalFieldOf("count", 1).forGetter(ItemRef::count)
+            Codec.intRange(1, 6400).optionalFieldOf("count", 1).forGetter(ItemRef::count),
+            // The 1.21 data components, in the datapack's own spelling: a JSON object keyed by
+            // component id. This is what makes a renamed or enchanted item possible in a quest file,
+            // and what the picker copies when an author picks the sword they are actually holding
+            // rather than "a sword".
+            DataComponentPatch.CODEC.optionalFieldOf("components", DataComponentPatch.EMPTY)
+                    .forGetter(ItemRef::components)
     ).apply(instance, ItemRef::new));
 
     public static final Codec<ItemRef> CODEC = MAP_CODEC.codec();
 
     /** The field names an item reference contributes, for the validator to allow. */
-    public static final java.util.Set<String> FIELDS = java.util.Set.of("item", "count");
+    public static final java.util.Set<String> FIELDS = java.util.Set.of("item", "count", "components");
 
     /** Whether this names an item that actually exists. False means a typo, or a missing mod. */
     public boolean isKnown() {
@@ -70,7 +82,11 @@ public record ItemRef(ResourceLocation item, int count) {
         if (resolved == Items.AIR) {
             return ItemStack.EMPTY;
         }
-        return new ItemStack(resolved, count);
+        ItemStack stack = new ItemStack(resolved, count);
+        if (!components.isEmpty()) {
+            stack.applyComponents(components);
+        }
+        return stack;
     }
 
     /** For messages: {@code minecraft:oak_log x8}, with the count omitted when it is one. */

@@ -35,7 +35,7 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "item");
 
     /** This type's own fields, for the validator. {@code "type"} and the common fields are added by it. */
-    public static final Set<String> FIELDS = Set.of("item", "count", "consumeItems");
+    public static final Set<String> FIELDS = Set.of("item", "count", "components", "consumeItems");
 
     public static final MapCodec<ItemTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             // The common settings first, so every task in a file reads in the same order.

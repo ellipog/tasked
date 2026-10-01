@@ -59,7 +59,7 @@ public final class ClientQuestCache {
      * while a client is connected, so a resolution can be made once and kept.
      */
     public record TaskEntry(ItemStack icon, ItemStack item, int count, boolean optional, boolean manual,
-                            String label, String labelFallback) {
+                            String label, String labelFallback, String itemId) {
 
         /** Whether this row draws an item at all, as opposed to text. */
         public boolean hasItem() {
@@ -88,7 +88,8 @@ public final class ClientQuestCache {
     }
 
     /** One reward, resolved ready to draw. */
-    public record RewardEntry(ItemStack icon, ItemStack item, int count, String label, String labelFallback) {
+    public record RewardEntry(ItemStack icon, ItemStack item, int count, String label, String labelFallback,
+                              String itemId) {
 
         public boolean hasItem() {
             return !item.isEmpty();
@@ -149,7 +150,13 @@ public final class ClientQuestCache {
                         double iconScale, boolean showTitle,
                         boolean chapterLinear, int orderInChapter,
                         List<String> dependencies, List<TaskEntry> tasks, List<RewardEntry> rewards,
-                        boolean invisible) {
+                        boolean invisible,
+                        /**
+                         * The icon's id as the server sent it, kept beside the resolved stack: a stack
+                         * that failed to resolve with an id that was sent is a <b>missing item</b>, and
+                         * the screens say so; an empty id is simply no icon.
+                         */
+                        String iconId) {
     }
 
     /**
@@ -609,7 +616,7 @@ public final class ClientQuestCache {
                     str(quest, "title"),
                     str(quest, "subtitle"),
                     List.copyOf(description),
-                    stack(str(quest, "icon"), 1),
+                    stack(str(quest, "icon"), 1, quest.get("iconComponents")),
                     quest.has("x") ? quest.get("x").getAsInt() : 0,
                     quest.has("y") ? quest.get("y").getAsInt() : 0,
                     quest.has("size") ? quest.get("size").getAsInt() : 48,
@@ -634,7 +641,8 @@ public final class ClientQuestCache {
                     List.copyOf(dependencies),
                     List.copyOf(tasks),
                     List.copyOf(rewards),
-                    quest.has("invisible") && quest.get("invisible").getAsBoolean()));
+                    quest.has("invisible") && quest.get("invisible").getAsBoolean(),
+                    str(quest, "icon")));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
@@ -643,21 +651,25 @@ public final class ClientQuestCache {
     private static TaskEntry taskEntry(JsonObject json) {
         return new TaskEntry(
                 stack(str(json, "icon"), 1),
-                stack(str(json, "item"), json.has("count") ? json.get("count").getAsInt() : 1),
+                stack(str(json, "item"), json.has("count") ? json.get("count").getAsInt() : 1,
+                        json.get("itemComponents")),
                 json.has("count") ? json.get("count").getAsInt() : 1,
                 json.has("optional") && json.get("optional").getAsBoolean(),
                 json.has("manual") && json.get("manual").getAsBoolean(),
                 str(json, "label"),
-                str(json, "labelFallback"));
+                str(json, "labelFallback"),
+                str(json, "item"));
     }
 
     private static RewardEntry rewardEntry(JsonObject json) {
         return new RewardEntry(
                 stack(str(json, "icon"), 1),
-                stack(str(json, "item"), json.has("count") ? json.get("count").getAsInt() : 1),
+                stack(str(json, "item"), json.has("count") ? json.get("count").getAsInt() : 1,
+                        json.get("itemComponents")),
                 json.has("count") ? json.get("count").getAsInt() : 1,
                 str(json, "label"),
-                str(json, "labelFallback"));
+                str(json, "labelFallback"),
+                str(json, "item"));
     }
 
     /**
@@ -770,6 +782,17 @@ public final class ClientQuestCache {
      * throwing inside a payload handler, disconnects the player over a missing icon.
      */
     private static ItemStack stack(String id, int count) {
+        return stack(id, count, null);
+    }
+
+    /**
+     * The stack, with the server's component patch applied when one travelled.
+     *
+     * <p>An id with no item behind it resolves to {@link ItemStack#EMPTY} -- a missing mod -- and the
+     * callers keep the id they were given beside the stack, which is how a row can say the item is
+     * missing instead of drawing nothing.
+     */
+    private static ItemStack stack(String id, int count, com.google.gson.JsonElement components) {
         if (id == null || id.isEmpty()) {
             return ItemStack.EMPTY;
         }
@@ -781,7 +804,13 @@ public final class ClientQuestCache {
         if (item == Items.AIR) {
             return ItemStack.EMPTY;
         }
-        return new ItemStack(item, Math.max(1, count));
+        ItemStack stack = new ItemStack(item, Math.max(1, count));
+        if (components != null && components.isJsonObject()) {
+            net.minecraft.core.component.DataComponentPatch.CODEC
+                    .parse(com.mojang.serialization.JsonOps.INSTANCE, components)
+                    .result().ifPresent(stack::applyComponents);
+        }
+        return stack;
     }
 
     private static String str(JsonObject object, String key) {

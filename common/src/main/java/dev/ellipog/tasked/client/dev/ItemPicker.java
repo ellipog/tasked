@@ -31,12 +31,25 @@ public final class ItemPicker {
      */
     public static final int LIMIT = 100;
 
-    /** One pickable item: its id, what it is called, and how many the player carries. */
-    public record Entry(String id, String label, int count) {
+    /**
+     * One pickable item: its id, what it is called, how many the player carries, and its custom data.
+     *
+     * <p>{@code data} is the component patch as JSON text, opaque here on purpose: the registry's
+     * entries have none, a carried stack has whatever it was crafted or renamed with, and this class
+     * neither reads nor ranks it. The screen writes it into the field beside the id -- which is the
+     * whole of "pick the sword you are holding, not a sword".
+     */
+    public record Entry(String id, String label, int count, String data) {
 
         public Entry {
             Objects.requireNonNull(id, "id");
             label = label == null ? "" : label;
+            data = data == null ? "" : data;
+        }
+
+        /** An entry with nothing custom about it. */
+        public Entry(String id, String label, int count) {
+            this(id, label, count, "");
         }
     }
 
@@ -92,6 +105,35 @@ public final class ItemPicker {
      */
     public static String clearPath(String fieldPath) {
         return "icon.item".equals(fieldPath) ? "icon" : null;
+    }
+
+    /**
+     * The typed text as an id worth offering even though nothing matches it, or null.
+     *
+     * <p>"Allow items the build does not have" has to include writing one on purpose: an author
+     * building a pack before the mod is installed types the id and needs it kept. The test is only
+     * that it parses as a resource location and names nothing already offered -- a typo the author
+     * confirms by pressing the row, which is exactly the consent a deliberate missing id needs.
+     */
+    public static String missingCandidate(String query, List<Entry> matches) {
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        String typed = query.trim();
+        if (typed.indexOf(':') <= 0) {
+            // A bare word is a search, not an id: "oak" should list the oak things, not offer to write
+            // an id nobody typed. A deliberate missing item always names its namespace.
+            return null;
+        }
+        if (net.minecraft.resources.ResourceLocation.tryParse(typed) == null) {
+            return null;
+        }
+        for (Entry entry : matches) {
+            if (entry.id().equalsIgnoreCase(typed)) {
+                return null;
+            }
+        }
+        return typed;
     }
 
     /**

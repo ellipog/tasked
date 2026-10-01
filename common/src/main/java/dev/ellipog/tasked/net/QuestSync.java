@@ -291,6 +291,7 @@ public final class QuestSync {
         json.addProperty("title", quest.title().value());
         quest.subtitle().ifPresent(subtitle -> json.addProperty("subtitle", subtitle.value()));
         json.addProperty("icon", quest.icon().item().toString());
+        componentsAsJson(quest.icon(), "iconComponents", json);
         json.addProperty("x", quest.layout().x());
         json.addProperty("y", quest.layout().y());
         json.addProperty("size", quest.layout().size());
@@ -358,6 +359,7 @@ public final class QuestSync {
         // The type's own icon, so a task with no item still has something to draw.
         json.addProperty("icon", TaskTypes.iconOf(task.type()).item().toString());
         json.addProperty("item", display.item().map(ref -> ref.item().toString()).orElse(""));
+        display.item().ifPresent(ref -> componentsAsJson(ref, "itemComponents", json));
         json.addProperty("count", display.count());
         json.addProperty("label", display.label());
         json.addProperty("labelFallback", display.labelFallback());
@@ -375,10 +377,28 @@ public final class QuestSync {
         json.addProperty("type", reward.type().toString());
         json.addProperty("icon", RewardTypes.iconOf(reward.type()).item().toString());
         json.addProperty("item", display.item().map(ref -> ref.item().toString()).orElse(""));
+        display.item().ifPresent(ref -> componentsAsJson(ref, "itemComponents", json));
         json.addProperty("count", display.count());
         json.addProperty("label", display.label());
         json.addProperty("labelFallback", display.labelFallback());
         return json;
+    }
+
+    /**
+     * The item's component patch, beside its id, or nothing when it has none.
+     *
+     * <p>A JSON object in the datapack's spelling, which is the same shape the quest file uses -- so
+     * the wire and the file cannot disagree about what a component looks like. Encoding it here with
+     * the codec rather than building it by hand keeps that true as versions change what components
+     * exist.
+     */
+    private static void componentsAsJson(ItemRef ref, String field, JsonObject json) {
+        if (ref.components().isEmpty()) {
+            return;
+        }
+        net.minecraft.core.component.DataComponentPatch.CODEC
+                .encodeStart(com.mojang.serialization.JsonOps.INSTANCE, ref.components())
+                .result().ifPresent(value -> json.add(field, value));
     }
 
     // ------------------------------------------------------------------
