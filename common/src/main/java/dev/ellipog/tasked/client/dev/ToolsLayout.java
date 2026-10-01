@@ -6,6 +6,7 @@ import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
+import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 
 import java.util.ArrayList;
@@ -64,7 +65,7 @@ public final class ToolsLayout {
     /** The narrowest panel worth drawing. Below this the canvas keeps its room and the panel clamps. */
     public static final int MIN_WIDTH = 180;
 
-    public static final int TITLE_HEIGHT = 14;
+    public static final int TAB_HEIGHT = 16;
     public static final int FEEDBACK_HEIGHT = 12;
     public static final int PREVIEW_HEIGHT = 96;
 
@@ -86,11 +87,39 @@ public final class ToolsLayout {
     // Keys
     // ------------------------------------------------------------------
 
-    public static final String TITLE = "tasked.tools.title";
+    /** The tab strip, which replaced the panel's title row: two panels in the one dock. */
+    public static final String TAB_THEME = "tab:theme";
+    public static final String TAB_CHAPTER = "tab:chapter";
+
+    /**
+     * Which panel the dock is showing.
+     *
+     * <p>An enum rather than a boolean, because "which tab" is a name with a label and a reason, and a
+     * boolean would have the call sites reading {@code true} as Theme until someone decides otherwise.
+     * The Quest panel shows the selected quest's own fields; the Theme panel is the tools this panel
+     * started as. Neither keeps private state the other could make stale: both draw from the same
+     * selection the canvas holds.
+     */
+    public enum Tab {
+        THEME("Theme"),
+        CHAPTER("Chapter");
+
+        private final String label;
+
+        Tab(String label) {
+            this.label = label;
+        }
+
+        /** The name the tab strip shows. */
+        public String label() {
+            return label;
+        }
+    }
 
     /** The switches. Their labels are the state; the button is the change. */
     public static final String EDIT = "edit";
     public static final String MOTION = "motion";
+    public static final String SNAP = "snap";
 
     /** The one foldable section. Pressing its heading folds it. */
     /** The shape section: one row, the corner radius, and it is selected through the band like a colour. */
@@ -141,27 +170,38 @@ public final class ToolsLayout {
      * The panel, and the fixed bands inside it.
      *
      * @param panel    the whole floating column
-     * @param title    the title line
-     * @param feedback the one-line status under it
-     * @param preview  the live preview
-     * @param list     where the scrolling sections live: between the preview and the band
-     * @param swatch   the selected colour's name, hex and swatch
-     * @param channels the two channel lines, as one band
-     * @param actions  Revert and Save
+     * @param tabs     the tab strip, which replaced the title row: two tabs, Theme and Quest
+     * @param feedback the one-line status under the strip
+     * @param preview  the live preview (theme tab only)
+     * @param list     where the scrolling sections live
+     * @param swatch   the selected colour's name, hex and swatch (theme tab only)
+     * @param channels the two channel lines, as one band (theme tab only)
+     * @param actions  Revert and Save (theme tab only)
      */
-    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect title, BookGeometry.Rect feedback,
+    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect tabs, BookGeometry.Rect feedback,
                         BookGeometry.Rect preview, BookGeometry.Rect list, BookGeometry.Rect swatch,
                         BookGeometry.Rect channels, BookGeometry.Rect actions) {
     }
 
+    /** The frame for the theme tab: the tab strip, the preview, the sections and the band. */
+    public static Frame frame(BookGeometry.Rect canvas) {
+        return frame(canvas, Tab.THEME);
+    }
+
     /**
-     * The frame, from the canvas the panel floats over.
+     * The frame, from the canvas the panel floats over, shaped by the tab it is for.
      *
      * <p>Everything is placed from the panel's own rectangle, and the list's height is what is left over
      * after the fixed bands -- one subtraction, so a band added here cannot be forgotten by a caller and
      * cannot overlap the list.
+     *
+     * <p>The <b>quest tab</b> takes the bands away that are about a colour -- the preview, the swatch,
+     * the channels and the actions -- and gives their room to the list, because its sections are a wall
+     * by design: identity, placement, rules, dependencies, tasks and rewards. The bands that remain are
+     * {@link #EMPTY}, so a caller that asks for one of them gets a rectangle that is inside the panel
+     * and contains nothing, rather than a null to test for at every use.
      */
-    public static Frame frame(BookGeometry.Rect canvas) {
+    public static Frame frame(BookGeometry.Rect canvas, Tab tab) {
         // Wide as designed, narrow rather than absent on a canvas with no room for it, and never wider
         // than the canvas it is docked to -- a panel hanging off the left edge of a small window is what
         // the first version of this did, and its own test said so. `MIN_WIDTH` is what the panel wants;
@@ -186,10 +226,16 @@ public final class ToolsLayout {
         int cursor = panel.y() + GAP;
         int floor = panel.bottom() - GAP;
 
-        BookGeometry.Rect title = take(x, cursor, inner, TITLE_HEIGHT, floor);
-        cursor = title.bottom();
+        BookGeometry.Rect tabs = take(x, cursor, inner, TAB_HEIGHT, floor);
+        cursor = tabs.bottom();
         BookGeometry.Rect feedback = take(x, cursor, inner, FEEDBACK_HEIGHT, floor);
         cursor = feedback.bottom();
+
+        if (tab == Tab.CHAPTER) {
+            return new Frame(panel, tabs, feedback, empty(x, cursor),
+                    take(x, cursor, inner, Math.max(0, floor - cursor), floor),
+                    empty(x, cursor), empty(x, cursor), empty(x, cursor));
+        }
 
         // What the band will need, so the list can take everything else and the band lands at the bottom
         // of a panel with room to spare.
@@ -208,7 +254,12 @@ public final class ToolsLayout {
         cursor = channels.bottom() + GAP;
         BookGeometry.Rect actions = take(x, cursor, inner, ACTION_ROW, floor);
 
-        return new Frame(panel, title, feedback, preview, list, swatch, channels, actions);
+        return new Frame(panel, tabs, feedback, preview, list, swatch, channels, actions);
+    }
+
+    /** An empty band: inside whatever rectangle it is asked for, and holding nothing. */
+    private static BookGeometry.Rect empty(int x, int y) {
+        return BookGeometry.Rect.at(x, y, 0, 0);
     }
 
     /**
@@ -227,6 +278,24 @@ public final class ToolsLayout {
     // ------------------------------------------------------------------
     // The rows
     // ------------------------------------------------------------------
+
+    /**
+     * The tab strip's two buttons, side by side in the band the title used to occupy.
+     *
+     * <p>Equal halves with the panel's own gap between them, because two tabs of one dock are peers --
+     * neither is "the panel" and the other is "the other thing". The strip is the band's whole width, so
+     * a wider panel widens both tabs and the strip never stops reading as the panel's top row.
+     */
+    public static BookGeometry.Rect tabTheme(BookGeometry.Rect tabs) {
+        return BookGeometry.Rect.at(tabs.x(), tabs.y(),
+                Math.max(0, (tabs.width() - GAP) / 2), tabs.height());
+    }
+
+    public static BookGeometry.Rect tabQuest(BookGeometry.Rect tabs) {
+        BookGeometry.Rect theme = tabTheme(tabs);
+        return BookGeometry.Rect.at(theme.right() + GAP, tabs.y(),
+                Math.max(0, tabs.right() - theme.right() - GAP), tabs.height());
+    }
 
     /**
      * One row of the list.
@@ -286,16 +355,19 @@ public final class ToolsLayout {
     }
 
     /**
-     * The list's rows: the two switches, then the colours.
+     * The list's rows: the three switches, then the colours.
      *
      * @param editOn      what the Edit switch says
      * @param motionOn    what the Motion switch says
+     * @param snapOn      what the Snap switch says
      * @param coloursOpen whether the colour section is unfolded
      */
-    public static List<Action> rows(boolean editOn, boolean motionOn, boolean coloursOpen) {
+    public static List<Action> rows(boolean editOn, boolean motionOn, boolean snapOn,
+                                    boolean coloursOpen) {
         List<Action> rows = new ArrayList<>();
         rows.add(Action.toggle(EDIT, "Edit mode", editOn ? "On" : "Off"));
         rows.add(Action.toggle(MOTION, "Motion", motionOn ? "On" : "Off"));
+        rows.add(Action.toggle(SNAP, "Snap", snapOn ? "On" : "Off"));
 
         // Shape before colours: the two knobs that are not a colour, then the palette.
         rows.add(Action.heading(SHAPE_SECTION, "Shape"));
@@ -303,7 +375,10 @@ public final class ToolsLayout {
         // takes no selection, so the band stays about colours.
         rows.add(Action.stepper(RADIUS, "Border radius"));
 
-        rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25be " : "\u25b8 ") + "Colours"));
+        // The marker is a filled triangle and a single angle: the disclosure pair this font carries. The
+        // empty triangles it started as (`\u25be`/`\u25b8`) are not in it and drew as boxes -- see
+        // `BookGeometry.TOOLS_BUTTON_WIDTH` for how the set of available glyphs was measured.
+        rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25bc " : "\u203a ") + "Colours"));
         if (coloursOpen) {
             ThemeToken.Group last = null;
             for (ThemeToken token : ThemeToken.ALL) {
@@ -381,12 +456,22 @@ public final class ToolsLayout {
      */
     public record Preview(BookGeometry.Rect canvas, BookGeometry.Rect nodeA, BookGeometry.Rect nodeB,
                           BookGeometry.Rect line, BookGeometry.Rect card, BookGeometry.Rect raised,
-                          BookGeometry.Rect text, BookGeometry.Rect track, BookGeometry.Rect row,
-                          BookGeometry.Rect item, BookGeometry.Rect button, BookGeometry.Rect tooltip) {
+                          BookGeometry.Rect text, BookGeometry.Rect track, BookGeometry.Rect thumb,
+                          BookGeometry.Rect row, BookGeometry.Rect item, BookGeometry.Rect button,
+                          BookGeometry.Rect tooltip) {
     }
 
     /** How much of the sample's card is left as margin. Nothing may touch a border. */
     public static final int SAMPLE_INSET = 4;
+
+    /**
+     * The sample's line height: the title sits at the top of the text block, the body one pitch below.
+     *
+     * <p>One number rather than a 10 written at the three places that need it -- the height of the text
+     * block, the baseline the body is drawn on, and which of the two a click landed on. The three were 22,
+     * 20 and 10 before, and the disagreement was a part two pixels taller than its own ink.
+     */
+    public static final int LINE_PITCH = 10;
 
     /**
      * A part of the sample, kept inside the card it belongs to.
@@ -443,11 +528,16 @@ public final class ToolsLayout {
                 Math.max(0, card.width() - 2), Math.min(11, Math.max(0, card.height() - 2)));
         // Clamped like everything else here: a sample eight pixels tall cannot hold three lines of text
         // and a reward row, and an unclamped height is a part outside its own card.
+        //
+        // Exactly two line pitches tall, and that is a fix rather than tidiness: at 22 the rectangle was two
+        // pixels taller than the ink it holds, which put the reward row's top two pixels *inside the text* --
+        // so a click on the row's first pixel answered "body", and the parts' own overlap test could not see
+        // it because both were inside the card.
         int textTop = raised.bottom() + 2;
         BookGeometry.Rect text = part(card.x() + SAMPLE_INSET, textTop,
-                card.width() - SAMPLE_INSET * 2, 22, card);
+                card.width() - SAMPLE_INSET * 2, LINE_PITCH * 2, card);
 
-        int line2 = text.y() + 20;
+        int line2 = text.y() + LINE_PITCH * 2;
         BookGeometry.Rect row = part(text.x(), line2, card.width() - SAMPLE_INSET * 2 - 50, 12, card);
         // The item is inside the row whatever the row's height is, which on a short sample is two pixels.
         // A fixed ten-pixel square is a thing that only fits the sample it was written for.
@@ -462,10 +552,74 @@ public final class ToolsLayout {
         // version was one pixel out.
         BookGeometry.Rect track = part(card.right() - SAMPLE_INSET - 3, card.y() + 4, 3,
                 card.height() - 8, card);
+        // The grip, the top third of the track. Here rather than only in the drawing because the drawing is
+        // not the only thing that needs it: the grip and the track are two different colours, and a click
+        // has to be able to tell which one it landed on.
+        BookGeometry.Rect thumb = BookGeometry.Rect.at(track.x(), track.y(), track.width(),
+                Math.max(3, track.height() / 3));
         BookGeometry.Rect tooltip = BookGeometry.Rect.at(card.x() + SAMPLE_INSET + 4, card.y() - 14, 56, 12);
 
-        return new Preview(preview, nodeA, nodeB, line, card, raised, text, track, row, item, button,
+        return new Preview(preview, nodeA, nodeB, line, card, raised, text, track, thumb, row, item, button,
                 tooltip);
+    }
+
+    /** A part of the sample, and the colour that paints it. */
+    public record Hotspot(String token, BookGeometry.Rect rect) {
+    }
+
+    /**
+     * Which colour the sample is offering at a point, or null when it is offering none.
+     *
+     * <h2>The sample is a map, so it can be read with the pointer</h2>
+     *
+     * <p>It was a picture: fifteen colours on a card, and the only way to find out which one painted the
+     * button was to guess from the list below it. Pointing at a part now says which part it is, and pressing
+     * it selects that colour and scrolls the list to its row — *"allow me to click the things in the preview
+     * thing at the top to instantly kinda get me to it in the colours menu"*.
+     *
+     * <p><b>The most specific part wins</b>, and the order below is the whole of that rule: the item sits
+     * inside the reward row inside the card, and the tooltip sits over the card's top edge, so a search that
+     * took the card first would leave three parts unreachable. The canvas is last because it is what is left
+     * when nothing else is under the pointer.
+     *
+     * <h2>One colour per part, and which one</h2>
+     *
+     * <p>Every part is painted by more than one token — a button has a face and an edge, a card a fill and
+     * a border — and a click can only mean one of them. The choice is the token the part is <i>about</i>, and
+     * it agrees with the ring the panel draws for a selected colour's group ({@code ToolsPanel.regionOf}),
+     * so the two ways of pointing at the same part cannot disagree. The sample's two nodes carry the two
+     * state colours deliberately, which is why both are reachable.
+     *
+     * <p>The others are one scroll away in the list rather than clickable here: a node's fill, the card's
+     * border, the row's hover tint, the tooltip's border, and {@code faint}, which shares the body's line
+     * and cannot be told apart from it without measuring a font.
+     */
+    public static Hotspot hotspotAt(BookGeometry.Rect preview, double mouseX, double mouseY) {
+        Preview sample = previewParts(preview);
+        int pitch = Math.min(LINE_PITCH, sample.text().height());
+        List<Hotspot> parts = List.of(
+                new Hotspot("title", BookGeometry.Rect.at(sample.text().x(), sample.text().y(),
+                        sample.text().width(), pitch)),
+                new Hotspot("body", BookGeometry.Rect.at(sample.text().x(), sample.text().y() + pitch,
+                        sample.text().width(), Math.max(0, sample.text().height() - pitch))),
+                new Hotspot("scrollThumb", sample.thumb()),
+                new Hotspot("scrollTrack", sample.track()),
+                new Hotspot("recessed", sample.item()),
+                new Hotspot("edge", sample.button()),
+                new Hotspot("raised", sample.raised()),
+                new Hotspot("rowHover", sample.row()),
+                new Hotspot("tooltipFill", sample.tooltip()),
+                new Hotspot("available", sample.nodeA()),
+                new Hotspot("complete", sample.nodeB()),
+                new Hotspot("lineDone", sample.line()),
+                new Hotspot("panel", sample.card()),
+                new Hotspot("canvas", sample.canvas()));
+        for (Hotspot part : parts) {
+            if (part.rect().contains(mouseX, mouseY)) {
+                return part;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------
@@ -550,6 +704,42 @@ public final class ToolsLayout {
         Slot down = buttons.get("down");
         Slot up = buttons.get("up");
         return new Slot("value", down.right(), row.y(), Math.max(0, up.x() - down.right()), row.height());
+    }
+
+    /**
+     * A slot where it will be drawn: the list's own coordinates put through the viewport it is drawn in.
+     *
+     * <p>The one mapping -- and now literally one, since the property inspector arrived with the same
+     * need and the method moved to {@code InspectLayout}: a row's slot is in the list's space, its y a
+     * distance down the content, not down the screen, and a caller that forgets places its controls
+     * outside the panel entirely. The fault it exists to end was real here first: the radius stepper's
+     * arrows were built at the list's own coordinates and landed outside the panel, and the report was
+     * *"border radius stepper thing wasnt there"*.
+     */
+    public static Slot onScreen(Viewport view, Slot slot) {
+        return dev.ellipog.armature.client.ui.inspect.InspectLayout.onScreen(view, slot);
+    }
+
+    /**
+     * Which way a press at a screen point steps the radius: {@code -1}, {@code +1}, or null for a miss.
+     *
+     * <p>Here rather than in the screen, and there is one description of where the arrows are: they are
+     * {@link #stepper}'s, which derives them from the row's own rectangle — so whichever space the row is
+     * in, the arrows are in it too. The caller maps the row and hands it over; the panel calls the same
+     * method with the row rectangle it is drawing. A second description is how the first version managed to
+     * place them out of sight while the hit test still found them.
+     */
+    public static Integer radiusStepAt(Viewport view, Slot radiusRow, double mouseX, double mouseY) {
+        if (radiusRow == null) {
+            return null;
+        }
+        Map<String, Slot> arrows = stepper(onScreen(view, radiusRow));
+        for (String way : List.of("down", "up")) {
+            if (arrows.get(way).contains((int) mouseX, (int) mouseY)) {
+                return way.equals("down") ? -1 : 1;
+            }
+        }
+        return null;
     }
 
     /** Revert and Save, side by side in the actions row. */

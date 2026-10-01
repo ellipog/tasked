@@ -19,6 +19,12 @@ public interface QuestRewardType<T extends QuestReward> extends TypeSpec<T> {
     RewardBehaviour<T> behaviour();
 
     /**
+     * A fresh instance of this type, for the editor's Add picker. See
+     * {@link dev.ellipog.tasked.quest.task.QuestTaskType#defaults()} for why it lives on the type.
+     */
+    T defaults();
+
+    /**
      * What this reward gives, as a client should draw it.
      *
      * <p>Abstract rather than defaulted, for the reason given on

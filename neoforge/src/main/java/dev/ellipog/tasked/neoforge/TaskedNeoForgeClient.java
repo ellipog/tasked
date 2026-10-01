@@ -7,6 +7,7 @@ import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureScreens;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
@@ -67,6 +68,7 @@ public final class TaskedNeoForgeClient {
         // rather than in the cache.
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
             ClientQuestCache.clear();
+            ClientChapterReplica.clear();
             TaskedNetworking.forgetTransfers();
         });
 

@@ -2,9 +2,17 @@ package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.api.teams.Team;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.QuestAuthority;
+import dev.ellipog.tasked.client.ClientChapterReplica;
+import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
+import dev.ellipog.tasked.editor.EditorOp;
+import dev.ellipog.tasked.editor.EditorOps;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.QuestIndex;
@@ -152,6 +160,40 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_SERVER,
                 null,
                 TaskedNetworking::handleClaim));
+
+        // --- one edit, client to server, and the server's answer ---
+        //
+        // The op path. A client asks; the server checks permission, applies the operation to its own model
+        // of that chapter and writes it, and answers with what happened -- and then the tree is re-sent by
+        // the same broadcast `/tasked reload` uses, so the canvas has one source of truth rather than two.
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                EditorOpPayload.TYPE,
+                EditorOpPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleEditorOp));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                EditorReplyPayload.TYPE,
+                EditorReplyPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleEditorReply,
+                null));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ReplicaRequestPayload.TYPE,
+                ReplicaRequestPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleReplicaRequest));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ChapterReplicaPayload.TYPE,
+                ChapterReplicaPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleChapterReplica,
+                null));
 
         // --- a party's roster, server to client ---
         //
@@ -497,6 +539,143 @@ public final class TaskedNetworking {
         // being false while the other looks fine.
         Constants.LOG.info("tasked: roster received ({} member(s))",
                 ClientPartyCache.memberCount());
+    }
+
+    /**
+     * A chapter's files, asked for by an editor's client.
+     *
+     * <p>The same permission the ops need, because a chapter's trees are the author's working material and not
+     * a player's business — and because a client that may not edit has no panel that would show them. A refusal
+     * is an {@link EditorReplyPayload} rather than silence: the author gets a sentence in the same place an op's
+     * refusal appears.
+     */
+    private static void handleReplicaRequest(ReplicaRequestPayload payload, ServerPlayer sender) {
+        if (!QuestAuthority.mayEdit(sender)) {
+            reply(sender, payload.chapter(), false, "",
+                    "You may not read the quest files (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+            return;
+        }
+        JsonObject quests = TaskedQuests.editors().replica(payload.chapter());
+        if (quests == null) {
+            reply(sender, payload.chapter(), false, "",
+                    "no chapter called \"" + payload.chapter() + "\"");
+            return;
+        }
+        com.google.gson.JsonObject chapterTree = TaskedQuests.editors().chapterTree(payload.chapter());
+        ArmatureNetwork.sendToPlayer(sender, new ChapterReplicaPayload(payload.chapter(), quests.toString(),
+                chapterTree == null ? "{}" : chapterTree.toString()));
+    }
+
+    /**
+     * A chapter's files, arriving. Kept where the panel will read them.
+     *
+     * <p>Stamped with the tree revision of the moment it arrived, which is the version {@link ClientChapterReplica}
+     * compares against: a copy and a tree that disagree are a copy to ask for again.
+     */
+    private static void handleChapterReplica(ChapterReplicaPayload payload) {
+        ClientChapterReplica.accept(payload.chapter(), payload.quests(), payload.chapterTree(),
+                ClientQuestCache.treeRevision());
+        Constants.LOG.info("tasked: chapter \"{}\" replica received ({} bytes)",
+                payload.chapter(), payload.quests().length());
+    }
+
+    /**
+     * One edit, applied. The whole of the server's side of the editor.
+     *
+     * <h2>The four things that happen, in order, and why in that order</h2>
+     *
+     * <p><b>Permission first</b>, through the same {@link QuestAuthority} the commands read, so a client that
+     * asked anyway is refused before anything is opened or read. Then the op is <b>applied and validated</b>
+     * by the model — see {@code EditorOps.apply}: a save that refused wrote nothing and undid itself, so a
+     * refusal here has changed no file. Then, if it landed, the <b>index is reloaded</b> from the files the op
+     * just wrote, which is what the tree broadcast sends to everyone: the author's own client included, which
+     * is how the canvas stops drawing its remembered value. Finally the <b>reply</b>, which the client needs
+     * for two things it cannot work out for itself: the reason for a refusal, and the id of a quest that was
+     * created or duplicated.
+     *
+     * <p>The reply goes to the sender alone, unlike the tree: a refusal is between the author and their own
+     * edit, and broadcasting one author's validation error to the whole server would be telling other players
+     * about a file they are not editing.
+     */
+    private static void handleEditorOp(EditorOpPayload payload, ServerPlayer sender) {
+        if (!QuestAuthority.mayEdit(sender)) {
+            // Refused, not ignored, and with the level named: an author whose permissions are short needs to
+            // know that is the reason rather than watching an edit do nothing.
+            reply(sender, payload.chapter(), false, "",
+                    "You may not edit the questline (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+            return;
+        }
+
+        EditorOp op = EditorOps.read(parse(payload.op()));
+        if (op == null) {
+            reply(sender, payload.chapter(), false, "", "that is not an edit this version knows");
+            return;
+        }
+
+        EditorOps.Applied applied = TaskedQuests.editors().apply(payload.chapter(), op);
+        if (applied.ok()) {
+            TaskedQuests.reload();
+            MinecraftServer server = sender.getServer();
+            if (server != null) {
+                sendTreeToAll(server);
+            }
+        }
+        reply(sender, payload.chapter(), applied.ok(),
+                applied.questId() == null ? "" : applied.questId(),
+                String.join("\n", applied.messages()));
+    }
+
+    /** An op's JSON, or null: a payload from a newer client is a refusal rather than a parse crash. */
+    private static JsonObject parse(String json) {
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            return parsed.isJsonObject() ? parsed.getAsJsonObject() : null;
+        }
+        catch (RuntimeException malformed) {
+            return null;
+        }
+    }
+
+    private static void reply(ServerPlayer sender, String chapter, boolean ok, String questId,
+                              String messages) {
+        ArmatureNetwork.sendToPlayer(sender, new EditorReplyPayload(chapter, ok, questId, messages));
+    }
+
+    /**
+     * The server's answer, put where the open screen will find it.
+     *
+     * <p>Through a cache rather than into a screen, for the reason every other client payload here does: this
+     * runs on the client's game thread with whatever is open, which may be nothing — a player who closes the
+     * book while an op is in flight still gets the answer, and it is dropped rather than sent to a screen that
+     * is gone.
+     */
+    private static void handleEditorReply(EditorReplyPayload payload) {
+        ClientEditReplies.accept(payload);
+        Constants.LOG.info("tasked: edit reply for \"{}\" -- {}",
+                payload.chapter(), payload.ok() ? "applied" : "refused");
+    }
+
+    /**
+     * Asks the server to apply one edit.
+     *
+     * <p>The client's whole side of the editor: it never writes a file, and it does not decide whether the
+     * edit is allowed or possible. What it gets back is a {@link EditorReplyPayload} into
+     * {@link ClientEditReplies}, and the changed tree as a reload broadcast — the canvas keeps drawing its
+     * remembered value until that arrives, which is the one exception the design allows and it expires.
+     */
+    /**
+     * Asks for a chapter's files, when a panel is about to need them.
+     *
+     * <p>One request per revision, decided by {@link ClientChapterReplica#claim}, which the caller uses as the
+     * gate: this method does not ask twice on its own, because a screen asking every frame is a screen the
+     * server sees as a flood.
+     */
+    public static void requestReplica(String chapter) {
+        ArmatureNetwork.sendToServer(new ReplicaRequestPayload(chapter));
+    }
+
+    public static void sendEditorOp(String chapter, EditorOp op) {
+        ArmatureNetwork.sendToServer(new EditorOpPayload(chapter, EditorOps.write(op).toString()));
     }
 
     /**

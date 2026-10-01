@@ -64,7 +64,7 @@ public final class TaskedCommand {
                         .executes(TaskedCommand::version))
 
                 .then(Commands.literal("reload")
-                        .requires(source -> source.hasPermission(2))
+                        .requires(QuestAuthority.mayEdit())
                         .executes(TaskedCommand::reload))
 
                 .then(Commands.literal("quests")
@@ -86,7 +86,7 @@ public final class TaskedCommand {
                                         .executes(ctx -> submit(ctx, IntegerArgumentType.getInteger(ctx, "task"))))))
 
                 .then(Commands.literal("complete")
-                        .requires(source -> source.hasPermission(2))
+                        .requires(QuestAuthority.mayEdit())
                         .then(Commands.argument("quest", StringArgumentType.word())
                                 .executes(TaskedCommand::complete)))
 
@@ -98,7 +98,7 @@ public final class TaskedCommand {
                                 .executes(TaskedCommand::claim)))
 
                 .then(Commands.literal("reset")
-                        .requires(source -> source.hasPermission(2))
+                        .requires(QuestAuthority.mayEdit())
                         .executes(ctx -> reset(ctx, null))
                         .then(Commands.argument("quest", StringArgumentType.word())
                                 .executes(ctx -> reset(ctx, StringArgumentType.getString(ctx, "quest")))))
@@ -153,6 +153,11 @@ public final class TaskedCommand {
     }
 
     private static int reload(CommandContext<CommandSourceStack> context) {
+        // Before the load, and here rather than inside it: this is the command that means "the files may have
+        // changed without me", so it is the only place the editor's open chapters are dropped. Doing it inside
+        // `TaskedQuests.reload` would throw the undo history away after every applied op, because that is what
+        // applying an op calls to put its own write on the canvas.
+        TaskedQuests.editors().forget();
         QuestLoader.Result result = TaskedQuests.reload();
         var problems = result.problems();
 

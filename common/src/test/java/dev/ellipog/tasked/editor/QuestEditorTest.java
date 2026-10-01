@@ -1,4 +1,4 @@
-package dev.ellipog.tasked.client.editor;
+package dev.ellipog.tasked.editor;
 
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
 

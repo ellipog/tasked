@@ -1,9 +1,11 @@
 package dev.ellipog.tasked.client;
 
+import dev.ellipog.armature.client.ArmatureTextArea;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
+import dev.ellipog.armature.client.ui.kit.TextArea;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 
 import org.junit.jupiter.api.Test;
@@ -84,8 +86,10 @@ class OverlayLayoutTest {
         if (description.isEmpty()) {
             height += 12;
         }
-        for (String paragraph : description) {
-            height += TextWrap.wrap(paragraph, width, FONT).size() * 10 + 5;
+        for (OverlayLayout.Prose paragraph : prose(description, width)) {
+            // The lines, not the strings: the wrap is the producer's now, and this arithmetic is the one
+            // the old screen kept by hand -- so it counts the lines the producer handed over.
+            height += paragraph.lines().size() * 10 + 5;
         }
         height += 8 + 16;                                          // TASKS heading
         height += Math.max(1, taskCount) * 24;
@@ -99,7 +103,21 @@ class OverlayLayoutTest {
 
     private static Layout build(List<String> description, int taskCount, int rewardCount,
                                 int dependencyCount, int width) {
-        return OverlayLayout.stack(description, taskCount, rewardCount, dependencyCount).build(width, FONT);
+        return OverlayLayout.stack(prose(description, width), taskCount, rewardCount, dependencyCount)
+                .build(width, FONT);
+    }
+
+    /**
+     * The descriptions in this file are written as strings, because that is what they are: the wrapping is
+     * the producer's ({@code Prose.of}, and {@code RichText.wrap} for the reader's markdown), and these
+     * tests are about where the layout puts what it is given.
+     */
+    private static List<OverlayLayout.Prose> prose(List<String> description, int width) {
+        List<OverlayLayout.Prose> prose = new java.util.ArrayList<>(description.size());
+        for (String paragraph : description) {
+            prose.add(OverlayLayout.Prose.of(paragraph, width, FONT));
+        }
+        return List.copyOf(prose);
     }
 
     // ------------------------------------------------------------------
@@ -431,9 +449,9 @@ class OverlayLayoutTest {
     void aNegativeCountIsRefusedRatherThanFoldedIntoAnEmptyState() {
         // Silently treating -1 as an empty list would place an empty state where the caller asked for
         // rows, and the screen would draw "Nothing required" for a quest whose task list is a bug.
-        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(PROSE, -1, 0, 0));
-        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(PROSE, 0, -1, 0));
-        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(PROSE, 0, 0, -1));
+        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(prose(PROSE, 120), -1, 0, 0));
+        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(prose(PROSE, 120), 0, -1, 0));
+        assertThrows(IllegalArgumentException.class, () -> OverlayLayout.stack(prose(PROSE, 120), 0, 0, -1));
     }
 
     @Test
@@ -441,5 +459,189 @@ class OverlayLayoutTest {
         // Empty and absent are different: absent means the caller has a bug upstream -- a null from a
         // cache entry that was not found -- and drawing "No description." over it would hide it.
         assertThrows(NullPointerException.class, () -> OverlayLayout.stack(null, 0, 0, 0));
+    }
+
+    // ------------------------------------------------------------------
+    // The blank line, and the editor that has to agree with it
+    // ------------------------------------------------------------------
+
+    /**
+     * An empty paragraph is a line, and it takes the height of one.
+     *
+     * <h2>Why this is asserted rather than assumed</h2>
+     *
+     * <p>Because a text element measuring {@code ""} comes out <b>no lines tall</b> -- {@link TextWrap}'s
+     * "nothing in, nothing out" -- so before this, a blank element reserved only its paragraph gap. The
+     * description editor draws a blank hard line one line tall, and the field is transparent (so the text
+     * does not move when it is clicked), so the two models disagreeing did not merely misplace a gap: the
+     * reader's copy and the editor's copy of every paragraph <i>after</i> the blank line were drawn one
+     * line apart, on top of each other. That is the overprinted text from play, and this is the half of
+     * the fix that lives in the layout. The other half is the editor's own drawing, which is skipped
+     * while the editor is open -- see {@code InlineEdit.replaces}.
+     */
+    @Test
+    void anEmptyParagraphIsALineLikeAnyOther() {
+        List<String> withBlank = List.of("one", "", "two");
+        Layout blank = build(withBlank, 0, 0, 0, 120);
+        Layout without = build(List.of("one", "two"), 0, 0, 0, 120);
+
+        // One line and its gap more than the same text without the blank element.
+        assertEquals(without.height() + OverlayLayout.LINE_HEIGHT + OverlayLayout.PARAGRAPH_GAP,
+                blank.height(), "the blank line takes a line, and its gap");
+
+        // And the paragraph after it sits below it by exactly that.
+        int first = blank.slot(OverlayLayout.proseKey(0)).y();
+        int third = blank.slot(OverlayLayout.proseKey(2)).y();
+        assertEquals(2 * (OverlayLayout.LINE_HEIGHT + OverlayLayout.PARAGRAPH_GAP), third - first,
+                "one line, its gap, the blank line, and its gap");
+
+        // A blank element still gets a slot of its own, and it is a line tall.
+        assertEquals(OverlayLayout.LINE_HEIGHT, blank.slot(OverlayLayout.proseKey(1)).height());
+    }
+
+    /**
+     * The editor's model and the reader's layout put the same visual line at the same y.
+     *
+     * <h2>The contract the description editor rests on</h2>
+     *
+     * <p>{@code ArmatureTextArea} draws the value it is editing at its own pitch, and the layout under it
+     * was built by {@code OverlayLayout}. If the two disagree about where a line goes, the text moves --
+     * and because the field is transparent, a disagreement is not hidden: both drawings are visible at
+     * once. The fixture is the shape that broke it: a paragraph, a blank line, then a paragraph that
+     * wraps, because a blank element was the input the two models disagreed about.
+     *
+     * <p>Measured with the same six-pixels-a-character font the rest of this file uses; the real font has
+     * the same shape and both models measure with it, so a disagreement here is a disagreement there.
+     */
+    /**
+     * The editor's model and the reader's layout put the same visual line at the same y.
+     *
+     * <h2>The contract the description editor rests on</h2>
+     *
+     * <p>{@code ArmatureTextArea} draws the value it is editing at its own pitch, and the layout under it
+     * was built by {@code OverlayLayout}. If the two disagree about where a line goes, the text moves --
+     * and because the field is transparent, a disagreement is not hidden: both drawings are visible at
+     * once. The fixture is the shape that broke it: a paragraph, a blank line, then a paragraph that
+     * wraps, because a blank element was the input the two models disagreed about.
+     *
+     * <p>Measured with the same six-pixels-a-character font the rest of this file uses; the real font has
+     * the same shape and both models measure with it, so a disagreement here is a disagreement there.
+     */
+    @Test
+    void theEditorAndTheReaderAgreeOnWhereEveryLineIs() {
+        List<String> paragraphs = List.of(
+                "Four planks, a square, and suddenly you have options.",
+                "",
+                "This one also counts itself complete, and its reward is deliberately the",
+                "boring one -- eight sticks, which is most of what the next quest asks",
+                "you for.");
+        int width = 360;                                  // sixty characters at six pixels each
+        Layout layout = build(paragraphs, 0, 0, 0, width);
+
+        String joined = String.join("\n", paragraphs);
+        List<TextArea.Span> lines = TextArea.wrap(joined, width, FONT::width);
+
+        for (int paragraph = 0; paragraph < paragraphs.size(); paragraph++) {
+            int start = 0;
+            for (int i = 0; i < paragraph; i++) {
+                start += paragraphs.get(i).length() + 1;   // + the newline between them
+            }
+            int visualLine = TextArea.lineOf(start, lines);
+            int slotY = layout.slot(OverlayLayout.proseKey(paragraph)).y();
+            int drawnY = TextArea.lineTop(lines, visualLine, OverlayLayout.LINE_HEIGHT,
+                    OverlayLayout.PARAGRAPH_GAP);
+
+            assertEquals(slotY, drawnY, "paragraph " + paragraph + " \"" + paragraphs.get(paragraph) + "\"");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The frame around the prose
+    // ------------------------------------------------------------------
+
+    /**
+     * The description's frame: the column opened out by the text area's padding, and never narrower than
+     * the prose placed inside it.
+     *
+     * <h2>Every half was reported from play, and the second half twice</h2>
+     *
+     * <p>It used to be the first paragraph's slot opened out by nothing. The width half: a description
+     * whose first line is short and whose third is long had the long line running out through the frame's
+     * right edge -- *"it doesnt cover the entire width"* -- because the frame's width was the first
+     * paragraph's longest line. The padding half: its top, left and bottom lines sat exactly on the glyphs
+     * -- *"the borders around it are too cramped, there is no padding"*. And then, after both were fixed,
+     * a report came back showing the frame still ending short of a long line -- so the second assertion
+     * below is the half that says <b>a rectangle drawn around a block contains the block</b>, whatever
+     * column the caller believed in. The fixture for it builds the layout at a width the frame is then
+     * told less about, which is the only way those two can disagree.
+     */
+    @Test
+    void theDescriptionFrameSpansTheColumnAndIsPadded() {
+        List<String> uneven = List.of("Short.", "A later paragraph that is much longer than the first one");
+        int width = 240;
+        Layout layout = build(uneven, 0, 0, 0, width);
+        Slot first = layout.slot(OverlayLayout.proseKey(0));
+        Slot last = layout.slot(OverlayLayout.proseKey(1));
+        assertNotNull(first);
+        assertNotNull(last);
+
+        // The fixture has to exercise the bug: the first paragraph is narrower than the column.
+        assertTrue(first.width() < width, "the first paragraph is a short line");
+        int widest = Math.max(first.right(), last.right());
+
+        Slot frame = OverlayLayout.proseFrame(first, last.bottom(), widest, width);
+        assertEquals(OverlayLayout.PROSE_PAD, first.x() - frame.x(), "padded on the left");
+        assertEquals(OverlayLayout.PROSE_PAD, first.y() - frame.y(), "and above the first line");
+        assertEquals(OverlayLayout.PROSE_PAD, frame.bottom() - last.bottom(), "and below the last");
+        assertEquals(width + OverlayLayout.PROSE_PAD * 2, frame.width(),
+                "as wide as the column, not as the first paragraph's longest line");
+        assertTrue(frame.right() >= widest + OverlayLayout.PROSE_PAD,
+                "so the longest line is inside it with a pad, not poking out");
+
+        // The half that has been wrong twice: the frame contains the prose even when the column it was
+        // told about is narrower than the lines the layout actually placed.
+        Slot narrow = OverlayLayout.proseFrame(first, last.bottom(), widest, first.right());
+        assertTrue(narrow.right() >= widest + OverlayLayout.PROSE_PAD,
+                "a frame built from a narrower column still contains the widest line");
+        assertEquals(widest - first.x() + OverlayLayout.PROSE_PAD * 2, narrow.width(),
+                "it grows to the prose, not to the column");
+
+        // The empty state gets the same frame: the one row, the whole column, padded the same way.
+        Layout empty = build(NOTHING, 0, 0, 0, width);
+        Slot line = empty.slot(OverlayLayout.NO_DESCRIPTION);
+        assertNotNull(line);
+        Slot emptyFrame = OverlayLayout.proseFrame(line, line.bottom(), line.right(), width);
+        assertEquals(OverlayLayout.PROSE_PAD, line.x() - emptyFrame.x());
+        assertEquals(width + OverlayLayout.PROSE_PAD * 2, emptyFrame.width());
+    }
+
+    @Test
+    void theFramesPaddingIsTheTextAreasOwn() {
+        // One number, not two that look alike: the border is drawn around the same rectangle the text
+        // area draws its text in, so the padding has to be the area's -- a frame with a padding of its own
+        // is a rectangle that only resembles the editor's box.
+        assertEquals(ArmatureTextArea.PAD, OverlayLayout.PROSE_PAD);
+    }
+
+    @Test
+    void aProseParagraphsOwnLineHeightIsTheSpaceReserved() {
+        // A heading drawn at one and a half times the font arrives with a pitch of its own, and the space
+        // reserved has to be the space the drawing takes -- or the next paragraph sits on its last line.
+        Layout tall = OverlayLayout.stack(List.of(new OverlayLayout.Prose(List.of("one", "two"), 30, 15)),
+                0, 0, 0).build(200, FONT);
+        assertEquals(30, tall.slot(OverlayLayout.proseKey(0)).height(), "two lines at fifteen");
+
+        Layout plain = OverlayLayout.stack(List.of(new OverlayLayout.Prose(List.of("one", "two"), 30)),
+                0, 0, 0).build(200, FONT);
+        assertEquals(20, plain.slot(OverlayLayout.proseKey(0)).height(),
+                "and the ordinary pitch is untouched: two lines at ten");
+    }
+
+    @Test
+    void aProseWithNoLineHeightIsRefusedRatherThanDrawnFlat() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new OverlayLayout.Prose(List.of("one"), 20, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new OverlayLayout.Prose(List.of(), 20));
     }
 }

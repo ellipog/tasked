@@ -5,6 +5,9 @@ import io.netty.buffer.Unpooled;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import com.google.gson.JsonPrimitive;
+import dev.ellipog.tasked.editor.EditorOp;
+import dev.ellipog.tasked.editor.EditorOps;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import org.junit.jupiter.api.BeforeAll;
@@ -106,15 +109,19 @@ class PayloadTest {
         // Written out in full rather than counted, because the failure this test exists to catch is a
         // payload registered under a wrong path -- and a count would pass while a name was wrong.
         //
-        // `tasked:party_sync` is the fifth, and it arrived with the party panel. Listing it here is the
-        // whole of what adding a payload costs: the two assertions above are written over *every*
-        // registration rather than over a list of them, so a new payload is covered by the namespace and
-        // colon checks the moment it is declared. Only this one, which names them, has to be told.
+        // `tasked:party_sync` arrived with the party panel, and the editor's pair with the op path. Listing
+        // them here is the whole of what adding a payload costs: the two assertions above are written over
+        // *every* registration rather than over a list of them, so a new payload is covered by the namespace
+        // and colon checks the moment it is declared. Only this one, which names them, has to be told.
         assertEquals(List.of(
+                "tasked:chapter_replica",
                 "tasked:claim_reward",
+                "tasked:editor_op",
+                "tasked:editor_reply",
                 "tasked:party_sync",
                 "tasked:progress_sync",
                 "tasked:quest_sync",
+                "tasked:replica_request",
                 "tasked:submit_task"), ids);
     }
 
@@ -130,6 +137,40 @@ class PayloadTest {
         // A roster is server state, so it goes one way. Registered the other way round it would never
         // arrive, and the panel would sit on its empty state with nothing in either log.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:party_sync"));
+        // An edit is a request, so it goes to the server; the answer comes back the other way. Registered
+        // either of these the wrong way round is an editor that does nothing at all.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:editor_op"));
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:editor_reply"));
+        // The panel's copy of a chapter: asked for by the client, answered by the server.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:replica_request"));
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:chapter_replica"));
+    }
+
+    @Test
+    @DisplayName("an op and its answer survive the wire, escapes and all")
+    void editorPayloadsRoundTrip() {
+        // The op is JSON *inside* a string, which is the one place two escape layers meet: a field's value
+        // carries whatever the author typed, quotes and newlines included, and losing one of them turns a
+        // title into a different title. So the sample is deliberately awkward rather than tidy.
+        // Built by the real writer rather than typed here: the sample is whatever an ugly title
+        // becomes on the wire, which is the thing that has to survive, and a hand-written string
+        // with two escape layers in it is a sample that tests my quoting rather than the codec.
+        EditorOpPayload op = new EditorOpPayload("first_steps", EditorOps.write(new EditorOp.SetField(
+                "one", "title", new JsonPrimitive("A \"quote\" and a\nnewline")))
+                .toString());
+
+        EditorOpPayload sent = roundTrip(EditorOpPayload.CODEC, op);
+        assertEquals(op.chapter(), sent.chapter());
+        assertEquals(op.op(), sent.op(), "the bytes are the whole contract of this payload");
+
+        EditorReplyPayload reply = new EditorReplyPayload("first_steps", false, "one",
+                "line one\nline two");
+        EditorReplyPayload answered = roundTrip(EditorReplyPayload.CODEC, reply);
+
+        assertEquals(reply.chapter(), answered.chapter());
+        assertEquals(reply.ok(), answered.ok());
+        assertEquals(reply.questId(), answered.questId());
+        assertEquals(List.of("line one", "line two"), answered.lines());
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {

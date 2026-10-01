@@ -127,8 +127,21 @@ public final class BookGeometry {
      *
      * <p>A word rather than a glyph, and that is a fix rather than a preference: it was `\u2699`, which
      * Minecraft's default font does not carry, so the button drew as the missing-glyph box -- a control
-     * that reads as a rendering fault. The glyphs this UI already uses are the ones the font has:
-     * {@code +}, {@code -}, {@code \u25c9} for centre and {@code \u2715} for close.
+     * that reads as a rendering fault.
+     *
+     * <h2>Which glyphs this font has</h2>
+     *
+     * <p>Measured rather than assumed, by reading {@code assets/minecraft/font/include/default.json} out
+     * of the 1.21.1 client jar: its three bitmap pages carry 2414 codepoints -- Latin-1 complete but for
+     * one, Latin Extended, Greek and Cyrillic, and a short list of symbols. {@code include/unifont.json}
+     * is <b>empty</b>, so there is no unicode fallback: a codepoint outside those pages draws as a box.
+     *
+     * <p><b>Present</b>: {@code + - × · • ← ↑ → ↓ ▲ ▼ ○ ● □ ‹ › « » ⌂ § ° ± ÷}. <b>Absent</b>, though an
+     * earlier version of this comment claimed otherwise: {@code ⚙ ◉ ✕ ▸ ▾ ✓}, and every other
+     * geometric-shape or dingbat symbol -- {@code ✕} as a close button and {@code ◉} for centre were
+     * both drawing as boxes until this was measured. A control's glyph comes from the present list or it
+     * does not get one, and {@code .utils/check_glyphs.py} holds the same list and fails the build on an
+     * escape outside it.
      */
     public static final int TOOLS_BUTTON_WIDTH = 46;
 
@@ -1209,6 +1222,38 @@ public final class BookGeometry {
     public static boolean clearOf(Rect a, Rect b, int margin) {
         return !a.intersects(Rect.at(b.x() - margin, b.y() - margin,
                 b.width() + margin * 2, b.height() + margin * 2));
+    }
+
+    // ------------------------------------------------------------------
+    // The editor's grid
+    // ------------------------------------------------------------------
+
+    /**
+     * The grid a dragged node lands on, in content units: 8.
+     *
+     * <p>Positions in a quest file are authored numbers, and a node dropped at x=37.4182 carries a
+     * number nobody typed into every diff it appears in afterwards. Eight is coarse enough that two
+     * drags two pixels apart write the same file and fine enough that it never fights a layout the
+     * author meant — and it divides the 16- and 32-pixel spacings the shipped chapters are laid out on.
+     */
+    public static final int SNAP_GRID = 8;
+
+    /**
+     * One coordinate snapped to the grid — or itself, when snapping is off.
+     *
+     * <p>A pure function on purpose: the drag state lives in the screen, and this answers "where does
+     * this coordinate land" and nothing else. A negative grid, or a zero one, is a grid that cannot
+     * divide anything, so it reads as off rather than as a division by zero; a coordinate that is
+     * already on the grid stays put, which is what makes a re-snap during a held drag idempotent.
+     *
+     * <p>The Alt bypass is not here. It is a question about the keyboard, and this class has none —
+     * the caller asks {@code Screen.hasAltDown()} and passes the answer in as {@code on}.
+     */
+    public static double snap(double value, double grid, boolean on) {
+        if (!on || grid <= 0) {
+            return value;
+        }
+        return Math.round(value / grid) * grid;
     }
 
     private static int clamp(int value, int min, int max) {

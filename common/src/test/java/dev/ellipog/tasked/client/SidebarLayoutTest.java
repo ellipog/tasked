@@ -267,12 +267,12 @@ class SidebarLayoutTest {
         void headingsAreMarkedByState() {
             SidebarLayout sidebar = twoGroups();
 
-            assertEquals("\u25be Getting Started", row(sidebar, "group:aaa_start").label(),
+            assertEquals("\u25bc Getting Started", row(sidebar, "group:aaa_start").label(),
                     "an open heading points down, because its chapters are below it");
 
             sidebar.toggle("group:aaa_start");
 
-            assertEquals("\u25b8 Getting Started", row(sidebar, "group:aaa_start").label(),
+            assertEquals("\u203a Getting Started", row(sidebar, "group:aaa_start").label(),
                     "and a closed one points right, because its chapters are to itself");
         }
 

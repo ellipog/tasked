@@ -569,6 +569,9 @@ public final class ClientQuestCache {
                     description.add(paragraph.getAsString());
                 }
             }
+            // The ends of the prose are not content -- see `Prose`. Trimmed where the tree is parsed, so a
+            // reader's card and the editor's copy of the same file agree about where the prose stops.
+            description = new ArrayList<>(Prose.trimmed(description));
 
             List<String> dependencies = new ArrayList<>();
             if (quest.has("dependsOn")) {

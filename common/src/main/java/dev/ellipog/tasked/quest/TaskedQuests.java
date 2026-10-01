@@ -1,6 +1,8 @@
 package dev.ellipog.tasked.quest;
 
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.tasked.editor.QuestEditor;
+import dev.ellipog.tasked.editor.ServerEditors;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
@@ -33,8 +35,23 @@ public final class TaskedQuests {
     private static final int TREE_LOG_BUDGET = 200;
 
     private static volatile QuestIndex index;
+    /**
+     * The chapters this server has open for editing.
+     *
+     * <p>Here rather than in the payload handler because this class owns the quest directory: the editors and
+     * the index must be reading the same files, and two places resolving that path is two places to get it
+     * wrong. Dropped by {@code /tasked reload} and nothing else — see {@link ServerEditors#forget}.
+     */
+    private static final ServerEditors EDITORS =
+            new ServerEditors(() -> QuestEditor.root(ArmatureApi.platform().configDir()));
+
 
     private TaskedQuests() {
+    }
+
+    /** The chapters open for editing on this server. */
+    public static ServerEditors editors() {
+        return EDITORS;
     }
 
     /** The current questline, or an empty index if nothing has loaded yet. Never null. */

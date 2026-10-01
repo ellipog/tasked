@@ -8,12 +8,15 @@ import dev.ellipog.armature.api.registry.SimpleRegistry;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.quest.ItemRef;
 import dev.ellipog.tasked.quest.QuestTask;
+import dev.ellipog.tasked.quest.QuestText;
+import dev.ellipog.tasked.quest.TaskCommon;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Every task type Tasked knows about.
@@ -58,7 +61,7 @@ public final class TaskTypes {
 
     /** A registered type: what reads it, how it is evaluated, and what represents it. */
     private record Entry(TypeSpec<QuestTask> spec, TaskBehaviour<QuestTask> behaviour, ItemRef icon,
-                         Function<QuestTask, TaskDisplay> display) {
+                         Function<QuestTask, TaskDisplay> display, Supplier<QuestTask> defaults) {
     }
 
     // Declared first: static initialisation runs in declaration order, and the entries below register
@@ -68,12 +71,15 @@ public final class TaskTypes {
     /** {@code tasked:item} — have enough of an item. */
     public static final QuestTaskType<ItemTask> ITEM = register(
             "item", ItemTask.MAP_CODEC, ItemTask.FIELDS, ItemTask.BEHAVIOUR,
-            new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1), ItemTask.DISPLAY);
+            new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1), ItemTask.DISPLAY,
+            () -> new ItemTask(TaskCommon.DEFAULT,
+                    new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1), Optional.empty()));
 
     /** {@code tasked:checkmark} — the player says they did it. */
     public static final QuestTaskType<CheckmarkTask> CHECKMARK = register(
             "checkmark", CheckmarkTask.MAP_CODEC, CheckmarkTask.FIELDS, CheckmarkTask.BEHAVIOUR,
-            new ItemRef(ResourceLocation.withDefaultNamespace("knowledge_book"), 1), CheckmarkTask.DISPLAY);
+            new ItemRef(ResourceLocation.withDefaultNamespace("knowledge_book"), 1), CheckmarkTask.DISPLAY,
+            () -> new CheckmarkTask(TaskCommon.DEFAULT, QuestText.literal("Did it")));
 
     private TaskTypes() {
     }
@@ -105,9 +111,10 @@ public final class TaskTypes {
                                                                   Set<String> fields,
                                                                   TaskBehaviour<T> behaviour,
                                                                   ItemRef icon,
-                                                                  Function<T, TaskDisplay> display) {
+                                                                  Function<T, TaskDisplay> display,
+                                                                  Supplier<T> defaults) {
         return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, behaviour,
-                icon, display);
+                icon, display, defaults);
     }
 
     /**
@@ -119,10 +126,30 @@ public final class TaskTypes {
                                                                   Set<String> fields,
                                                                   TaskBehaviour<T> behaviour,
                                                                   ItemRef icon,
-                                                                  Function<T, TaskDisplay> display) {
-        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, fields, behaviour, icon, display);
-        REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon, widenDisplay(display)));
+                                                                  Function<T, TaskDisplay> display,
+                                                                  Supplier<T> defaults) {
+        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, fields, behaviour, icon, display, defaults);
+        REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon,
+                widenDisplay(display), () -> defaults.get()));
         return typed;
+    }
+
+    /**
+     * A fresh instance of a registered type, encoded as the tree a quest file stores.
+     *
+     * <p>What the editor's Add picker inserts: the type says what an empty one looks like, and the
+     * encoding is this type's own codec — so what the picker adds is exactly what the loader will read
+     * back. Empty for an unregistered type, which is a refusal the picker reports rather than a task
+     * the file cannot load.
+     */
+    public static Optional<com.google.gson.JsonObject> defaultTree(ResourceLocation id) {
+        return REGISTRY.get(id).flatMap(entry -> Dispatch.CODEC
+                // Through the *dispatch* codec, not the type's own: the dispatch is what writes the
+                // "type" field, and a tree without it is a task the loader cannot read back.
+                .encodeStart(com.mojang.serialization.JsonOps.INSTANCE, entry.defaults().get())
+                .result()
+                .filter(com.google.gson.JsonElement::isJsonObject)
+                .map(com.google.gson.JsonElement::getAsJsonObject));
     }
 
     /**
@@ -227,12 +254,18 @@ public final class TaskTypes {
 
     private record SimpleQuestTaskType<T extends QuestTask>(
             ResourceLocation id, MapCodec<T> codec, Set<String> fields,
-            TaskBehaviour<T> behaviour, ItemRef icon, Function<T, TaskDisplay> display
+            TaskBehaviour<T> behaviour, ItemRef icon, Function<T, TaskDisplay> display,
+            Supplier<T> defaultsSupplier
     ) implements QuestTaskType<T> {
 
         @Override
         public TaskDisplay display(T task) {
             return display.apply(task);
+        }
+
+        @Override
+        public T defaults() {
+            return defaultsSupplier.get();
         }
     }
 }

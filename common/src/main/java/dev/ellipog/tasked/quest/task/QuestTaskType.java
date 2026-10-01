@@ -29,6 +29,16 @@ public interface QuestTaskType<T extends QuestTask> extends TypeSpec<T> {
     TaskBehaviour<T> behaviour();
 
     /**
+     * A fresh instance of this type, for the editor's Add picker.
+     *
+     * <p>What "add an item task" starts as: paper, one, nothing consumed. On the type rather than in
+     * the editor, for the same reason the icon is — the person who wrote the type knows what a
+     * reasonable empty one looks like, and an addon's type is addable the day it registers rather
+     * than the day somebody edits a switch in the editor.
+     */
+    T defaults();
+
+    /**
      * What this task asks for, as a client should draw it.
      *
      * <p>Required rather than defaulted on purpose. A default would mean a new task type silently

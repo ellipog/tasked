@@ -1,4 +1,6 @@
-package dev.ellipog.tasked.client.editor;
+package dev.ellipog.tasked.editor;
+
+import com.google.gson.JsonObject;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,8 +107,11 @@ class JsonFileTest {
 
         assertEquals("minecraft:oak_log", file.text("icon.item", "none"));
         assertEquals(1, file.number("icon.count", 1), 0.0001, "a missing number takes the fallback");
+        assertEquals(8, file.number("tasks.0.count", -1), 0.0001,
+                "an array step reaches a task's own field: the path the panel commits through");
         assertEquals(-1, file.number("tasks[0].count", -1), 0.0001,
-                "an array is not addressable by path, so that falls back too");
+                "the bracket form is not this path syntax, so it falls back");
+        assertEquals(-1, file.number("tasks.0.nothing", -1), 0.0001, "and so does a field not there");
 
         file.setText("icon.item", "minecraft:birch_log");
         assertEquals("minecraft:birch_log", file.text("icon.item", "none"));
@@ -127,9 +132,111 @@ class JsonFileTest {
     }
 
     @Test
-    @DisplayName("a value of the wrong type reads as absent rather than as a surprise")
-    void wrongTypesReadAsAbsent() {
+    @DisplayName("a task's own field writes through its array step, and reads back the same way")
+    void arrayStepsWrite() {
+        JsonFile file = parse(Path.of("."), HAND_WRITTEN);
+
+        file.setNumber("tasks.0.count", 12);
+        assertEquals(12, file.number("tasks.0.count", -1), 0.0001);
+
+        file.setText("tasks.0.item", "minecraft:birch_log");
+        assertEquals("minecraft:birch_log", file.text("tasks.0.item", "none"));
+        assertTrue(file.json().contains("\"count\": 12"), "the task's own object was written, not replaced");
+        assertTrue(file.json().contains("\"type\": \"tasked:item\""),
+                "and its other fields are still there");
+
+        file.remove("tasks.0.count");
+        assertFalse(file.has("tasks.0.count"));
+        assertEquals("minecraft:birch_log", file.text("tasks.0.item", "none"),
+                "removing one task field leaves its siblings alone");
+    }
+
+    @Test
+    @DisplayName("a whole number is written whole, and a fraction keeps its point")
+    void wholeNumbersAreWrittenWhole() {
+        JsonFile file = parse(Path.of("."), HAND_WRITTEN);
+
+        file.setNumber("x", 8.0);
+        assertTrue(file.json().contains("\"x\": 8"), "8.0 in a diff where 8 was is noise: " + file.json());
+        assertFalse(file.json().contains("\"x\": 8.0"), "a drag writes the number an author would type");
+
+        file.setNumber("iconScale", 1.5);
+        assertTrue(file.json().contains("\"iconScale\": 1.5"), "a fraction is not rounded away");
+    }
+
+    @Test
+    @DisplayName("a path that would replace a container is refused, not clobbered")
+    void unwritablePathsRefuse() {
+        JsonFile file = parse(Path.of("."), HAND_WRITTEN);
+
+        // The old version replaced a non-object member with a fresh object to walk through -- which for
+        // an array is data loss. Every one of these is refused, and the tree is untouched.
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.setText("tasks.item", "x"));
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.setText("tasks.9.count", "1"));
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.setText("title.deep", "x"));
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.setText("x.y", "z"));
+        assertTrue(file.json().contains("\"type\": \"tasked:item\""),
+                "the task array survived every refusal");
+
+        // And a refusal is only for writes: the same paths read as absent, which is what a read of a
+        // path that names nothing should be.
+        assertNull(file.get("tasks.item"));
+        assertNull(file.get("tasks.9.count"));
+    }
+
+    @Test
+    @DisplayName("a whole JSON value writes over a field or over a list element")
+    void wholeValuesWrite() {
+        JsonFile file = parse(Path.of("."), HAND_WRITTEN);
+
+        JsonObject icon = new JsonObject();
+        icon.addProperty("item", "minecraft:diamond");
+        file.setJson("icon", icon);
+        assertEquals("minecraft:diamond", file.text("icon.item", "none"),
+                "an object field is replaced whole");
+
+        JsonObject task = new JsonObject();
+        task.addProperty("type", "tasked:checkmark");
+        task.addProperty("title", "Did it");
+        file.setJson("tasks.0", task);
+        assertEquals("tasked:checkmark", file.text("tasks.0.type", ""),
+                "a whole list element is replaced, not a member named \"0\" added to the root");
+        assertEquals("Did it", file.text("tasks.0.title", ""));
+
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.setJson("tasks.9", task),
+                "an index past the end is refused");
+    }
+
+    @Test
+    @DisplayName("entries insert, remove and move by position, and the order is the order")
+    void entriesMove() {
         JsonFile file = parse(Path.of("."), """
+                { "title": "x", "tasks": [ { "type": "a" }, { "type": "b" }, { "type": "c" } ] }
+                """);
+
+        JsonObject inserted = new JsonObject();
+        inserted.addProperty("type", "new");
+        file.insert("tasks", 1, inserted);
+        assertEquals("new", file.text("tasks.1.type", ""), "inserted at the index asked for");
+        assertEquals("b", file.text("tasks.2.type", ""), "and the tail shifted right");
+        assertEquals("c", file.text("tasks.3.type", ""));
+
+        assertTrue(file.moveIndex("tasks", 1, 3));
+        assertEquals("new", file.text("tasks.3.type", ""), "moved to the end");
+        assertEquals("a", file.text("tasks.0.type", ""), "and everything before it shifted left");
+
+        assertTrue(file.removeIndex("tasks", 0));
+        assertEquals("b", file.text("tasks.0.type", ""));
+        assertFalse(file.removeIndex("tasks", 9), "removing what is not there says so");
+        assertFalse(file.moveIndex("tasks", 0, 9), "and so does moving to nowhere");
+
+        // And a member that is not an array is refused rather than replaced.
+        assertThrows(JsonFile.UnwritablePath.class, () -> file.insert("title", 0, inserted));
+    }
+
+    @Test
+    @DisplayName("a value of the wrong type reads as absent rather than as a surprise")
+    void wrongTypesReadAsAbsent() {        JsonFile file = parse(Path.of("."), """
                 { "title": { "translate": "quest.title" }, "x": "left", "flag": 3 }
                 """);
 
@@ -184,7 +291,10 @@ class JsonFileTest {
 
         file.replaceWith(original);
         assertEquals(original, file.json());
-        assertFalse(file.dirty(), "a restored state is a written state, not an unsaved one");
+        // Clean here, and only because this text *is* the file's own: nothing was written in between, so
+        // memory and disk agree. The editor-level case, where a save happens between the snapshot and
+        // the undo, is the one that must stay dirty -- see `EditorOpsTest.undoing`.
+        assertFalse(file.dirty(), "the tree is back to what the file holds, so nothing is pending");
         assertEquals(0, file.number("x", -1), 0.0001);
         assertNull(file.get("nothing.here"));
     }

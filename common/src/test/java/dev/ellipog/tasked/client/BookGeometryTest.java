@@ -658,6 +658,44 @@ class BookGeometryTest {
             assertFalse(rect.contains(9, 15), "one pixel before the left edge is outside");
         }
 
+        // ------------------------------------------------------------------
+        // The editor's grid
+        // ------------------------------------------------------------------
+
+        @Test
+        @DisplayName("snapping rounds to the grid, and a coordinate already on it stays put")
+        void snapRoundsToTheGrid() {
+            int grid = BookGeometry.SNAP_GRID;
+
+            assertEquals(0, BookGeometry.snap(3, grid, true), "three units under the midpoint rounds down");
+            assertEquals(8, BookGeometry.snap(4, grid, true), "the midpoint rounds up, like Math.round");
+            assertEquals(8, BookGeometry.snap(7.9, grid, true), "one tick short still lands on the grid");
+            assertEquals(8, BookGeometry.snap(8, grid, true), "already on the grid, so it stays");
+            assertEquals(-8, BookGeometry.snap(-5, grid, true), "and the same below zero, off the canvas");
+            assertEquals(24, BookGeometry.snap(20, grid, true), "three steps up from the origin");
+        }
+
+        @Test
+        @DisplayName("snapping off, or a grid that cannot divide, answers the coordinate it was given")
+        void snapOffIsTheValueItself() {
+            assertEquals(37.4182, BookGeometry.snap(37.4182, 8, false),
+                    "the switch off is free placement, exactly as the pointer left it");
+            assertEquals(37.4182, BookGeometry.snap(37.4182, 0, true), "a zero grid cannot divide");
+            assertEquals(37.4182, BookGeometry.snap(37.4182, -8, true), "and neither can a negative one");
+        }
+
+        @Test
+        @DisplayName("re-snapping an already-snapped coordinate is the same coordinate")
+        void snapIsIdempotent() {
+            // A held drag re-derives the follow position on every mouse move, so a snap that was not
+            // idempotent would let a resting node drift under a still pointer.
+            for (double x = -40; x <= 40; x += 0.5) {
+                double once = BookGeometry.snap(x, BookGeometry.SNAP_GRID, true);
+                assertEquals(once, BookGeometry.snap(once, BookGeometry.SNAP_GRID, true),
+                        "snapping twice moved the node, at " + x);
+            }
+        }
+
         @Test
         @DisplayName("two rectangles sharing only an edge do not count as overlapping")
         void touchingIsNotOverlapping() {

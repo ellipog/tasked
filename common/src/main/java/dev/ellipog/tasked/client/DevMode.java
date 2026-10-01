@@ -36,8 +36,9 @@ import java.nio.file.Path;
  * <p>{@code config/tasked/client.json}, a client preference beside Armature's own
  * {@code appearance.json}, and the same tolerance in the same places: a missing file is a first run and
  * is worth no words at all, and a file that exists and cannot be read is worth one that says where it
- * is. The flag defaults to off, because a mode that changes what a screen shows should never be on
- * because a file was unreadable.
+ * is. The mode flag defaults to off, because a mode that changes what a screen shows should never be on
+ * because a file was unreadable. Beside it rides the editor's snap switch, which defaults to on: it
+ * changes where a dragged node lands, not what the screen is, and the tidy direction is the safe one.
  */
 public final class DevMode {
 
@@ -45,7 +46,20 @@ public final class DevMode {
     public static final String FILE_NAME = "client.json";
 
     private static boolean on;
+    private static boolean snap = true;
     private static Path file;
+
+    /**
+     * What one file says, as two flags.
+     *
+     * <p>A record rather than two parses of one file: {@code load} reads once and takes both answers
+     * from the same tree, so the two fields cannot disagree about what was on disk.
+     *
+     * @param dev  whether tools may be drawn
+     * @param snap whether a dragged node lands on the grid; a file that does not say says yes
+     */
+    public record Parsed(boolean dev, boolean snap) {
+    }
 
     private DevMode() {
     }
@@ -65,6 +79,25 @@ public final class DevMode {
     public static boolean toggle() {
         setOn(!on);
         return on;
+    }
+
+    // ------------------------------------------------------------------
+    // The editor's grid switch
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether the editor snaps a moved node to {@link BookGeometry#SNAP_GRID}. On by default, because
+     * the grid is what keeps a dragged position a number an author would have typed; Alt asks for the
+     * one free placement and does not need a setting flipped to get it.
+     */
+    public static boolean snap() {
+        return snap;
+    }
+
+    /** Turns the grid on or off and writes the choice. */
+    public static void setSnap(boolean next) {
+        snap = next;
+        save();
     }
 
     // ------------------------------------------------------------------
@@ -99,10 +132,13 @@ public final class DevMode {
     public static void load(Path path) {
         file = path;
         on = false;
+        snap = true;
 
         if (Files.isRegularFile(path)) {
             try {
-                on = read(Files.readString(path, StandardCharsets.UTF_8));
+                Parsed read = parse(Files.readString(path, StandardCharsets.UTF_8));
+                on = read.dev();
+                snap = read.snap();
             }
             catch (IOException | RuntimeException e) {
                 Constants.LOG.warn("tasked: {} could not be read, so developer mode is off. Deleting the"
@@ -112,23 +148,33 @@ public final class DevMode {
     }
 
     /**
-     * Parses the file's text.
+     * Parses the file's text into both flags.
      *
      * <p>Tolerant rather than strict, and for a stronger reason than Appearance's: this file is a
      * developer's, so it will be hand-edited, and a typo in it should cost a mode that stays off rather
-     * than a client that will not start. An unknown field is ignored; a missing one takes its default.
+     * than a client that will not start. An unknown field is ignored; a missing one takes its default —
+     * which for {@code snap} is on, so a file written before the grid existed reads as the tidy
+     * behaviour it was already getting from the whole-unit rounding.
      *
      * @throws com.google.gson.JsonSyntaxException if the text is not JSON at all; {@link #load} catches it
      */
-    public static boolean read(String json) {
+    public static Parsed parse(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        return root.has("dev") && root.get("dev").getAsBoolean();
+        return new Parsed(
+                root.has("dev") && root.get("dev").getAsBoolean(),
+                !root.has("snap") || root.get("snap").getAsBoolean());
     }
 
-    /** Writes the setting. Answer given rather than the default so a test can assert the format. */
-    public static String write(boolean value) {
+    /** Whether the mode flag alone is set. See {@link #parse} for both. */
+    public static boolean read(String json) {
+        return parse(json).dev();
+    }
+
+    /** Writes the file. Answer given rather than the default so a test can assert the format. */
+    public static String write(boolean dev, boolean snap) {
         JsonObject root = new JsonObject();
-        root.addProperty("dev", value);
+        root.addProperty("dev", dev);
+        root.addProperty("snap", snap);
         return root.toString();
     }
 
@@ -142,9 +188,10 @@ public final class DevMode {
         return file;
     }
 
-    /** Forgets the setting and the file. For a test, and for a client leaving a world it never owned. */
+    /** Forgets the settings and the file. For a test, and for a client leaving a world it never owned. */
     public static void reset() {
         on = false;
+        snap = true;
         file = null;
     }
 
@@ -158,7 +205,7 @@ public final class DevMode {
             if (file.getParent() != null) {
                 Files.createDirectories(file.getParent());
             }
-            Files.writeString(file, write(on), StandardCharsets.UTF_8);
+            Files.writeString(file, write(on, snap), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: developer mode could not be written to {}", file, e);

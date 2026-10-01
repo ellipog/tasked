@@ -12,6 +12,8 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Every reward type Tasked knows about.
@@ -24,7 +26,7 @@ public final class RewardTypes {
 
     /** A registered type: what reads it, how it is granted, and what represents it. */
     private record Entry(TypeSpec<QuestReward> spec, RewardBehaviour<QuestReward> behaviour, ItemRef icon,
-                         java.util.function.Function<QuestReward, RewardDisplay> display) {
+                         Function<QuestReward, RewardDisplay> display, Supplier<QuestReward> defaults) {
     }
 
     private static final SimpleRegistry<Entry> REGISTRY = SimpleRegistry.create("quest reward types");
@@ -32,12 +34,14 @@ public final class RewardTypes {
     /** {@code tasked:item} — some items. */
     public static final QuestRewardType<ItemReward> ITEM = register(
             "item", ItemReward.MAP_CODEC, ItemReward.FIELDS, ItemReward.BEHAVIOUR,
-            new ItemRef(ResourceLocation.withDefaultNamespace("diamond"), 1), ItemReward.DISPLAY);
+            new ItemRef(ResourceLocation.withDefaultNamespace("diamond"), 1), ItemReward.DISPLAY,
+            () -> new ItemReward(new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1)));
 
     /** {@code tasked:xp} — experience points or levels. */
     public static final QuestRewardType<XpReward> XP = register(
             "xp", XpReward.MAP_CODEC, XpReward.FIELDS, XpReward.BEHAVIOUR,
-            new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpReward.DISPLAY);
+            new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpReward.DISPLAY,
+            () -> new XpReward(1, false));
 
     private RewardTypes() {
     }
@@ -57,9 +61,10 @@ public final class RewardTypes {
                                                                       Set<String> fields,
                                                                       RewardBehaviour<T> behaviour,
                                                                       ItemRef icon,
-                                                                      java.util.function.Function<T, RewardDisplay> display) {
+                                                                      Function<T, RewardDisplay> display,
+                                                                      Supplier<T> defaults) {
         return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, behaviour,
-                icon, display);
+                icon, display, defaults);
     }
 
     public static <T extends QuestReward> QuestRewardType<T> register(ResourceLocation id,
@@ -67,10 +72,26 @@ public final class RewardTypes {
                                                                       Set<String> fields,
                                                                       RewardBehaviour<T> behaviour,
                                                                       ItemRef icon,
-                                                                      java.util.function.Function<T, RewardDisplay> display) {
-        QuestRewardType<T> typed = new SimpleQuestRewardType<>(id, codec, fields, behaviour, icon, display);
-        REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon, widenDisplay(display)));
+                                                                      Function<T, RewardDisplay> display,
+                                                                      Supplier<T> defaults) {
+        QuestRewardType<T> typed = new SimpleQuestRewardType<>(id, codec, fields, behaviour, icon, display,
+                defaults);
+        REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon,
+                widenDisplay(display), () -> defaults.get()));
         return typed;
+    }
+
+    /**
+     * A fresh instance of a registered type, encoded as the tree a quest file stores. See
+     * {@link dev.ellipog.tasked.quest.task.TaskTypes#defaultTree} for the whole of the argument.
+     */
+    public static Optional<com.google.gson.JsonObject> defaultTree(ResourceLocation id) {
+        return REGISTRY.get(id).flatMap(entry -> Dispatch.CODEC
+                // Through the dispatch codec: it is what writes the "type" field -- see TaskTypes.
+                .encodeStart(com.mojang.serialization.JsonOps.INSTANCE, entry.defaults().get())
+                .result()
+                .filter(com.google.gson.JsonElement::isJsonObject)
+                .map(com.google.gson.JsonElement::getAsJsonObject));
     }
 
     /**
@@ -142,12 +163,18 @@ public final class RewardTypes {
 
     private record SimpleQuestRewardType<T extends QuestReward>(
             ResourceLocation id, MapCodec<T> codec, Set<String> fields,
-            RewardBehaviour<T> behaviour, ItemRef icon, java.util.function.Function<T, RewardDisplay> display
+            RewardBehaviour<T> behaviour, ItemRef icon, Function<T, RewardDisplay> display,
+            Supplier<T> defaultsSupplier
     ) implements QuestRewardType<T> {
 
         @Override
         public RewardDisplay display(T reward) {
             return display.apply(reward);
+        }
+
+        @Override
+        public T defaults() {
+            return defaultsSupplier.get();
         }
     }
 }

@@ -7,6 +7,7 @@ import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureScreens;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
@@ -85,6 +86,7 @@ public final class TaskedFabricClient implements ClientModInitializer {
         // until the cap in SyncWire.Reassembler evicted them.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientQuestCache.clear();
+            ClientChapterReplica.clear();
             TaskedNetworking.forgetTransfers();
         });
 

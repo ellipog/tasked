@@ -46,9 +46,12 @@ public final class ToolsPanel {
     }
 
     /**
-     * What the panel is showing: the selected colour, the last thing that happened, and whether the hex
-     * field is on the band.
+     * What the theme panel is showing: the selected colour, the last thing that happened, and whether
+     * the hex field is on the band.
      *
+     * @param selected the colour token being edited, or null
+     * @param feedback the panel's one-line status, or null for none
+     * @param feedbackIsError whether that status is bad news
      * @param hexEditable true when a colour is selected, so the band leaves room for the field instead of
      *     drawing the value as text -- one place showing the number, and it is the one you can type into
      */
@@ -58,23 +61,23 @@ public final class ToolsPanel {
     /**
      * Draws everything that is not a widget.
      *
-     * <p>The switches' buttons, the colour rows, the channel steppers and Revert/Save are widgets and are
-     * drawn by the widget pass — this draws the panel they sit on, their labels, and the colour that a
-     * widget cannot draw.
+     * <p>The tabs, the switches' buttons, the colour rows, the channel steppers and Revert/Save are
+     * widgets and are drawn by the widget pass — this draws the panel they sit on, their labels, and the
+     * colour that a widget cannot draw. The tab strip replaced the title row, so the panel's own name is
+     * nowhere: the tabs <i>are</i> the top row, and two of them name the two panels the dock holds.
      */
     public static void draw(GuiRenderer r, ToolsLayout.Frame frame, Viewport list, Layout layout,
                             List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY) {
         ArmatureTheme.panel(r, frame.panel().x(), frame.panel().y(), frame.panel().width(),
                 frame.panel().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
-        r.text("Tools", frame.title().x(), frame.title().y() + 2, ArmatureTheme.title());
         if (state.feedback() != null && !state.feedback().isEmpty()) {
             r.text(Measure.truncate(state.feedback(), frame.feedback().width(), textMeasure(r)),
                     frame.feedback().x(), frame.feedback().y(),
                     state.feedbackIsError() ? ArmatureTheme.blocked() : ArmatureTheme.faint());
         }
 
-        drawPreview(r, frame.preview(), state.selected());
+        drawPreview(r, frame.preview(), state.selected(), mouseX, mouseY);
 
         Measure measure = textMeasure(r);
         BookGeometry.Rect listRect = frame.list();
@@ -85,18 +88,22 @@ public final class ToolsPanel {
                 if (slot == null) {
                     continue;
                 }
-                Slot onScreen = onScreen(list, slot);
-                if (row.isHeading()) {
-                    drawHeading(r, row, slot, onScreen, measure);
-                }
-                else if (row.isControl()) {
-                    drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
-                }
-                else {
-                    // A switch's label. Its button is a widget, in the strip the row reserved.
-                    r.text(Measure.truncate(row.label(),
-                                    Math.max(0, slot.width() - ToolsLayout.STRIP_WIDTH - 8), measure),
-                            onScreen.x() + 2, textY(slot, onScreen, r), ArmatureTheme.body());
+                Slot onScreen = ToolsLayout.onScreen(list, slot);
+                // A switch on the kind rather than a chain of `isControl()` tests, and exhaustive on purpose:
+                // the radius row used to fall through this to the *switch label* branch below, because its
+                // kind is STEPPER and the middle test asked `kind == ROW`. The row then drew its label and
+                // nothing else -- no arrows, no number -- while the click path, which reads the kind not at
+                // all, worked fine: *"i can click them but not see them"*. A switch over the enum means the
+                // next kind added cannot quietly become a label.
+                switch (row.kind()) {
+                    case HEADING -> drawHeading(r, row, slot, onScreen, measure);
+                    case ROW -> drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
+                    case STEPPER -> drawStepper(r, row, slot, onScreen, measure, mouseX, mouseY);
+                    case SWITCH -> drawSwitchLabel(r, row, slot, onScreen, measure);
+                    // Loud rather than quiet, because quiet is what happened: the radius row fell through
+                    // this dispatch into the label branch and drew as a label with no controls, and nothing
+                    // anywhere said so. A new kind now fails the first time it is drawn instead.
+                    default -> throw new IllegalStateException("no drawing for row kind " + row.kind());
                 }
             }
         }
@@ -136,20 +143,6 @@ public final class ToolsPanel {
         String token = ToolsLayout.tokenId(row.key());
         boolean hovered = onScreen.contains(mouseX, mouseY);
 
-        if (ToolsLayout.RADIUS.equals(row.key())) {
-            // The shape's row: the number sits between its own two arrows, which are widgets. An override
-            // is said with the number's colour rather than a marker -- bright when it is the player's, faint
-            // when it is still the theme's -- so nothing has to explain an asterisk.
-            BookGeometry.Rect rowBox = BookGeometry.Rect.at(onScreen.x(), onScreen.y(), slot.width(),
-                    slot.height());
-            Slot between = ToolsLayout.stepperValue(new Slot(row.key(), rowBox.x(), rowBox.y(),
-                    rowBox.width(), rowBox.height()));
-            String number = String.valueOf(ClientAppearance.LOOK.radius());
-            r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
-                    textY(slot, onScreen, r),
-                    ClientAppearance.LOOK.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
-            return;
-        }
 
         if (token != null) {
             int argb = ClientAppearance.LOOK.main().colour(token);
@@ -174,6 +167,82 @@ public final class ToolsPanel {
     // ------------------------------------------------------------------
     // The band
     // ------------------------------------------------------------------
+
+    /**
+     * One of the radius row's two arrows: a raised box with a minus or a plus in it.
+     *
+     * <p>Drawn rather than a widget, because the list places one widget per row and this row already has
+     * one — see the note at the call site. Brighter under the pointer, because a control nobody can see is a
+     * control not pressed, and this pair has already been invisible once. Drawn through
+     * {@code ArmatureTheme.panel} so it rounds with the theme like every other surface, which matters more
+     * here than anywhere: this is the control that sets that radius.
+     */
+    private static void arrow(GuiRenderer r, Slot slot, String way, int mouseX, int mouseY) {
+        boolean hovered = slot.contains(mouseX, mouseY);
+        int face = hovered ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)
+                : ArmatureTheme.raised();
+        ArmatureTheme.panel(r, slot.x(), slot.y(), slot.width(), slot.height(), face,
+                ArmatureTheme.panelEdge());
+        String glyph = way.equals("down") ? "\u2212" : "+";
+        r.text(glyph, slot.x() + (slot.width() - r.textWidth(glyph)) / 2 + GLYPH_NUDGE_X,
+                slot.y() + (slot.height() - r.lineHeight()) / 2 + GLYPH_NUDGE_Y,
+                hovered ? ArmatureTheme.title() : ArmatureTheme.body());
+    }
+
+    /**
+     * Where a glyph actually sits inside a small box, as opposed to where centring it puts it.
+     *
+     * <p>Measured from a screenshot rather than derived, and stated as the report gave it: *"plus and minus
+     * not centered inside buttons, move one pixel to right and 2 down"*. Centring a glyph means centring its
+     * <i>box</i>, and a font's box carries its descender space — so `+` and `−`, which have neither a
+     * descender nor much of an ascent, land high and left of the eye's centre. The two offsets are here
+     * rather than inline so the next control that draws its own glyph can start from this answer instead of
+     * measuring it again.
+     */
+    private static final int GLYPH_NUDGE_X = 1;
+    private static final int GLYPH_NUDGE_Y = 2;
+
+    /** A switch's label. Its button is a widget, in the strip the row reserved. */
+    private static void drawSwitchLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                        Measure measure) {
+        r.text(Measure.truncate(row.label(),
+                        Math.max(0, slot.width() - ToolsLayout.STRIP_WIDTH - 8), measure),
+                onScreen.x() + 2, textY(slot, onScreen, r), ArmatureTheme.body());
+    }
+
+    /**
+     * The shape's row: its name, two arrows, and the number between them.
+     *
+     * <h2>Why the whole row is drawn here, label included</h2>
+     *
+     * <p>Because a widget for the label would sit over the arrows and take their presses — the widget pass
+     * runs before the screen's own click handling — so the row has no widget at all and every pixel of it
+     * comes from this method and the one test that reads the kind.
+     *
+     * <p>The arrows come from {@link ToolsLayout#stepper} of the row as placed on screen, which is the same
+     * call the press is tested with ({@code ToolsLayout.radiusStepAt}): one derivation, so what is drawn is
+     * what is pressed. An override is said with the number's colour rather than a marker — bright when it is
+     * the player's, faint when it is still the theme's — so nothing has to explain an asterisk.
+     */
+    private static void drawStepper(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                    Measure measure, int mouseX, int mouseY) {
+        Slot joined = new Slot(row.key(), onScreen.x(), onScreen.y(), slot.width(), slot.height());
+        Map<String, Slot> arrows = ToolsLayout.stepper(joined);
+        Slot between = ToolsLayout.stepperValue(joined);
+
+        // The label gets the room left of the first arrow, so it can never run under one.
+        int room = Math.max(0, arrows.get("down").x() - onScreen.x() - 6);
+        r.text(Measure.truncate(row.label(), room, measure), onScreen.x() + 2, textY(slot, onScreen, r),
+                ArmatureTheme.body());
+
+        for (String way : List.of("down", "up")) {
+            arrow(r, arrows.get(way), way, mouseX, mouseY);
+        }
+        String number = String.valueOf(ClientAppearance.LOOK.radius());
+        r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
+                textY(slot, onScreen, r) + GLYPH_NUDGE_Y,
+                ClientAppearance.LOOK.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
+    }
 
     /** The selected colour, its channels with their numbers, and the two actions. */
     private static void drawBand(GuiRenderer r, ToolsLayout.Frame frame, State state, Measure measure) {
@@ -256,7 +325,8 @@ public final class ToolsPanel {
     // ------------------------------------------------------------------
 
     /** The sample, drawn from the parts the layout computed. */
-    private static void drawPreview(GuiRenderer r, BookGeometry.Rect preview, String selected) {
+    private static void drawPreview(GuiRenderer r, BookGeometry.Rect preview, String selected, int mouseX,
+                                    int mouseY) {
         ToolsLayout.Preview sample = ToolsLayout.previewParts(preview);
         int w = preview.width();
         int h = preview.height();
@@ -281,15 +351,15 @@ public final class ToolsPanel {
                 sample.raised().height(), ArmatureTheme.raised(), ArmatureTheme.CORNERS_TOP);
         r.fill(sample.track().x(), sample.track().y(), sample.track().right(), sample.track().bottom(),
                 ArmatureTheme.scrollTrack());
-        r.fill(sample.track().x(), sample.track().y(), sample.track().right(),
-                sample.track().y() + Math.max(3, sample.track().height() / 3),
+        r.fill(sample.thumb().x(), sample.thumb().y(), sample.thumb().right(), sample.thumb().bottom(),
                 ArmatureTheme.scrollThumb());
 
         int textX = sample.text().x();
         int textY = sample.text().y();
         r.text("Title", textX, textY, ArmatureTheme.title());
-        r.text("Body", textX, textY + 10, ArmatureTheme.body());
-        r.text("faint", textX + r.textWidth("Body") + 5, textY + 10, ArmatureTheme.faint());
+        r.text("Body", textX, textY + ToolsLayout.LINE_PITCH, ArmatureTheme.body());
+        r.text("faint", textX + r.textWidth("Body") + 5, textY + ToolsLayout.LINE_PITCH,
+                ArmatureTheme.faint());
 
         ArmatureTheme.fillSurface(r, sample.row().x(), sample.row().y(), sample.row().width(),
                 sample.row().height(), Colour.translucent(ArmatureTheme.rowHover(), 0.5F),
@@ -314,7 +384,15 @@ public final class ToolsPanel {
 
         BookGeometry.Rect region = regionOf(selected, sample);
         if (region != null) {
-            ring(r, region);
+            ring(r, region, ArmatureTheme.selectedRing());
+        }
+
+        // And what the pointer would choose, before it is pressed: the same test the click makes, so the
+        // sample says which part is under the cursor by pointing back. Drawn under the selection's ring so a
+        // part that is both hovered and selected reads as selected.
+        ToolsLayout.Hotspot hot = ToolsLayout.hotspotAt(preview, mouseX, mouseY);
+        if (hot != null) {
+            ring(r, hot.rect(), Colour.alphaOf(ArmatureTheme.title(), 0.35F));
         }
     }
 
@@ -361,8 +439,7 @@ public final class ToolsPanel {
     }
 
     /** A one-pixel ring that follows a rectangle, drawn just outside it. */
-    private static void ring(GuiRenderer r, BookGeometry.Rect rect) {
-        int colour = ArmatureTheme.selectedRing();
+    private static void ring(GuiRenderer r, BookGeometry.Rect rect, int colour) {
         r.fill(rect.x() - 1, rect.y() - 1, rect.right() + 1, rect.y(), colour);
         r.fill(rect.x() - 1, rect.bottom(), rect.right() + 1, rect.bottom() + 1, colour);
         r.fill(rect.x() - 1, rect.y(), rect.x(), rect.bottom(), colour);
@@ -372,11 +449,6 @@ public final class ToolsPanel {
     // ------------------------------------------------------------------
     // Small helpers
     // ------------------------------------------------------------------
-
-    private static Slot onScreen(Viewport view, Slot slot) {
-        return new Slot(slot.key(), view.screenX(slot.x()), view.screenY(slot.y()),
-                slot.width(), slot.height());
-    }
 
     private static int textY(Slot slot, Slot onScreen, GuiRenderer r) {
         return onScreen.y() + (slot.height() - r.lineHeight()) / 2;

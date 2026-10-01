@@ -68,10 +68,10 @@ public final class SidebarLayout {
     public static final String CHAPTER_PREFIX = "chapter:";
 
     /** Drawn before a heading whose chapters are showing. */
-    public static final String OPEN_MARKER = "\u25be ";
+    public static final String OPEN_MARKER = "\u25bc ";
 
     /** Drawn before a heading whose chapters are hidden. */
-    public static final String CLOSED_MARKER = "\u25b8 ";
+    public static final String CLOSED_MARKER = "\u203a ";
 
     /**
      * A measure that is never asked anything.

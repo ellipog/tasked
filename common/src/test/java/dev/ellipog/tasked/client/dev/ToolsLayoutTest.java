@@ -4,6 +4,7 @@ import dev.ellipog.armature.client.ui.ThemeToken;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
+import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +37,7 @@ class ToolsLayoutTest {
     private static final Measure MEASURE = Measure.monospace(6, 9);
 
     private static List<ToolsLayout.Action> open() {
-        return ToolsLayout.rows(true, true, true);
+        return ToolsLayout.rows(true, true, true, true);
     }
 
     // ------------------------------------------------------------------
@@ -73,7 +74,7 @@ class ToolsLayoutTest {
     @DisplayName("the colour section folds, and a folded one keeps nothing but its heading")
     void sectionsFold() {
         List<ToolsLayout.Action> openRows = open();
-        List<ToolsLayout.Action> folded = ToolsLayout.rows(true, false, false);
+        List<ToolsLayout.Action> folded = ToolsLayout.rows(true, false, true, false);
 
         assertEquals(0, folded.stream().filter(row -> ToolsLayout.tokenId(row.key()) != null).count(),
                 "a folded colour section has no colours");
@@ -81,6 +82,7 @@ class ToolsLayoutTest {
             // The switches, the shape's one row, and headings -- and *no* colour, which is the assertion
             // that matters: folding the section puts its forty-one rows away and nothing else.
             assertTrue(row.key().equals(ToolsLayout.EDIT) || row.key().equals(ToolsLayout.MOTION)
+                            || row.key().equals(ToolsLayout.SNAP)
                             || row.key().equals(ToolsLayout.RADIUS) || row.isHeading(),
                     () -> "a folded panel kept a row it should not have: " + row.key());
         }
@@ -98,17 +100,33 @@ class ToolsLayoutTest {
 
         ToolsLayout.Action section = rows.stream()
                 .filter(row -> row.key().equals(ToolsLayout.COLOUR_SECTION)).findFirst().orElseThrow();
-        assertTrue(section.label().startsWith("\u25be"), "an open section points down");
-        assertTrue(ToolsLayout.rows(true, true, false).stream()
+        assertTrue(section.label().startsWith("\u25bc"), "an open section points down");
+        assertTrue(ToolsLayout.rows(true, true, true, false).stream()
                         .filter(row -> row.key().equals(ToolsLayout.COLOUR_SECTION)).findFirst().orElseThrow()
-                        .label().startsWith("\u25b8"), "a folded one points sideways");
+                        .label().startsWith("\u203a"), "a folded one points sideways");
 
         ToolsLayout.Action edit = rows.stream()
                 .filter(row -> row.key().equals(ToolsLayout.EDIT)).findFirst().orElseThrow();
         assertTrue(edit.hasButton());
         assertEquals("On", edit.buttonLabel(), "the button says what pressing it will do");
-        assertEquals("Off", ToolsLayout.rows(false, false, true).stream()
+        assertEquals("Off", ToolsLayout.rows(false, false, true, true).stream()
                 .filter(row -> row.key().equals(ToolsLayout.EDIT)).findFirst().orElseThrow().buttonLabel());
+
+        // The third switch, beside the other two: the grid an editor's drag lands on, with Alt as the
+        // bypass. Its label is the state like the others', and it is always in the panel.
+        ToolsLayout.Action snap = rows.stream()
+                .filter(row -> row.key().equals(ToolsLayout.SNAP)).findFirst().orElseThrow();
+        assertTrue(snap.hasButton(), "the snap switch is a switch, not a label");
+        assertEquals("On", snap.buttonLabel());
+        assertEquals("Off", ToolsLayout.rows(true, true, false, true).stream()
+                .filter(row -> row.key().equals(ToolsLayout.SNAP)).findFirst().orElseThrow().buttonLabel());
+        List<String> switchOrder = rows.stream()
+                .filter(ToolsLayout.Action::hasButton)
+                .map(ToolsLayout.Action::key)
+                .filter(key -> !key.equals(ToolsLayout.SAVE) && !key.equals(ToolsLayout.REVERT))
+                .toList();
+        assertEquals(List.of(ToolsLayout.EDIT, ToolsLayout.MOTION, ToolsLayout.SNAP), switchOrder,
+                "the three switches sit together, in that order");
 
         assertTrue(rows.stream().noneMatch(row -> row.key().startsWith("theme:")),
                 "no palette list: a theme is a set of colours, and the colours are the section");
@@ -119,7 +137,7 @@ class ToolsLayoutTest {
     void theListIsPlaced() {
         for (boolean themes : new boolean[] {true, false}) {
             for (boolean colours : new boolean[] {true, false}) {
-                List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true);
+                List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true, true);
                 Layout layout = ToolsLayout.build(rows, 288, MEASURE);
 
                 List<Slot> slots = layout.slots();
@@ -143,7 +161,7 @@ class ToolsLayoutTest {
     void switchButtonsSitInTheirRows() {
         Layout layout = ToolsLayout.build(open(), 288, MEASURE);
 
-        for (String key : List.of(ToolsLayout.EDIT, ToolsLayout.MOTION)) {
+        for (String key : List.of(ToolsLayout.EDIT, ToolsLayout.MOTION, ToolsLayout.SNAP)) {
             Slot row = layout.slot(key);
             assertNotNull(row);
             Slot strip = ToolsLayout.strip(row);
@@ -162,6 +180,62 @@ class ToolsLayoutTest {
     // ------------------------------------------------------------------
 
     @Test
+    @DisplayName("the tab strip holds two peer tabs that tile the band the title used to")
+    void theTabsTileTheirBand() {
+        for (int width : List.of(288, 200, 180, 120, 60)) {
+            BookGeometry.Rect canvas = BookGeometry.Rect.at(10, 40, width, 400);
+            ToolsLayout.Frame frame = ToolsLayout.frame(canvas);
+            BookGeometry.Rect tabs = frame.tabs();
+            BookGeometry.Rect theme = ToolsLayout.tabTheme(tabs);
+            BookGeometry.Rect quest = ToolsLayout.tabQuest(tabs);
+            String at = " at a " + width + "-wide canvas";
+
+            assertEquals(ToolsLayout.TAB_HEIGHT, tabs.height(), "the strip's height" + at);
+            assertEquals(tabs.width(), theme.width() + ToolsLayout.GAP + quest.width(),
+                    "the two tabs and their gap fill the strip" + at);
+            assertTrue(theme.right() <= quest.x(), "the tabs overlap" + at);
+            assertEquals(theme.height(), quest.height(), "the tabs are peers, not a heading and a label" + at);
+
+            // And both are buttons, not labels: the tab strip is pressable, which is what replaced a
+            // title nobody could press.
+            assertTrue(theme.width() > 0 && quest.width() > 0, "a tab with no room to press" + at);
+        }
+    }
+
+    @Test
+    @DisplayName("the quest tab takes the bands' room for its list, and holds nothing in them")
+    void theChapterFrameGivesTheListTheColumn() {
+        BookGeometry.Rect canvas = BookGeometry.Rect.at(10, 40, 800, 500);
+        ToolsLayout.Frame quest = ToolsLayout.frame(canvas, ToolsLayout.Tab.CHAPTER);
+        ToolsLayout.Frame theme = ToolsLayout.frame(canvas, ToolsLayout.Tab.THEME);
+
+        assertEquals(theme.panel(), quest.panel(), "one dock, whatever the tab");
+        assertEquals(theme.tabs(), quest.tabs(), "and one strip in it");
+        assertTrue(theme.list().height() < quest.list().height(),
+                "the quest panel's sections are a wall by design, and get the bands' room");
+        assertEquals(theme.panel().bottom() - ToolsLayout.GAP, quest.list().bottom(),
+                "the list runs to the panel's floor");
+
+        // The bands a quest panel does not use are empty rather than absent, so a caller that asks is
+        // told "nothing here" instead of being handed a null to test at every use.
+        for (BookGeometry.Rect band : List.of(quest.preview(), quest.swatch(), quest.channels(),
+                quest.actions())) {
+            assertEquals(0, band.width(), "an unused band holds nothing");
+            assertEquals(0, band.height(), () -> "an unused band holds nothing: " + band);
+            assertTrue(band.x() >= quest.panel().x() && band.right() <= quest.panel().right()
+                            && band.y() >= quest.panel().y() && band.bottom() <= quest.panel().bottom(),
+                    () -> "an unused band is still inside the panel: " + band);
+        }
+
+        // And the same at a canvas too small for the chrome, where the clamp has to keep every band
+        // inside the panel rather than letting one go past the floor.
+        ToolsLayout.Frame tiny = ToolsLayout.frame(BookGeometry.Rect.at(0, 0, 120, 60),
+                ToolsLayout.Tab.CHAPTER);
+        assertTrue(tiny.list().y() >= tiny.panel().y() && tiny.list().bottom() <= tiny.panel().bottom(),
+                "a tiny canvas still keeps the list inside the panel");
+    }
+
+    @Test
     @DisplayName("the bands are inside the panel and never overlap, at any window")
     void theBandsStack() {
         for (int[] canvas : new int[][] {{600, 260}, {200, 120}, {1200, 700}, {80, 60}}) {
@@ -170,7 +244,7 @@ class ToolsLayoutTest {
             String at = " at a " + canvas[0] + "x" + canvas[1] + " canvas";
 
             BookGeometry.Rect panel = frame.panel();
-            List<BookGeometry.Rect> bands = List.of(frame.title(), frame.feedback(), frame.preview(),
+            List<BookGeometry.Rect> bands = List.of(frame.tabs(), frame.feedback(), frame.preview(),
                     frame.list(), frame.swatch(), frame.channels(), frame.actions(),
                     ToolsLayout.revert(frame.actions()), ToolsLayout.save(frame.actions()));
 
@@ -250,11 +324,12 @@ class ToolsLayoutTest {
                 assertTrue(inside(part, preview), () -> "a part left the preview" + at + ": " + part);
             }
             for (BookGeometry.Rect part : List.of(parts.raised(), parts.text(), parts.track(), parts.row(),
-                    parts.button())) {
+                    parts.button(), parts.thumb())) {
                 assertTrue(inside(part, parts.card()),
                         () -> "a part left the card" + at + ": " + part + " in " + parts.card());
             }
             assertTrue(inside(parts.item(), parts.row()), () -> "the item left its row" + at);
+            assertTrue(inside(parts.thumb(), parts.track()), () -> "the grip left its track" + at);
 
             // And nothing stands on a border, which is what the screenshot showed: a button and a
             // scrollbar drawn over the card's own edge, and a reward row running past it.
@@ -283,7 +358,161 @@ class ToolsLayoutTest {
         assertEquals(0x40, ToolsPanel.channelValue(argb, "R"));
         assertEquals(0x20, ToolsPanel.channelValue(argb, "G"));
         assertEquals(0x10, ToolsPanel.channelValue(argb, "B"));
-        assertFalse(ToolsLayout.rows(true, true, true).isEmpty(),
+        assertFalse(ToolsLayout.rows(true, true, true, true).isEmpty(),
                 "the switches are always there, whatever else is folded");
+    }
+
+    // ------------------------------------------------------------------
+    // Where the radius row is pressed
+    // ------------------------------------------------------------------
+
+    /**
+     * The list's coordinates to the screen's, checked against the viewport's own documented meaning rather
+     * than against the method itself.
+     *
+     * <p>This is the fault that made the arrows invisible: a row's slot is in the <i>list's</i> space, and a
+     * caller that used it as a screen rectangle placed the controls outside the panel. So the expectation
+     * below is written out by hand — the view's left and top, plus the content position, minus the scroll —
+     * and never obtained by calling the thing under test, which would agree with a mapping that put the row
+     * anywhere at all.
+     */
+    @Test
+    @DisplayName("a row's slot is put where the viewport says it is, scroll and all")
+    void rowsMapThroughTheViewport() {
+        Layout layout = ToolsLayout.build(open(), 200, MEASURE);
+        Slot row = layout.slot(ToolsLayout.RADIUS);
+
+        Viewport view = Viewport.fixed().bounds(40, 60, 200, 120);
+        Slot mapped = ToolsLayout.onScreen(view, row);
+        assertEquals(40 + row.x(), mapped.x());
+        assertEquals(60 + row.y(), mapped.y());
+        assertEquals(row.width(), mapped.width());
+        assertEquals(row.height(), mapped.height());
+
+        // And it follows the list: the same row, scrolled up by thirty, is thirty pixels higher.
+        view.setOffset(0, -30);
+        Slot scrolled = ToolsLayout.onScreen(view, row);
+        assertEquals(40 + row.x(), scrolled.x());
+        assertEquals(60 + row.y() - 30, scrolled.y());
+    }
+
+    @Test
+    @DisplayName("a press on either arrow steps the radius, and a press between them does not")
+    void theArrowsArePressedWhereTheyAreDrawn() {
+        Layout layout = ToolsLayout.build(open(), 200, MEASURE);
+        Slot row = layout.slot(ToolsLayout.RADIUS);
+        Viewport view = Viewport.fixed().bounds(40, 60, 200, 120);
+
+        Slot down = ToolsLayout.stepper(row).get("down");
+        Slot up = ToolsLayout.stepper(row).get("up");
+        Slot value = ToolsLayout.stepperValue(row);
+        int midY = 60 + row.y() + row.height() / 2;
+        int onDown = 40 + down.x() + down.width() / 2;
+        int onUp = 40 + up.x() + up.width() / 2;
+
+        assertEquals(Integer.valueOf(-1), ToolsLayout.radiusStepAt(view, row, onDown, midY));
+        assertEquals(Integer.valueOf(1), ToolsLayout.radiusStepAt(view, row, onUp, midY));
+        assertNull(ToolsLayout.radiusStepAt(view, row, 40 + value.x() + value.width() / 2, midY),
+                "the number's own slot is not a button");
+
+        // The hit test moves with the list, because the viewport does.
+        view.setOffset(0, -30);
+        assertEquals(Integer.valueOf(-1), ToolsLayout.radiusStepAt(view, row, onDown, midY - 30));
+        assertNull(ToolsLayout.radiusStepAt(view, row, onDown, midY),
+                "a point that is no longer on the row steps nothing");
+    }
+
+    @Test
+    @DisplayName("the arrows the panel draws from the placed row are where a hand-mapped arrow lands")
+    void theDrawingAndTheHittingAreOneDerivation() {
+        // The panel draws the arrows as `stepper` of the row rectangle it was given, and the hit test asks
+        // the same question of the same rectangle. This pins that against arithmetic done by hand, which is
+        // what the fault was: an arrow drawn from the row's *content* rectangle lands outside the panel.
+        Layout layout = ToolsLayout.build(open(), 200, MEASURE);
+        Slot row = layout.slot(ToolsLayout.RADIUS);
+        Viewport view = Viewport.fixed().bounds(40, 60, 200, 120);
+        view.setOffset(0, -30);
+
+        Slot placed = ToolsLayout.onScreen(view, row);
+        Slot arrow = ToolsLayout.stepper(placed).get("up");
+        Slot byHand = ToolsLayout.stepper(row).get("up");
+
+        assertEquals(40 + byHand.x(), arrow.x());
+        assertEquals(60 + byHand.y() - 30, arrow.y());
+        assertTrue(ToolsLayout.radiusStepAt(view, row, arrow.x() + 1, arrow.y() + 1) == 1,
+                "and the point the panel draws it at is the point that presses it");
+    }
+
+    // ------------------------------------------------------------------
+    // Pointing at the sample
+    // ------------------------------------------------------------------
+
+    /** A roomy sample, so no part is clamped into another. */
+    private static final BookGeometry.Rect SAMPLE = BookGeometry.Rect.at(600, 100, 288, 140);
+
+    private static void assertPart(String expected, double x, double y) {
+        ToolsLayout.Hotspot hit = ToolsLayout.hotspotAt(SAMPLE, x, y);
+        assertNotNull(hit, () -> "the sample offered nothing at " + x + "," + y);
+        assertEquals(expected, hit.token(), () -> "at " + x + "," + y);
+    }
+
+    @Test
+    @DisplayName("a click in the sample names the colour that part is painted with")
+    void theSampleAnswersWithItsColours() {
+        ToolsLayout.Preview s = ToolsLayout.previewParts(SAMPLE);
+
+        // The most specific part wins, which is the whole rule: the item is inside the row inside the card,
+        // and the tooltip sits over the card's top edge.
+        assertPart("canvas", s.canvas().x() + 2, s.canvas().bottom() - 2);
+        assertPart("available", midX(s.nodeA()), midY(s.nodeA()));
+        assertPart("complete", midX(s.nodeB()), midY(s.nodeB()));
+        assertPart("lineDone", midX(s.line()), midY(s.line()));
+        assertPart("title", s.text().x() + 1, s.text().y() + 1);
+        assertPart("body", s.text().x() + 1, s.text().y() + 12);
+        assertPart("panel", s.card().x() + 1, s.card().bottom() - 1);
+        assertPart("raised", midX(s.raised()), midY(s.raised()));
+        assertPart("rowHover", s.row().right() - 2, s.row().y() + 1);
+        assertPart("recessed", midX(s.item()), midY(s.item()));
+        assertPart("edge", midX(s.button()), midY(s.button()));
+        assertPart("scrollThumb", midX(s.thumb()), midY(s.thumb()));
+        assertPart("scrollTrack", s.track().x() + 1, s.track().bottom() - 1);
+        assertPart("tooltipFill", midX(s.tooltip()), midY(s.tooltip()));
+
+        assertNull(ToolsLayout.hotspotAt(SAMPLE, SAMPLE.x() - 40, SAMPLE.y() - 40),
+                "and outside the sample it offers nothing");
+    }
+
+    @Test
+    @DisplayName("every colour the sample offers is a real token with a row to scroll to")
+    void everyHotspotCanBeReached() {
+        // The promise of the sample is "instantly kinda get me to it in the colours menu", so every answer it
+        // can give has to be a token whose row exists in the list. A typo in the table above would otherwise
+        // be a click that silently selects nothing, which is the kind of fault that looks like a dead panel.
+        ToolsLayout.Preview s = ToolsLayout.previewParts(SAMPLE);
+        Set<String> tokens = new HashSet<>();
+        for (BookGeometry.Rect part : List.of(s.canvas(), s.text(), s.thumb(), s.track(), s.item(),
+                s.button(), s.raised(), s.row(), s.tooltip(), s.nodeA(), s.nodeB(), s.line(), s.card())) {
+            ToolsLayout.Hotspot hit = ToolsLayout.hotspotAt(SAMPLE, part.x() + part.width() / 2.0,
+                    part.y() + part.height() / 2.0);
+            assertNotNull(hit, () -> "nothing under the middle of " + part);
+            assertTrue(inside(hit.rect(), SAMPLE), () -> "an answer outside the sample: " + hit.rect());
+            tokens.add(hit.token());
+        }
+
+        List<ToolsLayout.Action> rows = open();
+        for (String token : tokens) {
+            assertNotNull(ThemeToken.byId(token), () -> "not a colour this build knows: " + token);
+            String key = ToolsLayout.tokenKey(token);
+            assertTrue(rows.stream().anyMatch(row -> row.key().equals(key)),
+                    () -> "no row to scroll to for " + token);
+        }
+    }
+
+    private static double midX(BookGeometry.Rect rect) {
+        return rect.x() + rect.width() / 2.0;
+    }
+
+    private static double midY(BookGeometry.Rect rect) {
+        return rect.y() + rect.height() / 2.0;
     }
 }

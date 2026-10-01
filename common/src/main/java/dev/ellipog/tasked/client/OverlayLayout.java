@@ -1,7 +1,11 @@
 package dev.ellipog.tasked.client;
 
+import dev.ellipog.armature.client.ArmatureTextArea;
 import dev.ellipog.armature.client.ui.kit.Insets;
+import dev.ellipog.armature.client.ui.kit.Measure;
+import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
+import dev.ellipog.armature.client.ui.kit.TextWrap;
 
 import java.util.List;
 import java.util.Objects;
@@ -117,6 +121,77 @@ public final class OverlayLayout {
     public static final int SECTION_GAP_AFTER_CONTENT = 10;
 
     /**
+     * The padding the description's frame and its text area share: <b>the text area's own</b>, not a
+     * second number chosen to look similar.
+     *
+     * <p>Because the frame <i>is</i> the field's box — the border is drawn around the field, and the
+     * field draws its text this far inside its own edge — so the two must be the same number or the frame
+     * is a rectangle that merely resembles the editor's. {@link ArmatureTextArea#PAD} is where the number
+     * comes from; a report of *"the borders around it are too cramped, there is no padding"* is what
+     * happens when the frame has none of its own.
+     */
+    public static final int PROSE_PAD = ArmatureTextArea.PAD;
+
+    /**
+     * A paragraph of prose as its caller has wrapped it: the visual lines, and the width of the widest.
+     *
+     * <p>The layout places prose; it does not wrap it. {@link #of} is the plain producer — the editor's raw
+     * text, and every test — and the reader's markdown goes through {@code RichText.wrap} instead, because
+     * only a caller holding a font can measure a bold word.
+     *
+     * <p><b>A paragraph has at least one line.</b> An empty string is one empty line, which is what a blank
+     * line the author wrote has always taken here; the constructor refuses an empty list rather than
+     * folding it into no space, because "no lines" and "one blank line" are different pictures and only one
+     * of them is what an empty paragraph means.
+     *
+     * <p>{@code lineHeight} is the paragraph's own pitch, which is {@link #LINE_HEIGHT} for everything the
+     * plain producer makes and taller for a markdown heading: a heading drawn at one and a half times the
+     * font has to be <b>reserved</b> at one and a half times the line, or the next paragraph is drawn over
+     * the bottom of it.
+     */
+    public record Prose(List<String> lines, int width, int lineHeight) {
+
+        /** The ordinary pitch: what every paragraph but a heading is drawn at. */
+        public Prose(List<String> lines, int width) {
+            this(lines, width, LINE_HEIGHT);
+        }
+
+        public Prose {
+            Objects.requireNonNull(lines, "lines");
+            if (lines.isEmpty()) {
+                throw new IllegalArgumentException("a paragraph is at least one line: a blank line is a line");
+            }
+            if (width < 0) {
+                throw new IllegalArgumentException("width must not be negative: " + width);
+            }
+            if (lineHeight < 1) {
+                throw new IllegalArgumentException("a line has a height: " + lineHeight);
+            }
+            lines = List.copyOf(lines);
+        }
+
+        /**
+         * The plain wrapping: {@link TextWrap}'s rule, and the widest line's own width — which is what this
+         * layout used to compute for itself, moved to where the styled version lives beside it.
+         */
+        public static Prose of(String paragraph, int columnWidth, Measure measure) {
+            Objects.requireNonNull(paragraph, "paragraph");
+            if (paragraph.isBlank()) {
+                return new Prose(List.of(""), 0);
+            }
+            List<String> lines = TextWrap.wrap(paragraph, columnWidth, measure);
+            if (lines.isEmpty()) {
+                return new Prose(List.of(""), 0);
+            }
+            int widest = 0;
+            for (String line : lines) {
+                widest = Math.max(widest, measure.width(line));
+            }
+            return new Prose(lines, widest);
+        }
+    }
+
+    /**
      * Padding at the end of the body. Nothing is drawn in it.
      *
      * <p>Sixteen pixels, and it is here only because the hand-written measure this replaces ended with
@@ -183,6 +258,45 @@ public final class OverlayLayout {
         return "prose:" + index;
     }
 
+    /**
+     * The frame an editor draws around a block of prose: the rectangle the text area occupies, which is
+     * the column's full width opened out by {@link #PROSE_PAD} -- and <b>never narrower than the prose
+     * placed inside it</b>.
+     *
+     * <h2>What this replaced, and every half of it was reported from play</h2>
+     *
+     * <p>The frame used to be the first paragraph's slot, opened out by nothing: its width was the first
+     * paragraph's longest line, so a description whose first line was short and whose third was long had
+     * the long line running out through the frame's right edge -- *"it doesnt cover the entire width"* --
+     * and its top, left and bottom lines sat exactly on the glyphs -- *"the borders around it are too
+     * cramped, there is no padding"*.
+     *
+     * <p>The width is the column opened out, and then <b>at least as wide as the widest line the layout
+     * placed</b>. That second half is not belt-and-braces: it is the fix for the report where the frame
+     * still came out narrower than the text after the first half was written. The slots are the ground
+     * truth of where the prose is — the same slots the drawing uses — while the column width is a second
+     * reading of the body, and a frame that can be narrower than the text it frames is a frame that has
+     * lost track of which of the two it was built from. A rectangle drawn around a block contains the
+     * block; that is the whole rule.
+     *
+     * <h2>The coordinates are the caller's</h2>
+     *
+     * <p>{@code first}, {@code bottom} and {@code contentRight} come from the caller's <b>placed</b> slots
+     * -- on screen, after the scroll and the cull -- so a description scrolled out of the body has no
+     * placed slot and there is no frame to draw. That is deliberate: the frame is what the editor is put
+     * over, and an editor over prose that is not on screen is an editor with nowhere to be.
+     *
+     * @param first        the first paragraph's placed slot, or the empty state's
+     * @param bottom       the bottom of the last paragraph, in the same coordinates
+     * @param contentRight the right edge of the widest placed paragraph, in the same coordinates
+     * @param columnWidth  the body's width, which the frame spans
+     */
+    public static Slot proseFrame(Slot first, int bottom, int contentRight, int columnWidth) {
+        int prose = Math.max(columnWidth, contentRight - first.x());
+        return new Slot("prose:frame", first.x() - PROSE_PAD, first.y() - PROSE_PAD,
+                prose + PROSE_PAD * 2, bottom - first.y() + PROSE_PAD * 2);
+    }
+
     /** The key a task's row is placed under. */
     public static String taskKey(int index) {
         return "task:" + index;
@@ -220,7 +334,25 @@ public final class OverlayLayout {
      * @param rewardCount      how many rewards. Zero means the empty state is placed.
      * @param dependencyCount  how many prerequisites. Zero places no REQUIRES section at all.
      */
-    public static Stack stack(List<String> description, int taskCount, int rewardCount, int dependencyCount) {
+    public static Stack stack(List<Prose> description, int taskCount, int rewardCount, int dependencyCount) {
+        return stack(description, taskCount, rewardCount, dependencyCount, false);
+    }
+
+    /** The keys of the editor's own rows: the add rows, which a reader never sees. */
+    public static final String TASKS_ADD = "tasks:add";
+    public static final String REWARDS_ADD = "rewards:add";
+    public static final String REQUIRES_ADD = "requires:add";
+
+    /**
+     * The same layout, with the editor's add rows when {@code editing}.
+     *
+     * <p>One layout for both modes rather than a second one for the editor: the add row after the
+     * tasks pushes the rewards heading down by exactly its own height, and a parallel layout would be
+     * a second place for that arithmetic to be wrong. A reader's stack is this one with the rows
+     * absent, so the two cannot disagree about where anything sits.
+     */
+    public static Stack stack(List<Prose> description, int taskCount, int rewardCount,
+                              int dependencyCount, boolean editing) {
         Objects.requireNonNull(description, "description");
         if (taskCount < 0 || rewardCount < 0 || dependencyCount < 0) {
             throw new IllegalArgumentException("counts must not be negative: " + taskCount + ", "
@@ -233,7 +365,21 @@ public final class OverlayLayout {
             stack.row(NO_DESCRIPTION, DESCRIPTION_ADVANCE);
         }
         for (int i = 0; i < description.size(); i++) {
-            stack.text(proseKey(i), description.get(i), Stack.Align.LEFT).gap(PARAGRAPH_GAP);
+            Prose paragraph = description.get(i);
+            /*
+             * Placed as the caller measured it, not wrapped here.
+             *
+             * A paragraph arrives with its visual lines and the width of the widest, because whoever wraps
+             * it is the only one who can: a markdown paragraph's bold spans are wider than the same words
+             * plain, so only the caller with a font can say where its lines break, and the editor's raw
+             * text is wrapped by the plain measure instead. One shape, two producers -- and the rule that a
+             * blank line is a line is the producer's: `Prose.of` turns an empty string into one empty line,
+             * where `TextWrap` alone would return no lines at all ("nothing in, nothing out") and the blank
+             * line would reserve nothing.
+             */
+            stack.block(proseKey(i), paragraph.width(), paragraph.lines().size() * paragraph.lineHeight(),
+                    Stack.Align.LEFT);
+            stack.gap(PARAGRAPH_GAP);
         }
 
         // The heading by hand rather than through Stack.heading() -- see the class note on why this
@@ -249,6 +395,9 @@ public final class OverlayLayout {
         for (int i = 0; i < taskCount; i++) {
             stack.row(taskKey(i), ROW_ADVANCE, inset());
         }
+        if (editing) {
+            stack.row(TASKS_ADD, ROW_ADVANCE, inset());
+        }
 
         stack.gap(SECTION_GAP_AFTER_CONTENT)
                 .text(REWARDS_HEADING, "REWARDS", Stack.Align.LEFT)
@@ -259,16 +408,26 @@ public final class OverlayLayout {
         for (int i = 0; i < rewardCount; i++) {
             stack.row(rewardKey(i), ROW_ADVANCE, inset());
         }
+        if (editing) {
+            stack.row(REWARDS_ADD, ROW_ADVANCE, inset());
+        }
 
         // Absent entirely when there is nothing to require, which is a real difference from the other
         // two: a quest with no prerequisites should not say "REQUIRES: nothing", it should not have the
         // section. That asymmetry is the screen's design and is stated here so the test can hold it.
-        if (dependencyCount > 0) {
+        if (dependencyCount > 0 || editing) {
+            // The editor keeps the section even when it is empty: the add row has to live somewhere,
+            // and a quest with no prerequisites is exactly the one an author is about to give some.
             stack.gap(SECTION_GAP_AFTER_CONTENT)
                     .text(REQUIRES_HEADING, "REQUIRES", Stack.Align.LEFT)
                     .gap(SECTION_TAIL);
             for (int i = 0; i < dependencyCount; i++) {
                 stack.row(dependencyKey(i), DEP_ADVANCE, inset());
+            }
+            if (editing) {
+                // A real row's height, not the dependency row's: this row carries an id field and a
+                // button, and DEP_ADVANCE is fourteen pixels -- a stub you cannot aim at.
+                stack.row(REQUIRES_ADD, ROW_ADVANCE, inset());
             }
         }
 

@@ -1,5 +1,6 @@
-package dev.ellipog.tasked.client.editor;
+package dev.ellipog.tasked.editor;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import dev.ellipog.armature.api.data.DataProblem;
@@ -99,6 +100,17 @@ public final class QuestEditor {
      *
      * @return the editor, or empty when this chapter cannot be edited from here
      */
+    /**
+     * Where a server's — or a client's — quest files live, under a config directory.
+     *
+     * <p>One expression, in the class both sides open chapters through, because there were two: the client's
+     * session resolved the directory itself and the loader resolved it another way, and a client that reads
+     * from a different place than the server writes to is a canvas that never shows the edit.
+     */
+    public static Path root(Path configDir) {
+        return configDir.resolve(dev.ellipog.tasked.quest.QuestLoader.DIRECTORY);
+    }
+
     public static Optional<QuestEditor> open(Path questRoot, String chapterId) {
         if (questRoot == null || chapterId == null || chapterId.isBlank()) {
             return Optional.empty();
@@ -164,6 +176,16 @@ public final class QuestEditor {
         return folder;
     }
 
+    /**
+     * The chapter's own file, as text: its title, icon, rules and its quest list.
+     *
+     * <p>The manifest is a file like any other and the editor holds it open, so the replica can carry it
+     * the same way it carries every quest -- one copy, one revision, one read-only rule.
+     */
+    public String chapterJson() {
+        return manifest.json();
+    }
+
     /** The quest ids, in the manifest's order — which for a linear chapter is the progression. */
     public List<String> questIds() {
         List<String> out = new ArrayList<>();
@@ -203,9 +225,10 @@ public final class QuestEditor {
     /**
      * Changes one field of one quest.
      *
-     * <p>{@code value} is a {@code String}, a {@code Number} or a {@code Boolean}: the three primitive
-     * shapes the format uses. An unsupported type is refused rather than stringified, because a written
-     * file that the loader then refuses is worse than an edit that did nothing.
+     * <p>{@code value} is a {@code String}, a {@code Number}, a {@code Boolean} or a list of strings — the
+     * shapes the format uses, the list being the ones that are a list of ids. Anything else is refused rather
+     * than stringified, because a written file that the loader then refuses is worse than an edit that did
+     * nothing.
      *
      * @param path a dotted path, e.g. {@code "icon.item"} or {@code "title"}
      */
@@ -215,15 +238,107 @@ public final class QuestEditor {
             return false;
         }
         push();
-        switch (value) {
-            case String text -> quest.setText(path, text);
-            case Number number -> quest.setNumber(path, number.doubleValue());
-            case Boolean flag -> quest.setFlag(path, flag);
-            case null -> quest.remove(path);
-            default -> {
-                undo.pop();
-                return false;
+        try {
+            switch (value) {
+                case String text -> quest.setText(path, text);
+                case Number number -> quest.setNumber(path, number.doubleValue());
+                case Boolean flag -> quest.setFlag(path, flag);
+                case List<?> list -> quest.setStrings(path, list.stream().map(String::valueOf).toList());
+                case JsonElement json -> quest.setJson(path, json);
+                case null -> quest.remove(path);
+                default -> {
+                    undo.pop();
+                    return false;
+                }
             }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            // Refused before anything changed, so the pushed snapshot is a lie and goes.
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Changes one field of the chapter's own file.
+     *
+     * <p>The same shapes and the same rules as {@link #set}, against the manifest rather than a quest:
+     * push, write, and a path nothing can be written to costs the pushed snapshot and nothing else.
+     */
+    public boolean setChapter(String path, Object value) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        push();
+        try {
+            switch (value) {
+                case String text -> manifest.setText(path, text);
+                case Number number -> manifest.setNumber(path, number.doubleValue());
+                case Boolean flag -> manifest.setFlag(path, flag);
+                case List<?> list -> manifest.setStrings(path, list.stream().map(String::valueOf).toList());
+                case JsonElement json -> manifest.setJson(path, json);
+                case null -> manifest.remove(path);
+                default -> {
+                    undo.pop();
+                    return false;
+                }
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Inserts one entry -- a task, a reward -- into one of a quest's arrays.
+     *
+     * <p>The tree is the caller's, built from the type's own defaults or copied from a sibling, so the
+     * model does not need to know what a task is: what lands in the file is what the loader will read
+     * back, and validate-on-apply is what refuses a shape the format does not take.
+     */
+    public boolean insert(String id, String member, int index, JsonObject entry) {
+        JsonFile quest = quests.get(id);
+        if (quest == null || entry == null) {
+            return false;
+        }
+        push();
+        try {
+            quest.insert(member, index, entry);
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /** Removes one entry from one of a quest's arrays, by position. */
+    public boolean removeEntry(String id, String member, int index) {
+        JsonFile quest = quests.get(id);
+        if (quest == null) {
+            return false;
+        }
+        push();
+        if (!quest.removeIndex(member, index)) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /** Moves one entry within its array, by position. */
+    public boolean moveEntry(String id, String member, int from, int to) {
+        JsonFile quest = quests.get(id);
+        if (quest == null) {
+            return false;
+        }
+        push();
+        if (!quest.moveIndex(member, from, to)) {
+            undo.pop();
+            return false;
         }
         return true;
     }
@@ -313,6 +428,46 @@ public final class QuestEditor {
         quests.put(copyId, copy);
         manifest.addString("quests", copyId + SUFFIX);
         return copyId;
+    }
+
+    /**
+     * Inserts a quest's own tree, under a fresh id, at a canvas position.
+     *
+     * <p>The clipboard's op, and the reason it is one op rather than a create followed by field writes:
+     * the tree is the file, object fields and all, and reconstructing it out of field writes would drop
+     * every one the panel cannot carry. The id is the tree's own when it is free here and suffixed when
+     * it is not, so pasting back into the chapter a copy came from still lands; a tree without an id
+     * gets the same derived name a create gets.
+     *
+     * <p>The position is the paste point rather than the tree's own coordinates: pasting is putting it
+     * where you are looking.
+     *
+     * @return the new id, or null when nothing was written
+     */
+    public String paste(JsonObject tree, double x, double y) {
+        String base = tree.has("id") && tree.get("id").isJsonPrimitive()
+                && !tree.get("id").getAsString().isBlank()
+                ? tree.get("id").getAsString() : "quest";
+        String id = freeId(base);
+        push();
+
+        Path path = pathOf(id);
+        JsonFile pasted = JsonFile.of(path, tree.deepCopy());
+        pasted.setText("id", id);
+        pasted.setNumber("x", Math.round(x));
+        pasted.setNumber("y", Math.round(y));
+        try {
+            pasted.write();
+        }
+        catch (IOException e) {
+            // Nothing was added to the chapter, so the undo entry for this attempt is a lie.
+            Constants.LOG.warn("tasked: {} could not be written, so nothing was pasted.", path, e);
+            undo.pop();
+            return null;
+        }
+        quests.put(id, pasted);
+        manifest.addString("quests", id + SUFFIX);
+        return id;
     }
 
     /**
@@ -447,7 +602,10 @@ public final class QuestEditor {
         }
 
         // And the in-memory trees follow the snapshot, which is what makes the state after an undo
-        // identical to the state before the edit rather than merely close to it.
+        // identical to the state before the edit rather than merely close to it. Deliberately *not* marked
+        // saved: the disk may still hold the edit being undone, and a tree marked clean is a file the next
+        // save skips -- which is how an undo used to survive on the screen and vanish on reload. See
+        // `JsonFile.replaceWith`, and the op tests that found it.
         manifest.replaceWith(files.get(manifest.file()));
         reloadQuests();
         for (JsonFile quest : quests.values()) {
