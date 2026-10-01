@@ -35,6 +35,8 @@ import dev.ellipog.tasked.client.dev.HexColour;
 import dev.ellipog.tasked.client.dev.ChapterPanelLayout;
 import dev.ellipog.tasked.client.dev.ClientEditorClipboard;
 import dev.ellipog.tasked.client.dev.InlineEdit;
+import dev.ellipog.tasked.client.dev.ItemPicker;
+import dev.ellipog.tasked.client.dev.ItemPickerLayout;
 import dev.ellipog.tasked.client.dev.QuestPanel;
 import dev.ellipog.tasked.client.dev.QuestPanelLayout;
 import dev.ellipog.tasked.client.dev.ToolsLayout;
@@ -770,6 +772,33 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** Which list the modal's type picker is adding to ("tasks"/"rewards"), or null when it is closed. */
     private String pickingEntryType;
+
+    /** Which field the item picker is setting, or null when it is closed. */
+    private String pickingItemPath;
+
+    /** The value that field holds now, for the clear row; empty when there is none. */
+    private String pickingItemCurrent = "";
+
+    /** The picker's search box, while it is open. Read for its text and cleared with the picker. */
+    private ArmatureTextField itemSearch;
+
+    /** The registry's entries, and the player's carried stacks -- gathered once, when the picker opens. */
+    private List<ItemPicker.Entry> pickerEntries = List.of();
+    private List<ItemPicker.Entry> pickerInventory = List.of();
+
+    /**
+     * The picker's last drawing: the rows, the frame and the scroll the press has to agree with.
+     *
+     * <p>The click reads these rather than recomputing, for the reason every drawn control here is
+     * hit-tested from the drawing's own derivation: two computations of the same list, taken a frame
+     * apart, are two chances to land on different rows.
+     */
+    private List<ItemPickerLayout.Row> pickerRows = List.of();
+    private ItemPickerLayout.Frame pickerFrame;
+    private List<ItemPicker.Entry> pickerMatches = List.of();
+    private String pickerQuery = "";
+    private int pickerSelected = -1;
+    private int pickerScroll;
 
     /** Whether the modal's Delete has been pressed once and is waiting for the confirming second. */
     private boolean confirmingDelete;
@@ -3200,6 +3229,28 @@ public final class QuestBookScreen extends ArmatureScreen {
             done.textColour(ArmatureTheme.body()).tooltip(Component.literal("Escape also closes this"));
         }
 
+        // The item picker's search box: the one widget it has, because every row is drawn and hit-tested
+        // by the same derivation the list class owns. Rebuilt with the value it already held -- a tick
+        // rebuild (a replica arriving mid-search) must not clear what is being typed.
+        if (pickingItemPath != null) {
+            BookGeometry.Rect bodyRect = BookGeometry.Rect.at(overlayBody().originX(),
+                    overlayBody().originY(), overlayBody().viewWidth(), overlayBody().viewHeight());
+            ItemPickerLayout.Frame frame = ItemPickerLayout.Frame.of(bodyRect);
+            String kept = itemSearch == null ? "" : itemSearch.value();
+            itemSearch = new ArmatureTextField(frame.search().x(), frame.search().y(),
+                    frame.search().width(), frame.search().height(), kept);
+            // Enter and Escape are the screen's while the picker is open -- see `keyPressed` -- so a blur
+            // must commit nothing: a rebuild that blurred the box would otherwise set the field to the
+            // text it happened to be holding.
+            itemSearch.onSubmit(text -> { });
+            itemSearch.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
+            addRenderableWidget(itemSearch);
+            setFocused(itemSearch);
+        }
+        else {
+            itemSearch = null;
+        }
+
         // The body is the preview itself now -- drawn, not a list of widgets -- so the only rows that
         // still need hosting are the type picker's, when it is open.
         if (pickingEntryType != null) {
@@ -3311,6 +3362,15 @@ public final class QuestBookScreen extends ArmatureScreen {
         // and all. This adds only the marks and the targets: drawing the title again here is how the
         // subtitle line came out garbled, two texts on top of each other.
         drawEditHeaderMarks(r, entry, mouseX, mouseY);
+
+        // The item picker takes the body when it is open, on the type picker's own terms: the list is
+        // what you are reading, the card is the page you are setting a field on, and the page behind a
+        // list is context rather than a second thing to press.
+        if (pickingItemPath != null) {
+            drawItemPicker(r, body, mouseX, mouseY);
+            drawSettings(r, mouseX, mouseY);
+            return;
+        }
 
         // The type picker takes the body when it is open: a list of types is a list, and rows are what
         // lists are made of. The only rows left in this card.
@@ -3879,7 +3939,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                             new JsonPrimitive(!flagOn(quest, target.path()))));
                 }
             }
-            case FIELD, ITEM, RAW -> openInlineEditor(target, mouseX, mouseY);
+            case FIELD, RAW -> openInlineEditor(target, mouseX, mouseY);
+            // An item is picked, not typed: the text field is still there (it is the picker's search
+            // box, and a whole id in it commits), but it is no longer the whole of how a field is set.
+            case ITEM -> openItemPicker(target);
             case ADD_TASK -> {
                 pickingEntryType = "tasks";
                 rebuildWidgets();
@@ -4254,6 +4317,229 @@ public final class QuestBookScreen extends ArmatureScreen {
         send(new EditorOp.SetField(target, path, jsonOf(result.value())));
     }
 
+    // ------------------------------------------------------------------
+    // The item picker
+    // ------------------------------------------------------------------
+
+    /**
+     * Opens the picker on one field: the registry's items and what the player carries, under a search
+     * box.
+     *
+     * <p>The current value is read from the replica rather than from the press's {@code EditTarget},
+     * because the header icon's target carries no value (it opens from a mark with nothing under it) --
+     * and the clear row's whole job is to say what there is to clear.
+     */
+    private void openItemPicker(EditTarget target) {
+        closeInlineEditor();
+        pickingEntryType = null;
+        settingsOpen = false;
+        pickingItemPath = target.path();
+        JsonObject quest = replicaQuest();
+        JsonElement current = quest == null ? null : QuestPanelLayout.get(quest, target.path());
+        pickingItemCurrent = current != null && current.isJsonPrimitive() ? current.getAsString() : "";
+        pickerEntries = catalogue();
+        pickerInventory = carried();
+        pickerMatches = List.of();
+        pickerRows = List.of();
+        pickerFrame = null;
+        pickerQuery = "";
+        pickerSelected = -1;
+        pickerScroll = 0;
+        rebuildWidgets();
+    }
+
+    /** Closes it without committing, and forgets its list: the next open gathers a fresh one. */
+    private void closeItemPicker() {
+        pickingItemPath = null;
+        pickingItemCurrent = "";
+        pickerEntries = List.of();
+        pickerInventory = List.of();
+        pickerMatches = List.of();
+        pickerRows = List.of();
+        pickerFrame = null;
+        pickerQuery = "";
+        pickerSelected = -1;
+        pickerScroll = 0;
+        itemSearch = null;
+    }
+
+    /** A press on a picker row: an item sets the field, the clear row removes it, a heading nothing. */
+    private void pressPickerRow(int index) {
+        if (index < 0 || index >= pickerRows.size()) {
+            return;
+        }
+        ItemPickerLayout.Row row = pickerRows.get(index);
+        if (ItemPickerLayout.pickable(row)) {
+            commitPicker(row.kind() == ItemPickerLayout.Kind.CLEAR ? null : row.id());
+        }
+    }
+
+    /**
+     * Enter, which is two rules in one key.
+     *
+     * <p>A whole id typed into the box is the answer outright -- that is what makes the box a field and
+     * not only a filter. Otherwise the selected row commits, and when there is no row to commit the
+     * screen says so rather than setting the field to whatever happened to sort first.
+     */
+    private void commitFromPicker() {
+        String query = itemSearch == null ? "" : itemSearch.value();
+        String exact = ItemPicker.exactId(query, pickerMatches);
+        if (exact != null) {
+            commitPicker(exact);
+            return;
+        }
+        ItemPickerLayout.Row row = pickerSelected >= 0 && pickerSelected < pickerRows.size()
+                ? pickerRows.get(pickerSelected) : null;
+        if (row != null && row.kind() == ItemPickerLayout.Kind.ITEM) {
+            commitPicker(row.id());
+            return;
+        }
+        if (row != null && row.kind() == ItemPickerLayout.Kind.CLEAR) {
+            commitPicker(null);
+            return;
+        }
+        status(query.isBlank() ? "Type to search, or pick something you carry"
+                : "No item matches \"" + query + "\"", true);
+    }
+
+    /** One edit: the field becomes this id, or is removed when there is none. */
+    private void commitPicker(String id) {
+        String quest = editTarget();
+        String path = pickingItemPath;
+        closeItemPicker();
+        if (!mayEditNow() || quest == null || path == null) {
+            rebuildWidgets();
+            return;
+        }
+        send(new EditorOp.SetField(quest, path, id == null ? null : new JsonPrimitive(id)));
+        status(id == null ? "Field cleared" : "Set to " + id, false);
+        rebuildWidgets();
+    }
+
+    /**
+     * The picker's body: the search box above (a widget, placed by {@code buildQuestEditorWidgets}),
+     * then the rows.
+     *
+     * <p>Every row is drawn and hit-tested from {@link ItemPickerLayout}'s own rectangles, and the
+     * list the press walks is the list this drew -- stored, not recomputed, so a press cannot land on
+     * a row one revision away from the one under the pointer.
+     */
+    private void drawItemPicker(GuiRenderer r, Viewport body, int mouseX, int mouseY) {
+        BookGeometry.Rect bodyRect = BookGeometry.Rect.at(body.originX(), body.originY(),
+                body.viewWidth(), body.viewHeight());
+        pickerFrame = ItemPickerLayout.Frame.of(bodyRect);
+        String query = itemSearch == null ? "" : itemSearch.value();
+        if (!query.equals(pickerQuery)) {
+            // A keystroke is a new list: the selection goes back to its first row and the scroll to the
+            // top, because an index into the old list does not name anything in this one.
+            pickerQuery = query;
+            pickerSelected = -1;
+            pickerScroll = 0;
+        }
+        pickerMatches = ItemPicker.rank(pickerEntries, query, ItemPicker.LIMIT);
+        pickerRows = ItemPickerLayout.compose(pickerInventory, pickerMatches,
+                !pickingItemCurrent.isEmpty(), query);
+        pickerScroll = Math.max(0,
+                Math.min(pickerScroll, ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
+        int selected = pickerSelected < 0
+                ? ItemPickerLayout.firstPickable(pickerRows)
+                : ItemPickerLayout.clamp(pickerRows, pickerSelected);
+        pickerSelected = selected;
+
+        try (GuiRenderer.Scoped clip = r.clip(body)) {
+            if (pickerRows.isEmpty()) {
+                r.text("Type to search every item, or pick something you carry.",
+                        pickerFrame.list().x() + 4, pickerFrame.list().y() + 4, ArmatureTheme.faint());
+                return;
+            }
+            Measure measure = textMeasure(r);
+            for (int i = 0; i < pickerRows.size(); i++) {
+                BookGeometry.Rect rect =
+                        ItemPickerLayout.rowRect(pickerRows, pickerFrame, pickerScroll, i);
+                // Off the list is not drawn -- the clip would cut a row the keyboard can still land on
+                // and the wheel can bring back, and a half row at the edge is exactly what the clip is
+                // for, so only the wholly-out ones are skipped.
+                if (rect.bottom() <= pickerFrame.list().y()
+                        || rect.y() >= pickerFrame.list().bottom()) {
+                    continue;
+                }
+                ItemPickerLayout.Row row = pickerRows.get(i);
+                if (row.kind() == ItemPickerLayout.Kind.HEADING) {
+                    r.text(row.label(), rect.x() + 2, rect.y() + (rect.height() - 8) / 2,
+                            ArmatureTheme.faint());
+                    continue;
+                }
+                if (i == pickerSelected) {
+                    r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.recessed());
+                }
+                else if (rect.contains(mouseX, mouseY)) {
+                    drawEditAffordance(r, rect, true);
+                }
+                int textX = rect.x() + 4;
+                if (row.kind() == ItemPickerLayout.Kind.ITEM) {
+                    r.icon(itemStack(row.id()), rect.x() + 1, rect.y() + 1,
+                            Math.max(8, rect.height() - 2));
+                    textX = rect.x() + 20;
+                }
+                boolean clear = row.kind() == ItemPickerLayout.Kind.CLEAR;
+                r.text(Measure.truncate(row.label(), rect.width() - (textX - rect.x()) - 30, measure),
+                        textX, rect.y() + (rect.height() - 8) / 2,
+                        clear ? ArmatureTheme.blocked() : ArmatureTheme.body());
+                if (!row.secondary().isEmpty()) {
+                    r.text(row.secondary(), rect.right() - 4 - r.textWidth(row.secondary()),
+                            rect.y() + (rect.height() - 8) / 2, ArmatureTheme.faint());
+                }
+            }
+        }
+    }
+
+    /** Every item the registry holds, in registry order -- the ranking decides what a query shows. */
+    private static List<ItemPicker.Entry> catalogue() {
+        List<ItemPicker.Entry> entries = new ArrayList<>();
+        var registry = net.minecraft.core.registries.BuiltInRegistries.ITEM;
+        for (net.minecraft.resources.ResourceLocation id : registry.keySet()) {
+            net.minecraft.world.item.Item item = registry.get(id);
+            if (item == net.minecraft.world.item.Items.AIR) {
+                continue;
+            }
+            entries.add(new ItemPicker.Entry(id.toString(), new ItemStack(item).getHoverName().getString(),
+                    0));
+        }
+        return List.copyOf(entries);
+    }
+
+    /**
+     * What the player carries, one entry per item with the counts added up.
+     *
+     * <p>Summed rather than first-stack-wins: two stacks of sixteen is thirty-two carried, and a picker
+     * that said sixteen would be answering a question about a slot. Armour and the offhand are included
+     * -- they are carried, and an author picking "what am I wearing" is a real thing to do.
+     */
+    private static List<ItemPicker.Entry> carried() {
+        var player = Minecraft.getInstance().player;
+        if (player == null) {
+            return List.of();
+        }
+        var inventory = player.getInventory();
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            String id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem())
+                    .toString();
+            counts.merge(id, stack.getCount(), Integer::sum);
+            labels.putIfAbsent(id, stack.getHoverName().getString());
+        }
+        List<ItemPicker.Entry> out = new ArrayList<>();
+        for (Map.Entry<String, Integer> each : counts.entrySet()) {
+            out.add(new ItemPicker.Entry(each.getKey(), labels.get(each.getKey()), each.getValue()));
+        }
+        return List.copyOf(out);
+    }
+
     /**
      * A press on a settings stepper: the arrows are drawn, so the screen is what reads them.
      *
@@ -4346,6 +4632,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The editor's transient state goes with the card: a picker left armed would greet the next
         // quest with a list of types, and a Delete left confirmed would delete on one press.
         pickingEntryType = null;
+        // And the item picker's, for the same reason: its path names a field of the quest being closed.
+        closeItemPicker();
         confirmingDelete = false;
         settingsOpen = false;
         // The widgets go with the clear; the references and the path must not outlive them.
@@ -6507,6 +6795,20 @@ public final class QuestBookScreen extends ArmatureScreen {
                 partyView.dragThumbTo(mouseY);
             }
             else if (overlay == Overlay.QUEST && mayEditNow() && button == 0) {
+                // The item picker's rows first, from the last frame's own drawing. A press inside the
+                // card that is not a row does nothing -- the list is what is on screen, and the page
+                // behind it is not a second thing to press while a field is being set.
+                if (pickingItemPath != null) {
+                    int row = pickerFrame == null ? -1
+                            : ItemPickerLayout.rowAt(pickerRows, pickerFrame, pickerScroll, mouseY);
+                    if (row >= 0) {
+                        pressPickerRow(row);
+                    }
+                    else if (clickedOutsideCard(mouseX, mouseY)) {
+                        closeOverlay();
+                    }
+                    return true;
+                }
                 // The settings popover first, because it floats over the card: a press inside it that
                 // no widget took is a press on the popover, and one outside it closes it -- the card
                 // stays open, which is what "a popover over a page" means.
@@ -6996,6 +7298,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
 
         if (overlay == Overlay.QUEST) {
+            // While a picker is open the wheel is the list's, not the card's: the card is not what is
+            // on screen. Clamped where it lands, because a flick past the bottom should stop at the
+            // bottom -- the same rule as the body's below, for the same reason.
+            if (pickingItemPath != null) {
+                if (pickerFrame != null) {
+                    pickerScroll = Math.max(0,
+                            Math.min(pickerScroll - (int) (scrollY * 30),
+                                    ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
+                }
+                return true;
+            }
             // Inside the overlay the wheel scrolls the text, which is what a long description wants.
             // Zooming here would be wrong: there is no canvas to zoom.
             // Clamped by the viewport rather than here, and that is the fix rather than a tidy-up:
@@ -7030,6 +7343,30 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** Escape closes the overlay rather than the book, if one is open. */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // The item picker's keys, and they are read here rather than left to the search box: a field's
+        // Enter and Escape *submit*, and while a picker is open neither means that -- Enter commits the
+        // rule above, and Escape leaves the field as it was. Handing them to the box would set the
+        // field to the text someone pressed Escape to abandon.
+        if (pickingItemPath != null) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeItemPicker();
+                rebuildWidgets();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                commitFromPicker();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_UP) {
+                pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, -1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DOWN) {
+                pickerSelected = ItemPickerLayout.step(pickerRows, pickerSelected, 1);
+                return true;
+            }
+        }
+
         // Any overlay, not just the quest one. This tested `overlay == Overlay.QUEST`, which was the
         // whole of the truth while there was one overlay and stopped being true the moment a second
         // existed: the party panel could then be left by clicking outside or pressing Back, and not by
