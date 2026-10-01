@@ -353,6 +353,23 @@ class EditorOpsTest {
     }
 
     @Test
+    @DisplayName("the chapter's quest list reorders by saying the whole list -- the drag's own op")
+    void theQuestListReorders() throws IOException {
+        QuestEditor editor = open();
+        JsonArray reordered = new JsonArray();
+        reordered.add("two.json");
+        reordered.add("one.json");
+
+        assertTrue(EditorOps.apply(editor, new EditorOp.SetChapter("quests", reordered)).ok(),
+                "a chapter's list is the manifest's array, and SetChapter is what reaches it");
+        assertEquals(List.of("two", "one"), editor.questIds(),
+                "the manifest's order is the chapter's order, in memory and on disk");
+        String onDisk = file("chapter");
+        assertTrue(onDisk.indexOf("two.json") < onDisk.indexOf("one.json"),
+                "and the file itself says so, in that order");
+    }
+
+    @Test
     @DisplayName("a removed entry is gone from the file, and an impossible index changes nothing")
     void removingAnEntry() {
         QuestEditor editor = open();

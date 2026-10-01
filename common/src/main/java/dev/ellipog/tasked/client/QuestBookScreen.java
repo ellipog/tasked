@@ -39,6 +39,7 @@ import dev.ellipog.tasked.client.dev.ItemPicker;
 import dev.ellipog.tasked.client.dev.ItemPickerLayout;
 import dev.ellipog.tasked.client.dev.QuestPanel;
 import dev.ellipog.tasked.client.dev.QuestPanelLayout;
+import dev.ellipog.tasked.client.dev.RowDrag;
 import dev.ellipog.tasked.client.dev.ToolsLayout;
 import dev.ellipog.tasked.client.dev.ToolsPanel;
 import dev.ellipog.tasked.editor.EditorSession;
@@ -724,7 +725,10 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** What a click in the card's editor can land on. */
     private enum EditAction {
-        FIELD, FLAG, ITEM, RAW, ADD_TASK, ADD_REWARD, ADD_DEP, PICK_DEP, REMOVE_DEP, COPY_ENTRY, REMOVE_ENTRY
+        FIELD, FLAG, ITEM, RAW, ADD_TASK, ADD_REWARD, ADD_DEP, PICK_DEP, REMOVE_DEP, COPY_ENTRY,
+        REMOVE_ENTRY,
+        /** The row's leading strip: a press that travels becomes a reorder. */
+        DRAG_ENTRY
     }
 
     /**
@@ -799,6 +803,25 @@ public final class QuestBookScreen extends ArmatureScreen {
     private String pickerQuery = "";
     private int pickerSelected = -1;
     private int pickerScroll;
+
+    /**
+     * The row drag: which list, which row, and the y the line is drawn at.
+     *
+     * <p>One state for three lists -- a quest's tasks, its rewards, and the dock Chapter tab's quest
+     * list -- because the gesture is one gesture. What differs is the op the release sends, and that is
+     * read off {@link #dragRowMember}. Null/&#8209;1 between drags.
+     */
+    private String dragRowMember;
+    private String dragRowQuest;
+    private int dragRowFrom = -1;
+    private boolean dragRowLive;
+    private double dragRowPointerY;
+
+    /**
+     * The rows each list is drawn at, this frame, in drawing order -- the seam the gap is counted
+     * against. Rebuilt by the drawing and read by the release, one derivation for both.
+     */
+    private final Map<String, List<BookGeometry.Rect>> dragRowSlots = new LinkedHashMap<>();
 
     /** Whether the modal's Delete has been pressed once and is waiting for the confirming second. */
     private boolean confirmingDelete;
@@ -3354,6 +3377,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         Viewport body = overlayBody();
         editTargets.clear();
         pendingLabels.clear();
+        // The row positions are this frame's, rebuilt with the rows themselves: a release must aim at
+        // the list the pointer saw, not at last frame's.
+        dragRowSlots.clear();
         // The reader's rectangles are stale while the editor draws: a press on the raw description must open
         // the field, not follow a link that is no longer on screen.
         readerProse.clear();
@@ -3445,6 +3471,14 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             drawAddRow(r, placed(layout, body, OverlayLayout.REWARDS_ADD), "+ Add reward",
                     EditAction.ADD_REWARD, mouseX, mouseY);
+
+            // The insertion line last in the clip, over every row it sits between: a line drawn where
+            // the rows are drawn is a line the next row paints over.
+            if (dragRowLive) {
+                drawRowDragIndicator(r, dragRowSlots.get(dragRowMember), dragRowPointerY,
+                        BookGeometry.Rect.at(body.originX(), body.originY(), body.viewWidth(),
+                                body.viewHeight()));
+            }
 
             drawHeading(r, placed(layout, body, OverlayLayout.REQUIRES_HEADING), "REQUIRES");
             for (int i = 0; i < dependencies.size(); i++) {
@@ -3651,6 +3685,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             editTargets.add(new EditTarget(actions[i], null, box, box.x(),
                     box.y() + (box.height() - 8) / 2, "", member, index));
         }
+
+        // The row's leading strip is the drag's grip -- the type's icon and the gutter beside it, which
+        // no part and no control covers, so registering last wins exactly the space nothing else wanted.
+        // The whole row is what the gap is counted against; the grip is only where the press lands.
+        dragRowSlots.computeIfAbsent(member, key -> new ArrayList<>())
+                .add(BookGeometry.Rect.at(slot.x(), y, slot.width(), height));
+        BookGeometry.Rect grip = BookGeometry.Rect.at(slot.x(), y, 18, height);
+        target(r, EditAction.DRAG_ENTRY, null, grip, grip.x() + 4, y + (height - 8) / 2,
+                "", member, index, mouseX, mouseY);
     }
 
     /**
@@ -3963,6 +4006,18 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             case COPY_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), true);
             case REMOVE_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), false);
+            case DRAG_ENTRY -> {
+                // The press claims the row; whether it becomes a drag is the threshold's, further on.
+                // The press's own coordinates are recorded because the threshold compares against them,
+                // and this press never reached the canvas branch that usually sets them.
+                dragRowMember = target.member();
+                dragRowQuest = editTarget();
+                dragRowFrom = target.index();
+                dragRowLive = false;
+                dragRowPointerY = mouseY;
+                pressX = mouseX;
+                pressY = mouseY;
+            }
         }
     }
 
@@ -4538,6 +4593,126 @@ public final class QuestBookScreen extends ArmatureScreen {
             out.add(new ItemPicker.Entry(each.getKey(), labels.get(each.getKey()), each.getValue()));
         }
         return List.copyOf(out);
+    }
+
+    // ------------------------------------------------------------------
+    // The row drag
+    // ------------------------------------------------------------------
+
+    /**
+     * Lets a dragged row go: one op, aimed at the gap the line was last drawn on.
+     *
+     * <p>Three lists, two ops. A task or a reward moves by {@link EditorOp.MoveEntry}, which the model
+     * has carried and refused-bounds since before any of this was draggable. The chapter's quest list
+     * is not any quest's file -- it is the chapter manifest's own {@code "quests"} array, which only
+     * {@link EditorOp.SetChapter} reaches -- so the drop says the whole reordered list rather than an
+     * index move, which is a bigger message and the same one edit.
+     *
+     * <p>A drop onto the row's own place sends nothing: "that edit would change nothing" as a refusal
+     * is the server's way of saying it, and there is no reason to spend a round trip on it.
+     */
+    private void commitRowDrop(String member, String quest, int from, double pointerY) {
+        if (!mayEditNow() || member == null || from < 0) {
+            return;
+        }
+        List<BookGeometry.Rect> rows = dragRowSlots.get(member);
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int gap = RowDrag.gapAt(rows, pointerY);
+        if (gap < 0) {
+            return;
+        }
+        int to = RowDrag.finalIndex(from, gap);
+        if (to == from) {
+            return;
+        }
+        if ("chapter".equals(member)) {
+            JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
+            List<String> names = new ArrayList<>(QuestPanelLayout.strings(chapter, "quests"));
+            if (from >= names.size() || to >= names.size() || to < 0) {
+                return;
+            }
+            names.add(to, names.remove(from));
+            send(new EditorOp.SetChapter("quests", stringArray(names)));
+        }
+        else {
+            if (quest == null) {
+                return;
+            }
+            send(new EditorOp.MoveEntry(quest, member, from, to));
+        }
+        status("Moved to position " + (to + 1), false);
+    }
+
+    /**
+     * The chapter-tab row a pointer is over, as an index into the manifest's quest order, or -1.
+     *
+     * <p>The rows are drawn by {@code QuestPanel.drawRows} from {@code chapterLayout}; this is the same
+     * mapping the drawing uses, so what is pressed is what is seen, scrolled or not.
+     */
+    private int chapterQuestRowAt(double mouseX, double mouseY) {
+        if (chapterLayout == null) {
+            return -1;
+        }
+        Viewport view = toolsView.viewport();
+        int index = 0;
+        for (InspectRow row : chapterRows) {
+            if (!row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:")) {
+                continue;
+            }
+            Slot slot = chapterLayout.slot(row.key());
+            if (slot != null && InspectLayout.onScreen(view, slot).contains(mouseX, mouseY)) {
+                return index;
+            }
+            index++;
+        }
+        return -1;
+    }
+
+    /** The same rows as rectangles, in order -- the seams the drag's gap arithmetic counts. */
+    private List<BookGeometry.Rect> chapterQuestRowRects() {
+        List<BookGeometry.Rect> out = new ArrayList<>();
+        if (chapterLayout == null) {
+            return List.copyOf(out);
+        }
+        Viewport view = toolsView.viewport();
+        for (InspectRow row : chapterRows) {
+            if (!row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:")) {
+                continue;
+            }
+            Slot slot = chapterLayout.slot(row.key());
+            if (slot == null) {
+                continue;
+            }
+            Slot onScreen = InspectLayout.onScreen(view, slot);
+            out.add(BookGeometry.Rect.at(onScreen.x(), onScreen.y(), onScreen.width(),
+                    onScreen.height()));
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * The insertion line: two pixels at the gap the pointer names, spanning the rows' own width.
+     *
+     * <p>Drawn inside the caller's clip and skipped when the gap is off it, so a drag past the list's
+     * edge does not paint a line over a header or into the canvas.
+     */
+    private void drawRowDragIndicator(GuiRenderer r, List<BookGeometry.Rect> rows, double pointerY,
+                                      BookGeometry.Rect clip) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        int gap = RowDrag.gapAt(rows, pointerY);
+        if (gap < 0) {
+            return;
+        }
+        int y = RowDrag.indicatorY(rows, gap);
+        if (y < clip.y() - 2 || y > clip.bottom() + 2) {
+            return;
+        }
+        BookGeometry.Rect first = rows.get(0);
+        r.fill(first.x() - 2, y - 1, first.right() + 2, y + 2, ArmatureTheme.hoverRing());
     }
 
     /**
@@ -5262,6 +5437,12 @@ public final class QuestBookScreen extends ArmatureScreen {
                     ArmatureTheme.panelEdge());
             QuestPanel.drawRows(r, toolsFrame.list(), toolsView.viewport(), chapterLayout, chapterRows,
                     mouseX, mouseY);
+            // The rows the drag reorders, in the order they are drawn, and the line over them. Only the
+            // quest rows take part -- the identity fields above them are not a list.
+            dragRowSlots.put("chapter", chapterQuestRowRects());
+            if (dragRowLive && "chapter".equals(dragRowMember)) {
+                drawRowDragIndicator(r, dragRowSlots.get("chapter"), dragRowPointerY, toolsFrame.list());
+            }
         }
         else {
             if (toolsLayout == null) {
@@ -6714,6 +6895,12 @@ public final class QuestBookScreen extends ArmatureScreen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         fieldDrag = false;
         pressedLink = null;
+        // A new press ends a row drag that never got its release -- one gesture at a time, and the row
+        // rectangles a stale drag would aim at belong to the frame it started in.
+        dragRowFrom = -1;
+        dragRowMember = null;
+        dragRowQuest = null;
+        dragRowLive = false;
 
         // Clicking off a text field finishes with it: the blur is the commit, and a field that keeps
         // the keyboard after the pointer has moved on is a field that eats the next key typed. Before
@@ -6880,6 +7067,23 @@ public final class QuestBookScreen extends ArmatureScreen {
                 stepRadius(step);
                 return true;
             }
+            // A quest row in the Chapter tab is a draggable thing: the press claims it, and the drag
+            // that may follow reorders the chapter's own list. `pressX`/`pressY` are recorded here
+            // because the threshold compares against them and this press never reaches the canvas
+            // branch that usually sets them.
+            if (toolsTab == ToolsLayout.Tab.CHAPTER && mayEditNow() && chapterLayout != null) {
+                int row = chapterQuestRowAt(mouseX, mouseY);
+                if (row >= 0) {
+                    dragRowMember = "chapter";
+                    dragRowQuest = null;
+                    dragRowFrom = row;
+                    dragRowLive = false;
+                    dragRowPointerY = mouseY;
+                    pressX = mouseX;
+                    pressY = mouseY;
+                    return true;
+                }
+            }
             if (toolsView.scrollbarHit(mouseX, mouseY)) {
                 toolsView.beginThumbDrag(mouseY);
                 toolsView.dragThumbTo(mouseY);
@@ -7013,6 +7217,23 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
 
+        // The row drag, on the node drag's own phases as far as they apply: the press claimed the row,
+        // the threshold separates a click from a drag, and the follow is just the pointer's y -- there
+        // is no ghost row to carry, only the line the drop would land on. Consumed so the pan and the
+        // node drag do not also answer a gesture that started on a row.
+        if (dragRowFrom >= 0) {
+            if (!dragRowLive) {
+                if (Math.abs(mouseX - pressX) <= DRAG_THRESHOLD
+                        && Math.abs(mouseY - pressY) <= DRAG_THRESHOLD) {
+                    return true;
+                }
+                dragRowLive = true;
+                pressMoved = true;
+            }
+            dragRowPointerY = mouseY;
+            return true;
+        }
+
         // The scrollbar's drag, before the canvas pan and before the widgets. It has to be first
         // because a drag that started on the bar must stay on the bar: the pan would otherwise take
         // the movement, and the canvas would slide sideways while the pointer was over a scrollbar.
@@ -7126,6 +7347,27 @@ public final class QuestBookScreen extends ArmatureScreen {
         // Let go: the mark the drag made stays (the model keeps it until the next press or keystroke), and
         // the *gesture* ends -- a later drag belongs to whatever it starts on.
         fieldDrag = false;
+
+        // The row drag's release, read and cleared before anything else looks at the gesture: the drop
+        // is committed exactly where the line was last drawn, and a press that never travelled is a
+        // click -- which, on a grip, is nothing at all.
+        if (dragRowFrom >= 0) {
+            int from = dragRowFrom;
+            String member = dragRowMember;
+            String quest = dragRowQuest;
+            boolean live = dragRowLive;
+            double pointerY = dragRowPointerY;
+            dragRowFrom = -1;
+            dragRowMember = null;
+            dragRowQuest = null;
+            dragRowLive = false;
+            dragging = false;
+            pressedNode = null;
+            if (live) {
+                commitRowDrop(member, quest, from, pointerY);
+            }
+            return true;
+        }
 
         // A link the press landed on, let go on the same rectangle: that is the click it was waiting for.
         LinkRect link = pressedLink;
