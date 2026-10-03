@@ -179,7 +179,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 8;
+    public static final int TREE_VERSION = 9;
 
     /**
      * The quest tree, as JSON.

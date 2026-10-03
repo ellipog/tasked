@@ -236,7 +236,7 @@ public final class QuestSettingsPanel {
      *
      * <p>A swatch is the shape itself, not a picture of it and not a word for it — drawn with the same
      * spans the canvas draws, so the choice is made by looking at the thing rather than by reading its
-     * name and hoping. The name is under it anyway, because a grid of eleven outlines is a puzzle
+     * name and hoping. The name is under it anyway, because a grid of twelve outlines is a puzzle
      * without one.
      */
     private static void drawShapeGrid(GuiRenderer r, Slot grid, View view, Measure measure) {

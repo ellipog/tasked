@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -480,5 +481,268 @@ class LineArtTest {
 
         assertTrue(LineArt.distanceToAny(List.of(ink), 50, 9) <= 10, "nine pixels is within reach");
         assertTrue(LineArt.distanceToAny(List.of(ink), 50, 11) > 10, "eleven is not");
+    }
+
+    // ------------------------------------------------------------------
+    // The added forms: a circuit trace, the stepped Z, and a circular arc
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a chamfered route cuts both corners at 45 degrees, a fixed distance back")
+    void theChamferedRouteCutsCorners() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.CHAMFERED,
+                new LineArt.Point(0, 0), new LineArt.Point(100, 50));
+
+        assertEquals(List.of(new LineArt.Point(0, 0), new LineArt.Point(0, 19),
+                new LineArt.Point(6, 25), new LineArt.Point(94, 25),
+                new LineArt.Point(100, 31), new LineArt.Point(100, 50)), path);
+
+        // The cut is the shape's whole point: equal steps on both axes, so 45 degrees.
+        for (int i = 0; i < path.size() - 1; i++) {
+            LineArt.Point a = path.get(i);
+            LineArt.Point b = path.get(i + 1);
+            if (a.x() != b.x() && a.y() != b.y()) {
+                assertEquals(Math.abs(b.x() - a.x()), Math.abs(b.y() - a.y()),
+                        "a diagonal that is not 45 degrees: " + a + " -> " + b);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("a corner whose arms are too short is left square rather than nicked")
+    void aShortCornerStaysSquare() {
+        // A one-pixel bevel is a nick, not a trace: below the minimum the corner is kept as it was, so a
+        // short edge looks like an orthogonal one instead of a fault.
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.CHAMFERED,
+                new LineArt.Point(0, 0), new LineArt.Point(4, 3));
+
+        assertEquals(List.of(new LineArt.Point(0, 0), new LineArt.Point(0, 1),
+                new LineArt.Point(4, 1), new LineArt.Point(4, 3)), path);
+    }
+
+    @Test
+    @DisplayName("a stepped route is H, V, H, with the single break at the chord's midpoint")
+    void theSteppedRouteBreaksAtTheMiddle() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STEPPED,
+                new LineArt.Point(0, 0), new LineArt.Point(100, 50));
+
+        assertEquals(List.of(new LineArt.Point(0, 0), new LineArt.Point(50, 0),
+                new LineArt.Point(50, 50), new LineArt.Point(100, 50)), path);
+        // Same row and same column are both a single segment, not a zero-length jog.
+        assertEquals(List.of(new LineArt.Point(0, 7), new LineArt.Point(40, 7)),
+                LineArt.path(DependencyStyle.Form.STEPPED, new LineArt.Point(0, 7),
+                        new LineArt.Point(40, 7)));
+        assertEquals(List.of(new LineArt.Point(5, 0), new LineArt.Point(5, 30)),
+                LineArt.path(DependencyStyle.Form.STEPPED, new LineArt.Point(5, 0),
+                        new LineArt.Point(5, 30)));
+    }
+
+    @Test
+    @DisplayName("a radial arc bows by the same half-bend a curve does")
+    void theRadialArcBowsLikeTheCurve() {
+        LineArt.Point from = new LineArt.Point(0, 0);
+        LineArt.Point to = new LineArt.Point(40, 40);
+        List<LineArt.Point> arc = LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.2);
+        List<LineArt.Point> curve = LineArt.path(DependencyStyle.Form.CURVED, from, to, 0.2);
+
+        assertEquals(from, arc.get(0), "an arc starts at its source");
+        assertEquals(to, arc.get(arc.size() - 1), "and ends at its target");
+        LineArt.Point middle = LineArt.pointAt(arc, LineArt.length(arc) / 2);
+        LineArt.Point curveMiddle = LineArt.pointAt(curve, LineArt.length(curve) / 2);
+        assertTrue(Math.hypot(middle.x() - curveMiddle.x(), middle.y() - curveMiddle.y()) < 2.5,
+                "the arc's middle must land where the curve's does: " + middle + " vs " + curveMiddle);
+        // The same value the bend drag reads: bendAt is the exact inverse of both shapes.
+        assertEquals(0.2, LineArt.bendAt(from, to, middle.x(), middle.y()), 0.05);
+    }
+
+    @Test
+    @DisplayName("a radial arc is a real arc: no bend is a straight line, and the sign picks the side")
+    void theRadialArcIsCircular() {
+        LineArt.Point from = new LineArt.Point(0, 0);
+        LineArt.Point to = new LineArt.Point(100, 0);
+
+        assertEquals(List.of(from, to),
+                LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.0), "no bow, no arc");
+
+        List<LineArt.Point> below = LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.3);
+        List<LineArt.Point> above = LineArt.path(DependencyStyle.Form.RADIAL, from, to, -0.3);
+        assertTrue(LineArt.pointAt(below, LineArt.length(below) / 2).y() > 5,
+                "a positive bend bows towards +y, the way a curve does");
+        assertTrue(LineArt.pointAt(above, LineArt.length(above) / 2).y() < -5,
+                "and the negative one to the other side");
+
+        // Every sample sits on one circle: the centre is the arc's own, on the far side of the bow.
+        double sagitta = 0.3 * 100 / 2;
+        double radius = (50 * 50 + sagitta * sagitta) / (2 * sagitta);
+        double centreY = -(radius - sagitta);
+        for (LineArt.Point point : below) {
+            assertEquals(radius, Math.hypot(point.x() - 50, point.y() - centreY), 1.5,
+                    "off the circle at " + point);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The added patterns and weights
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a dotted line is single pixels with even gaps, not short dashes")
+    void dottedIsSinglePixelDots() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(40, 10));
+        List<LineArt.Fill> dotted =
+                LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.DOTTED);
+
+        // Forty-one walk points, one on in every four: eleven dots, each exactly one pixel wide.
+        assertEquals(11, dotted.size(), "dots: " + dotted);
+        int previousX = -1;
+        for (LineArt.Fill fill : dotted) {
+            assertEquals(1, fill.x2() - fill.x1(), "a dot is one pixel: " + fill);
+            assertTrue(previousX < 0 || fill.x1() - previousX == 4, "even four-pixel rhythm: " + dotted);
+            previousX = fill.x1();
+        }
+    }
+
+    @Test
+    @DisplayName("a dash-dot line alternates a long run and a single dot")
+    void dashDotIsTheLongShortRhythm() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(40, 10));
+        List<LineArt.Fill> fills =
+                LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.DASH_DOT);
+
+        assertEquals(6, fills.get(0).x2() - fills.get(0).x1(), "the dash: " + fills);
+        assertEquals(1, fills.get(1).x2() - fills.get(1).x1(), "the dot: " + fills);
+        assertEquals(6, fills.get(2).x2() - fills.get(2).x1(), "then the next dash: " + fills);
+        assertEquals(fills.get(0).x1() + 13, fills.get(2).x1(), "one full rhythm apart");
+    }
+
+    @Test
+    @DisplayName("a double line is two hairlines either side of the route, and the weight is ignored")
+    void doubleIsTwoHairlines() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(40, 10));
+
+        List<LineArt.Fill> thin =
+                LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.DOUBLE);
+        assertEquals(2, thin.size(), "two runs, not one: " + thin);
+        assertEquals(9, thin.get(0).y1(), "one above the route");
+        assertEquals(11, thin.get(1).y1(), "and one below it");
+
+        assertEquals(thin, LineArt.fills(path, DependencyStyle.Weight.CONDUIT, DependencyStyle.Dash.DOUBLE),
+                "a double line is hairlines by definition: the weight axis does not thicken it");
+    }
+
+    @Test
+    @DisplayName("a hazard line is its run plus hatch marks crossing it")
+    void hazardAddsBarbs() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(60, 10));
+
+        assertEquals(1, LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.SOLID).size());
+        List<LineArt.Fill> hazard =
+                LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.HAZARD);
+        assertTrue(hazard.size() > 1, "the barbs are extra ink: " + hazard.size());
+        assertTrue(hazard.stream().anyMatch(fill -> fill.y1() > 10), "the barbs cross the route: " + hazard);
+    }
+
+    @Test
+    @DisplayName("weights stack parallel chips: one, two, three, and a conduit of six with a light core")
+    void weightsStackToTheirWidth() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(40, 10));
+
+        assertEquals(1, LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.SOLID).size());
+        assertEquals(2, LineArt.fills(path, DependencyStyle.Weight.THICK, DependencyStyle.Dash.SOLID).size());
+        assertEquals(3, LineArt.fills(path, DependencyStyle.Weight.BOLD, DependencyStyle.Dash.SOLID).size());
+
+        List<LineArt.Fill> conduit =
+                LineArt.fills(path, DependencyStyle.Weight.CONDUIT, DependencyStyle.Dash.SOLID);
+        assertEquals(6, conduit.size(), "a conduit is six pixels: " + conduit);
+        assertEquals(LineArt.Tone.EDGE, conduit.get(0).tone(), "dark border");
+        assertEquals(LineArt.Tone.MAIN, conduit.get(1).tone());
+        assertEquals(LineArt.Tone.CORE, conduit.get(2).tone(), "light core");
+        assertEquals(LineArt.Tone.CORE, conduit.get(3).tone());
+        assertEquals(LineArt.Tone.EDGE, conduit.get(5).tone(), "and the other border");
+        for (int i = 1; i < conduit.size(); i++) {
+            assertEquals(conduit.get(i - 1).y2(), conduit.get(i).y1(), "the band must be contiguous at " + i);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The heads: four glyphs, three placements, one density
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("the glyphs are distinct shapes, and none is no ink at all")
+    void theGlyphsAreDistinct() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 0), new LineArt.Point(200, 0));
+
+        assertEquals(0, LineArt.arrows(path, DependencyStyle.ArrowHead.NONE,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10).size(), "a blunt end is no head");
+        List<LineArt.Fill> chevron = LineArt.arrows(path, DependencyStyle.ArrowHead.CHEVRON,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10);
+        List<LineArt.Fill> triangle = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10);
+        List<LineArt.Fill> dot = LineArt.arrows(path, DependencyStyle.ArrowHead.DOT,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10);
+        List<LineArt.Fill> diamond = LineArt.arrows(path, DependencyStyle.ArrowHead.DIAMOND,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10);
+
+        for (List<LineArt.Fill> glyph : List.of(chevron, triangle, dot, diamond)) {
+            assertFalse(glyph.isEmpty(), "every glyph draws something");
+        }
+        assertEquals(5, dot.size(), "a bead is five pixels: " + dot);
+        assertTrue(triangle.size() > dot.size(), "a triangle is a filled wedge: " + triangle.size());
+        assertTrue(diamond.size() > dot.size(), "and so is a diamond: " + diamond.size());
+
+        // Every head is a cluster, not a scribble: all of its pixels sit together at the tip.
+        LineArt.Point tip = LineArt.pointAt(path, LineArt.length(path) - 13);
+        for (LineArt.Fill fill : triangle) {
+            assertTrue(Math.hypot(fill.x1() - tip.x(), fill.y1() - tip.y()) <= 10,
+                    "a triangle pixel away from its tip: " + fill);
+        }
+    }
+
+    @Test
+    @DisplayName("placements: one at the target, both ends, or one dead-centre pointing along the route")
+    void placementsPlaceTheHeads() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 0), new LineArt.Point(200, 0));
+
+        List<LineArt.Fill> target = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE,
+                DependencyStyle.ArrowPlace.TARGET, 32, 10, 10);
+        List<LineArt.Fill> both = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE,
+                DependencyStyle.ArrowPlace.BOTH, 32, 10, 10);
+        assertEquals(target.size() * 2, both.size(), "both ends are two heads: " + both);
+
+        List<LineArt.Fill> mid = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE,
+                DependencyStyle.ArrowPlace.MID, 32, 10, 10);
+        assertEquals(target.size(), mid.size(), "the middle placement is one head, not two");
+        for (LineArt.Fill fill : mid) {
+            assertTrue(fill.x1() >= 90 && fill.x1() <= 110, "a mid head belongs at the middle: " + fill);
+        }
+    }
+
+    @Test
+    @DisplayName("a stream's rhythm is its spacing, and the legacy many keeps the old one")
+    void streamsFollowTheirDensity() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 0), new LineArt.Point(600, 0));
+
+        List<LineArt.Fill> low = LineArt.arrows(path, DependencyStyle.ArrowHead.CHEVRON,
+                DependencyStyle.ArrowPlace.STREAM, DependencyStyle.ArrowDensity.LOW.spacing(), 0, 0);
+        List<LineArt.Fill> high = LineArt.arrows(path, DependencyStyle.ArrowHead.CHEVRON,
+                DependencyStyle.ArrowPlace.STREAM, DependencyStyle.ArrowDensity.HIGH.spacing(), 0, 0);
+        assertTrue(high.size() > low.size() * 2,
+                "high repeats far more often: " + high.size() + " vs " + low.size());
+
+        // The legacy axis draws through the same code, with the 24-pixel rhythm it always had.
+        List<LineArt.Fill> many = LineArt.arrows(path, DependencyStyle.Arrows.MANY, 0, 0);
+        assertFalse(many.isEmpty());
+        assertEquals(LineArt.arrows(path, DependencyStyle.ArrowHead.CHEVRON,
+                        DependencyStyle.ArrowPlace.STREAM, DependencyStyle.LEGACY_STREAM_SPACING, 0, 0),
+                many, "the legacy many and a stream at 24 pixels are the same drawing");
     }
 }

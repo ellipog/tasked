@@ -585,7 +585,7 @@ class QuestSyncTest {
         Files.writeString(quests.resolve("group/chapter/chapter.json"), """
                 { "$schema": "../../../_schema/chapter.schema.json",
                   "id": "chapter", "title": "Chapter",
-                  "dependencyStyle": { "form": "curved", "weight": "thick" },
+                  "dependencyStyle": { "form": "curved", "weight": "thick", "arrowHead": "diamond" },
                   "quests": ["one.json", "two.json"] }
                 """);
         Files.writeString(quests.resolve("group/chapter/one.json"), """
@@ -608,11 +608,20 @@ class QuestSyncTest {
         DependencyStyle chapter = two.chapterDependencyStyle();
         assertEquals(DependencyStyle.Form.CURVED, chapter.formOr(null));
         assertEquals(DependencyStyle.Weight.THICK, chapter.weightOr(null));
-        assertEquals(DependencyStyle.Arrows.ONE, chapter.arrowsOr(null),
+        assertEquals(DependencyStyle.ArrowHead.DIAMOND, chapter.headOr(null),
+                "a new axis the chapter did name arrives as itself");
+        assertEquals(DependencyStyle.ArrowPlace.TARGET, chapter.placeOr(null),
                 "an axis the chapter did not name arrives as the built-in, already resolved");
+        assertEquals(DependencyStyle.ArrowDensity.MEDIUM.spacing(), chapter.arrowSpacing());
+        assertTrue(chapter.arrows().isEmpty(),
+                "the resolved default speaks the current vocabulary; the legacy axis only travels raw");
 
         DependencyStyle line = two.dependencyLines().get("one");
-        assertEquals(DependencyStyle.Arrows.NONE, line.arrowsOr(null));
+        assertEquals(DependencyStyle.Arrows.NONE, line.arrowsOr(null),
+                "an old override arrives exactly as written, unsaid on the new axes");
+        assertEquals(DependencyStyle.ArrowHead.NONE, line.headOr(null),
+                "and the legacy value still reads as the glyph it always meant");
+        assertTrue(line.arrowHead().isEmpty());
         assertEquals(DependencyStyle.Dash.DASHED, line.dashOr(null));
         assertTrue(line.form().isEmpty(), "the line named no form, so the chapter's stays in force");
         assertTrue(entryFor("one").dependencyLines().isEmpty(),
@@ -742,8 +751,8 @@ class QuestSyncTest {
             // failure -- this one cannot be weakened without deleting the line.
             String json = new String(QuestSync.treeAsJson(twoGroups()), StandardCharsets.UTF_8);
 
-            assertTrue(json.contains("\"version\":8"),
-                    "the tree should declare version 8 (the condition displays), so a reader can tell what it is looking at: " + json);
+            assertTrue(json.contains("\"version\":" + QuestSync.TREE_VERSION),
+                    "the tree should declare its version, so a reader can tell what it is looking at: " + json);
             assertTrue(json.contains("\"groups\""),
                     "the tree has no groups array, so the client has nothing to build headings from: " + json);
             assertTrue(json.contains("\"chapters\""),

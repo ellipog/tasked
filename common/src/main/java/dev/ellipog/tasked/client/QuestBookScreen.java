@@ -48,6 +48,8 @@ import dev.ellipog.tasked.client.dev.ItemPicker;
 import dev.ellipog.tasked.client.dev.ItemPickerLayout;
 import dev.ellipog.tasked.client.dev.Alignment;
 import dev.ellipog.tasked.client.dev.LineArt;
+import dev.ellipog.tasked.client.dev.MenuFlyout;
+import dev.ellipog.tasked.client.dev.MenuFlyoutArt;
 import dev.ellipog.tasked.client.dev.MenuPlacement;
 import dev.ellipog.tasked.client.dev.QuestPanel;
 import dev.ellipog.tasked.client.dev.QuestSettingsLayout;
@@ -7641,13 +7643,13 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * One line of the sidebar's right-click menu.
+     * One line of a right-click menu.
      *
-     * @param action  what a press runs, or null for a row that is not pressable (a submenu parent, or
+     * @param action  what a press runs, or null for a row that is not pressable (a flyout parent, or
      *                the "…" row a capped submenu ends with)
-     * @param submenu whether hovering this row opens the second panel
+     * @param submenu whether hovering this row opens the flyout beside it
      */
-    private record MenuItem(String label, Runnable action, boolean danger, List<MenuItem> children) {
+    private record MenuItem(String label, Runnable action, boolean danger, List<MenuFlyout.Row> children) {
 
         static MenuItem of(String label, Runnable action) {
             return new MenuItem(label, action, false, List.of());
@@ -7657,13 +7659,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             return new MenuItem(label, action, true, List.of());
         }
 
-        /** A row that opens the panel beside the menu. Its children are built with it, not looked up. */
-        static MenuItem parent(String label, List<MenuItem> children) {
+        /** A row that opens the flyout beside the menu. Its rows are built with it, not looked up. */
+        static MenuItem parent(String label, List<MenuFlyout.Row> children) {
             return new MenuItem(label, null, false, List.copyOf(children));
-        }
-
-        static MenuItem unpressable(String label) {
-            return new MenuItem(label, null, false, List.of());
         }
 
         boolean submenu() {
@@ -7671,8 +7669,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
     }
 
-    /** The children of a menu row, for a caller holding only the row's index. */
-    private List<MenuItem> childrenOf(int row) {
+    /** The rows of a menu row's flyout, for a caller holding only the row's index. */
+    private List<MenuFlyout.Row> childrenOf(int row) {
         return row >= 0 && row < menu.size() ? menu.get(row).children() : List.of();
     }
 
@@ -7832,24 +7830,24 @@ public final class QuestBookScreen extends ArmatureScreen {
      * panel can show and a final unpressable "…" says the rest exist, so what is drawn is always exactly
      * what can be pressed and the panel never runs past the bottom of the book.
      */
-    private List<MenuItem> moveToItems(String id) {
-        List<MenuItem> items = new ArrayList<>();
+    private List<MenuFlyout.Row> moveToItems(String id) {
+        List<MenuFlyout.Row> items = new ArrayList<>();
         String current = groupOfChapter(id);
         if (!current.isEmpty()) {
-            items.add(MenuItem.of("No group",
+            items.add(MenuFlyout.text("No group",
                     () -> send(new EditorOp.MoveChapter(id, "", Integer.MAX_VALUE))));
         }
         for (ClientQuestCache.GroupEntry entry : ClientQuestCache.groups()) {
             if (entry.id().equals(current)) {
                 continue;
             }
-            items.add(MenuItem.of("Move to " + entry.title(),
+            items.add(MenuFlyout.text("Move to " + entry.title(),
                     () -> send(new EditorOp.MoveChapter(id, entry.id(), Integer.MAX_VALUE))));
         }
         int room = Math.max(0, (panelRect().height() - 16) / MENU_ROW_HEIGHT - 2);
         if (items.size() > room && room >= 2) {
-            List<MenuItem> cut = new ArrayList<>(items.subList(0, room - 1));
-            cut.add(MenuItem.unpressable("\u2026"));
+            List<MenuFlyout.Row> cut = new ArrayList<>(items.subList(0, room - 1));
+            cut.add(MenuFlyout.text("\u2026", null));
             return cut;
         }
         return items;
@@ -7877,35 +7875,29 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * The submenu's rectangles, given the row it hangs off.
+     * The open flyout, placed: one derivation the drawing, the presses and the hover's bridge all read.
      *
-     * <p>Beside the main panel when there is room and on its other side when there is not, and its top
-     * pulled up until it fits above the book's bottom edge — the same two clamps the main panel uses,
-     * because a submenu that ran off the window would be a destination that cannot be picked.
+     * <p>Beside the menu when there is room and on its other side when there is not, and its top pulled
+     * up until it fits above the book's bottom edge. The top is also held below the chapter list's top,
+     * because the flyout is drawn inside that clip band and the preview rows are taller than any text
+     * submenu was — a tall panel anchored near the header is the one thing that could be eaten by it.
      */
-    private List<BookGeometry.Rect> submenuRects(int parentIndex, int count) {
-        List<BookGeometry.Rect> main = menuRects();
-        if (parentIndex < 0 || parentIndex >= main.size() || count <= 0) {
-            return List.of();
+    private MenuFlyout.Placed submenuPlacement(int parentIndex) {
+        List<MenuFlyout.Row> rows = childrenOf(parentIndex);
+        if (parentIndex < 0 || parentIndex >= menu.size() || rows.isEmpty()) {
+            return MenuFlyout.place(0, 0, List.of());
         }
-        int height = count * MENU_ROW_HEIGHT + 6;
-        // Beside the menu, on whichever side the placement chose — the same answer the bridge uses to
-        // keep the submenu open while the pointer travels to it.
-        int x = MenuPlacement.submenuX(menuPlacement(), MENU_WIDTH, 4);
-        int y = main.get(parentIndex).y();
-        if (y + height > panelRect().bottom() - 4) {
-            y = Math.max(panelRect().y() + 4, panelRect().bottom() - 4 - height);
-        }
-        List<BookGeometry.Rect> rects = new ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            rects.add(BookGeometry.Rect.at(x + 2, y + 3 + i * MENU_ROW_HEIGHT, MENU_WIDTH,
-                    MENU_ROW_HEIGHT));
-        }
-        return rects;
+        BookGeometry.Rect main = menuRects().get(parentIndex);
+        int width = MenuFlyout.width(rows);
+        int height = MenuFlyout.height(rows);
+        int x = MenuPlacement.submenuX(menuPlacement(), width, 4);
+        int top = Math.max(panelRect().y() + 4, geometry().chapterListTop() + 4);
+        int y = Math.max(top, Math.min(main.y(), panelRect().bottom() - 4 - height));
+        return MenuFlyout.place(x, y, rows);
     }
 
     /**
-     * Where the menu goes, and which side its submenu opens on.
+     * Where the menu goes, and which side its flyout opens on.
      *
      * <p>The pointer decides, and the window bounds it — one rule for the sidebar's menus and the
      * canvas's, in {@link MenuPlacement}, because the first version measured x from the sidebar column's
@@ -7913,8 +7905,9 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private MenuPlacement.Placed menuPlacement() {
         BookGeometry.Rect window = panelRect();
+        int flyoutWidth = submenuRow >= 0 ? MenuFlyout.width(childrenOf(submenuRow)) : MENU_WIDTH;
         return MenuPlacement.place(menuX, menuY, MENU_WIDTH, menu.size() * MENU_ROW_HEIGHT + 6,
-                MENU_WIDTH, window.x() + 4, window.y() + 4, window.right() - 4, window.bottom() - 4, 8);
+                flyoutWidth, window.x() + 4, window.y() + 4, window.right() - 4, window.bottom() - 4, 8);
     }
 
     private int menuLeft() {
@@ -7955,32 +7948,40 @@ public final class QuestBookScreen extends ArmatureScreen {
         return cut + "\u2026";
     }
 
-    /** Whether a press is the menu's: an item runs and closes, anything else just closes. */
+    /** Whether a press is the menu's: a row runs, a flyout tunes or chooses, anything else just closes. */
     private boolean pressMenu(double mouseX, double mouseY) {
         if (menu.isEmpty()) {
             return false;
         }
         int parent = submenuRow;
         if (parent >= 0) {
-            List<MenuItem> submenu = childrenOf(parent);
-            List<BookGeometry.Rect> rects = submenuRects(parent, submenu.size());
-            for (int i = 0; i < rects.size(); i++) {
-                if (rects.get(i).contains(mouseX, mouseY)) {
-                    MenuItem item = submenu.get(i);
-                    if (item.action() == null) {
-                        return true;  // the "…" row: the rest exist and do not fit
-                    }
-                    closeMenu();
-                    item.action().run();
-                    return true;
+            MenuFlyout.Placed placed = submenuPlacement(parent);
+            MenuFlyout.Hit hit = MenuFlyout.hit(placed, mouseX, mouseY);
+            if (hit instanceof MenuFlyout.Hit.Choose choose) {
+                closeMenu();
+                choose.run().run();
+                return true;
+            }
+            if (hit instanceof MenuFlyout.Hit.Tune tune) {
+                tune.run().run();
+                // The rows are rebuilt in place, with the flyout still open: the selection, the reset
+                // chips and the rows another axis switches off all read the style the press just wrote,
+                // and rebuilding is what keeps the panel showing the line as it now is. The pointer is
+                // still on the same parent row, so `submenuRow` survives -- `closeMenu` is not called.
+                if (canvasMenuFrom != null && canvasMenuTo != null) {
+                    menu = lineMenuItems(canvasMenuFrom, canvasMenuTo);
                 }
+                return true;
+            }
+            if (hit != null) {
+                return true;  // on the flyout, on nothing pressable
             }
         }
         int row = menuRowAt(mouseX, mouseY);
         if (row >= 0) {
             MenuItem item = menu.get(row);
             if (item.submenu()) {
-                // The submenu is hover-driven and already open under this pointer; a press on its parent
+                // The flyout is hover-driven and already open under this pointer; a press on its parent
                 // chooses nothing, and closing here would make the row impossible to use at all.
                 return true;
             }
@@ -8010,17 +8011,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (parent < 0) {
             return;
         }
-        List<MenuItem> submenu = childrenOf(parent);
-        List<BookGeometry.Rect> subs = submenuRects(parent, submenu.size());
-        if (subs.isEmpty()) {
+        MenuFlyout.Placed placed = submenuPlacement(parent);
+        if (placed.rows().isEmpty()) {
             return;
         }
-        ArmatureTheme.panel(r, subs.get(0).x() - 2, subs.get(0).y() - 3, MENU_WIDTH + 4,
-                subs.get(subs.size() - 1).bottom() - subs.get(0).y() + 6,
-                ArmatureTheme.raised(), ArmatureTheme.panelEdge());
-        for (int i = 0; i < subs.size(); i++) {
-            drawMenuItem(r, subs.get(i), submenu.get(i), mouseX, mouseY);
-        }
+        ArmatureTheme.panel(r, placed.panel().x(), placed.panel().y(), placed.panel().width(),
+                placed.panel().height(), ArmatureTheme.raised(), ArmatureTheme.panelEdge());
+        MenuFlyoutArt.draw(r, placed, mouseX, mouseY);
     }
 
     /** One row of either panel: its hover wash, and its label in the ink its meaning asks for. */
@@ -8157,46 +8154,23 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * What a dependency line offers: its form, its arrows, its ink, its weight, and its removal.
+     * What a dependency line offers: its form, its arrows, its pattern, its weight, and its removal.
      *
-     * <p>Each style submenu carries a "Use chapter default" only when this line overrides something —
-     * a reset offered on a line that never departed from the default is a row that does nothing.
+     * <p>Each flyout is one panel of previews: a route is recognised by seeing it, and the three arrow
+     * axes share one flyout — one level of flyout, never two — so tuning a combination is a single visit
+     * rather than a hover-chain that closes when the hand strays a pixel. A cell press keeps the panel
+     * open and rebuilds it in place; the way out is the pointer leaving, Escape, or a choice like
+     * "Join handles" that closes with the click.
      */
     private List<MenuItem> lineMenuItems(String from, String to) {
         ClientQuestCache.Entry dependent = entryFor(to);
-        boolean overridden = dependent != null && dependencyLinesOf(dependent).has(from);
+        DependencyStyle now = dependent == null ? DependencyStyle.UNSET : lineStyle(dependent, from);
         String suffix = " \u2192 " + to;
         List<MenuItem> items = new ArrayList<>();
-        List<MenuItem> forms = new ArrayList<>();
-        forms.add(MenuItem.of("Orthogonal", () -> setLineAxis(from, to, "form", "orthogonal")));
-        forms.add(MenuItem.of("Straight", () -> setLineAxis(from, to, "form", "straight")));
-        forms.add(MenuItem.of("Curved", () -> setLineAxis(from, to, "form", "curved")));
-        DependencyStyle now = dependent == null ? DependencyStyle.UNSET
-                : lineStyle(dependent, from);
-        if (isSplit(now)) {
-            // Whether or not the form axis still says curved: while handles are set they are the shape,
-            // so the only honest offer is to put the single bow back.
-            forms.add(MenuItem.of("Join handles", () -> joinHandles(from, to)));
-        }
-        else if (now.formOr(DependencyStyle.Form.ORTHOGONAL) == DependencyStyle.Form.CURVED) {
-            forms.add(MenuItem.of("Split handles", () -> splitHandles(from, to, now)));
-        }
-        items.add(MenuItem.parent("Form \u203a", overridden
-                ? styleChoices(from, to, "form", forms, true) : forms));
-        items.add(MenuItem.parent("Arrows \u203a", styleChoices(from, to, "arrows",
-                List.of(MenuItem.of("None", () -> setLineAxis(from, to, "arrows", "none")),
-                        MenuItem.of("One", () -> setLineAxis(from, to, "arrows", "one")),
-                        MenuItem.of("Both", () -> setLineAxis(from, to, "arrows", "both")),
-                        MenuItem.of("Many", () -> setLineAxis(from, to, "arrows", "many"))),
-                overridden)));
-        items.add(MenuItem.parent("Line \u203a", styleChoices(from, to, "dash",
-                List.of(MenuItem.of("Solid", () -> setLineAxis(from, to, "dash", "solid")),
-                        MenuItem.of("Dashed", () -> setLineAxis(from, to, "dash", "dashed"))),
-                overridden)));
-        items.add(MenuItem.parent("Weight \u203a", styleChoices(from, to, "weight",
-                List.of(MenuItem.of("Thin", () -> setLineAxis(from, to, "weight", "thin")),
-                        MenuItem.of("Thick", () -> setLineAxis(from, to, "weight", "thick"))),
-                overridden)));
+        items.add(MenuItem.parent("Form \u203a", formRows(from, to, now)));
+        items.add(MenuItem.parent("Arrows \u203a", arrowRows(from, to, now)));
+        items.add(MenuItem.parent("Line \u203a", patternRows(from, to, now)));
+        items.add(MenuItem.parent("Weight \u203a", weightRows(from, to, now)));
         boolean armed = menuDeleteArmed;
         items.add(MenuItem.destructive(
                 armed ? "Really delete?" + suffix : "Delete dependency" + suffix,
@@ -8209,6 +8183,184 @@ public final class QuestBookScreen extends ArmatureScreen {
                             menu = lineMenuItems(from, to);
                         }));
         return items;
+    }
+
+    /** The Form flyout: a preview per route, the handle toggle, and the axis reset. */
+    private List<MenuFlyout.Row> formRows(String from, String to, DependencyStyle now) {
+        List<MenuFlyout.Cell> cells = new ArrayList<>();
+        for (DependencyStyle.Form form : DependencyStyle.Form.values()) {
+            cells.add(new MenuFlyout.Cell(formLabel(form),
+                    () -> setLineAxis(from, to, "form", form.wire()),
+                    now.formOr(DependencyStyle.Form.ORTHOGONAL) == form,
+                    new MenuFlyout.Preview.Form(form)));
+        }
+        List<MenuFlyout.Row> rows = new ArrayList<>();
+        rows.add(new MenuFlyout.Row.Cells("Form", cells, reset(from, to, "form"), true));
+        if (isSplit(now)) {
+            rows.add(MenuFlyout.text("Join handles", () -> joinHandles(from, to)));
+        }
+        else if (now.formOr(DependencyStyle.Form.ORTHOGONAL) == DependencyStyle.Form.CURVED) {
+            // Only a curve: its two control points reproduce the bow exactly, where a radial arc's cubic
+            // stand-in would jump — so the offer is made only where it keeps the shape.
+            rows.add(MenuFlyout.text("Split handles", () -> splitHandles(from, to, now)));
+        }
+        return rows;
+    }
+
+    /**
+     * The Arrows flyout: one row per arrow axis, in one panel.
+     *
+     * <p>The old menu kept the glyph and its placement in one axis and offered a text list; the split
+     * axes live together here rather than in nested flyouts. A row whose meaning another axis has
+     * switched off — placement and density under a blunt end, density when the heads are not a stream —
+     * is drawn faint rather than hidden, so the panel does not change shape under the pointer.
+     */
+    private List<MenuFlyout.Row> arrowRows(String from, String to, DependencyStyle now) {
+        DependencyStyle.ArrowHead head = now.headOr(DependencyStyle.ArrowHead.CHEVRON);
+        DependencyStyle.ArrowPlace place = now.placeOr(DependencyStyle.ArrowPlace.TARGET);
+        List<MenuFlyout.Cell> heads = new ArrayList<>();
+        for (DependencyStyle.ArrowHead value : DependencyStyle.ArrowHead.values()) {
+            heads.add(new MenuFlyout.Cell(headLabel(value),
+                    () -> setLineAxis(from, to, "arrowHead", value.wire()), head == value,
+                    new MenuFlyout.Preview.Head(value)));
+        }
+        List<MenuFlyout.Cell> places = new ArrayList<>();
+        for (DependencyStyle.ArrowPlace value : DependencyStyle.ArrowPlace.values()) {
+            places.add(new MenuFlyout.Cell(placeLabel(value),
+                    () -> setLineAxis(from, to, "arrowPlace", value.wire()), place == value,
+                    new MenuFlyout.Preview.Place(value)));
+        }
+        List<MenuFlyout.Cell> densities = new ArrayList<>();
+        for (DependencyStyle.ArrowDensity value : DependencyStyle.ArrowDensity.values()) {
+            densities.add(new MenuFlyout.Cell(densityLabel(value),
+                    () -> setLineAxis(from, to, "arrowDensity", value.wire()),
+                    now.densityOr(DependencyStyle.ArrowDensity.MEDIUM) == value,
+                    new MenuFlyout.Preview.Density(value)));
+        }
+        List<MenuFlyout.Row> rows = new ArrayList<>();
+        rows.add(new MenuFlyout.Row.Cells("Head", heads, reset(from, to, "arrowHead"), true));
+        rows.add(new MenuFlyout.Row.Cells("Place", places, reset(from, to, "arrowPlace"),
+                head != DependencyStyle.ArrowHead.NONE));
+        rows.add(new MenuFlyout.Row.Cells("Density", densities, reset(from, to, "arrowDensity"),
+                head != DependencyStyle.ArrowHead.NONE && place == DependencyStyle.ArrowPlace.STREAM));
+        return rows;
+    }
+
+    /** The Line flyout: a preview per pattern. */
+    private List<MenuFlyout.Row> patternRows(String from, String to, DependencyStyle now) {
+        DependencyStyle.Dash current = now.dashOr(DependencyStyle.Dash.SOLID);
+        List<MenuFlyout.Cell> cells = new ArrayList<>();
+        for (DependencyStyle.Dash pattern : DependencyStyle.Dash.values()) {
+            cells.add(new MenuFlyout.Cell(patternLabel(pattern),
+                    () -> setLineAxis(from, to, "dash", pattern.wire()), current == pattern,
+                    new MenuFlyout.Preview.Pattern(pattern)));
+        }
+        return List.of(new MenuFlyout.Row.Cells("Line", cells, reset(from, to, "dash"), true));
+    }
+
+    /** The Weight flyout: a preview per thickness, faint while the pattern ignores the weight axis. */
+    private List<MenuFlyout.Row> weightRows(String from, String to, DependencyStyle now) {
+        DependencyStyle.Weight current = now.weightOr(DependencyStyle.Weight.THIN);
+        List<MenuFlyout.Cell> cells = new ArrayList<>();
+        for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+            cells.add(new MenuFlyout.Cell(weightLabel(weight),
+                    () -> setLineAxis(from, to, "weight", weight.wire()), current == weight,
+                    new MenuFlyout.Preview.Weight(weight)));
+        }
+        return List.of(new MenuFlyout.Row.Cells("Weight", cells, reset(from, to, "weight"),
+                now.dashOr(DependencyStyle.Dash.SOLID) != DependencyStyle.Dash.DOUBLE));
+    }
+
+    /** The reset chip's action, or null when the line already stands on the chapter's default. */
+    private Runnable reset(String from, String to, String axis) {
+        return overrides(from, to, axis) ? () -> clearLineAxis(from, to, axis) : null;
+    }
+
+    /**
+     * Whether this line's own override names the axis.
+     *
+     * <p>The legacy arrows axis stands in for all three current arrow axes: a line written before the
+     * split genuinely overrides its arrows, and a reset offered on it must clear the old spelling too,
+     * or clearing one new axis would leave the old value in force.
+     */
+    private boolean overrides(String from, String to, String axis) {
+        JsonObject entry = lineEntry(from, to);
+        return entry.has(axis)
+                || (DependencyStyle.isArrowAxis(axis)
+                && entry.has(DependencyStyle.LEGACY_ARROWS_FIELD));
+    }
+
+    /** One line's override object, or an empty one when it has none. */
+    private JsonObject lineEntry(String from, String to) {
+        ClientQuestCache.Entry dependent = entryFor(to);
+        if (dependent == null) {
+            return new JsonObject();
+        }
+        JsonObject lines = dependencyLinesOf(dependent);
+        return lines.has(from) && lines.get(from).isJsonObject()
+                ? lines.getAsJsonObject(from) : new JsonObject();
+    }
+
+    // ------------------------------------------------------------------
+    // The cells' captions: short, because a preview is about forty pixels wide
+    // ------------------------------------------------------------------
+
+    private static String formLabel(DependencyStyle.Form form) {
+        return switch (form) {
+            case ORTHOGONAL -> "Ortho";
+            case CHAMFERED -> "Circuit";
+            case STRAIGHT -> "Straight";
+            case STEPPED -> "Stepped";
+            case CURVED -> "Curved";
+            case RADIAL -> "Arc";
+        };
+    }
+
+    private static String headLabel(DependencyStyle.ArrowHead head) {
+        return switch (head) {
+            case CHEVRON -> "Chevron";
+            case TRIANGLE -> "Tri";
+            case DOT -> "Dot";
+            case DIAMOND -> "Diamond";
+            case NONE -> "None";
+        };
+    }
+
+    private static String placeLabel(DependencyStyle.ArrowPlace place) {
+        return switch (place) {
+            case TARGET -> "Target";
+            case BOTH -> "Both";
+            case MID -> "Mid";
+            case STREAM -> "Stream";
+        };
+    }
+
+    private static String densityLabel(DependencyStyle.ArrowDensity density) {
+        return switch (density) {
+            case LOW -> "Low";
+            case MEDIUM -> "Med";
+            case HIGH -> "High";
+        };
+    }
+
+    private static String patternLabel(DependencyStyle.Dash pattern) {
+        return switch (pattern) {
+            case SOLID -> "Solid";
+            case DASHED -> "Dash";
+            case DOTTED -> "Dot";
+            case DASH_DOT -> "D.Dot";
+            case DOUBLE -> "Double";
+            case HAZARD -> "Hazard";
+        };
+    }
+
+    private static String weightLabel(DependencyStyle.Weight weight) {
+        return switch (weight) {
+            case THIN -> "Hair";
+            case THICK -> "Std";
+            case BOLD -> "Bold";
+            case CONDUIT -> "Pipe";
+        };
     }
 
     /**
@@ -8240,17 +8392,6 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         sendField(to, "dependencyLines", lines.isEmpty() ? null : lines);
         status("Line " + from + " -> " + to + ": handles joined", false);
-    }
-
-    /** A style submenu's rows, with the reset appended when this line has an override to reset. */
-    private List<MenuItem> styleChoices(String from, String to, String axis, List<MenuItem> choices,
-                                        boolean overridden) {
-        if (!overridden) {
-            return choices;
-        }
-        List<MenuItem> all = new ArrayList<>(choices);
-        all.add(MenuItem.of("Use chapter default", () -> clearLineAxis(from, to, axis)));
-        return all;
     }
 
     /**
@@ -8307,7 +8448,13 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** Writes one axis of one line's override, keeping every other axis and every other line. */
     private void setLineAxis(String from, String to, String axis, String value) {
         JsonObject lines = lineOverride(from, to);
-        lines.getAsJsonObject(from).addProperty(axis, value);
+        JsonObject style = lines.getAsJsonObject(from);
+        style.addProperty(axis, value);
+        if (DependencyStyle.isArrowAxis(axis)) {
+            // The legacy axis said all three of the current ones at once: an edit that speaks the new
+            // vocabulary retires it, or clearing one new axis later would resurrect the old value.
+            style.remove(DependencyStyle.LEGACY_ARROWS_FIELD);
+        }
         sendField(to, "dependencyLines", lines);
         status("Line " + from + " \u2192 " + to + ": " + axis + " " + value, false);
     }
@@ -8317,6 +8464,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         JsonObject lines = lineOverride(from, to);
         JsonObject style = lines.getAsJsonObject(from);
         style.remove(axis);
+        if (DependencyStyle.isArrowAxis(axis)) {
+            // The reset means "the chapter's default again", and while the legacy spelling is still in
+            // the object that is not what it would get.
+            style.remove(DependencyStyle.LEGACY_ARROWS_FIELD);
+        }
         if (style.isEmpty()) {
             lines.remove(from);
         }
@@ -8436,7 +8588,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 best = toDistance;
                 found = new String[] { edge[0], edge[1], HANDLE_TO };
             }
-            if (isSplit(style) || style.formOr(DependencyStyle.Form.ORTHOGONAL) == DependencyStyle.Form.CURVED) {
+            if (isSplit(style) || bows(style)) {
                 if (isSplit(style)) {
                     LineArt.Point fromControl = splitPointOf(edge, style, true);
                     LineArt.Point toControl = splitPointOf(edge, style, false);
@@ -8488,7 +8640,7 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /**
      * The handle layer: a circle at each end of the line under the pointer, and a diamond at the middle
-     * of a curved one.
+     * of a curved or radial one.
      *
      * <p><b>Called after the nodes are drawn</b>, so a dot that overlaps a node — an anchor dragged round
      * to its far side — is on top of it. The first version ran before `drawNode`, and the dot you were
@@ -8542,7 +8694,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                             dragging && HANDLE_TO_HANDLE.equals(bendDragKind));
                 }
             }
-            else if (style.formOr(DependencyStyle.Form.ORTHOGONAL) == DependencyStyle.Form.CURVED) {
+            else if (bows(style)) {
                 LineArt.Point middle = LineArt.pointAt(frameEdge.path(),
                         LineArt.length(frameEdge.path()) / 2);
                 diamondDot(r, middle, dragging && HANDLE_BEND.equals(bendDragKind));
@@ -10780,9 +10932,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                                        int fromHalf, int toHalf, int colour) {
         for (LineArt.Fill fill : LineArt.fills(path, style.weightOr(DependencyStyle.Weight.THIN),
                 style.dashOr(DependencyStyle.Dash.SOLID))) {
-            r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), colour);
+            r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), MenuFlyoutArt.ink(fill.tone(), colour));
         }
-        for (LineArt.Fill fill : LineArt.arrows(path, style.arrowsOr(DependencyStyle.Arrows.ONE),
+        for (LineArt.Fill fill : LineArt.arrows(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
+                style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(),
                 fromHalf, toHalf)) {
             r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), colour);
         }
@@ -10905,6 +11058,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         return style.fromHandle().isPresent() && style.toHandle().isPresent();
     }
 
+    /**
+     * Whether this line's shape is a bow the bend handle steers: a curve or a radial arc.
+     *
+     * <p>Both put their middle where {@link LineArt#bendAt} reads it — the quadratic control offset and
+     * the arc's sagitta are the same fraction of the chord — so one diamond steers either, and switching
+     * between the two forms does not move the handle off the line.
+     */
+    private static boolean bows(DependencyStyle style) {
+        DependencyStyle.Form form = style.formOr(DependencyStyle.Form.ORTHOGONAL);
+        return form == DependencyStyle.Form.CURVED || form == DependencyStyle.Form.RADIAL;
+    }
+
     /** The bow a curve gets when nothing, anywhere, says otherwise. */
     private static final double DEFAULT_BEND = 0.2;
 
@@ -10936,7 +11101,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         return new DependencyStyle(style.form(), style.arrows(), style.dash(), style.weight(),
                 java.util.Optional.ofNullable(bendPreview == null ? style.bend().orElse(null) : bendPreview),
-                from, to, fromHandle, toHandle);
+                from, to, fromHandle, toHandle,
+                style.arrowHead(), style.arrowPlace(), style.arrowDensity());
     }
 
     /** The node under the pointer, or null. */
@@ -12763,16 +12929,19 @@ public final class QuestBookScreen extends ArmatureScreen {
         submenuRow = -1;
     }
 
-    /** Whether the pointer is on the open submenu, or on the way to it. */
+    /** Whether the pointer is on the open flyout, or on the way to it. */
     private boolean insideOpenSubmenu(double mouseX, double mouseY) {
-        List<BookGeometry.Rect> rects = submenuRects(submenuRow,
-                submenuRow >= 0 ? childrenOf(submenuRow).size() : 0);
-        for (BookGeometry.Rect rect : rects) {
-            if (rect.contains(mouseX, mouseY)) {
-                return true;
-            }
+        if (submenuRow < 0) {
+            return false;
         }
-        BookGeometry.Rect bridge = submenuBridge(rects);
+        MenuFlyout.Placed placed = submenuPlacement(submenuRow);
+        if (placed.rows().isEmpty()) {
+            return false;
+        }
+        if (placed.contains(mouseX, mouseY)) {
+            return true;
+        }
+        BookGeometry.Rect bridge = submenuBridge(placed);
         return bridge != null && bridge.contains(mouseX, mouseY);
     }
 
@@ -12782,14 +12951,15 @@ public final class QuestBookScreen extends ArmatureScreen {
      * <p>Without it a pointer travelling diagonally crosses a sliver that is neither the row nor the
      * panel, and the submenu shuts under the hand — which is the same fault in a smaller place.
      */
-    private BookGeometry.Rect submenuBridge(List<BookGeometry.Rect> rects) {
-        if (rects.isEmpty() || submenuRow < 0) {
+    private BookGeometry.Rect submenuBridge(MenuFlyout.Placed placed) {
+        if (placed.rows().isEmpty() || submenuRow < 0) {
             return null;
         }
         List<BookGeometry.Rect> main = menuRects();
         if (submenuRow >= main.size()) {
             return null;
         }
+        List<BookGeometry.Rect> rects = placed.rows();
         BookGeometry.Rect parent = main.get(submenuRow);
         BookGeometry.Rect last = rects.get(rects.size() - 1);
         int left = Math.min(parent.x(), rects.get(0).x() - 2);

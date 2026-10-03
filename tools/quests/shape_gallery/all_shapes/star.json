@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "star",
+  "title": "Star",
+  "subtitle": "Four points, bent sides",
+  "description": [
+    "A four-point star: tips at the top, right, bottom and left, with sides that bow inward between them so the waist is about a third of the way out.",
+    "",
+    "Drawn as four cubic Beziers from tip to tip with the control points pulled onto the axes -- an inner pinch factor of about 0.32 -- the curve passes through 0.245 of the way to the corner; the astroid, the same shape as one comparison per point, passes through 0.25. So the shape is the astroid: it is the classic four-cusped star, and no maths was harmed in the drawing of it.",
+    "",
+    "Its tips are cusps, and a cusp is thinner than a pixel for several rows, so the points are drawn as the wedge a pixel artist draws -- a minimum width growing a quarter of a pixel per row. Its inscribed square is half the node across, the deepest pinch of any shape here, so the item sits in the body and the four points read around it."
+  ],
+  "icon": {
+    "item": "minecraft:nether_star"
+  },
+  "x": 288,
+  "y": 192,
+  "shape": "star",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the star shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

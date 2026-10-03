@@ -2,11 +2,11 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "pentagon",
   "title": "Pentagon",
-  "subtitle": "A shield",
+  "subtitle": "Five equal sides",
   "description": [
-    "A shield: a full-width flat top, vertical flanks down to the middle, and a straight taper to a point at the bottom. The point sits where an item has nothing, and the flat edge where a sprite's top goes.",
+    "A regular pentagon, point up: five equal sides, the apex at the top, a flat base 0.618 of the node across, and its widest row at the two upper vertices rather than at the bottom.",
     "",
-    "The shape before it was point-up with a flat base -- the house orientation -- which put its point exactly where an item's own head wants to sit. Its mass is at the top, so the item's anchor sits three percent of the node above the middle rather than on the box's centre."
+    "Regular proportions, fitted like every other shape -- it fills the node's width and is 0.951 of it tall, so the angles are the pentagon's own rather than stretched to fill a square. Its mass is at the base and the apex is empty, so the item's anchor sits three percent of the node below the middle, where the material is."
   ],
   "icon": {
     "item": "minecraft:gold_ingot"

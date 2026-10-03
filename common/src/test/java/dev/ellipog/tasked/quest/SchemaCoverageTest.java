@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.quest;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -21,10 +22,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The two published schemas against the registries: every field the code has is a field the schemas document.
+ * The published schemas against the registries: every field the code has is a field the schemas document.
  *
  * <h2>Why this exists</h2>
  *
@@ -50,6 +52,9 @@ class SchemaCoverageTest {
 
     /** The folder format's quest schema, under the worked examples it describes. */
     private static final Path PER_KIND = Path.of("..", "tools", "quests", "_schema", "quest.schema.json");
+
+    /** The folder format's chapter schema, whose line style deliberately has no per-line axes. */
+    private static final Path CHAPTER_KIND = Path.of("..", "tools", "quests", "_schema", "chapter.schema.json");
 
     /** The one-file format's published schema, which is the reference until the authoring guide lands. */
     private static final Path PUBLISHED = Path.of("..", "docs", "tasked-quests.schema.json");
@@ -135,6 +140,47 @@ class SchemaCoverageTest {
             invented.remove("type");
             assertTrue(invented.isEmpty(), () -> schema + " documents condition fields no registered "
                     + "type has: " + invented);
+        }
+    }
+
+    @Test
+    @DisplayName("every line-style axis and value is documented, in all three schemas")
+    void theLineStyleVocabularyIsDocumented() throws IOException {
+        // The style axes are a closed vocabulary the validator enforces, so a value the code knows and
+        // the schema omits is an editor that red-underlines a legal file -- and an axis the code gained
+        // but the schema never learned about is autocomplete that quietly cannot offer it. This is the
+        // drift the two hardcoded validator sentences used to hide; the schema is the other half.
+        for (Path schema : List.of(PER_KIND, CHAPTER_KIND, PUBLISHED)) {
+            JsonObject style = read(schema).getAsJsonObject("definitions").getAsJsonObject("dependencyStyle");
+            Set<String> documented = style.getAsJsonObject("properties").keySet();
+
+            Set<String> expected = new TreeSet<>(DependencyStyle.SHARED_FIELDS);
+            expected.add(DependencyStyle.LEGACY_ARROWS_FIELD);
+            if (!schema.equals(CHAPTER_KIND)) {
+                // A chapter's lines meet different rims, so its default deliberately cannot set these.
+                expected.addAll(DependencyStyle.LINE_FIELDS);
+            }
+            Set<String> missing = new TreeSet<>(expected);
+            missing.removeAll(documented);
+            assertTrue(missing.isEmpty(), () -> schema + " does not document these line axes: " + missing);
+
+            for (String axis : expected) {
+                Class<? extends Enum<?>> type = DependencyStyle.axisType(axis);
+                if (type == null) {
+                    continue;   // `bend` is the numeric axis: no enum values to compare
+                }
+                Set<String> values = new TreeSet<>();
+                for (Enum<?> value : type.getEnumConstants()) {
+                    values.add(value.name().toLowerCase(java.util.Locale.ROOT));
+                }
+                Set<String> documentedValues = new TreeSet<>();
+                for (JsonElement each : style.getAsJsonObject("properties").getAsJsonObject(axis)
+                        .getAsJsonArray("enum")) {
+                    documentedValues.add(each.getAsString());
+                }
+                assertEquals(values, documentedValues,
+                        () -> schema + " documents the wrong values for the line axis " + axis);
+            }
         }
     }
 

@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
+import dev.ellipog.tasked.quest.DependencyStyle;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -167,7 +168,9 @@ public final class ChapterPanelLayout {
             rows.add(toggle(chapter, "defaultConsumeItems"));
             rows.add(choiceRow(chapter, PREREQUISITE));
             rows.add(choiceRow(chapter, LINE_FORM));
-            rows.add(choiceRow(chapter, LINE_ARROWS));
+            rows.add(choiceRow(chapter, LINE_ARROW_HEAD));
+            rows.add(choiceRow(chapter, LINE_ARROW_PLACE));
+            rows.add(choiceRow(chapter, LINE_ARROW_DENSITY));
             rows.add(choiceRow(chapter, LINE_DASH));
             rows.add(choiceRow(chapter, LINE_WEIGHT));
         }
@@ -228,22 +231,21 @@ public final class ChapterPanelLayout {
     // The cycling rows
     // ------------------------------------------------------------------
 
-    /** The field the chapter's line-style default lives in; its four axes are four rows. */
+    /** The field the chapter's line-style default lives in; its axes are one row each. */
     public static final String DEPENDENCY_STYLE = "dependencyStyle";
 
     /**
      * One cycling row: a closed set stepped by an arrow at each end.
      *
-     * <p>Seven of this panel's fields are closed sets rather than prose -- the two progression rules,
-     * the consume-items flag (a toggle, because two states are not a list), and the four axes of the
-     * chapter's line style. The rules were typed by hand, where a typo is a value only the server
-     * refuses; the picker makes the valid values the only reachable ones, and names the state a file
-     * that says nothing is in.
+     * <p>This panel's closed sets -- the two progression rules, the consume-items flag (a toggle,
+     * because two states are not a list), and the line-style axes -- are cycled rather than typed: the
+     * rules were typed by hand once, where a typo is a value only the server refuses, and the picker
+     * makes the valid values the only reachable ones and names the state a file that says nothing is in.
      *
-     * <p>{@code key} is the row's identity and, for the two rules, the exact path a commit goes to.
-     * The four line axes are nested inside {@code dependencyStyle}, and a commit writes that whole
-     * object -- see {@link #choiceEdit} -- so their keys are the dotted path read for information
-     * rather than the path the op carries.
+     * <p>{@code key} is the row's identity and, for the two rules, the exact path a commit goes to. The
+     * line axes are nested inside {@code dependencyStyle}, and a commit writes that whole object — see
+     * {@link #choiceEdit} — so their keys are the dotted path read for information rather than the path
+     * the op carries.
      *
      * <p>{@code fallback} is what the axis is worth when nothing, anywhere, says otherwise: the
      * manifest's own default for a rule, the built-ins for a line axis. The unset choice is labelled
@@ -275,17 +277,22 @@ public final class ChapterPanelLayout {
 
     /** The chapter's line-style default, one axis per row: what a line's "Use chapter default" resets to. */
     public static final Choice LINE_FORM = new Choice(DEPENDENCY_STYLE + ".form", "Line form",
-            List.of("orthogonal", "straight", "curved"), "orthogonal");
-    public static final Choice LINE_ARROWS = new Choice(DEPENDENCY_STYLE + ".arrows", "Line arrows",
-            List.of("none", "one", "both", "many"), "one");
-    public static final Choice LINE_DASH = new Choice(DEPENDENCY_STYLE + ".dash", "Line dash",
-            List.of("solid", "dashed"), "solid");
+            List.of("orthogonal", "chamfered", "straight", "stepped", "curved", "radial"), "orthogonal");
+    public static final Choice LINE_ARROW_HEAD = new Choice(DEPENDENCY_STYLE + ".arrowHead", "Line head",
+            List.of("chevron", "triangle", "dot", "diamond", "none"), "chevron");
+    public static final Choice LINE_ARROW_PLACE = new Choice(DEPENDENCY_STYLE + ".arrowPlace", "Line place",
+            List.of("target", "both", "mid", "stream"), "target");
+    public static final Choice LINE_ARROW_DENSITY =
+            new Choice(DEPENDENCY_STYLE + ".arrowDensity", "Line density", List.of("low", "medium", "high"),
+                    "medium");
+    public static final Choice LINE_DASH = new Choice(DEPENDENCY_STYLE + ".dash", "Line pattern",
+            List.of("solid", "dashed", "dotted", "dash_dot", "double", "hazard"), "solid");
     public static final Choice LINE_WEIGHT = new Choice(DEPENDENCY_STYLE + ".weight", "Line weight",
-            List.of("thin", "thick"), "thin");
+            List.of("thin", "thick", "bold", "conduit"), "thin");
 
     /** The cycling rows, in the order the Rules section carries them. */
-    public static final List<Choice> CHOICES =
-            List.of(PROGRESSION, PREREQUISITE, LINE_FORM, LINE_ARROWS, LINE_DASH, LINE_WEIGHT);
+    public static final List<Choice> CHOICES = List.of(PROGRESSION, PREREQUISITE, LINE_FORM,
+            LINE_ARROW_HEAD, LINE_ARROW_PLACE, LINE_ARROW_DENSITY, LINE_DASH, LINE_WEIGHT);
 
     /** The cycling row a key names, or null for every other row. */
     public static Choice choiceForKey(String key) {
@@ -308,9 +315,37 @@ public final class ChapterPanelLayout {
         return found != null && found.isJsonObject() ? found.getAsJsonObject() : new JsonObject();
     }
 
-    /** The value in force: the field itself, or the axis inside the chapter's dependencyStyle. */
+    /**
+     * The value in force: the field itself, or the axis inside the chapter's dependencyStyle.
+     *
+     * <p>An arrow row with no current-axis value but a legacy {@code arrows} value reports what that
+     * value means for this row, so a chapter written before the split does not read "Default" while its
+     * lines stream — the file genuinely says something about arrows, and the picker's job is to show the
+     * state before offering to change it.
+     */
     public static String choiceValue(JsonObject chapter, Choice choice) {
-        return text(choice.isLineStyle() ? lineStyle(chapter) : chapter, choice.axis(), "");
+        String value = text(choice.isLineStyle() ? lineStyle(chapter) : chapter, choice.axis(), "");
+        if (!value.isEmpty() || !choice.isLineStyle()) {
+            return value;
+        }
+        return legacyArrowValue(lineStyle(chapter), choice.axis());
+    }
+
+    /** What a legacy arrows value means for one arrow row, or empty for every other row and value. */
+    private static String legacyArrowValue(JsonObject style, String axis) {
+        String legacy = text(style, DependencyStyle.LEGACY_ARROWS_FIELD, "");
+        if (legacy.isEmpty()) {
+            return "";
+        }
+        return switch (axis) {
+            case "arrowHead" -> legacy.equals("none") ? "none" : "chevron";
+            case "arrowPlace" -> switch (legacy) {
+                case "both" -> "both";
+                case "many" -> "stream";
+                default -> "target";
+            };
+            default -> "";
+        };
     }
 
     /** A row's values as the picker cycles them: the unset state first, then the file's own names. */
@@ -358,6 +393,11 @@ public final class ChapterPanelLayout {
                     value == null || value.isEmpty() ? null : new JsonPrimitive(value));
         }
         JsonObject style = lineStyle(chapter).deepCopy();
+        if (DependencyStyle.isArrowAxis(choice.axis())) {
+            // The legacy arrows axis said the same three things at once; a chapter that speaks the
+            // current vocabulary retires it, or a new axis returned to "Default" would fall back to it.
+            style.remove(DependencyStyle.LEGACY_ARROWS_FIELD);
+        }
         if (value == null || value.isEmpty()) {
             style.remove(choice.axis());
         }

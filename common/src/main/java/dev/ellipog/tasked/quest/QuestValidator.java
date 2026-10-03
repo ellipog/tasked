@@ -15,6 +15,7 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 /**
@@ -1072,7 +1073,7 @@ public final class QuestValidator {
     }
 
     /**
-     * One style object: whose keys are the four axes and whose values are names this build knows.
+     * One style object: whose keys are the axes it names and whose values are names this build knows.
      *
      * <p>One check for both places a style can appear — a chapter's default and a line's override —
      * because they are one shape, and two checks would be two vocabularies the day one of them grew.
@@ -1097,8 +1098,8 @@ public final class QuestValidator {
         }
         if (!element.isJsonObject()) {
             problems.error(document, path, "expected an object of line settings, found "
-                    + Checks.kindOf(element) + ". Write any of \"form\", \"arrows\", \"dash\" or"
-                    + " \"weight\", and leave out the ones this line does not choose.");
+                    + Checks.kindOf(element) + ". Write any of " + quoted(DependencyStyle.SHARED_FIELDS)
+                    + ", and leave out the ones this line does not choose.");
             return;
         }
         for (java.util.Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
@@ -1158,9 +1159,13 @@ public final class QuestValidator {
             }
             Class<? extends Enum<?>> axis = DependencyStyle.axisType(key);
             if (axis == null) {
+                // The vocabulary comes from the record's own lists, so an axis added there cannot be
+                // forgotten here -- the two hardcoded sentences this replaces were already two lists to
+                // update by hand.
                 problems.error(document, fieldPath, "unknown line setting \"" + key + "\" - the settings"
-                        + " are form, arrows, dash, weight and bend, and per line also fromAnchor,"
-                        + " toAnchor, fromHandle and toHandle");
+                        + " are " + String.join(", ", DependencyStyle.SHARED_FIELDS)
+                        + (allowAnchors ? ", and per line also "
+                        + String.join(", ", DependencyStyle.LINE_FIELDS) : ""));
                 continue;
             }
             JsonElement value = entry.getValue();
@@ -1184,6 +1189,18 @@ public final class QuestValidator {
                 out.append(", ");
             }
             out.append(value.name().toLowerCase(java.util.Locale.ROOT));
+        }
+        return out.toString();
+    }
+
+    /** The vocabulary as a message writes it: quoted, comma-separated. */
+    private static String quoted(List<String> axes) {
+        StringBuilder out = new StringBuilder();
+        for (String axis : axes) {
+            if (!out.isEmpty()) {
+                out.append(", ");
+            }
+            out.append('"').append(axis).append('"');
         }
         return out.toString();
     }

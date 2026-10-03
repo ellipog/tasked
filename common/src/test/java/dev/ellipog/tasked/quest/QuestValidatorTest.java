@@ -725,6 +725,65 @@ class QuestValidatorTest {
         assertEquals(line, problem.line(), "the refusal must land where the author wrote it");
     }
 
+    // ------------------------------------------------------------------
+    // The line-style vocabulary: the current axes, and the legacy one still read
+    // ------------------------------------------------------------------
+
+    /** A file whose line (a waits on b) carries the current arrow vocabulary. */
+    private static final String STYLED_FILE = """
+            {"version": 1, "chapterGroups": [{"id": "g", "title": "G",
+              "chapters": [{"id": "c", "title": "C", "quests": [
+                {"id": "a", "title": "a", "dependsOn": ["b"],
+                 "dependencyLines": {"b": {"form": "chamfered", "arrowHead": "triangle",
+                    "arrowPlace": "stream", "arrowDensity": "high", "dash": "dash_dot",
+                    "weight": "conduit"}}},
+                {"id": "b", "title": "b"}
+              ]}]}]}""";
+
+    @Test
+    @DisplayName("the current line vocabulary is clean, new axes and all")
+    void theNewVocabularyIsClean() {
+        Problems problems = validate(STYLED_FILE);
+
+        assertTrue(problems.isEmpty(), "the new values must validate, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("an unknown value on a new axis is refused with the names it does know")
+    void anUnknownArrowValueIsRefused() {
+        Problems problems = validate(STYLED_FILE.replace("\"triangle\"", "\"harpoon\""));
+
+        DataProblem problem = containing(problems, "\"harpoon\" is not a arrowHead this build knows");
+        assertTrue(problem.message().contains("chevron"),
+                "the message lists the real names: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("the legacy arrows axis is still accepted, so old files keep validating")
+    void theLegacyArrowsAxisIsStillAccepted() {
+        Problems problems = validate("""
+                {"version": 1, "chapterGroups": [{"id": "g", "title": "G",
+                  "chapters": [{"id": "c", "title": "C", "quests": [
+                    {"id": "a", "title": "a", "dependsOn": ["b"],
+                     "dependencyLines": {"b": {"arrows": "many", "form": "curved"}}},
+                    {"id": "b", "title": "b"}
+                  ]}]}]}""");
+
+        assertTrue(problems.isEmpty(), "an old file must still validate, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("a chapter default may carry the new axes too")
+    void aChapterDefaultCarriesTheNewAxes() {
+        // Only anchors and split handles are per-line facts; a chapter-wide head, place and density are
+        // exactly what a chapter default is for.
+        String extras = "\"dependencyStyle\": {\"arrowHead\": \"dot\", \"arrowPlace\": \"mid\"},";
+        Problems problems = validate(Fixtures.fileWithChapter(extras, Fixtures.q("a").build()));
+
+        assertTrue(problems.isEmpty(), "a chapter default of the new vocabulary must be clean: "
+                + messages(problems));
+    }
+
     private static String file(String quest) {
         return "{\"version\": 1, \"chapterGroups\": [{\"id\": \"g\", \"title\": \"G\", "
                 + "\"chapters\": [{\"id\": \"c\", \"title\": \"C\", \"quests\": [" + quest + "]}]}]}";

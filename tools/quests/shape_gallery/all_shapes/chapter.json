@@ -2,9 +2,9 @@
   "$schema": "../../_schema/chapter.schema.json",
   "id": "all_shapes",
   "title": "All Shapes",
-  "subtitle": "Eleven outlines, one size, one turned",
+  "subtitle": "Twelve outlines, one size, one turned",
   "description": [
-    "One quest per shape the format can name, all at size 56 so the silhouette is the only thing that changes, plus one turned square: the same geometry after the fix that made a turn rigid and fitted.",
+    "One quest per shape the format can name -- rounded, square, circle, diamond, hexagon, octagon, pentagon, gear, heart, tome, star and none -- all at size 56 so the silhouette is the only thing that changes, plus one turned square: the same geometry after the fix that made a turn rigid and fitted.",
     "",
     "The shapes are drawn from arithmetic rather than from textures, which is why a click lands on exactly what is drawn and why the icon always fits inside the outline -- there is no second description of the shape for the hit test to disagree with.",
     "",
@@ -26,6 +26,7 @@
     "gear.json",
     "heart.json",
     "tome.json",
+    "star.json",
     "none.json",
     "turned.json"
   ]

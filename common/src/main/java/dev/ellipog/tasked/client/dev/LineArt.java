@@ -31,8 +31,23 @@ public final class LineArt {
     public record Point(int x, int y) {
     }
 
+    /** What a rectangle contributes to a weighted line's shading. */
+    public enum Tone {
+        /** The line's own ink. */
+        MAIN,
+        /** A conduit's darker border. */
+        EDGE,
+        /** A conduit's lighter core. */
+        CORE
+    }
+
     /** One rectangle to fill, half-open like the renderer's: {@code x1..x2}, {@code y1..y2}. */
-    public record Fill(int x1, int y1, int x2, int y2) {
+    public record Fill(int x1, int y1, int x2, int y2, Tone tone) {
+
+        /** The ordinary case: a rectangle of the line's own ink. */
+        public Fill(int x1, int y1, int x2, int y2) {
+            this(x1, y1, x2, y2, Tone.MAIN);
+        }
     }
 
     /** A line a click could be on: what it is, and the route it takes. */
@@ -44,12 +59,37 @@ public final class LineArt {
 
     private static final int DASH_ON = 6;
     private static final int DASH_OFF = 5;
-    private static final int ARROW_SPACING = 24;
+
+    /** A dot's ink and the gap after it, for the dotted rhythm. */
+    private static final int DOTTED_ON = 1;
+    private static final int DOTTED_PERIOD = 4;
+
+    /** The two gaps of the dash-dot rhythm: dash, gap, dot, gap. */
+    private static final int DASH_DOT_GAP = 3;
+
+    /** Hazard hatch marks: how far apart, and how long. */
+    private static final int HAZARD_STEP = 8;
+    private static final int HAZARD_BARB = 5;
+
+    /** How long a chamfered corner's 45-degree cut is, before it is clamped to the arms meeting it. */
+    private static final int CHAMFER = 6;
+
+    /** A cut shorter than this is left square: a one-pixel nick reads as a fault, not a bevel. */
+    private static final int MIN_CHAMFER = 2;
 
     /** How far outside its own node an arrowhead's tip sits, so the head is not drawn under it. */
     private static final int ARROW_GAP = 3;
+
+    /** A chevron's wing length: how far back from the tip its two strokes reach. */
     private static final int ARROW_LENGTH = 6;
-    private static final int ARROW_WIDTH = 3;
+
+    /** A triangle head: how long, and how wide at its tail. */
+    private static final int TRIANGLE_LENGTH = 6;
+    private static final int TRIANGLE_HALF = 2;
+
+    /** A diamond head: how long, and how wide at its middle. */
+    private static final int DIAMOND_LENGTH = 7;
+    private static final int DIAMOND_HALF = 2;
 
     private LineArt() {
     }
@@ -71,26 +111,91 @@ public final class LineArt {
         return path(form, from, to, 0.2);
     }
 
-    /** The same, with the curve's bow as a fraction of its chord. Only {@code CURVED} reads it. */
+    /** The same, with the curve's bow as a fraction of its chord. Only {@code CURVED} and {@code RADIAL} read it. */
     public static List<Point> path(DependencyStyle.Form form, Point from, Point to, double bend) {
         return switch (form) {
-            case ORTHOGONAL -> {
-                // The three-segment step this canvas always drew: out vertically, across, in vertically.
-                // Vertical-first because a quest chain runs left to right, and a short vertical stub
-                // reads as a branch where a long horizontal run would cross a neighbour's space.
-                List<Point> points = new ArrayList<>();
-                points.add(from);
-                if (from.y() != to.y()) {
-                    int midY = from.y() + (to.y() - from.y()) / 2;
-                    points.add(new Point(from.x(), midY));
-                    points.add(new Point(to.x(), midY));
-                }
-                points.add(to);
-                yield points;
-            }
+            case ORTHOGONAL -> orthogonal(from, to);
+            case CHAMFERED -> bevel(orthogonal(from, to));
             case STRAIGHT -> steps(from, to);
+            case STEPPED -> stepped(from, to);
             case CURVED -> curve(from, to, bend);
+            case RADIAL -> radial(from, to, bend);
         };
+    }
+
+    /**
+     * The three-segment step this canvas always drew: out vertically, across, in vertically.
+     *
+     * <p>Vertical-first because a quest chain runs left to right, and a short vertical stub reads as a
+     * branch where a long horizontal run would cross a neighbour's space.
+     */
+    private static List<Point> orthogonal(Point from, Point to) {
+        List<Point> points = new ArrayList<>();
+        points.add(from);
+        if (from.y() != to.y()) {
+            int midY = from.y() + (to.y() - from.y()) / 2;
+            points.add(new Point(from.x(), midY));
+            points.add(new Point(to.x(), midY));
+        }
+        points.add(to);
+        return points;
+    }
+
+    /**
+     * Out horizontally, one vertical step, in horizontally — the Z broken at the chord's midpoint.
+     *
+     * <p>What "Stepped" means here: the vertical jog happens at the midpoint of the span rather than at
+     * each end, so a column-to-column flow reads as one clean break. {@link #orthogonal} is the same
+     * shape transposed — vertical stubs at the ends, the long run between them — and which one looks
+     * tidier is a fact about the chapter's own layout.
+     */
+    private static List<Point> stepped(Point from, Point to) {
+        List<Point> points = new ArrayList<>();
+        points.add(from);
+        // Both offsets have to exist or there is no Z at all: a line already on the target's row or
+        // column would otherwise grow a zero-length jog and two duplicate points.
+        if (from.x() != to.x() && from.y() != to.y()) {
+            int midX = from.x() + (to.x() - from.x()) / 2;
+            points.add(new Point(midX, from.y()));
+            points.add(new Point(midX, to.y()));
+        }
+        points.add(to);
+        return points;
+    }
+
+    /**
+     * A route with every right angle cut at 45 degrees: the circuit-trace look.
+     *
+     * <p>Each corner is replaced by two points a fixed length back along its arms, joined by a diagonal
+     * — exactly 45 degrees, because the arms are axis-aligned and the cut is the same length on both.
+     * The cut is clamped to half of the shortest arm meeting the corner, so two bevels can never eat past
+     * each other and a short stub keeps a square corner; a cut below {@link #MIN_CHAMFER} is not a bevel
+     * but a nick, and is left square.
+     */
+    public static List<Point> bevel(List<Point> corners) {
+        if (corners.size() < 3) {
+            return corners;
+        }
+        List<Point> out = new ArrayList<>();
+        out.add(corners.get(0));
+        for (int i = 1; i < corners.size() - 1; i++) {
+            Point before = out.get(out.size() - 1);
+            Point corner = corners.get(i);
+            Point next = corners.get(i + 1);
+            double incoming = Math.hypot(corner.x() - before.x(), corner.y() - before.y());
+            double outgoing = Math.hypot(next.x() - corner.x(), next.y() - corner.y());
+            int cut = (int) Math.floor(Math.min(CHAMFER, Math.min(incoming, outgoing) / 2));
+            if (cut < MIN_CHAMFER) {
+                out.add(corner);
+                continue;
+            }
+            out.add(new Point(corner.x() - Integer.signum(corner.x() - before.x()) * cut,
+                    corner.y() - Integer.signum(corner.y() - before.y()) * cut));
+            out.add(new Point(corner.x() + Integer.signum(next.x() - corner.x()) * cut,
+                    corner.y() + Integer.signum(next.y() - corner.y()) * cut));
+        }
+        out.add(corners.get(corners.size() - 1));
+        return out;
     }
 
     /** The existing three-segment route as fills, for callers that only want the rectangles. */
@@ -165,9 +270,53 @@ public final class LineArt {
         return dedupe(points);
     }
 
-    // ------------------------------------------------------------------
-    // Fills
-    // ------------------------------------------------------------------
+    /**
+     * A true circular arc, bowed by the same bend fraction a curve reads.
+     *
+     * <p>The arc's middle lands where the quadratic's does — {@code bend * chord / 2} off the chord — so
+     * switching a line between curved and radial does not jump, and {@link #bendAt} stays the exact
+     * inverse of both. The centre sits on the chord's perpendicular bisector on the far side of the bow,
+     * at the radius that passes through both ends and that middle point. At the bend limit the arc is
+     * still under half a circle, which is why the minor arc is always the one drawn.
+     */
+    public static List<Point> radial(Point from, Point to, double bend) {
+        double dx = to.x() - from.x();
+        double dy = to.y() - from.y();
+        double length = Math.hypot(dx, dy);
+        if (length < 1 || Math.abs(bend) < 1e-6) {
+            return List.of(from, to);
+        }
+        double sagitta = bend * length / 2;
+        double half = length / 2;
+        double radius = (half * half + sagitta * sagitta) / (2 * Math.abs(sagitta));
+        double offset = radius - Math.abs(sagitta);
+        double nx = -dy / length;
+        double ny = dx / length;
+        double side = Math.signum(sagitta);
+        double centreX = (from.x() + to.x()) / 2.0 - nx * side * offset;
+        double centreY = (from.y() + to.y()) / 2.0 - ny * side * offset;
+        double startAngle = Math.atan2(from.y() - centreY, from.x() - centreX);
+        double endAngle = Math.atan2(to.y() - centreY, to.x() - centreX);
+        double sweep = endAngle - startAngle;
+        while (sweep > Math.PI) {
+            sweep -= 2 * Math.PI;
+        }
+        while (sweep < -Math.PI) {
+            sweep += 2 * Math.PI;
+        }
+        double arc = radius * Math.abs(sweep);
+        int samples = Math.max(2, (int) Math.ceil(arc / 2.0));
+        List<Point> points = new ArrayList<>(samples + 1);
+        for (int i = 0; i <= samples; i++) {
+            double angle = startAngle + sweep * i / samples;
+            points.add(new Point(
+                    (int) Math.round(centreX + Math.cos(angle) * radius),
+                    (int) Math.round(centreY + Math.sin(angle) * radius)));
+        }
+        points.set(0, from);
+        points.set(points.size() - 1, to);
+        return dedupe(points);
+    }
 
     /**
      * The rectangles that draw this path.
@@ -186,10 +335,11 @@ public final class LineArt {
      * it ends on it and the run after it starts on it, and a solid line is continuous at every slope
      * because every walk point is covered by exactly one fill.
      *
-     * <p>{@code dash} null or solid fills the whole run; dashed alternates on and off <b>along the
-     * walk</b>, so the pattern follows the route rather than the axes and a dash never straddles a corner
-     * as two half-dashes. {@code weight} null or thin is one pixel; thick adds a parallel run one pixel
-     * over.
+     * <p>{@code dash} null or solid fills the whole run; a broken pattern alternates along the
+     * <b>walk</b>, so the rhythm follows the route rather than the axes and a dash never straddles a
+     * corner as two half-dashes. {@code weight} null or thin is one pixel; every heavier weight is the
+     * same run drawn as a band of parallel chips, and a conduit's chips carry {@link Tone}s so its
+     * borders can be inked darker and its core lighter.
      */
     public static List<Fill> fills(List<Point> path, DependencyStyle.Weight weight, DependencyStyle.Dash dash) {
         if (path.size() < 2) {
@@ -199,12 +349,38 @@ public final class LineArt {
         if (walk.size() < 2) {
             return List.of();
         }
-        boolean dashed = dash == DependencyStyle.Dash.DASHED;
-        boolean thick = weight == DependencyStyle.Weight.THICK;
+        DependencyStyle.Dash pattern = dash == null ? DependencyStyle.Dash.SOLID : dash;
+        DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
         List<Fill> out = new ArrayList<>();
+        if (pattern == DependencyStyle.Dash.DOUBLE) {
+            // Two hairlines rather than one thick one: that is the look, and it is why this pattern
+            // ignores the weight axis. A single-pixel run, drawn twice a pixel either side of itself.
+            List<Fill> single = new ArrayList<>();
+            runs(walk, DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN, single);
+            for (Fill fill : single) {
+                out.add(shifted(fill, -1));
+                out.add(shifted(fill, 1));
+            }
+            return out;
+        }
+        runs(walk, pattern, ink, out);
+        if (pattern == DependencyStyle.Dash.HAZARD) {
+            barbs(path, out);
+        }
+        return out;
+    }
+
+    /**
+     * The merged rectangles of one walk under one pattern and weight.
+     *
+     * <p>One loop for every rhythm and every weight, because the drawing, the preview cell and the tests
+     * must not each grow their own idea of what a pattern means.
+     */
+    private static void runs(List<Point> walk, DependencyStyle.Dash pattern, DependencyStyle.Weight weight,
+                             List<Fill> out) {
         int index = 0;
         while (index < walk.size()) {
-            if (dashed && index % (DASH_ON + DASH_OFF) >= DASH_ON) {
+            if (!onAt(pattern, index)) {
                 index++;
                 continue;
             }
@@ -212,18 +388,16 @@ public final class LineArt {
                 // A run that begins on the last point has no next point to merge with, and it is still a
                 // pixel of the line: without this the final pixel of a diagonal or a curve is simply not
                 // drawn, which is how a line ends one pixel short of the node it points at.
-                emit(walk, index, index, out, thick);
+                emit(walk, index, index, out, weight);
                 break;
             }
             int end = index;
-            while (end < walk.size() - 1 && onAxis(walk, index, end + 1)
-                    && (!dashed || (end + 1 - index) < DASH_ON)) {
+            while (end < walk.size() - 1 && onAt(pattern, end + 1) && onAxis(walk, index, end + 1)) {
                 end++;
             }
-            emit(walk, index, end, out, thick);
+            emit(walk, index, end, out, weight);
             index = end + 1;
         }
-        return out;
     }
 
     /**
@@ -244,6 +418,25 @@ public final class LineArt {
         return dedupe(out);
     }
 
+    /**
+     * Whether a pattern's ink is on this far along the walk.
+     *
+     * <p>The dots are one pixel with a three-pixel gap — tight enough to read as a dotted line rather
+     * than as a dashed one — and the dash-dot is the classic long-short rhythm: six on, three off, one
+     * on, three off.
+     */
+    private static boolean onAt(DependencyStyle.Dash pattern, int index) {
+        return switch (pattern) {
+            case SOLID, DOUBLE, HAZARD -> true;
+            case DASHED -> index % (DASH_ON + DASH_OFF) < DASH_ON;
+            case DOTTED -> index % DOTTED_PERIOD < DOTTED_ON;
+            case DASH_DOT -> {
+                int at = index % (DASH_ON + DASH_DOT_GAP + DOTTED_ON + DASH_DOT_GAP);
+                yield at < DASH_ON || at == DASH_ON + DASH_DOT_GAP;
+            }
+        };
+    }
+
     /** Whether the points {@code start..next} of the walk all lie on one axis. */
     private static boolean onAxis(List<Point> walk, int start, int next) {
         Point first = walk.get(start);
@@ -253,31 +446,79 @@ public final class LineArt {
                 || (first.x() == previous.x() && previous.x() == end.x());
     }
 
-    /** One merged rectangle for the points {@code from..to} of the path, plus a thick twin. */
-    private static void emit(List<Point> path, int from, int to, List<Fill> out, boolean thick) {
+    /** One merged rectangle for the points {@code from..to} of the walk, as a band of one-pixel chips. */
+    private static void emit(List<Point> path, int from, int to, List<Fill> out,
+                             DependencyStyle.Weight weight) {
         Point a = path.get(from);
         Point b = path.get(to);
-        Fill fill;
+        Fill base;
         if (a.y() == b.y()) {
-            fill = new Fill(Math.min(a.x(), b.x()), a.y(), Math.max(a.x(), b.x()) + 1, a.y() + 1);
+            base = new Fill(Math.min(a.x(), b.x()), a.y(), Math.max(a.x(), b.x()) + 1, a.y() + 1);
         }
         else if (a.x() == b.x()) {
-            fill = new Fill(a.x(), Math.min(a.y(), b.y()), a.x() + 1, Math.max(a.y(), b.y()) + 1);
+            base = new Fill(a.x(), Math.min(a.y(), b.y()), a.x() + 1, Math.max(a.y(), b.y()) + 1);
         }
         else {
             // A diagonal or a curve's sample: one pixel per point, and the walk covers them all.
-            fill = new Fill(a.x(), a.y(), a.x() + 1, a.y() + 1);
+            base = new Fill(a.x(), a.y(), a.x() + 1, a.y() + 1);
         }
-        out.add(fill);
-        if (thick) {
-            if (fill.y2() - fill.y1() > 1 && fill.x2() - fill.x1() == 1) {
-                out.add(new Fill(fill.x1() + 1, fill.y1(), fill.x2() + 1, fill.y2()));
-            }
-            else if (fill.x2() - fill.x1() > 1 && fill.y2() - fill.y1() == 1) {
-                out.add(new Fill(fill.x1(), fill.y1() + 1, fill.x2(), fill.y2() + 1));
-            }
-            else {
-                out.add(new Fill(fill.x1(), fill.y1() + 1, fill.x2() + 1, fill.y2() + 1));
+        int width = weight == null ? 1 : weight.width();
+        for (int i = 0; i < width; i++) {
+            Fill band = shifted(base, i);
+            out.add(new Fill(band.x1(), band.y1(), band.x2(), band.y2(), toneOf(weight, i)));
+        }
+    }
+
+    /**
+     * The same rectangle one step further along the band's own direction.
+     *
+     * <p>The step follows the run's shape: down for a horizontal run, right for a vertical one, and
+     * diagonally for a curve's sample — the three cases the old "thick twin" had, now the unit every
+     * heavier weight is built from.
+     */
+    private static Fill shifted(Fill fill, int steps) {
+        int dx = 0;
+        int dy = 0;
+        if (fill.y2() - fill.y1() > 1 && fill.x2() - fill.x1() == 1) {
+            dx = steps;
+        }
+        else if (fill.x2() - fill.x1() > 1 && fill.y2() - fill.y1() == 1) {
+            dy = steps;
+        }
+        else {
+            dx = steps;
+            dy = steps;
+        }
+        return new Fill(fill.x1() + dx, fill.y1() + dy, fill.x2() + dx, fill.y2() + dy, fill.tone());
+    }
+
+    /** The tone of the {@code i}th chip: a conduit is a dark border, a body and a light core. */
+    private static Tone toneOf(DependencyStyle.Weight weight, int i) {
+        if (weight != DependencyStyle.Weight.CONDUIT) {
+            return Tone.MAIN;
+        }
+        return switch (i) {
+            case 0, 5 -> Tone.EDGE;
+            case 1, 4 -> Tone.MAIN;
+            default -> Tone.CORE;
+        };
+    }
+
+    /**
+     * The hatch marks of a hazard route: a short stroke at 45 degrees to the line, every few pixels.
+     *
+     * <p>Sampled on the corner path rather than the walk, so each barb knows the route's real direction
+     * instead of a one-pixel staircase's.
+     */
+    private static void barbs(List<Point> path, List<Fill> out) {
+        double total = length(path);
+        for (double at = HAZARD_STEP; at < total - HAZARD_BARB; at += HAZARD_STEP) {
+            Point point = pointAt(path, at);
+            double angle = tangentAt(path, at) + Math.PI / 4;
+            Point end = new Point((int) Math.round(point.x() + Math.cos(angle) * HAZARD_BARB),
+                    (int) Math.round(point.y() + Math.sin(angle) * HAZARD_BARB));
+            for (Point step : steps(point, end)) {
+                out.add(new Fill(step.x(), step.y(), step.x() + 1, step.y() + 1));
             }
         }
     }
@@ -287,16 +528,18 @@ public final class LineArt {
     // ------------------------------------------------------------------
 
     /**
-     * The chevrons on a path, as fills.
+     * The heads on a path, as fills.
      *
-     * <p>A chevron rather than a solid triangle: at this scale a triangle of six pixels is a blob, where
-     * two strokes read as a direction. {@code nodeHalf} is how far back from the final point the tip is
-     * placed — the head belongs at the node's rim, and the node is drawn over the line, so a head left at
-     * the centre would simply be hidden.
+     * <p>The glyph and where it sits are separate axes now. A chevron is two walked strokes, a triangle
+     * or a diamond is a filled wedge, and a dot is a bead; any of them can be posted at the target, at
+     * both ends, once at the middle, or as a stream along the route. {@code fromHalf}/{@code toHalf} are
+     * how far back from the final point the tip is placed — the head belongs at the node's rim, and the
+     * node is drawn over the line, so a head left at the centre would simply be hidden.
      */
-    public static List<Fill> arrows(List<Point> path, DependencyStyle.Arrows arrows, int fromHalf,
+    public static List<Fill> arrows(List<Point> path, DependencyStyle.ArrowHead head,
+                                    DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
                                     int toHalf) {
-        if (arrows == null || arrows == DependencyStyle.Arrows.NONE || path.size() < 2) {
+        if (head == null || head == DependencyStyle.ArrowHead.NONE || place == null || path.size() < 2) {
             return List.of();
         }
         double total = length(path);
@@ -305,14 +548,14 @@ public final class LineArt {
         double arrival = toHalf + ARROW_GAP;
         double departure = fromHalf + ARROW_GAP;
         List<Fill> out = new ArrayList<>();
-        boolean roomForArrival = total > arrival + ARROW_LENGTH;
-        boolean roomForDeparture = total > departure + ARROW_LENGTH;
-        if (arrows == DependencyStyle.Arrows.MANY) {
-            double every = Math.max(ARROW_SPACING, ARROW_LENGTH * 3);
+        boolean roomForArrival = total > arrival + reach(head);
+        boolean roomForDeparture = total > departure + reach(head);
+        if (place == DependencyStyle.ArrowPlace.STREAM) {
+            double every = Math.max(Math.max(spacing, 1), reach(head) * 3);
             if (!roomForArrival) {
                 return out;
             }
-            // The chevrons' distances, in the order they were always emitted: outward from the departure
+            // The heads' distances, in the order they were always emitted: outward from the departure
             // end, then the arrival head. The old loop asked `pointAt` and `tangentAt` per chevron, and
             // each of those walks the whole path -- O(k*P) for a long line at this setting. Sampling
             // every distance in one walk is the same arithmetic per sample, run once.
@@ -321,29 +564,65 @@ public final class LineArt {
                 backs.add(total - at);
             }
             backs.add(arrival);
-            emitChevrons(path, backs, out);
+            emitHeads(path, backs, head, out);
+            return out;
+        }
+        if (place == DependencyStyle.ArrowPlace.MID) {
+            // One head dead-centre, pointing the way the route runs there -- and nothing at the ends,
+            // because "which way does this line run" is the whole of what the middle is saying.
+            double at = total / 2;
+            headAt(pointAt(path, at), tangentAt(path, at), head, out);
             return out;
         }
         // A head that cannot fit outside its node is left off rather than drawn inside it: a short edge
         // with no arrow is honest, and a head buried in a node is the fault this placement exists for.
         if (roomForArrival) {
-            chevron(path, arrival, false, out);
+            head(path, arrival, false, head, out);
         }
-        if (arrows == DependencyStyle.Arrows.BOTH && roomForDeparture) {
-            chevron(path, departure, true, out);
+        if (place == DependencyStyle.ArrowPlace.BOTH && roomForDeparture) {
+            head(path, departure, true, head, out);
         }
         return out;
     }
 
     /**
-     * Chevrons at several distances along a path, sampled in one walk and emitted in the given order.
+     * The same heads, for a caller still holding the legacy axis — an old file, or an old server.
      *
-     * <p>{@code backs} are distances from the path's end, all arrival-facing — the only shape the
-     * {@code MANY} setting uses. Emission order is the caller's list order rather than the sampling
-     * order, because the fills a caller gets back are part of what it draws, and a reordered list would
-     * be a changed drawing even where the pixels coincide.
+     * <p>{@code many} keeps its old 24-pixel rhythm rather than jumping to the medium density: the
+     * density axis was added to give authors a choice, not to redraw packs that had already made one.
      */
-    private static void emitChevrons(List<Point> path, List<Double> backs, List<Fill> out) {
+    public static List<Fill> arrows(List<Point> path, DependencyStyle.Arrows arrows, int fromHalf,
+                                    int toHalf) {
+        if (arrows == null) {
+            return List.of();
+        }
+        int spacing = arrows == DependencyStyle.Arrows.MANY
+                ? DependencyStyle.LEGACY_STREAM_SPACING : DependencyStyle.ArrowDensity.MEDIUM.spacing();
+        return arrows(path, DependencyStyle.headOf(arrows), DependencyStyle.placeOf(arrows), spacing,
+                fromHalf, toHalf);
+    }
+
+    /** How far forward a glyph reaches from its tip, for the room check that keeps heads off nodes. */
+    private static double reach(DependencyStyle.ArrowHead head) {
+        return switch (head) {
+            case CHEVRON -> ARROW_LENGTH;
+            case TRIANGLE -> TRIANGLE_LENGTH;
+            case DIAMOND -> DIAMOND_LENGTH;
+            case DOT -> 2;
+            case NONE -> 0;
+        };
+    }
+
+    /**
+     * Heads at several distances along a path, sampled in one walk and emitted in the given order.
+     *
+     * <p>{@code backs} are distances from the path's end, all arrival-facing — the shape a stream uses.
+     * Emission order is the caller's list order rather than the sampling order, because the fills a
+     * caller gets back are part of what it draws, and a reordered list would be a changed drawing even
+     * where the pixels coincide.
+     */
+    private static void emitHeads(List<Point> path, List<Double> backs, DependencyStyle.ArrowHead head,
+                                  List<Fill> out) {
         double[] distances = new double[backs.size()];
         double total = length(path);
         for (int i = 0; i < backs.size(); i++) {
@@ -368,7 +647,7 @@ public final class LineArt {
             angleOf[order[i]] = angles.get(i);
         }
         for (int i = 0; i < distances.length; i++) {
-            chevronAt(tipOf[i], angleOf[i], out);
+            headAt(tipOf[i], angleOf[i], head, out);
         }
     }
 
@@ -443,12 +722,13 @@ public final class LineArt {
     }
 
     /**
-     * One chevron at {@code back} pixels from the end named by {@code atStart}.
+     * One head at {@code back} pixels from the end named by {@code atStart}.
      *
      * <p>Walked along the path so it points the way the line runs at that point, which is what makes an
      * arrow on an orthogonal route turn the corner correctly rather than pointing along the axes.
      */
-    private static void chevron(List<Point> path, double back, boolean atStart, List<Fill> out) {
+    private static void head(List<Point> path, double back, boolean atStart, DependencyStyle.ArrowHead head,
+                             List<Fill> out) {
         double total = length(path);
         double from = atStart ? back : total - back;
         if (from < 0 || from > total) {
@@ -458,7 +738,19 @@ public final class LineArt {
         // The path runs source to target, so the arrival head points along it and the departure head
         // points back at its own node.
         double angle = tangentAt(path, from) + (atStart ? Math.PI : 0);
-        chevronAt(tip, angle, out);
+        headAt(tip, angle, head, out);
+    }
+
+    /** One head whose tip and direction are already known: the glyph's own shape. */
+    private static void headAt(Point tip, double angle, DependencyStyle.ArrowHead head, List<Fill> out) {
+        switch (head) {
+            case CHEVRON -> chevronAt(tip, angle, out);
+            case TRIANGLE -> wedgeAt(tip, angle, TRIANGLE_LENGTH, TRIANGLE_HALF, out);
+            case DIAMOND -> diamondAt(tip, angle, out);
+            case DOT -> dotAt(tip, out);
+            case NONE -> {
+            }
+        }
     }
 
     /** One chevron whose tip and direction are already known: two walked wings, as fills. */
@@ -473,6 +765,57 @@ public final class LineArt {
                 out.add(new Fill(point.x(), point.y(), point.x() + 1, point.y() + 1));
             }
         }
+    }
+
+    /**
+     * A filled wedge, rows across the direction of travel: zero width at the tip, widest at the tail.
+     *
+     * <p>What a triangle head is at this scale; the rows are single pixels, because the renderer's
+     * primitive is a rectangle and one pixel per column is the only way to keep an angled edge crisp.
+     */
+    private static void wedgeAt(Point tip, double angle, int length, int half, List<Fill> out) {
+        double ux = Math.cos(angle);
+        double uy = Math.sin(angle);
+        double px = -uy;
+        double py = ux;
+        for (int i = 0; i < length; i++) {
+            int spread = Math.round(half * (float) i / (length - 1));
+            rowAt(tip, ux, uy, px, py, i, spread, out);
+        }
+    }
+
+    /** A rhombus head: two wedges back to back, widest in the middle. */
+    private static void diamondAt(Point tip, double angle, List<Fill> out) {
+        double ux = Math.cos(angle);
+        double uy = Math.sin(angle);
+        double px = -uy;
+        double py = ux;
+        for (int i = 0; i < DIAMOND_LENGTH; i++) {
+            int fromTip = Math.min(i, DIAMOND_LENGTH - 1 - i);
+            int spread = Math.round(DIAMOND_HALF * (float) fromTip / (DIAMOND_LENGTH / 2));
+            rowAt(tip, ux, uy, px, py, i, spread, out);
+        }
+    }
+
+    /** One row of a filled head: {@code i} pixels back from the tip, {@code spread} either side. */
+    private static void rowAt(Point tip, double ux, double uy, double px, double py, int i, int spread,
+                              List<Fill> out) {
+        int cx = (int) Math.round(tip.x() - ux * i);
+        int cy = (int) Math.round(tip.y() - uy * i);
+        for (int s = -spread; s <= spread; s++) {
+            int x = (int) Math.round(cx + px * s);
+            int y = (int) Math.round(cy + py * s);
+            out.add(new Fill(x, y, x + 1, y + 1));
+        }
+    }
+
+    /** A bead: five pixels in a plus, round enough at this scale and distinct from every other head. */
+    private static void dotAt(Point tip, List<Fill> out) {
+        out.add(new Fill(tip.x(), tip.y(), tip.x() + 1, tip.y() + 1));
+        out.add(new Fill(tip.x() - 1, tip.y(), tip.x(), tip.y() + 1));
+        out.add(new Fill(tip.x() + 1, tip.y(), tip.x() + 2, tip.y() + 1));
+        out.add(new Fill(tip.x(), tip.y() - 1, tip.x() + 1, tip.y()));
+        out.add(new Fill(tip.x(), tip.y() + 1, tip.x() + 1, tip.y() + 2));
     }
 
     // ------------------------------------------------------------------

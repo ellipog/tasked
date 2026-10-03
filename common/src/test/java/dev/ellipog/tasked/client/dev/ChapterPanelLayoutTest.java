@@ -66,8 +66,8 @@ class ChapterPanelLayoutTest {
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
                         "progressionMode", "defaultConsumeItems", "defaultPrerequisiteMode",
-                        "dependencyStyle.form", "dependencyStyle.arrows", "dependencyStyle.dash",
-                        "dependencyStyle.weight"),
+                        "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
+                        "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight"),
                 rows.stream().filter(row -> !row.isHeading()
                                 && !row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:"))
                         .map(InspectRow::key).toList(),
@@ -86,8 +86,10 @@ class ChapterPanelLayoutTest {
         assertEquals("Prerequisite", row(rows, "defaultPrerequisiteMode").label());
         assertEquals("Aliases", row(rows, "aliases").label());
         assertEquals("Line form", row(rows, "dependencyStyle.form").label());
-        assertEquals("Line arrows", row(rows, "dependencyStyle.arrows").label());
-        assertEquals("Line dash", row(rows, "dependencyStyle.dash").label());
+        assertEquals("Line head", row(rows, "dependencyStyle.arrowHead").label());
+        assertEquals("Line place", row(rows, "dependencyStyle.arrowPlace").label());
+        assertEquals("Line density", row(rows, "dependencyStyle.arrowDensity").label());
+        assertEquals("Line pattern", row(rows, "dependencyStyle.dash").label());
         assertEquals("Line weight", row(rows, "dependencyStyle.weight").label());
     }
 
@@ -122,8 +124,32 @@ class ChapterPanelLayoutTest {
         assertEquals("curved", row(ChapterPanelLayout.rows(styled, Set.of()),
                 "dependencyStyle.form").value());
         assertEquals("", row(ChapterPanelLayout.rows(styled, Set.of()),
-                "dependencyStyle.arrows").value(),
+                "dependencyStyle.arrowHead").value(),
                 "an axis the object does not name is still unset");
+    }
+
+    @Test
+    @DisplayName("a legacy arrows value still reads on the arrow rows it used to mean, and editing clears it")
+    void aLegacyArrowsValueIsReadAndRetired() {
+        // Chapters written before the axes were split carry one `arrows` value that meant the glyph and
+        // the placement at once. The picker shows what it means rather than "Default", and the first
+        // edit that speaks the current vocabulary retires the old spelling -- otherwise a new axis
+        // returned to Default would fall back to the legacy value the author thought they replaced.
+        JsonObject legacy = chapter();
+        legacy.add("dependencyStyle",
+                JsonParser.parseString("{\"arrows\":\"many\"}").getAsJsonObject());
+
+        List<InspectRow> rows = ChapterPanelLayout.rows(legacy, Set.of());
+        assertEquals("chevron", row(rows, "dependencyStyle.arrowHead").value());
+        assertEquals("stream", row(rows, "dependencyStyle.arrowPlace").value());
+        assertEquals("", row(rows, "dependencyStyle.arrowDensity").value(),
+                "the legacy stream's spacing has no density name, so this row stays unset");
+
+        ChapterPanelLayout.Edit edit =
+                ChapterPanelLayout.choiceEdit(legacy, ChapterPanelLayout.LINE_ARROW_HEAD, "triangle");
+        assertEquals(Set.of("arrowHead"), edit.value().getAsJsonObject().keySet(),
+                "the edit writes the new axis and removes the legacy one: "
+                        + edit.value().getAsJsonObject().keySet());
     }
 
     @Test
@@ -135,10 +161,11 @@ class ChapterPanelLayoutTest {
                 "down from the unset state wraps to the last value");
         assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.PROGRESSION, "linear", 1),
                 "up from the last value wraps back to unset");
-        assertEquals("curved",
-                ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_FORM, "straight", 1));
-        assertEquals("many", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_ARROWS, "", -1),
-                "down from unset wraps to the last arrow value");
+        assertEquals("stepped",
+                ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_FORM, "straight", 1),
+                "the step past straight is the stepped route the vocabulary now has");
+        assertEquals("none", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_ARROW_HEAD, "", -1),
+                "down from unset wraps to the last head value");
         assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_WEIGHT, "not_a_weight", 0),
                 "an unknown value the file holds starts the cycle from unset");
     }
@@ -175,9 +202,9 @@ class ChapterPanelLayoutTest {
                 "{\"form\":\"curved\",\"bend\":0.4}").getAsJsonObject());
 
         ChapterPanelLayout.Edit arrows =
-                ChapterPanelLayout.choiceEdit(styled, ChapterPanelLayout.LINE_ARROWS, "none");
+                ChapterPanelLayout.choiceEdit(styled, ChapterPanelLayout.LINE_ARROW_HEAD, "triangle");
         assertEquals("dependencyStyle", arrows.path());
-        assertEquals(Set.of("form", "bend", "arrows"), arrows.value().getAsJsonObject().keySet());
+        assertEquals(Set.of("form", "bend", "arrowHead"), arrows.value().getAsJsonObject().keySet());
         assertEquals("curved", arrows.value().getAsJsonObject().get("form").getAsString(),
                 "an axis the step did not touch keeps the file's own value");
         assertEquals(0.4, arrows.value().getAsJsonObject().get("bend").getAsDouble(),

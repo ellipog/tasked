@@ -76,7 +76,7 @@ public enum QuestShape {
     /** A regular octagon: equal straight chamfers on all four corners. Reads as cut stone. */
     OCTAGON(Shapes.OCTAGON),
 
-    /** A shield: a flat full-width top, vertical flanks, and a point at the bottom. */
+    /** A regular pentagon, point up: five equal sides and a flat base. */
     PENTAGON(Shapes.PENTAGON),
 
     /** Eight wide-rooted trapezoidal teeth round a large hub. The busiest silhouette here. */
@@ -87,6 +87,9 @@ public enum QuestShape {
 
     /** A codex: a flat spine notched at head and tail, and a rounded fore-edge. */
     TOME(Shapes.TOME),
+
+    /** A four-point star: tips at the cardinals, and curved sides pinching in between them. */
+    STAR(Shapes.STAR),
 
     /**
      * No panel at all: the icon alone, on the canvas.

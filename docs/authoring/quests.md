@@ -63,7 +63,7 @@ reader would not yet see, which is the point of the `hideTextUntilComplete` flag
 | Field | Default | Meaning |
 |---|---|---|
 | `x`, `y` | `0` | Position on the canvas, in canvas units rather than pixels, so the layout survives a window resize. Grid spacing is 32. |
-| `shape` | `rounded` | The outline: `rounded`, `square`, `circle`, `diamond`, `hexagon`, `octagon`, `pentagon`, `gear`, `heart`, `tome`, or `none`. |
+| `shape` | `rounded` | The outline: `rounded`, `square`, `circle`, `diamond`, `hexagon`, `octagon`, `pentagon`, `gear`, `heart`, `tome`, `star`, or `none`. |
 | `size` | `48` | The node's width and height, 16–512 pixels. |
 | `rotation` | `0` | Degrees clockwise. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |
 | `iconScale` | `0.75` | How much of the node the icon fills; the outline caps it, so a shape with less room draws the largest item it can hold. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
@@ -96,23 +96,30 @@ open. They may live in other files, and a reference that resolves to nothing is 
 
 The chapter's `dependencyStyle` sets how its lines look; `dependencyLines` overrides one dependency's
 line, axis by axis. Only the axes a line names are overridden — the rest fall back to the chapter,
-then to the built-ins (`orthogonal`, `one`, `solid`, `thin`).
+then to the built-ins (`orthogonal`, a chevron at the target, `solid`, `thin`).
 
 | Axis | Values | Meaning |
 |---|---|---|
-| `form` | `orthogonal`, `straight`, `curved` | The route's shape: a three-segment step, a direct line, or a smooth bow that tells parallel routes apart. |
-| `arrows` | `none`, `one`, `both`, `many` | Where arrowheads are drawn. `one`, at the dependent end, is the default. |
-| `dash` | `solid`, `dashed` | Whether the line is drawn in runs or unbroken. |
-| `weight` | `thin`, `thick` | How many pixels wide. |
-| `bend` | −0.8–0.8 | How far a curved line bows, as a fraction of the chord between its ends. |
+| `form` | `orthogonal`, `chamfered`, `straight`, `stepped`, `curved`, `radial` | The route's shape: a three-segment step, the same step with 45° corner cuts (a circuit trace), a direct line, a Z broken at the chord's midpoint, a smooth bow, or a circular arc. `curved` and `radial` read `bend`. |
+| `arrowHead` | `chevron`, `triangle`, `dot`, `diamond`, `none` | The glyph an arrowhead is drawn as. `chevron` is the built-in; `none` is a blunt line end. |
+| `arrowPlace` | `target`, `both`, `mid`, `stream` | Where the heads sit: one at the dependent end (the built-in), one at each end, one in the middle of the route, or a repeating run. |
+| `arrowDensity` | `low`, `medium`, `high` | How far apart a `stream` repeats: 64, 32 or 16 pixels. |
+| `dash` | `solid`, `dashed`, `dotted`, `dash_dot`, `double`, `hazard` | The line's pattern. `double` is two hairlines either side of the route and ignores `weight`; `hazard` is the run plus diagonal hatch marks. |
+| `weight` | `thin`, `thick`, `bold`, `conduit` | How many pixels wide: 1, 2, 3, or a 6-pixel conduit with dark borders around a lighter core. |
+| `bend` | −0.8–0.8 | How far a curved or radial line bows, as a fraction of the chord between its ends. |
 | `fromAnchor` / `toAnchor` | degrees | The angle a line leaves or meets a node at, 0 east and growing clockwise. Per line only, because which rim a line meets is a fact about its two ends. |
 | `fromHandle` / `toHandle` | `[along, across]` | A split line's control points. They are written together — one alone is a split with half a shape. |
+
+Older files that write the single `arrows` axis (`none`, `one`, `both`, `many`) are still read:
+`none` is a blunt end, `one` a chevron at the target, `both` one at each end, and `many` a stream at
+its old 24-pixel spacing. The editor writes the three current axes, and a chapter's default may set
+all of them — only anchors and split handles are per-line.
 
 For a whole chapter:
 
 ```json
 {
-  "dependencyStyle": { "form": "curved", "arrows": "one", "dash": "solid" }
+  "dependencyStyle": { "form": "curved", "arrowHead": "triangle", "arrowPlace": "stream", "dash": "solid" }
 }
 ```
 
