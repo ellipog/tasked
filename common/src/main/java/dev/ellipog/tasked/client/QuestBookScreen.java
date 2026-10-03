@@ -3127,8 +3127,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (existing == null || !existing.isJsonArray()) {
             return;
         }
-        com.google.gson.JsonArray rebuilt = new com.google.gson.JsonArray();
         com.google.gson.JsonArray held = existing.getAsJsonArray();
+        if (index < 0 || index >= held.size()) {
+            // The array changed under the last frame. Rebuilding without an element would send an array
+            // identical to the one stored -- a wasted save and a false "removed".
+            return;
+        }
+        com.google.gson.JsonArray rebuilt = new com.google.gson.JsonArray();
         for (int i = 0; i < held.size(); i++) {
             if (i != index) {
                 rebuilt.add(held.get(i).deepCopy());
@@ -5061,7 +5066,11 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         for (EntryFormLayout.Cell cell : row.cells()) {
-            drawField(r, cell, entry, member, index, pathPrefix, mouseX, mouseY);
+            // The condition owns these fields. `drawField` reads every value and flag state from the
+            // object it is handed, and a task beside it has fields with the same names -- item, count,
+            // match -- so handing it the entry is what made a condition's row display the task's
+            // numbers, and its inline editor pre-fill from them.
+            drawField(r, cell, condition, member, index, pathPrefix, mouseX, mouseY);
         }
     }
 
@@ -5601,7 +5610,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             catch (NumberFormatException notAnIndex) {
                 return null;
             }
-            JsonElement found = QuestPanelLayout.get(entry, prefix + "conditions." + conditionIndex);
+            // `entry` is the entry object, and `prefix` already names it: the condition's own path is
+            // relative to it, exactly as a field's path is relative to an entry.
+            JsonElement found = QuestPanelLayout.get(entry, "conditions." + conditionIndex);
             if (found == null || !found.isJsonObject()) {
                 return null;
             }
@@ -5714,14 +5725,40 @@ public final class QuestBookScreen extends ArmatureScreen {
         send(new EditorOp.SetField(editTarget(), target.path(), corner));
 
         JsonObject entry = entryAt(quest, target.member(), target.index());
-        boolean hasDimension = entry != null
-                && QuestPanelLayout.editorFor(target.member(), entry).stream()
+        // The object that owns this position's siblings: the entry, or -- for a condition's field -- the
+        // condition itself. Read from the same nesting rule `fieldAt` uses, so a nested position resolves
+        // its dimension beside itself rather than writing the task's own field.
+        String container = containerOf(target.path(), target.member(), target.index());
+        JsonObject owner = entryAt(quest, target.member(), target.index());
+        JsonElement nested = container.equals(target.member() + "." + target.index())
+                ? null : QuestPanelLayout.get(quest, container);
+        JsonObject holder = nested != null && nested.isJsonObject() ? nested.getAsJsonObject() : owner;
+        boolean hasDimension = holder != null
+                && (container.contains(".conditions.")
+                        ? QuestPanelLayout.conditionEditorFor(holder)
+                        : QuestPanelLayout.editorFor(target.member(), holder)).stream()
                         .anyMatch(field -> field.path().equals("dimension"));
         if (hasDimension && minecraft.level != null) {
-            send(new EditorOp.SetField(editTarget(),
-                    target.member() + "." + target.index() + ".dimension",
+            send(new EditorOp.SetField(editTarget(), container + ".dimension",
                     new JsonPrimitive(minecraft.level.dimension().location().toString())));
         }
+    }
+
+    /**
+     * The object that owns a row's field: the entry, or the condition when the path is nested.
+     *
+     * <p>Mirrors {@code fieldAt}'s nesting rule exactly -- one level, {@code conditions.<index>} -- so the
+     * two cannot come to disagree about where a condition's fields live.
+     */
+    private static String containerOf(String path, String member, int index) {
+        String prefix = member + "." + index + ".";
+        if (path.startsWith(prefix + "conditions.")) {
+            String tail = path.substring((prefix + "conditions.").length());
+            int dot = tail.indexOf('.');
+            String conditionIndex = dot < 0 ? tail : tail.substring(0, dot);
+            return prefix + "conditions." + conditionIndex;
+        }
+        return member + "." + index;
     }
 
     /** An add row: a faint box saying what pressing it does. */
@@ -11729,10 +11766,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         Slot row = rowBox(slot);
         if (row.contains(mouseX, mouseY)) {
             // The player's explanation, not the author's: this hover is read by someone who has never
-            // heard of a task type. `task.manual()` is the row's own flag -- the one that draws the
-            // "hand in" tag -- and it is what decides the second line. See `playerTooltip`.
-            List<String> lines = new ArrayList<>(
-                    QuestPanelLayout.playerTooltip("tasks", task.type(), task.manual()));
+            // heard of a task type. The second line is about pressing Submit, so it is decided by the
+            // same predicate the button is: a locked task has no button, and telling the player to press
+            // one that is not there is the one way this hover can lie.
+            List<String> lines = new ArrayList<>(QuestPanelLayout.playerTooltip("tasks", task.type(),
+                    task.manual() && !locked));
             appendConditionLines(lines, task.conditions(), ClientQuestCache.taskLockOf(entry.id(), index));
             rowTooltips.add(new RowTooltip(row, lines));
         }
@@ -11790,7 +11828,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                     ArmatureTheme.faint());
         }
 
-        if (optional) {
+        // The optional tag is the one case where two tags share the row's far edge, and it is drawn by
+        // its own branch below -- so a locked row draws "locked" there instead, not both on top of
+        // each other.
+        if (optional && !locked) {
             r.text("optional", x + availableWidth - r.textWidth("optional"), textY, ArmatureTheme.faint());
         }
         if (manual && !locked) {
@@ -11909,7 +11950,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             contentRight += 5 + r.textWidth(count);
         }
         if (locked) {
-            contentRight = Math.max(contentRight, x + r.textWidth("locked"));
+            // The tag is right-aligned, so the wash has to reach the row's own edge -- the task row's
+            // rule, where the tag's x plus its width is exactly that. Measuring from the text's end
+            // instead left the tag floating outside its own highlight.
+            contentRight = Math.max(contentRight, x + slot.width());
         }
 
         // The row's own box rather than its slot: see `rowBox` for the six pixels of gap between them.
@@ -12077,7 +12121,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                 // The card's own page keeps wheel-only scrolling: its right edge is where a row's Copy
                 // and cross sit, and a band that swallowed those presses would be a worse trade than a
                 // bar that answers the wheel alone.
-                if (pickingEntryType != null && overlayView.scrollbarHit(mouseX, mouseY)) {
+                if ((pickingEntryType != null || pickingConditionFor != null)
+                        && overlayView.scrollbarHit(mouseX, mouseY)) {
                     overlayView.beginThumbDrag(mouseY);
                     overlayView.dragThumbTo(mouseY);
                     return true;

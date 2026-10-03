@@ -577,6 +577,63 @@ class QuestValidatorTest {
     }
 
     @Test
+    @DisplayName("a reward inside a reward table cannot carry conditions, and the error says where they go")
+    void tableEntryConditionsAreRefused() {
+        // The drift this closes: an entry's reward decodes as an ordinary reward, so it can carry
+        // `conditions` -- but `TableReward.grantAll` pays entries directly, with no player to ask, so
+        // the field was validated and then ignored. Refused rather than honoured: a gated entry inside
+        // a roll would be silently lost, the opposite of the promise an unmet reward's conditions carry.
+        String table = """
+                {"entries": [
+                  { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot",
+                      "conditions": [ { "type": "tasked:stage", "stage": "my_pack:marked" } ] } }
+                ]}""";
+        JsonDocument document = Fixtures.document("loot.json", table);
+        Problems problems = new Problems();
+        QuestValidator.validateRewardTableDocument(document, problems);
+
+        DataProblem problem = containing(problems, "cannot carry \"conditions\"");
+        assertTrue(problem.severity() == DataProblem.Severity.ERROR,
+                "a field the engine would ignore must not load quietly");
+        assertTrue(problem.message().contains("table reward itself"),
+                "and the way out is named: " + problem.message());
+        assertPointsAtKeyValue(problem, table, "\"conditions\"");
+    }
+
+    @Test
+    @DisplayName("an inline table's entries are walked: unknown fields reported, conditions refused")
+    void inlineTableEntriesAreChecked() {
+        // The walk itself is new. Nothing descended into `inline` before this, so an inline entry's
+        // fields were the codec's business alone -- and a codec ignores unknown fields, which is the
+        // gap the field-name checks exist to close.
+        Problems unknownField = validateQuest("""
+                {"id": "one", "title": "One",
+                 "rewards": [ { "type": "tasked:loot", "inline": { "entries": [
+                   { "weight": 1, "wobble": true,
+                     "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } ]}""");
+        assertTrue(containing(unknownField, "unknown field \"wobble\"").severity()
+                        == DataProblem.Severity.ERROR,
+                "an inline entry's fields are checked now, got: " + messages(unknownField));
+
+        Problems conditioned = validateQuest("""
+                {"id": "one", "title": "One",
+                 "rewards": [ { "type": "tasked:loot", "inline": { "entries": [
+                   { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot",
+                       "conditions": [ { "type": "tasked:stage", "stage": "my_pack:marked" } ] } } ] } } ]}""");
+        assertTrue(containing(conditioned, "cannot carry \"conditions\"").severity()
+                        == DataProblem.Severity.ERROR,
+                "the inline path refuses it too, got: " + messages(conditioned));
+
+        // And a clean inline table is still clean, so the new walk is not a wall of new errors.
+        Problems clean = validateQuest("""
+                {"id": "one", "title": "One",
+                 "rewards": [ { "type": "tasked:loot", "inline": { "entries": [
+                   { "weight": 1,
+                     "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } ]}""");
+        assertTrue(clean.isEmpty(), "a well-formed inline table must be clean, got: " + messages(clean));
+    }
+
+    @Test
     @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")
     void iconWithABrokenPatchIsRefused() {
         // The icon's half of the per-type codec check: a component patch the codec cannot read would

@@ -16,7 +16,7 @@ or **Claim all** for everything outstanding.
 | `auto` | `default` | When it is handed over. See below. |
 | `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
 | `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tasked rewards block`. |
-| `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. See [[tasked:authoring/conditions]]. |
+| `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tasked:authoring/conditions]]. |
 
 `auto` decides the moment the reward changes hands:
 

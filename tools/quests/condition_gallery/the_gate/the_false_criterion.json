@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_false_criterion",
+  "title": "The False Criterion",
+  "subtitle": "A criterion nothing declares",
+  "description": [
+    "The condition below asks for an advancement the player has, but names a criterion",
+    "the advancement does not declare. A criterion name is not validated -- the game's",
+    "own advancement files decide what exists, and a quest file cannot be checked against",
+    "them -- so this reads as *not done* and the gate stays shut.",
+    "",
+    "That is the honest behaviour, and it used to be a crash: the criterion's progress is",
+    "null for a name nothing declares, and dereferencing it took down whatever asked -- the",
+    "tick, every second, and the lock refresh with it. A typo should lock a gate, not end",
+    "the server."
+  ],
+  "icon": { "item": "minecraft:barrier" },
+  "x": 960,
+  "y": 0,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Try anyway",
+      "conditions": [
+        {
+          "type": "tasked:advancement",
+          "advancement": "minecraft:story/root",
+          "criterion": "no_such_criterion"
+        }
+      ]
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:paper", "auto": "disabled" }
+  ]
+}

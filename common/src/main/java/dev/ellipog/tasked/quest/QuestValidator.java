@@ -167,7 +167,7 @@ public final class QuestValidator {
             }
             Checks.rejectUnknown(document, path,
                     dev.ellipog.tasked.quest.loot.RewardTable.Entry.FIELDS, problems);
-            checkReward(document, path + ".reward", problems);
+            checkTableEntryReward(document, path + ".reward", problems);
         }
     }
 
@@ -767,16 +767,71 @@ public final class QuestValidator {
             checkItem(document, path, problems);
         }
 
-        int errorsBeforeConditions = problems.errorCount();
+        int errorsBeforeNested = problems.errorCount();
         checkConditions(document, path + ".conditions", problems);
-        boolean conditionsBroken = problems.errorCount() > errorsBeforeConditions;
+        checkInlineTable(document, path, problems);
+        boolean nestedBroken = problems.errorCount() > errorsBeforeNested;
 
         // The reward half of the codec check in checkTask, for the same defect and the same reason --
-        // including the skip when the conditions list already spoke, which keeps one broken condition
-        // from being reported twice.
-        if (!conditionsBroken) {
+        // including the skip when a nested structure already spoke, which keeps one broken condition or
+        // table entry from being reported twice.
+        if (!nestedBroken) {
             type.ifPresent(id -> RewardTypes.codecOf(id)
                     .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        }
+    }
+
+    /**
+     * A reward that sits inside a reward table: checked like any reward, then refused the one field a
+     * table cannot honour.
+     *
+     * <p>A table entry is handed out by the roll rather than claimed, so a {@code conditions} list on it
+     * would be validated and then ignored -- {@code TableReward.grantAll} pays entries directly, with no
+     * player to ask. That is exactly the "parsed, validated and never consumed" drift this file exists
+     * to prevent, so it is an error naming the two ways out. The table reward's <b>own</b> conditions
+     * stay legal: those are checked on every path that pays the table.
+     *
+     * <p>The one place an entry's reward is walked at all -- the inline walk below calls it too, which
+     * is why inline entries are now checked: before this they were not validated in any way.
+     */
+    private static void checkTableEntryReward(JsonDocument document, String rewardPath, Problems problems) {
+        checkReward(document, rewardPath, problems);
+        if (document.has(rewardPath + ".conditions")) {
+            problems.error(document, rewardPath + ".conditions",
+                    "a reward inside a reward table cannot carry \"conditions\": entries are handed out "
+                            + "by the roll, not claimed, so a gate here would be validated and then "
+                            + "ignored - put the conditions on the table reward itself, or move this "
+                            + "reward out of the table");
+        }
+    }
+
+    /**
+     * The entries of an inline table, which nothing walked before this.
+     *
+     * <p>An inline table is a {@code RewardTable} nested in a reward's own {@code inline} field, and the
+     * field-name checks did not descend into it: its entries were checked by the codec alone, and a
+     * codec ignores unknown fields -- the exact gap the field-name checks exist to close. This mirrors
+     * the named-table walk, entry for entry, so an inline table and a file table are checked the same.
+     */
+    private static void checkInlineTable(JsonDocument document, String path, Problems problems) {
+        String inlinePath = path + ".inline";
+        if (!document.has(inlinePath) || !isObject(document, inlinePath, problems)) {
+            return;
+        }
+        Checks.rejectUnknown(document, inlinePath,
+                dev.ellipog.tasked.quest.loot.RewardTable.FIELDS, problems);
+        var entries = Checks.array(document, inlinePath + ".entries", problems);
+        if (entries == null) {
+            return;
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            String entryPath = inlinePath + ".entries[" + i + "]";
+            if (!isObject(document, entryPath, problems)) {
+                continue;
+            }
+            Checks.rejectUnknown(document, entryPath,
+                    dev.ellipog.tasked.quest.loot.RewardTable.Entry.FIELDS, problems);
+            checkTableEntryReward(document, entryPath + ".reward", problems);
         }
     }
 
@@ -818,12 +873,18 @@ public final class QuestValidator {
 
         // The item half of the same convention checkTask runs: an item condition declares its item
         // under "item", and the item's values are checked the same way wherever the field appears.
+        int errorsBeforeItem = problems.errorCount();
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);
         }
 
-        type.ifPresent(id -> ConditionTypes.codecOf(id)
-                .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        // The codec gets the last word, unless the checks above already spoke -- the same one-mistake-
+        // one-message rule the task and reward levels use. Keyed on errors, so a missing item (a warning)
+        // still lets the codec report a field that actually cannot form a value.
+        if (problems.errorCount() == errorsBeforeItem) {
+            type.ifPresent(id -> ConditionTypes.codecOf(id)
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        }
     }
 
     /**

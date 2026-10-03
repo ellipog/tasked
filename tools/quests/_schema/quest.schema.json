@@ -287,7 +287,11 @@
                 "default": 1,
                 "description": "How much of the table's weight this entry takes. Zero means always granted, which is how a table says \"and everyone also gets this\"."
               },
-              "reward": { "$ref": "#/definitions/anyType", "description": "The reward this entry grants." }
+              "reward": {
+                "allOf": [ { "$ref": "#/definitions/anyType" } ],
+                "not": { "required": ["conditions"] },
+                "description": "The reward this entry grants. All of anyType except `conditions`, which cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. Put conditions on the table reward itself."
+              }
             }
           }
         }
@@ -332,7 +336,8 @@
         },
         "min": {
           "type": "integer",
-          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now."
+          "minimum": 1,
+          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it."
         },
         "advancement": {
           "$ref": "#/definitions/namespacedId",

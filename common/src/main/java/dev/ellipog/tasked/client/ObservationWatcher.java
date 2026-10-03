@@ -54,7 +54,11 @@ public final class ObservationWatcher {
             for (int index = 0; index < entry.tasks().size(); index++) {
                 ClientQuestCache.TaskEntry task = entry.tasks().get(index);
                 ObservationTask.ObserveType kind = task.observation();
-                if (kind == null || ClientQuestCache.taskProgressOf(entry.id(), index) >= 1) {
+                if (kind == null || ClientQuestCache.taskProgressOf(entry.id(), index) >= 1
+                        || !ClientQuestCache.taskLockOf(entry.id(), index).isEmpty()) {
+                    // A locked task is not submitted, for the same reason it has no Submit button: the
+                    // server refuses it, so sending anyway would tell the player their conditions are
+                    // unmet once per watching cycle for as long as they keep looking.
                     continue;
                 }
                 String key = entry.id() + "#" + index;

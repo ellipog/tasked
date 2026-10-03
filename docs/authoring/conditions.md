@@ -30,7 +30,9 @@ A condition is asked **per player**, at the moment the player's answer would mat
 - **A submit** — the button refuses, so a press cannot be used to skip a condition.
 - **A reward** — every path that pays one checks its conditions: the claim, Claim all, the answer to a
   choice offer, and the two automatic ones. A reward whose conditions are unmet is not lost; it stays
-  unclaimed and is paid the moment they hold.
+  unclaimed and is paid the moment they hold. The exception is a reward that is an **entry of a reward
+  table**: it is handed out by the roll rather than claimed, so the validator refuses `conditions` on
+  one — put them on the table reward itself, where every payout path does check them.
 
 A condition is a **gate on acquiring progress, not a lock on what is already recorded**. A task that
 was satisfied while its condition held stays satisfied if the condition stops holding — complete is

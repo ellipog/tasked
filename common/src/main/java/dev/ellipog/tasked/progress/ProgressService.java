@@ -1006,6 +1006,17 @@ public final class ProgressService {
         ProgressStore store = ProgressStore.of(server);
         TeamProgress team = store.progressOf(owner);
         QuestProgress current = team.progressOf(quest);
+        // Nothing is owed by a quest that is not finished, and this is the guard that says so.
+        //
+        // `canClaimFor` has always required a stored COMPLETED, so Claim all never reached an unfinished
+        // quest; the single claim and the choice answer did, which meant a client whose book was stale
+        // after `/tasked reset` -- or a forged claim payload -- was paid the whole reward list. The
+        // stored state and not the resolved one, deliberately: a repeatable quest past its cooldown
+        // resolves STARTED/UNLOCKED while its stored state stays COMPLETED, and that is exactly when an
+        // uncollected reward of the last round is legitimately claimable.
+        if (current.state() != QuestState.COMPLETED) {
+            return false;
+        }
         QuestSettings settings = TaskedQuests.settings();
 
         List<Integer> payable = new ArrayList<>();
@@ -1145,6 +1156,17 @@ public final class ProgressService {
         ProgressStore store = ProgressStore.of(server);
         TeamProgress team = store.progressOf(owner);
         QuestProgress current = team.progressOf(quest);
+        // Nothing is owed by a quest that is not finished, and this is the guard that says so.
+        //
+        // `canClaimFor` has always required a stored COMPLETED, so Claim all never reached an unfinished
+        // quest; the single claim and the choice answer did, which meant a client whose book was stale
+        // after `/tasked reset` -- or a forged claim payload -- was paid the whole reward list. The
+        // stored state and not the resolved one, deliberately: a repeatable quest past its cooldown
+        // resolves STARTED/UNLOCKED while its stored state stays COMPLETED, and that is exactly when an
+        // uncollected reward of the last round is legitimately claimable.
+        if (current.state() != QuestState.COMPLETED) {
+            return false;
+        }
         QuestSettings settings = TaskedQuests.settings();
         boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
         if (current.legacySettled() || current.claimed(player.getUUID(), rewardIndex, teamMode)) {

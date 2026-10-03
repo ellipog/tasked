@@ -1716,6 +1716,50 @@ class QuestPlaythroughTest {
                 + "list is an AND");
     }
 
+    @Test
+    @Order(36)
+    @DisplayName("a claim on a quest nobody has finished is refused and pays nothing")
+    void aClaimOnAnUnfinishedQuestPaysNothing() {
+        // The hole this pins, found by review: `claim` checked the stage gate, the reward's conditions,
+        // claims and blocking -- but never that the quest was finished, so `/tasked claim <any id>` and
+        // a forged claim payload were paid the whole reward list of a quest nobody had done.
+        // `canClaimFor` has always required COMPLETED, which is why Claim all never reached this; the
+        // single claim and the choice answer did.
+        clearInventories();
+        assertEquals(QuestState.UNLOCKED, stateOf("ameth_start"),
+                "the fixture is a gallery quest nothing in this run has touched");
+
+        HeadlessServer.Outcome refused = asOperator("/tasked claim ameth_start");
+        assertRefused(refused, "a quest that is not finished owes nothing");
+        assertEquals(0, countInInventory(Items.AMETHYST_BLOCK),
+                "and the refusal granted nothing");
+        assertNotEquals(QuestState.COMPLETED, stateOf("ameth_start"),
+                "the claim must not have completed it either");
+
+        note("a claim on an unfinished quest was refused and paid nothing -- the guard `canClaimFor` had "
+                + "always implied and the single claim path had not enforced");
+    }
+
+    @Test
+    @Order(37)
+    @DisplayName("a criterion nothing declares reads as not done rather than crashing the tick")
+    void aCriterionNothingDeclaresReadsAsNotDone() {
+        // The crash this pins: `AdvancementProgress.getCriterion` returns null for a name the
+        // advancement does not declare -- which the validator cannot know, since the game's own files
+        // decide what exists -- and both the condition and the task dereferenced it. The condition is
+        // asked on every tick and every lock refresh, so a one-word typo took the server down.
+        //
+        // Order 35 granted minecraft:story/root, so the advancement is held and only the criterion is
+        // missing: this refusal is that null branch and nothing else. Before the fix, the seeded quest
+        // crashed the first tick that evaluated it -- long before this order ran.
+        HeadlessServer.Outcome refused = asOperator("/tasked submit the_false_criterion 0");
+        assertRefused(refused, "a criterion nothing declares must read as not done, not throw");
+        assertEquals(0, recordedTask("the_false_criterion", 0), "and nothing is recorded");
+
+        note("an advancement condition naming a criterion nothing declares was refused rather than "
+                + "crashing the tick -- the null branch vanilla's own isCriterionDone guards");
+    }
+
     // ------------------------------------------------------------------
     // Driving and reading
     // ------------------------------------------------------------------

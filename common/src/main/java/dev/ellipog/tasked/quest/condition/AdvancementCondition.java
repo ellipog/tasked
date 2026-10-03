@@ -46,8 +46,15 @@ public record AdvancementCondition(ResourceLocation advancement, Optional<String
             return false;
         }
         AdvancementProgress progress = context.player().getAdvancements().getOrStartProgress(holder);
+        // The criterion may name one this advancement does not declare -- the validator cannot know
+        // which names exist, so a typo reaches here -- and `getCriterion` returns null for it. Vanilla's
+        // own isCriterionDone null-checks the same way; without this, one wrong word in a file
+        // dereferences on every tick and every lock refresh.
         return condition.criterion()
-                .map(name -> progress.getCriterion(name).isDone())
+                .map(name -> {
+                    var criterion = progress.getCriterion(name);
+                    return criterion != null && criterion.isDone();
+                })
                 .orElseGet(progress::isDone);
     };
 

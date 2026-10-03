@@ -1049,16 +1049,24 @@ public final class ClientQuestCache {
         List<ConditionEntry> out = new ArrayList<>();
         for (JsonElement value : json.getAsJsonArray("conditions")) {
             if (!value.isJsonObject()) {
+                // A placeholder rather than a skip: the server's unmet mask indexes this list, so
+                // dropping an element would shift every later index and name the wrong gate. Only a
+                // malformed or foreign server can produce one.
+                out.add(new ConditionEntry(ItemStack.EMPTY, 1, "?", "", ""));
                 continue;
             }
             JsonObject condition = value.getAsJsonObject();
+            String itemId = condition.has("item") && condition.get("item").isJsonPrimitive()
+                    && condition.get("item").getAsJsonPrimitive().isString()
+                    ? condition.get("item").getAsString() : "";
+            int count = condition.has("count") && condition.get("count").isJsonPrimitive()
+                    && condition.get("count").getAsJsonPrimitive().isNumber()
+                    ? condition.get("count").getAsInt() : 1;
             out.add(new ConditionEntry(
-                    condition.has("item")
-                            ? stack(condition.get("item").getAsString(),
-                                    condition.has("count") ? condition.get("count").getAsInt() : 1,
-                                    condition.get("itemComponents"))
-                            : ItemStack.EMPTY,
-                    condition.has("count") ? condition.get("count").getAsInt() : 1,
+                    itemId.isEmpty()
+                            ? ItemStack.EMPTY
+                            : stack(itemId, count, condition.get("itemComponents")),
+                    count,
                     str(condition, "label"),
                     str(condition, "labelFallback"),
                     str(condition, "labelArg")));
@@ -1193,7 +1201,12 @@ public final class ClientQuestCache {
             }
             List<Integer> unmet = new ArrayList<>();
             for (JsonElement value : row.getValue().getAsJsonArray()) {
-                unmet.add(value.getAsInt());
+                // Guarded, like every other read here: a non-number would throw, and this parser's
+                // caller clears the whole progress map on a throw -- one bad byte from a foreign server
+                // would cost the client every quest's state.
+                if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()) {
+                    unmet.add(value.getAsInt());
+                }
             }
             out.put(index, List.copyOf(unmet));
         }

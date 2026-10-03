@@ -34,7 +34,10 @@ public record ScoreCondition(String objective, int min) implements QuestConditio
 
     public static final MapCodec<ScoreCondition> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.STRING.fieldOf("objective").forGetter(ScoreCondition::objective),
-            Codec.INT.fieldOf("min").forGetter(ScoreCondition::min)
+            // At least 1, because that is what makes the documented "a missing objective reads as zero"
+            // a *shut* gate rather than an open one: 0 >= min is false for every legal file, so a
+            // typo'd objective locks. A min of 0 would be a condition nothing can fail.
+            Codec.intRange(1, Integer.MAX_VALUE).fieldOf("min").forGetter(ScoreCondition::min)
     ).apply(instance, ScoreCondition::new));
 
     @Override
