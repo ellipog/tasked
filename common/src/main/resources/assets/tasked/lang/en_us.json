@@ -4,6 +4,9 @@
     "key.categories.tasked": "Tasked",
     "key.tasked.quest_book": "Open Quest Book",
 
+    "tasked.viewer.category": "Quests",
+    "emi.category.tasked.quests": "Quests",
+
     "tasked.command.version": "Tasked %s, on Armature %s",
     "tasked.command.echo": "Tasked echo %s",
 
