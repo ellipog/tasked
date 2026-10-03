@@ -44,6 +44,28 @@ versionRange = "[2101.7.2,)"
 ordering = "AFTER"
 side = "BOTH"
 
+# The recipe viewers, all optional and all client-only: the adapters live in Armature, and a client
+# with none of them loses nothing. Declared here as well so a pack author reading Tasked's own mod
+# list can see the integration is meant to be there rather than infer it.
+[[dependencies.${mod_id}]]
+modId = "emi"
+type = "optional"
+versionRange = "[1.1.0,)"
+ordering = "AFTER"
+side = "CLIENT"
+[[dependencies.${mod_id}]]
+modId = "jei"
+type = "optional"
+versionRange = "[19,)"
+ordering = "AFTER"
+side = "CLIENT"
+[[dependencies.${mod_id}]]
+modId = "roughlyenoughitems"
+type = "optional"
+versionRange = "[16,)"
+ordering = "AFTER"
+side = "CLIENT"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

@@ -24,5 +24,10 @@
         "minecraft": "${minecraft_version}",
         "java": ">=${java_version}",
         "armature": ">=${armature_version}"
+    },
+    "suggests": {
+        "emi": "*",
+        "jei": "*",
+        "roughlyenoughitems": "*"
     }
 }
