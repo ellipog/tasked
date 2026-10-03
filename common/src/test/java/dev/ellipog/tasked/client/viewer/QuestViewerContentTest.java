@@ -4,10 +4,10 @@ import dev.ellipog.armature.integration.QuestPage;
 import dev.ellipog.armature.integration.QuestRef;
 import dev.ellipog.armature.integration.QuestRow;
 import dev.ellipog.tasked.client.ClientQuestCache;
+import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.quest.Fixtures;
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
 import dev.ellipog.tasked.quest.QuestIndex;
-import dev.ellipog.tasked.net.QuestSync;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
@@ -30,20 +30,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The content Tasked hands the viewer seam: what the snapshot holds, what the live reads say, and
- * the one expansion a test would otherwise not reach.
+ * the rows a page is allowed to show.
+ *
+ * <h2>What a page shows, and why the tests say so</h2>
+ *
+ * <p>A viewer page carries item references — item tasks, tag tasks, item rewards. Text tasks are
+ * dropped (a checkmark has no item to look up), a quest with no item rows has no page at all, and a
+ * row keeps the index of the source list it came from so live reads do not read the wrong row after
+ * filtering. Each of those has a test here, because each is a decision rather than an accident.
  *
  * <h2>Why the tag resolver is a parameter</h2>
  *
  * <p>{@code #minecraft:logs} becoming the items a viewer can find is the whole reason a tag task is
  * visible in an item lookup, and a test JVM loads no datapack — {@code BuiltInRegistries.ITEM.getTag}
  * answers empty for every tag there. So {@link QuestViewerContent#rebuild} takes the resolver, and
- * these tests hand it a fake while production hands it the registry. The alternative — a mutable
- * static swapped in tests — is the seam that leaks into the shipped class.
- *
- * <h2>The tree is built the way the server builds it</h2>
- *
- * <p>Through {@code Fixtures} and {@code QuestSync.treeAsJson}, exactly as {@code QuestSyncTest}
- * does, so this is a test of the content seam and not a second, parallel description of the wire.
+ * these tests hand it a fake while production hands it the registry.
  */
 @DisplayName("Tasked's viewer content")
 class QuestViewerContentTest {
@@ -52,8 +53,15 @@ class QuestViewerContentTest {
             {"id": "tree", "title": "Punch a tree", "tasks": [
               {"type": "tasked:item", "item": "minecraft:oak_log", "count": 8},
               {"type": "tasked:item_tag", "tag": "minecraft:logs", "count": 4},
-              {"type": "tasked:checkmark", "title": "Read the sign"}],
+              {"type": "tasked:checkmark", "title": "Read the sign"},
+              {"type": "tasked:item", "item": "tasked:does_not_exist", "count": 1}],
              "rewards": [{"type": "tasked:item", "item": "minecraft:diamond", "count": 1}]}
+            """;
+
+    private static final String TEXT_ONLY = """
+            {"id": "talk", "title": "Just talk", "tasks": [
+              {"type": "tasked:checkmark", "title": "Say hello"}],
+             "rewards": [{"type": "tasked:xp", "amount": 5}]}
             """;
 
     private static final String TWO_QUESTS = """
@@ -88,8 +96,8 @@ class QuestViewerContentTest {
     }
 
     @Test
-    @DisplayName("the snapshot carries a page per quest, with rows and the item index")
-    void theSnapshotCarriesPagesAndAnIndex() {
+    @DisplayName("the page carries the item tasks, the tag task and the item reward -- and nothing text-only")
+    void thePageCarriesItemRowsOnly() {
         accept(ONE_QUEST);
         QuestViewerContent content = new QuestViewerContent();
         content.tick();
@@ -97,14 +105,25 @@ class QuestViewerContentTest {
         assertEquals(1, content.pages().size());
         QuestPage page = content.pages().get(0);
         assertEquals("tree", page.quest().id());
-        assertEquals("Punch a tree", page.quest().title());
-        assertEquals(3, page.tasks().size(), "every task has a row, item or not");
+        assertEquals(3, page.tasks().size(),
+                "the item task, the tag task and the missing item keep their rows; the checkmark does not");
         assertEquals(1, page.rewards().size());
 
         QuestRow itemTask = page.tasks().get(0);
         assertEquals("Oak Log", itemTask.label(), "an item task reads as its item's name");
         assertEquals(8, itemTask.need());
+        assertEquals(0, itemTask.sourceIndex(), "and remembers where it came from");
         assertFalse(itemTask.done(), "a fresh snapshot has no progress on it");
+
+        assertEquals(1, page.tasks().get(1).sourceIndex(),
+                "the tag task is the second entry of the source list");
+        assertTrue(page.tasks().get(1).hasTag());
+
+        QuestRow missing = page.tasks().get(2);
+        assertEquals(3, missing.sourceIndex(), "the missing item is the fourth entry, after the checkmark");
+        assertTrue(missing.icon().isEmpty(), "an item this build does not have draws no icon");
+        assertEquals("tasked:does_not_exist", missing.label(),
+                "so its id is the label -- the book's keep-and-mark rule, on a viewer page");
 
         assertEquals(List.of("tree"), ids(content.index().questsUsing(ResourceLocation.parse("minecraft:oak_log"))));
         assertEquals(List.of("tree"), ids(content.index().questsAwarding(ResourceLocation.parse("minecraft:diamond"))));
@@ -113,11 +132,23 @@ class QuestViewerContentTest {
     }
 
     @Test
+    @DisplayName("a quest with only text rows has no page, and no lookup")
+    void aTextOnlyQuestHasNoPage() {
+        accept(TEXT_ONLY);
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+
+        assertTrue(content.pages().isEmpty(),
+                "nothing could lead a player to it, and a blank page is worse than none");
+        assertTrue(content.index().isEmpty());
+    }
+
+    @Test
     @DisplayName("a tag task keeps its tag and finds its members through the resolver")
     void aTagTaskCarriesItsTagAndExpandsIt() {
         accept(ONE_QUEST);
         QuestViewerContent content = new QuestViewerContent();
-        content.rebuild(ClientQuestCache.treeRevision(), tag -> expanded(tag));
+        content.rebuild(ClientQuestCache.treeRevision(), QuestViewerContentTest::expanded);
 
         QuestRow tagRow = content.pages().get(0).tasks().get(1);
         assertTrue(tagRow.hasTag(), "the row must say which tag it is about");
@@ -142,7 +173,7 @@ class QuestViewerContentTest {
     }
 
     @Test
-    @DisplayName("live reads follow the progress as it arrives")
+    @DisplayName("live reads follow the progress, by source index")
     void liveReadsFollowProgress() {
         accept(ONE_QUEST);
         QuestViewerContent content = new QuestViewerContent();
@@ -151,13 +182,15 @@ class QuestViewerContentTest {
         assertEquals(0, content.liveTask("tree", 0).have(), "nothing reported yet");
         assertEquals("Locked", content.stateText("tree"), "no progress means locked");
 
-        String progress = "{\"quests\":{\"tree\":{\"state\":\"STARTED\",\"tasks\":[5,0,0],"
+        String progress = "{\"quests\":{\"tree\":{\"state\":\"STARTED\",\"tasks\":[5,0,0,0],"
                 + "\"claimable\":false}}}";
         ClientQuestCache.acceptProgress(UUID.randomUUID(), 100L,
                 progress.getBytes(StandardCharsets.UTF_8), 50L);
 
         assertEquals(5, content.liveTask("tree", 0).have());
         assertFalse(content.liveTask("tree", 0).done(), "5 of 8 is not done");
+        assertEquals(0, content.liveTask("tree", 1).have(),
+                "the tag task's own row, read by its source index");
         assertEquals("In progress", content.stateText("tree"));
         assertEquals(0, content.liveTask("tree", 99).have(), "an out-of-range row is blank, not a crash");
         assertEquals(0, content.liveTask("gone", 0).have());
@@ -182,12 +215,14 @@ class QuestViewerContentTest {
     }
 
     @Test
-    @DisplayName("the category values are Tasked's, not the viewer's")
+    @DisplayName("the category and section words are Tasked's, not the viewer's")
     void categoryValuesAreTheContents() {
         QuestViewerContent content = new QuestViewerContent();
 
         assertEquals(ResourceLocation.parse("tasked:quests"), content.categoryId());
         assertEquals("Quests", content.categoryTitle().getString());
+        assertEquals("Tasks", content.tasksLabel().getString());
+        assertEquals("Rewards", content.rewardsLabel().getString());
         assertFalse(content.categoryIcon().isEmpty(), "the category needs an icon to be drawn");
     }
 }

@@ -12,8 +12,8 @@ import dev.ellipog.tasked.client.QuestBookScreen;
 
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -43,17 +43,21 @@ import java.util.function.Function;
  * <p>{@link #index()} and {@link #pages()} are immutable snapshots, safe to read from any thread —
  * EMI registers its recipes on a worker, and that is the whole reason they exist. The
  * {@code live*} methods read the cache as it is now and are client-thread only; a viewer calls them
- * while it draws. Splitting them any other way would mean either a page that shows the numbers from
- * when it was registered, or a worker thread reading the game state.
+ * while it draws.
  *
- * <h2>What is deliberately not a lookup</h2>
+ * <h2>What a viewer page shows, and what only the book shows</h2>
  *
- * <p>An item id and a tag id are the only structured item references on the wire, so those are what
- * the index holds; a fluid, a dimension, a stat is a sentence with no item in it. A quest icon is
- * not a lookup either — a quest whose icon happens to be a diamond is not a quest about diamonds.
- * Reward tables and choice rewards are out for a different reason: what they will hand out is not
- * known until the roll, so a viewer cannot honestly say an item is awarded by a quest that might
- * never produce it.
+ * <p>A page carries the rows that reference an item — item tasks, tag tasks, item rewards — because
+ * those are what the viewer is for: a lookup answers "what wants this, and what gives it". A text
+ * task (xp, checkmark, advancement, stat, …) or a non-item reward has no item to look up and is left
+ * to the book, and the sections are labelled so a reward is never read as something to hand in. A
+ * quest with no item rows at all has no page: nothing could ever lead a player to it, and a blank
+ * page is worse than none.
+ *
+ * <p>Only an item id and a tag id are structured on the wire, so those are what the index holds; a
+ * fluid, a dimension, a stat is a sentence with no item in it. A quest icon is not a lookup either —
+ * a quest whose icon happens to be a diamond is not a quest about diamonds. Reward tables and choice
+ * rewards are out for a different reason: what they will hand out is not known until the roll.
  */
 public final class QuestViewerContent implements QuestContent {
 
@@ -98,8 +102,8 @@ public final class QuestViewerContent implements QuestContent {
         ClientQuestCache.TaskEntry task = entry.tasks().get(index);
         int have = ClientQuestCache.taskProgressOf(questId, index);
         boolean locked = !ClientQuestCache.taskLockOf(questId, index).isEmpty();
-        return new QuestRow(taskIcon(task), task.text().getString(), have, task.count(),
-                have >= task.count(), locked, task.tagId());
+        return new QuestRow(taskIcon(task), taskLabel(task), have, task.count(),
+                have >= task.count(), locked, task.tagId(), index);
     }
 
     @Override
@@ -110,8 +114,8 @@ public final class QuestViewerContent implements QuestContent {
         }
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
         boolean locked = !ClientQuestCache.rewardLockOf(questId, index).isEmpty();
-        return new QuestRow(rewardIcon(reward), reward.text().getString(), 0, reward.count(),
-                false, locked, "");
+        return new QuestRow(rewardIcon(reward), rewardLabel(reward), 0, reward.count(),
+                false, locked, "", index);
     }
 
     @Override
@@ -132,6 +136,16 @@ public final class QuestViewerContent implements QuestContent {
     @Override
     public Component categoryTitle() {
         return Component.translatableWithFallback("tasked.viewer.category", "Quests");
+    }
+
+    @Override
+    public Component tasksLabel() {
+        return Component.translatableWithFallback("tasked.viewer.tasks", "Tasks");
+    }
+
+    @Override
+    public Component rewardsLabel() {
+        return Component.translatableWithFallback("tasked.viewer.rewards", "Rewards");
     }
 
     @Override
@@ -157,7 +171,13 @@ public final class QuestViewerContent implements QuestContent {
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             QuestRef ref = new QuestRef(entry.id(), entry.title(), entry.chapterTitle(),
                     entry.icon(), entry.iconId());
-            built.add(new QuestPage(ref, taskRows(entry, ref, index, tagItems), rewardRows(entry, ref, index)));
+            List<QuestRow> tasks = taskRows(entry, ref, index, tagItems);
+            List<QuestRow> rewards = rewardRows(entry, ref, index);
+            if (!tasks.isEmpty() || !rewards.isEmpty()) {
+                // A page with nothing to show is one a player could never be led to by an item, and a
+                // blank page is worse than no page.
+                built.add(new QuestPage(ref, tasks, rewards));
+            }
         }
         pages = List.copyOf(built);
         this.index = index.build();
@@ -168,9 +188,13 @@ public final class QuestViewerContent implements QuestContent {
                                            ItemQuestIndex.Builder index,
                                            Function<TagKey<Item>, List<ResourceLocation>> tagItems) {
         List<QuestRow> rows = new ArrayList<>(entry.tasks().size());
-        for (ClientQuestCache.TaskEntry task : entry.tasks()) {
-            rows.add(new QuestRow(taskIcon(task), task.text().getString(), 0, task.count(),
-                    false, false, task.tagId()));
+        for (int source = 0; source < entry.tasks().size(); source++) {
+            ClientQuestCache.TaskEntry task = entry.tasks().get(source);
+            if (!referencesAnItem(task.hasItem(), task.itemId(), task.tagId())) {
+                continue;
+            }
+            rows.add(new QuestRow(taskIcon(task), taskLabel(task), 0, task.count(),
+                    false, false, task.tagId(), source));
             addItem(index, task.itemId(), ref, true, false);
             addTag(index, task.tagId(), ref, tagItems);
         }
@@ -180,12 +204,27 @@ public final class QuestViewerContent implements QuestContent {
     private static List<QuestRow> rewardRows(ClientQuestCache.Entry entry, QuestRef ref,
                                              ItemQuestIndex.Builder index) {
         List<QuestRow> rows = new ArrayList<>(entry.rewards().size());
-        for (ClientQuestCache.RewardEntry reward : entry.rewards()) {
-            rows.add(new QuestRow(rewardIcon(reward), reward.text().getString(), 0, reward.count(),
-                    false, false, ""));
+        for (int source = 0; source < entry.rewards().size(); source++) {
+            ClientQuestCache.RewardEntry reward = entry.rewards().get(source);
+            if (!referencesAnItem(reward.hasItem(), reward.itemId(), "")) {
+                continue;
+            }
+            rows.add(new QuestRow(rewardIcon(reward), rewardLabel(reward), 0, reward.count(),
+                    false, false, "", source));
             addItem(index, reward.itemId(), ref, false, true);
         }
         return rows;
+    }
+
+    /**
+     * Whether a row belongs on a viewer page: it names an item, or a tag, in any form.
+     *
+     * <p>{@code hasItem} is a resolved stack, {@code itemId} an id that may not resolve in this build
+     * and {@code tagId} a tag — all three are item references, and a missing item keeps its id rather
+     * than losing its row, the same rule the book follows.
+     */
+    private static boolean referencesAnItem(boolean hasItem, String itemId, String tagId) {
+        return hasItem || !itemId.isEmpty() || !tagId.isEmpty();
     }
 
     private static void addItem(ItemQuestIndex.Builder index, String itemId, QuestRef ref,
@@ -223,10 +262,6 @@ public final class QuestViewerContent implements QuestContent {
      * same registry the picker and the item stack resolution read. A tag nobody declared answers
      * empty, which leaves the quest findable from its label but not from an item, which is the honest
      * reading of a file that names a tag no pack provides.
-     *
-     * <p>An empty tag is re-read on the next tree revision rather than watched live: tags arrive
-     * before quests do (both hang off the join), and a {@code /reload} that changes a tag also
-     * re-syncs recipes, which is what the viewers reload on anyway.
      */
     private static List<ResourceLocation> registryTagItems(TagKey<Item> tag) {
         Optional<HolderSet.Named<Item>> holders = BuiltInRegistries.ITEM.getTag(tag);
@@ -245,11 +280,39 @@ public final class QuestViewerContent implements QuestContent {
     // ------------------------------------------------------------------
 
     private static ItemStack taskIcon(ClientQuestCache.TaskEntry task) {
-        return task.hasItem() ? task.item() : task.icon();
+        return task.hasItem() ? task.item() : ItemStack.EMPTY;
     }
 
     private static ItemStack rewardIcon(ClientQuestCache.RewardEntry reward) {
-        return reward.hasItem() ? reward.item() : reward.icon();
+        return reward.hasItem() ? reward.item() : ItemStack.EMPTY;
+    }
+
+    /**
+     * A task row's label: the item's name when it resolved, its id when it did not, and the task's own
+     * sentence otherwise.
+     *
+     * <p>The id case matters: an item this build does not have still names an item, and its row has no
+     * icon, so the id is what tells the player which item the quest is about.
+     */
+    private static String taskLabel(ClientQuestCache.TaskEntry task) {
+        if (task.hasItem()) {
+            return task.text().getString();
+        }
+        if (!task.itemId().isEmpty()) {
+            return task.itemId();
+        }
+        return task.text().getString();
+    }
+
+    /** A reward row's label, with the same missing-item rule as a task's. */
+    private static String rewardLabel(ClientQuestCache.RewardEntry reward) {
+        if (reward.hasItem()) {
+            return reward.text().getString();
+        }
+        if (!reward.itemId().isEmpty()) {
+            return reward.itemId();
+        }
+        return reward.text().getString();
     }
 
     private static QuestRow blankRow() {
