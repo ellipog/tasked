@@ -26,8 +26,21 @@ public record TaskCommon(boolean optional, int autoSubmitTicks) {
     /** The field names this contributes, for the validator to allow at task level. */
     public static final Set<String> FIELDS = Set.of("optional", "autoSubmitTicks");
 
-    public static final MapCodec<TaskCommon> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
-            Codec.BOOL.optionalFieldOf("optional", false).forGetter(TaskCommon::optional),
-            Codec.intRange(1, 72000).optionalFieldOf("autoSubmitTicks", 20).forGetter(TaskCommon::autoSubmitTicks)
-    ).apply(instance, TaskCommon::new));
+    public static final MapCodec<TaskCommon> MAP_CODEC = mapCodec(20);
+
+    /**
+     * The same, with a type's own default interval.
+     *
+     * <p>FTB Quests gives each type a cadence rather than one number for everything — a stat task can
+     * afford to be asked every three ticks, a structure lookup every twenty, a dimension check every
+     * hundred — and an author who says nothing should get the type's cadence rather than the
+     * cheapest-to-implement one. The field still overrides it per task.
+     */
+    public static MapCodec<TaskCommon> mapCodec(int defaultInterval) {
+        return RecordCodecBuilder.mapCodec(instance -> instance.group(
+                Codec.BOOL.optionalFieldOf("optional", false).forGetter(TaskCommon::optional),
+                Codec.intRange(1, 72000).optionalFieldOf("autoSubmitTicks", defaultInterval)
+                        .forGetter(TaskCommon::autoSubmitTicks)
+        ).apply(instance, TaskCommon::new));
+    }
 }

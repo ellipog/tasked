@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "pentagon",
+  "title": "Pentagon",
+  "subtitle": "Point up, flat base",
+  "description": [
+    "A pentagon standing on its flat base, which makes it the one shape here that is deliberately asymmetric top to bottom.",
+    "",
+    "Its widest row is not its middle either: the shoulders are about a third of the way down and the sides taper slightly from there. Nothing in the geometry depends on where the widest row is -- the icon's fit walks every row a candidate square would cover."
+  ],
+  "icon": {
+    "item": "minecraft:gold_ingot"
+  },
+  "x": 192,
+  "y": 96,
+  "shape": "pentagon",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the pentagon shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

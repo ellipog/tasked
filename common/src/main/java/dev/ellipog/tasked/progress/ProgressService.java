@@ -1,17 +1,20 @@
 package dev.ellipog.tasked.progress;
 
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.api.TaskedEvents;
 import dev.ellipog.tasked.party.PartyMode;
 import dev.ellipog.tasked.party.PartyStore;
 import dev.ellipog.tasked.quest.Chapter;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestReward;
+import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskContext;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.reward.RewardContext;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
+import dev.ellipog.tasked.quest.task.KillTask;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
 import dev.ellipog.armature.api.teams.Team;
@@ -20,6 +23,8 @@ import dev.ellipog.armature.api.teams.Teams;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -283,6 +288,107 @@ public final class ProgressService {
         return java.util.Collections.unmodifiableSet(changed);
     }
 
+    // ------------------------------------------------------------------
+    // Event-driven progress
+    // ------------------------------------------------------------------
+
+    /** One kill-task task, with where it lives: the work list for the death event. */
+    private record KillSite(QuestIndex.QuestEntry entry, int taskIndex, KillTask task) {
+    }
+
+    private static QuestIndex killSiteIndex;
+    private static List<KillSite> killSites = List.of();
+
+    /**
+     * The loaded tree's kill tasks, rebuilt when the index is replaced.
+     *
+     * <p>Rebuilt lazily against the index's own identity: a reload produces a new index, and nothing
+     * else does. Without this list a death would walk every quest and every task in the book, which a
+     * mob farm turns into real work; with it the walk is only the tasks that could care.
+     */
+    private static List<KillSite> killSites() {
+        QuestIndex index = TaskedQuests.index();
+        if (index != killSiteIndex) {
+            List<KillSite> found = new ArrayList<>();
+            for (QuestIndex.QuestEntry entry : index.quests()) {
+                List<QuestTask> tasks = entry.quest().tasks();
+                for (int i = 0; i < tasks.size(); i++) {
+                    if (tasks.get(i) instanceof KillTask kill) {
+                        found.add(new KillSite(entry, i, kill));
+                    }
+                }
+            }
+            killSites = List.copyOf(found);
+            killSiteIndex = index;
+        }
+        return killSites;
+    }
+
+    /**
+     * A living thing died. Records kill-task progress for the player who killed it.
+     *
+     * <p>The event half of the engine, and the only one: everything else is polled. Progress lands in
+     * the ordinary recorded ints -- so it persists, pools across a party and resets with a repeatable
+     * round like everything else -- and the caller pushes the change to the team, because the tick
+     * that normally does that would find recorded progress already satisfied and report nothing.
+     *
+     * @return the owners whose progress moved, for the caller to push
+     */
+    public static Set<UUID> onEntityDeath(MinecraftServer server, LivingEntity entity, DamageSource source) {
+        List<KillSite> sites = killSites();
+        if (sites.isEmpty() || !(source.getEntity() instanceof ServerPlayer killer) || killer.isSpectator()) {
+            return Set.of();
+        }
+
+        UUID owner = progressOwner(server, killer);
+        ProgressStore store = ProgressStore.of(server);
+        TeamProgress working = store.progressOf(owner);
+        long now = server.overworld().getGameTime();
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(TaskedQuests.index(), working, now);
+
+        Map<QuestIndex.QuestEntry, QuestProgress> touched = new LinkedHashMap<>();
+        boolean changed = false;
+        for (KillSite site : sites) {
+            Quest quest = site.entry().quest();
+            if (!resolution.stateOf(quest).isPlayable()) {
+                continue;
+            }
+            QuestProgress before = touched.getOrDefault(site.entry(), working.progressOf(quest));
+            if (ProgressionEngine.isTaskSatisfied(quest, site.taskIndex(), before)) {
+                continue;
+            }
+            int delta = KillTask.BEHAVIOUR.onEntityDeath(site.task(), killer, entity);
+            if (delta <= 0) {
+                continue;
+            }
+            QuestProgress after = before.addTask(site.taskIndex(), delta);
+            touched.put(site.entry(), after);
+            changed = true;
+
+            if (ProgressionEngine.isTaskSatisfied(quest, site.taskIndex(), after)) {
+                TaskedEvents.TASK_COMPLETED.invoker().onTaskCompleted(killer, quest, site.taskIndex());
+            }
+            if (!before.anyTaskProgress() && after.anyTaskProgress()) {
+                TaskedEvents.QUEST_STARTED.invoker().onQuestStarted(killer, quest);
+            }
+        }
+        if (!changed) {
+            return Set.of();
+        }
+
+        for (Map.Entry<QuestIndex.QuestEntry, QuestProgress> each : touched.entrySet()) {
+            Quest quest = each.getKey().quest();
+            if (ProgressionEngine.tasksSatisfied(quest, each.getValue()) && canComplete(quest, working)) {
+                working = complete(server, owner, killer, each.getKey(), working.put(quest, each.getValue()));
+            }
+            else {
+                working = working.put(quest, each.getValue());
+            }
+        }
+        store.put(owner, working);
+        return Set.of(owner);
+    }
+
     /**
      * Evaluates one team's tasks, and completes what is finished.
      *
@@ -466,6 +572,17 @@ public final class ProgressService {
                 questProgress = questProgress.recordTask(taskIndex, best);
                 changed = true;
 
+                // The lifecycle events, fired where the engine records the change rather than where
+                // it is later reported, so a listener runs before the caller's next statement. See
+                // TaskedEvents.
+                ServerPlayer mover = holder != null ? holder : earner;
+                if (best >= required) {
+                    TaskedEvents.TASK_COMPLETED.invoker().onTaskCompleted(mover, quest, taskIndex);
+                }
+                if (!beforeThisTask.anyTaskProgress() && questProgress.anyTaskProgress()) {
+                    TaskedEvents.QUEST_STARTED.invoker().onQuestStarted(mover, quest);
+                }
+
                 // Whose carrying moved this quest forward, so the reward below goes to them.
                 //
                 // Only when somebody actually holds something: a task satisfied from *stored*
@@ -477,8 +594,8 @@ public final class ProgressService {
                     earner = holder;
                 }
 
-                if (best >= required && consumes(task, chapterConsumes)) {
-                    // Where the items come from, and the mode decides it -- see takesFromEveryone.
+                if (best >= required && behaviour.get().takesResources(task, chapterConsumes)) {
+                    // Where the resources come from, and the mode decides it -- see takesFromEveryone.
                     //
                     // For the two modes that count one member, the payer is that member and is
                     // guaranteed to be holding at least `required`, because the count *is* their
@@ -492,10 +609,10 @@ public final class ProgressService {
                     // would take two and call it four. So this is a real difference in behaviour
                     // rather than a tidier way to spell the same take.
                     if (mode.takesFromEveryone()) {
-                        consumeAcross(members, task, required);
+                        consumeAcross(members, task, required, behaviour.get());
                     }
                     else {
-                        consume(holder != null ? holder : earner, task, required);
+                        behaviour.get().take(task, holder != null ? holder : earner, required);
                     }
                 }
             }
@@ -569,30 +686,130 @@ public final class ProgressService {
                                         TeamProgress progress) {
         Quest quest = entry.quest();
         QuestProgress current = progress.progressOf(quest);
-        boolean pays = !quest.rewards().isEmpty();
+
+        if (!stageGateOpen(server, quest, player != null ? player.getUUID() : null)) {
+            // A quest this player has not unlocked does not finish for them. It stays satisfied and
+            // unfinished -- the tasks are done, the completion is not -- so granting the stage afterwards
+            // pays out without anyone repeating the work, which is what a gate should mean.
+            return progress;
+        }
 
         if (!canComplete(quest, progress)) {
             return progress;
         }
 
         long now = server.overworld().getGameTime();
+        QuestSettings settings = TaskedQuests.settings();
 
-        // `resetTasks` clears the claimed flag as a side effect of building a fresh round, so the flag
-        // is set after it rather than before. Setting it first and resetting second is the ordering
-        // that looks natural and is silently wrong.
+        // `resetTasks` clears the round's claims as a side effect of building a fresh round, so
+        // anything marked below is marked after it rather than before. Setting first and resetting
+        // second is the ordering that looks natural and is silently wrong.
         QuestProgress recorded = quest.repeatable() ? current.resetTasks() : current;
-        recorded = recorded.completedAt(now).withRewardsClaimed(!pays);
+        recorded = recorded.completedAt(now);
+
+        // The rewards that hand themselves over, which is what the auto-claim modes are for. Resolved
+        // and recorded now -- before anything is granted -- so a crash between the two cannot
+        // duplicate a payout; see the class note on the direction of that write. A team-mode reward
+        // is one claim, granted to the completer; a player-mode one is granted to every member online
+        // now, and the rest collect theirs when they next join (see autoClaimFor).
+        List<Grant> automatic = automaticGrants(quest, recorded, progress, settings, player,
+                onlineMembersOf(server, teamFor(server, owner)));
+        QuestClaims marked = recorded.claims();
+        for (Grant grant : automatic) {
+            marked = grant.teamClaim() ? marked.withTeamClaim(grant.index())
+                    : marked.withPlayerClaim(grant.target().getUUID(), grant.index());
+        }
+        recorded = recorded.withClaims(marked);
+
+        // The round is over for the completer when they have nothing left to collect; see QuestProgress.
+        boolean outstanding = outstandingFor(quest, recorded, player.getUUID(), settings);
+        recorded = recorded.withRewardsClaimed(!outstanding);
 
         TeamProgress saved = progress.put(quest, recorded);
         ProgressStore.of(server).put(owner, saved);
 
+        for (Grant grant : automatic) {
+            grantRewards(server, owner, grant.target(), entry, List.of(grant.index()), settings);
+        }
+
+        TaskedEvents.QUEST_COMPLETED.invoker().onQuestCompleted(player, quest);
+
         Constants.LOG.info("tasked: {} completed '{}' for team {}{}",
-                player.getScoreboardName(), quest.id(), owner, pays ? " -- rewards waiting" : "");
+                player.getScoreboardName(), quest.id(), owner, outstanding ? " -- rewards waiting" : "");
         player.displayClientMessage(Component.translatable(
-                pays ? "tasked.quest.completed.claim" : "tasked.quest.completed",
+                outstanding ? "tasked.quest.completed.claim" : "tasked.quest.completed",
                 quest.title().component()), false);
 
         return saved;
+    }
+
+    /** One reward being handed to one player, as completion's auto-claim decides it. */
+    private record Grant(int index, ServerPlayer target, boolean teamClaim) {
+    }
+
+    /**
+     * Whether <b>this player</b> still has a reward to collect on this quest.
+     *
+     * <p>Per player, because that is what claiming is: in a party of four where one has collected
+     * their diamond, three players still have something outstanding — and one global flag could only
+     * answer that question wrong for somebody.
+     */
+    private static boolean outstandingFor(Quest quest, QuestProgress progress, UUID player,
+                                          QuestSettings settings) {
+        for (int index = 0; index < quest.rewards().size(); index++) {
+            if (!progress.claimed(player, index, teamReward(quest, index, settings))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a reward is the one-claim-for-the-team kind, resolved against the file default. */
+    private static boolean teamReward(Quest quest, int index, QuestSettings settings) {
+        return quest.rewards().get(index).common().teamReward(settings.defaultTeamReward());
+    }
+
+    /**
+     * The automatic rewards, as the players they are owed to.
+     *
+     * <p>Blocking applies here exactly as it does to a claim: a team whose rewards are held keeps even
+     * its automatic ones, so unblocking is one moment rather than two behaviours. Suppression is the
+     * file-wide switch, and it outranks every per-reward mode.
+     */
+    private static List<Grant> automaticGrants(Quest quest, QuestProgress current, TeamProgress team,
+                                               QuestSettings settings, ServerPlayer completer,
+                                               List<ServerPlayer> members) {
+        if (settings.suppressAllAutoclaiming()) {
+            return List.of();
+        }
+        List<Grant> grants = new ArrayList<>();
+        for (int index = 0; index < quest.rewards().size(); index++) {
+            QuestReward reward = quest.rewards().get(index);
+            if (isBlocked(team, reward)) {
+                continue;
+            }
+            if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()) {
+                continue;
+            }
+            if (reward.common().teamReward(settings.defaultTeamReward())) {
+                if (!current.claims().team().contains(index)) {
+                    grants.add(new Grant(index, completer, true));
+                }
+            }
+            else {
+                for (ServerPlayer member : members) {
+                    if (!current.claims().claimed(member.getUUID(), index, false)) {
+                        grants.add(new Grant(index, member, false));
+                    }
+                }
+            }
+        }
+        return grants;
+    }
+
+    /** Whether this team's rewards are blocked, for this reward. See {@link TeamProgress#rewardsBlocked()}. */
+    public static boolean isBlocked(TeamProgress team, QuestReward reward) {
+        return team.rewardsBlocked() && !reward.common().ignoreRewardBlocking();
     }
 
     /**
@@ -611,26 +828,289 @@ public final class ProgressService {
      *     asking after a reload all change nothing at all.
      */
     public static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry) {
+        return claim(server, player, entry, false);
+    }
+
+    /** Whether this player passes a quest's stage gate. True when the quest has none. */
+    public static boolean stageGateOpen(MinecraftServer server, Quest quest, UUID player) {
+        java.util.Optional<net.minecraft.resources.ResourceLocation> required = quest.requiresStage();
+        if (required.isEmpty()) {
+            return true;
+        }
+        if (server == null || player == null) {
+            // A harness, or a server on its way down. A gate nobody can ask about is not a gate that blocks:
+            // the alternative is refusing a completion over a fact that cannot be read, and the playback
+            // harness -- whose players have a null server -- is the case that made this explicit rather than
+            // accidental.
+            return true;
+        }
+        return StageService.has(server, player, required.get());
+    }
+
+    /**
+     * The quests whose stage gate this player does not pass, by id.
+     *
+     * <p>Asked once per player by the sync, so the client can draw them locked: the state a team's progress
+     * holds is the same for every member, and whether <i>this</i> player may see and claim a quest is not.
+     * Empty whenever no quest in the index declares a gate, which is the usual case and the fast one.
+     */
+    public static java.util.Set<String> stageLockedQuests(MinecraftServer server, ServerPlayer player,
+                                                          QuestIndex index) {
+        if (server == null) {
+            return java.util.Set.of();
+        }
+        java.util.Set<net.minecraft.resources.ResourceLocation> held = StageService.list(server,
+                player.getUUID());
+        java.util.Set<String> locked = new java.util.LinkedHashSet<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            Quest quest = entry.quest();
+            if (quest.requiresStage().isPresent() && !held.contains(quest.requiresStage().get())) {
+                locked.add(quest.id());
+            }
+        }
+        return locked;
+    }
+
+    /**
+     * Everything outstanding on one quest, or everything a claim-all is allowed to take.
+     *
+     * <p>{@code claimAllMode} is the only difference between the two presses: a reward marked
+     * {@code excludeFromClaimAll} waits for its own button, exactly as in FTB Quests. Blocked rewards
+     * are skipped in both modes and named when nothing at all could be taken, because a press that
+     * silently does nothing is the thing a blocked team would report as broken.
+     */
+    private static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry,
+                                 boolean claimAllMode) {
         Quest quest = entry.quest();
+        if (!stageGateOpen(server, quest, player.getUUID())) {
+            // Gated: the claim is refused where every claim arrives -- the button, Claim all and the command
+            // all reach this method -- and the sync the caller sends anyway corrects the button the client
+            // should not be showing.
+            return false;
+        }
         UUID owner = progressOwner(server, player);
         ProgressStore store = ProgressStore.of(server);
-        TeamProgress progress = store.progressOf(owner);
-        QuestProgress current = progress.progressOf(quest);
+        TeamProgress team = store.progressOf(owner);
+        QuestProgress current = team.progressOf(quest);
+        QuestSettings settings = TaskedQuests.settings();
 
-        if (!canClaim(progress, quest)) {
+        List<Integer> payable = new ArrayList<>();
+        List<Integer> offers = new ArrayList<>();
+        boolean sawBlocked = false;
+        for (int index = 0; index < quest.rewards().size(); index++) {
+            QuestReward reward = quest.rewards().get(index);
+            boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
+            // This player's own claim, or the team's for a team-mode reward. What a teammate has
+            // collected is not this player's business -- each claim is their own copy.
+            if (current.legacySettled() || current.claimed(player.getUUID(), index, teamMode)) {
+                continue;
+            }
+            if (isBlocked(team, reward)) {
+                sawBlocked = true;
+                continue;
+            }
+            if (reward instanceof dev.ellipog.tasked.quest.reward.TableReward table
+                    && table.mode() == dev.ellipog.tasked.quest.reward.TableReward.Mode.CHOICE) {
+                // A choice is not paid on the press: the player picks first. It stays outstanding --
+                // unmarked -- until the answer arrives, so nothing is lost between the two messages
+                // and a re-press simply offers again.
+                offers.add(index);
+                continue;
+            }
+            if (claimAllMode && reward.common().excludeFromClaimAll()) {
+                continue;
+            }
+            payable.add(index);
+        }
+        if (payable.isEmpty() && offers.isEmpty()) {
+            if (sawBlocked) {
+                player.displayClientMessage(
+                        Component.translatable("tasked.quest.rewards_blocked"), true);
+            }
             return false;
         }
 
-        // Written before granting, deliberately. See the class comment on the direction.
-        store.put(owner, progress.put(quest, current.withRewardsClaimed(true)));
+        if (!payable.isEmpty()) {
+            // Written before granting, deliberately. See the class comment on the direction, and note
+            // the per-claim shape: only what this press takes is marked, so a half-paid quest stays
+            // half-owed rather than being written off.
+            QuestClaims marked = current.claims();
+            for (int index : payable) {
+                marked = teamReward(quest, index, settings)
+                        ? marked.withTeamClaim(index)
+                        : marked.withPlayerClaim(player.getUUID(), index);
+            }
+            QuestProgress updated = current.withClaims(marked);
+            updated = updated.withRewardsClaimed(
+                    !outstandingFor(quest, updated, player.getUUID(), settings));
+            store.put(owner, team.put(quest, updated));
 
-        grantRewards(player, quest);
+            grantRewards(server, owner, player, entry, payable, settings);
 
-        Constants.LOG.info("tasked: {} collected the rewards for '{}' (team {})",
-                player.getScoreboardName(), quest.id(), owner);
+            Constants.LOG.info("tasked: {} collected {} reward(s) for '{}' (team {})",
+                    player.getScoreboardName(), payable.size(), quest.id(), owner);
+            player.displayClientMessage(
+                    Component.translatable("tasked.quest.claimed", quest.title().component()), false);
+        }
+
+        for (int index : offers) {
+            sendChoiceOffer(player, quest, index,
+                    (dev.ellipog.tasked.quest.reward.TableReward) quest.rewards().get(index));
+            player.displayClientMessage(Component.translatable("tasked.quest.choose"), false);
+        }
+        return true;
+    }
+
+    /**
+     * Offers a choice reward's entries to the player who claimed it.
+     *
+     * <p>Only the display travels; the rewards stay on the server, and the answer is re-validated
+     * when it comes back. See {@link #claimChoice}.
+     */
+    private static void sendChoiceOffer(ServerPlayer player, Quest quest, int index,
+                                        dev.ellipog.tasked.quest.reward.TableReward reward) {
+        Optional<dev.ellipog.tasked.quest.loot.RewardTable> resolved = reward.resolvedTable();
+        if (resolved.isEmpty()) {
+            return; // the loader reported the missing table at its own line
+        }
+        List<dev.ellipog.tasked.net.ChoiceRewardPayload.Entry> entries = new ArrayList<>();
+        for (dev.ellipog.tasked.quest.loot.RewardTable.Entry tableEntry : resolved.get().entries()) {
+            dev.ellipog.tasked.quest.reward.RewardDisplay display =
+                    RewardTypes.displayOf(tableEntry.reward());
+            entries.add(new dev.ellipog.tasked.net.ChoiceRewardPayload.Entry(
+                    display.item().map(ref -> ref.item().toString()).orElse(""),
+                    display.count(), display.label(), display.labelFallback()));
+        }
+        dev.ellipog.armature.api.net.ArmatureNetwork.sendToPlayer(player,
+                new dev.ellipog.tasked.net.ChoiceRewardPayload(quest.id(), index, entries));
+    }
+
+    /**
+     * The player's answer to a choice offer: grant the chosen entry and record the claim.
+     *
+     * <p>Everything is re-resolved here — the quest, the reward, the entry index — so the payload
+     * cannot grant anything a table does not hold. The claim is marked and saved <b>before</b> the
+     * chosen reward is granted, the same direction as every other payout.
+     *
+     * @return whether anything was granted
+     */
+    public static boolean claimChoice(MinecraftServer server, ServerPlayer player,
+                                      QuestIndex.QuestEntry entry, int rewardIndex, int entryIndex) {
+        Quest quest = entry.quest();
+        if (rewardIndex < 0 || rewardIndex >= quest.rewards().size()) {
+            return false;
+        }
+        QuestReward reward = quest.rewards().get(rewardIndex);
+        if (!(reward instanceof dev.ellipog.tasked.quest.reward.TableReward table)
+                || table.mode() != dev.ellipog.tasked.quest.reward.TableReward.Mode.CHOICE) {
+            return false;
+        }
+        Optional<dev.ellipog.tasked.quest.loot.RewardTable> resolved = table.resolvedTable();
+        Optional<QuestReward> chosen = resolved.flatMap(value -> value.choice(entryIndex));
+        if (chosen.isEmpty()) {
+            return false;
+        }
+
+        UUID owner = progressOwner(server, player);
+        ProgressStore store = ProgressStore.of(server);
+        TeamProgress team = store.progressOf(owner);
+        QuestProgress current = team.progressOf(quest);
+        QuestSettings settings = TaskedQuests.settings();
+        boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
+        if (current.legacySettled() || current.claimed(player.getUUID(), rewardIndex, teamMode)) {
+            return false;
+        }
+
+        QuestClaims marked = teamMode
+                ? current.claims().withTeamClaim(rewardIndex)
+                : current.claims().withPlayerClaim(player.getUUID(), rewardIndex);
+        QuestProgress updated = current.withClaims(marked);
+        updated = updated.withRewardsClaimed(
+                !outstandingFor(quest, updated, player.getUUID(), settings));
+        store.put(owner, team.put(quest, updated));
+
+        RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
+                onlineMembersOf(server, teamFor(server, owner)));
+        dev.ellipog.tasked.quest.reward.TableReward.grantAll(List.of(chosen.get()), context, 1);
+        TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
+
         player.displayClientMessage(
                 Component.translatable("tasked.quest.claimed", quest.title().component()), false);
         return true;
+    }
+
+    /**
+     * Claims everything outstanding across the whole book, for the claim-all control.
+     *
+     * <p>The quests are found here rather than named by the caller: a client sending a list of ids
+     * would be a client deciding what it is owed. This asks the same {@link #canClaimFor} the single
+     * claim does, so the two cannot disagree about what a button may take.
+     *
+     * @return how many quests paid something
+     */
+    public static int claimAll(MinecraftServer server, ServerPlayer player) {
+        int claimed = 0;
+        UUID playerId = player.getUUID();
+        for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
+            TeamProgress team = ProgressStore.of(server).progressOf(progressOwner(server, player));
+            if (canClaimFor(team, entry.quest(), playerId) && claim(server, player, entry, true)) {
+                claimed++;
+            }
+        }
+        return claimed;
+    }
+
+    /**
+     * Grants a player any automatic rewards still owed to them.
+     *
+     * <p>The offline half of auto-claiming: a quest that completes while a member is away marks the
+     * team-mode rewards and the online members' own, and this is where the absent member collects
+     * theirs — on the next join, as FTB Quests does on login.
+     *
+     * @return whether anything was granted
+     */
+    public static boolean autoClaimFor(MinecraftServer server, ServerPlayer player) {
+        QuestSettings settings = TaskedQuests.settings();
+        if (settings.suppressAllAutoclaiming()) {
+            return false;
+        }
+        UUID owner = progressOwner(server, player);
+        ProgressStore store = ProgressStore.of(server);
+        TeamProgress team = store.progressOf(owner);
+
+        boolean grantedAny = false;
+        for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
+            Quest quest = entry.quest();
+            QuestProgress current = team.progressOf(quest);
+            if (current.state() != QuestState.COMPLETED || current.legacySettled()) {
+                continue;
+            }
+            List<Integer> owed = new ArrayList<>();
+            QuestClaims marked = current.claims();
+            for (int index = 0; index < quest.rewards().size(); index++) {
+                QuestReward reward = quest.rewards().get(index);
+                boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
+                if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()
+                        || isBlocked(team, reward)
+                        || current.claimed(player.getUUID(), index, teamMode)) {
+                    continue;
+                }
+                owed.add(index);
+                marked = teamMode ? marked.withTeamClaim(index)
+                        : marked.withPlayerClaim(player.getUUID(), index);
+            }
+            if (owed.isEmpty()) {
+                continue;
+            }
+            QuestProgress updated = current.withClaims(marked);
+            updated = updated.withRewardsClaimed(
+                    !outstandingFor(quest, updated, player.getUUID(), settings));
+            team = team.put(quest, updated);
+            store.put(owner, team);
+            grantRewards(server, owner, player, entry, owed, settings);
+            grantedAny = true;
+        }
+        return grantedAny;
     }
 
     /**
@@ -670,26 +1150,67 @@ public final class ProgressService {
     }
 
     /**
-     * Whether a quest is finished with something still to collect.
+     * Whether <b>this player</b> is finished and has something still to collect.
      *
-     * <p>The one place that question is answered, because it is asked from three: the command, the
-     * progress wire format, and (through that) the screen's Claim button. Three copies of
-     * {@code COMPLETED && !claimed && !rewards.isEmpty()} would be three chances for the button to
-     * appear on a quest the server would refuse.
+     * <p>The one place that question is answered, because it is asked from four: the command, the
+     * progress wire format's hint, the claim-all walk and (through the wire) the screen's Claim
+     * button. Three copies of the condition would be three chances for the button to appear on a
+     * quest the server would refuse.
      */
-    public static boolean canClaim(TeamProgress progress, Quest quest) {
+    public static boolean canClaimFor(TeamProgress progress, Quest quest, UUID player) {
         QuestProgress current = progress.progressOf(quest);
-        return current.state() == QuestState.COMPLETED
-                && !current.rewardsClaimed()
-                && !quest.rewards().isEmpty();
+        if (current.state() != QuestState.COMPLETED || current.legacySettled()
+                || quest.rewards().isEmpty()) {
+            return false;
+        }
+        QuestSettings settings = TaskedQuests.settings();
+        return outstandingFor(quest, current, player, settings);
     }
 
-    private static void grantRewards(ServerPlayer player, Quest quest) {
-        if (quest.rewards().isEmpty()) {
+    /**
+     * Whether <i>anyone</i> could still have something to collect on this quest.
+     *
+     * <p>A hint for the wire, not a decision: player-mode rewards are outstanding for every member
+     * who has not claimed, which a team-scoped payload cannot enumerate per recipient. The client
+     * answers the per-player question itself from the claims it is sent; see {@code ClientQuestCache}.
+     */
+    public static boolean anyoneCouldClaim(TeamProgress progress, Quest quest) {
+        QuestProgress current = progress.progressOf(quest);
+        if (current.state() != QuestState.COMPLETED || current.legacySettled()
+                || quest.rewards().isEmpty()) {
+            return false;
+        }
+        QuestSettings settings = TaskedQuests.settings();
+        for (int index = 0; index < quest.rewards().size(); index++) {
+            if (!teamReward(quest, index, settings) || !current.claims().team().contains(index)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Hands the chosen rewards to one player.
+     *
+     * <p>Any reward — team-mode or not — is granted to the player who claimed it, which is what FTB
+     * Quests' own reward code does: {@code team: true} changes whose claim settles the reward (the
+     * team's), not who receives the effect. What each member gets for themselves is the default, and
+     * what an auto-claim hands out per member; this method is the single payout step both use.
+     */
+    private static void grantRewards(MinecraftServer server, UUID owner, ServerPlayer player,
+                                     QuestIndex.QuestEntry entry, List<Integer> indexes,
+                                     QuestSettings settings) {
+        Quest quest = entry.quest();
+        if (indexes.isEmpty()) {
             return;
         }
-        RewardContext context = new RewardContext(player);
-        for (QuestReward reward : quest.rewards()) {
+        // The context carries what a reward may legitimately need to name -- the team, the ids for a
+        // command's placeholders, the online members for a count. None of it is progress; see
+        // RewardContext for where that line is drawn.
+        RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
+                onlineMembersOf(server, teamFor(server, owner)));
+        for (int index : indexes) {
+            QuestReward reward = quest.rewards().get(index);
             Optional<dev.ellipog.tasked.quest.reward.RewardBehaviour<QuestReward>> behaviour =
                     RewardTypes.behaviourOf(reward);
             if (behaviour.isEmpty()) {
@@ -705,6 +1226,7 @@ public final class ProgressService {
                 Constants.LOG.error("tasked: granting a {} reward failed; the rest were still given",
                         reward.type(), e);
             }
+            TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
         }
     }
 
@@ -755,7 +1277,10 @@ public final class ProgressService {
         }
 
         Optional<dev.ellipog.tasked.quest.task.TaskBehaviour<QuestTask>> behaviour = TaskTypes.behaviourOf(task);
-        if (behaviour.isEmpty() || !behaviour.get().canSubmitByHand(task)) {
+        // `acceptsClientSubmit`, not `canSubmitByHand`: a task may have no button and still be
+        // submitted by the client that did the work -- an observation's watching is exactly that. See
+        // the two methods on TaskBehaviour.
+        if (behaviour.isEmpty() || !behaviour.get().acceptsClientSubmit(task)) {
             return false;
         }
 
@@ -763,18 +1288,28 @@ public final class ProgressService {
                 .map(Chapter::defaultConsumeItems)
                 .orElse(false);
 
-        if (consumes(task, chapterConsumes)) {
+        if (behaviour.get().takesResources(task, chapterConsumes)) {
             int required = behaviour.get().required(task);
-            if (!hasEnough(player, task, required)) {
+            // The same question the count answers, asked of the player rather than of the record: a
+            // submit button showing for a task the player cannot pay is the skip this guards against.
+            int have = behaviour.get().current(task, new TaskContext(player, TaskedQuests.index(), now));
+            if (have < required) {
                 player.displayClientMessage(Component.translatable("tasked.quest.not_enough"), true);
                 return false;
             }
-            consume(player, task, required);
+            behaviour.get().take(task, player, required);
         }
 
         questProgress = questProgress.recordTask(taskIndex, behaviour.get().required(task));
         progress = progress.put(quest, questProgress);
         store.put(owner, progress);
+
+        // A submit always satisfies its task -- that is what the press means -- so both events fire
+        // here rather than being inferred later.
+        TaskedEvents.TASK_COMPLETED.invoker().onTaskCompleted(player, quest, taskIndex);
+        if (!beforeSubmit.anyTaskProgress()) {
+            TaskedEvents.QUEST_STARTED.invoker().onQuestStarted(player, quest);
+        }
 
         // Submitting can finish the quest, and for a checkmark that is the only way it ever will.
         if (ProgressionEngine.tasksSatisfied(quest, questProgress)) {
@@ -936,75 +1471,6 @@ public final class ProgressService {
         return lastAt == null || now < lastAt || now - lastAt >= interval;
     }
 
-    private static boolean consumes(QuestTask task, boolean chapterDefault) {
-        if (task instanceof dev.ellipog.tasked.quest.task.ItemTask item) {
-            return item.consumes(chapterDefault);
-        }
-        return false;
-    }
-
-    private static boolean hasEnough(ServerPlayer player, QuestTask task, int required) {
-        if (!(task instanceof dev.ellipog.tasked.quest.task.ItemTask item)) {
-            return true;
-        }
-        return countMatching(player, item) >= required;
-    }
-
-    private static int countMatching(ServerPlayer player, dev.ellipog.tasked.quest.task.ItemTask task) {
-        ItemStack template = task.item().toStack();
-        if (template.isEmpty()) {
-            return 0;
-        }
-        int found = 0;
-        var inventory = player.getInventory();
-        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
-            ItemStack stack = inventory.getItem(slot);
-            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, template)) {
-                found += stack.getCount();
-            }
-        }
-        return found;
-    }
-
-    /**
-     * Takes {@code count} matching items from the player's inventory.
-     *
-     * <p>Removes from the first matching slots and, where a slot held more than was needed, shrinks
-     * that stack rather than removing it — so taking three of five logs leaves two behind rather than
-     * eating the whole stack.
-     *
-     * <h2>Why this returns what it took</h2>
-     *
-     * <p>Because under {@link PartyMode#POOLED} the caller is {@link #consumeAcross}, which has to
-     * know when to stop asking players. A method that took what it could and returned nothing would
-     * leave that loop guessing — and the guess available to it is "assume it took everything it was
-     * asked for", which is precisely the assumption that is false in the case the loop exists for.
-     */
-    private static int consume(ServerPlayer player, QuestTask task, int count) {
-        if (!(task instanceof dev.ellipog.tasked.quest.task.ItemTask item)) {
-            return 0;
-        }
-        ItemStack template = item.item().toStack();
-        if (template.isEmpty()) {
-            return 0;
-        }
-
-        int remaining = count;
-        var inventory = player.getInventory();
-        for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
-            ItemStack stack = inventory.getItem(slot);
-            if (stack.isEmpty() || !ItemStack.isSameItemSameComponents(stack, template)) {
-                continue;
-            }
-            int take = Math.min(remaining, stack.getCount());
-            stack.shrink(take);
-            remaining -= take;
-            inventory.setItem(slot, stack.isEmpty() ? ItemStack.EMPTY : stack);
-        }
-        inventory.setChanged();
-        return count - remaining;
-    }
-
     /**
      * Takes {@code count} matching items from the party, across as many members as it needs.
      *
@@ -1030,13 +1496,14 @@ public final class ProgressService {
      * <p>Stopping early when {@code remaining} reaches zero is the common case rather than an
      * optimisation: the first member usually holds most of it, and the party usually has one member.
      */
-    private static void consumeAcross(List<ServerPlayer> members, QuestTask task, int count) {
+    private static void consumeAcross(List<ServerPlayer> members, QuestTask task, int count,
+                                      dev.ellipog.tasked.quest.task.TaskBehaviour<QuestTask> behaviour) {
         int remaining = count;
         for (ServerPlayer member : members) {
             if (remaining <= 0) {
                 return;
             }
-            remaining -= consume(member, task, remaining);
+            remaining -= behaviour.take(task, member, remaining);
         }
         // Falling out of the loop with `remaining` above zero is possible in principle and not worth
         // a warning: the count was taken from live inventories a moment ago, and the only way to get

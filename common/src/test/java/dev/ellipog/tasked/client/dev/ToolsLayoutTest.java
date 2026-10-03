@@ -203,7 +203,7 @@ class ToolsLayoutTest {
     }
 
     @Test
-    @DisplayName("the quest tab takes the bands' room for its list, and holds nothing in them")
+    @DisplayName("the chapter tab keeps a header band, and its list takes the rest")
     void theChapterFrameGivesTheListTheColumn() {
         BookGeometry.Rect canvas = BookGeometry.Rect.at(10, 40, 800, 500);
         ToolsLayout.Frame quest = ToolsLayout.frame(canvas, ToolsLayout.Tab.CHAPTER);
@@ -212,14 +212,32 @@ class ToolsLayoutTest {
         assertEquals(theme.panel(), quest.panel(), "one dock, whatever the tab");
         assertEquals(theme.tabs(), quest.tabs(), "and one strip in it");
         assertTrue(theme.list().height() < quest.list().height(),
-                "the quest panel's sections are a wall by design, and get the bands' room");
+                "the chapter panel's sections are a wall by design, and get the bands' room");
         assertEquals(theme.panel().bottom() - ToolsLayout.GAP, quest.list().bottom(),
                 "the list runs to the panel's floor");
 
-        // The bands a quest panel does not use are empty rather than absent, so a caller that asks is
+        // The chapter's identity is the band the theme tab spends on its preview: the icon, the title
+        // and the subtitle above the fields. It is fixed rather than scrolling, because it says which
+        // chapter the fields belong to -- so it must sit above the list rather than move with it.
+        BookGeometry.Rect header = quest.preview();
+        assertEquals(ToolsLayout.CHAPTER_HEADER_HEIGHT, header.height(),
+                "the header band is the height the layout reserves");
+        assertTrue(header.bottom() <= quest.list().y(), "the header is above the list");
+        assertTrue(header.y() >= quest.panel().y() && header.bottom() <= quest.panel().bottom(),
+                "the header is inside the panel");
+
+        ToolsLayout.ChapterHeader parts = ToolsLayout.chapterHeader(header);
+        for (BookGeometry.Rect part : List.of(parts.icon(), parts.title(), parts.subtitle())) {
+            assertTrue(part.x() >= header.x() && part.right() <= header.right()
+                            && part.y() >= header.y() && part.bottom() <= header.bottom(),
+                    () -> "a header part left its band: " + part + " in " + header);
+        }
+        assertEquals(parts.icon().width(), parts.icon().height(), "the icon's box is square");
+        assertTrue(parts.icon().width() > 0, "the header has an icon box to draw on");
+
+        // The bands a chapter panel does not use are empty rather than absent, so a caller that asks is
         // told "nothing here" instead of being handed a null to test at every use.
-        for (BookGeometry.Rect band : List.of(quest.preview(), quest.swatch(), quest.channels(),
-                quest.actions())) {
+        for (BookGeometry.Rect band : List.of(quest.swatch(), quest.channels(), quest.actions())) {
             assertEquals(0, band.width(), "an unused band holds nothing");
             assertEquals(0, band.height(), () -> "an unused band holds nothing: " + band);
             assertTrue(band.x() >= quest.panel().x() && band.right() <= quest.panel().right()
@@ -228,11 +246,18 @@ class ToolsLayoutTest {
         }
 
         // And the same at a canvas too small for the chrome, where the clamp has to keep every band
-        // inside the panel rather than letting one go past the floor.
+        // inside the panel rather than letting one go past the floor -- and the header's parts clamped
+        // too, not merely its band: a degenerate header is zero-sized, not ink outside the panel.
         ToolsLayout.Frame tiny = ToolsLayout.frame(BookGeometry.Rect.at(0, 0, 120, 60),
                 ToolsLayout.Tab.CHAPTER);
         assertTrue(tiny.list().y() >= tiny.panel().y() && tiny.list().bottom() <= tiny.panel().bottom(),
                 "a tiny canvas still keeps the list inside the panel");
+        ToolsLayout.ChapterHeader tinyParts = ToolsLayout.chapterHeader(tiny.preview());
+        for (BookGeometry.Rect part : List.of(tinyParts.icon(), tinyParts.title(), tinyParts.subtitle())) {
+            assertTrue(part.x() >= tiny.preview().x() && part.right() <= tiny.preview().right()
+                            && part.y() >= tiny.preview().y() && part.bottom() <= tiny.preview().bottom(),
+                    () -> "a header part left a clamped band: " + part + " in " + tiny.preview());
+        }
     }
 
     @Test

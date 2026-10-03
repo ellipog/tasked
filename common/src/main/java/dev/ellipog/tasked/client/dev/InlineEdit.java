@@ -62,6 +62,26 @@ public final class InlineEdit {
     }
 
     /**
+     * Whether the piece at {@code path} lives in the card's <b>header</b> rather than in its scrolling
+     * body.
+     *
+     * <h2>Why the editor has to ask</h2>
+     *
+     * <p>An open field is kept alive only while its target is inside the region it belongs to, and the
+     * region was the body for every path -- so the title and the subtitle, whose boxes sit in the
+     * header band above {@code BODY_TOP}, were stood down (hidden, deactivated, taking no keys) on the
+     * frame they opened. Clicking the title mark made the title vanish and nothing editable appear.
+     *
+     * <p>Two answers, and they are the reader's own layout: the title and the chapter/subtitle line are
+     * the header's; every task, reward, dependency and the description are the body's. Named beside
+     * {@link #ink} because the two questions are about the same three pieces, and a third piece added
+     * to the header must be able to answer both from one place.
+     */
+    public static boolean inHeader(String path) {
+        return "title".equals(path) || "subtitle".equals(path);
+    }
+
+    /**
      * The ink an edited value is drawn in, by the path the piece is edited at: the ink the reader draws
      * that value in.
      *

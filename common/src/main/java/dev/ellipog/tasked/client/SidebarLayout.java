@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * The book's sidebar: a collapsible list of group headings and the chapters under them.
@@ -378,6 +379,37 @@ public final class SidebarLayout {
     /** Whether a row's children are showing. */
     public boolean isExpanded(String key) {
         return outline.isExpanded(key);
+    }
+
+    /** Every group row's key, whether or not it is showing. */
+    public Set<String> groupKeys() {
+        return Set.copyOf(groupsByKey.keySet());
+    }
+
+    /**
+     * Puts remembered expansions back over the authored defaults.
+     *
+     * <h2>Why this exists</h2>
+     *
+     * <p>A sidebar is rebuilt from a new layout every time the tree arrives — and every structural edit
+     * (a drag, a create, a delete) broadcasts a new tree. Seeding from {@code collapsedByDefault} each
+     * time is what snapped every group shut the moment something was dragged into one, so an author
+     * working three levels down had to reopen the path after every drop.
+     *
+     * <p>Only groups that still exist are touched. Everything else in the map is memory of a group that
+     * has been renamed or deleted, and applying it would either throw or do nothing; the caller prunes
+     * those with {@link #groupKeys()}.
+     *
+     * @param remembered a group key to whether it was open, as the player left it
+     */
+    public void applyExpansion(Map<String, Boolean> remembered) {
+        for (Map.Entry<String, Boolean> entry : remembered.entrySet()) {
+            String key = entry.getKey();
+            if (!groupsByKey.containsKey(key) || isExpanded(key) == entry.getValue()) {
+                continue;
+            }
+            toggle(key);
+        }
     }
 
     /** How many rows would be drawn. */

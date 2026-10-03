@@ -5,6 +5,7 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -91,6 +92,11 @@ public final class EditorOps {
                 json.addProperty("path", set.path());
                 json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
             }
+            case EditorOp.SetGroup set -> {
+                json.addProperty("kind", "group");
+                json.addProperty("path", set.path());
+                json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
+            }
             case EditorOp.MoveEntry move -> {
                 json.addProperty("kind", "moveEntry");
                 json.addProperty("quest", move.id());
@@ -104,6 +110,61 @@ public final class EditorOps {
             }
             case EditorOp.Undo ignored -> json.addProperty("kind", "undo");
             case EditorOp.Redo ignored -> json.addProperty("kind", "redo");
+            case EditorOp.MoveChapter move -> {
+                json.addProperty("kind", "moveChapter");
+                json.addProperty("chapter", move.chapter());
+                json.addProperty("groupId", move.groupId());
+                json.addProperty("index", move.index());
+            }
+            case EditorOp.MoveGroup move -> {
+                json.addProperty("kind", "moveGroup");
+                json.addProperty("group", move.group());
+                json.addProperty("index", move.index());
+            }
+            case EditorOp.CreateChapter create -> {
+                json.addProperty("kind", "createChapter");
+                json.addProperty("groupId", create.groupId());
+                json.addProperty("index", create.index());
+                json.addProperty("chapter", create.id());
+                json.addProperty("title", create.title());
+            }
+            case EditorOp.CreateGroup create -> {
+                json.addProperty("kind", "createGroup");
+                json.addProperty("group", create.id());
+                json.addProperty("title", create.title());
+            }
+            case EditorOp.RenameChapter rename -> {
+                json.addProperty("kind", "renameChapter");
+                json.addProperty("chapter", rename.id());
+                json.addProperty("newId", rename.newId());
+                json.addProperty("title", rename.title());
+            }
+            case EditorOp.RenameGroup rename -> {
+                json.addProperty("kind", "renameGroup");
+                json.addProperty("group", rename.id());
+                json.addProperty("newId", rename.newId());
+                json.addProperty("title", rename.title());
+            }
+            case EditorOp.DuplicateChapter duplicate -> {
+                json.addProperty("kind", "duplicateChapter");
+                json.addProperty("chapter", duplicate.id());
+                json.addProperty("newId", duplicate.newId());
+                json.addProperty("title", duplicate.newTitle());
+            }
+            case EditorOp.DuplicateGroup duplicate -> {
+                json.addProperty("kind", "duplicateGroup");
+                json.addProperty("group", duplicate.id());
+                json.addProperty("newId", duplicate.newId());
+                json.addProperty("title", duplicate.newTitle());
+            }
+            case EditorOp.DeleteChapter delete -> {
+                json.addProperty("kind", "deleteChapter");
+                json.addProperty("chapter", delete.id());
+            }
+            case EditorOp.DeleteGroup delete -> {
+                json.addProperty("kind", "deleteGroup");
+                json.addProperty("group", delete.group());
+            }
         }
         return json;
     }
@@ -140,7 +201,27 @@ public final class EditorOps {
                         (int) number(json, "from"), (int) number(json, "to"));
                 case "chapter" -> new EditorOp.SetChapter(text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
+                case "group" -> new EditorOp.SetGroup(text(json, "path"),
+                        json.has("value") ? json.get("value") : JsonNull.INSTANCE);
                 case "delete" -> new EditorOp.Delete(text(json, "quest"));
+                case "moveChapter" -> new EditorOp.MoveChapter(text(json, "chapter"),
+                        nullableText(json, "groupId"), (int) number(json, "index"));
+                case "moveGroup" -> new EditorOp.MoveGroup(text(json, "group"),
+                        (int) number(json, "index"));
+                case "createChapter" -> new EditorOp.CreateChapter(nullableText(json, "groupId"),
+                        (int) number(json, "index"), text(json, "chapter"), nullableText(json, "title"));
+                case "createGroup" -> new EditorOp.CreateGroup(text(json, "group"),
+                        nullableText(json, "title"));
+                case "renameChapter" -> new EditorOp.RenameChapter(text(json, "chapter"),
+                        text(json, "newId"), nullableText(json, "title"));
+                case "renameGroup" -> new EditorOp.RenameGroup(text(json, "group"),
+                        text(json, "newId"), nullableText(json, "title"));
+                case "duplicateChapter" -> new EditorOp.DuplicateChapter(text(json, "chapter"),
+                        text(json, "newId"), nullableText(json, "title"));
+                case "duplicateGroup" -> new EditorOp.DuplicateGroup(text(json, "group"),
+                        text(json, "newId"), nullableText(json, "title"));
+                case "deleteChapter" -> new EditorOp.DeleteChapter(text(json, "chapter"));
+                case "deleteGroup" -> new EditorOp.DeleteGroup(text(json, "group"));
                 case "undo" -> new EditorOp.Undo();
                 case "redo" -> new EditorOp.Redo();
                 default -> null;
@@ -159,15 +240,37 @@ public final class EditorOps {
         return json.get(key).getAsDouble();
     }
 
+    /** A string argument that may legitimately be absent, as null: an ungrouped chapter's group id. */
+    private static String nullableText(JsonObject json, String key) {
+        return json.has(key) && json.get(key).isJsonPrimitive() ? json.get(key).getAsString() : null;
+    }
+
     // ------------------------------------------------------------------
     // Applying
     // ------------------------------------------------------------------
 
-    /** What applying an op did: whether it happened, which quest it made, and what to say about it. */
-    public record Applied(boolean ok, String questId, List<String> messages) {
+    /**
+     * What applying an op did: whether it happened, which quest it made, and what to say about it.
+     *
+     * @param chapterId the chapter the client should select afterwards, for the structural edits that
+     *                  make or rename one; null when the selection should be left where it is
+     * @param groupId   the group that chapter is in, or null
+     * @param forget    chapters whose cached editors must be dropped, because their folder moved
+     */
+    public record Applied(boolean ok, String questId, List<String> messages, String chapterId,
+                          String groupId, List<String> forget) {
+
+        public Applied {
+            forget = forget == null ? List.of() : List.copyOf(forget);
+        }
 
         public static Applied refused(String message) {
-            return new Applied(false, null, List.of(message));
+            return new Applied(false, null, List.of(message), null, null, List.of());
+        }
+
+        /** A structural edit that happened. */
+        static Applied changed(String chapterId, String groupId, List<String> forget) {
+            return new Applied(true, null, List.of(), chapterId, groupId, forget);
         }
     }
 
@@ -218,10 +321,122 @@ public final class EditorOps {
                             move.to()), null);
             case EditorOp.SetChapter set ->
                     finish(editor, op, editor.setChapter(set.path(), value(set.value())), null);
+            case EditorOp.SetGroup set ->
+                    finish(editor, op, editor.setGroup(set.path(), value(set.value())), null);
             case EditorOp.Delete delete -> finish(editor, op, editor.delete(delete.id()), null);
-            case EditorOp.Undo ignored -> finish(editor, op, editor.undo(), null);
-            case EditorOp.Redo ignored -> finish(editor, op, editor.redo(), null);
+            // The structural kinds, in one line each: what they do depends only on the tree's root, not
+            // on the chapter this op arrived at -- see `structureAt` and `applyWithoutSession`.
+            case EditorOp.MoveChapter ignored -> structural(editor, op);
+            case EditorOp.MoveGroup ignored -> structural(editor, op);
+            case EditorOp.CreateChapter ignored -> structural(editor, op);
+            case EditorOp.CreateGroup ignored -> structural(editor, op);
+            case EditorOp.RenameChapter ignored -> structural(editor, op);
+            case EditorOp.RenameGroup ignored -> structural(editor, op);
+            case EditorOp.DuplicateChapter ignored -> structural(editor, op);
+            case EditorOp.DuplicateGroup ignored -> structural(editor, op);
+            case EditorOp.DeleteChapter ignored -> structural(editor, op);
+            case EditorOp.DeleteGroup ignored -> structural(editor, op);
+            case EditorOp.Undo ignored -> history(editor, editor.undo());
+            case EditorOp.Redo ignored -> history(editor, editor.redo());
         };
+    }
+
+    /**
+     * The structural edit an op asks for, as the tree's own model can perform it — or null for the ops
+     * that belong to a chapter.
+     *
+     * <p>Split out so the same edits can be applied with and without a session: {@link #applyOne}
+     * records the structure on the acting chapter's history, and {@link #applyWithoutSession} has no
+     * chapter to record on — which is the state a questline with no chapters is in.
+     */
+    private static QuestStructure.Outcome structureAt(Path root, EditorOp op) {
+        return switch (op) {
+            case EditorOp.MoveChapter move -> QuestStructure.moveChapter(root, move.chapter(),
+                    move.groupId(), move.index());
+            case EditorOp.MoveGroup move -> QuestStructure.moveGroup(root, move.group(), move.index());
+            case EditorOp.CreateChapter create -> QuestStructure.createChapter(root, create.groupId(),
+                    create.index(), create.id(), create.title());
+            case EditorOp.CreateGroup create -> QuestStructure.createGroup(root, create.id(),
+                    create.title());
+            case EditorOp.RenameChapter rename -> QuestStructure.renameChapter(root, rename.id(),
+                    rename.newId(), rename.title());
+            case EditorOp.RenameGroup rename -> QuestStructure.renameGroup(root, rename.id(),
+                    rename.newId(), rename.title());
+            case EditorOp.DuplicateChapter duplicate -> QuestStructure.duplicateChapter(root,
+                    duplicate.id(), duplicate.newId(), duplicate.newTitle());
+            case EditorOp.DuplicateGroup duplicate -> QuestStructure.duplicateGroup(root,
+                    duplicate.id(), duplicate.newId(), duplicate.newTitle());
+            case EditorOp.DeleteChapter delete -> QuestStructure.deleteChapter(root, delete.id());
+            case EditorOp.DeleteGroup delete -> QuestStructure.deleteGroup(root, delete.group());
+            default -> null;
+        };
+    }
+
+    /**
+     * Applies a structural edit with no session editor behind it.
+     *
+     * <p>The one case this exists for: a questline with no chapters. An editor is opened on a chapter,
+     * so an empty tree has none to open, and therefore no history for the edit to join — but making the
+     * first chapter is exactly the thing somebody wants to do there. The edit is applied and reported;
+     * what it cannot do is be undone, because the history it would live in is the thing that does not
+     * exist yet.
+     */
+    public static Applied applyWithoutSession(Path root, EditorOp op) {
+        if (op == null) {
+            return Applied.refused("that is not an edit this version knows");
+        }
+        QuestStructure.Outcome outcome = structureAt(root, op);
+        if (outcome == null) {
+            return Applied.refused("this edit belongs to a chapter, and there is none yet");
+        }
+        if (!outcome.ok()) {
+            return Applied.refused(outcome.refusal());
+        }
+        QuestStructure.Structure.Meta meta = outcome.structure().forwardMeta();
+        return Applied.changed(meta.chapterId(), meta.groupId(), meta.forget());
+    }
+
+    /**
+     * Runs one structural edit and records it on the acting chapter's history.
+     *
+     * <p>The record goes on the editor the op was sent to, not on the chapter that changed — most of
+     * these change chapters the sender may not have open at all. That is what keeps one Ctrl+Z, in one
+     * session, enough to reverse a drag.
+     */
+    private static Applied structural(QuestEditor editor, EditorOp op) {
+        QuestStructure.Outcome outcome = structureAt(editor.treeRoot(), op);
+        if (!outcome.ok()) {
+            return Applied.refused(outcome.refusal());
+        }
+        editor.record(outcome.structure());
+        QuestStructure.Structure.Meta meta = outcome.structure().forwardMeta();
+        return Applied.changed(meta.chapterId(), meta.groupId(), meta.forget());
+    }
+
+    /**
+     * What an undo or a redo did, told the same way a structural edit is told.
+     *
+     * <p>The meta of a reversed structure is its <b>reverse</b> meta — the id the thing has now, not the
+     * id the edit gave it — which is what keeps the editor cache right when Ctrl+Z moves a chapter back.
+     * A field edit has no meta, and reports none.
+     */
+    private static Applied history(QuestEditor editor, boolean changed) {
+        QuestStructure.Structure.Meta meta = editor.takeLastMeta();
+        if (!changed) {
+            return new Applied(false, null, List.of("that edit would change nothing"), null, null, List.of());
+        }
+        if (meta == null) {
+            // A field history: the model was put back in memory, and the save is what makes the disk
+            // agree with it -- exactly the path `finish` takes for every other op. A structural history
+            // needs none: its steps wrote the files themselves, which is what they are for.
+            QuestEditor.SaveResult saved = editor.save();
+            if (!saved.ok()) {
+                editor.undo();
+                return new Applied(false, null, saved.messages(), null, null, List.of());
+            }
+            return new Applied(true, null, List.of(), null, null, List.of());
+        }
+        return Applied.changed(meta.chapterId(), meta.groupId(), meta.forget());
     }
 
     /**
@@ -233,14 +448,14 @@ public final class EditorOps {
     private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId) {
         String about = madeId != null ? madeId : op.quest();
         if (!changed) {
-            return new Applied(false, about, List.of("that edit would change nothing"));
+            return new Applied(false, about, List.of("that edit would change nothing"), null, null, List.of());
         }
         QuestEditor.SaveResult saved = editor.save();
         if (!saved.ok()) {
             editor.undo();
-            return new Applied(false, null, saved.messages());
+            return new Applied(false, null, saved.messages(), null, null, List.of());
         }
-        return new Applied(true, about, List.of());
+        return new Applied(true, about, List.of(), null, null, List.of());
     }
 
     /**

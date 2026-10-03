@@ -26,7 +26,9 @@ public final class RewardTypes {
 
     /** A registered type: what reads it, how it is granted, and what represents it. */
     private record Entry(TypeSpec<QuestReward> spec, RewardBehaviour<QuestReward> behaviour, ItemRef icon,
-                         Function<QuestReward, RewardDisplay> display, Supplier<QuestReward> defaults) {
+                         Function<QuestReward, RewardDisplay> display,
+                         java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+                         Supplier<QuestReward> defaults) {
     }
 
     /** The registered type's own codec; the reward half of {@link dev.ellipog.tasked.quest.task.TaskTypes#codecOf}. */
@@ -36,17 +38,151 @@ public final class RewardTypes {
 
     private static final SimpleRegistry<Entry> REGISTRY = SimpleRegistry.create("quest reward types");
 
+    /**
+     * The base mechanics every reward has, as the form draws them: when it is given, and the two switches
+     * that decide what a claim-all may take.
+     *
+     * <p>Appended to every registered type's form rather than written into each spec, for the same reason
+     * {@link RewardCommon#FIELDS} is unioned into every type's field list: a type cannot offer a variant
+     * of "automatic" that means something else. {@code team} is deliberately absent -- it is an optional
+     * boolean rather than a switch, and the form's controls write the values their kinds can write; the
+     * panel's field list is where a tri-state is set.
+     */
+    private static final java.util.List<dev.ellipog.tasked.quest.EditorField> COMMON_EDITOR =
+            java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.choice("auto", "Given", "default", "disabled",
+                                    "enabled")
+                            .hint("when it is handed over: default follows the quest's own setting, enabled "
+                                    + "gives it on completion, disabled waits for a claim"),
+                    dev.ellipog.tasked.quest.EditorField.flag("excludeFromClaimAll", "Claim separately")
+                            .hint("Claim all leaves this one for its own press"),
+                    dev.ellipog.tasked.quest.EditorField.flag("ignoreRewardBlocking", "Ignore blocking")
+                            .hint("give it even while the team's rewards are being held"));
+
+    /** The four table-backed rewards share one form: a table, or a table written inline. */
+    private static final java.util.List<dev.ellipog.tasked.quest.EditorField> TABLE_EDITOR =
+            java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.text("table", "Table",
+                                    "a loot table from the datapack, without the folder")
+                            .hint("a loot table from the datapack, by id; the client cannot list these, so "
+                                    + "it is typed"),
+                    dev.ellipog.tasked.quest.EditorField.text("inline", "Inline table",
+                                    "the table itself, as JSON, for a reward that is its own roll")
+                            .hint("the table itself as JSON, for a reward that is its own roll"));
+
     /** {@code tasked:item} — some items. */
     public static final QuestRewardType<ItemReward> ITEM = register(
-            "item", ItemReward.MAP_CODEC, ItemReward.FIELDS, ItemReward.BEHAVIOUR,
+            "item", ItemReward.MAP_CODEC, ItemReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.item("item", "Give")
+                            .hint("the item to give; the picker keeps the data of the one you pick"),
+                    dev.ellipog.tasked.quest.EditorField.number("count", "Count", "\u00d7")
+                            .hint("how many"),
+                    dev.ellipog.tasked.quest.EditorField.number("randomBonus", "Extra", "extra")
+                            .hint("up to this many more, rolled at random on top of the count"),
+                    dev.ellipog.tasked.quest.EditorField.flag("onlyOne", "Only one")
+                            .hint("skip it if the player already carries this item")),
+            ItemReward.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("diamond"), 1), ItemReward.DISPLAY,
-            () -> new ItemReward(new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1)));
+            () -> new ItemReward(RewardCommon.DEFAULT,
+                    new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1), 0, false));
 
     /** {@code tasked:xp} — experience points or levels. */
     public static final QuestRewardType<XpReward> XP = register(
-            "xp", XpReward.MAP_CODEC, XpReward.FIELDS, XpReward.BEHAVIOUR,
+            "xp", XpReward.MAP_CODEC, XpReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.number("amount", "Give", "XP")
+                            .hint("how much experience to give"),
+                    dev.ellipog.tasked.quest.EditorField.flag("levels", "Levels instead")
+                            .hint("give levels rather than points")),
+            XpReward.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpReward.DISPLAY,
-            () -> new XpReward(1, false));
+            () -> new XpReward(RewardCommon.DEFAULT, 1, false));
+
+    /** {@code tasked:random} — one guaranteed roll from a table. */
+    public static final QuestRewardType<TableReward> RANDOM = register(
+            "random", TableReward.mapCodec(TableReward.Mode.RANDOM), TableReward.FIELDS, TABLE_EDITOR,
+            TableReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("dispenser"), 1), TableReward.DISPLAY,
+            () -> new TableReward(RewardCommon.DEFAULT, TableReward.Mode.RANDOM, java.util.Optional.of("loot"),
+                    java.util.Optional.empty()));
+
+    /** {@code tasked:loot} — a roll that can come up empty. */
+    public static final QuestRewardType<TableReward> LOOT = register(
+            "loot", TableReward.mapCodec(TableReward.Mode.LOOT), TableReward.FIELDS, TABLE_EDITOR,
+            TableReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1), TableReward.DISPLAY,
+            () -> new TableReward(RewardCommon.DEFAULT, TableReward.Mode.LOOT, java.util.Optional.of("loot"),
+                    java.util.Optional.empty()));
+
+    /** {@code tasked:all_table} — every entry once, weights ignored. */
+    public static final QuestRewardType<TableReward> ALL_TABLE = register(
+            "all_table", TableReward.mapCodec(TableReward.Mode.ALL_TABLE), TableReward.FIELDS, TABLE_EDITOR,
+            TableReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("shulker_box"), 1), TableReward.DISPLAY,
+            () -> new TableReward(RewardCommon.DEFAULT, TableReward.Mode.ALL_TABLE,
+                    java.util.Optional.of("loot"), java.util.Optional.empty()));
+
+    /** {@code tasked:choice} — the player picks one entry. */
+    public static final QuestRewardType<TableReward> CHOICE = register(
+            "choice", TableReward.mapCodec(TableReward.Mode.CHOICE), TableReward.FIELDS, TABLE_EDITOR,
+            TableReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("bundle"), 1), TableReward.DISPLAY,
+            () -> new TableReward(RewardCommon.DEFAULT, TableReward.Mode.CHOICE, java.util.Optional.of("loot"),
+                    java.util.Optional.empty()));
+
+    /** {@code tasked:command} — run a command as the player. */
+    public static final QuestRewardType<CommandReward> COMMAND = register(
+            "command", CommandReward.MAP_CODEC, CommandReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.text("command", "Command",
+                                    "run as the player, without the leading slash")
+                            .hint("run as the player when the reward is collected, without the slash"),
+                    dev.ellipog.tasked.quest.EditorField.number("permissionLevel", "As", "level")
+                            .hint("the permission level to run it at; 2 is a command block's"),
+                    dev.ellipog.tasked.quest.EditorField.flag("silent", "Quiet")
+                            .hint("do not say in chat that it ran")),
+            CommandReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("command_block"), 1), CommandReward.DISPLAY,
+            () -> new CommandReward(RewardCommon.DEFAULT, "say hello", 2, false));
+
+    /** {@code tasked:advancement} — award an advancement, or one criterion of one. */
+    public static final QuestRewardType<AdvancementReward> ADVANCEMENT = register(
+            "advancement", AdvancementReward.MAP_CODEC, AdvancementReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.search("advancement", "Advancement",
+                                    dev.ellipog.tasked.quest.EditorField.Source.ADVANCEMENT)
+                            .hint("the advancement to award"),
+                    dev.ellipog.tasked.quest.EditorField.text("criterion", "One criterion",
+                                    "leave empty for the whole advancement")
+                            .hint("award one criterion of it instead of the whole advancement")),
+            AdvancementReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("dragon_egg"), 1), AdvancementReward.DISPLAY,
+            () -> new AdvancementReward(RewardCommon.DEFAULT,
+                    ResourceLocation.withDefaultNamespace("story/root"), java.util.Optional.empty()));
+
+    /** {@code tasked:custom} — somebody else's code, by id. */
+    public static final QuestRewardType<CustomReward> CUSTOM = register(
+            "custom", CustomReward.MAP_CODEC, CustomReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.text("id", "Id",
+                                    "the id another mod registered")
+                            .hint("the id another mod registered for its own reward")),
+            CustomReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("structure_block"), 1), CustomReward.DISPLAY,
+            () -> new CustomReward(RewardCommon.DEFAULT, "example:custom"));
+
+    /**
+     * {@code tasked:stage} — set a stage, or take one away.
+     *
+     * <p>The write half of the flags {@link dev.ellipog.tasked.quest.task.StageTask} asks about.
+     */
+    public static final QuestRewardType<StageReward> STAGE = register(
+            "stage", StageReward.MAP_CODEC, StageReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tasked.quest.EditorField.text("stage", "Stage",
+                                    "the id to set; any id, since a stage exists by being granted")
+                            .hint("the stage to set when this reward is collected"),
+                    dev.ellipog.tasked.quest.EditorField.flag("remove", "Take away")
+                            .hint("take the stage away instead of granting it")),
+            StageReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("oak_sign"), 1), StageReward.DISPLAY,
+            () -> new StageReward(RewardCommon.DEFAULT,
+                    ResourceLocation.fromNamespaceAndPath("example", "stage"), false));
 
     private RewardTypes() {
     }
@@ -68,8 +204,21 @@ public final class RewardTypes {
                                                                       ItemRef icon,
                                                                       Function<T, RewardDisplay> display,
                                                                       Supplier<T> defaults) {
-        return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, behaviour,
-                icon, display, defaults);
+        return register(path, codec, fields, java.util.List.of(), behaviour, icon, display, defaults);
+    }
+
+    /**
+     * The same registration, carrying the type's own editor form. See
+     * {@link dev.ellipog.tasked.quest.task.TaskTypes#register(String, MapCodec, Set, java.util.List,
+     * TaskBehaviour, ItemRef, Function, Supplier)} for the whole of the argument.
+     */
+    public static <T extends QuestReward> QuestRewardType<T> register(
+            String path, MapCodec<T> codec, Set<String> fields,
+            java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+            RewardBehaviour<T> behaviour, ItemRef icon, Function<T, RewardDisplay> display,
+            Supplier<T> defaults) {
+        return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, editor,
+                behaviour, icon, display, defaults);
     }
 
     public static <T extends QuestReward> QuestRewardType<T> register(ResourceLocation id,
@@ -79,10 +228,30 @@ public final class RewardTypes {
                                                                       ItemRef icon,
                                                                       Function<T, RewardDisplay> display,
                                                                       Supplier<T> defaults) {
-        QuestRewardType<T> typed = new SimpleQuestRewardType<>(id, codec, fields, behaviour, icon, display,
-                defaults);
+        return register(id, codec, fields, java.util.List.of(), behaviour, icon, display, defaults);
+    }
+
+    /** The same, under an id you choose, with the type's own editor form. */
+    public static <T extends QuestReward> QuestRewardType<T> register(
+            ResourceLocation id, MapCodec<T> codec, Set<String> fields,
+            java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+            RewardBehaviour<T> behaviour, ItemRef icon, Function<T, RewardDisplay> display,
+            Supplier<T> defaults) {
+        // The base fields ride along with every type, so a type cannot declare a codec that accepts
+        // `"auto"` and a field list that does not -- which the validator would report as an unknown
+        // field on every reward using it. An addon whose codec omits them is the one case this cannot
+        // save, and there the validator's own codec check names the field and the line.
+        java.util.LinkedHashSet<String> declared = new java.util.LinkedHashSet<>(fields);
+        declared.addAll(RewardCommon.FIELDS);
+        // And the base mechanics ride on the form as well as on the field list, for the same reason: a
+        // form that showed every type's own fields and none of these would send an author to another
+        // panel for the switches they came to set.
+        java.util.List<dev.ellipog.tasked.quest.EditorField> form = new java.util.ArrayList<>(editor);
+        form.addAll(COMMON_EDITOR);
+        QuestRewardType<T> typed = new SimpleQuestRewardType<>(id, codec, Set.copyOf(declared), form, behaviour,
+                icon, display, defaults);
         REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon,
-                widenDisplay(display), () -> defaults.get()));
+                widenDisplay(display), java.util.List.copyOf(form), () -> defaults.get()));
         return typed;
     }
 
@@ -114,6 +283,18 @@ public final class RewardTypes {
     /** The icon for a reward's type, for a listing. Paper for an unregistered type. */
     public static ItemRef iconOf(ResourceLocation id) {
         return REGISTRY.get(id).map(Entry::icon).orElse(ItemRef.DEFAULT_ICON);
+    }
+
+    /**
+     * The fields of a registered type as the editor draws them: the type's own form, or one derived from
+     * its field names. See {@link dev.ellipog.tasked.quest.task.TaskTypes#editorOf(ResourceLocation)}.
+     */
+    public static java.util.List<dev.ellipog.tasked.quest.EditorField> editorOf(ResourceLocation id) {
+        return REGISTRY.get(id)
+                .map(entry -> entry.editor().isEmpty()
+                        ? dev.ellipog.tasked.quest.EditorSpecs.derive(entry.spec().fields())
+                        : entry.editor())
+                .orElse(java.util.List.of());
     }
 
     public static Set<ResourceLocation> ids() {
@@ -168,6 +349,7 @@ public final class RewardTypes {
 
     private record SimpleQuestRewardType<T extends QuestReward>(
             ResourceLocation id, MapCodec<T> codec, Set<String> fields,
+            java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
             RewardBehaviour<T> behaviour, ItemRef icon, Function<T, RewardDisplay> display,
             Supplier<T> defaultsSupplier
     ) implements QuestRewardType<T> {

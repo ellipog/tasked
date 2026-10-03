@@ -1,0 +1,18 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_veil",
+  "title": "The Veil",
+  "description": [
+    "A chapter about quests you cannot see: one that reveals itself a link at a",
+    "time, one that stays hidden until you have stumbled onto part of it, one",
+    "whose description is withheld until it is done, and a crossroads where the",
+    "road you take closes the others for good.",
+    "",
+    "Every hiding flag in the format is written out somewhere in this chapter,",
+    "so each one has a file you can read it in -- and a canvas you can watch",
+    "change as you walk it."
+  ],
+  "chapters": [
+    "the_unseen"
+  ]
+}

@@ -32,9 +32,11 @@ public record EditorOpPayload(String chapter, String op) implements CustomPacket
     public static final StreamCodec<? super RegistryFriendlyByteBuf, EditorOpPayload> CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.stringUtf8(64), EditorOpPayload::chapter,
-                    // One op, not one chapter: a set field is a path and a value, and 8 KiB holds a value
-                    // larger than any quest file in the examples.
-                    ByteBufCodecs.stringUtf8(8192), EditorOpPayload::op,
+                    // One op, not one chapter: a set field is a path and a value. The cap is generous on
+                    // purpose -- a `SetField` carrying a whole description, or a paste of a large quest,
+                    // is a legitimate op, and the old 8 KiB ceiling threw on encode, which is a click that
+                    // dies with no message anywhere. 256 KiB holds any single field a person could type.
+                    ByteBufCodecs.stringUtf8(262144), EditorOpPayload::op,
                     EditorOpPayload::new);
 
     @Override

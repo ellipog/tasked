@@ -241,6 +241,99 @@ class ProgressionEngineTest {
     }
 
     // ------------------------------------------------------------------
+    // A cap on how many dependents may complete
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("with maxCompletableDependents")
+    class Capped {
+
+        /** One quest three branches depend on, and the cap is the test's variable. */
+        private QuestIndex branches(int cap) {
+            return indexOf(q("root").noTasks().maxCompletableDependents(cap).build(),
+                    q("left").dependsOn("root").build(),
+                    q("right").dependsOn("root").build(),
+                    q("middle").dependsOn("root").build());
+        }
+
+        @Test
+        @DisplayName("a cap of one lets one branch through and locks the others")
+        void oneOfThree() {
+            QuestIndex index = branches(1);
+            TeamProgress progress = completedQuests(index, "left");
+
+            assertEquals(QuestState.COMPLETED, stateOf(index, progress, "left"));
+            assertEquals(QuestState.LOCKED, stateOf(index, progress, "right"),
+                    "a second branch completed past the cap");
+            assertEquals(QuestState.LOCKED, stateOf(index, progress, "middle"));
+        }
+
+        @Test
+        @DisplayName("with nothing taken, every branch is still available")
+        void allAvailableBeforeTheCapIsReached() {
+            QuestIndex index = branches(2);
+            // The root completed, so the branches are unlocked by their dependency -- which is what
+            // this test is about: before the cap is reached, a cap changes nothing.
+            TeamProgress progress = completedQuests(index, "root");
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, progress, "left"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, progress, "right"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, progress, "middle"));
+        }
+
+        @Test
+        @DisplayName("a cap of two leaves exactly one branch locked")
+        void twoOfThree() {
+            QuestIndex index = branches(2);
+            TeamProgress progress = completedQuests(index, "left", "right");
+
+            assertEquals(QuestState.COMPLETED, stateOf(index, progress, "left"));
+            assertEquals(QuestState.COMPLETED, stateOf(index, progress, "right"));
+            assertEquals(QuestState.LOCKED, stateOf(index, progress, "middle"));
+        }
+
+        @Test
+        @DisplayName("a cap of zero is no cap at all")
+        void zeroIsNoCap() {
+            QuestIndex index = branches(0);
+            TeamProgress progress = completedQuests(index, "root", "left", "right");
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, progress, "middle"),
+                    "a cap of zero should not lock anything");
+        }
+
+        @Test
+        @DisplayName("a dependent that completed before the cap was reached keeps its completion")
+        void completedDependentsKeepTheirCompletion() {
+            // The cap decides which branches are still available, not which ones a player has already
+            // taken: a completed quest that lost its completion would lose its rewards with it.
+            QuestIndex index = branches(1);
+            TeamProgress progress = completedQuests(index, "left", "right");
+
+            assertEquals(QuestState.COMPLETED, stateOf(index, progress, "left"));
+            assertEquals(QuestState.COMPLETED, stateOf(index, progress, "right"),
+                    "a cap turned a completed branch back into a locked one");
+            assertEquals(QuestState.LOCKED, stateOf(index, progress, "middle"));
+        }
+
+        @Test
+        @DisplayName("the cap counts a dependent named by alias, and one in another chapter")
+        void theCapCountsEveryDependent() {
+            // A cap is a statement about the graph, and the graph crosses files: a dependent that named
+            // the root by alias, or that lives in another chapter, is still a dependent.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapters(
+                    Fixtures.chapter("one", q("root").noTasks().alias("the_root")
+                                    .maxCompletableDependents(1).build(),
+                            q("left").dependsOn("the_root").build()),
+                    Fixtures.chapter("two", q("right").dependsOn("root").build())));
+            TeamProgress progress = completedQuests(index, "left");
+
+            assertEquals(QuestState.LOCKED, stateOf(index, progress, "right"),
+                    "a dependent in another chapter was not counted against the cap");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Exclusive branches
     // ------------------------------------------------------------------
 

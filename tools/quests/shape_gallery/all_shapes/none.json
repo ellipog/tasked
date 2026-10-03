@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "none",
+  "title": "None",
+  "subtitle": "No panel: the icon is the node",
+  "description": [
+    "No outline at all. The node is its icon, and the whole square is clickable.",
+    "",
+    "This is the one deliberate exception to 'a click lands on exactly the pixels that were drawn' -- there are no drawn pixels to land on, so the square stands in for them. It is for a canvas where the icons are the map and an outline around each one is noise."
+  ],
+  "icon": {
+    "item": "minecraft:item_frame"
+  },
+  "x": 192,
+  "y": 192,
+  "shape": "none",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the none shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

@@ -96,7 +96,10 @@ public final class QuestLoader {
     }
 
     /** What a load produced. */
-    public record Result(QuestIndex index, Problems problems, int filesFound, int filesDecoded, int filesWithErrors) {
+    public record Result(QuestIndex index, Problems problems, int filesFound, int filesDecoded,
+                         int filesWithErrors,
+                         /** The reward tables, keyed by their file name without the suffix. */
+                         java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables) {
 
         /**
          * Whether every file that matched was usable.
@@ -126,7 +129,8 @@ public final class QuestLoader {
             problems.add(DIRECTORY, new JsonLocation(1, 1, "$"), DataProblem.Severity.WARNING,
                     "no quest directory at " + directory + ", so there are no quests to load. Tasked"
                             + " ships no quests of its own; this directory is where they go.");
-            return new Result(QuestIndex.build(List.of(), problems), problems, 0, 0, 0);
+            return new Result(QuestIndex.build(List.of(), problems), problems, 0, 0, 0,
+                    java.util.Map.of());
         }
 
         // Which files are quests, what each one declares, and what each one names underneath it — all
@@ -156,6 +160,19 @@ public final class QuestLoader {
                             + "\n    no quest in this loop can ever be unlocked. Break it by removing one dependsOn."));
         }
 
+        // The reward tables, which live beside the book rather than inside it. Read after the tree
+        // because the checks run both ways: a table entry may point at another table, and a quest's
+        // reward may point at any table. Both join the same problem list, so a bad table is counted
+        // and reported like any other file.
+        java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables =
+                loadRewardTables(directory, problems);
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            List<QuestReward> rewards = entry.quest().rewards();
+            for (int i = 0; i < rewards.size(); i++) {
+                checkTableId(rewards.get(i), entry.document(), "$.rewards[" + i + "]", rewardTables, problems);
+            }
+        }
+
         // How many files have at least one error against them, whatever stage found it. Counted from
         // the problems rather than tracked alongside, so a check added later is counted automatically
         // instead of being forgotten.
@@ -178,7 +195,68 @@ public final class QuestLoader {
                 .filter(display -> !problems.hasErrorsIn(display))
                 .count();
 
-        return new Result(index, problems, found.filesExamined(), filesDecoded, filesWithErrors);
+        return new Result(index, problems, found.filesExamined(), filesDecoded, filesWithErrors,
+                rewardTables);
+    }
+
+    /**
+     * Reads {@code reward_tables/*.json}, validates each, and checks its entries' table references.
+     *
+     * <p>Two passes because a reference can point at any table in the folder, including one later in
+     * name order. The second pass runs once every id is known, so "the table is not there" is a fact
+     * rather than an ordering accident.
+     */
+    private static java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> loadRewardTables(
+            Path questRoot, Problems problems) {
+        List<Path> files = QuestFiles.rewardTableFiles(questRoot);
+        if (files.isEmpty()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> tables =
+                new java.util.LinkedHashMap<>();
+        java.util.Map<String, JsonDocument> documents = new java.util.LinkedHashMap<>();
+        for (Path file : files) {
+            String name = file.getFileName().toString();
+            String id = name.substring(0, name.length() - ".json".length());
+            Optional<JsonDocument> parsed = QuestFiles.parseFile(file, name, problems);
+            if (parsed.isEmpty()) {
+                continue;
+            }
+            JsonDocument document = parsed.get();
+            QuestValidator.validateRewardTableDocument(document, problems);
+            if (problems.hasErrorsIn(name)) {
+                continue;
+            }
+            decode(dev.ellipog.tasked.quest.loot.RewardTable.CODEC, document, name, problems)
+                    .ifPresent(table -> {
+                        tables.put(id, table);
+                        documents.put(id, document);
+                    });
+        }
+
+        for (java.util.Map.Entry<String, dev.ellipog.tasked.quest.loot.RewardTable> loaded
+                : tables.entrySet()) {
+            JsonDocument document = documents.get(loaded.getKey());
+            List<dev.ellipog.tasked.quest.loot.RewardTable.Entry> entries =
+                    loaded.getValue().entries();
+            for (int i = 0; i < entries.size(); i++) {
+                checkTableId(entries.get(i).reward(), document, "$.entries[" + i + "].reward",
+                        tables, problems);
+            }
+        }
+        return java.util.Map.copyOf(tables);
+    }
+
+    /** Reports a reward naming a table that is not loaded, at the reward's own path. */
+    private static void checkTableId(QuestReward reward, JsonDocument document, String path,
+                                     java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> tables,
+                                     Problems problems) {
+        Optional<String> id = reward.tableId();
+        if (id.isEmpty() || tables.containsKey(id.get())) {
+            return;
+        }
+        problems.error(document, path + ".table", "no reward table named \"" + id.get() + "\" - add "
+                + QuestFiles.REWARD_TABLES_DIRECTORY + "/" + id.get() + ".json, or fix the reference");
     }
 
     // ------------------------------------------------------------------
@@ -213,6 +291,12 @@ public final class QuestLoader {
         List<GroupBuild> groups = new ArrayList<>();
         GroupBuild currentGroup = null;
         ChapterBuild currentChapter = null;
+
+        // Chapters the index places at the root, which belong to no group. Kept apart from `groups`
+        // because there is no GroupBuild to hang them on, and emitted after the groups for the same
+        // reason: assembling is bottom-up, so every chapter has to be built once regardless of where
+        // its declaration came from.
+        List<ChapterBuild> looseChapters = new ArrayList<>();
 
         // Version-1 pieces, built as they are met, and merged back in declaration order below so that a
         // flat file sitting between two group folders keeps its place in the book.
@@ -254,14 +338,24 @@ public final class QuestLoader {
                 case CHAPTER -> {
                     QuestValidator.validateChapterDocument(declaration.document(), problems);
                     currentChapter = null;
-                    if (currentGroup == null || problems.hasErrorsIn(declaration.display())) {
+                    if (problems.hasErrorsIn(declaration.display())) {
                         continue;
                     }
                     currentChapter = decode(ChapterManifest.CODEC, declaration.document(),
                             declaration.display(), problems)
                             .map(manifest -> new ChapterBuild(declaration, manifest))
                             .orElse(null);
-                    if (currentChapter != null) {
+                    if (currentChapter == null) {
+                        continue;
+                    }
+                    // A chapter with no manifest above it is one the index.json format allows at the
+                    // root: it belongs to no group. The null parent is how discovery marks it -- a
+                    // group's own chapters always carry that group manifest's display -- and the empty
+                    // group id is what the rest of the pipeline already understands as "no group".
+                    if (declaration.parentDisplay() == null) {
+                        looseChapters.add(currentChapter);
+                    }
+                    else if (currentGroup != null) {
                         currentGroup.chapters.add(currentChapter);
                     }
                 }
@@ -295,6 +389,10 @@ public final class QuestLoader {
                         chapter.quests.stream().map(quest -> quest.quest).toList());
             }
         }
+        for (ChapterBuild chapter : looseChapters) {
+            chapter.assembled = chapter.manifest.toChapter(
+                    chapter.quests.stream().map(quest -> quest.quest).toList());
+        }
 
         // A map from the file a declaration was read from to the piece it became, so the merge below
         // can replay the declarations in their original order.
@@ -312,6 +410,16 @@ public final class QuestLoader {
             pieceByDisplay.put(group.declaration.display(), new QuestTree.Piece.GroupPiece(
                     group.manifest.toGroup(group.chapters.stream().map(c -> c.assembled).toList()),
                     group.source()));
+        }
+        // And the root chapters, with the empty group id the client already draws as "no group".
+        for (ChapterBuild chapter : looseChapters) {
+            for (int q = 0; q < chapter.quests.size(); q++) {
+                QuestBuild quest = chapter.quests.get(q);
+                pieceByDisplay.put(quest.declaration.display(), new QuestTree.Piece.QuestPiece(
+                        "", chapter.assembled, quest.quest, q, quest.source()));
+            }
+            pieceByDisplay.put(chapter.declaration.display(), new QuestTree.Piece.ChapterPiece(
+                    "", chapter.assembled, chapter.source()));
         }
 
         // Declaration order, so a version-1 file keeps its place among the group folders beside it.

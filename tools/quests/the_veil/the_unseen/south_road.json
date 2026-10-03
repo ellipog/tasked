@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "south_road",
+  "title": "The South Road",
+  "subtitle": "One of three",
+  "description": [
+    "The second of the crossroads' three roads. See The North Road for what the cap",
+    "does when one of them completes."
+  ],
+  "icon": {
+    "item": "minecraft:sand"
+  },
+  "x": 128,
+  "y": 384,
+  "dependsOn": [
+    "the_crossroads"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:sand",
+      "count": 16
+    }
+  ]
+}

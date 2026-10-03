@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "gear",
+  "title": "Gear",
+  "subtitle": "A hub with teeth",
+  "description": [
+    "A round hub with eight teeth standing off it: the busiest silhouette in the set, and the one that made the icon fit exact.",
+    "",
+    "A row through a tooth is wider than the gap row nearer the middle, so a search that only checked the edges of a candidate square would put the icon through the outline. The fit here asks every row instead."
+  ],
+  "icon": {
+    "item": "minecraft:redstone"
+  },
+  "x": 288,
+  "y": 96,
+  "shape": "gear",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the gear shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

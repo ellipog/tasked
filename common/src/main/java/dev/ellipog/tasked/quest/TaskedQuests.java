@@ -35,6 +35,24 @@ public final class TaskedQuests {
     private static final int TREE_LOG_BUDGET = 200;
 
     private static volatile QuestIndex index;
+
+    /**
+     * The tree's own settings, from {@code index.json}.
+     *
+     * <p>Here beside the index rather than on it because they are a different thing: the index is the
+     * chapters and quests the server serves, and this is how the book as a whole behaves. A reload
+     * replaces both, and they must come from the same read of the same file.
+     */
+    private static volatile QuestSettings settings = QuestSettings.DEFAULTS;
+
+    /**
+     * The reward tables, by id, from {@code reward_tables/*.json}.
+     *
+     * <p>Replaced wholesale by a reload, like the index and the settings — a table that is renamed or
+     * removed stops existing at the same moment the reference to it does.
+     */
+    private static volatile java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables =
+            java.util.Map.of();
     /**
      * The chapters this server has open for editing.
      *
@@ -70,9 +88,21 @@ public final class TaskedQuests {
     public static QuestLoader.Result reload() {
         QuestLoader.Result result = QuestLoader.load(ArmatureApi.platform().configDir());
         index = result.index();
+        settings = QuestSettings.load(QuestEditor.root(ArmatureApi.platform().configDir()));
+        rewardTables = result.rewardTables();
 
         report(result);
         return result;
+    }
+
+    /** The tree's own settings. Never null; the defaults until something declares otherwise. */
+    public static QuestSettings settings() {
+        return settings;
+    }
+
+    /** The reward tables, by id. Never null; empty until a tree declares any. */
+    public static java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables() {
+        return rewardTables;
     }
 
     /**

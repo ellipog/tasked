@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "tome",
+  "title": "Tome",
+  "subtitle": "A book on its side",
+  "description": [
+    "A book seen from the front, turned ninety degrees -- which is what the rotation field is for, and",
+    "the reason every shape can be turned rather than a few of them having turned variants.",
+    "",
+    "The outline is re-sampled at the angle rather than looked up from a second table, so the drawing,",
+    "the click and the icon's fit all come from the turned shape. The icon stays upright in the middle",
+    "of it, in the largest square that fits the turned outline."
+  ],
+  "icon": {
+    "item": "minecraft:writable_book"
+  },
+  "x": 96,
+  "y": 192,
+  "shape": "tome",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the tome shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ],
+  "rotation": 90
+}

@@ -351,6 +351,9 @@ class BookGeometryTest {
             if (key.startsWith("chapter")) {
                 return geometry.sidebar();
             }
+            if (SIDEBAR_CONTROLS.contains(key)) {
+                return geometry.sidebar();
+            }
             if (HEADER_CONTROLS.contains(key)) {
                 return geometry.header();
             }
@@ -361,8 +364,11 @@ class BookGeometryTest {
         }
 
         /** The sidebar's fixed chrome: controls in the column that are not chapter rows. */
-        /** The header's controls: Close, the party button, and the author's [Edit] [gear] pair. */
-        private static final Set<String> HEADER_CONTROLS = Set.of("close", "party", "edit", "tools");
+        private static final Set<String> SIDEBAR_CONTROLS = Set.of("addChapter", "addGroup");
+
+        /** The header's controls: Close, Rewards, the party button, and the author's [Edit] [gear] pair. */
+        private static final Set<String> HEADER_CONTROLS =
+                Set.of("close", "rewards", "party", "edit", "tools");
 
         /** The view cluster, top-left on the graph. The only things that sit on the canvas. */
         private static final Set<String> CANVAS_CONTROLS = Set.of("zoomIn", "zoomOut", "centre");
@@ -855,11 +861,12 @@ class BookGeometryTest {
         // to place controls would draw them in a different order between two inits of the same size --
         // which shows up as a control that is occasionally somewhere else.
         //
-        // The source order in `controls()` is: close, then the party button, then the view cluster. The chapter rows were ahead
+        // The source order in `controls()` is: close, then the rewards button, then the party button,
+        // then the view cluster. The chapter rows were ahead
         // of close and are gone; the two appearance rows were between close and the cluster and are gone
         // -- see the note in that method for why each went, and `BookGeometry.MIN_PANEL_HEIGHT` for what
         // their absence did to the sidebar's term.
-        assertEquals(List.of("close", "party", "edit", "tools", "zoomIn", "zoomOut", "centre"),
+        assertEquals(List.of("close", "rewards", "party", "edit", "tools", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

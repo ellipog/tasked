@@ -38,6 +38,7 @@ final class RecordingRenderer implements GuiRenderer {
 
     private final List<Fill> fills = new ArrayList<>();
     private final List<Drawn> texts = new ArrayList<>();
+    private int batches;
 
     @Override
     public void fill(int left, int top, int right, int bottom, int argb) {
@@ -51,6 +52,14 @@ final class RecordingRenderer implements GuiRenderer {
 
     @Override
     public void flush() {
+    }
+
+    @Override
+    public <T> T batched(java.util.function.Supplier<T> draw) {
+        // Recorded as a count, and the supplier runs: the panels this double exists for draw no batched
+        // regions of their own, and a test that wants to assert the canvas is one batch reads the count.
+        batches++;
+        return draw.get();
     }
 
     @Override
@@ -133,6 +142,11 @@ final class RecordingRenderer implements GuiRenderer {
 
     List<Drawn> texts() {
         return List.copyOf(texts);
+    }
+
+    /** How many batched regions were opened. The canvas must be exactly one. */
+    int batchCount() {
+        return batches;
     }
 
     /** Everything drawn, for an assertion's message: a missing control is not visible in a false. */

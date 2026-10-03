@@ -69,6 +69,109 @@
       "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
     },
 
+    "namespacedId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+      "description": "A namespaced id, e.g. minecraft:oak_log or my_pack:chapter_one. The namespace is required, as it is everywhere this format names something by id."
+    },
+
+    "dependencyStyle": {
+      "description": "One line's style. Only the axes it names override anything; the axes it omits fall back to the chapter's default, and then to the built-ins (orthogonal, one, solid, thin).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "form": {
+          "enum": ["orthogonal", "straight", "curved"],
+          "description": "The route's shape. Orthogonal is the three-segment step, straight a direct line, and curved a smooth bow so parallel routes through a crowded graph can be told apart."
+        },
+        "arrows": {
+          "enum": ["none", "one", "both", "many"],
+          "description": "Where arrowheads are drawn. One, at the dependent end, is what an unconfigured line gets."
+        },
+        "dash": {
+          "enum": ["solid", "dashed"],
+          "description": "Whether the line is drawn in runs or unbroken."
+        },
+        "weight": {
+          "enum": ["thin", "thick"],
+          "description": "How many pixels wide."
+        },
+        "bend": {
+          "type": "number",
+          "minimum": -0.8,
+          "maximum": 0.8,
+          "description": "How far a curved line bows, as a fraction of the chord between its ends. Positive bows one way and negative the other."
+        },
+        "fromAnchor": {
+          "type": "number",
+          "description": "The angle this line leaves its source node at, in degrees, 0 east and growing clockwise. Per line only. Absent means the automatic rim point."
+        },
+        "toAnchor": {
+          "type": "number",
+          "description": "The angle this line meets its target node at, in degrees, 0 east and growing clockwise. Per line only. Absent means the automatic rim point."
+        },
+        "fromHandle": {
+          "type": "array",
+          "items": [
+            { "type": "number", "minimum": -0.5, "maximum": 1.5 },
+            { "type": "number", "minimum": -0.9, "maximum": 0.9 }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "A split line's source-side control point, as [along, across] fractions of the line's own chord. `fromHandle` and `toHandle` are written together - one alone is a split with half a shape."
+        },
+        "toHandle": {
+          "type": "array",
+          "items": [
+            { "type": "number", "minimum": -0.5, "maximum": 1.5 },
+            { "type": "number", "minimum": -0.9, "maximum": 0.9 }
+          ],
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "A split line's target-side control point, as [along, across] fractions of the line's own chord."
+        }
+      }
+    },
+
+    "rewardTable": {
+      "description": "A roll of rewards: the table an inline-table reward carries. A weight-zero entry is always granted, once per roll call; every positive weight shares the rest of the probability space, and `lootSize` is how many times the dice are thrown.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "emptyWeight": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "The chance of nothing on a throw, against the positive weights. Only tasked:loot includes it: a tasked:random promises something."
+        },
+        "lootSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 1,
+          "description": "How many times the dice are thrown."
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reward"],
+            "properties": {
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "default": 1,
+                "description": "How much of the table's weight this entry takes. Zero means always granted, which is how a table says \"and everyone also gets this\"."
+              },
+              "reward": { "$ref": "#/definitions/anyType", "description": "The reward this entry grants." }
+            }
+          }
+        }
+      }
+    },
+
     "chapterGroup": {
       "type": "object",
       "required": ["id", "title"],
@@ -91,6 +194,15 @@
           "type": "array",
           "items": { "$ref": "#/definitions/id" },
           "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
+        },
+        "icon": {
+          "$ref": "#/definitions/itemRef",
+          "description": "The item the book draws on the group's row. Optional: an absent icon falls back to the first chapter under the group."
+        },
+        "collapsedByDefault": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the group starts folded in the sidebar. A reference group nobody reads front to back sets this; a player's own fold state is remembered over it."
         },
         "chapters": { "type": "array", "items": { "$ref": "#/definitions/chapter" } }
       }
@@ -115,7 +227,7 @@
         "progressionMode": {
           "enum": ["flexible", "linear"],
           "default": "flexible",
-          "description": "In a linear chapter the order of the quests list *is* the progression: each unlocks when the one above it completes, and no dependsOn is needed. A linear chapter that also declares dependsOn is a warning, not an error — the explicit edges win and the list order is then doing nothing."
+          "description": "In a linear chapter the order of the quests list *is* the progression: each unlocks when the one above it completes, and no dependsOn is needed. A quest in a linear chapter that also declares dependsOn must satisfy *both*: the quest above it and its own edges. That is a real combination rather than a mistake — a linear spine with one quest that also needs something from another chapter — so nothing warns about it."
         },
         "defaultPrerequisiteMode": {
           "enum": ["all_completed", "one_completed", "all_started", "one_started"],
@@ -126,6 +238,14 @@
           "type": "boolean",
           "default": false,
           "description": "Whether item tasks in this chapter take the items unless the task says otherwise. The inherited default, which is why it lives here: an author sets it once for a whole trade chapter."
+        },
+        "dependencyStyle": {
+          "$ref": "#/definitions/dependencyStyle",
+          "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (orthogonal, one, solid, thin), and a line that names the same axis overrides just that one."
+        },
+        "theme": {
+          "type": "string",
+          "description": "A palette this chapter asks to be drawn in. A client concept: the catalogue of themes lives on the client, so this is a plain string here and is reported by the client that could not resolve it."
         },
 
         "quests": { "type": "array", "items": { "$ref": "#/definitions/quest" } }
@@ -149,6 +269,12 @@
           "items": { "$ref": "#/definitions/id" },
           "description": "Quest ids or aliases. May refer to quests in other files. A reference that resolves to nothing is an error: the quest could never unlock."
         },
+        "dependencyLines": {
+          "type": "object",
+          "description": "Per-line overrides, keyed by the id of the dependency the line comes from. Only the axes named for a line are overridden; the rest fall back to the chapter's `dependencyStyle`, and then to the built-ins. A key that names a dependency the quest does not have is dead weight, and the editor drops an entry once it sets nothing.",
+          "propertyNames": { "$ref": "#/definitions/id" },
+          "additionalProperties": { "$ref": "#/definitions/dependencyStyle" }
+        },
         "prerequisiteMode": {
           "enum": ["all_completed", "one_completed", "all_started", "one_started"],
           "description": "Overrides the chapter's setting for this quest."
@@ -158,16 +284,24 @@
           "minimum": 0,
           "maximum": 64,
           "default": 0,
-          "description": "How many dependencies must be satisfied. When set, prerequisiteMode is ignored — this is how \"any three of these five\" is written. May not exceed the number of dependencies."
+          "description": "How many dependencies must be satisfied, replacing the mode's own count: this is how \"any three of these five\" is written. The mode still decides the *bar* each one must reach — completed, or merely started — so `one_started` with minRequired 2 means \"any two of these, started\". May not exceed the number of dependencies."
         },
 
         "x": { "type": "integer", "default": 0, "description": "Canvas position. Grid spacing is 32." },
         "y": { "type": "integer", "default": 0 },
         "shape": {
-          "enum": ["rounded", "circle", "hexagon", "tome"],
-          "default": "rounded"
+          "enum": ["rounded", "square", "circle", "diamond", "hexagon", "octagon", "pentagon", "gear", "heart", "tome", "none"],
+          "default": "rounded",
+          "description": "The node's outline. \"none\" draws no panel at all: the node is its icon, and the whole square is clickable. Every other outline is hit-tested by its own pixels, so a click lands on exactly what is drawn."
         },
         "size": { "type": "integer", "minimum": 16, "maximum": 512, "default": 48 },
+        "rotation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 359,
+          "default": 0,
+          "description": "How far the node is turned, in degrees clockwise. Every shape can be turned: a rotation re-samples the outline rather than naming a second one, and the node is drawn, clicked and icon-fitted in its turned form. A full turn is written as 0, because it is the same shape."
+        },
         "iconScale": {
           "type": "number",
           "minimum": 0.25,
@@ -208,16 +342,60 @@
           "type": "boolean",
           "default": false,
           "description": "Hidden until completed."
+        },
+        "invisibleUntilTasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0,
+          "description": "With `invisible` also set: shown once this many of the quest's tasks have any progress, as well as when it is completed. The easter-egg case — a quest nobody can see until they have stumbled onto part of it. Without `invisible` it does nothing."
+        },
+        "maxCompletableDependents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0,
+          "description": "At most this many of the quests that depend on this one may complete; the rest stay locked for good. 0 is no cap. A branch point: the player picks one way, and the other ways close. A dependent already completed stays completed."
+        },
+        "hideUntilDependenciesComplete": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hidden until this quest's prerequisite *rule* is satisfied — the same rule the card's \"2 of 3 met\" counts, so minRequired and the started-based modes are honoured. A completed quest is always visible."
+        },
+        "hideUntilDependenciesVisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hidden until at least one of its prerequisites is itself visible. Recursive, so a chain of hidden quests reveals itself one link at a time from its first visible end. A quest with no prerequisites and this flag stays hidden."
+        },
+        "hideDependencyLines": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw no dependency lines arriving at this quest. The quest itself is unaffected, and quests that depend on it still draw their lines to it."
+        },
+        "hideTextUntilComplete": {
+          "type": "boolean",
+          "default": false,
+          "description": "The reader's card shows no description until the quest is completed — for a quest whose text would give away what it is asking for. The editor always shows it."
+        },
+        "hideDetailsUntilStartable": {
+          "type": "boolean",
+          "default": false,
+          "description": "The reader's card shows no task or reward details until the quest can be started. REQUIRES stays: a locked quest's prerequisites are what says how to unlock it. The editor always shows everything."
+        },
+        "requiresStage": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "A stage the player must have for the quest to be open to them, e.g. my_pack:chapter_one. The one gate here that is per player rather than per team: a quest gated on a stage is open to a player who has it and locked to one who does not, even in the same party. Nothing validates that the stage exists -- one exists by being granted -- so a typo shows up as a quest nobody can open."
         }
       }
     },
 
     "anyType": {
-      "description": "A task or a reward. The `type` field chooses the rest of the fields — see tasked:item, tasked:checkmark and tasked:xp, which are the types implemented so far.",
+      "description": "A task or a reward. The `type` field chooses the rest of the fields, and each field below names the type it belongs to. A field written for another type is a mistake the validator reports rather than a value anything reads.",
       "type": "object",
       "required": ["type"],
       "properties": {
-        "type": { "type": "string", "description": "e.g. tasked:item" },
+        "type": { "type": "string", "description": "The type's id, e.g. tasked:item. The id decides which of the fields below mean anything." },
+
         "optional": {
           "type": "boolean",
           "default": false,
@@ -228,17 +406,213 @@
           "minimum": 1,
           "maximum": 72000,
           "default": 20,
-          "description": "Tasks only. How often the task is re-checked, in ticks. Raise it for an expensive check."
+          "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Raise it for an expensive check."
+        },
+
+        "item": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:item (task and reward) — the item to hand over, or to give."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6400,
+          "default": 1,
+          "description": "tasked:item and tasked:item_tag (tasks), tasked:item (reward) — how many."
+        },
+        "components": {
+          "type": "object",
+          "description": "tasked:item (task and reward) — 1.21 data components, keyed by component id in the datapack's own spelling. A text component's value is a string holding JSON, as the codec writes it -- the editor writes that form when you pick a renamed item.",
+          "additionalProperties": true
         },
         "consumeItems": {
           "type": "boolean",
-          "description": "tasked:item — whether handing this in takes the items. Falls back to the chapter's defaultConsumeItems."
+          "description": "tasked:item and tasked:item_tag (tasks) — whether handing the task in takes the items. Falls back to the chapter's defaultConsumeItems."
         },
-        "item": { "type": "string", "description": "tasked:item — namespaced item id." },
-        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 },
-        "title": { "$ref": "#/definitions/text", "description": "tasked:checkmark — the label on the button." },
-        "amount": { "type": "integer", "minimum": 1, "maximum": 100000, "description": "tasked:xp — points, or levels." },
-        "levels": { "type": "boolean", "default": false }
+        "match": {
+          "enum": ["none", "fuzzy", "strict"],
+          "description": "tasked:item (task) — how closely a carried stack must match: none ignores its data, fuzzy needs the data it names, strict needs the whole stack."
+        },
+        "onlyFromCrafting": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:item (task) — only items the player crafted themselves count."
+        },
+        "tag": {
+          "type": "string",
+          "description": "tasked:item_tag (task) — an item tag; any item in it counts."
+        },
+        "title": {
+          "$ref": "#/definitions/text",
+          "description": "tasked:checkmark (task) — the label on the button a player presses."
+        },
+        "dimension": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:dimension and tasked:location (tasks) — the dimension the player has to be in, or the one the location box is in."
+        },
+        "biome": {
+          "type": "string",
+          "description": "tasked:biome (task) — the biome to stand in; a #tag counts any biome of it."
+        },
+        "structure": {
+          "type": "string",
+          "description": "tasked:structure (task) — the structure to be inside; a #tag counts any of them."
+        },
+        "advancement": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:advancement (task and reward) — the advancement to earn, or to award."
+        },
+        "criterion": {
+          "type": "string",
+          "description": "tasked:advancement (task and reward) — one criterion of it instead of the whole advancement; empty for the whole one."
+        },
+        "stat": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:stat (task) — which vanilla statistic to watch."
+        },
+        "value": {
+          "type": "integer",
+          "description": "tasked:stat, tasked:xp, tasked:kill and tasked:custom (tasks) — the number that counts as enough: the statistic's value, experience handed over, kills, or the handler's count."
+        },
+        "ignoreDimension": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:location (task) — count the box anywhere, instead of only in the dimension above."
+        },
+        "position": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "tasked:location (task) — one corner of the box, in blocks, as [x, y, z]."
+        },
+        "size": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "tasked:location (task) — how far the box reaches from that corner, as [x, y, z]."
+        },
+        "points": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:xp (task) — count levels rather than points."
+        },
+        "fluid": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:fluid (task) — the fluid to hand over, carried in buckets."
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "tasked:fluid (task) — how much of it, in millibuckets; a bucket is a thousand. tasked:xp (reward) — points, or levels, to give."
+        },
+        "observeType": {
+          "enum": ["block", "block_tag", "block_state", "block_entity", "block_entity_type",
+                   "entity_type", "entity_type_tag"],
+          "description": "tasked:observation (task) — what counts as looking: a block, a tag of them, one block state, a block entity, or an entity. The target below follows this."
+        },
+        "toObserve": {
+          "type": "string",
+          "description": "tasked:observation (task) — the block or entity to look at."
+        },
+        "timer": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1200,
+          "default": 20,
+          "description": "tasked:observation (task) — how long to look at it, in ticks, twenty to the second."
+        },
+        "entity": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:kill (task) — the mob to kill."
+        },
+        "entityTypeTag": {
+          "type": "string",
+          "description": "tasked:kill (task) — or an entity tag, to count any mob in it. Its own field rather than a # in `entity`, so a tag where an id is expected is an error here as it is everywhere else."
+        },
+        "customName": {
+          "type": "string",
+          "description": "tasked:kill (task) — only counts a mob with this name."
+        },
+        "nbtFilter": {
+          "type": "string",
+          "description": "tasked:kill (task) — an SNBT filter, for the mobs an id cannot pick out."
+        },
+        "id": {
+          "type": "string",
+          "description": "tasked:custom (task and reward) — the id a mod or a script registered a handler for. The validator warns when this build has nothing registered for it."
+        },
+
+        "team": {
+          "type": "boolean",
+          "description": "Rewards only. Whether this is a one-claim-for-the-team reward. Absent falls back to the tree's defaultTeamReward."
+        },
+        "auto": {
+          "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
+          "default": "default",
+          "description": "Rewards only. When it is handed over: default follows the tree's own setting, enabled gives it on completion, disabled waits for a claim, no_toast gives it without a toast, and invisible gives it without the player being told."
+        },
+        "excludeFromClaimAll": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rewards only. Claim all leaves this one for its own press."
+        },
+        "ignoreRewardBlocking": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rewards only. Give it even while the team's rewards are being held."
+        },
+        "randomBonus": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6400,
+          "default": 0,
+          "description": "tasked:item (reward) — up to this many more, rolled at random on top of the count."
+        },
+        "onlyOne": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:item (reward) — skip it if the player already carries this item."
+        },
+        "levels": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:xp (task and reward) — count levels rather than points."
+        },
+        "table": {
+          "type": "string",
+          "description": "tasked:random, tasked:loot, tasked:all_table and tasked:choice (rewards) — the reward table to roll, by id: a file under reward_tables/, named without its .json suffix. The roll happens when the reward is collected."
+        },
+        "inline": {
+          "$ref": "#/definitions/rewardTable",
+          "description": "tasked:random, tasked:loot, tasked:all_table and tasked:choice (rewards) — the table itself, for a reward that is its own roll."
+        },
+        "permissionLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4,
+          "default": 2,
+          "description": "tasked:command (reward) — the permission level the command runs at; 2 is a command block's."
+        },
+        "command": {
+          "type": "string",
+          "description": "tasked:command (reward) — run as the player when the reward is collected, without the leading slash."
+        },
+        "silent": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:command (reward) — do not say in chat that it ran."
+        },
+        "stage": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:stage (task and reward) — the stage the player has to have, or the one to set. Any id: a stage exists by being granted, so there is no list to pick from and nothing to validate."
+        },
+        "remove": {
+          "type": "boolean",
+          "default": false,
+          "description": "tasked:stage (reward) — take the stage away instead of granting it."
+        }
       }
     }
   }

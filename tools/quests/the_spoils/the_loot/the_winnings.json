@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_winnings",
+  "title": "The Winnings",
+  "subtitle": "Rolled when you collect, and it can come up empty",
+  "description": [
+    "The reward is a `tasked:loot` -- a roll of `reward_tables/loot.json`",
+    "taken the moment you press Claim. The table's `emptyWeight` is 3 against",
+    "9 of weight, so one roll in four is nothing at all, and that is a property",
+    "of the file rather than a bug: a `loot` reward is the kind that can",
+    "disappoint, where a `tasked:random` promises something.",
+    "",
+    "The weight-zero entry is not part of that gamble. Zero means always",
+    "granted, once per roll, so the five experience points arrive every time --",
+    "it is how a table says \"and everyone also gets this\"."
+  ],
+  "icon": { "item": "minecraft:gold_ingot" },
+  "x": 0,
+  "y": 0,
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I will take my chances" }
+  ],
+  "rewards": [
+    { "type": "tasked:loot", "table": "loot" }
+  ]
+}

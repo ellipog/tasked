@@ -13,6 +13,7 @@ import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
+import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
 import net.neoforged.api.distmarker.Dist;
@@ -60,6 +61,9 @@ public final class TaskedNeoForgeClient {
         // The game bus: ticking a running client is not a startup concern.
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> {
             ClientTicker.advance();
+            // The crosshair's half of the engine: observation tasks are judged here because a server
+            // never sees where a player looks. See ObservationWatcher.
+            ObservationWatcher.tick(net.minecraft.client.Minecraft.getInstance());
             ArmatureClient.tick();
         });
 
@@ -69,6 +73,8 @@ public final class TaskedNeoForgeClient {
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
             ClientQuestCache.clear();
             ClientChapterReplica.clear();
+            // The half-counted observations go with the tree they were counted against.
+            ObservationWatcher.reset();
             TaskedNetworking.forgetTransfers();
         });
 

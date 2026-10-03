@@ -400,10 +400,10 @@ public final class ToolsPanel {
     private static void node(GuiRenderer r, BookGeometry.Rect rect, int edge, int ringColour) {
         if (ringColour != 0) {
             ArmatureTheme.shapePanel(r, rect.x() - 1, rect.y() - 1, rect.width() + 2,
-                    ArmatureTheme.nodeFill(), ringColour, QuestShape.ROUNDED::span);
+                    ArmatureTheme.nodeFill(), ringColour, QuestShape.ROUNDED::spans);
         }
         ArmatureTheme.shapePanel(r, rect.x(), rect.y(), rect.width(), ArmatureTheme.nodeFill(), edge,
-                QuestShape.ROUNDED::span);
+                QuestShape.ROUNDED::spans);
     }
 
     /**

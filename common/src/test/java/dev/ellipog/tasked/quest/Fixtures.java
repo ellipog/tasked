@@ -117,6 +117,23 @@ public final class Fixtures {
                 """.formatted(chapterExtras, String.join(", ", quests));
     }
 
+    /** One chapter object, for a file that needs more than one. */
+    public static String chapter(String id, String... quests) {
+        return "{\"id\": \"" + id + "\", \"title\": \"" + id + "\", \"quests\": [ "
+                + String.join(", ", quests) + " ] }";
+    }
+
+    /**
+     * A file with as many chapters as are given, each built by {@link #chapter}.
+     *
+     * <p>One group holding them all, which is the shape a real file has. A test that needs a dependency
+     * to cross a chapter boundary needs two chapters in one index, and that is the only way to get one.
+     */
+    public static String fileWithChapters(String... chapters) {
+        return "{\"version\": 1, \"chapterGroups\": [ { \"id\": \"group\", \"title\": \"Group\", "
+                + "\"chapters\": [ " + String.join(", ", chapters) + " ] } ] }";
+    }
+
     public static Builder q(String id) {
         return new Builder(id);
     }
@@ -142,6 +159,13 @@ public final class Fixtures {
         private Integer repeatCooldownTicks;
         private Boolean invisible;
         private Boolean showTitle;
+        private Integer maxCompletableDependents;
+        private Integer invisibleUntilTasks;
+        private Boolean hideUntilDependenciesComplete;
+        private Boolean hideUntilDependenciesVisible;
+        private Boolean hideDependencyLines;
+        private Boolean hideTextUntilComplete;
+        private Boolean hideDetailsUntilStartable;
         private Double iconScale;
         private int taskCount = 1;
         private int x;
@@ -244,6 +268,43 @@ public final class Fixtures {
             return this;
         }
 
+        /** At most this many of the quests that depend on this one may be completed. */
+        public Builder maxCompletableDependents(int count) {
+            this.maxCompletableDependents = count;
+            return this;
+        }
+
+        /** With {@link #invisible(boolean)}, the number of tasks that make the quest appear. */
+        public Builder invisibleUntilTasks(int count) {
+            this.invisibleUntilTasks = count;
+            return this;
+        }
+
+        public Builder hideUntilDependenciesComplete(boolean value) {
+            this.hideUntilDependenciesComplete = value;
+            return this;
+        }
+
+        public Builder hideUntilDependenciesVisible(boolean value) {
+            this.hideUntilDependenciesVisible = value;
+            return this;
+        }
+
+        public Builder hideDependencyLines(boolean value) {
+            this.hideDependencyLines = value;
+            return this;
+        }
+
+        public Builder hideTextUntilComplete(boolean value) {
+            this.hideTextUntilComplete = value;
+            return this;
+        }
+
+        public Builder hideDetailsUntilStartable(boolean value) {
+            this.hideDetailsUntilStartable = value;
+            return this;
+        }
+
         /** How many checkmark tasks. Default one. */
         public Builder tasks(int count) {
             this.taskCount = count;
@@ -289,6 +350,27 @@ public final class Fixtures {
             }
             if (exclusiveGroup != null) {
                 json.append(", \"exclusiveGroup\": \"").append(exclusiveGroup).append('"');
+            }
+            if (maxCompletableDependents != null) {
+                json.append(", \"maxCompletableDependents\": ").append(maxCompletableDependents);
+            }
+            if (invisibleUntilTasks != null) {
+                json.append(", \"invisibleUntilTasks\": ").append(invisibleUntilTasks);
+            }
+            if (hideUntilDependenciesComplete != null) {
+                json.append(", \"hideUntilDependenciesComplete\": ").append(hideUntilDependenciesComplete);
+            }
+            if (hideUntilDependenciesVisible != null) {
+                json.append(", \"hideUntilDependenciesVisible\": ").append(hideUntilDependenciesVisible);
+            }
+            if (hideDependencyLines != null) {
+                json.append(", \"hideDependencyLines\": ").append(hideDependencyLines);
+            }
+            if (hideTextUntilComplete != null) {
+                json.append(", \"hideTextUntilComplete\": ").append(hideTextUntilComplete);
+            }
+            if (hideDetailsUntilStartable != null) {
+                json.append(", \"hideDetailsUntilStartable\": ").append(hideDetailsUntilStartable);
             }
             if (sequentialTasks != null) {
                 json.append(", \"sequentialTasks\": ").append(sequentialTasks);

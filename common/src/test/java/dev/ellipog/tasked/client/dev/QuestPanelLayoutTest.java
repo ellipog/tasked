@@ -6,11 +6,17 @@ import com.google.gson.JsonParser;
 import dev.ellipog.armature.client.ui.inspect.InspectField;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
 
+import dev.ellipog.tasked.quest.reward.RewardTypes;
+import dev.ellipog.tasked.quest.task.TaskTypes;
+
+import net.minecraft.resources.ResourceLocation;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -93,8 +99,9 @@ class QuestPanelLayoutTest {
         assertFalse(heading.isWarning(), "tasked:item is known, so its section is a heading");
         assertTrue(heading.label().contains("tasked:item"), "the section names the type");
 
-        // The registry's own field names, sorted: item, count, consumeItems.
-        assertEquals(List.of("tasks.0.consumeItems", "tasks.0.count", "tasks.0.item"),
+        // The registry's own field names, sorted: item, count, consumeItems, match, onlyFromCrafting.
+        assertEquals(List.of("tasks.0.consumeItems", "tasks.0.count", "tasks.0.item", "tasks.0.match",
+                        "tasks.0.onlyFromCrafting"),
                 rows.stream().map(InspectRow::key)
                         .filter(key -> key.startsWith("tasks.0.") && !key.equals("tasks.0.type"))
                         .toList(),
@@ -162,6 +169,177 @@ class QuestPanelLayoutTest {
         List<InspectRow> missing = QuestPanelLayout.rows(null, "gone_quest", Set.of());
         assertTrue(missing.get(0).value().contains("gone_quest"),
                 "and a quest that is not in the chapter is named, not vague");
+    }
+
+    @Test
+    @DisplayName("the type picker lists every registered type exactly once, under the table's headings")
+    void typePickerCoversTheRegistry() {
+        assertCovered("tasks", TaskTypes.ids());
+        assertCovered("rewards", RewardTypes.ids());
+    }
+
+    /** Every registered id is a row, once -- from the registry, not from the table. */
+    private static void assertCovered(String member, Set<ResourceLocation> registered) {
+        List<String> listed = QuestPanelLayout.typeRows(member).stream()
+                .filter(candidate -> candidate.kind() == InspectRow.Kind.ACTION)
+                .map(candidate -> candidate.key().substring(QuestPanelLayout.TYPE_PREFIX.length()))
+                .toList();
+        Set<String> expected = new TreeSet<>();
+        registered.forEach(id -> expected.add(id.toString()));
+
+        assertEquals(expected, new TreeSet<>(listed), "every registered type is offered");
+        assertEquals(listed.size(), new TreeSet<>(listed).size(), "and offered once");
+    }
+
+    @Test
+    @DisplayName("the picker's rows are the table's groups in order, and a row is named the table's way")
+    void typePickerGroupsAndNames() {
+        List<InspectRow> rows = QuestPanelLayout.typeRows("tasks");
+
+        assertEquals("Add a task", rows.get(0).label(), "the page says what it is for");
+        assertEquals(List.of("Add a task", "Hand in", "Go", "Progress", "Manual", "Other"),
+                rows.stream().filter(InspectRow::isHeading).map(InspectRow::label).toList(),
+                "the table's groups, in the table's order");
+
+        InspectRow item = row(rows, QuestPanelLayout.TYPE_PREFIX + "tasked:item");
+        assertEquals(InspectRow.Kind.ACTION, item.kind());
+        assertEquals("Item", item.label(), "the row shows the name, not the id a file spells");
+
+        assertEquals(List.of("Item", "Item tag", "Experience", "Fluid"),
+                rows.stream().filter(candidate -> candidate.kind() == InspectRow.Kind.ACTION).limit(4)
+                        .map(InspectRow::label).toList(),
+                "the first group's types, in the order the table lists them");
+    }
+
+    @Test
+    @DisplayName("a type the table does not name is still offered, under More and by its own id")
+    void typePickerFallback() {
+        List<InspectRow> rows = QuestPanelLayout.typeRows("tasks",
+                new TreeSet<>(Set.of("tasked:item", "tasked:checkmark", "addon:mystery")));
+
+        assertEquals(List.of("Add a task", "Hand in", "Manual", QuestPanelLayout.MORE),
+                rows.stream().filter(InspectRow::isHeading).map(InspectRow::label).toList(),
+                "an empty group is left out, and the unknown type gets one of its own");
+        assertEquals("addon:mystery", row(rows, QuestPanelLayout.TYPE_PREFIX + "addon:mystery").label(),
+                "named by the id -- the spelling an author meets in the file and in every error");
+        assertEquals(List.of("addon:mystery"), QuestPanelLayout.typeTooltip("tasks", "addon:mystery"),
+                "and it has no hint to show");
+    }
+
+    @Test
+    @DisplayName("a hint is the table's line for its own member, and nothing for an id it does not name")
+    void typeHints() {
+        assertEquals("Hand in a count of one item.",
+                QuestPanelLayout.typeTooltip("tasks", "tasked:item").get(0));
+        assertEquals("Give one item.", QuestPanelLayout.typeTooltip("rewards", "tasked:item").get(0),
+                "the same id is a different type on each member, with its own line");
+        assertEquals(List.of("tasked:nope"), QuestPanelLayout.typeTooltip("tasks", "tasked:nope"),
+                "an id the table does not name has no hint: the id alone is the description");
+    }
+
+    @Test
+    @DisplayName("the picker's tooltip is the author's: hint, registry fields and the id a file spells")
+    void pickerTooltips() {
+        List<String> lines = QuestPanelLayout.typeTooltip("tasks", "tasked:biome");
+        assertEquals("Be in a biome, or any biome of a tag.", lines.get(0));
+        assertTrue(lines.contains("Fields: biome"),
+                "the fields come from the registry, not from the table: " + lines);
+        assertEquals("tasked:biome", lines.get(lines.size() - 1), "the id a file spells is last");
+
+        assertEquals(List.of("addon:mystery"), QuestPanelLayout.typeTooltip("tasks", "addon:mystery"),
+                "no hint and no registered fields: the id is the whole description");
+    }
+
+    @Test
+    @DisplayName("every registered type's player tooltip is player language: no fields, no ids")
+    void playerTooltipsArePlayerLanguage() {
+        for (ResourceLocation id : TaskTypes.ids()) {
+            assertPlayerFacing("tasks", id.toString(), false);
+            assertPlayerFacing("tasks", id.toString(), true);
+        }
+        for (ResourceLocation id : RewardTypes.ids()) {
+            assertPlayerFacing("rewards", id.toString(), false);
+        }
+    }
+
+    /** The guard for the whole class of leak: the reader's hover must never be the author's. */
+    private static void assertPlayerFacing(String member, String typeId, boolean byHand) {
+        List<String> lines = QuestPanelLayout.playerTooltip(member, typeId, byHand);
+        assertFalse(lines.isEmpty(), typeId + " has no tooltip at all");
+        for (String line : lines) {
+            assertFalse(line.isBlank(), typeId + " has a blank line");
+            assertFalse(line.contains("Fields:"), typeId + " leaks the field list: " + line);
+            assertFalse(line.contains("tasked:"), typeId + " leaks a type id: " + line);
+            assertFalse(line.equals(typeId), typeId + " shows its own id: " + line);
+        }
+    }
+
+    @Test
+    @DisplayName("a carried item that is not handed in says nothing is taken; a hand-in says what is")
+    void itemTooltips() {
+        assertEquals(List.of("Have this many in your inventory.",
+                        "Nothing is taken - the quest only checks that you have them."),
+                QuestPanelLayout.playerTooltip("tasks", "tasked:item", false),
+                "a presence-only item task completes by itself, so nothing may be taken");
+
+        assertEquals(List.of("Have this many in your inventory.",
+                        "Hand it in with the Submit button - what you hand over is taken."),
+                QuestPanelLayout.playerTooltip("tasks", "tasked:item", true),
+                "a consuming item task is handed over, and the player is told so");
+    }
+
+    @Test
+    @DisplayName("a checkmark asks for the button and never claims anything is taken")
+    void checkmarkTooltip() {
+        List<String> lines = QuestPanelLayout.playerTooltip("tasks", "tasked:checkmark", true);
+        assertEquals("You decide when this one is done.", lines.get(0));
+        assertEquals("Press the Submit button when you have done it.", lines.get(1));
+        assertFalse(lines.stream().anyMatch(line -> line.contains("taken")),
+                "a checkmark takes nothing: " + lines);
+    }
+
+    @Test
+    @DisplayName("a reward's tooltip says when you get it, and never that anything is taken")
+    void rewardTooltips() {
+        List<String> lines = QuestPanelLayout.playerTooltip("rewards", "tasked:item", false);
+        assertEquals(List.of("You get this item when you claim the quest."), lines);
+        assertFalse(lines.stream().anyMatch(line -> line.contains("taken")),
+                "a reward is given, not handed in: " + lines);
+    }
+
+    @Test
+    @DisplayName("an id-shaped argument is prettified for the kinds that name one, and left alone otherwise")
+    void prettiedArguments() {
+        assertTrue(QuestPanelLayout.prettifiesIds("tasks", "tasked:biome"));
+        assertTrue(QuestPanelLayout.prettifiesIds("rewards", "tasked:advancement"));
+        assertFalse(QuestPanelLayout.prettifiesIds("tasks", "tasked:stage"),
+                "a stage's id is its name, and prettifying it would invent one");
+        assertFalse(QuestPanelLayout.prettifiesIds("tasks", "addon:mystery"),
+                "an addon's sentence is its own shape, which this build cannot prettify");
+
+        assertEquals("Plains", QuestPanelLayout.prettiedArgument("tasks", "tasked:biome", "minecraft:plains"));
+        assertEquals("#Logs",
+                QuestPanelLayout.prettiedArgument("tasks", "tasked:item_tag", "#minecraft:logs"));
+        assertEquals("my_pack:inducted",
+                QuestPanelLayout.prettiedArgument("tasks", "tasked:stage", "my_pack:inducted"),
+                "a type the table says not to prettify keeps its argument exactly");
+    }
+
+    @Test
+    @DisplayName("the words around an id in a composite argument survive the prettifier")
+    void prettiedArgumentsKeepTheirWords() {
+        // The two traps this rule exists against. Since 1.21 a bare word parses as `minecraft:<word>`,
+        // so a walk that prettified every parseable token would read "1000 mB of Water" as "1000 mB Of
+        // Water" and a kill task's "anything" as "Anything" -- the words are not ids, and the sentences
+        // write the namespace on the ids they do name.
+        assertEquals("1000 mB of Water",
+                QuestPanelLayout.prettiedArgument("tasks", "tasked:fluid", "1000 mB of minecraft:water"));
+        assertEquals("Beacon for 2.0s",
+                QuestPanelLayout.prettiedArgument("tasks", "tasked:observation",
+                        "minecraft:beacon for 2.0s"));
+        assertEquals("anything",
+                QuestPanelLayout.prettiedArgument("tasks", "tasked:kill", "anything"),
+                "a kill task with no target names no id to prettify");
     }
 
     @Test

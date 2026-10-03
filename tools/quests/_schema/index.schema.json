@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ellipog.dev/tasked/_schema/index.schema.json",
+  "title": "Tasked quest root manifest",
+  "description": "The quest root's index.json, under config/tasked/quests/. Lists the top level of the quest book, in order. Absent means the tree is ordered the old way: group folders by name, which is how every pack written before this file existed still loads. Each entry names exactly one of a group, a chapter that belongs to no group, or a version-1 file.",
+  "type": "object",
+  "required": ["entries"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "settings": {
+      "type": "object",
+      "description": "The tree's own defaults, as opposed to any chapter's: how rewards are handed over unless a reward says otherwise, and how long after joining the first task check waits. A missing block, or a missing key in one, means the default written here.",
+      "additionalProperties": false,
+      "properties": {
+        "defaultAutoClaim": {
+          "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
+          "default": "disabled",
+          "description": "What a reward with `auto: \"default\"` does. Disabled means a finished quest waits to be collected, which is what a claim button is for."
+        },
+        "defaultTeamReward": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether a reward with no `team` of its own is a one-claim-for-the-team reward. False means every player collects their own copy."
+        },
+        "suppressAllAutoclaiming": {
+          "type": "boolean",
+          "default": false,
+          "description": "Holds every automatic payout, whatever individual rewards say. An operator's switch for an event, stored in the tree rather than in a save."
+        },
+        "detectionDelay": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 72000,
+          "default": 20,
+          "description": "Ticks after a player joins before their first task evaluation, so a login does not run every check in the book on one tick."
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "description": "The root, in reading order.",
+      "items": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "description": "A folder with a group.json in it.",
+            "$ref": "#/definitions/name"
+          },
+          "chapter": {
+            "description": "A folder with a chapter.json in it, belonging to no group.",
+            "$ref": "#/definitions/name"
+          },
+          "file": {
+            "description": "A version-1 flat file at the root.",
+            "$ref": "#/definitions/name"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^/\\\\]+$",
+      "description": "A single name in the quest folder, resolved against the quest root."
+    }
+  }
+}

@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * One {@code group.json}: a folder's account of itself, and of the chapter folders beside it.
@@ -52,6 +53,8 @@ import java.util.List;
  *                          checks and reports naming both sides.
  * @param title             what the book writes on the group's row
  * @param description       paragraphs, or a single string. See {@link QuestText#LIST_OR_ONE}.
+ * @param icon              the item the book draws on the group's row, or empty for "use the first
+ *                          chapter's". See {@link ChapterGroup#icon()}.
  * @param aliases           former ids, so a rename does not orphan progress or break a reference
  * @param collapsedByDefault whether the book shows this group's chapters the first time it sees a tree
  * @param chapters          the <b>folder names</b> of this group's chapters, in the order they should
@@ -61,6 +64,7 @@ public record GroupManifest(
         String id,
         QuestText title,
         List<QuestText> description,
+        Optional<ItemRef> icon,
         List<String> aliases,
         boolean collapsedByDefault,
         List<String> chapters
@@ -68,7 +72,7 @@ public record GroupManifest(
 
     /** The field names this contributes. Equal to {@link ChapterGroup#FIELDS} — see the class note. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
-            "id", "title", "description", "aliases", "collapsedByDefault", "chapters");
+            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "chapters");
 
     /**
      * This manifest as a group, with the chapters its names resolved to.
@@ -79,7 +83,7 @@ public record GroupManifest(
      * folder the names resolve against.
      */
     public ChapterGroup toGroup(List<Chapter> resolved) {
-        return new ChapterGroup(id, title, description, aliases, collapsedByDefault, resolved);
+        return new ChapterGroup(id, title, description, icon, aliases, collapsedByDefault, resolved);
     }
 
     public static final Codec<GroupManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -87,6 +91,7 @@ public record GroupManifest(
             QuestText.CODEC.fieldOf("title").forGetter(GroupManifest::title),
             QuestText.LIST_OR_ONE.optionalFieldOf("description", List.of())
                     .forGetter(GroupManifest::description),
+            ItemRef.CODEC.optionalFieldOf("icon").forGetter(GroupManifest::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(GroupManifest::aliases),
             Codec.BOOL.optionalFieldOf("collapsedByDefault", false)
                     .forGetter(GroupManifest::collapsedByDefault),

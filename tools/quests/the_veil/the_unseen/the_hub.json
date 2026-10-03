@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_hub",
+  "title": "The Hub",
+  "subtitle": "hideDependencyLines",
+  "description": [
+    "Three quests feed into this one, and none of the lines is drawn:",
+    "`hideDependencyLines` keeps a hub readable when twenty things point at it.",
+    "",
+    "The dependencies are real and the progression is unaffected -- only the drawing",
+    "changes. The quests that depend on *this* one still draw their own lines to it,",
+    "because the flag is about the lines arriving, not the lines leaving."
+  ],
+  "icon": {
+    "item": "minecraft:lodestone"
+  },
+  "x": 256,
+  "y": 128,
+  "dependsOn": [
+    "the_first_light",
+    "a_quiet_word",
+    "the_second_veil"
+  ],
+  "hideDependencyLines": true,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:stone_bricks",
+      "count": 16
+    }
+  ]
+}

@@ -61,6 +61,14 @@ public record Chapter(
         PrerequisiteMode defaultPrerequisiteMode,
         ProgressionMode progressionMode,
         boolean defaultConsumeItems,
+        /**
+         * How this chapter's dependency lines are drawn unless a line overrides it.
+         *
+         * <p>Any subset of the four axes; the rest come from {@link DependencyStyle#BUILT_IN}. An
+         * override on a single line layers over this, which is what makes "all of this chapter's lines
+         * are curved" one choice rather than forty-six.
+         */
+        DependencyStyle dependencyStyle,
         Optional<String> theme,
         List<Quest> quests
 ) {
@@ -75,7 +83,7 @@ public record Chapter(
      */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "theme", "quests");
+            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "quests");
 
     /** Finds a quest by id or alias. */
     public Optional<Quest> quest(String idOrAlias) {
@@ -119,6 +127,8 @@ public record Chapter(
             ProgressionMode.CODEC.optionalFieldOf("progressionMode", ProgressionMode.FLEXIBLE)
                     .forGetter(Chapter::progressionMode),
             Codec.BOOL.optionalFieldOf("defaultConsumeItems", false).forGetter(Chapter::defaultConsumeItems),
+            DependencyStyle.CODEC.optionalFieldOf("dependencyStyle", DependencyStyle.UNSET)
+                    .forGetter(Chapter::dependencyStyle),
             Codec.STRING.optionalFieldOf("theme").forGetter(Chapter::theme),
             Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
     ).apply(instance, Chapter::new));

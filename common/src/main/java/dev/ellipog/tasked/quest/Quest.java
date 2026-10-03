@@ -5,7 +5,10 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
+import net.minecraft.resources.ResourceLocation;
+
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -58,6 +61,15 @@ public record Quest(
         QuestLayout layout,
         List<String> aliases,
         List<QuestRef> dependencies,
+        /**
+         * Per-line overrides, keyed by the dependency they style.
+         *
+         * <p>Beside {@code dependsOn} rather than inside it, and that is a format decision rather than a
+         * storage one: a dependency is a name, and has been since the first file — turning the entries
+         * into objects to carry a style would break every reader of every pack for a field most edges
+         * never set. A map keyed by the dependency id leaves the list alone and disappears when unused.
+         */
+        Map<String, DependencyStyle> dependencyLines,
         Optional<PrerequisiteMode> prerequisiteMode,
         int minRequired,
         List<QuestTask> tasks,
@@ -68,7 +80,8 @@ public record Quest(
     /** A quest with nothing in it. The starting point for the editor's "new quest" button. */
     public static Quest blank(String id, QuestText title) {
         return new Quest(id, title, Optional.empty(), List.of(), ItemRef.DEFAULT_ICON, QuestLayout.DEFAULT,
-                List.of(), List.of(), Optional.empty(), 0, List.of(), List.of(), QuestRules.DEFAULT);
+                List.of(), List.of(), Map.of(), Optional.empty(), 0, List.of(), List.of(),
+                QuestRules.DEFAULT);
     }
 
     // ------------------------------------------------------------------
@@ -106,6 +119,19 @@ public record Quest(
         return rules.exclusiveGroup();
     }
 
+    /**
+     * The stage a player needs for this quest to be open to them, if any.
+     *
+     * <p>Per player rather than per team, because a stage is -- see {@code QuestRules#requiresStage}. The
+     * gate is checked where a player's own view is built (they see the quest locked) and where a quest could
+     * be finished or collected, so a quest with a shut gate cannot complete or pay out for a player who
+     * never had the stage. A pack that wants a whole party gated grants the stage to every member, which is
+     * how it does that for anything else too.
+     */
+    public Optional<ResourceLocation> requiresStage() {
+        return rules.requiresStage();
+    }
+
     // ------------------------------------------------------------------
 
     /**
@@ -128,13 +154,7 @@ public record Quest(
 
     /** How many dependencies must be satisfied, given the effective mode. {@code minRequired} wins when set. */
     public int requiredCount(PrerequisiteMode effectiveMode) {
-        if (minRequired > 0) {
-            return Math.min(minRequired, dependencies.size());
-        }
-        return switch (effectiveMode) {
-            case ALL_COMPLETED, ALL_STARTED -> dependencies.size();
-            case ONE_COMPLETED, ONE_STARTED -> dependencies.isEmpty() ? 0 : 1;
-        };
+        return PrerequisiteMode.requiredCount(effectiveMode, minRequired, dependencies.size());
     }
 
     /**
@@ -191,6 +211,10 @@ public record Quest(
             QuestLayout.MAP_CODEC.forGetter(Quest::layout),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(Quest::aliases),
             QuestRef.CODEC.listOf().optionalFieldOf("dependsOn", List.of()).forGetter(Quest::dependencies),
+            // Keyed by dependency id. Absent means every line follows the chapter's style, which is what
+            // every file written before this field existed says.
+            Codec.unboundedMap(Codec.STRING, DependencyStyle.CODEC)
+                    .optionalFieldOf("dependencyLines", Map.of()).forGetter(Quest::dependencyLines),
             PrerequisiteMode.CODEC.optionalFieldOf("prerequisiteMode").forGetter(Quest::prerequisiteMode),
             Codec.intRange(0, 64).optionalFieldOf("minRequired", 0).forGetter(Quest::minRequired),
             // Accessor methods rather than constants: caching these in a static field is what caused a

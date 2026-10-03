@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "square",
+  "title": "Square",
+  "subtitle": "No styling at all",
+  "description": [
+    "A plain rectangle: the honest answer for a chapter that should read as a grid of things rather than as a graph of ideas.",
+    "",
+    "It is also the degenerate case every other shape is measured against -- and the one shape whose geometry `none` shares, because `none` draws no panel and needs a rectangle to be clicked in."
+  ],
+  "icon": {
+    "item": "minecraft:crafting_table"
+  },
+  "x": 96,
+  "y": 0,
+  "shape": "square",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the square shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

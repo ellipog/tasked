@@ -115,13 +115,18 @@ class PayloadTest {
         // and colon checks the moment it is declared. Only this one, which names them, has to be told.
         assertEquals(List.of(
                 "tasked:chapter_replica",
+                "tasked:choice_reward",
+                "tasked:claim_all",
+                "tasked:claim_choice",
                 "tasked:claim_reward",
+                "tasked:dimension_sync",
                 "tasked:editor_op",
                 "tasked:editor_reply",
                 "tasked:party_sync",
                 "tasked:progress_sync",
                 "tasked:quest_sync",
                 "tasked:replica_request",
+                "tasked:stage_sync",
                 "tasked:submit_task"), ids);
     }
 
@@ -134,6 +139,9 @@ class PayloadTest {
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:progress_sync"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:submit_task"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_reward"));
+        // The rewards panel's one press. A request like the single claim's, and registered the other
+        // way round it would be a Claim all button that does nothing at all.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_all"));
         // A roster is server state, so it goes one way. Registered the other way round it would never
         // arrive, and the panel would sit on its empty state with nothing in either log.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:party_sync"));
@@ -144,6 +152,17 @@ class PayloadTest {
         // The panel's copy of a chapter: asked for by the client, answered by the server.
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:replica_request"));
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:chapter_replica"));
+        // The world's dimensions: the one list the editor searches that the client cannot build itself,
+        // so it travels from the server. The other way round it would never arrive and the dimension
+        // picker would quietly offer the three vanilla ids forever.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:dimension_sync"));
+        // A player's stages, to that player. One-way by design: the server is the only authority on what a
+        // player has, so the other direction would be a client claiming its own progression.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:stage_sync"));
+        // A choice is offered by the server and answered by the player; either way round it would be a
+        // reward that can never be collected.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:choice_reward"));
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_choice"));
     }
 
     @Test
@@ -318,6 +337,45 @@ class PayloadTest {
                 new ClaimRewardPayload("punch_a_tree"));
 
         assertEquals("punch_a_tree", decoded.questId());
+    }
+
+    @Test
+    @DisplayName("a player's stage list survives a round trip, ids and order")
+    void stageSyncRoundTrip() {
+        StageSyncPayload decoded = roundTrip(StageSyncPayload.CODEC, new StageSyncPayload(
+                List.of("my_pack:left_the_village", "my_pack:met_the_council")));
+
+        assertEquals(List.of("my_pack:left_the_village", "my_pack:met_the_council"), decoded.stages(),
+                "a codec that dropped or reordered these would leave a client script reading the wrong flags");
+    }
+
+    @Test
+    @DisplayName("the server's dimension list survives a round trip, ids and order")
+    void dimensionSyncRoundTrip() {
+        // The ids a modpack has: three vanilla, a modded one and a datapack one. A codec that dropped or
+        // reordered them would leave the picker offering a different world than the server has.
+        DimensionSyncPayload decoded = roundTrip(DimensionSyncPayload.CODEC, new DimensionSyncPayload(
+                List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
+                        "twilightforest:twilight_forest", "example:the_deep")));
+
+        assertEquals(List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
+                "twilightforest:twilight_forest", "example:the_deep"), decoded.dimensions());
+    }
+
+    @Test
+    @DisplayName("the claim-all press is a codec that writes nothing and reads back the same press")
+    void claimAllRoundTrip() {
+        // Its own buffer rather than the shared helper: that helper asserts bytes were written, which
+        // is exactly what an empty payload must not do. Nothing to carry is still something to get
+        // right -- a read side needing bytes the write side never wrote would fail here, not in the
+        // panel, and the buffer staying empty is the property the wire is trusting.
+        FriendlyByteBuf plain = new FriendlyByteBuf(Unpooled.buffer());
+        RegistryFriendlyByteBuf buffer = RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY).apply(plain);
+
+        ClaimAllPayload.CODEC.encode(buffer, new ClaimAllPayload());
+        assertEquals(0, buffer.writerIndex(), "the press carries nothing, so the buffer stays empty");
+
+        assertEquals(new ClaimAllPayload(), ClaimAllPayload.CODEC.decode(buffer));
     }
 
     @Test

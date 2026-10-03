@@ -4,7 +4,6 @@ import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
-import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
@@ -50,9 +49,25 @@ public final class QuestPanel {
      * <p>The one row-drawing in the mod: the modal editor and the dock's panel show the same inspector,
      * and a second copy of this switch would be a second place for a kind to fall through. The clip is
      * the caller's rectangle, so a row half past the edge is cut there rather than drawn over a header.
+     *
+     * <p>The side-by-side composition: a label with its control in the strip at its right.
      */
     public static void drawRows(GuiRenderer r, BookGeometry.Rect body, Viewport list, Layout layout,
                                 List<InspectRow> rows, int mouseX, int mouseY) {
+        drawRows(r, body, list, layout, rows, mouseX, mouseY, InspectLayout.Mode.SIDE_BY_SIDE);
+    }
+
+    /**
+     * The same, composed the way the panel asked for it. See {@link InspectLayout.Mode}.
+     *
+     * <p>Only the labelled rows differ: a stacked {@code FIELD} draws its label on its own band and
+     * leaves the band beneath it to the control, while headings, values and actions are the same shape
+     * in both modes. The widget that fills the control band is the screen's; this draws everything
+     * around it.
+     */
+    public static void drawRows(GuiRenderer r, BookGeometry.Rect body, Viewport list, Layout layout,
+                                List<InspectRow> rows, int mouseX, int mouseY,
+                                InspectLayout.Mode mode) {
         Measure measure = Measure.of(r::textWidth, r.lineHeight());
         try (GuiRenderer.Scoped clip = r.clip(body.x(), body.y(), body.right(), body.bottom())) {
             for (InspectRow row : rows) {
@@ -65,9 +80,14 @@ public final class QuestPanel {
                     case HEADING -> drawHeading(r, row, slot, onScreen, measure);
                     case ENTRY -> drawEntry(r, row, slot, onScreen, list, measure);
                     case WARNING -> drawWarning(r, row, slot, onScreen, measure);
-                    case STEPPER -> drawStepperRow(r, row, slot, onScreen, list, measure, mouseX, mouseY);
-                    case FIELD, TOGGLE, RAW ->
+                    case FIELD, TOGGLE, RAW -> {
+                        if (mode == InspectLayout.Mode.STACKED) {
+                            drawStacked(r, row, slot, onScreen, list, measure);
+                        }
+                        else {
                             drawLabelled(r, row, slot, onScreen, list, measure);
+                        }
+                    }
                     case VALUE -> drawValue(r, row, slot, onScreen, measure);
                     // An ACTION row is wholly its widget, which the screen builds; the panel owes it
                     // nothing. Loud rather than quiet if a kind is ever added without a branch here:
@@ -83,63 +103,6 @@ public final class QuestPanel {
                                     Measure measure) {
         r.text(Measure.truncate(row.label(), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.title());
-    }
-
-    /**
-     * A stepper row: its label, then minus, the value, and plus in the strip.
-     *
-     * <p>The tools panel's radius row, generalised: the arrows are drawn from the strip the hit test
-     * reads -- {@code stepperStepAt} -- so what is drawn is what is pressed, and a number is nudged
-     * rather than typed. The value sits between the two arrows, which is where the eye looks for it.
-     */
-    private static void drawStepperRow(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
-                                       Viewport list, Measure measure, int mouseX, int mouseY) {
-        Slot strip = InspectLayout.strip(slot);
-        Slot stripOnScreen = InspectLayout.onScreen(list, strip);
-        int room = Math.max(0, stripOnScreen.x() - onScreen.x() - 6);
-        r.text(Measure.truncate(row.label(), room, measure), onScreen.x(),
-                onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.body());
-
-        int y = onScreen.y() + (slot.height() - 14) / 2;
-        for (String way : List.of("down", "up")) {
-            BookGeometry.Rect box = stepperBox(stripOnScreen, way);
-            boolean hot = box.contains(mouseX, mouseY);
-            ArmatureTheme.panel(r, box.x(), box.y(), box.width(), box.height(),
-                    hot ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)
-                            : ArmatureTheme.raised(), ArmatureTheme.panelEdge());
-            String glyph = way.equals("down") ? "−" : "+";
-            r.text(glyph, box.x() + (box.width() - r.textWidth(glyph)) / 2 + 1,
-                    box.y() + (box.height() - r.lineHeight()) / 2 + 2,
-                    hot ? ArmatureTheme.title() : ArmatureTheme.body());
-        }
-        String value = row.value();
-        r.text(Measure.truncate(value, Math.max(0, stripOnScreen.width() - 40), measure),
-                stripOnScreen.x() + 18, y + 3, ArmatureTheme.title());
-    }
-
-    /** One of a stepper's two arrows, in the strip's own coordinates: what is drawn and hit alike. */
-    public static BookGeometry.Rect stepperBox(Slot strip, String way) {
-        int width = 16;
-        int x = way.equals("down") ? strip.x() : strip.right() - width;
-        int y = strip.y() + (strip.height() - 14) / 2;
-        return BookGeometry.Rect.at(x, y, width, 14);
-    }
-
-    /**
-     * Which way a press at a screen point steps a stepper row: -1, +1, or null.
-     *
-     * <p>The derivation the drawing uses, called with the same strip -- one answer to "where are the
-     * arrows", so a press lands on the arrow that is under it.
-     */
-    public static Integer stepperStepAt(Viewport list, Slot slot, double mouseX, double mouseY) {
-        Slot strip = InspectLayout.onScreen(list, InspectLayout.strip(slot));
-        if (stepperBox(strip, "down").contains(mouseX, mouseY)) {
-            return -1;
-        }
-        if (stepperBox(strip, "up").contains(mouseX, mouseY)) {
-            return 1;
-        }
-        return null;
     }
 
     /** One entry of a list: its name, and its two controls drawn in the strip. */
@@ -199,5 +162,28 @@ public final class QuestPanel {
         int valueX = onScreen.x() + slot.width() / 2;
         r.text(Measure.truncate(row.value(), onScreen.right() - valueX, measure), valueX,
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.faint());
+    }
+
+    /**
+     * A stacked labelled row: the label on its own band, the control's band beneath it.
+     *
+     * <p>Nothing is drawn in the control band -- that is where the widget is, placed by the same
+     * {@code InspectLayout.controlBand} this label's band comes from, so the two cannot disagree about
+     * where the line between them is. The label is never truncated against a strip, because in this
+     * mode there is no strip: that is the whole of what the mode buys a narrow panel.
+     */
+    private static void drawStacked(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
+                                    Viewport list, Measure measure) {
+        Slot label = InspectLayout.onScreen(list, InspectLayout.labelBand(slot));
+        r.text(Measure.truncate(row.label(), label.width(), measure), label.x(),
+                label.y() + (label.height() - 8) / 2, ArmatureTheme.body());
+
+        if (row.kind() == InspectRow.Kind.RAW && !row.value().isEmpty()) {
+            // The fallback's value, shown rather than summarised. In this mode it sits in the control
+            // band beside whatever editor the screen placed there, on the same terms as `drawLabelled`.
+            Slot control = InspectLayout.onScreen(list, InspectLayout.controlBand(slot));
+            r.text(Measure.truncate(row.value(), control.width(), measure), control.x(),
+                    control.y() + (control.height() - 8) / 2, ArmatureTheme.faint());
+        }
     }
 }

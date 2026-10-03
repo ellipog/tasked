@@ -66,4 +66,20 @@ class InlineEditTest {
         assertFalse(InlineEdit.replaces("description", null), "nothing is being edited");
         assertFalse(InlineEdit.replaces(null, "description"), "a piece with no path is nobody's");
     }
+
+    @Test
+    @DisplayName("the header's pieces are the header's, and everything else is the body's")
+    void theRegionFollowsTheReader() {
+        // The reader draws the title and the subtitle line in the card's fixed header and everything
+        // else in the scrolling body, and the editor keeps a field alive only inside the region its
+        // target lives in. Asking the body about a title is what made those two unopenable: their boxes
+        // sit above the body's top edge, so the field was stood down on the frame it opened.
+        assertTrue(InlineEdit.inHeader("title"), "the title is drawn in the header");
+        assertTrue(InlineEdit.inHeader("subtitle"), "so is the chapter/subtitle line");
+
+        assertFalse(InlineEdit.inHeader("description"), "prose scrolls with the body");
+        assertFalse(InlineEdit.inHeader("tasks.0.count"), "so do the row parts");
+        assertFalse(InlineEdit.inHeader("dep:add"));
+        assertFalse(InlineEdit.inHeader(null), "and a piece with no path is nobody's region");
+    }
 }

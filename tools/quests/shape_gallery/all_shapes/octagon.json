@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "octagon",
+  "title": "Octagon",
+  "subtitle": "Cut stone",
+  "description": [
+    "A square with straight 45-degree corners. The chamfer is a third of the size against the rounded rectangle's quarter, so the difference is visible rather than a pixel of opinion.",
+    "",
+    "Reads as cut stone, or as a hub -- the node other nodes connect through."
+  ],
+  "icon": {
+    "item": "minecraft:stone_bricks"
+  },
+  "x": 96,
+  "y": 96,
+  "shape": "octagon",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the octagon shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

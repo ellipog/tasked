@@ -73,6 +73,8 @@ public record ChapterManifest(
         PrerequisiteMode defaultPrerequisiteMode,
         ProgressionMode progressionMode,
         boolean defaultConsumeItems,
+        /** The chapter's default dependency-line style; see {@link Chapter#dependencyStyle()}. */
+        DependencyStyle dependencyStyle,
         Optional<String> theme,
         List<String> quests
 ) {
@@ -80,7 +82,7 @@ public record ChapterManifest(
     /** The field names this contributes. Equal to {@link Chapter#FIELDS} — see {@link GroupManifest}. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "theme", "quests");
+            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "quests");
 
     /**
      * This manifest as a chapter, with the quests its names resolved to.
@@ -91,7 +93,7 @@ public record ChapterManifest(
      */
     public Chapter toChapter(List<Quest> resolved) {
         return new Chapter(id, title, subtitle, description, icon, aliases, defaultPrerequisiteMode,
-                progressionMode, defaultConsumeItems, theme, resolved);
+                progressionMode, defaultConsumeItems, dependencyStyle, theme, resolved);
     }
 
     public static final Codec<ChapterManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -111,6 +113,8 @@ public record ChapterManifest(
                     .forGetter(ChapterManifest::progressionMode),
             Codec.BOOL.optionalFieldOf("defaultConsumeItems", false)
                     .forGetter(ChapterManifest::defaultConsumeItems),
+            DependencyStyle.CODEC.optionalFieldOf("dependencyStyle", DependencyStyle.UNSET)
+                    .forGetter(ChapterManifest::dependencyStyle),
             Codec.STRING.optionalFieldOf("theme").forGetter(ChapterManifest::theme),
             Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests)
     ).apply(instance, ChapterManifest::new));

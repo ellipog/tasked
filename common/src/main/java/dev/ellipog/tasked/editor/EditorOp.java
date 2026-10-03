@@ -116,6 +116,20 @@ public sealed interface EditorOp {
     record SetChapter(String path, JsonElement value) implements EditorOp {
     }
 
+    /**
+     * Sets one field of the chapter's <b>group's</b> own file: its title, its icon, its collapsed flag.
+     *
+     * <h2>Why this carries no group id</h2>
+     *
+     * <p>An editor session is open on one chapter, and the only group it has a file for is the one that
+     * chapter hangs under -- so an id here could only ever name a group the session cannot reach, which
+     * is the same reason {@link SetChapter} names no chapter. A server whose chapter is not in a group,
+     * or whose group file could not be opened, refuses this; the model says which of the two by refusing
+     * at all rather than writing somewhere else.
+     */
+    record SetGroup(String path, JsonElement value) implements EditorOp {
+    }
+
     /** Moves one entry within its array: the drag-to-reorder, as one edit. */
     record MoveEntry(String id, String member, int from, int to) implements EditorOp {
 
@@ -140,5 +154,57 @@ public sealed interface EditorOp {
 
     /** And forward again. */
     record Redo() implements EditorOp {
+    }
+
+    // ------------------------------------------------------------------
+    // Structural edits
+    //
+    // These are the edits that change the shape of the book rather than a field in it: which group a
+    // chapter hangs under, what order the groups are in, and what exists at all. They carry no session
+    // id of their own -- the payload's chapter is still the editor that records them on its history,
+    // which is what makes Ctrl+Z after a drag the same key it is after a field edit.
+    //
+    // Every one of them is applied by `QuestStructure`, which needs the tree's root rather than one
+    // chapter's folder; see that class for why it is not a QuestEditor's method.
+    // ------------------------------------------------------------------
+
+    /** Moves a chapter to a group -- or to no group, named as the empty string -- at a position. */
+    record MoveChapter(String chapter, String groupId, int index) implements EditorOp {
+    }
+
+    /** Moves a group to a position among the root entries: the group drag. */
+    record MoveGroup(String group, int index) implements EditorOp {
+    }
+
+    /** A new, empty chapter, in a group or at the root. */
+    record CreateChapter(String groupId, int index, String id, String title) implements EditorOp {
+    }
+
+    /** A new, empty group, appended to the root. */
+    record CreateGroup(String id, String title) implements EditorOp {
+    }
+
+    /** Renames a chapter: its folder and its id, keeping the old id as an alias. */
+    record RenameChapter(String id, String newId, String title) implements EditorOp {
+    }
+
+    /** Renames a group the same way. */
+    record RenameGroup(String id, String newId, String title) implements EditorOp {
+    }
+
+    /** A copy of a chapter beside itself, under a fresh id with every quest inside re-id'd. */
+    record DuplicateChapter(String id, String newId, String newTitle) implements EditorOp {
+    }
+
+    /** A copy of a group beside itself, with fresh ids all the way down. */
+    record DuplicateGroup(String id, String newId, String newTitle) implements EditorOp {
+    }
+
+    /** Removes a chapter recoverably: its folder is put aside with its quests inside. */
+    record DeleteChapter(String id) implements EditorOp {
+    }
+
+    /** Removes a group recoverably, its chapters with it. */
+    record DeleteGroup(String group) implements EditorOp {
     }
 }

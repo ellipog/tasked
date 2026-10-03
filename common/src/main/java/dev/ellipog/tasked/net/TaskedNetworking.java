@@ -161,6 +161,49 @@ public final class TaskedNetworking {
                 null,
                 TaskedNetworking::handleClaim));
 
+        // --- and everything outstanding, for the rewards panel's one press ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimAllPayload.TYPE,
+                ClaimAllPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                (payload, sender) -> handleClaimAll(sender)));
+
+        // --- a choice reward's entries, and the player's answer ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ChoiceRewardPayload.TYPE,
+                ChoiceRewardPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleChoiceOffer,
+                null));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimChoicePayload.TYPE,
+                ClaimChoicePayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleClaimChoice));
+
+        // --- the world's dimensions, server to client ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                DimensionSyncPayload.TYPE,
+                DimensionSyncPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleDimensions,
+                null));
+
+        // --- one player's stages, to that player ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                StageSyncPayload.TYPE,
+                StageSyncPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleStages,
+                null));
+
         // --- one edit, client to server, and the server's answer ---
         //
         // The op path. A client asks; the server checks permission, applies the operation to its own model
@@ -366,6 +409,51 @@ public final class TaskedNetworking {
         sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
     }
 
+    /**
+     * The player pressing Claim all in the rewards panel: the whole book's outstanding rewards in one
+     * press.
+     *
+     * <p>{@link ProgressService#claimAll} finds the quests itself and asks the same question the single
+     * claim does, so the two controls cannot disagree about what may be taken. The payload carries
+     * nothing -- that is its point -- so it is named and dropped at the registration rather than handed
+     * to a method with a parameter it would never read.
+     */
+    private static void handleClaimAll(ServerPlayer sender) {
+        MinecraftServer server = sender.getServer();
+        if (server == null || TaskedQuests.index().isEmpty()) {
+            return;
+        }
+        ProgressService.claimAll(server, sender);
+        // Sent whether or not anything paid, the same correction the single claim's handler documents:
+        // a panel showing rewards the server has already given out is put right by the progress the
+        // client already knows how to read.
+        sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
+    }
+
+    /**
+     * The player answered a choice reward.
+     *
+     * <p>The payload names positions, not rewards, and {@link ProgressService#claimChoice} resolves
+     * all three of them against the server's own files — so the worst a modified client can do is
+     * pick entry 2 instead of entry 1 of a table it was legitimately offered.
+     */
+    private static void handleClaimChoice(ClaimChoicePayload payload, ServerPlayer sender) {
+        MinecraftServer server = sender.getServer();
+        if (server == null || TaskedQuests.index().isEmpty()) {
+            return;
+        }
+        var entry = TaskedQuests.index().quest(payload.questId());
+        if (entry.isEmpty()) {
+            Constants.LOG.warn("tasked: {} answered a choice on unknown quest '{}'",
+                    sender.getScoreboardName(), payload.questId());
+            return;
+        }
+        if (ProgressService.claimChoice(server, sender, entry.get(), payload.rewardIndex(),
+                payload.entryIndex())) {
+            sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
+        }
+    }
+
     // ------------------------------------------------------------------
     // Sending
     // ------------------------------------------------------------------
@@ -381,6 +469,20 @@ public final class TaskedNetworking {
         // before it can draw a panel. Sent through the player object rather than looked up by id --
         // see `sendOwnRosterTo` for the whole of that fault.
         sendOwnRosterTo(player);
+        // And the dimensions this server has. The one list the editor searches that the client cannot
+        // build for itself: a dimension is level data rather than a registry entry, so a modded or
+        // datapack one is invisible until the server names it. See DimensionSyncPayload.
+        ArmatureNetwork.sendToPlayer(player, new DimensionSyncPayload(dimensionIds(server)));
+        // And their stages, which are theirs alone rather than the team's -- see ProgressStore.
+        sendStagesTo(player);
+    }
+
+    /** Every dimension this server has, by id: vanilla, modded and datapack alike. */
+    private static List<String> dimensionIds(MinecraftServer server) {
+        return server.levelKeys().stream()
+                .map(key -> key.location().toString())
+                .sorted()
+                .toList();
     }
 
     /** Pushes the tree to every connected player, then their progress. Called after a reload. */
@@ -532,6 +634,50 @@ public final class TaskedNetworking {
      * cannot read, so a malformed message draws "no party" rather than disconnecting the client: a
      * payload that was only ever going to fill a side panel is not worth a lost connection.
      */
+    /**
+     * A choice offer arrived: hold it for the picker.
+     *
+     * <p>Held rather than acted on, because the picker is a screen and this runs wherever the network
+     * thread reached; the screen reads {@code ClientChoiceOffers} when it opens.
+     */
+    private static void handleChoiceOffer(ChoiceRewardPayload payload) {
+        dev.ellipog.tasked.client.ClientChoiceOffers.accept(payload.questId(), payload.rewardIndex(),
+                payload.entries());
+    }
+
+    /**
+     * The server's dimensions arrived: hold them for the editor's search.
+     *
+     * <p>Held rather than acted on, for the same reason the choice offer is: this runs wherever the network
+     * thread reached, and the screen reads the list when it draws a dimension field.
+     */
+    private static void handleDimensions(DimensionSyncPayload payload) {
+        dev.ellipog.tasked.client.ClientDimensions.accept(payload.dimensions());
+    }
+
+    /**
+     * A player's stages arrived: hold them for a script or a screen to read.
+     *
+     * <p>Held rather than acted on, like every other client payload here: this runs wherever the network
+     * thread reached, and the reader asks when it needs to know.
+     */
+    private static void handleStages(StageSyncPayload payload) {
+        dev.ellipog.tasked.client.ClientStages.accept(payload.stages());
+    }
+
+    /** Pushes one player's stages to their own client. Called on join, and after every change. */
+    public static void sendStagesTo(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        List<String> ids = dev.ellipog.tasked.progress.StageService.list(server, player.getUUID()).stream()
+                .map(net.minecraft.resources.ResourceLocation::toString)
+                .sorted()
+                .toList();
+        ArmatureNetwork.sendToPlayer(player, new StageSyncPayload(ids));
+    }
+
     private static void handlePartySync(PartySyncPayload payload) {
         ClientPartyCache.accept(payload.packed());
         // Info rather than debug, paired with the sender's line: "the server sent it" and "the client

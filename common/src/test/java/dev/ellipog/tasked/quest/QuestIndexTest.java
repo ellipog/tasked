@@ -708,6 +708,11 @@ class QuestIndexTest {
                 "no example asks for a count in the hundreds, which is the size at which the progress"
                         + " bar is the point");
 
+        // A turned node, because the rotation is a field with no worked example otherwise -- and a
+        // mechanism with no example is the thing nobody can see how to write.
+        assertTrue(all.stream().anyMatch(quest -> quest.layout().rotation() != 0),
+                "no example turns a node, so the rotation field has nothing to read it from");
+
         // Every shape, because the shapes are the thing a still cannot show the difference between
         // unless the content actually varies -- which was the defect this project already had once.
         for (QuestShape shape : QuestShape.values()) {
@@ -725,6 +730,28 @@ class QuestIndexTest {
                 "no example icon fills its node corner to corner");
         assertTrue(all.stream().anyMatch(quest -> quest.layout().iconScale() <= 0.5),
                 "no example icon sits small inside a large node");
+
+        // The visibility family, flag by flag. Each of these changes what a player can see, and a flag
+        // with no example is a flag nobody can look up how to write -- which for this family is
+        // especially expensive, because the behaviour it changes is invisible by definition. `the_veil`
+        // is the chapter written to hold one of each.
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().maxCompletableDependents() > 0),
+                "no example caps its dependents, so the branch point that closes roads has no file");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().invisible()
+                        && quest.rules().invisibleUntilTasks() > 0),
+                "no example is an easter egg: `invisible` with `invisibleUntilTasks` is the one way a "
+                        + "quest can appear on the canvas with nothing pointing at it");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesComplete()),
+                "no example is hidden until its prerequisite rule is met");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesVisible()),
+                "no example is hidden until a prerequisite is visible, so the recursive reveal -- the "
+                        + "one rule in the family that cannot be read off a single file -- has no example");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideDependencyLines()),
+                "no example hides its dependency lines");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideTextUntilComplete()),
+                "no example withholds its description until it is completed");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideDetailsUntilStartable()),
+                "no example withholds its details until it can be started");
 
         // A LINEAR chapter, and not a small one: the list order being the progression is a mechanism
         // that is otherwise never read by anything outside a test fixture, and the mosaic is the

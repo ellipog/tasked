@@ -13,6 +13,7 @@ import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
+import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -72,6 +73,9 @@ public final class TaskedFabricClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             ClientTicker.advance();
+            // The crosshair's half of the engine: observation tasks are judged here because a server
+            // never sees where a player looks. See ObservationWatcher.
+            ObservationWatcher.tick(client);
             ArmatureClient.tick();
         });
 
@@ -87,6 +91,8 @@ public final class TaskedFabricClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientQuestCache.clear();
             ClientChapterReplica.clear();
+            // The half-counted observations go with the tree they were counted against.
+            ObservationWatcher.reset();
             TaskedNetworking.forgetTransfers();
         });
 

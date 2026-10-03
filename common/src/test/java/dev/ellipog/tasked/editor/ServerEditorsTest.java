@@ -2,6 +2,7 @@ package dev.ellipog.tasked.editor;
 
 import com.google.gson.JsonPrimitive;
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
+import dev.ellipog.tasked.quest.QuestLoader;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -162,5 +163,75 @@ class ServerEditorsTest {
         assertFalse(refused.ok());
         assertTrue(editors.isOpen("first_steps"), "the chapter is still the one being edited");
         assertEquals(before, titleOnDisk(), "and nothing was written");
+    }
+
+    @Test
+    @DisplayName("a renamed chapter's editor follows it, history and all")
+    void aRenamedChapterKeepsItsHistory() throws IOException {
+        // The cache is keyed by chapter id and an editor is bound to a folder, so a rename breaks both
+        // halves at once: the key is stale and the path is gone. What must survive is the history -- a
+        // re-opened editor with an empty stack would make Ctrl+Z after a rename a key that does nothing,
+        // which is exactly the fault this class was written to prevent for ordinary edits.
+        assertTrue(editors.apply("first_steps", setTitle("Edited")).ok());
+
+        EditorOps.Applied renamed = editors.apply("first_steps",
+                new EditorOp.RenameChapter("first_steps", "renamed_chapter", null));
+
+        assertTrue(renamed.ok(), renamed.messages().toString());
+        assertFalse(editors.isOpen("first_steps"), "the editor under the old id is gone");
+        assertTrue(editors.isOpen("renamed_chapter"), "one is open at the new id");
+
+        // Undo is last-in-first-out, so the rename itself comes back first: the folder returns to its
+        // old name and the cache follows it there -- which is the half that a stale editor would get
+        // wrong, writing the next edit into a folder nobody named any more.
+        EditorOps.Applied undid = editors.apply("renamed_chapter", new EditorOp.Undo());
+        assertTrue(undid.ok(), undid.messages().toString());
+        assertTrue(Files.isRegularFile(root.resolve("getting_started").resolve("first_steps")
+                .resolve("chapter.json")), "the folder is back where it was");
+        assertTrue(editors.isOpen("first_steps"),
+                "and the cache is keyed where the folder actually is");
+
+        // And the edit made before the rename is still behind it, at the id it now has.
+        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok(),
+                "the title edit made before the rename is still undoable");
+        assertFalse(titleOnDisk().contains("Edited"), titleOnDisk());
+    }
+
+    @Test
+    @DisplayName("a blank session can create the first chapter of an empty tree")
+    void aBlankSessionCreatesTheFirstChapter(@TempDir Path empty) throws IOException {
+        // The empty-pack case: no chapter means no editor to open and no history to record on, so the op
+        // arrives with an empty session. Creating a chapter is still something to do there, and it is
+        // the only way in from the book.
+        Path bare = empty.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(bare);
+        ServerEditors bareEditors = new ServerEditors(() -> bare);
+
+        EditorOps.Applied applied = bareEditors.apply("",
+                new EditorOp.CreateChapter("", 0, "first", "First"));
+
+        assertTrue(applied.ok(), applied.messages().toString());
+        assertTrue(Files.isRegularFile(bare.resolve("first/chapter.json")), "the chapter exists");
+        assertTrue(Files.isRegularFile(bare.resolve("index.json")),
+                "and the root order names it, so the tree loads");
+        QuestLoader.Result loaded = QuestLoader.load(empty);
+        assertTrue(loaded.ok(), () -> "the created tree has to load cleanly:\n"
+                + loaded.problems().all().stream().map(problem -> problem.render())
+                        .reduce("", (a, b) -> a + "\n" + b));
+        assertTrue(loaded.index().chapter("first").isPresent());
+    }
+
+    @Test
+    @DisplayName("and a blank session still refuses an edit that needs a chapter")
+    void aBlankSessionRefusesFieldEdits(@TempDir Path empty) throws IOException {
+        Path bare = empty.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(bare);
+        ServerEditors bareEditors = new ServerEditors(() -> bare);
+
+        EditorOps.Applied applied = bareEditors.apply("", setTitle("x"));
+
+        assertFalse(applied.ok());
+        assertTrue(applied.messages().toString().contains("chapter"),
+                "the refusal names what is missing: " + applied.messages());
     }
 }

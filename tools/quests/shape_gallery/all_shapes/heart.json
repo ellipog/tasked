@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "heart",
+  "title": "Heart",
+  "subtitle": "Two lobes and a point",
+  "description": [
+    "Two round lobes with a notch between them, and a point below.",
+    "",
+    "It is the shape that made a row able to hold more than one span: its top rows are two separate pieces of material, and its lower rows are one. A single interval per row could not say that, so a heart would have been a shield with a filled-in dip."
+  ],
+  "icon": {
+    "item": "minecraft:golden_apple"
+  },
+  "x": 0,
+  "y": 192,
+  "shape": "heart",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the heart shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

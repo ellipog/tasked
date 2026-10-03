@@ -145,6 +145,18 @@ public final class BookGeometry {
      */
     public static final int TOOLS_BUTTON_WIDTH = 46;
 
+    /**
+     * The party button's width, in the header.
+     *
+     * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
+     * labels that happen to be a similar length today -- and a button whose width followed a word it
+     * does not contain would be a coincidence rather than a measurement.
+     */
+    public static final int PARTY_BUTTON_WIDTH = 52;
+
+    /** The rewards button's width, in the header, between Close and Party. Wider than Party's: the word is. */
+    public static final int REWARDS_BUTTON_WIDTH = 64;
+
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
 
@@ -238,6 +250,15 @@ public final class BookGeometry {
      * not.
      */
     public static final int SIDEBAR_SCROLLBAR = 8;
+
+    /**
+     * The gap between the sidebar's toolbar and the first row under it.
+     *
+     * <p>The toolbar is reserved for every player, not only authors: its height is part of the list's
+     * geometry, and a layout that changed shape with a mode would be two window geometries to test and
+     * one of them never seen until somebody toggled Edit.
+     */
+    public static final int SIDEBAR_TOOLBAR_GAP = 4;
 
     /** Between the header and the top of the sidebar's list. */
     public static final int CHAPTER_GAP = 6;
@@ -341,7 +362,35 @@ public final class BookGeometry {
     /** Enough canvas to be worth showing beside the sidebar. */
     public static final int MIN_CANVAS_WIDTH = 80;
 
-    public static final int MIN_PANEL_WIDTH = SIDEBAR_WIDTH + MIN_CANVAS_WIDTH;
+    /**
+     * The room the header's title needs, left of the controls: the inset it starts at and a word.
+     *
+     * <p>A term in {@link #MIN_PANEL_WIDTH} rather than a number in the drawing, because that is where it
+     * is enforced -- a panel too narrow to hold it runs off the window instead.
+     */
+    public static final int HEADER_TITLE_ROOM = 32;
+
+    /**
+     * The narrowest the panel gets, and it is the header that decides it now.
+     *
+     * <p>It was {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH} -- the sidebar and enough canvas to be worth
+     * showing beside it -- and that stopped being the binding term the day the header's cluster grew a
+     * fourth member. The cluster is anchored right to left from Close, and {@link #headerRightLimit} is
+     * measured from its leftmost control, so the panel has to hold the whole cluster plus
+     * {@link #HEADER_TITLE_ROOM} or the title has nowhere to go. A window narrower than this gets a panel
+     * that runs off its edges instead, which the constructor documents and the clipping handles.
+     *
+     * <p>Derived from the constants the buttons are themselves placed with, so widening one moves this
+     * with it instead of leaving a number to drift. That is not tidiness: the header's own test caught
+     * exactly this when the rewards button arrived, which is the drift it exists to catch.
+     */
+    public static final int MIN_PANEL_WIDTH = Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
+            HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
+                    + ROW_GAP + REWARDS_BUTTON_WIDTH         // Rewards
+                    + ROW_GAP + PARTY_BUTTON_WIDTH           // Party
+                    + ROW_GAP + TOOLS_BUTTON_WIDTH           // the gear
+                    + ROW_GAP + EDIT_BUTTON_WIDTH            // Edit
+                    + HEADER_TITLE_ROOM);
 
     /** The largest the panel gets, however big the window is. */
     public static final int MAX_PANEL_WIDTH = 800;
@@ -508,15 +557,6 @@ public final class BookGeometry {
 
     /** Leave's and Disband's width, in the party panel's footer. See {@link #PARTY_SHORT_LABEL_WIDTH}. */
     public static final int PARTY_ACTION_WIDTH = PARTY_SHORT_LABEL_WIDTH;
-
-    /**
-     * The party button's width, in the header.
-     *
-     * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
-     * labels that happen to be a similar length today -- and a button whose width followed a word it
-     * does not contain would be a coincidence rather than a measurement.
-     */
-    public static final int PARTY_BUTTON_WIDTH = 52;
 
     /**
      * How wide the party panel's card wants to be.
@@ -840,7 +880,22 @@ public final class BookGeometry {
      * zero-area viewport draws nothing and can be clicked through, which is visibly wrong.
      */
     public Rect sidebarViewport() {
-        int top = chapterListTop();
+        return sidebarViewport(true);
+    }
+
+    /**
+     * The same region, with or without the add-buttons strip above it.
+     *
+     * <p>The strip is drawn only in edit mode, and its height is therefore only part of the list's
+     * geometry then: reserving it for a reader leaves dead space above the first row, which is the report
+     * this parameter answers. The parameterless form reserves it, because the headerless question -- "how
+     * much room would the rows have if the toolbar were there" -- is the one the overlap sweep asks, and
+     * the caller that knows which mode it is drawing in passes it.
+     */
+    public Rect sidebarViewport(boolean toolbar) {
+        int top = toolbar
+                ? chapterListTop() + SIDEBAR_ROW_HEIGHT + SIDEBAR_TOOLBAR_GAP
+                : chapterListTop();
         // To the party strip, not to the panel's edge, and that is what the strip costs the list. The
         // alternative -- letting the rows run the full height and drawing the strip over them -- is the
         // class of fault this whole class exists to prevent: a row that stays clickable under a control
@@ -852,7 +907,27 @@ public final class BookGeometry {
     }
 
 
-    /** The close button: a row-height square in the header, against the panel's right edge. */
+    /**
+     * The sidebar's add buttons: two halves of a strip above the list.
+     *
+     * <p>A strip rather than a control in the header, because these add to <i>this list</i>: a button
+     * that makes a chapter belongs where the chapters are, and the header's right-hand cluster is
+     * already the place controls go when they are about the book rather than about the list.
+     */
+    public Map<String, Rect> sidebarToolbar() {
+        int top = chapterListTop();
+        int width = Math.max(0, sidebarInner() - SIDEBAR_SCROLLBAR);
+        int each = Math.max(0, (width - SIDEBAR_ROW_GAP) / 2);
+        Map<String, Rect> out = new LinkedHashMap<>();
+        out.put("addChapter", Rect.at(panel.x() + EDGE, top, each, SIDEBAR_ROW_HEIGHT));
+        out.put("addGroup", Rect.at(panel.x() + EDGE + each + SIDEBAR_ROW_GAP, top, each,
+                SIDEBAR_ROW_HEIGHT));
+        return out;
+    }
+
+    /**
+     * The close button: a row-height square in the header, against the panel's right edge.
+     */
     public Rect closeRect() {
         return Rect.at(panel.right() - HEADER_CONTROL_INSET - ROW_HEIGHT,
                 panel.y() + (HEADER_HEIGHT - ROW_HEIGHT) / 2, ROW_HEIGHT, ROW_HEIGHT);
@@ -866,17 +941,24 @@ public final class BookGeometry {
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
      */
     public int headerRightLimit() {
-        // Measured from the **leftmost** control in the header's right-hand cluster, whatever that is.
-        // It was the party button while that was the leftmost; then the author's split control was added
-        // beside it and the quest count ran underneath the word "Edit" -- which is exactly the class of
-        // mistake this method's comment has warned about twice, made a third time. The fix is the same
-        // each time and it is the reason the limit is a method rather than a constant: ask the cluster
-        // where it starts.
-        return editButton().x() - 10;
+        return headerRightLimit(true);
     }
 
     /**
-     * The party button, in the header to the left of Close.
+     * Where the header's right-hand text has to stop, for a header that may or may not carry the
+     * author's pair.
+     *
+     * <p>The pair is built for an operator and no one else, so measuring the limit from Edit at every
+     * player is what pulled the quest count left of empty space for everybody else — the gap the report
+     * was about. Asking the cluster where it actually starts is the same rule the parameterless method
+     * follows, with the cluster the caller is about to draw.
+     */
+    public int headerRightLimit(boolean authorControls) {
+        return (authorControls ? editButton().x() : partyButton().x()) - 10;
+    }
+
+    /**
+     * The party button, in the header to the left of the rewards button.
      *
      * <h2>Why it moved here from the sidebar's foot</h2>
      *
@@ -889,12 +971,28 @@ public final class BookGeometry {
      * chapter list; nothing needs that room now, so {@link #sidebarViewport} measures to the panel's
      * edge again.
      *
-     * <p>Anchored right to left from Close, so a future Claim All goes to its left and pushes nothing.
-     * A cluster laid out forwards from an origin would move every control when one was added.
+     * <p>Anchored right to left from the rewards button, itself anchored from Close, so the pair keeps
+     * the order the request gave it and nothing moves when either changes width. A cluster laid out
+     * forwards from an origin would move every control when one was added.
      */
     public Rect partyButton() {
-        return Rect.at(closeRect().x() - ROW_GAP - PARTY_BUTTON_WIDTH, closeRect().y(),
+        return Rect.at(rewardsButton().x() - ROW_GAP - PARTY_BUTTON_WIDTH, rewardsButton().y(),
                 PARTY_BUTTON_WIDTH, ROW_HEIGHT);
+    }
+
+    /**
+     * The rewards button, in the header between Close and Party: the way into the rewards panel.
+     *
+     * <p>The spot this class was already holding. {@link #partyButton}'s anchor was written right to
+     * left from Close for one stated reason -- so that "a future Claim All goes to its left and pushes
+     * nothing" -- and this is that control. It opens the panel rather than claiming outright: what the
+     * server owes is a list, and the press that spends a reward should be a press on a row that names it.
+     *
+     * <p>Wider than Party's, because the word is.
+     */
+    public Rect rewardsButton() {
+        return Rect.at(closeRect().x() - ROW_GAP - REWARDS_BUTTON_WIDTH, closeRect().y(),
+                REWARDS_BUTTON_WIDTH, ROW_HEIGHT);
     }
 
     /**
@@ -979,9 +1077,10 @@ public final class BookGeometry {
         // Close, in the header's right corner.
         out.put("close", closeRect());
 
-        // The party strip, at the foot of the column. In this map rather than placed by the drawing,
-        // for the reason every other entry is: the overlap sweep walks this, so a control that is not
-        // in it is a control nothing checks against the ones that are.
+        // The rewards button, then the party strip: right to left, the order the header reads in. The
+        // rewards button is in the map for every player, like Close and Party -- claiming is a player's
+        // business rather than an author's, so it is not gated the way Edit and its gear are.
+        out.put("rewards", rewardsButton());
         out.put("party", partyButton());
 
         // The author's split control, left of the party button. Always in the map and drawn only for a
@@ -989,6 +1088,12 @@ public final class BookGeometry {
         // the map only sometimes would be a control the sweep tests in one build and not the next.
         out.put("edit", editButton());
         out.put("tools", toolsButton());
+
+        // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
+        // only for an author -- the same convention as `edit` and `tools` above, and for the same
+        // reason: the overlap sweep walks this map, and a control that appeared in it only sometimes
+        // would be a control the sweep tests in one build and not the next.
+        out.putAll(sidebarToolbar());
 
         // The theme and motion controls are deliberately absent, and their absence is a decision worth
         // recording because the geometry for them existed and worked.

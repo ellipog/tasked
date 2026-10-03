@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_second_veil",
+  "title": "The Second Veil",
+  "subtitle": "One link further along the chain",
+  "description": [
+    "This one is hidden by the same flag as the quest before it, and the only thing",
+    "that can reveal it is that quest becoming visible. Nothing here is completed,",
+    "nothing is started -- visibility alone walks down the chain."
+  ],
+  "icon": {
+    "item": "minecraft:light_gray_wool"
+  },
+  "x": 256,
+  "y": 0,
+  "dependsOn": [
+    "behind_the_veil"
+  ],
+  "hideUntilDependenciesVisible": true,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:light_gray_wool",
+      "count": 8
+    }
+  ]
+}

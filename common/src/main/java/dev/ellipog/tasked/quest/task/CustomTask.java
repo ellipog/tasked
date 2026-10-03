@@ -1,0 +1,168 @@
+package dev.ellipog.tasked.quest.task;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.quest.QuestTask;
+import dev.ellipog.tasked.quest.TaskCommon;
+import dev.ellipog.tasked.quest.TaskContext;
+
+import net.minecraft.resources.ResourceLocation;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+
+/**
+ * A task whose progress is somebody else's code.
+ *
+ * <pre>{@code { "type": "tasked:custom", "id": "my_pack:unlock_the_vault", "value": 1 } }</pre>
+ *
+ * <p>The hook a pack reaches for when no task type anticipated what it wants to ask. A mod registers a
+ * handler through {@link CustomTasks#register} during its construction, or a script configures the same
+ * registry through the KubeJS integration; the handler is asked how far along the player is, and the quest
+ * engine treats the answer exactly as it treats a stat's or a kill count's.
+ *
+ * <p>Mirrors {@link dev.ellipog.tasked.quest.reward.CustomReward} deliberately -- same id-keyed registry,
+ * same "a script configures the same map" -- so there is one shape to learn for both halves of a quest.
+ *
+ * <h2>Why the id is required</h2>
+ *
+ * <p>The handler is what measures, so an id-less custom task has nothing to ask and could never complete.
+ * That is a property of the engine rather than a choice here: progress is only ever what a behaviour
+ * reports -- there is no path by which code or a command says "task 2 of this quest is now done" -- so a
+ * custom task is a <i>measured</i> task or it is nothing. A code path that advances a task from outside is
+ * what an anonymous one would need, and that belongs with the scripting work rather than with this type.
+ */
+public record CustomTask(TaskCommon common, String id, int value) implements QuestTask {
+
+    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "custom");
+
+    public static final Set<String> FIELDS = Set.of("id", "value");
+
+    public static final MapCodec<CustomTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            TaskCommon.mapCodec(20).forGetter(CustomTask::common),
+            Codec.STRING.fieldOf("id").forGetter(CustomTask::id),
+            Codec.intRange(1, 1_000_000_000).fieldOf("value").forGetter(CustomTask::value)
+    ).apply(instance, CustomTask::new));
+
+    @Override
+    public ResourceLocation type() {
+        return TYPE;
+    }
+
+    public static final TaskBehaviour<CustomTask> BEHAVIOUR = new TaskBehaviour<>() {
+
+        /** The number the author asked for; what it counts is the handler's business. */
+        @Override
+        public int required(CustomTask task) {
+            return task.value();
+        }
+
+        /**
+         * What the handler says, or zero when nothing provides it.
+         *
+         * <p>Zero rather than an error, and no log line -- deliberately unlike {@code CustomReward}, which
+         * warns once when its handler is missing. A reward grants once and a log line is read once; a task is
+         * polled every twenty ticks, and a warning per poll is a log nobody can read. The runtime signal is
+         * the row itself, showing no progress, and the author's signal is the validator -- which warns at
+         * the file's own line when this build has no handler for the id.
+         */
+        @Override
+        public int current(CustomTask task, TaskContext context) {
+            return CustomTasks.handler(task.id())
+                    .map(handler -> handler.current(task, context))
+                    .orElse(0);
+        }
+
+        /**
+         * Only if the handler says so: a custom task is measured, and a handler that wants a button asks for
+         * one -- {@code canSubmitByHand} is the question the reader's Submit control is built from.
+         */
+        @Override
+        public boolean canSubmitByHand(CustomTask task) {
+            return CustomTasks.handler(task.id())
+                    .map(handler -> handler.canSubmitByHand(task))
+                    .orElse(false);
+        }
+
+        /**
+         * Never, and that is a limit worth stating rather than a default left unsaid: handing a task in
+         * takes resources the engine can <i>name</i> -- so many of an item, so much of a fluid -- and a
+         * custom task names nothing. A handler that wants its task to cost something pairs it with an item
+         * task, where the cost can be seen by the player before they press anything.
+         */
+        @Override
+        public boolean takesResources(CustomTask task, boolean chapterDefault) {
+            return false;
+        }
+    };
+
+    public static final Function<CustomTask, TaskDisplay> DISPLAY = task ->
+            TaskDisplay.ofTranslatableText("tasked.task.custom", "Custom task: " + task.id(), task.id(),
+                    task.value());
+
+    /** The id-keyed handlers a custom task resolves against. */
+    public static final class CustomTasks {
+
+        private CustomTasks() {
+        }
+
+        /**
+         * What a custom task measures.
+         *
+         * <p>One method, so a lambda is a handler: the number is how far along the player is, counted the
+         * way the task's own {@code value} counts.
+         */
+        @FunctionalInterface
+        public interface Handler {
+
+            /** How far along the player is, or zero -- which the engine reads as "not started". */
+            int current(CustomTask task, TaskContext context);
+
+            /**
+             * Whether the player may hand it in with the Submit button.
+             *
+             * <p>False unless a handler says otherwise: a measured task needs no button, and a button that
+             * does nothing is worse than no button. A handler whose task is "the player told us they did
+             * it" returns true here, and then the row reads like a checkmark's.
+             */
+            default boolean canSubmitByHand(CustomTask task) {
+                return false;
+            }
+        }
+
+        private static final Map<String, Handler> HANDLERS = new ConcurrentHashMap<>();
+
+        /**
+         * Registers a handler.
+         *
+         * <p>Called from an addon's construction or a script's init. Registering the same id twice replaces
+         * the first -- which is what a reload of a script means, and the alternative, refusing, would make
+         * an iteration cycle impossible.
+         */
+        public static void register(String id, Handler handler) {
+            HANDLERS.put(java.util.Objects.requireNonNull(id, "id"),
+                    java.util.Objects.requireNonNull(handler, "handler"));
+        }
+
+        /** The handler an id names, or empty when nothing provides it. */
+        public static Optional<Handler> handler(String id) {
+            return Optional.ofNullable(HANDLERS.get(id));
+        }
+
+        /** Every registered id, for diagnostics -- and for the validator's "nothing provides this" warning. */
+        public static Set<String> ids() {
+            return Set.copyOf(HANDLERS.keySet());
+        }
+
+        /** Forgets every handler. Called before a script reload, so a reload does not keep a dead script's. */
+        public static void clear() {
+            HANDLERS.clear();
+        }
+    }
+}

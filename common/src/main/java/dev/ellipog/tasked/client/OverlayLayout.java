@@ -71,6 +71,25 @@ public final class OverlayLayout {
      */
     public static final int ROW_ADVANCE = ROW_ICON + 6;
 
+    /**
+     * One line of an editor entry's form: the badge, or one row of labelled controls.
+     *
+     * <p>Sixteen rather than fourteen, and the two pixels are the badge's whole point: an item sprite is
+     * sixteen pixels square, and a line shorter than that draws it spilling out of its own slot -- which is
+     * exactly how the type icons came to look broken. {@link #ENTRY_PAD} gives the two pixels back, so a
+     * one-line entry is still 24 pixels tall to the card that places it. See {@code EntryFormLayout}, which
+     * is the one place the number of lines is worked out.
+     */
+    public static final int ENTRY_LINE_HEIGHT = 16;
+
+    /** An entry's air: one line is 24 pixels tall, exactly as it always was. */
+    public static final int ENTRY_PAD = 8;
+
+    /** How tall an entry with this many control lines is. */
+    public static int entryRowHeight(int lines) {
+        return Math.max(1, lines) * ENTRY_LINE_HEIGHT + ENTRY_PAD;
+    }
+
     /** The pitch for a text-only row — a dependency, which has a tick but no icon. */
     public static final int DEP_ADVANCE = 14;
 
@@ -353,15 +372,83 @@ public final class OverlayLayout {
      */
     public static Stack stack(List<Prose> description, int taskCount, int rewardCount,
                               int dependencyCount, boolean editing) {
-        Objects.requireNonNull(description, "description");
+        return stack(description, taskCount, rewardCount, dependencyCount, editing, Reveal.ALL);
+    }
+
+    /**
+     * The editor's card, when its entries are more than one line tall.
+     *
+     * <p>{@code taskLines} and {@code rewardLines} carry, per entry, how many control lines it needs —
+     * computed by {@code EntryFormLayout} from the same width this layout is built for. The reader's
+     * card does not need it: a reader's row draws one line and has no controls.
+     */
+    public static Stack stack(List<Prose> description, List<Integer> taskLines, List<Integer> rewardLines,
+                              int dependencyCount, boolean editing) {
+        return stack(description, taskLines, rewardLines, dependencyCount, editing, Reveal.ALL);
+    }
+
+    private static List<Integer> ones(int count) {
+        return java.util.Collections.nCopies(count, 1);
+    }
+
+    /**
+     * What a reader is allowed to see of a card: the description, and the task and reward details.
+     *
+     * <p>The layout has to know, and not only the drawing, because a section that is not drawn but is
+     * still <b>placed</b> leaves a hole where it would have been -- the card shows a gap the height of a
+     * paragraph, which reads as a rendering fault rather than as a withheld description. So a hidden
+     * section places no slot at all, exactly like a REQUIRES section on a quest with no prerequisites,
+     * and the drawing finds nothing to draw in the same way.
+     *
+     * <p>The editor is never revealed-from: an author looking at a card must see every field they can
+     * edit, whatever the reader would be shown. These flags are about the reader's view, so the editor's
+     * own stack passes {@link #ALL}.
+     */
+    public record Reveal(boolean text, boolean details) {
+
+        /** Everything: what a reader sees when the quest hides nothing. */
+        public static final Reveal ALL = new Reveal(true, true);
+    }
+
+    /** The int-arg form, for the reader's card and the tests: every entry is one line. */
+    public static Stack stack(List<Prose> description, int taskCount, int rewardCount,
+                              int dependencyCount, boolean editing, Reveal reveal) {
         if (taskCount < 0 || rewardCount < 0 || dependencyCount < 0) {
             throw new IllegalArgumentException("counts must not be negative: " + taskCount + ", "
                     + rewardCount + ", " + dependencyCount);
         }
+        return stack(description, ones(taskCount), ones(rewardCount), dependencyCount, editing, reveal);
+    }
+
+    /**
+     * The full form: one line count per entry, so an entry with wrapped controls is as tall as it
+     * needs and everything under it is placed where the drawing will find it.
+     *
+     * <p>The counts are the caller's because only the caller has the entries and the width the slots
+     * will be built at; the arithmetic that turns them into heights is here, beside the rows they
+     * belong to, so a row added between entries cannot be placed against a stale total.
+     */
+    public static Stack stack(List<Prose> description, List<Integer> taskLines, List<Integer> rewardLines,
+                              int dependencyCount, boolean editing, Reveal reveal) {
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(reveal, "reveal");
+        Objects.requireNonNull(taskLines, "taskLines");
+        Objects.requireNonNull(rewardLines, "rewardLines");
+        if (dependencyCount < 0) {
+            throw new IllegalArgumentException("counts must not be negative: dependencyCount="
+                    + dependencyCount);
+        }
+        int taskCount = taskLines.size();
+        int rewardCount = rewardLines.size();
 
         Stack stack = Stack.stack();
 
-        if (description.isEmpty()) {
+        if (!reveal.text()) {
+            // Nothing at all, not even the empty state: "No description." is a statement about the
+            // quest, and a quest whose text is withheld has one.
+            description = List.of();
+        }
+        else if (description.isEmpty()) {
             stack.row(NO_DESCRIPTION, DESCRIPTION_ADVANCE);
         }
         for (int i = 0; i < description.size(); i++) {
@@ -384,32 +471,39 @@ public final class OverlayLayout {
 
         // The heading by hand rather than through Stack.heading() -- see the class note on why this
         // pane's tail is six and not four.
-        stack.gap(SECTION_GAP)
-                .text(TASKS_HEADING, "TASKS", Stack.Align.LEFT)
-                .gap(SECTION_TAIL);
-        if (taskCount == 0) {
-            // A row either way, so an empty list and a one-item list take the same space. The old code
-            // had to be reminded of that in a comment; here there is no separate measure to remind.
-            stack.row(NO_TASKS, ROW_ADVANCE, inset());
-        }
-        for (int i = 0; i < taskCount; i++) {
-            stack.row(taskKey(i), ROW_ADVANCE, inset());
-        }
-        if (editing) {
-            stack.row(TASKS_ADD, ROW_ADVANCE, inset());
-        }
+        //
+        // The whole section, headings included, is skipped when the details are withheld. REQUIRES is
+        // deliberately *not*: a locked quest's prerequisites are the one thing its reader most needs --
+        // they are what says how to unlock it -- so `hideDetailsUntilStartable` hides what the quest
+        // asks of you and gives you, and leaves the way in.
+        if (reveal.details()) {
+            stack.gap(SECTION_GAP)
+                    .text(TASKS_HEADING, "TASKS", Stack.Align.LEFT)
+                    .gap(SECTION_TAIL);
+            if (taskCount == 0) {
+                // A row either way, so an empty list and a one-item list take the same space. The old code
+                // had to be reminded of that in a comment; here there is no separate measure to remind.
+                stack.row(NO_TASKS, ROW_ADVANCE, inset());
+            }
+            for (int i = 0; i < taskCount; i++) {
+                stack.row(taskKey(i), entryRowHeight(taskLines.get(i)), inset());
+            }
+            if (editing) {
+                stack.row(TASKS_ADD, ROW_ADVANCE, inset());
+            }
 
-        stack.gap(SECTION_GAP_AFTER_CONTENT)
-                .text(REWARDS_HEADING, "REWARDS", Stack.Align.LEFT)
-                .gap(SECTION_TAIL);
-        if (rewardCount == 0) {
-            stack.row(NO_REWARDS, ROW_ADVANCE, inset());
-        }
-        for (int i = 0; i < rewardCount; i++) {
-            stack.row(rewardKey(i), ROW_ADVANCE, inset());
-        }
-        if (editing) {
-            stack.row(REWARDS_ADD, ROW_ADVANCE, inset());
+            stack.gap(SECTION_GAP_AFTER_CONTENT)
+                    .text(REWARDS_HEADING, "REWARDS", Stack.Align.LEFT)
+                    .gap(SECTION_TAIL);
+            if (rewardCount == 0) {
+                stack.row(NO_REWARDS, ROW_ADVANCE, inset());
+            }
+            for (int i = 0; i < rewardCount; i++) {
+                stack.row(rewardKey(i), entryRowHeight(rewardLines.get(i)), inset());
+            }
+            if (editing) {
+                stack.row(REWARDS_ADD, ROW_ADVANCE, inset());
+            }
         }
 
         // Absent entirely when there is nothing to require, which is a real difference from the other

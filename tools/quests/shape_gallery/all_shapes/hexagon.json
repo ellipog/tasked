@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "hexagon",
+  "title": "Hexagon",
+  "subtitle": "Flat top, straight taper",
+  "description": [
+    "A flat-topped hexagon: full width through the middle, tapering in a straight line to each edge.",
+    "",
+    "The straight taper is the whole read. An arc of the same depth is a rounded rectangle, and the two are hard to tell apart in a small picture -- which is why the test for this shape asserts that the taper's steps are equal rather than merely that it narrows."
+  ],
+  "icon": {
+    "item": "minecraft:honeycomb"
+  },
+  "x": 0,
+  "y": 96,
+  "shape": "hexagon",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the hexagon shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

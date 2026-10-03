@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_crossroads",
+  "title": "The Crossroads",
+  "subtitle": "maxCompletableDependents: 1",
+  "description": [
+    "Three roads lead away from here and only one of them can be walked.",
+    "`maxCompletableDependents: 1` lets at most one of this quest's direct dependents",
+    "complete -- the others stay locked for good, the moment the first one is done.",
+    "",
+    "It is the cap on a fan-out, where `exclusiveGroup` is a named pact between",
+    "siblings. Use whichever reads better: one quest that closes its own roads, or a",
+    "group that says the roads close each other."
+  ],
+  "icon": {
+    "item": "minecraft:compass"
+  },
+  "x": 128,
+  "y": 256,
+  "dependsOn": [
+    "the_first_light"
+  ],
+  "maxCompletableDependents": 1,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:stone_bricks",
+      "count": 8
+    }
+  ]
+}

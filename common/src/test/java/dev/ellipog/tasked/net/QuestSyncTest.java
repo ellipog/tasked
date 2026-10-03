@@ -1,14 +1,20 @@
 package dev.ellipog.tasked.net;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestProgress;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.progress.TeamProgress;
+import dev.ellipog.tasked.quest.DependencyStyle;
 import dev.ellipog.tasked.quest.Fixtures;
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
+import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestShape;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -18,8 +24,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +39,7 @@ import static dev.ellipog.tasked.quest.Fixtures.q;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -96,7 +107,7 @@ class QuestSyncTest {
         String json = new String(QuestSync.treeAsJson(twoQuests()), StandardCharsets.UTF_8);
 
         for (String key : List.of("\"version\"", "\"groups\"", "\"chapterGroupId\"", "\"quests\"",
-                "\"chapterId\"", "\"chapterTitle\"", "\"id\"",
+                "\"chapterId\"", "\"chapterTitle\"", "\"chapterIcon\"", "\"id\"",
                 "\"title\"", "\"icon\"", "\"x\"", "\"y\"", "\"size\"", "\"shape\"",
                 "\"iconScale\"", "\"showTitle\"", "\"invisible\"", "\"chapterLinear\"", "\"order\"",
                 "\"description\"", "\"dependsOn\"", "\"tasks\"", "\"rewards\"")) {
@@ -175,6 +186,47 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a chapter's icon and a group's icon both cross the wire")
+    void chapterAndGroupIconsArrive() {
+        // Two rows, two sources: a chapter row draws the chapter's own icon, which rides on every quest
+        // of it -- the client has no chapter record to hang it on, the same shape `chapterTheme` has --
+        // and a heading draws the group's, which is optional in the file. Absent means "fall back to the
+        // first chapter", and that fallback is a client decision rather than a value the server invents.
+        String file = """
+                {
+                  "version": 1,
+                  "chapterGroups": [
+                    {
+                      "id": "group",
+                      "title": "Group",
+                      "icon": { "item": "minecraft:anvil" },
+                      "chapters": [
+                        {
+                          "id": "chapter",
+                          "title": "Chapter",
+                          "icon": { "item": "minecraft:crafting_table" },
+                          "quests": [ %s ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted(q("punch_a_tree").build());
+        QuestIndex index = Fixtures.indexOf(file);
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("punch_a_tree");
+        assertEquals(Items.CRAFTING_TABLE, entry.chapterIcon().getItem(),
+                "the chapter's icon arrived on its quest");
+        assertEquals("minecraft:crafting_table", entry.chapterIconId(),
+                "and the id is kept beside it, for the row that has no stack to draw");
+
+        ClientQuestCache.GroupEntry group = ClientQuestCache.groups().get(0);
+        assertEquals(Items.ANVIL, group.icon().getItem(), "the group's own icon arrived");
+        assertEquals("minecraft:anvil", group.iconId());
+    }
+
+    @Test
     @DisplayName("a linear chapter arrives marked linear, with its quests in order")
     void aLinearChapterTravels() {
         // A linear chapter declares no dependencies at all -- the list order is the progression -- so
@@ -248,7 +300,7 @@ class QuestSyncTest {
         String json = new String(QuestSync.treeAsJson(twoQuests()), StandardCharsets.UTF_8);
 
         for (String key : List.of("\"type\"", "\"item\"", "\"count\"", "\"label\"",
-                "\"labelFallback\"", "\"optional\"", "\"manual\"")) {
+                "\"labelFallback\"", "\"labelArg\"", "\"optional\"", "\"manual\"")) {
             assertTrue(json.contains(key), "the task JSON has no " + key + " field");
         }
     }
@@ -417,15 +469,136 @@ class QuestSyncTest {
     }
 
     @Test
-    @DisplayName("an empty questline arrives as an empty tree, not as a failure")
+    @DisplayName("a row's subject crosses the wire, so the key renders the sentence it was written for")
+    void subjectsCrossTheWire() {
+        // The reported bug at its own example: a stage task and a stage reward read "1" on the card,
+        // because the count was the only argument the client had to give a key written for a subject.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tasked:stage\", \"stage\": \"my_pack:inducted\"} ], \"rewards\": "
+                        + "[ {\"type\": \"tasked:stage\", \"stage\": \"my_pack:inducted\"} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.TaskEntry task = entryFor("a").tasks().get(0);
+        assertEquals("my_pack:inducted", task.labelArg(), "the task's subject did not cross the wire");
+        // With no language loaded this JVM resolves the fallback, which is the same sentence the key
+        // holds -- the naming sweep reads the file's own English for every type.
+        assertEquals("Have the stage my_pack:inducted", task.text().getString(),
+                "the task must read as its sentence, not as the bare count");
+
+        ClientQuestCache.RewardEntry reward = entryFor("a").rewards().get(0);
+        assertEquals("my_pack:inducted", reward.labelArg(), "the reward's subject did not cross the wire");
+        assertEquals("Grant the stage my_pack:inducted", reward.text().getString(),
+                "the reward must read as its sentence, not as the bare count");
+    }
+
+    @Test
+    @DisplayName("a payload from an older server, with no subject on it, still renders the count-shaped keys")
+    void anOlderPayloadStillReads() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [], \"rewards\": "
+                        + "[ {\"type\": \"tasked:xp\", \"amount\": 5, \"levels\": true} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                withoutSubjects(QuestSync.treeAsJson(index)));
+
+        ClientQuestCache.RewardEntry reward = entryFor("a").rewards().get(0);
+        assertEquals("", reward.labelArg(), "an older writer sends no subject");
+        // The count is still the argument the sentence is built from -- this is the pairing an older
+        // server's keys rely on, and the reason the client falls back to the count rather than to "".
+        assertEquals("5 levels", reward.text().getString());
+    }
+
+    /** The tree as an older writer would have sent it: every {@code labelArg} taken back out. */
+    private static byte[] withoutSubjects(byte[] tree) {
+        JsonObject json = JsonParser.parseString(new String(tree, StandardCharsets.UTF_8))
+                .getAsJsonObject();
+        for (JsonElement quest : json.getAsJsonArray("quests")) {
+            for (String member : List.of("tasks", "rewards")) {
+                if (!quest.getAsJsonObject().has(member)) {
+                    continue;
+                }
+                for (JsonElement entry : quest.getAsJsonObject().getAsJsonArray(member)) {
+                    entry.getAsJsonObject().remove("labelArg");
+                }
+            }
+        }
+        return json.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("a tree with no quests still arrives as a tree, and a chapter with no quests is data")
     void emptyTreeArrives() {
         // A server with no quest files, which is what a fresh install is. The client has to be able
         // to tell "nothing loaded" from "nothing received", and hasTree is that distinction.
+        //
+        // Since version 3 the chapter list travels on its own, so "no quests" and "nothing to show" are
+        // no longer the same sentence: `Fixtures.file()` is one group holding one chapter with no quests,
+        // and that chapter is a real row in the sidebar -- which is exactly what makes a newly created
+        // chapter visible before anybody writes a quest into it.
         QuestIndex empty = Fixtures.indexOf(Fixtures.file());
         ClientQuestCache.acceptTree(empty.questCount(), empty.chapterCount(), QuestSync.treeAsJson(empty));
 
         assertTrue(ClientQuestCache.hasTree(), "an empty tree should still count as received");
-        assertFalse(ClientQuestCache.hasData(), "an empty tree has nothing to show");
+        assertTrue(ClientQuestCache.entries().isEmpty(), "there are no quests to show");
+        assertEquals(1, ClientQuestCache.chapters().size(),
+                "but there is a chapter, and a chapter is something to draw");
+        assertTrue(ClientQuestCache.hasData(), "a chapter with no quests is still a chapter");
+
+        // And a tree with nothing in it at all is still "nothing to show", which is the state a fresh
+        // install with no chapters is in.
+        ClientQuestCache.acceptTree(0, 0, """
+                {"version":3,"groups":[],"chapters":[],"quests":[]}
+                """.getBytes(StandardCharsets.UTF_8));
+        assertTrue(ClientQuestCache.hasTree());
+        assertFalse(ClientQuestCache.hasData(), "no chapters and no quests is nothing to show");
+    }
+
+    @Test
+    @DisplayName("line styles arrive as the chapter's resolved default plus the overrides as written")
+    void dependencyStylesRoundTrip(@TempDir Path temp) throws IOException {
+        // Built through the real loader, because the two halves being tested are the writer and the
+        // reader and the file shape between them: a chapter default that has to be resolved, and a
+        // quest's override that must arrive unsaid on the axes it does not name.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("group/chapter"));
+        Files.writeString(quests.resolve("group/group.json"), """
+                { "id": "group", "title": "Group", "chapters": ["chapter"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "chapter", "title": "Chapter",
+                  "dependencyStyle": { "form": "curved", "weight": "thick" },
+                  "quests": ["one.json", "two.json"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/one.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "one", "title": "One" }
+                """);
+        Files.writeString(quests.resolve("group/chapter/two.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "two", "title": "Two",
+                  "dependsOn": ["one"],
+                  "dependencyLines": { "one": { "arrows": "none", "dash": "dashed" } } }
+                """);
+
+        QuestLoader.Result loaded = QuestLoader.load(temp);
+        assertTrue(loaded.ok(), () -> "the fixture has to load cleanly:\n"
+                + loaded.problems().all().stream().map(problem -> problem.render())
+                        .reduce("", (a, b) -> a + "\n" + b));
+        QuestIndex index = loaded.index();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry two = entryFor("two");
+        DependencyStyle chapter = two.chapterDependencyStyle();
+        assertEquals(DependencyStyle.Form.CURVED, chapter.formOr(null));
+        assertEquals(DependencyStyle.Weight.THICK, chapter.weightOr(null));
+        assertEquals(DependencyStyle.Arrows.ONE, chapter.arrowsOr(null),
+                "an axis the chapter did not name arrives as the built-in, already resolved");
+
+        DependencyStyle line = two.dependencyLines().get("one");
+        assertEquals(DependencyStyle.Arrows.NONE, line.arrowsOr(null));
+        assertEquals(DependencyStyle.Dash.DASHED, line.dashOr(null));
+        assertTrue(line.form().isEmpty(), "the line named no form, so the chapter's stays in force");
+        assertTrue(entryFor("one").dependencyLines().isEmpty(),
+                "a quest that overrides nothing carries no map at all");
     }
 
     // ------------------------------------------------------------------
@@ -513,6 +686,36 @@ class QuestSyncTest {
         }
 
         @Test
+        @DisplayName("the raw JSON carries the chapter list, which is what makes an empty chapter real")
+        void theChapterListIsOnTheWire() {
+            // Version 3's addition, and the reason it exists: a chapter used to reach the client only as
+            // a property of the quests inside it, so one with no quests could not be seen, selected or
+            // edited. Asserted here as raw JSON as well as round-tripped through the cache, because the
+            // two ends are hand-written and a field name is exactly what they can disagree about.
+            QuestIndex index = twoGroups();
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+
+            assertEquals(QuestSync.TREE_VERSION, root.get("version").getAsInt());
+            JsonArray chapters = root.getAsJsonArray("chapters");
+            assertNotNull(chapters, "version 3 has to send the chapter list, however short it is");
+            assertEquals(index.chapters().size(), chapters.size());
+            JsonObject first = chapters.get(0).getAsJsonObject();
+            assertEquals("first_steps", first.get("id").getAsString());
+            assertEquals("zzz_written_first", first.get("groupId").getAsString());
+            assertEquals("First Steps", first.get("title").getAsString());
+            assertTrue(first.has("icon"),
+                    "the chapter's own icon, so a chapter with no quests has one of its own rather than "
+                            + "borrowing from a quest that does not exist");
+
+            // And the reader holds it, under the same names.
+            send(index);
+            assertEquals(2, ClientQuestCache.chapters().size());
+            assertEquals("first_steps", ClientQuestCache.chapters().get(0).id());
+            assertEquals("zzz_written_first", ClientQuestCache.chapters().get(0).groupId());
+        }
+
+        @Test
         @DisplayName("the raw JSON carries the version, the headings and each quest's group")
         void groupFieldsMatch() {
             // The same contract check as `fieldNamesMatch` above, tightened onto the three things
@@ -521,10 +724,12 @@ class QuestSyncTest {
             // failure -- this one cannot be weakened without deleting the line.
             String json = new String(QuestSync.treeAsJson(twoGroups()), StandardCharsets.UTF_8);
 
-            assertTrue(json.contains("\"version\":2"),
-                    "the tree should declare version 2, so a reader can tell what it is looking at: " + json);
+            assertTrue(json.contains("\"version\":7"),
+                    "the tree should declare version 7 (the observation fields), so a reader can tell what it is looking at: " + json);
             assertTrue(json.contains("\"groups\""),
                     "the tree has no groups array, so the client has nothing to build headings from: " + json);
+            assertTrue(json.contains("\"chapters\""),
+                    "the tree has no chapter list, so an empty chapter would be invisible again: " + json);
             assertTrue(json.contains("\"chapterGroupId\""),
                     "no quest says which group its chapter is in, so the headings would have nothing "
                             + "under them: " + json);
@@ -741,7 +946,7 @@ class QuestSyncTest {
                 ClientQuestCache.groups();
                 ClientQuestCache.chapterTheme("first_steps");
                 ClientQuestCache.stateOf("punch_a_tree");
-                ClientQuestCache.canClaim("punch_a_tree");
+                ClientQuestCache.canClaimFor(UUID.randomUUID(), "punch_a_tree");
                 assertEquals(settled, ClientQuestCache.treeRevision(),
                         "frame " + frame + ": reading the cache moved the revision, so a screen that "
                                 + "rebuilt its outline from it would reset the player's toggles every "
@@ -889,6 +1094,9 @@ class QuestSyncTest {
         // that is always true. The collected half is what makes this a test of the guard.
         QuestIndex index = rewardedQuest();
         Quest quest = Fixtures.quest(index, "a");
+        // The claim view reads the reward's own team flag from the tree, so the tree must be loaded
+        // -- which it always is when the book is open.
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
 
         TeamProgress waiting = TeamProgress.empty().put(quest,
                 QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
@@ -897,17 +1105,21 @@ class QuestSyncTest {
                 CLIENT_TICK);
 
         assertEquals(QuestState.COMPLETED, ClientQuestCache.stateOf("a"), "fixture sanity");
-        assertTrue(ClientQuestCache.canClaim("a"),
+        UUID player = UUID.randomUUID();
+        assertTrue(ClientQuestCache.canClaimFor(player, "a"),
                 "a finished quest whose rewards nobody has collected must read as claimable on the "
                         + "client, or there is nothing for a Claim button to be drawn from");
 
-        TeamProgress collected = waiting.put(quest,
-                waiting.progressOf(quest).withRewardsClaimed(true));
+        TeamProgress collected = waiting.put(quest, waiting.progressOf(quest)
+                .withClaims(dev.ellipog.tasked.progress.QuestClaims.NONE.withPlayerClaim(player, 0)));
         ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
                 QuestSync.progressAsJson(ProgressionEngine.resolve(index, collected, NOW), collected, index),
                 CLIENT_TICK);
 
-        assertFalse(ClientQuestCache.canClaim("a"), "and not once they have been collected");
+        assertFalse(ClientQuestCache.canClaimFor(player, "a"),
+                "and not once they have collected their own copy");
+        assertTrue(ClientQuestCache.canClaimFor(UUID.randomUUID(), "a"),
+                "a teammate still has their own copy to collect -- the whole point of per-player claims");
     }
 
     @Test
@@ -917,6 +1129,7 @@ class QuestSyncTest {
         // quest that is merely unlocked and carrying rewards must not offer a Claim button, or the
         // button would be on screen from the moment the quest appeared.
         QuestIndex index = rewardedQuest();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
         TeamProgress fresh = TeamProgress.empty();
 
         ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
@@ -924,7 +1137,7 @@ class QuestSyncTest {
                 CLIENT_TICK);
 
         assertEquals(QuestState.UNLOCKED, ClientQuestCache.stateOf("a"), "fixture sanity");
-        assertFalse(ClientQuestCache.canClaim("a"));
+        assertFalse(ClientQuestCache.canClaimFor(UUID.randomUUID(), "a"));
     }
 
     /**
@@ -938,6 +1151,58 @@ class QuestSyncTest {
         return Fixtures.indexOf(Fixtures.file(
                 "{\"id\": \"a\", \"title\": \"a\", \"tasks\": ["
                         + " { \"type\": \"tasked:checkmark\", \"title\": \"done\"} ],"
+                        + " \"rewards\": ["
+                        + " { \"type\": \"tasked:item\", \"item\": \"minecraft:wooden_axe\", \"count\": 1} ]}"));
+    }
+
+    @Test
+    @DisplayName("a stage-locked quest arrives LOCKED and with no claim, whatever the team's progress says")
+    void aStageLockedQuestArrivesLocked() {
+        // The third per-player overlay on this wire, after the contributors and the claimable flag. A
+        // gated quest's stored state is the team's, and whether *this* player may see and collect it is
+        // not -- so the client is told locked, and the claim flag is not sent at all.
+        QuestIndex index = gatedRewardedQuest();
+        Quest quest = Fixtures.quest(index, "a");
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        // Finished with the reward still waiting: exactly the state that must not draw a Claim button
+        // for a player the gate has shut out.
+        TeamProgress waiting = TeamProgress.empty().put(quest,
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, waiting, NOW);
+        UUID player = UUID.randomUUID();
+
+        byte[] gated = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of("a")).json();
+        assertFalse(new String(gated, StandardCharsets.UTF_8).contains("claimable"),
+                "a gated quest must not carry the claim flag at all: "
+                        + new String(gated, StandardCharsets.UTF_8));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, gated, CLIENT_TICK);
+
+        assertEquals(QuestState.LOCKED, ClientQuestCache.stateOf("a"),
+                "the overlay is the whole of this player's view of the quest");
+        assertFalse(ClientQuestCache.canClaimFor(player, "a"),
+                "and a quest this player cannot open must not offer them a claim");
+
+        // The control: the same progress with the gate open reads exactly as the stored state does, so
+        // the assertions above are about the overlay and not about the fixture.
+        byte[] open = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of()).json();
+        assertTrue(new String(open, StandardCharsets.UTF_8).contains("claimable"),
+                "the control must carry the claim flag: " + new String(open, StandardCharsets.UTF_8));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, open, CLIENT_TICK);
+
+        assertEquals(QuestState.COMPLETED, ClientQuestCache.stateOf("a"),
+                "with the stage held, the same progress is the completed quest it always was");
+        assertTrue(ClientQuestCache.canClaimFor(player, "a"),
+                "and it is claimable again");
+    }
+
+    /** The rewarded quest, behind a stage: the fixture the overlay test needs both halves of. */
+    private static QuestIndex gatedRewardedQuest() {
+        return Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"requiresStage\": \"my_pack:marked\","
+                        + " \"tasks\": [ { \"type\": \"tasked:checkmark\", \"title\": \"done\"} ],"
                         + " \"rewards\": ["
                         + " { \"type\": \"tasked:item\", \"item\": \"minecraft:wooden_axe\", \"count\": 1} ]}"));
     }

@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.Look;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.progress.QuestState;
+import dev.ellipog.tasked.quest.DependencyStyle;
 import dev.ellipog.tasked.quest.QuestLayout;
 import dev.ellipog.tasked.quest.QuestShape;
 
@@ -24,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -59,7 +61,9 @@ public final class ClientQuestCache {
      * while a client is connected, so a resolution can be made once and kept.
      */
     public record TaskEntry(ItemStack icon, ItemStack item, int count, boolean optional, boolean manual,
-                            String label, String labelFallback, String itemId) {
+                            String type, String label, String labelFallback, String labelArg, String itemId,
+                            /** The observation fields, empty for every other type: what to watch, how. */
+                            String observeType, String observeTarget, int observeTicks) {
 
         /** Whether this row draws an item at all, as opposed to text. */
         public boolean hasItem() {
@@ -67,41 +71,82 @@ public final class ClientQuestCache {
         }
 
         /**
+         * The kind of thing to watch for, or null when this is not an observation task.
+         *
+         * <p>The value the client ticker matches the crosshair against; see
+         * {@code ObservationWatcher}.
+         */
+        public dev.ellipog.tasked.quest.task.ObservationTask.ObserveType observation() {
+            return observeType.isEmpty()
+                    ? null
+                    : dev.ellipog.tasked.quest.task.ObservationTask.ObserveType.byWire(observeType);
+        }
+
+        /**
          * The text for this row.
          *
          * <p>A translatable label when one was sent with a fallback, so a pack can translate its own
          * checkmark titles; the item's own name when there is an item; the literal text otherwise.
+         *
+         * <h2>What the key is formatted with, and the bug that made it explicit</h2>
+         *
+         * <p>{@code labelArg} when the server sent one — the biome, the stage, the mob the sentence is
+         * about — and the count otherwise, for the types whose sentence counts something ("%s XP").
+         * Passing the count for every key is what put "1" on the card where a stage reward should have
+         * read "Grant the stage my_pack:inducted": the key was written for a subject the count is not.
+         * An older server sends no argument, and those keys are the count-shaped ones, so the fallback
+         * to the count is what keeps that pairing working.
          */
         public Component text() {
+            return text(labelArg.isEmpty() ? String.valueOf(count) : labelArg);
+        }
+
+        /**
+         * The same, with the key's argument supplied by the caller.
+         *
+         * <p>How a row shows a prettified id: the sentence is the server's and stays the server's, and
+         * the one word in it the client can say better -- a registry id with a name the client knows --
+         * is replaced before the key is formatted. See {@code QuestBookScreen.prettyArg}.
+         */
+        public Component text(String arg) {
             if (hasItem()) {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                // The count as the key's argument, because these keys are written with one:
-                // "tasked.reward.xp.points" is "%s XP", and without the argument the row reads "%s XP"
-                // -- which is what a reward row did. The fallback needs no argument, since it is
-                // already whole English; Minecraft uses it verbatim when the key has no translation.
-                return Component.translatableWithFallback(label, labelFallback, count);
+                return Component.translatableWithFallback(label, labelFallback, arg);
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
     }
 
-    /** One reward, resolved ready to draw. */
-    public record RewardEntry(ItemStack icon, ItemStack item, int count, String label, String labelFallback,
-                              String itemId) {
+    /**
+     * One reward, resolved ready to draw.
+     *
+     * <p>{@code team}, {@code auto} and {@code excludeFromClaimAll} are the base mechanics, resolved
+     * server-side against the tree's own settings: {@code team} decides whose claim settles this
+     * reward (the player's own, or the whole team's), which is what the claim view reads.
+     */
+    public record RewardEntry(ItemStack icon, ItemStack item, int count, String type, String label,
+                              String labelFallback, String labelArg, String itemId, String auto, boolean team,
+                              boolean excludeFromClaimAll) {
 
         public boolean hasItem() {
             return !item.isEmpty();
         }
 
         public Component text() {
+            // The subject when there is one, the count otherwise -- see TaskEntry.text for the
+            // "1" that reading the count into every key produced.
+            return text(labelArg.isEmpty() ? String.valueOf(count) : labelArg);
+        }
+
+        /** The same, with the key's argument supplied by the caller: see {@link TaskEntry#text(String)}. */
+        public Component text(String arg) {
             if (hasItem()) {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                // The count, for the same reason as the task label above: the key is written with one.
-                return Component.translatableWithFallback(label, labelFallback, count);
+                return Component.translatableWithFallback(label, labelFallback, arg);
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
@@ -120,8 +165,29 @@ public final class ClientQuestCache {
      * written to {@code config/armature/appearance.json}, which is the player's and Armature's file.
      * The two never meet, which is why this is a boolean from the server and a set of keys on the
      * client rather than a field that travels in both directions.
+     *
+     * <p>{@code icon} is the group's authored icon, empty when the file declares none — in which case
+     * the sidebar falls back to the first chapter under it. {@code iconId} is kept beside the stack for
+     * the same reason the quest's is: a resolved-empty stack with an id is a missing item, and the two
+     * facts are worth telling apart.
      */
-    public record GroupEntry(String id, String title, boolean collapsedByDefault) {
+    public record GroupEntry(String id, String title, boolean collapsedByDefault, ItemStack icon,
+                             String iconId) {
+    }
+
+    /**
+     * One chapter, as the server described it — whether or not it holds any quests.
+     *
+     * <p>Since version 3 the tree carries a {@code chapters[]} of its own, and the reason is a chapter
+     * that has no quests: until this list existed, a chapter reached the client only as a property of
+     * the quests inside it, so an empty one was invisible — it could not be selected, edited, moved or
+     * even seen. The per-quest {@code chapterTitle}/{@code chapterIcon} fields still arrive and are
+     * still what the canvas draws, so a version-2 server needs nothing from this record.
+     *
+     * <p>{@code groupId} is empty for a chapter that belongs to no group — the same sentinel a quest's
+     * {@code chapterGroupId} uses, and the case the sidebar already draws as a root row.
+     */
+    public record ChapterEntry(String id, String groupId, String title, ItemStack icon, String iconId) {
     }
 
     /**
@@ -147,7 +213,18 @@ public final class ClientQuestCache {
     public record Entry(String chapterGroupId, String chapterId, String chapterTitle, String chapterTheme,
                         String id, String title, String subtitle,
                         List<String> description, ItemStack icon, int x, int y, int size, QuestShape shape,
-                        double iconScale, boolean showTitle,
+                        double iconScale, int rotation, boolean showTitle,
+                        /** The dependency rule, as the server resolved it: null means the chapter default. */
+                        dev.ellipog.tasked.quest.PrerequisiteMode prerequisiteMode,
+                        /** What the chapter says when a quest has no opinion. */
+                        dev.ellipog.tasked.quest.PrerequisiteMode chapterDefaultPrerequisiteMode,
+                        int minRequired, int maxCompletableDependents,
+                        /** Empty when the quest names no group. */
+                        String exclusiveGroup,
+                        /** The reveal flags, as authored. See `QuestVisibility`. */
+                        boolean hideUntilDependenciesComplete, boolean hideUntilDependenciesVisible,
+                        boolean hideDependencyLines, boolean hideTextUntilComplete,
+                        boolean hideDetailsUntilStartable, int invisibleUntilTasks,
                         boolean chapterLinear, int orderInChapter,
                         List<String> dependencies, List<TaskEntry> tasks, List<RewardEntry> rewards,
                         boolean invisible,
@@ -156,8 +233,64 @@ public final class ClientQuestCache {
                          * that failed to resolve with an id that was sent is a <b>missing item</b>, and
                          * the screens say so; an empty id is simply no icon.
                          */
-                        String iconId) {
+                        String iconId,
+                        /**
+                         * The chapter's icon, and the id it was resolved from: the sidebar's chapter row
+                         * draws it, and the id keeps the same "missing item" reading the quest's own pair
+                         * has. Sent on every quest of the chapter, so it is never absent for a chapter --
+                         * an unauthored icon is the model's paper default rather than nothing.
+                         */
+                        ItemStack chapterIcon, String chapterIconId,
+                        /**
+                         * The per-line styles this quest's own dependencies carry, keyed by dependency
+                         * id. Empty means every line follows {@link #chapterDependencyStyle()}, which is
+                         * what a quest file that never mentions them says.
+                         */
+                        java.util.Map<String, dev.ellipog.tasked.quest.DependencyStyle> dependencyLines,
+                        /**
+                         * The chapter's default line style, already resolved: the canvas draws with it
+                         * directly and has no chapter record to read one from. Resolved server-side so
+                         * an axis nobody set arrives as the built-in rather than as an absence every
+                         * drawing call site would have to remember to fill.
+                         */
+                        dev.ellipog.tasked.quest.DependencyStyle chapterDependencyStyle) {
+
+        /**
+         * The rule this quest's dependencies are judged by: its own, or the chapter's when it has none.
+         *
+         * <p>One method rather than a ternary at each call site, because two call sites is how the
+         * canvas and the card would come to disagree about whether a prerequisite is satisfied.
+         */
+        public dev.ellipog.tasked.quest.PrerequisiteMode effectivePrerequisiteMode() {
+            return prerequisiteMode == null ? chapterDefaultPrerequisiteMode : prerequisiteMode;
+        }
+
+        /**
+         * The node's outline, with its rotation applied: one shape, resolved once.
+         *
+         * <p>Not a method that rotates on demand, and that is the point of the field. A rotation is
+         * applied by <b>sampling</b> the shape again (see {@code Shapes.rotated}), so a caller that
+         * resolved it per frame would rebuild a span table per node per frame. Here it is built once
+         * per (shape, rotation) for the whole client, and the drawing, the hit test and the icon fit all
+         * read the same table -- which is also what keeps them from disagreeing about where the node is.
+         *
+         * <p>The cache is static because a record cannot hold one, and keyed by the shape and the angle
+         * because those are the whole of what the sampling depends on: a node's position and size are
+         * passed to the containment test, not baked into the table.
+         */
+        public dev.ellipog.armature.client.ui.shape.Shape geometry() {
+            if (rotation == QuestLayout.DEFAULT_ROTATION) {
+                return shape.geometry();
+            }
+            long key = ((long) shape.ordinal() << 16) | (rotation & 0xFFFF);
+            return ROTATED.computeIfAbsent(key, ignored ->
+                    dev.ellipog.armature.client.ui.shape.Shapes.rotated(shape.geometry(), rotation));
+        }
     }
+
+    /** Sampled rotated outlines, keyed by (shape ordinal, rotation). See {@link Entry#geometry()}. */
+    private static final java.util.concurrent.ConcurrentHashMap<Long, dev.ellipog.armature.client.ui.shape.Shape>
+            ROTATED = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * One quest's progress, as the server last reported it.
@@ -168,11 +301,25 @@ public final class ClientQuestCache {
      * does nothing.
      */
     private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean claimable,
-                            Map<Integer, Map<UUID, Integer>> contributors) {
+                            Map<Integer, Map<UUID, Integer>> contributors,
+                            /** Indices settled for the whole team (team-mode and auto claims). */
+                            Set<Integer> teamClaims,
+                            /** Per player, the indices they have collected themselves. */
+                            Map<UUID, Set<Integer>> claimedBy,
+                            /** A pre-per-player save's "collected": nobody may claim again. */
+                            boolean legacySettled) {
 
         /** Who is holding what toward one task, in the order the server named them. Empty for nobody. */
         Map<UUID, Integer> contributorsOf(int taskIndex) {
             return contributors.getOrDefault(taskIndex, Map.of());
+        }
+
+        /** Whether a claim is settled, by the rule the reward's own team flag asks for. */
+        boolean claimed(UUID player, int index, boolean teamReward) {
+            if (teamReward) {
+                return teamClaims.contains(index);
+            }
+            return claimedBy.getOrDefault(player, Set.of()).contains(index);
         }
     }
 
@@ -188,6 +335,15 @@ public final class ClientQuestCache {
      * version-2 tree is self-describing, and note that nothing here depends on that.
      */
     private static volatile List<GroupEntry> groups = List.of();
+
+    /**
+     * The chapters themselves, in the order the server declared them.
+     *
+     * <p>Empty for a server older than version 3, and that reads the same way {@link #groups} does: the
+     * sidebar derives its chapter rows from the quests when this list is empty, which is exactly what
+     * every client did before the list existed. So absence is a fallback rather than a special case.
+     */
+    private static volatile List<ChapterEntry> chapters = List.of();
 
     private static volatile Map<String, Progress> progress = Map.of();
     private static volatile UUID teamId;
@@ -245,7 +401,10 @@ public final class ClientQuestCache {
      * hunting a sync bug that does not exist.
      */
     public static boolean hasData() {
-        return treeReceived && !entries.isEmpty();
+        // Chapters count as data since the tree can carry them on their own: a book whose only
+        // chapter is empty is a book with something in it, and it is exactly the state that exists
+        // between creating a chapter and writing its first quest.
+        return treeReceived && (!entries.isEmpty() || !chapters.isEmpty());
     }
 
     public static List<Entry> entries() {
@@ -260,6 +419,16 @@ public final class ClientQuestCache {
      */
     public static List<GroupEntry> groups() {
         return groups;
+    }
+
+    /**
+     * The chapters, in the order the server declared them — including chapters that hold no quests.
+     *
+     * <p>Declaration order for the same reason {@link #groups()} is: it is the author's order, and a
+     * client that sorted would silently reorder somebody's book.
+     */
+    public static List<ChapterEntry> chapters() {
+        return chapters;
     }
 
     /**
@@ -347,15 +516,40 @@ public final class ClientQuestCache {
     }
 
     /**
-     * Whether this quest is finished with rewards the player has not collected.
+     * Whether <b>this player</b> is finished with rewards they have not collected.
      *
-     * <p>The client's copy of the answer, and the reason the Claim button can be drawn at all: it is
-     * asked on arrival rather than on every frame, and the server recomputes the same thing when the
-     * claim arrives. Asking is not claiming — a client that shows the button wrongly gets a refusal.
+     * <p>Per player, because a claim is a player's own: in a party where a teammate collected their
+     * diamond, this player's button must still be there. The server sends who collected what, and
+     * the tree sends each reward's own {@code team} flag; this is the two of them against the local
+     * player's UUID. The server recomputes the same answer when the claim arrives — asking is not
+     * claiming, and a client that shows the button wrongly gets a refusal.
      */
-    public static boolean canClaim(String questId) {
+    public static boolean canClaimFor(UUID player, String questId) {
         Progress found = progress.get(questId);
-        return found != null && found.claimable();
+        if (found == null || found.state() != QuestState.COMPLETED || found.legacySettled()
+                || player == null) {
+            return false;
+        }
+        Entry entry = entry(questId);
+        if (entry == null || entry.rewards().isEmpty()) {
+            return false;
+        }
+        for (int index = 0; index < entry.rewards().size(); index++) {
+            if (!found.claimed(player, index, entry.rewards().get(index).team())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The tree entry for a quest id, or null. */
+    public static Entry entry(String questId) {
+        for (Entry entry : entries) {
+            if (entry.id().equals(questId)) {
+                return entry;
+            }
+        }
+        return null;
     }
 
     /**
@@ -426,6 +620,9 @@ public final class ClientQuestCache {
             Constants.LOG.error("tasked: the server sent a quest tree this client could not read", e);
             entries = List.of();
             groups = List.of();
+            // Qualified, because this method's own `chapters` parameter is the count that came with the
+            // payload and shadows the list.
+            ClientQuestCache.chapters = List.of();
             treeReceived = false;
         }
     }
@@ -508,6 +705,7 @@ public final class ClientQuestCache {
     public static void clear() {
         entries = List.of();
         groups = List.of();
+        chapters = List.of();
         progress = Map.of();
         teamId = null;
         questCount = 0;
@@ -560,7 +758,25 @@ public final class ClientQuestCache {
                 parsedGroups.add(new GroupEntry(
                         str(group, "id"),
                         str(group, "title"),
-                        group.has("collapsedByDefault") && group.get("collapsedByDefault").getAsBoolean()));
+                        group.has("collapsedByDefault") && group.get("collapsedByDefault").getAsBoolean(),
+                        stack(str(group, "icon"), 1, group.get("iconComponents")),
+                        str(group, "icon")));
+            }
+        }
+
+        // The chapters themselves, when the server sent them. Absent means a server older than version
+        // 3, whose chapters are still derivable from the quests below -- so this defaults rather than
+        // requires, and nothing tests the version number to find out. The key's presence is the fact.
+        List<ChapterEntry> parsedChapters = new ArrayList<>();
+        if (root.has("chapters")) {
+            for (JsonElement element : root.getAsJsonArray("chapters")) {
+                JsonObject chapter = element.getAsJsonObject();
+                parsedChapters.add(new ChapterEntry(
+                        str(chapter, "id"),
+                        str(chapter, "groupId"),
+                        str(chapter, "title"),
+                        stack(str(chapter, "icon"), 1, chapter.get("iconComponents")),
+                        str(chapter, "icon")));
             }
         }
 
@@ -579,6 +795,17 @@ public final class ClientQuestCache {
             // The ends of the prose are not content -- see `Prose`. Trimmed where the tree is parsed, so a
             // reader's card and the editor's copy of the same file agree about where the prose stops.
             description = new ArrayList<>(Prose.trimmed(description));
+
+            // The dependency rule, as the server resolved it. Absent means the quest has no opinion and
+            // the chapter's default applies -- which is a different thing from the mode written out, so
+            // this is null rather than a fallback. A name this build has never heard of is also null:
+            // the read-out then treats it as the chapter default, which is the safe reading.
+            dev.ellipog.tasked.quest.PrerequisiteMode prerequisiteMode = null;
+            if (quest.has("prerequisiteMode")) {
+                prerequisiteMode = dev.ellipog.tasked.quest.PrerequisiteMode.CODEC
+                        .parse(com.mojang.serialization.JsonOps.INSTANCE, quest.get("prerequisiteMode"))
+                        .result().orElse(null);
+            }
 
             List<String> dependencies = new ArrayList<>();
             if (quest.has("dependsOn")) {
@@ -632,7 +859,34 @@ public final class ClientQuestCache {
                             ? Math.min(Math.max(quest.get("iconScale").getAsDouble(),
                                     QuestShape.MIN_ICON_SCALE), QuestShape.MAX_ICON_SCALE)
                             : QuestLayout.DEFAULT_ICON_SCALE,
+                    // Wrapped rather than clamped, so a server that sent 450 degrees gets the shape it
+                    // meant rather than one pinned at the top of the range.
+                    quest.has("rotation")
+                            ? Math.floorMod(quest.get("rotation").getAsInt(), 360)
+                            : QuestLayout.DEFAULT_ROTATION,
                     quest.has("showTitle") && quest.get("showTitle").getAsBoolean(),
+                    prerequisiteMode,
+                    quest.has("chapterDefaultPrerequisiteMode")
+                            ? dev.ellipog.tasked.quest.PrerequisiteMode.CODEC
+                                    .parse(com.mojang.serialization.JsonOps.INSTANCE,
+                                            quest.get("chapterDefaultPrerequisiteMode"))
+                                    .result()
+                                    .orElse(dev.ellipog.tasked.quest.PrerequisiteMode.ALL_COMPLETED)
+                            : dev.ellipog.tasked.quest.PrerequisiteMode.ALL_COMPLETED,
+                    quest.has("minRequired") ? Math.max(0, quest.get("minRequired").getAsInt()) : 0,
+                    quest.has("maxCompletableDependents")
+                            ? Math.max(0, quest.get("maxCompletableDependents").getAsInt()) : 0,
+                    str(quest, "exclusiveGroup"),
+                    quest.has("hideUntilDependenciesComplete")
+                            && quest.get("hideUntilDependenciesComplete").getAsBoolean(),
+                    quest.has("hideUntilDependenciesVisible")
+                            && quest.get("hideUntilDependenciesVisible").getAsBoolean(),
+                    quest.has("hideDependencyLines") && quest.get("hideDependencyLines").getAsBoolean(),
+                    quest.has("hideTextUntilComplete") && quest.get("hideTextUntilComplete").getAsBoolean(),
+                    quest.has("hideDetailsUntilStartable")
+                            && quest.get("hideDetailsUntilStartable").getAsBoolean(),
+                    quest.has("invisibleUntilTasks")
+                            ? Math.max(0, quest.get("invisibleUntilTasks").getAsInt()) : 0,
                     quest.has("chapterLinear") && quest.get("chapterLinear").getAsBoolean(),
                     // Defaulted to a large number rather than to zero, so a server too old to send it
                     // cannot claim every quest is the first one in its chapter. A chapter that is not
@@ -642,10 +896,28 @@ public final class ClientQuestCache {
                     List.copyOf(tasks),
                     List.copyOf(rewards),
                     quest.has("invisible") && quest.get("invisible").getAsBoolean(),
-                    str(quest, "icon")));
+                    str(quest, "icon"),
+                    stack(str(quest, "chapterIcon"), 1, quest.get("chapterIconComponents")),
+                    str(quest, "chapterIcon"),
+                    dependencyLines(quest),
+                    DependencyStyle.from(quest.get("chapterDependencyStyle")).resolved()));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
+        chapters = List.copyOf(parsedChapters);
+    }
+
+    /** A quest's per-line overrides, keyed by dependency id. Absent or malformed reads as none. */
+    private static java.util.Map<String, DependencyStyle> dependencyLines(JsonObject quest) {
+        JsonElement element = quest.get("dependencyLines");
+        if (element == null || !element.isJsonObject()) {
+            return java.util.Map.of();
+        }
+        java.util.Map<String, DependencyStyle> lines = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            lines.put(entry.getKey(), DependencyStyle.from(entry.getValue()));
+        }
+        return java.util.Map.copyOf(lines);
     }
 
     private static TaskEntry taskEntry(JsonObject json) {
@@ -656,9 +928,14 @@ public final class ClientQuestCache {
                 json.has("count") ? json.get("count").getAsInt() : 1,
                 json.has("optional") && json.get("optional").getAsBoolean(),
                 json.has("manual") && json.get("manual").getAsBoolean(),
+                str(json, "type"),
                 str(json, "label"),
                 str(json, "labelFallback"),
-                str(json, "item"));
+                str(json, "labelArg"),
+                str(json, "item"),
+                str(json, "observeType"),
+                str(json, "observeTarget"),
+                json.has("observeTicks") ? json.get("observeTicks").getAsInt() : 0);
     }
 
     private static RewardEntry rewardEntry(JsonObject json) {
@@ -667,9 +944,14 @@ public final class ClientQuestCache {
                 stack(str(json, "item"), json.has("count") ? json.get("count").getAsInt() : 1,
                         json.get("itemComponents")),
                 json.has("count") ? json.get("count").getAsInt() : 1,
+                str(json, "type"),
                 str(json, "label"),
                 str(json, "labelFallback"),
-                str(json, "item"));
+                str(json, "labelArg"),
+                str(json, "item"),
+                str(json, "auto"),
+                json.has("team") && json.get("team").getAsBoolean(),
+                json.has("excludeFromClaimAll") && json.get("excludeFromClaimAll").getAsBoolean());
     }
 
     /**
@@ -729,12 +1011,39 @@ public final class ClientQuestCache {
                     }
                 }
 
+                // Who collected what. Sparse in both directions, like the contributor pictures: a
+                // quest nobody has claimed anything on sends neither key, which reads as "nobody has"
+                // -- the direction that cannot invent a claim.
+                Set<Integer> teamClaims = new java.util.LinkedHashSet<>();
+                if (one.has("teamClaims")) {
+                    for (JsonElement value : one.getAsJsonArray("teamClaims")) {
+                        teamClaims.add(value.getAsInt());
+                    }
+                }
+                Map<UUID, Set<Integer>> claimedBy = new LinkedHashMap<>();
+                if (one.has("claims")) {
+                    for (Map.Entry<String, JsonElement> who : one.getAsJsonObject("claims").entrySet()) {
+                        UUID player = memberId(who.getKey());
+                        if (player == null || !who.getValue().isJsonArray()) {
+                            continue;
+                        }
+                        Set<Integer> indices = new java.util.LinkedHashSet<>();
+                        for (JsonElement value : who.getValue().getAsJsonArray()) {
+                            indices.add(value.getAsInt());
+                        }
+                        claimedBy.put(player, Set.copyOf(indices));
+                    }
+                }
+
                 next.put(entry.getKey(), new Progress(
                         readState(str(one, "state")),
                         one.has("cooldown") ? one.get("cooldown").getAsLong() : 0L,
                         List.copyOf(tasks),
                         one.has("claimable") && one.get("claimable").getAsBoolean(),
-                        Map.copyOf(contributors)));
+                        Map.copyOf(contributors),
+                        Set.copyOf(teamClaims),
+                        Map.copyOf(claimedBy),
+                        one.has("settled") && one.get("settled").getAsBoolean()));
             }
         }
         progress = Map.copyOf(next);
@@ -811,6 +1120,18 @@ public final class ClientQuestCache {
                     .result().ifPresent(stack::applyComponents);
         }
         return stack;
+    }
+
+    /**
+     * An item id and its optional component patch, resolved for drawing.
+     *
+     * <p>The one public door into the resolver above, for a caller that holds an id from a tree the
+     * cache did not parse into an entry -- the chapter's icon, which the Chapter tab draws from the
+     * replica's own JSON. Empty for anything unknown, the same as every other resolution here, so a
+     * caller that needs to tell "absent" from "missing" keeps the id beside it.
+     */
+    public static ItemStack iconOf(String id, JsonElement components) {
+        return stack(id, 1, components);
     }
 
     private static String str(JsonObject object, String key) {

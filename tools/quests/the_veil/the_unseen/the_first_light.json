@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_light",
+  "title": "First Light",
+  "subtitle": "The one quest in here you can always see",
+  "description": [
+    "The chapter has to start somewhere visible. Everything hidden in here is hidden",
+    "*behind* this quest: nothing on this canvas appears until First Light does, and",
+    "everything else is one link further along the same chain."
+  ],
+  "icon": {
+    "item": "minecraft:torch"
+  },
+  "x": 0,
+  "y": 0,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:torch",
+      "count": 4
+    }
+  ]
+}

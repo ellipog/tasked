@@ -1,0 +1,6 @@
+# Tasked's KubeJS integration.
+#
+# KubeJS reads this file out of every mod's jar and loads the classes it names; the file is the marker,
+# since KubeJS ships no service file and no annotation to copy. One class name per line, and a line
+# starting with '#' is ignored.
+dev.ellipog.tasked.neoforge.TaskedKubeJsPlugin

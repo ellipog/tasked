@@ -20,7 +20,7 @@ import java.util.Set;
  * <p>Grid spacing is 32 pixels, so quests at 0,0 and 32,0 touch. The editor snaps to that; a
  * hand-edited file can put one anywhere.
  */
-public record QuestLayout(int x, int y, QuestShape shape, int size, double iconScale) {
+public record QuestLayout(int x, int y, QuestShape shape, int size, double iconScale, int rotation) {
 
     /**
      * The share of the node the icon fills, unless a quest says otherwise.
@@ -32,11 +32,25 @@ public record QuestLayout(int x, int y, QuestShape shape, int size, double iconS
      */
     public static final double DEFAULT_ICON_SCALE = 0.75;
 
+    /**
+     * How far a node is turned, in degrees clockwise on screen, unless a quest says otherwise.
+     *
+     * <p>Every shape can be turned, because a rotation is a turn of the <i>question</i> a shape answers
+     * rather than a second table of spans — see {@code Shapes.rotated}. What it is for is the map: a
+     * diamond at 45 degrees is a square, a gear's teeth can be phased off the grid, and a tome can lean.
+     */
+    public static final int DEFAULT_ROTATION = 0;
+
+    /** The rotation's bounds, in degrees. A full turn is the shape itself, so 360 is not allowed. */
+    public static final int MIN_ROTATION = 0;
+    public static final int MAX_ROTATION = 359;
+
     public static final QuestLayout DEFAULT =
-            new QuestLayout(0, 0, QuestShape.ROUNDED, 48, DEFAULT_ICON_SCALE);
+            new QuestLayout(0, 0, QuestShape.ROUNDED, 48, DEFAULT_ICON_SCALE, DEFAULT_ROTATION);
 
     /** The field names this contributes, for the validator to allow at quest level. */
-    public static final Set<String> FIELDS = Set.of("x", "y", "shape", "size", "iconScale");
+    public static final Set<String> FIELDS =
+            Set.of("x", "y", "shape", "size", "iconScale", "rotation");
 
     public static final MapCodec<QuestLayout> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.INT.optionalFieldOf("x", 0).forGetter(QuestLayout::x),
@@ -48,7 +62,11 @@ public record QuestLayout(int x, int y, QuestShape shape, int size, double iconS
             // The bounds live on QuestShape, where the geometry they describe lives, so the codec and
             // the validator cannot come to disagree about them.
             Codec.doubleRange(QuestShape.MIN_ICON_SCALE, QuestShape.MAX_ICON_SCALE)
-                    .optionalFieldOf("iconScale", DEFAULT_ICON_SCALE).forGetter(QuestLayout::iconScale)
+                    .optionalFieldOf("iconScale", DEFAULT_ICON_SCALE).forGetter(QuestLayout::iconScale),
+            // Degrees, and a whole turn is written as 0 rather than 360: the geometry treats them as the
+            // same shape, and one spelling of "not turned" is one thing for a file to say.
+            Codec.intRange(MIN_ROTATION, MAX_ROTATION)
+                    .optionalFieldOf("rotation", DEFAULT_ROTATION).forGetter(QuestLayout::rotation)
     ).apply(instance, QuestLayout::new));
 
     public static final Codec<QuestLayout> CODEC = MAP_CODEC.codec();

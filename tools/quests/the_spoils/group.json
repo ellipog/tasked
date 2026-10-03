@@ -1,0 +1,18 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_spoils",
+  "title": "The Spoils",
+  "description": [
+    "A chapter about the reward that is not an item: a reward table. One file",
+    "lists entries with weights, and a quest pays out of it when the reward",
+    "is collected -- with a weight-zero entry that always lands and an empty",
+    "band that can disappoint.",
+    "",
+    "The table itself is `reward_tables/loot.json`, beside this group rather",
+    "than inside it, because a table belongs to the whole tree: any chapter",
+    "can roll it."
+  ],
+  "chapters": [
+    "the_loot"
+  ]
+}

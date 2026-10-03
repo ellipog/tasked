@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_fall",
+  "title": "The Fall",
+  "subtitle": "The same flag, taken away",
+  "description": [
+    "A stage reward sets a flag; the same reward with `\"remove\": true`",
+    "clears it. This is how a pack closes a door it opened -- a fall from",
+    "grace, a revoked rank, a chapter that ends by sending you back out.",
+    "",
+    "The checkmark is the acknowledgement, and it is the one task here you",
+    "hand in by hand: everything else in the chapter is counted as you carry",
+    "it, and this one waits for you to say you are going."
+  ],
+  "icon": { "item": "minecraft:wither_rose" },
+  "x": 320,
+  "y": 0,
+  "shape": "diamond",
+  "dependsOn": [ "the_mark" ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I will go" }
+  ],
+  "rewards": [
+    { "type": "tasked:stage", "stage": "the_induction:marked", "remove": true }
+  ]
+}

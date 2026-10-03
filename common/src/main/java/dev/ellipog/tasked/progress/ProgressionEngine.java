@@ -5,12 +5,15 @@ import dev.ellipog.tasked.quest.PrerequisiteMode;
 import dev.ellipog.tasked.quest.ProgressionMode;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
+import dev.ellipog.tasked.quest.QuestRef;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -90,6 +93,11 @@ public final class ProgressionEngine {
             }
         }
 
+        // Which quests a prerequisite's cap has cut off, decided in the same first pass for the same
+        // reason: a cap is a statement about a quest's dependents as a group, so the answer must not
+        // depend on which of them the walk happens to reach first.
+        Set<String> cappedOut = cappedDependents(index, progress);
+
         // Quest position within its chapter, needed by linear progression.
         //
         // Taken from each entry rather than recounted from a chapter walk, and that is a fix rather
@@ -106,7 +114,7 @@ public final class ProgressionEngine {
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             resolveOne(index, entry, progress, now, states, cooldowns, takenExclusiveGroups,
-                    positionInChapter, new ArrayDeque<>());
+                    cappedOut, positionInChapter, new ArrayDeque<>());
         }
 
         return new Resolution(states, cooldowns);
@@ -126,6 +134,7 @@ public final class ProgressionEngine {
                                          Map<String, QuestState> states,
                                          Map<String, Long> cooldowns,
                                          Set<String> takenExclusiveGroups,
+                                         Set<String> cappedOut,
                                          Map<String, Integer> positionInChapter,
                                          Deque<String> visiting) {
 
@@ -162,13 +171,22 @@ public final class ProgressionEngine {
                 return QuestState.LOCKED;
             }
 
+            // Cut off by a prerequisite's cap on how many of its dependents may complete. Checked
+            // after the completed short-circuit above, so a dependent that finished before the cap was
+            // reached keeps its completion -- a cap decides which branches are still available, not
+            // which ones a player has already taken.
+            if (cappedOut.contains(quest.id())) {
+                states.put(quest.id(), QuestState.LOCKED);
+                return QuestState.LOCKED;
+            }
+
             // Dependencies. Resolve each first, so this is a depth-first walk of the graph.
             PrerequisiteMode effective = quest.prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
 
             int satisfied = 0;
             for (var dependency : quest.dependencies()) {
                 QuestState dependencyState = resolveById(index, dependency.id(), entry, progress, now, states,
-                        cooldowns, takenExclusiveGroups, positionInChapter, visiting);
+                        cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, visiting);
                 if (dependencyState.isAtLeast(effective == PrerequisiteMode.ALL_STARTED
                         || effective == PrerequisiteMode.ONE_STARTED
                         ? QuestState.STARTED
@@ -193,7 +211,7 @@ public final class ProgressionEngine {
                 if (chapter.progressionMode() == ProgressionMode.LINEAR) {
                     for (Quest earlier : chapter.questsBefore(position)) {
                         QuestState earlierState = resolveById(index, earlier.id(), entry, progress, now, states,
-                                cooldowns, takenExclusiveGroups, positionInChapter, visiting);
+                                cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, visiting);
                         if (earlierState != QuestState.COMPLETED) {
                             states.put(quest.id(), QuestState.LOCKED);
                             return QuestState.LOCKED;
@@ -224,6 +242,7 @@ public final class ProgressionEngine {
                                           Map<String, QuestState> states,
                                           Map<String, Long> cooldowns,
                                           Set<String> takenExclusiveGroups,
+                                          Set<String> cappedOut,
                                           Map<String, Integer> positionInChapter,
                                           Deque<String> visiting) {
         Optional<QuestIndex.QuestEntry> found = index.quest(idOrAlias);
@@ -234,7 +253,7 @@ public final class ProgressionEngine {
             return QuestState.LOCKED;
         }
         return resolveOne(index, found.get(), progress, now, states, cooldowns, takenExclusiveGroups,
-                positionInChapter, visiting);
+                cappedOut, positionInChapter, visiting);
     }
 
     // ------------------------------------------------------------------
@@ -285,6 +304,61 @@ public final class ProgressionEngine {
 
     private static String exclusiveKey(String chapterId, String group) {
         return chapterId + ":" + group;
+    }
+
+    /**
+     * The quests a prerequisite's {@code maxCompletableDependents} has cut off.
+     *
+     * <h2>What the cap means, and how it differs from an exclusive group</h2>
+     *
+     * <p>A quest with a cap of N lets at most N of the quests that depend on it be completed; once that
+     * many are done, the rest are locked for good. It is the other end of the same idea as
+     * {@code exclusiveGroup}: a named group says "these quests exclude each other" wherever they sit,
+     * and a cap says "at most N of the things I unlock". A branch with a shared parent and no natural
+     * group name wants the cap.
+     *
+     * <p>Dependents are found by resolving every quest's own {@code dependsOn} back to a quest id, so a
+     * dependency written against an alias counts for the quest it names, and a dependent in another
+     * chapter counts too -- a cap is a statement about the graph, and the graph crosses files.
+     *
+     * <p>A dependent that has already completed keeps its completion: it holds a slot, and the quests
+     * still available are the ones the cap leaves. That is what "at most N can be completed" means --
+     * it is not a rule about which branches a player may start.
+     */
+    private static Set<String> cappedDependents(QuestIndex index, TeamProgress progress) {
+        Map<String, List<String>> dependents = new LinkedHashMap<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            for (QuestRef dependency : entry.quest().dependencies()) {
+                index.quest(dependency.id()).ifPresent(target -> dependents
+                        .computeIfAbsent(target.quest().id(), key -> new ArrayList<>())
+                        .add(entry.quest().id()));
+            }
+        }
+
+        Set<String> capped = new HashSet<>();
+        for (Map.Entry<String, List<String>> entry : dependents.entrySet()) {
+            int cap = index.quest(entry.getKey())
+                    .map(quest -> quest.quest().rules().maxCompletableDependents())
+                    .orElse(0);
+            if (cap <= 0) {
+                continue;
+            }
+            List<String> unfinished = new ArrayList<>();
+            int completed = 0;
+            for (String id : entry.getValue()) {
+                if (index.quest(id).map(quest -> satisfiedForDependents(quest.quest(), progress))
+                        .orElse(false)) {
+                    completed++;
+                }
+                else {
+                    unfinished.add(id);
+                }
+            }
+            if (completed >= cap) {
+                capped.addAll(unfinished);
+            }
+        }
+        return capped;
     }
 
     // ------------------------------------------------------------------

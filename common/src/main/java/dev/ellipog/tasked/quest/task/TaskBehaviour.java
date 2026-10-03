@@ -2,6 +2,9 @@ package dev.ellipog.tasked.quest.task;
 
 import dev.ellipog.tasked.quest.TaskContext;
 
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
+
 /**
  * How a task type decides whether a task is satisfied.
  *
@@ -52,5 +55,55 @@ public interface TaskBehaviour<T> {
      */
     default boolean canSubmitByHand(T task) {
         return true;
+    }
+
+    /**
+     * Whether submitting this task by hand is something a <b>client</b> may ask for.
+     *
+     * <p>Separate from {@link #canSubmitByHand} because the two questions are different: the button's
+     * visibility is one, and whether the server accepts the press is another. An observation task has
+     * no button -- there is nothing to confirm, the watching is the work -- but its client does submit
+     * on the player's behalf once the target has been looked at for long enough, so the server must
+     * accept that press where it would refuse a hand-rolled one.
+     */
+    default boolean acceptsClientSubmit(T task) {
+        return canSubmitByHand(task);
+    }
+
+    /**
+     * Whether this task <b>takes</b> what it asks for when it is satisfied, rather than only checking
+     * presence. The chapter's {@code defaultConsumeItems} is the fallback for a task that does not say.
+     *
+     * <p>Here rather than in the engine, where it used to be an {@code instanceof ItemTask}: the
+     * engine should not grow a branch per consumable type, and the knowledge of what a task costs
+     * belongs beside the knowledge of what it counts.
+     */
+    default boolean takesResources(T task, boolean chapterDefault) {
+        return false;
+    }
+
+    /**
+     * Taken when the task is satisfied: up to {@code count} of whatever it asks for, from this player,
+     * answering how much was actually taken.
+     *
+     * <p>The return value matters under a pooled party: the caller walking several members has to know
+     * when to stop asking, and "assume it took everything" is exactly the assumption that is false in
+     * the case that walk exists for. A type that takes nothing answers zero.
+     */
+    default int take(T task, ServerPlayer player, int count) {
+        return 0;
+    }
+
+    /**
+     * Something died at this player's hand: how many steps of progress that is worth, zero for a type
+     * that does not listen.
+     *
+     * <p>The event half of the contract, and the only one -- everything else is asked rather than
+     * told. A kill task is the reason it exists: counting kills by polling a player's lifetime stats
+     * can say how many zombies they have ever killed, but not whether the one that just died was
+     * called "Bob" and carried a named sword.
+     */
+    default int onEntityDeath(T task, ServerPlayer killer, LivingEntity killed) {
+        return 0;
     }
 }

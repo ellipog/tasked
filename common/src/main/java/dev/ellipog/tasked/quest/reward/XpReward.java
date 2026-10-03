@@ -18,13 +18,15 @@ import java.util.Set;
  * nudge, thirty levels is most of a playthrough. FTB Quests has both as separate reward types, which
  * is two entries in its type list for one idea.
  */
-public record XpReward(int amount, boolean levels) implements QuestReward {
+public record XpReward(RewardCommon common, int amount, boolean levels) implements QuestReward {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "xp");
 
+    /** The type's own fields; {@link RewardCommon#FIELDS} is unioned in at registration. */
     public static final Set<String> FIELDS = Set.of("amount", "levels");
 
     public static final MapCodec<XpReward> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            RewardCommon.MAP_CODEC.forGetter(XpReward::common),
             Codec.intRange(1, 100_000).fieldOf("amount").forGetter(XpReward::amount),
             Codec.BOOL.optionalFieldOf("levels", false).forGetter(XpReward::levels)
     ).apply(instance, XpReward::new));

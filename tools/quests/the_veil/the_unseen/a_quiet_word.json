@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "a_quiet_word",
+  "title": "A Quiet Word",
+  "subtitle": "hideTextUntilComplete",
+  "description": [
+    "The card for this quest shows its name, its icon and its tasks -- and no",
+    "description at all, until it is completed. `hideTextUntilComplete` is for a quest",
+    "whose text would give away what it is asking for.",
+    "",
+    "This description is the thing being withheld. If you can read this on the card",
+    "before finishing the quest, the flag is not being honoured."
+  ],
+  "icon": {
+    "item": "minecraft:paper"
+  },
+  "x": 0,
+  "y": 128,
+  "dependsOn": [
+    "the_first_light"
+  ],
+  "hideTextUntilComplete": true,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:paper",
+      "count": 12
+    }
+  ]
+}

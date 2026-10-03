@@ -7,11 +7,13 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.saveddata.SavedData;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -35,12 +37,32 @@ import java.util.UUID;
  * <p>A {@link SavedData} on the overworld rather than per-dimension, so a quest finished in the
  * Nether counts. Marked dirty after every write; forgetting that produces progress that works all
  * session and is gone tomorrow, which is a miserable thing to be handed.
+ *
+ * <h2>Why the stages live here too, and why they are keyed by player</h2>
+ *
+ * <p>A stage is a named flag a player has, the thing a pack's scripts and quest gates ask about. It is
+ * keyed by <b>player</b> UUID rather than by team, unlike everything else in this class, because that is
+ * what a stage means everywhere it is used: GameStages, FTB Quests' stage integration and every pack
+ * script written against them ask "does <i>this player</i> have it". A team-mode reward that grants a
+ * stage grants it to the player who claimed, which is FTB Quests' behaviour too.
+ *
+ * <p>They share this file rather than getting one of their own so that a grant and the completion that
+ * caused it are written, versioned and backed up together -- one world's quest data in one place.
  */
 public final class ProgressStore extends SavedData {
 
     private static final String DATA_NAME = "tasked_progress";
 
     private final Map<UUID, TeamProgress> byTeam = new LinkedHashMap<>();
+
+    /**
+     * Each player's stages, by player UUID.
+     *
+     * <p>Iteration order is insertion order and each set is a {@link java.util.LinkedHashSet}, so the file
+     * is stable between saves: a diff of two saves is then a diff of what actually changed, which is worth
+     * the two lines it costs for anyone debugging a pack by reading the file.
+     */
+    private final Map<UUID, Set<ResourceLocation>> stagesByPlayer = new LinkedHashMap<>();
 
     /** The store for this server. */
     public static ProgressStore of(MinecraftServer server) {
@@ -81,6 +103,53 @@ public final class ProgressStore extends SavedData {
     }
 
     // ------------------------------------------------------------------
+    // Stages: named flags, per player
+    // ------------------------------------------------------------------
+
+    /** Every stage this player has, in the order they were granted. Empty for a player with none. */
+    public Set<ResourceLocation> stagesOf(UUID player) {
+        return Set.copyOf(stagesByPlayer.getOrDefault(player, Set.of()));
+    }
+
+    public boolean hasStage(UUID player, ResourceLocation stage) {
+        return stagesByPlayer.getOrDefault(player, Set.of()).contains(stage);
+    }
+
+    /**
+     * Grants a stage.
+     *
+     * @return whether it changed anything -- false when the player already had it, which is what makes a
+     *         reward idempotent and what the event firing is gated on
+     */
+    public boolean addStage(UUID player, ResourceLocation stage) {
+        if (!stagesByPlayer.computeIfAbsent(player, id -> new java.util.LinkedHashSet<>()).add(stage)) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
+    /** Takes a stage away. False when the player did not have it. */
+    public boolean removeStage(UUID player, ResourceLocation stage) {
+        Set<ResourceLocation> held = stagesByPlayer.get(player);
+        if (held == null || !held.remove(stage)) {
+            return false;
+        }
+        if (held.isEmpty()) {
+            // A player with no stages is not a player with an empty entry: the file should not grow a row
+            // per player who was ever granted one and then had it taken away.
+            stagesByPlayer.remove(player);
+        }
+        setDirty();
+        return true;
+    }
+
+    /** How many players hold at least one stage. For diagnostics. */
+    public int stagedPlayerCount() {
+        return stagesByPlayer.size();
+    }
+
+    // ------------------------------------------------------------------
 
     static ProgressStore load(CompoundTag tag, HolderLookup.Provider registries) {
         ProgressStore store = new ProgressStore();
@@ -96,12 +165,37 @@ public final class ProgressStore extends SavedData {
             store.byTeam.put(teamId, TeamProgress.load(entry, registries));
         }
 
+        // Absent in a file written before stages existed, which is why nothing checks the version: a missing
+        // section is a player with no stages, and that is a valid state rather than something to migrate.
+        ListTag stages = tag.getList("stages", Tag.TAG_COMPOUND);
+        for (int i = 0; i < stages.size(); i++) {
+            CompoundTag entry = stages.getCompound(i);
+            UUID player = readUuid(entry.getString("player"));
+            if (player == null) {
+                Constants.LOG.warn("tasked: skipping stored stages with no player id");
+                continue;
+            }
+            Set<ResourceLocation> held = new java.util.LinkedHashSet<>();
+            ListTag ids = entry.getList("ids", Tag.TAG_STRING);
+            for (int j = 0; j < ids.size(); j++) {
+                ResourceLocation stage = ResourceLocation.tryParse(ids.getString(j));
+                if (stage == null) {
+                    Constants.LOG.warn("tasked: '{}' is not a valid stage id in stored stages", ids.getString(j));
+                    continue;
+                }
+                held.add(stage);
+            }
+            store.stagesByPlayer.put(player, held);
+        }
+
         return store;
     }
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        tag.putInt("version", 1);
+        // 2 since stages were added. The version is written for anyone reading the file; nothing reads it
+        // back, because every section is additive and a missing one means "none" rather than "old shape".
+        tag.putInt("version", 2);
 
         ListTag list = new ListTag();
         byTeam.forEach((teamId, progress) -> {
@@ -113,6 +207,19 @@ public final class ProgressStore extends SavedData {
             list.add(entry);
         });
         tag.put("teams", list);
+
+        ListTag stages = new ListTag();
+        stagesByPlayer.forEach((player, held) -> {
+            CompoundTag entry = new CompoundTag();
+            entry.putString("player", player.toString());
+            ListTag ids = new ListTag();
+            for (ResourceLocation stage : held) {
+                ids.add(net.minecraft.nbt.StringTag.valueOf(stage.toString()));
+            }
+            entry.put("ids", ids);
+            stages.add(entry);
+        });
+        tag.put("stages", stages);
 
         return tag;
     }

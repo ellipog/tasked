@@ -144,6 +144,16 @@ public final class Tasked {
             // The whole point of Stage 4: without this the quest book opens on an empty cache and
             // says so, which is indistinguishable from having no quests loaded at all.
             TaskedNetworking.sendEverythingTo(player);
+
+            // Automatic rewards owed from a completion that happened while they were away. A quest
+            // finished with the party online hands each member their own copy at completion; this is
+            // the member who was not there, collecting on the next join -- as FTBQ's login check does.
+            var server = player.getServer();
+            if (server != null && ProgressService.autoClaimFor(server, player)) {
+                TaskedNetworking.sendProgressToOwners(server,
+                        Set.of(ProgressService.progressOwner(server, player)),
+                        ProgressSyncPayload.REASON_CHANGED);
+            }
         });
 
         ArmatureEvents.PLAYER_LEAVE.register(player -> {
@@ -176,9 +186,19 @@ public final class Tasked {
             }
         });
 
-        // Quiet on purpose: a mob farm would otherwise fill the log. The hook itself is the point --
-        // it is what the kill-task type will use.
+        // The kill task's hook. Quiet in the log -- a mob farm would otherwise fill it -- but the
+        // engine hears every death: ProgressService.onEntityDeath records into the ordinary task
+        // progress and answers which teams to push, because the tick that usually reports movement
+        // would see the recorded count already satisfied and say nothing.
         ArmatureEvents.ENTITY_DEATH.register((entity, source) -> {
+            var server = entity.getServer();
+            if (server == null) {
+                return;
+            }
+            Set<UUID> changed = ProgressService.onEntityDeath(server, entity, source);
+            if (!changed.isEmpty()) {
+                TaskedNetworking.sendProgressToOwners(server, changed, ProgressSyncPayload.REASON_CHANGED);
+            }
         });
 
         ArmatureEvents.COMMANDS_REGISTER.register((dispatcher, context, selection) -> {

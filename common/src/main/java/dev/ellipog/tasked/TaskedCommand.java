@@ -10,6 +10,7 @@ import dev.ellipog.armature.api.ArmatureApi;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestState;
+import dev.ellipog.tasked.progress.StageService;
 import dev.ellipog.tasked.quest.Chapter;
 import dev.ellipog.tasked.quest.ChapterGroup;
 import dev.ellipog.tasked.quest.PrerequisiteMode;
@@ -26,12 +27,16 @@ import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@code /tasked} — the command tree.
@@ -97,6 +102,16 @@ public final class TaskedCommand {
                         .then(Commands.argument("quest", StringArgumentType.word())
                                 .executes(TaskedCommand::claim)))
 
+                // Whether this team's payouts are held. An operator's switch rather than a player's,
+                // which is why it takes the edit permission: the point of blocking is that it is not
+                // up to the player being paid. The flag lives in team progress and syncs with it.
+                .then(Commands.literal("rewards")
+                        .requires(QuestAuthority.mayEdit())
+                        .then(Commands.literal("block")
+                                .executes(ctx -> setRewardsBlocked(ctx, true)))
+                        .then(Commands.literal("unblock")
+                                .executes(ctx -> setRewardsBlocked(ctx, false))))
+
                 .then(Commands.literal("reset")
                         .requires(QuestAuthority.mayEdit())
                         .executes(ctx -> reset(ctx, null))
@@ -105,6 +120,27 @@ public final class TaskedCommand {
 
                 .then(Commands.literal("types")
                         .executes(TaskedCommand::types))
+
+                // Stages: the flags a pack's quests and scripts ask about. Add and remove are an operator's
+                // business -- they hand out progression -- while listing is something a player may do for
+                // themselves, which is why the gate is on the two subcommands rather than on the subtree.
+                .then(Commands.literal("stage")
+                        .then(Commands.literal("add")
+                                .requires(QuestAuthority.mayEdit())
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .then(Commands.argument("stage", ResourceLocationArgument.id())
+                                                .executes(ctx -> stage(ctx, true)))))
+                        .then(Commands.literal("remove")
+                                .requires(QuestAuthority.mayEdit())
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .then(Commands.argument("stage", ResourceLocationArgument.id())
+                                                .executes(ctx -> stage(ctx, false)))))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> stageList(ctx, null))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .requires(QuestAuthority.mayEdit())
+                                        .executes(ctx -> stageList(ctx,
+                                                EntityArgument.getPlayer(ctx, "player"))))))
 
                 // The party commands, in their own file. Not a tidiness split: this one is 598 lines
                 // about quests, and party membership is a different subject with a different owner --
@@ -322,7 +358,7 @@ public final class TaskedCommand {
             // A repeatable quest that is done still is, because it can be done again -- and so is one
             // with a payout still waiting, which is the case where leaving it out would hide the only
             // thing the player is meant to do next.
-            boolean claimable = ProgressService.canClaim(teamProgress, quest);
+            boolean claimable = ProgressService.canClaimFor(teamProgress, quest, player.getUUID());
             boolean worthShowing = state.isPlayable() || claimable
                     || (state == QuestState.COMPLETED && quest.repeatable());
             if (!worthShowing || (quest.invisible() && state != QuestState.COMPLETED)) {
@@ -452,6 +488,18 @@ public final class TaskedCommand {
             return 0;
         }
 
+        // And the stage gate, which is per player and therefore invisible to both checks above: the
+        // engine's own answer for the team is playable, and `canComplete` is about tasks. Without this
+        // the call below still refuses -- the guard is in `complete` itself, where the tick path also
+        // reaches it -- but this command would report "done" over a refusal, which is worse than a
+        // refusal because an operator would believe it.
+        if (!ProgressService.stageGateOpen(server, entry.get().quest(), player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.complete.gated",
+                    id, entry.get().quest().requiresStage().map(Object::toString).orElse(""),
+                    player.getScoreboardName()));
+            return 0;
+        }
+
         ProgressService.complete(server, owner, player, entry.get(), progress);
         pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.complete.done", id), false);
@@ -485,6 +533,28 @@ public final class TaskedCommand {
 
         pushToTeam(context.getSource(), player);
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.claim.done", id), false);
+        return 1;
+    }
+
+    /**
+     * Holds or releases the speaker's team rewards.
+     *
+     * <p>Team-scoped because progress is: the flag sits in the same store as the quests it gates, and
+     * a player whose rewards are blocked sees it through the same progress push everything else
+     * arrives on. Rewards marked {@code ignoreRewardBlocking} keep flowing either way — that is what
+     * the field is for — so an operator can hold the bulk of a pack's payouts without breaking the
+     * one quest that is supposed to hand something over anyway.
+     */
+    private static int setRewardsBlocked(CommandContext<CommandSourceStack> context, boolean blocked)
+            throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        var server = context.getSource().getServer();
+        java.util.UUID owner = ProgressService.progressOwner(server, player);
+        dev.ellipog.tasked.progress.ProgressStore store = dev.ellipog.tasked.progress.ProgressStore.of(server);
+        store.put(owner, store.progressOf(owner).withRewardsBlocked(blocked));
+        pushToTeam(context.getSource(), player);
+        context.getSource().sendSuccess(() -> Component.translatable(
+                blocked ? "tasked.command.rewards.blocked" : "tasked.command.rewards.unblocked"), true);
         return 1;
     }
 
@@ -555,6 +625,55 @@ public final class TaskedCommand {
         // so deriving it from the player would make every push a silent no-op in the one place it is
         // asserted. See TaskedNetworking.sendProgressToTeam.
         TaskedNetworking.sendProgressToTeam(server, player, ProgressSyncPayload.REASON_CHANGED);
+    }
+
+    /**
+     * Grants or takes away a stage.
+     *
+     * <p>Says which happened, and says when nothing happened: "already had it" is a different fact from
+     * "granted", and an operator fixing a stuck pack needs to know which one they are looking at. The return
+     * value follows the same rule -- 1 when the store changed, 0 when it did not -- so a command block can
+     * test it.
+     */
+    private static int stage(CommandContext<CommandSourceStack> context, boolean grant)
+            throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(context, "player");
+        // A resource-location argument, not a word: a stage id is `namespace:path`, and Brigadier's
+        // word type stops at the colon -- so the one spelling the format documents was untypeable.
+        ResourceLocation stage = ResourceLocationArgument.getId(context, "stage");
+        MinecraftServer server = context.getSource().getServer();
+        boolean changed = grant
+                ? StageService.add(server, target.getUUID(), stage)
+                : StageService.remove(server, target.getUUID(), stage);
+        context.getSource().sendSuccess(() -> Component.translatable(
+                grant
+                        ? (changed ? "tasked.command.stage.added" : "tasked.command.stage.already")
+                        : (changed ? "tasked.command.stage.removed" : "tasked.command.stage.absent"),
+                target.getScoreboardName(), stage.toString()), false);
+        return changed ? 1 : 0;
+    }
+
+    /** Lists a player's stages: their own by default, anybody's for an operator. */
+    private static int stageList(CommandContext<CommandSourceStack> context, ServerPlayer named) {
+        ServerPlayer target = named != null ? named : context.getSource().getPlayer();
+        if (target == null) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.stage.needsplayer"));
+            return 0;
+        }
+        Set<ResourceLocation> stages = StageService.list(context.getSource().getServer(), target.getUUID());
+        if (stages.isEmpty()) {
+            context.getSource().sendSuccess(() -> Component.translatable("tasked.command.stage.none",
+                    target.getScoreboardName()), false);
+            return 1;
+        }
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.stage.list",
+                target.getScoreboardName(), stages.size()), false);
+        // One line each, the shape `/tasked types` uses, because a pack can hold twenty and a wrapped line
+        // is one nobody can read a name out of.
+        for (ResourceLocation stage : stages) {
+            context.getSource().sendSuccess(() -> Component.literal("  " + stage), false);
+        }
+        return 1;
     }
 
     private static int echo(CommandContext<CommandSourceStack> context) {

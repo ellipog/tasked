@@ -116,6 +116,40 @@ class QuestValidatorTest {
                 + problems.all().stream().map(DataProblem::render).collect(Collectors.joining("\n")));
     }
 
+    @Test
+    @DisplayName("a custom task or reward nothing provides is a warning at its id, not an error")
+    void unregisteredCustomHandler() {
+        // The two reasons a custom id has no handler -- a typo, or a mod the player has not installed --
+        // are the same sentence from inside the game, and both leave the task at zero progress forever
+        // with nothing on screen saying why. So the file is valid, and this says which fact it found.
+        String quest = """
+                {"id": "a", "title": "A", "tasks": [
+                  {"type": "tasked:custom", "id": "test:no_such_handler", "value": 1}
+                ], "rewards": [
+                  {"type": "tasked:custom", "id": "test:no_such_handler"}
+                ]}""";
+
+        Problems problems = validate(Fixtures.file(quest));
+
+        assertFalse(problems.hasErrors(),
+                "an uninstalled handler is not a broken file:\n"
+                        + problems.all().stream().map(DataProblem::render).collect(Collectors.joining("\n")));
+        DataProblem task = containing(problems, "nothing is registered for \"test:no_such_handler\"");
+        assertPointsAtValue(task, Fixtures.file(quest), "\"test:no_such_handler\"");
+        assertTrue(problems.warningCount() >= 2,
+                "both halves of the quest say it: " + problems.warningCount() + " warning(s)");
+
+        // And a handler that *is* registered is silent -- the check is against the registry, not a list of
+        // known names.
+        dev.ellipog.tasked.quest.task.CustomTask.CustomTasks.register("test:provided", (t, context) -> 1);
+        Problems provided = validate(Fixtures.file("""
+                {"id": "a", "title": "A", "tasks": [
+                  {"type": "tasked:custom", "id": "test:provided", "value": 1}
+                ]}"""));
+        assertTrue(provided.isEmpty(), "a provided handler is nothing to report, got:\n"
+                + provided.all().stream().map(DataProblem::render).collect(Collectors.joining("\n")));
+    }
+
     // ------------------------------------------------------------------
     // The check that saves the most time
     // ------------------------------------------------------------------
@@ -473,6 +507,72 @@ class QuestValidatorTest {
         assertTrue(containing(problems, "missing required field item").severity()
                         == DataProblem.Severity.ERROR,
                 "the icon's required item is the existing check the clear path is built around");
+    }
+
+    // ------------------------------------------------------------------
+    // Split control points: a per-line pair, refused where it cannot mean anything
+    // ------------------------------------------------------------------
+
+    /** A file whose line (a waits on b) is split into two control points. */
+    private static final String SPLIT_FILE = """
+            {"version": 1, "chapterGroups": [{"id": "g", "title": "G",
+              "chapters": [{"id": "c", "title": "C", "quests": [
+                {"id": "a", "title": "a", "dependsOn": ["b"],
+                 "dependencyLines": {"b": {"form": "curved",
+                    "fromHandle": [0.33, 0.2], "toHandle": [0.66, -0.2]}}},
+                {"id": "b", "title": "b"}
+              ]}]}]}""";
+
+    @Test
+    @DisplayName("a split pair on a line is clean")
+    void aSplitLineIsClean() {
+        Problems problems = validate(SPLIT_FILE);
+
+        assertTrue(problems.isEmpty(), "a well-formed split must be clean, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("a handle that is not exactly two numbers is refused instead of throwing at load")
+    void aMalformedHandleIsRefused() {
+        // `[0.33, "x"]` is the pair that matters: a check that answered "two entries, the last one a
+        // number" would pass it and then throw on getAsDouble -- a validator crash instead of a report.
+        for (String pair : new String[] { "[0.33]", "[0.33, 0.2, 0.1]", "[0.33, \"x\"]", "\"nope\"" }) {
+            Problems problems = validate(SPLIT_FILE.replace("[0.33, 0.2]", pair));
+
+            assertTrue(containing(problems, "expected two numbers").severity() == DataProblem.Severity.ERROR,
+                    "pair " + pair + " must be refused, got:" + messages(problems));
+        }
+    }
+
+    @Test
+    @DisplayName("a handle dragged out of its range is refused, with the range in the message")
+    void aHandleOutOfRangeIsRefused() {
+        Problems problems = validate(SPLIT_FILE.replace("[0.66, -0.2]", "[0.66, -2.0]"));
+
+        DataProblem problem = containing(problems, "stay near its line");
+        assertTrue(problem.message().contains("-0.9 to 0.9"),
+                "the message carries the range it is checking: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("a split pair in a chapter's default is refused on its own line")
+    void aChapterDefaultRefusesSplitHandles() {
+        // Same rule as anchors, and for the same reason: where a control point pulls a line is a fact
+        // about that line's two ends, so a chapter-wide one would be wrong on almost every edge.
+        String extras = "\"dependencyStyle\": {\n                \"fromHandle\": [0.33, 0.2]},";
+        String json = Fixtures.fileWithChapter(extras, Fixtures.q("a").build());
+        Problems problems = validate(json);
+        DataProblem problem = containing(problems, "per line, not per chapter");
+
+        int line = 0;
+        String[] lines = json.split("\n");
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].contains("fromHandle")) {
+                line = i + 1;
+                break;
+            }
+        }
+        assertEquals(line, problem.line(), "the refusal must land where the author wrote it");
     }
 
     private static String file(String quest) {

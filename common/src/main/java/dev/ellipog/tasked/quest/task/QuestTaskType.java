@@ -48,4 +48,16 @@ public interface QuestTaskType<T extends QuestTask> extends TypeSpec<T> {
      * in hand.
      */
     TaskDisplay display(T task);
+
+    /**
+     * The fields as the in-game editor draws them: their order, their labels, and each one's control.
+     *
+     * <p>Declared by the type, so a new task type is a new <b>form</b> rather than a new branch in the
+     * screen -- and an addon's type is tailored by the same registration this mod's types use. A type
+     * that declares nothing gets a form derived from {@link #fields()}: one control per name, guessed
+     * from the name, so an addon is usable the day it registers; see {@code EditorSpecs}.
+     */
+    default java.util.List<dev.ellipog.tasked.quest.EditorField> editor() {
+        return java.util.List.of();
+    }
 }

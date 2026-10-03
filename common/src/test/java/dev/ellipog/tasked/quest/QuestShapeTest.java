@@ -26,45 +26,78 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>The geometry is {@link Shapes} now and the sweeps are {@code ShapeTest}, in Armature, where they
  * belong — because that is where the code is. What is left here is the part that is genuinely this
- * project's: <b>four names that a data format promises not to change</b>, and the two decisions about
- * what to do with a name that does not resolve.
+ * project's: <b>the names a data format promises not to change</b>, and the two decisions about what to
+ * do with a name that does not resolve.
  *
  * <h2>Why the names are not tested in Armature</h2>
  *
  * <p>Because Armature does not know them. {@code Shapes.byName} accepts a superset — {@code "rectangle"}
- * and {@code "square"} as well as the four — and which of those a quest file may write is a decision
- * about the quest file format, not about geometry. A library that knew the format's vocabulary would be
- * a library that has to change when the format does.
+ * and {@code "square"} as well as the quest names — and which of those a quest file may write is a
+ * decision about the quest file format, not about geometry. A library that knew the format's vocabulary
+ * would be a library that has to change when the format does.
  */
 @DisplayName("Quest shapes, by name")
 class QuestShapeTest {
 
     @Test
-    @DisplayName("each name resolves to its own geometry, and no two share one")
-    void eachNameHasItsOwnGeometry() {
-        // The assertion that makes the enum more than decoration. If two names forwarded to one Shape,
-        // a quest file asking for a hexagon would silently get a circle -- and the file, the validator
-        // and `/tasked` would all agree it was a hexagon.
-        assertSame(Shapes.ROUNDED, QuestShape.ROUNDED.geometry());
-        assertSame(Shapes.CIRCLE, QuestShape.CIRCLE.geometry());
-        assertSame(Shapes.HEXAGON, QuestShape.HEXAGON.geometry());
-        assertSame(Shapes.TOME, QuestShape.TOME.geometry());
-
+    @DisplayName("no two names are indistinguishable: each has its own geometry or its own presentation")
+    void eachNameIsItsOwnShape() {
+        // The assertion that makes the enum more than decoration. If two names forwarded to one Shape
+        // and drew it the same way, a quest file asking for a hexagon would silently get a circle --
+        // and the file, the validator and `/tasked` would all agree it was a hexagon.
+        //
+        // `square` and `none` do share a geometry, and they are not an exception to the rule: one draws
+        // the rectangle as a panel and the other draws no panel at all, so an author who picks between
+        // them gets two different pictures. That is what this checks -- not "different objects", which
+        // would be a test of the factory rather than of the vocabulary.
         for (QuestShape a : QuestShape.values()) {
             for (QuestShape b : QuestShape.values()) {
                 if (a != b) {
-                    assertTrue(a.geometry() != b.geometry(),
-                            a + " and " + b + " share one geometry, so one of them cannot be drawn");
+                    boolean samePicture = a.geometry() == b.geometry()
+                            && a.drawsPanel() == b.drawsPanel();
+                    assertTrue(!samePicture, a + " and " + b + " draw the same picture, so one of them"
+                            + " cannot be chosen");
                 }
             }
         }
     }
 
     @Test
+    @DisplayName("every name but none draws a panel, and none's geometry is still the square")
+    void noneIsTheOnlyPanelLessShape() {
+        // `none` is the one deliberate exception to click-equals-drawing, so it is asserted rather than
+        // assumed: it draws no panel, and its geometry is still a real rectangle so the icon has a box
+        // to fit and the node has an area to be clicked in. A `none` whose geometry was absent would be
+        // a node nobody can select.
+        for (QuestShape shape : QuestShape.values()) {
+            assertEquals(shape != QuestShape.NONE, shape.drawsPanel(),
+                    shape + " draws a panel or does not, contrary to what the drawing assumes");
+        }
+        assertSame(Shapes.RECT, QuestShape.NONE.geometry(),
+                "none's geometry is the square, which is what makes it clickable and fittable");
+    }
+
+    @Test
+    @DisplayName("each name resolves to its own geometry, and the aliases are deliberate")
+    void eachNameResolvesToItsGeometry() {
+        assertSame(Shapes.ROUNDED, QuestShape.ROUNDED.geometry());
+        assertSame(Shapes.RECT, QuestShape.SQUARE.geometry());
+        assertSame(Shapes.CIRCLE, QuestShape.CIRCLE.geometry());
+        assertSame(Shapes.DIAMOND, QuestShape.DIAMOND.geometry());
+        assertSame(Shapes.HEXAGON, QuestShape.HEXAGON.geometry());
+        assertSame(Shapes.OCTAGON, QuestShape.OCTAGON.geometry());
+        assertSame(Shapes.PENTAGON, QuestShape.PENTAGON.geometry());
+        assertSame(Shapes.GEAR, QuestShape.GEAR.geometry());
+        assertSame(Shapes.HEART, QuestShape.HEART.geometry());
+        assertSame(Shapes.TOME, QuestShape.TOME.geometry());
+        assertSame(Shapes.RECT, QuestShape.NONE.geometry());
+    }
+
+    @Test
     @DisplayName("every method forwards to the geometry rather than computing anything")
     void everyMethodForwards() {
         // Delegation is the one thing that can go wrong once the maths has moved, and it goes wrong
-        // silently: a `span` that returned its own array would compile, pass anything that only checked
+        // silently: a `spans` that returned its own array would compile, pass anything that only checked
         // the shape was non-empty, and drift from the hit test.
         //
         // So this compares against the geometry directly, for every method, rather than asserting
@@ -74,11 +107,23 @@ class QuestShapeTest {
             Shape geometry = shape.geometry();
             for (int size : new int[] {12, 26, 33, 48, 64}) {
                 for (int row = 0; row < size; row++) {
-                    int[] viaEnum = shape.span(row, size);
-                    int[] viaGeometry = geometry.span(row, size);
-                    assertNotNull(viaEnum, shape + " " + size + " row " + row);
-                    assertEquals(viaGeometry[0], viaEnum[0], shape + " " + size + " row " + row + " from");
-                    assertEquals(viaGeometry[1], viaEnum[1], shape + " " + size + " row " + row + " to");
+                    int[] viaEnum = shape.spans(row, size);
+                    int[] viaGeometry = geometry.spans(row, size);
+                    if (viaEnum == null || viaGeometry == null) {
+                        // A sampled shape -- a gear, a heart -- can legitimately have a row with no
+                        // material on it: a gear has gaps between its teeth, and a row through one above
+                        // the root circle covers nothing. What matters is that the enum and the geometry
+                        // agree about it, which is what this asserts.
+                        assertEquals(viaGeometry, viaEnum, shape + " " + size + " row " + row
+                                + ": the name and its geometry disagree about whether there is material");
+                        continue;
+                    }
+                    assertEquals(viaGeometry.length, viaEnum.length,
+                            shape + " " + size + " row " + row + " span count");
+                    for (int i = 0; i < viaGeometry.length; i++) {
+                        assertEquals(viaGeometry[i], viaEnum[i],
+                                shape + " " + size + " row " + row + " endpoint " + i);
+                    }
                 }
 
                 assertEquals(geometry.maxInset(size), shape.maxIconInset(size), shape + " " + size);
@@ -122,6 +167,13 @@ class QuestShapeTest {
         assertEquals(QuestShape.CIRCLE, QuestShape.byName("CIRCLE", QuestShape.ROUNDED));
         assertEquals(QuestShape.HEXAGON, QuestShape.byName("Hexagon", QuestShape.ROUNDED));
         assertEquals(QuestShape.TOME, QuestShape.byName("tome", QuestShape.ROUNDED));
+        assertEquals(QuestShape.SQUARE, QuestShape.byName("square", QuestShape.ROUNDED));
+        assertEquals(QuestShape.DIAMOND, QuestShape.byName("diamond", QuestShape.ROUNDED));
+        assertEquals(QuestShape.OCTAGON, QuestShape.byName("octagon", QuestShape.ROUNDED));
+        assertEquals(QuestShape.PENTAGON, QuestShape.byName("pentagon", QuestShape.ROUNDED));
+        assertEquals(QuestShape.GEAR, QuestShape.byName("gear", QuestShape.ROUNDED));
+        assertEquals(QuestShape.HEART, QuestShape.byName("heart", QuestShape.ROUNDED));
+        assertEquals(QuestShape.NONE, QuestShape.byName("none", QuestShape.ROUNDED));
 
         assertEquals(QuestShape.ROUNDED, QuestShape.byName("dodecahedron", QuestShape.ROUNDED));
         assertEquals(QuestShape.ROUNDED, QuestShape.byName("", QuestShape.ROUNDED));
@@ -150,10 +202,10 @@ class QuestShapeTest {
     void theGeometryIsReachable() {
         // The seam that makes this enum a vocabulary rather than a wall. A screen that wants the shape
         // itself -- to hand to a fill routine, or to pass to tooling -- asks for it here, rather than
-        // the geometry being reachable only as seven delegating methods.
+        // the geometry being reachable only as a set of delegating methods.
         for (QuestShape shape : QuestShape.values()) {
             assertNotNull(shape.geometry());
-            assertTrue(shape.geometry().span(0, 48) != null,
+            assertTrue(shape.geometry().spans(0, 48) != null,
                     shape + "'s geometry returned nothing for a row inside it");
         }
     }

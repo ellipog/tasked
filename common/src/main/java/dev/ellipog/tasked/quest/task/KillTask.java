@@ -1,0 +1,152 @@
+package dev.ellipog.tasked.quest.task;
+
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.quest.QuestTask;
+import dev.ellipog.tasked.quest.TaskCommon;
+import dev.ellipog.tasked.quest.TaskContext;
+
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.TagParser;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+
+/**
+ * Kill an entity — by type, by tag, optionally only ones with a name or matching an NBT filter.
+ *
+ * <pre>{@code { "type": "tasked:kill", "entity": "minecraft:zombie", "value": 10 } }</pre>
+ *
+ * <p>The one type that is told rather than asked. A lifetime stat can say how many zombies a player
+ * has ever killed, but not whether the one that just died was called "Bob" or carried a named sword,
+ * so this type hangs off the death event and the engine records what the event reports. Progress
+ * arrives through {@link dev.ellipog.tasked.progress.ProgressService#onEntityDeath}.
+ *
+ * <p>{@code current} is therefore always zero: the count lives in recorded progress, which is what
+ * makes it survive a restart, pool across a party and reset with a repeatable round, without this
+ * type owning a single counter of its own.
+ */
+public record KillTask(TaskCommon common, Optional<ResourceLocation> entity,
+                       Optional<ResourceLocation> entityTypeTag, int value,
+                       Optional<String> customName, Optional<String> nbtFilter) implements QuestTask {
+
+    public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "kill");
+
+    public static final Set<String> FIELDS =
+            Set.of("entity", "entityTypeTag", "value", "customName", "nbtFilter");
+
+    public static final MapCodec<KillTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            TaskCommon.mapCodec(20).forGetter(KillTask::common),
+            ResourceLocation.CODEC.optionalFieldOf("entity").forGetter(KillTask::entity),
+            // Its own field rather than a `#` inside `entity`, as FTB Quests has it: a tag written
+            // where an id is expected is a validator error in every other Tasked field, and this one
+            // being the exception is how a pack author learns the wrong rule.
+            ResourceLocation.CODEC.optionalFieldOf("entityTypeTag").forGetter(KillTask::entityTypeTag),
+            Codec.intRange(1, 1_000_000).optionalFieldOf("value", 1).forGetter(KillTask::value),
+            Codec.STRING.optionalFieldOf("customName").forGetter(KillTask::customName),
+            Codec.STRING.optionalFieldOf("nbtFilter").forGetter(KillTask::nbtFilter)
+    ).apply(instance, KillTask::new));
+
+    @Override
+    public ResourceLocation type() {
+        return TYPE;
+    }
+
+    /** Whether a death is one this task counts. */
+    public boolean matches(LivingEntity killed) {
+        boolean typeMatches;
+        if (entityTypeTag().isPresent()) {
+            typeMatches = killed.getType().is(TagKey.create(Registries.ENTITY_TYPE, entityTypeTag().get()));
+        }
+        else if (entity().isPresent()) {
+            typeMatches = entity().get().equals(BuiltInRegistries.ENTITY_TYPE.getKey(killed.getType()));
+        }
+        else {
+            typeMatches = true;
+        }
+        if (!typeMatches) {
+            return false;
+        }
+
+        if (customName().isPresent()) {
+            String name = killed instanceof Player player
+                    ? player.getGameProfile().getName()
+                    : killed.getCustomName() == null ? "" : killed.getCustomName().getString();
+            if (!customName().get().equals(name)) {
+                return false;
+            }
+        }
+
+        if (nbtFilter().isPresent()) {
+            try {
+                CompoundTag filter = TagParser.parseTag(nbtFilter().get());
+                CompoundTag actual = killed.saveWithoutId(new CompoundTag());
+                if (!NbtUtils.compareNbt(filter, actual, true)) {
+                    return false;
+                }
+            }
+            catch (CommandSyntaxException e) {
+                // A filter that does not parse matches nothing rather than everything -- a validator
+                // should have caught it at the file's line, and failing closed is the honest fallback.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static final TaskBehaviour<KillTask> BEHAVIOUR = new TaskBehaviour<>() {
+
+        @Override
+        public int required(KillTask task) {
+            return task.value();
+        }
+
+        @Override
+        public int current(KillTask task, TaskContext context) {
+            // Event-sourced: see the class note. Recorded progress is the count.
+            return 0;
+        }
+
+        @Override
+        public boolean canSubmitByHand(KillTask task) {
+            return false;
+        }
+
+        @Override
+        public int onEntityDeath(KillTask task, ServerPlayer killer, LivingEntity killed) {
+            return task.matches(killed) ? 1 : 0;
+        }
+    };
+
+    public static final Function<KillTask, TaskDisplay> DISPLAY = task ->
+            // The mob is the subject; the count rides the row's own progress chip, so the sentence
+            // reads "Kill Zombie" with "0 / 5" beside it rather than saying the number twice.
+            TaskDisplay.ofTranslatableText("tasked.task.kill", "Kill " + task.target(), task.target(),
+                    task.value());
+
+    /** The target alone — the entity id, its tag, or the word for "any" — for the row's subject. */
+    public String target() {
+        return entityTypeTag().map(tag -> "#" + tag)
+                .or(() -> entity().map(ResourceLocation::toString))
+                .orElse("anything");
+    }
+
+    /** The target, said plainly, for the row and for the file's own diagnostics. */
+    public String description() {
+        String what = target();
+        return value() + " x " + what;
+    }
+}

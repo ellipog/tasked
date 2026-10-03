@@ -23,12 +23,16 @@
     "tasked.command.complete.done": "Completed \"%s\"",
     "tasked.command.complete.locked": "Cannot complete \"%s\": it is %s, not unlocked",
     "tasked.command.complete.pending": "Cannot complete \"%s\" again while its rewards are still waiting - collect them with /tasked claim",
+    "tasked.command.complete.gated": "Cannot complete \"%s\": it requires the stage %s, which %s does not have",
 
     "tasked.command.claim.done": "Collected the rewards for \"%s\"",
     "tasked.command.claim.nothing": "Nothing to collect for \"%s\" - it is not finished, has no rewards, or they have already been collected",
 
     "tasked.command.reset.done": "Cleared progress for %s quest(s)",
     "tasked.command.reset.nothing": "There was no progress to clear",
+
+    "tasked.command.rewards.blocked": "This team's rewards are now held",
+    "tasked.command.rewards.unblocked": "This team's rewards can be collected again",
 
     "tasked.command.quest.header": "§e%s §8[%s]",
     "tasked.command.quest.notfound": "No quest with id or alias \"%s\"",
@@ -37,6 +41,8 @@
     "tasked.quest.completed.claim": "Quest complete: %s - its rewards are waiting. Open the quest book to collect them.",
     "tasked.quest.claimed": "Collected the rewards for %s",
     "tasked.quest.not_enough": "You do not have everything this task needs.",
+    "tasked.quest.rewards_blocked": "This team's rewards are being held right now.",
+    "tasked.quest.choose": "Choose your reward.",
     "tasked.reward.inventory_full": "Your inventory was full, so %s was dropped at your feet",
 
     "tasked.command.party.source": "§7Parties on this server come from §f%s",
@@ -68,6 +74,14 @@
     "tasked.command.party.mode_same": "This party already counts that way (%s)",
     "tasked.command.party.mode_set": "This party now counts: §f%s §7(%s)",
 
+    "tasked.command.stage.added": "%s now has the stage §f%s",
+    "tasked.command.stage.already": "%s already had the stage §f%s",
+    "tasked.command.stage.removed": "%s no longer has the stage §f%s",
+    "tasked.command.stage.absent": "%s did not have the stage §f%s",
+    "tasked.command.stage.needsplayer": "Name a player, or run this as one",
+    "tasked.command.stage.list": "%s has %s stage(s):",
+    "tasked.command.stage.none": "%s has no stages",
+
     "tasked.screen.quest_book.title": "Quest Book",
     "tasked.screen.quest_book.waiting": "Waiting for the server...",
     "tasked.screen.quest_book.no_quests": "No quests are loaded on this server.",
@@ -85,6 +99,15 @@
     "tasked.screen.party.confirm": "Confirm",
     "tasked.screen.party.back": "Back",
 
+    "tasked.screen.rewards.button": "Rewards",
+    "tasked.screen.rewards.title": "Rewards",
+    "tasked.screen.rewards.waiting": "%s ready to collect",
+    "tasked.screen.rewards.none": "Nothing is waiting.",
+    "tasked.screen.rewards.none_hint": "Finish a quest and its rewards wait here to be collected.",
+    "tasked.screen.rewards.claim": "Press to collect",
+    "tasked.screen.rewards.claim_all": "Claim all",
+    "tasked.screen.rewards.back": "Back",
+
     "tasked.dev.title": "Developer Tools",
     "tasked.dev.reset": "Reset",
     "tasked.dev.save": "Save theme",
@@ -92,5 +115,25 @@
     "tasked.dev.pick": "Press a colour to edit it.",
 
     "tasked.reward.xp.levels": "%s level(s)",
-    "tasked.reward.xp.points": "%s XP"
+    "tasked.reward.xp.points": "%s XP",
+    "tasked.reward.table": "Roll the %s table",
+    "tasked.reward.command": "Run %s",
+    "tasked.reward.advancement": "Award %s",
+    "tasked.reward.custom": "Custom reward: %s",
+    "tasked.reward.stage.grant": "Grant the stage %s",
+    "tasked.reward.stage.remove": "Remove the stage %s",
+
+    "tasked.task.dimension": "Visit %s",
+    "tasked.task.biome": "Find %s",
+    "tasked.task.structure": "Find %s",
+    "tasked.task.advancement": "Earn %s",
+    "tasked.task.stat": "Reach %s",
+    "tasked.task.location": "Stand in %s",
+    "tasked.task.xp": "Hand in %s",
+    "tasked.task.fluid": "Hand in %s",
+    "tasked.task.item_tag": "Hand in %s",
+    "tasked.task.custom": "Custom task: %s",
+    "tasked.task.stage": "Have the stage %s",
+    "tasked.task.kill": "Kill %s",
+    "tasked.task.observation": "Observe %s"
 }

@@ -275,6 +275,65 @@ class QuestLoaderTest {
                         + "through the pipeline. It said:\n" + rendered);
     }
 
+    @Test
+    @DisplayName("a chapter listed at the root loads with no group, which the folder format could not express")
+    void aRootChapterLoadsWithNoGroup() throws IOException {
+        // The end of the path discovery's root-chapter case starts: a loose chapter is a real chapter
+        // in the index, and its quests carry the empty group id the client already draws as a root
+        // row. Before this, a chapter outside a group was not loadable by any arrangement of folders.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("loose"));
+        Files.writeString(quests.resolve("loose/chapter.json"), """
+                { "$schema": "../../_schema/chapter.schema.json",
+                  "id": "loose", "title": "Loose", "quests": ["only.json"] }
+                """);
+        Files.writeString(quests.resolve("loose/only.json"), """
+                { "$schema": "../../../_schema/quest.schema.json",
+                  "id": "only", "title": "Only" }
+                """);
+        Files.writeString(quests.resolve("index.json"), """
+                { "$schema": "./_schema/index.schema.json",
+                  "entries": [ { "chapter": "loose" } ] }
+                """);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertTrue(result.ok(), () -> "a loose chapter should load cleanly:\n" + render(result.problems()));
+        assertEquals(1, result.index().questCount());
+        QuestIndex.QuestEntry entry = result.index().quest("only").orElseThrow();
+        assertEquals("", entry.groupId(),
+                "no group is the empty id, which is what the client draws as a root row");
+        assertTrue(result.index().chapter("loose").isPresent(),
+                "and the chapter itself is in the index even though it is the only one, which is what "
+                        + "lets a chapter with no group exist at all");
+    }
+
+    @Test
+    @DisplayName("a chapter with no quests is still a chapter in the index")
+    void anEmptyChapterSurvivesTheLoad() throws IOException {
+        // The state between creating a chapter and writing its first quest. It has to be a real chapter
+        // the whole way through, or the sidebar -- which now draws its rows from the chapter list -- 
+        // would show a row that nothing downstream can resolve.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("waiting"));
+        Files.writeString(quests.resolve("waiting/chapter.json"), """
+                { "$schema": "../../_schema/chapter.schema.json",
+                  "id": "waiting", "title": "Waiting For A Quest", "quests": [] }
+                """);
+        Files.writeString(quests.resolve("index.json"), """
+                { "$schema": "./_schema/index.schema.json",
+                  "entries": [ { "chapter": "waiting" } ] }
+                """);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertTrue(result.ok(), () -> "an empty chapter is a normal state:\n" + render(result.problems()));
+        assertEquals(0, result.index().questCount());
+        assertTrue(result.index().chapter("waiting").isPresent(),
+                "the chapter is in the index with no quests under it");
+        assertEquals(1, result.index().chapterCount());
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -298,6 +357,78 @@ class QuestLoaderTest {
             }
         }
         return out;
+    }
+
+    // ------------------------------------------------------------------
+    // Reward tables: beside the book, not inside it
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("tables load from their reserved folder, validated like any other file")
+    void rewardTablesLoad() throws IOException {
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve(QuestFiles.REWARD_TABLES_DIRECTORY));
+        Files.writeString(quests.resolve("reward_tables/loot.json"), """
+                {
+                  "emptyWeight": 0,
+                  "lootSize": 1,
+                  "entries": [
+                    { "weight": 1,
+                      "reward": { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 } }
+                  ]
+                }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertTrue(result.ok(), () -> "a clean table is not a problem:\n" + render(result.problems()));
+        assertTrue(result.rewardTables().containsKey("loot"),
+                "the file name, without the suffix, is the table's id: " + result.rewardTables().keySet());
+        assertEquals(1, result.rewardTables().get("loot").entryCount());
+        assertEquals(0, result.index().questCount(), "and a table is not a quest");
+    }
+
+    @Test
+    @DisplayName("a malformed table is reported at its own file, and the book still loads")
+    void malformedRewardTableIsReported() throws IOException {
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve(QuestFiles.REWARD_TABLES_DIRECTORY));
+        Files.writeString(quests.resolve("reward_tables/broken.json"),
+                "{ \"entries\": \"not a list\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "a table whose entries are not a list is refused");
+        assertTrue(render(result.problems()).contains("broken.json"),
+                "reported against the table's own file:\n" + render(result.problems()));
+        assertTrue(result.rewardTables().isEmpty(), "and it does not half-load");
+    }
+
+    @Test
+    @DisplayName("a reward pointing at a table that is not there is reported, naming the id")
+    void missingRewardTableIsReported() throws IOException {
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("chapter"));
+        Files.writeString(quests.resolve("index.json"), """
+                { "entries": [ { "chapter": "chapter" } ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("chapter/chapter.json"), """
+                { "id": "chapter", "title": "Chapter", "quests": ["q.json"] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("chapter/q.json"), """
+                { "id": "q", "title": "Q",
+                  "tasks": [ { "type": "tasked:checkmark", "title": "done" } ],
+                  "rewards": [ { "type": "tasked:loot", "table": "dungeon" } ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "a reward naming a table that is not loaded is an error");
+        String messages = render(result.problems());
+        assertTrue(messages.contains("dungeon"),
+                "the message names the table it could not find: " + messages);
+        assertTrue(messages.contains(QuestFiles.REWARD_TABLES_DIRECTORY),
+                "and where such a table would go: " + messages);
     }
 
     /** The distinct file names carrying an error, in the order they were reported. */

@@ -141,6 +141,8 @@ class EditorOpsTest {
         roundTrip(editor, new EditorOp.Insert("one", "tasks", 0, pasteTree()));
         roundTrip(editor, new EditorOp.Remove("one", "tasks", 0));
         roundTrip(editor, new EditorOp.MoveEntry("one", "tasks", 0, 1));
+        roundTrip(editor, new EditorOp.SetChapter("icon", icon));
+        roundTrip(editor, new EditorOp.SetGroup("icon", icon));
         roundTrip(editor, new EditorOp.Delete("two"));
         roundTrip(editor, new EditorOp.Undo());
         roundTrip(editor, new EditorOp.Redo());
@@ -377,6 +379,23 @@ class EditorOpsTest {
         String onDisk = file("chapter");
         assertTrue(onDisk.indexOf("two.json") < onDisk.indexOf("one.json"),
                 "and the file itself says so, in that order");
+    }
+
+    @Test
+    @DisplayName("a group op writes the group's own file, and the chapter's is not touched")
+    void groupOpsApply() throws IOException {
+        QuestEditor editor = open();
+        String chapterBefore = file("chapter");
+        JsonObject icon = new JsonObject();
+        icon.addProperty("item", "minecraft:anvil");
+
+        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.SetGroup("icon", icon));
+
+        assertTrue(applied.ok(), () -> "the op was refused: " + applied.messages());
+        String group = Files.readString(root.resolve("getting_started").resolve("group.json"),
+                StandardCharsets.UTF_8);
+        assertTrue(group.contains("minecraft:anvil"), "the group's file is what was written");
+        assertEquals(chapterBefore, file("chapter"), "and the chapter's own file is untouched");
     }
 
     @Test

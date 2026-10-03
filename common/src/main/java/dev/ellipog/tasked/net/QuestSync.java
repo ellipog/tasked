@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
+import dev.ellipog.tasked.progress.QuestClaims;
 import dev.ellipog.tasked.progress.QuestProgress;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.progress.TeamProgress;
@@ -16,6 +17,7 @@ import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestRef;
 import dev.ellipog.tasked.quest.QuestReward;
+import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.reward.RewardDisplay;
@@ -133,6 +135,21 @@ public final class QuestSync {
      * change to {@link #treeAsJson} has to be of the additive kind, or be a deliberate break by a
      * reader that checks this number.
      *
+     * <p>Version 3 added {@code chapters[]} at the root, for the same additive reason as the version
+     * before it: it is the list of chapters themselves, which the per-quest fields could not carry for
+     * a chapter that holds no quests yet. A version-2 reader ignores the array entirely and goes on
+     * deriving its rows from the quests, which is what it already did.
+     *
+     * <p>Version 6 added the reward base mechanics to every reward — {@code auto}, {@code team} and
+     * {@code excludeFromClaimAll}, resolved against the tree's settings — for the rewards panel. The
+     * same additive kind: a version-5 reader draws its reward rows from the fields it knows and never
+     * asks for the three.
+     *
+     * <p>Version 7 added the observation fields to a task that has them — {@code observeType},
+     * {@code observeTarget}, {@code observeTicks} — which is what lets the client do the watching. A
+     * version-6 reader ignores them and draws an observation task as a label, which is the honest
+     * fallback: it cannot count what it cannot recognise.
+     *
      * <p>The consequence, in the direction that matters most: <b>an old client on a new server still
      * draws today's flat list.</b> It reads the fields it knows and ignores the two it does not, which
      * is what Gson does with a key nobody asks for, so an install that has not been updated keeps
@@ -153,7 +170,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 2;
+    public static final int TREE_VERSION = 7;
 
     /**
      * The quest tree, as JSON.
@@ -215,7 +232,35 @@ public final class QuestSync {
             one.addProperty("id", group.id());
             one.addProperty("title", group.title().value());
             one.addProperty("collapsedByDefault", group.collapsedByDefault());
+            // Optional, and sent only when the group declares one: a group with no icon falls back on
+            // the client to the first chapter under it, which is a client-side choice rather than a
+            // value the file has to spell out. See `QuestBookScreen.buildSidebar()`.
+            group.icon().ifPresent(icon -> {
+                one.addProperty("icon", icon.item().toString());
+                componentsAsJson(icon, "iconComponents", one);
+            });
             groups.add(one);
+        }
+
+        // The chapters, in declaration order, since version 3.
+        //
+        // This is what makes a chapter real before it holds anything. Until it, a chapter reached the
+        // client only as a property of the quests inside it, so a chapter somebody had just created --
+        // or one they had emptied -- did not exist in the book at all, and there was no id to select,
+        // rename or move. The per-quest `chapterTitle`/`chapterIcon` fields stay exactly as they were,
+        // because a client older than this version still reads them and this change has to be additive.
+        JsonArray chapters = new JsonArray();
+        for (QuestIndex.ChapterEntry entry : index.chapters()) {
+            Chapter chapter = entry.chapter();
+            JsonObject one = new JsonObject();
+            one.addProperty("id", chapter.id());
+            // Empty for a chapter the index places at the root, which is the same "no group" sentinel
+            // the per-quest field already uses and the sidebar already draws as a root row.
+            one.addProperty("groupId", entry.groupId());
+            one.addProperty("title", chapter.title().value());
+            one.addProperty("icon", chapter.icon().item().toString());
+            componentsAsJson(chapter.icon(), "iconComponents", one);
+            chapters.add(one);
         }
 
         JsonObject root = new JsonObject();
@@ -227,6 +272,7 @@ public final class QuestSync {
             root.addProperty("theme", theme);
         }
         root.add("groups", groups);
+        root.add("chapters", chapters);
         root.add("quests", quests);
         return root.toString().getBytes(StandardCharsets.UTF_8);
     }
@@ -274,6 +320,17 @@ public final class QuestSync {
         json.addProperty("chapterId", chapter.id());
         json.addProperty("chapterTitle", chapter.title().value());
 
+        // The chapter's own icon, on every quest of it for the same reason `chapterTheme` is below: the
+        // client groups entries by `chapterId` and has no chapter record to hang it on. Sent for every
+        // chapter -- the model defaults an absent icon to paper -- because a sidebar row with an icon is
+        // the readable list the toolkit's own note describes, and "the chapter declares none" is a
+        // different fact from "the client was not told".
+        //
+        // The components ride beside it the same way the quest's own icon's do, so an author who picks a
+        // renamed item for a chapter gets the renamed item in the chapter list.
+        json.addProperty("chapterIcon", chapter.icon().item().toString());
+        componentsAsJson(chapter.icon(), "chapterIconComponents", json);
+
         // A chapter may ask to be drawn in a theme of its own, and that rides on every quest in it
         // for the same reason `chapterLinear` does: the client groups entries by `chapterId` and has
         // no chapter record to hang it on.
@@ -287,6 +344,17 @@ public final class QuestSync {
         // chapter. Filtering it out at the server would be silently discarding an author's mistake,
         // which is the failure mode this project keeps finding: a field that reads as supported.
         chapter.theme().ifPresent(name -> json.addProperty("chapterTheme", name));
+        // The chapter's default line style, resolved: the client draws with it directly and has no
+        // chapter record to read one from -- the same reason `chapterDefaultPrerequisiteMode` rides here.
+        json.add("chapterDependencyStyle", chapter.dependencyStyle().resolved().asJson());
+        // And this quest's per-line overrides, sent only when it has any: absence is the common case and
+        // it means "every line of mine follows the chapter", which is what a file that never mentions
+        // them says.
+        if (!quest.dependencyLines().isEmpty()) {
+            JsonObject lines = new JsonObject();
+            quest.dependencyLines().forEach((dependency, style) -> lines.add(dependency, style.asJson()));
+            json.add("dependencyLines", lines);
+        }
         json.addProperty("id", quest.id());
         json.addProperty("title", quest.title().value());
         quest.subtitle().ifPresent(subtitle -> json.addProperty("subtitle", subtitle.value()));
@@ -307,6 +375,36 @@ public final class QuestSync {
         // `showTitle` travelling is the same lesson as `shape` before it: a field the validator accepts
         // and the client never hears about is a field that reads as supported and does nothing.
         json.addProperty("iconScale", quest.layout().iconScale());
+        // Degrees clockwise, and it crosses for the same reason `shape` does: the client is what draws
+        // and hit-tests the node, so a rotation the server held and the client never heard about would
+        // be a field that reads as supported and does nothing.
+        json.addProperty("rotation", quest.layout().rotation());
+        // The dependency *rules*, not just the edges. The client is what draws the lines and the card,
+        // and without these it can only ask "is this prerequisite completed" -- which is the wrong
+        // question for two of the four modes, and made a satisfied prerequisite draw as unmet.
+        //
+        // Absent rather than defaulted for the mode, because absence is a meaning: the quest has no
+        // opinion and the chapter's default applies. Sending "all_completed" for a quest that said
+        // nothing would make the client unable to tell the two apart.
+        quest.prerequisiteMode().ifPresent(mode ->
+                json.addProperty("prerequisiteMode", mode.name().toLowerCase(java.util.Locale.ROOT)));
+        // The chapter's default, because the client has no chapter record and an absent
+        // `prerequisiteMode` means "whatever the chapter says". Sent per quest like `chapterLinear` is,
+        // for the same reason and with the same cost.
+        json.addProperty("chapterDefaultPrerequisiteMode",
+                chapter.defaultPrerequisiteMode().name().toLowerCase(java.util.Locale.ROOT));
+        json.addProperty("minRequired", quest.minRequired());
+        json.addProperty("maxCompletableDependents", quest.rules().maxCompletableDependents());
+        // The reveal flags. Every one of them is a presentation decision the client makes against state
+        // it already has -- dependency states, task progress -- so they travel as data and the client
+        // needs no engine of its own.
+        json.addProperty("hideUntilDependenciesComplete", quest.rules().hideUntilDependenciesComplete());
+        json.addProperty("hideUntilDependenciesVisible", quest.rules().hideUntilDependenciesVisible());
+        json.addProperty("hideDependencyLines", quest.rules().hideDependencyLines());
+        json.addProperty("hideTextUntilComplete", quest.rules().hideTextUntilComplete());
+        json.addProperty("hideDetailsUntilStartable", quest.rules().hideDetailsUntilStartable());
+        json.addProperty("invisibleUntilTasks", quest.rules().invisibleUntilTasks());
+        quest.exclusiveGroup().ifPresent(group -> json.addProperty("exclusiveGroup", group));
         json.addProperty("showTitle", quest.showTitle());
         json.addProperty("invisible", quest.invisible());
         // Lowercase for the same reason `shape` is: a linear chapter is written lowercase, and the enum
@@ -363,10 +461,24 @@ public final class QuestSync {
         json.addProperty("count", display.count());
         json.addProperty("label", display.label());
         json.addProperty("labelFallback", display.labelFallback());
+        // The subject the key is formatted with -- the biome, the stage, the mob. Sent rather than left
+        // to the client to derive, because only the type knows what its sentence is about; see
+        // TaskDisplay#labelArg and ClientQuestCache.TaskEntry#text for the "1" that reading the count
+        // into every key produced.
+        json.addProperty("labelArg", display.labelArg());
         json.addProperty("optional", task.optional());
         json.addProperty("manual", TaskTypes.behaviourOf(task)
                 .map(behaviour -> behaviour.canSubmitByHand(task))
                 .orElse(false));
+        // The observation fields, which are the only per-type data the client needs to do work with:
+        // it ray-traces against them and submits when the timer is done. `manual` stays false above --
+        // no button -- and the submission is accepted because the type says so, not because of a flag
+        // on the wire.
+        if (task instanceof dev.ellipog.tasked.quest.task.ObservationTask observation) {
+            json.addProperty("observeType", observation.observeType().wire());
+            json.addProperty("observeTarget", observation.toObserve());
+            json.addProperty("observeTicks", observation.timer());
+        }
         return json;
     }
 
@@ -381,6 +493,15 @@ public final class QuestSync {
         json.addProperty("count", display.count());
         json.addProperty("label", display.label());
         json.addProperty("labelFallback", display.labelFallback());
+        json.addProperty("labelArg", display.labelArg());
+        // The base mechanics, resolved against the tree's own settings here rather than on the client:
+        // the client draws what the server would do, and a client resolving a file default would be a
+        // second opinion about the file. See RewardCommon.
+        QuestSettings settings = TaskedQuests.settings();
+        json.addProperty("auto", reward.common().autoClaim(settings.defaultAutoClaim()).name()
+                .toLowerCase(java.util.Locale.ROOT));
+        json.addProperty("team", reward.common().teamReward(settings.defaultTeamReward()));
+        json.addProperty("excludeFromClaimAll", reward.common().excludeFromClaimAll());
         return json;
     }
 
@@ -493,12 +614,29 @@ public final class QuestSync {
                                       QuestIndex index,
                                       Map<String, String> previous,
                                       ProgressService.Contributors contributors) {
+        return progressDelta(resolution, progress, index, previous, contributors, java.util.Set.of());
+    }
+
+    /**
+     * The same, with the quests whose stage gate this player does not pass.
+     *
+     * <p>The third per-player overlay on this wire, after the contributors and the claimable flag, and for
+     * the same reason: a quest's stored state is the team's, and what <i>this</i> player may see and collect
+     * is not. A gated quest reads as LOCKED for a player without the stage and as whatever the engine says
+     * for one with it, which is what makes a stage gate look like every other gate on the canvas.
+     */
+    public static Delta progressDelta(ProgressionEngine.Resolution resolution,
+                                      TeamProgress progress,
+                                      QuestIndex index,
+                                      Map<String, String> previous,
+                                      ProgressService.Contributors contributors,
+                                      java.util.Set<String> stageLocked) {
         JsonObject changed = new JsonObject();
         Map<String, String> snapshot = new LinkedHashMap<>();
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
-            String encoded = oneQuestAsJson(resolution, progress, quest, contributors);
+            String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked);
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -545,11 +683,15 @@ public final class QuestSync {
     private static String oneQuestAsJson(ProgressionEngine.Resolution resolution,
                                          TeamProgress progress,
                                          Quest quest,
-                                         ProgressService.Contributors contributors) {
+                                         ProgressService.Contributors contributors,
+                                         java.util.Set<String> stageLocked) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
-        one.addProperty("state", resolution.stateOf(quest).name());
+        // The gate first: a quest this player has not unlocked reads as locked whatever the team's stored
+        // state says, and the claimable flag below is decided from this same answer rather than separately.
+        boolean gated = stageLocked.contains(quest.id());
+        one.addProperty("state", (gated ? QuestState.LOCKED : resolution.stateOf(quest)).name());
 
         // Whether the quest is finished with something still to collect.
         //
@@ -562,8 +704,38 @@ public final class QuestSync {
         // Without this the button cannot exist. `rewardsClaimed` is on QuestProgress and this
         // method did not put it on the wire, which is the same shape as `shape` never travelling:
         // a field the engine records, the command prints, and no client ever hears about.
-        if (ProgressService.canClaim(progress, quest)) {
+        if (!gated && ProgressService.anyoneCouldClaim(progress, quest)) {
             one.addProperty("claimable", true);
+        }
+
+        // Who has collected what. Per player, because a claim is a player's own -- the client answers
+        // "does the player at this keyboard have something to collect" from this map with its own
+        // UUID, which a single team-wide boolean could never do. Sparse: an empty side is absent.
+        QuestProgress storedProgress = progress.progressOf(quest);
+        QuestClaims claims = storedProgress.claims();
+        if (!claims.team().isEmpty()) {
+            JsonArray team = new JsonArray();
+            claims.team().stream().sorted().forEach(team::add);
+            one.add("teamClaims", team);
+        }
+        if (!claims.players().isEmpty()) {
+            JsonObject players = new JsonObject();
+            claims.players().forEach((player, indices) -> {
+                JsonArray list = new JsonArray();
+                indices.stream().sorted().forEach(list::add);
+                players.add(player.toString(), list);
+            });
+            one.add("claims", players);
+        }
+        // A pre-per-player save's "collected": collected for everyone, for good. Sent so the client
+        // does not offer a claim the server would refuse.
+        if (storedProgress.legacySettled()) {
+            one.addProperty("settled", true);
+        }
+        // And whether the team's payouts are held, so the panel can say why a claim would be refused
+        // rather than showing a live button the server rejects. See TeamProgress#rewardsBlocked.
+        if (progress.rewardsBlocked()) {
+            one.addProperty("rewardsBlocked", true);
         }
 
         long remaining = resolution.cooldownOf(quest);
@@ -686,7 +858,10 @@ public final class QuestSync {
         ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, gameTime);
 
         Delta delta = progressDelta(resolution, progress, index, full ? null : last.quests(),
-                ProgressService.contributors(owner));
+                ProgressService.contributors(owner),
+                // The quests this player's stage gate shuts: the one per-player fact the per-quest text
+                // cannot carry, because the text is built from the team's progress. See progressDelta.
+                ProgressService.stageLockedQuests(server, player, index));
         SENT.put(player.getUUID(), new Sent(owner, delta.snapshot()));
 
         // Counted here rather than at the `send` calls below. One logical message can be several

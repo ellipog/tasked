@@ -33,6 +33,17 @@ versionRange = "${minecraft_version_range}"
 ordering = "NONE"
 side = "BOTH"
 
+# KubeJS is optional, and this entry exists so the game says so rather than leaving a pack author to
+# guess: Tasked runs without it, and with it the plugin in this module is loaded (see
+# TaskedKubeJsPlugin) and scripts can drive stages, listen to quest events, and register custom task
+# and reward handlers. Nothing requires KubeJS to be present to build or to run.
+[[dependencies.${mod_id}]]
+modId = "kubejs"
+type = "optional"
+versionRange = "[2101.7.2,)"
+ordering = "AFTER"
+side = "BOTH"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

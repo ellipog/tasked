@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_hermit",
+  "title": "The Hermit",
+  "subtitle": "invisible until one task has progress",
+  "description": [
+    "A quest nobody can see until they have stumbled onto part of it. `invisible`",
+    "hides it until it is completed; `invisibleUntilTasks: 1` reveals it earlier -- as",
+    "soon as one of its tasks has any progress at all.",
+    "",
+    "Pick up a single ender pearl and this node appears on the canvas, from nowhere,",
+    "with no line drawn to it and nothing to explain it. That is the easter egg."
+  ],
+  "icon": {
+    "item": "minecraft:ender_pearl"
+  },
+  "x": 0,
+  "y": 256,
+  "invisible": true,
+  "invisibleUntilTasks": 1,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:ender_pearl",
+      "count": 8
+    }
+  ]
+}

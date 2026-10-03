@@ -47,7 +47,11 @@ public final class ServerEditors {
      */
     public EditorOps.Applied apply(String chapter, EditorOp op) {
         if (chapter == null || chapter.isBlank()) {
-            return EditorOps.Applied.refused("no chapter named");
+            // No session, which is the state of a questline with no chapters: there is no editor to
+            // open and no history to record on, but a structural edit can still be applied — that is how
+            // the first chapter gets made. Every other kind is refused there with a sentence, because an
+            // edit to a chapter needs one to edit. See `EditorOps.applyWithoutSession`.
+            return EditorOps.applyWithoutSession(root.get(), op);
         }
         QuestEditor editor = open.get(chapter);
         if (editor == null) {
@@ -57,7 +61,78 @@ public final class ServerEditors {
             }
             open.put(chapter, editor);
         }
-        return EditorOps.apply(editor, op);
+        EditorOps.Applied applied = EditorOps.apply(editor, op);
+        if (applied.ok() && touchesStructure(applied)) {
+            follow(chapter, editor, applied);
+        }
+        return applied;
+    }
+
+    /**
+     * Whether an op changed the shape of the tree, rather than a field in one chapter.
+     *
+     * <p>True for the structural edits and for an undo or redo of one — those carry meta naming what
+     * moved, whose cached editor is now stale, or both. A plain field edit carries none, and is left
+     * exactly as it was: the write and the model already agree about it.
+     */
+    private static boolean touchesStructure(EditorOps.Applied applied) {
+        return applied.chapterId() != null || applied.groupId() != null || !applied.forget().isEmpty();
+    }
+
+    /**
+     * Moves open editors to wherever their chapters are now, after a structural edit moved them.
+     *
+     * <h2>Why the cache cannot simply be left alone</h2>
+     *
+     * <p>An editor is bound to a folder at the moment it is opened: it reads its manifest there and every
+     * write goes back to the same path — and {@code JsonFile.write} creates the folders it needs. So an
+     * editor left open across a rename does not fail, which is the dangerous part: the next edit arrives,
+     * is written to the <i>old</i> path, and recreates a folder the tree no longer lists. The discovery
+     * then reports it as unlisted content and the whole chapter is an error an author can see and cannot
+     * explain.
+     *
+     * <p>So every chapter whose folder moved is dropped, and the one the op was sent <i>from</i> is
+     * re-opened where it is now with its history carried across — a fresh editor has an empty stack, and
+     * Ctrl+Z after a rename would otherwise do nothing. When that chapter is <b>gone</b> — a delete — the
+     * history moves to the first chapter that survives, so the delete is still the thing the next Ctrl+Z
+     * undoes. That is a deliberate trade: the surviving chapter's own edit history is replaced by the
+     * history of the action the player just took, which is the one they are about to want back.
+     */
+    private void follow(String session, QuestEditor acting, EditorOps.Applied applied) {
+        boolean actingMoved = applied.forget().contains(session);
+        for (String gone : applied.forget()) {
+            open.remove(gone);
+        }
+        if (!actingMoved) {
+            open.put(session, acting);
+            // The files this editor holds may have been rewritten by the edit -- a group's chapter list,
+            // a manifest. Re-reading them is what stops the next field edit saving the old copy back.
+            acting.refresh();
+            return;
+        }
+        String target = applied.chapterId() != null && !applied.chapterId().isBlank()
+                ? applied.chapterId() : session;
+        QuestEditor fresh = QuestEditor.open(root.get(), target).orElse(null);
+        if (fresh == null) {
+            target = firstChapterId();
+            fresh = target == null ? null : QuestEditor.open(root.get(), target).orElse(null);
+        }
+        if (fresh == null) {
+            return;
+        }
+        fresh.adopt(acting);
+        fresh.refresh();
+        open.put(target, fresh);
+    }
+
+    /** The first chapter the tree still has, for a history whose own chapter has just been deleted. */
+    private String firstChapterId() {
+        return dev.ellipog.tasked.quest.QuestFiles.discover(root.get())
+                .of(dev.ellipog.tasked.quest.QuestFiles.Kind.CHAPTER).stream()
+                .map(dev.ellipog.tasked.quest.QuestFiles.Declaration::id)
+                .filter(id -> id != null && !id.isBlank())
+                .findFirst()
+                .orElse(null);
     }
 
     /**

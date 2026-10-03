@@ -78,18 +78,56 @@ public final class QuestEditor {
     private final Path root;
     private final Path folder;
     private final JsonFile manifest;
+    /** The group manifest beside this chapter's folder, or null when there is none to edit. */
+    private final JsonFile group;
     private final Map<String, JsonFile> quests = new LinkedHashMap<>();
-    private final Deque<Snapshot> undo = new ArrayDeque<>();
-    private final Deque<Snapshot> redo = new ArrayDeque<>();
+    private final Deque<History> undo = new ArrayDeque<>();
+    private final Deque<History> redo = new ArrayDeque<>();
 
-    /** One file's text, by path. Everything an undo has to put back. */
-    private record Snapshot(Map<Path, String> files) {
+    /** The meta of the last structural undo or redo. See {@link #takeLastMeta()}. */
+    private QuestStructure.Structure.Meta lastMeta;
+
+    /**
+     * One step of this chapter's history.
+     *
+     * <h2>Two kinds, because two kinds of edit exist</h2>
+     *
+     * <p>A field edit and a create are "the chapter's files, as they were" — {@link Files}, which is the
+     * snapshot this class has always kept. A structural edit — a chapter moved, renamed, duplicated,
+     * deleted — is not describable as this chapter's files at all, so it carries the edit's own steps
+     * ({@link QuestStructure.Structure}) and knows how to reverse and repeat itself.
+     *
+     * <p>One history rather than two, because Ctrl+Z must not care which kind of edit it is undoing:
+     * the order the edits happened in is the order they are undone in, and splitting the stacks would
+     * make the key depend on a question the player never asked.
+     */
+    private sealed interface History permits Snapshot, Structural {
     }
 
-    private QuestEditor(Path root, Path folder, JsonFile manifest) {
+    /** The chapter's files, text by path. Everything an undo of a field edit has to put back. */
+    private record Snapshot(Map<Path, String> files) implements History {
+    }
+
+    /** A structural edit, with the steps that reverse it. */
+    private record Structural(QuestStructure.Structure structure) implements History {
+    }
+
+    private QuestEditor(Path root, Path folder, JsonFile manifest, JsonFile group) {
         this.root = root;
         this.folder = folder;
         this.manifest = manifest;
+        this.group = group;
+    }
+
+    /**
+     * Where the quest tree lives. The structural edits are about the tree above this chapter.
+     *
+     * <p>Named {@code treeRoot} rather than {@code root} because the static, config-taking
+     * {@link #root(Path)} already owns that name, and overloading the two would put "the root under this
+     * config directory" and "the root this editor was opened from" one argument apart.
+     */
+    public Path treeRoot() {
+        return root;
     }
 
     /**
@@ -136,7 +174,7 @@ public final class QuestEditor {
             try {
                 JsonFile manifest = JsonFile.parse(manifestPath,
                         Files.readString(manifestPath, StandardCharsets.UTF_8));
-                QuestEditor editor = new QuestEditor(questRoot, folder, manifest);
+                QuestEditor editor = new QuestEditor(questRoot, folder, manifest, openGroup(questRoot, folder));
                 editor.reloadQuests();
                 return Optional.of(editor);
             }
@@ -146,6 +184,41 @@ public final class QuestEditor {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The group manifest beside a chapter's folder, or null when there is none to edit.
+     *
+     * <h2>Beside, not looked up by id</h2>
+     *
+     * <p>The group's file is {@code group.json} in the chapter folder's parent -- the same adjacency the
+     * loader reads a group from, so the editor and the loader cannot disagree about which file a group's
+     * fields live in. A chapter with no such file beside it (an ungrouped chapter, or a version-1 file
+     * the folder layout does not describe) simply has no group to edit, and an edit aimed at one is
+     * refused rather than written somewhere else.
+     *
+     * <p>A group file that will not read is <b>null</b>, not a failed open: everything else in the
+     * chapter is still editable, and only the group's own fields are out of reach.
+     */
+    private static JsonFile openGroup(Path root, Path chapterFolder) {
+        Path parent = chapterFolder == null ? null : chapterFolder.getParent();
+        // Strictly *under* the root, so a folder that is not a group folder's child -- a chapter at the
+        // root, a version-1 flat file, a path that wandered out of the quest tree -- cannot have the file
+        // next to it mistaken for its group's.
+        if (parent == null || parent.equals(root) || !parent.startsWith(root)) {
+            return null;
+        }
+        Path groupPath = parent.resolve(QuestFiles.GROUP_MANIFEST);
+        if (!Files.isRegularFile(groupPath)) {
+            return null;
+        }
+        try {
+            return JsonFile.parse(groupPath, Files.readString(groupPath, StandardCharsets.UTF_8));
+        }
+        catch (IOException | RuntimeException e) {
+            Constants.LOG.warn("tasked: {} could not be read, so the group is not editable.", groupPath, e);
+            return null;
+        }
     }
 
     /** Reads every quest file the manifest names. Called once at open; the editor owns them after. */
@@ -188,6 +261,17 @@ public final class QuestEditor {
         return manifest.json();
     }
 
+    /**
+     * The group's own file, as text, or null when this chapter has no group file to edit.
+     *
+     * <p>The counterpart of {@link #chapterJson()}, for the one file above the chapter: the group the
+     * chapter hangs under. Null is a real answer -- an ungrouped chapter, or one whose group file could
+     * not be read -- and a caller shows no group rather than an empty one.
+     */
+    public String groupJson() {
+        return group == null ? null : group.json();
+    }
+
     /** The quest ids, in the manifest's order — which for a linear chapter is the progression. */
     public List<String> questIds() {
         List<String> out = new ArrayList<>();
@@ -209,7 +293,7 @@ public final class QuestEditor {
 
     /** Whether anything is unsaved, including a file that was added or removed. */
     public boolean dirty() {
-        if (manifest.dirty()) {
+        if (manifest.dirty() || (group != null && group.dirty())) {
             return true;
         }
         for (JsonFile quest : quests.values()) {
@@ -282,6 +366,40 @@ public final class QuestEditor {
                 case List<?> list -> manifest.setStrings(path, list.stream().map(String::valueOf).toList());
                 case JsonElement json -> manifest.setJson(path, json);
                 case null -> manifest.remove(path);
+                default -> {
+                    undo.pop();
+                    return false;
+                }
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Changes one field of the chapter's group's own file.
+     *
+     * <p>The same shapes and the same rules as {@link #setChapter}, against the group manifest rather
+     * than the chapter's: the title the sidebar row shows, the icon it draws, and whether the group's
+     * chapters start collapsed. False -- with the history untouched -- for a chapter with no group file
+     * beside it, which is the honest refusal rather than a write to whichever file is nearest.
+     */
+    public boolean setGroup(String path, Object value) {
+        if (group == null || path == null || path.isBlank()) {
+            return false;
+        }
+        push();
+        try {
+            switch (value) {
+                case String text -> group.setText(path, text);
+                case Number number -> group.setNumber(path, number.doubleValue());
+                case Boolean flag -> group.setFlag(path, flag);
+                case List<?> list -> group.setStrings(path, list.stream().map(String::valueOf).toList());
+                case JsonElement json -> group.setJson(path, json);
+                case null -> group.remove(path);
                 default -> {
                     undo.pop();
                     return false;
@@ -520,36 +638,123 @@ public final class QuestEditor {
 
     /** Puts the chapter back to how it was before the last change. */
     public boolean undo() {
+        lastMeta = null;
         if (undo.isEmpty()) {
             return false;
         }
-        redo.push(snapshot());
-        restore(undo.pop());
+        History history = undo.pop();
+        if (history instanceof Structural structural) {
+            // The structure carries both directions, so redo is the same record run forwards.
+            QuestStructure.undo(structural.structure());
+            redo.push(history);
+            lastMeta = structural.structure().reverseMeta();
+            return true;
+        }
+        redo.push(snapshotFiles());
+        restore((Snapshot) history);
         return true;
     }
 
     /** The same, forward. */
     public boolean redo() {
+        lastMeta = null;
         if (redo.isEmpty()) {
             return false;
         }
-        undo.push(snapshot());
-        restore(redo.pop());
+        History history = redo.pop();
+        if (history instanceof Structural structural) {
+            QuestStructure.redo(structural.structure());
+            undo.push(history);
+            lastMeta = structural.structure().forwardMeta();
+            return true;
+        }
+        undo.push(snapshotFiles());
+        restore((Snapshot) history);
         return true;
     }
 
     /** Records the current state, and forgets the redo trail — a new edit is a new future. */
     private void push() {
-        undo.push(snapshot());
-        while (undo.size() > HISTORY) {
-            undo.removeLast();
-        }
+        undo.push(snapshotFiles());
+        trim();
         redo.clear();
     }
 
-    private Snapshot snapshot() {
+    /**
+     * Records a structural edit on this history, so Ctrl+Z reaches it.
+     *
+     * <p>Called by {@link EditorOps} after {@link QuestStructure} has already performed the edit: the
+     * structure is the record of what happened, not a plan, which is why it is pushed rather than run.
+     */
+    void record(QuestStructure.Structure structure) {
+        undo.push(new Structural(structure));
+        trim();
+        redo.clear();
+    }
+
+    /**
+     * Takes another editor's history, when a structural edit moved this chapter to a new folder.
+     *
+     * <p>An editor is bound to a folder, so the chapter that moved is re-opened at its new path — and a
+     * fresh editor has an empty history, which would make Ctrl+Z after a rename do nothing. The steps
+     * are still valid because they name the paths as they were at each edit; undoing past the move
+     * reverses the move first, which is what makes the older paths real again.
+     */
+    void adopt(QuestEditor other) {
+        undo.clear();
+        redo.clear();
+        undo.addAll(other.undo);
+        redo.addAll(other.redo);
+    }
+
+    /**
+     * The meta of the structural step last reversed or repeated, taken once.
+     *
+     * <p>Read by {@link EditorOps} right after an undo or a redo, so the caller can re-key its editor
+     * cache to wherever the chapter now is. One-shot, because it describes one step: leaving it set would
+     * make the next question about a later undo read the previous answer.
+     */
+    QuestStructure.Structure.Meta takeLastMeta() {
+        QuestStructure.Structure.Meta meta = lastMeta;
+        lastMeta = null;
+        return meta;
+    }
+
+    /**
+     * Re-reads this chapter's own files, after a structural edit rewrote one of them.
+     *
+     * <p>Those edits write manifests this editor is holding in memory: a group's {@code chapters} list,
+     * the chapter's own manifest. Without this the next field edit would save the pre-edit copy back over
+     * the structural change — the two sides of the model disagreeing, which is the one state this design
+     * does not allow.
+     */
+    void refresh() {
+        try {
+            if (Files.isRegularFile(manifest.file())) {
+                manifest.replaceWith(Files.readString(manifest.file(), StandardCharsets.UTF_8));
+            }
+            if (group != null && Files.isRegularFile(group.file())) {
+                group.replaceWith(Files.readString(group.file(), StandardCharsets.UTF_8));
+            }
+            reloadQuests();
+        }
+        catch (IOException | RuntimeException e) {
+            Constants.LOG.warn("tasked: a chapter could not be re-read after a structural edit.", e);
+        }
+    }
+
+    private void trim() {
+        while (undo.size() > HISTORY) {
+            undo.removeLast();
+        }
+    }
+
+    private Snapshot snapshotFiles() {
         Map<Path, String> files = new LinkedHashMap<>();
         files.put(manifest.file(), manifest.json());
+        if (group != null) {
+            files.put(group.file(), group.json());
+        }
         for (JsonFile quest : quests.values()) {
             files.put(quest.file(), quest.json());
         }
@@ -610,6 +815,9 @@ public final class QuestEditor {
         // save skips -- which is how an undo used to survive on the screen and vanish on reload. See
         // `JsonFile.replaceWith`, and the op tests that found it.
         manifest.replaceWith(files.get(manifest.file()));
+        if (group != null && files.containsKey(group.file())) {
+            group.replaceWith(files.get(group.file()));
+        }
         reloadQuests();
         for (JsonFile quest : quests.values()) {
             if (!files.containsKey(quest.file())) {
@@ -651,13 +859,23 @@ public final class QuestEditor {
         Problems problems = new Problems();
         List<Path> toWrite = new ArrayList<>();
 
-        validate(manifest.file().getFileName().toString(), manifest.json(), false, problems);
+        validate(manifest.file().getFileName().toString(), manifest.json(), DocumentKind.CHAPTER, problems);
         if (manifest.dirty()) {
             toWrite.add(manifest.file());
         }
 
+        // The group's file, when this chapter has one. Validated against the group's own rules -- the
+        // reader's rules, not a chapter's -- and written in the same all-or-nothing pass as everything
+        // else: a save that half-wrote a chapter and its group would leave the pair disagreeing.
+        if (group != null) {
+            validate(root.relativize(group.file()).toString(), group.json(), DocumentKind.GROUP, problems);
+            if (group.dirty()) {
+                toWrite.add(group.file());
+            }
+        }
+
         for (Map.Entry<String, JsonFile> entry : quests.entrySet()) {
-            validate(entry.getKey() + SUFFIX, entry.getValue().json(), true, problems);
+            validate(entry.getKey() + SUFFIX, entry.getValue().json(), DocumentKind.QUEST, problems);
             if (entry.getValue().dirty()) {
                 toWrite.add(entry.getValue().file());
             }
@@ -673,7 +891,9 @@ public final class QuestEditor {
         int written = 0;
         for (Path path : toWrite) {
             try {
-                JsonFile file = path.equals(manifest.file()) ? manifest : quests.get(idOf(path));
+                JsonFile file = path.equals(manifest.file()) ? manifest
+                        : group != null && path.equals(group.file()) ? group
+                        : quests.get(idOf(path));
                 if (file == null) {
                     continue;
                 }
@@ -687,7 +907,10 @@ public final class QuestEditor {
         return new SaveResult(written, List.of());
     }
 
-    private void validate(String display, String text, boolean quest, Problems problems) {
+    /** Which document a file is, so the validator reads it with the right rules. */
+    private enum DocumentKind { QUEST, CHAPTER, GROUP }
+
+    private void validate(String display, String text, DocumentKind kind, Problems problems) {
         JsonDocument document;
         try {
             document = JsonDocument.parse(display, text);
@@ -700,11 +923,10 @@ public final class QuestEditor {
                     "the editor wrote something that is not JSON: " + e.getMessage())));
             return;
         }
-        if (quest) {
-            QuestValidator.validateQuestDocument(document, problems);
-        }
-        else {
-            QuestValidator.validateChapterDocument(document, problems);
+        switch (kind) {
+            case QUEST -> QuestValidator.validateQuestDocument(document, problems);
+            case CHAPTER -> QuestValidator.validateChapterDocument(document, problems);
+            case GROUP -> QuestValidator.validateGroupDocument(document, problems);
         }
     }
 

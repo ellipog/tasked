@@ -367,4 +367,64 @@ class QuestEditorTest {
                 "and not one byte of the chapter was written");
         assertTrue(editor.dirty(), "the edits are still there to fix");
     }
+
+    // ------------------------------------------------------------------
+    // The group's own file
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("the group beside the chapter is edited as a group: its own file, its own validation")
+    void editsTheGroup() throws IOException {
+        Path groupPath = root.resolve("getting_started").resolve("group.json");
+        QuestEditor editor = open();
+
+        assertNotNull(editor.groupJson(), "the manifest beside the chapter is open for editing");
+        assertTrue(editor.setGroup("title", "Getting Started, Properly"), "the group's title is set");
+        assertTrue(editor.setGroup("icon", icon("minecraft:anvil")), "and its own icon");
+        assertTrue(editor.save().ok(), "the save validates it as a group document and writes it");
+
+        com.google.gson.JsonObject saved = com.google.gson.JsonParser
+                .parseString(Files.readString(groupPath, StandardCharsets.UTF_8)).getAsJsonObject();
+        assertEquals("Getting Started, Properly", saved.get("title").getAsString());
+        assertEquals("minecraft:anvil", saved.getAsJsonObject("icon").get("item").getAsString(),
+                "the write landed in group.json, not in the chapter's file");
+        assertEquals("first_steps", saved.getAsJsonArray("chapters").get(0).getAsString(),
+                "and the rest of the group is untouched");
+
+        // And an undo puts the group back too -- the snapshot holds it, which is the half of "the group
+        // is edited here" that a test of writes alone would miss.
+        editor.undo();
+        editor.undo();
+        assertFalse(editor.groupJson().contains("anvil"), "an undo takes the icon back off");
+        assertTrue(editor.groupJson().contains("Getting Started"), "and the title with it");
+    }
+
+    @Test
+    @DisplayName("a group edit that would not load is refused whole, like every other file")
+    void aBadGroupEditIsRefusedWhole() throws IOException {
+        Path groupPath = root.resolve("getting_started").resolve("group.json");
+        QuestEditor editor = open();
+        String before = Files.readString(groupPath, StandardCharsets.UTF_8);
+
+        // A malformed item id, the same shape the chapter's own refusal test uses. An item that is
+        // merely *missing* is a warning by design -- the id is kept so a removed mod can come back --
+        // so it takes a reference the codec cannot read at all to make the save refuse.
+        assertTrue(editor.setGroup("icon", icon("not an item id")),
+                "the edit itself is written into the open tree");
+
+        QuestEditor.SaveResult result = editor.save();
+
+        assertFalse(result.ok(), "the group's icon is validated as an item reference, like a chapter's");
+        assertEquals(0, result.written(), "and nothing at all is written");
+        assertTrue(result.messages().stream().anyMatch(message -> message.contains("icon")),
+                () -> "the message names the field: " + result.messages());
+        assertEquals(before, Files.readString(groupPath, StandardCharsets.UTF_8),
+                "group.json is left exactly as it was");
+    }
+
+    private static com.google.gson.JsonObject icon(String item) {
+        com.google.gson.JsonObject icon = new com.google.gson.JsonObject();
+        icon.addProperty("item", item);
+        return icon;
+    }
 }

@@ -6,6 +6,7 @@ import com.google.gson.JsonPrimitive;
 
 import dev.ellipog.armature.client.ui.inspect.InspectField;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
+import dev.ellipog.tasked.quest.EditorSpecs;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -68,91 +69,6 @@ public final class QuestPanelLayout {
     /** The read-only values' prefix. */
     public static final String VALUE_PREFIX = "v:";
 
-    /**
-     * One editable piece of an entry: a task's count, a reward's item.
-     *
-     * <p>The card edits entries <b>in place</b> -- the row is the editor, not a form -- so a type's
-     * fields are described as parts with a kind, and the screen draws and hits them without knowing
-     * which type it is looking at. {@link Kind#ITEM} opens the item picker,
-     * {@link Kind#FLAG} toggles on the press, and the other two open an inline field.
-     */
-    public record Part(String path, Kind kind, String label) {
-
-        public enum Kind {
-            TEXT,
-            INTEGER,
-            FLAG,
-            ITEM
-        }
-    }
-
-    /**
-     * The editable parts of one task or reward, from its own type.
-     *
-     * <p>By suffix on the type id rather than by a registry lookup: the parts are about how a type is
-     * <i>drawn</i>, and a type this build does not know has no parts -- it gets the raw editor instead.
-     * T10's remaining types extend this table the day they register, which is the same deal their
-     * panels have.
-     */
-    public static List<Part> entryParts(String member, JsonObject entry) {
-        String type = text(entry, "type", "");
-        if ("rewards".equals(member)) {
-            if (type.endsWith(":xp")) {
-                return List.of(new Part("amount", Part.Kind.INTEGER, "Amount"),
-                        new Part("levels", Part.Kind.FLAG, "Levels"));
-            }
-            return List.of(new Part("item", Part.Kind.ITEM, "Item"),
-                    new Part("count", Part.Kind.INTEGER, "Count"));
-        }
-        if (type.endsWith(":checkmark")) {
-            return List.of(new Part("title", Part.Kind.TEXT, "Title"));
-        }
-        return List.of(new Part("item", Part.Kind.ITEM, "Item"),
-                new Part("count", Part.Kind.INTEGER, "Count"),
-                new Part("consumeItems", Part.Kind.FLAG, "Consume"));
-    }
-
-    /**
-     * The settings popover's rows: everything the reader's card does not show.
-     *
-     * <p>The one place rows are still the shape, and deliberately: a popover of secondary fields is
-     * what rows are for. The card itself never uses them -- see the class note on the fourth playtest.
-     */
-    public static List<InspectRow> settingsRows(JsonObject quest, Set<String> folded) {
-        List<InspectRow> rows = new ArrayList<>();
-        if (quest == null) {
-            return List.copyOf(rows);
-        }
-        rows.add(InspectRow.heading(PLACEMENT, "Placement"));
-        if (!folded.contains(PLACEMENT)) {
-            // Numbers and the shape are steppers, not typed fields: a coordinate wants nudging, and a
-            // shape wants cycling -- a text box for either is a form, and this popover is not one.
-            rows.add(stepper(quest, "x"));
-            rows.add(stepper(quest, "y"));
-            rows.add(stepper(quest, "shape"));
-            rows.add(stepper(quest, "size"));
-            rows.add(toggle(quest, "showTitle"));
-            rows.add(field(quest, "iconScale"));
-        }
-        rows.add(InspectRow.heading(RULES, "Rules"));
-        if (!folded.contains(RULES)) {
-            rows.add(toggle(quest, "repeatable"));
-            rows.add(stepper(quest, "repeatCooldownTicks"));
-            rows.add(toggle(quest, "sequentialTasks"));
-            rows.add(toggle(quest, "invisible"));
-            rows.add(field(quest, "exclusiveGroup"));
-            rows.add(field(quest, "prerequisiteMode"));
-            rows.add(stepper(quest, "minRequired"));
-        }
-        rows.add(InspectRow.heading(IDENTITY, "Identity extras"));
-        if (!folded.contains(IDENTITY)) {
-            rows.add(InspectRow.value(VALUE_PREFIX + "id", "Id", text(quest, "id", "")));
-            rows.add(InspectRow.field("aliases", "Aliases, comma-separated",
-                    String.join(", ", strings(quest, "aliases"))));
-        }
-        return List.copyOf(rows);
-    }
-
     /** The rows that add a task or a reward, and the prefix of a type-picker row. */
     public static final String ADD_TASKS = "add:tasks";
     public static final String ADD_REWARDS = "add:rewards";
@@ -209,6 +125,9 @@ public final class QuestPanelLayout {
             rows.add(field(quest, "exclusiveGroup"));
             rows.add(field(quest, "prerequisiteMode"));
             rows.add(field(quest, "minRequired"));
+            // The stage gate, beside the other rules about when a quest opens: it is the one of them that is
+            // per player rather than per team, which is what its label says.
+            rows.add(field(quest, "requiresStage"));
         }
 
         rows.add(InspectRow.heading(DEPENDENCIES, "Dependencies"));
@@ -229,33 +148,388 @@ public final class QuestPanelLayout {
         return List.copyOf(rows);
     }
 
+    /** One heading of the picker's list, with the types shown under it. */
+    public record TypeGroup(String title, List<TypeChoice> types) {
+    }
+
     /**
-     * The type picker's rows: one per registered type of the member being added to.
+     * One type's presentation: what the picker calls it, what it is for, whether a row's sentence about
+     * it names a registry id the client should prettify before showing -- and, separately, how the row
+     * is explained to a <b>player</b>.
      *
-     * <p>From the registries, so an addon's type is in the list the day it registers. The label is the
-     * type's id as written in a file -- {@code tasked:item} -- because that is the name an author
-     * meets in the JSON and in every error message.
+     * <h2>Why two hints and not one</h2>
+     *
+     * <p>They are read by different people. {@code hint} is the picker's line, written for an author
+     * choosing a type ("Hand in a count of any item in a tag"), and it travels with the fields and the
+     * id in the picker's own tooltip. {@code playerHint} is what a reader sees when they hover the row
+     * in a quest card: no field names, no ids, no jargon -- what the row is asking <i>them</i> to do.
+     * A type whose two audiences would read the same words still spells both, because the next edit to
+     * one of them must not silently change the other.
+     *
+     * <p>The flag is a property of the <b>sentence</b>, not of the registry. A dimension's row says
+     * "Visit minecraft:overworld", so the id is the one thing on it that wants prettifying; a stage's
+     * says "Have the stage my_pack:inducted", where the id <i>is</i> the name and prettifying it would
+     * invent one. Only the type knows which of those its sentence is, and the table is where the type
+     * is already described.
+     */
+    public record TypeChoice(String id, String name, String hint, String playerHint, boolean friendlyArg) {
+
+        /** A type whose argument is not a registry id, or whose id is the name. */
+        public TypeChoice(String id, String name, String hint, String playerHint) {
+            this(id, name, hint, playerHint, false);
+        }
+    }
+
+    /** The heading every registered type the table does not name is listed under. */
+    public static final String MORE = "More";
+
+    /** The key prefix of a group's heading; the index follows, so two groups cannot share a key. */
+    public static final String TYPE_GROUP_PREFIX = "h:type:";
+
+    /**
+     * The picker's grouping, order, names and hints for the built-in types.
+     *
+     * <p>Curated, because none of those four things can be derived: a registry knows ids, not what to
+     * call them or which belong together. The table is presentation only -- {@link #typeRows} lists what
+     * the registries hold, so a type it does not name still appears, under {@link #MORE}, named by its
+     * own id.
+     */
+    private static final List<TypeGroup> TASK_GROUPS = List.of(
+            new TypeGroup("Hand in", List.of(
+                    new TypeChoice("tasked:item", "Item", "Hand in a count of one item.",
+                            "Have this many in your inventory."),
+                    new TypeChoice("tasked:item_tag", "Item tag", "Hand in a count of any item in a tag.",
+                            "Have this many items from this tag.", true),
+                    new TypeChoice("tasked:xp", "Experience", "Hand in experience points or levels.",
+                            "Have this much experience."),
+                    new TypeChoice("tasked:fluid", "Fluid", "Hand in fluid, carried in buckets.",
+                            "Have this much fluid, carried in buckets.", true))),
+            new TypeGroup("Go", List.of(
+                    new TypeChoice("tasked:dimension", "Dimension", "Be in a dimension.",
+                            "Travel to this dimension.", true),
+                    new TypeChoice("tasked:biome", "Biome", "Be in a biome, or any biome of a tag.",
+                            "Be in this biome.", true),
+                    new TypeChoice("tasked:structure", "Structure", "Be inside a structure.",
+                            "Find this structure.", true),
+                    new TypeChoice("tasked:location", "Location", "Stand inside a box of coordinates.",
+                            "Stand inside this area."))),
+            new TypeGroup("Progress", List.of(
+                    new TypeChoice("tasked:advancement", "Advancement",
+                            "Earn an advancement, or one of its criteria.",
+                            "Earn this advancement.", true),
+                    new TypeChoice("tasked:stat", "Statistic", "Reach a vanilla statistic value.",
+                            "Raise this statistic to the amount shown.", true),
+                    new TypeChoice("tasked:stage", "Stage", "The player has a stage.",
+                            "Story progress - another quest or a command sets this."),
+                    new TypeChoice("tasked:kill", "Kill", "Kill entities, by type or tag.",
+                            "Defeat this many.", true),
+                    new TypeChoice("tasked:observation", "Observe",
+                            "Look at a block or entity for long enough.",
+                            "Look at it and keep looking for the time shown.", true))),
+            new TypeGroup("Manual", List.of(
+                    new TypeChoice("tasked:checkmark", "Checkmark", "The player says they did it.",
+                            "You decide when this one is done."))),
+            // Last, and its own group: this one is not a kind of thing to ask for but a way of asking for
+            // anything -- the handler a mod or a script registered decides what it means.
+            new TypeGroup("Other", List.of(
+                    new TypeChoice("tasked:custom", "Custom",
+                            "Progress measured by a mod or a script, by an id.",
+                            "Tracked by the pack's own code."))));
+
+    private static final List<TypeGroup> REWARD_GROUPS = List.of(
+            new TypeGroup("Items", List.of(
+                    new TypeChoice("tasked:item", "Item", "Give one item.",
+                            "You get this item when you claim the quest."),
+                    new TypeChoice("tasked:random", "Random roll", "One guaranteed roll from a loot table.",
+                            "Rolls a loot table when you claim it."),
+                    new TypeChoice("tasked:loot", "Loot roll", "A roll that can come up empty.",
+                            "Rolls a loot table when you claim it - it can come up empty."),
+                    new TypeChoice("tasked:all_table", "Whole table",
+                            "Every table entry once, weights ignored.",
+                            "Gives every entry of a loot table, once."))),
+            new TypeGroup("Choice", List.of(
+                    new TypeChoice("tasked:choice", "Choice", "The player picks one entry of a table.",
+                            "You pick one entry when you claim it."))),
+            new TypeGroup("Server", List.of(
+                    new TypeChoice("tasked:command", "Command", "Run a command as the player.",
+                            "Runs a command when you claim it."),
+                    new TypeChoice("tasked:advancement", "Advancement", "Award an advancement.",
+                            "Awards an advancement when you claim it.", true),
+                    new TypeChoice("tasked:custom", "Custom", "Somebody else's code, by id.",
+                            "Granted by the pack's own code."))),
+            new TypeGroup("Progress", List.of(
+                    new TypeChoice("tasked:xp", "Experience", "Give experience points or levels.",
+                            "Gives experience when you claim it."),
+                    new TypeChoice("tasked:stage", "Stage", "Set a stage, or take one away.",
+                            "Sets story progress when you claim it."))));
+
+    /**
+     * The type picker's rows: the page's own heading, then one group heading per table group with the
+     * registered types of the member being added to under it.
+     *
+     * <p>From the registries, so an addon's type is in the list the day it registers. The table supplies
+     * the grouping, the order, the name and the hint; a registered id it does not name is still listed,
+     * under {@link #MORE} and named by its id -- the spelling an author meets in the JSON, in the entry
+     * row's hover label and in every error message.
      */
     public static List<InspectRow> typeRows(String member) {
-        List<InspectRow> rows = new ArrayList<>();
+        Set<String> registered = new TreeSet<>();
+        for (ResourceLocation id : ("rewards".equals(member) ? RewardTypes.ids() : TaskTypes.ids())) {
+            registered.add(id.toString());
+        }
+        return typeRows(member, registered);
+    }
+
+    /**
+     * The same, over an id set the caller supplies.
+     *
+     * <p>How the fallback group is tested: an id no table names is what an addon's type looks like, and
+     * the alternative -- registering one into a registry the whole test JVM shares -- would leave every
+     * other test running against a build with an addon installed.
+     */
+    static List<InspectRow> typeRows(String member, Set<String> registered) {
         boolean tasks = !"rewards".equals(member);
-        rows.add(InspectRow.heading("h:type",
-                tasks ? "Add a task" : "Add a reward"));
-        java.util.Set<String> ids = new java.util.TreeSet<>();
-        if (tasks) {
-            for (ResourceLocation id : TaskTypes.ids()) {
-                ids.add(id.toString());
+        List<TypeGroup> groups = tasks ? TASK_GROUPS : REWARD_GROUPS;
+        List<InspectRow> rows = new ArrayList<>();
+        rows.add(InspectRow.heading("h:type", tasks ? "Add a task" : "Add a reward"));
+        Set<String> named = new TreeSet<>();
+        int group = 0;
+        for (TypeGroup each : groups) {
+            List<TypeChoice> shown = each.types().stream()
+                    .filter(choice -> registered.contains(choice.id())).toList();
+            if (shown.isEmpty()) {
+                continue;
+            }
+            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group++, each.title()));
+            for (TypeChoice choice : shown) {
+                rows.add(InspectRow.action(TYPE_PREFIX + choice.id(), choice.name()));
+                named.add(choice.id());
             }
         }
-        else {
-            for (ResourceLocation id : RewardTypes.ids()) {
-                ids.add(id.toString());
+        Set<String> unnamed = new TreeSet<>(registered);
+        unnamed.removeAll(named);
+        if (!unnamed.isEmpty()) {
+            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group, MORE));
+            for (String id : unnamed) {
+                rows.add(InspectRow.action(TYPE_PREFIX + id, id));
             }
-        }
-        for (String id : ids) {
-            rows.add(InspectRow.action(TYPE_PREFIX + id, id));
         }
         return List.copyOf(rows);
+    }
+
+    /**
+     * Whether a type's sentence names a registry id the client should prettify before it is shown.
+     *
+     * <p>False for a type the table does not name: an addon's sentence is its own, and rewriting an id
+     * inside it would be a guess about a shape this build has never seen.
+     */
+    public static boolean prettifiesIds(String member, String typeId) {
+        TypeChoice choice = choiceFor(member, typeId);
+        return choice != null && choice.friendlyArg();
+    }
+
+    /**
+     * A registry id as a row reads it: the path, prettified, with a tag's leading {@code #} kept.
+     *
+     * <p>A string that is not a valid id at all is returned unchanged -- but a bare word is not such a
+     * string: since 1.21 it parses as {@code minecraft:<word>}, so this is the rewrite to apply once a
+     * token is known to be an id, not the test for whether it is one. That test is
+     * {@link #prettiedArgument}'s, and it asks for a namespace.
+     */
+    public static String friendlyId(String id) {
+        boolean tag = id.startsWith("#");
+        ResourceLocation location = ResourceLocation.tryParse(tag ? id.substring(1) : id);
+        if (location == null) {
+            return id;
+        }
+        return (tag ? "#" : "") + EditorSpecs.label(location.getPath());
+    }
+
+    /**
+     * A type's argument, with the registry ids in it prettified when the type's table entry says its
+     * argument names one.
+     *
+     * <h2>Why token by token, and why a token must be a full id</h2>
+     *
+     * <p>Because some sentences put more than an id in the argument. A fluid task's is
+     * "1000 mB of minecraft:water" and an observation's is "minecraft:beacon for 2.0s", and the words
+     * around the id are not registry ids -- running the whole argument through the prettifier would
+     * mangle them.
+     *
+     * <p>And a bare word is not evidence of an id: since 1.21 a namespace-less string parses as
+     * {@code minecraft:<word>}, so prettifying every parseable token would turn the "of" in that fluid
+     * sentence into "Of" and a kill task's "anything" into "Anything". Only a token that spells a
+     * namespace is an id here -- which is what the sentences write, since they all stringify a
+     * {@code ResourceLocation} -- and everything else passes through exactly as the server wrote it.
+     */
+    public static String prettiedArgument(String member, String typeId, String arg) {
+        return prettiedArgument(member, typeId, arg, null);
+    }
+
+    /**
+     * The same, with a chance to name a full id better than its path can.
+     *
+     * <p>{@code betterName} is asked for each id token, with the token's id as its argument, and its
+     * answer is used when it has one. An advancement is the caller that needs this -- the client holds
+     * the advancement's own title, which is what the player knows it by -- and every other type passes
+     * null.
+     */
+    public static String prettiedArgument(String member, String typeId, String arg,
+                                          java.util.function.Function<String, String> betterName) {
+        if (!prettifiesIds(member, typeId)) {
+            return arg;
+        }
+        StringBuilder out = new StringBuilder();
+        for (String token : arg.split(" ")) {
+            if (!out.isEmpty()) {
+                out.append(' ');
+            }
+            String bare = token.startsWith("#") ? token.substring(1) : token;
+            if (bare.indexOf(':') < 0) {
+                out.append(token);
+                continue;
+            }
+            String better = betterName == null ? null : betterName.apply(bare);
+            out.append(better != null ? better : friendlyId(token));
+        }
+        return out.toString();
+    }
+
+    /**
+     * The hover description of a type in the picker: what it is for, the fields it takes, and the id a
+     * file spells.
+     *
+     * <p>Plain strings, because that is what the picker's buttons draw with. This is the <b>author's</b>
+     * description and it says so: field names and the id are what an author edits, and the picker is a
+     * tool only edit mode reaches. What a player reads on a row's hover is {@link #playerTooltip}, which
+     * shares none of these lines.
+     *
+     * <p>A type the table does not name has no hint, so its id -- which is the name in that case -- is
+     * the last line rather than the first.
+     */
+    public static List<String> typeTooltip(String member, String typeId) {
+        TypeChoice choice = choiceFor(member, typeId);
+        List<String> lines = new ArrayList<>();
+        if (choice != null) {
+            lines.add(choice.hint());
+        }
+        ResourceLocation id = ResourceLocation.tryParse(typeId);
+        if (id != null) {
+            Set<String> fields = "rewards".equals(member) ? RewardTypes.fieldsOf(id) : TaskTypes.fieldsOf(id);
+            if (!fields.isEmpty()) {
+                lines.add("Fields: " + String.join(", ", new TreeSet<>(fields)));
+            }
+        }
+        lines.add(typeId);
+        return List.copyOf(lines);
+    }
+
+    /** The player line for a type the table does not name: true of every one of them, and nothing else. */
+    private static final String UNKNOWN_TASK = "Tracked by the pack's own code.";
+    private static final String UNKNOWN_REWARD = "Granted by the pack's own code.";
+
+    /** The type's player-facing line, or null for one the table does not name. */
+    public static String playerHint(String member, String typeId) {
+        TypeChoice choice = choiceFor(member, typeId);
+        return choice == null ? null : choice.playerHint();
+    }
+
+    /**
+     * What a player reads when they hover a task or reward row in a quest card.
+     *
+     * <h2>Written for the reader, not the author</h2>
+     *
+     * <p>No field names, no ids, no type names: the row beside the pointer already says what the row
+     * asks, and this says what that <i>means</i> and how it is completed. An author who wants the fields
+     * and the id has the picker's tooltip, which is where that belongs -- see {@link #typeTooltip}.
+     *
+     * <h2>The one row-specific fact</h2>
+     *
+     * <p>{@code byHand} is the row's own flag, the one that draws the "hand in" tag and the Submit
+     * button. It decides the second line, and what that line may claim depends on the type: the item
+     * kinds, experience and fluid take what they are handed; a checkmark takes nothing; and an addon's
+     * handler is its own business, so it gets the neutral wording. A carried item that is <b>not</b>
+     * handed in says so instead -- that nothing is taken is the surprising half of the two behaviours,
+     * and the half a player has no other way to learn.
+     */
+    public static List<String> playerTooltip(String member, String typeId, boolean byHand) {
+        boolean rewards = "rewards".equals(member);
+        String line = playerHint(member, typeId);
+        List<String> lines = new ArrayList<>();
+        lines.add(line == null ? (rewards ? UNKNOWN_REWARD : UNKNOWN_TASK) : line);
+        if (!byHand) {
+            if (!rewards && carriesItems(typeId)) {
+                lines.add("Nothing is taken - the quest only checks that you have them.");
+            }
+            return List.copyOf(lines);
+        }
+        if ("tasked:checkmark".equals(typeId)) {
+            lines.add("Press the Submit button when you have done it.");
+        }
+        else if (!rewards && takesResources(typeId)) {
+            lines.add("Hand it in with the Submit button - what you hand over is taken.");
+        }
+        else {
+            lines.add("Hand it in with the Submit button.");
+        }
+        return List.copyOf(lines);
+    }
+
+    /** The task kinds a row can carry in an inventory: their sentences are about having, not doing. */
+    private static boolean carriesItems(String typeId) {
+        return "tasked:item".equals(typeId) || "tasked:item_tag".equals(typeId);
+    }
+
+    /**
+     * The task kinds that take what they are handed.
+     *
+     * <p>The item kinds only reach a Submit button when set to consume -- a presence-only one completes
+     * by itself -- so when they are here, they take. Experience and fluid always take; a checkmark never
+     * does, which is why it is not in this set.
+     */
+    private static boolean takesResources(String typeId) {
+        return "tasked:item".equals(typeId) || "tasked:item_tag".equals(typeId)
+                || "tasked:xp".equals(typeId) || "tasked:fluid".equals(typeId);
+    }
+
+    /**
+     * The name the picker and an entry's badge show for a type.
+     *
+     * <p>The table's own word, or the id for a type it does not name -- an addon's, which is the spelling
+     * its author meets in the file and in every error message, and therefore the honest fallback.
+     */
+    public static String typeName(String member, String typeId) {
+        TypeChoice choice = choiceFor(member, typeId);
+        return choice == null ? typeId : choice.name();
+    }
+
+    private static TypeChoice choiceFor(String member, String typeId) {
+        for (TypeGroup group : "rewards".equals(member) ? REWARD_GROUPS : TASK_GROUPS) {
+            for (TypeChoice choice : group.types()) {
+                if (choice.id().equals(typeId)) {
+                    return choice;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The fields of one entry, from its own type's registration: the type's form, with the settings every
+     * task or reward has already appended to it.
+     *
+     * <p>Empty for a type this build does not know, and for an entry whose {@code type} is missing or
+     * malformed. There is no form to draw for those, and the card draws the raw value instead -- the same
+     * refusal the reader makes, and the one that keeps an unknown type editable rather than silently
+     * blank.
+     */
+    public static List<dev.ellipog.tasked.quest.EditorField> editorFor(String member, JsonObject entry) {
+        String type = text(entry, "type", "");
+        ResourceLocation id = ResourceLocation.tryParse(type);
+        if (id == null) {
+            return List.of();
+        }
+        return "rewards".equals(member) ? RewardTypes.editorOf(id) : TaskTypes.editorOf(id);
     }
 
     /** Whether a type id is one this build can add to the given member. */
@@ -313,7 +587,7 @@ public final class QuestPanelLayout {
                 continue;
             }
             if (known) {
-                for (String fieldName : new TreeSet<>(fieldsOf(type))) {
+                for (String fieldName : new TreeSet<>(fieldsOf(type, entry))) {
                     // The value is read from the quest's own root, with the full path: the commit goes
                     // back through the same path, and a read that started at the task object would be
                     // answering a path that names nothing from where it stands.
@@ -337,7 +611,7 @@ public final class QuestPanelLayout {
     }
 
     /** A registered type's own field names, sorted. Empty for an unregistered one. */
-    private static Set<String> fieldsOf(String type) {
+    private static Set<String> fieldsOf(String type, JsonObject entry) {
         ResourceLocation id = ResourceLocation.tryParse(type);
         if (id == null) {
             return Set.of();
@@ -346,12 +620,19 @@ public final class QuestPanelLayout {
         if (fields.isEmpty()) {
             fields = RewardTypes.ids().contains(id) ? RewardTypes.fieldsOf(id) : Set.of();
         }
-        // `components` is a field of the format but not a row of this panel: it is an object, the
-        // picker writes it, and a text field for it would offer to write a *string* where the format
-        // holds an object -- a row that corrupts the file it is drawn from. The validator still knows
-        // the field (its set is the registry's), so files using it are clean.
-        return fields.stream().filter(field -> !"components".equals(field))
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        // Structured fields are not rows of this panel: a text field for an object or an array would
+        // offer to write a *string* where the format holds a structure -- a row that corrupts the file
+        // it is drawn from. `components` is the named case; a field whose stored value is an array or
+        // an object -- a location's position -- is the general one. The editor's card still edits
+        // those, as indexed numbers or through the picker. An absent structured field stays a row
+        // (as text), which is how it gets created in the first place.
+        return fields.stream().filter(field -> {
+            if ("components".equals(field)) {
+                return false;
+            }
+            JsonElement value = entry.get(field);
+            return value == null || (!value.isJsonArray() && !value.isJsonObject());
+        }).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     // ------------------------------------------------------------------
@@ -474,16 +755,6 @@ public final class QuestPanelLayout {
     // The row factories, which read the tree to say what is there
     // ------------------------------------------------------------------
 
-    /** A stepper row: the label, and the value its arrows move. */
-    private static InspectRow stepper(JsonObject quest, String path) {
-        JsonElement found = get(quest, path);
-        String value = found != null && found.isJsonPrimitive() ? found.getAsString() : "";
-        if (path.equals("shape") && value.isEmpty()) {
-            value = "rounded";
-        }
-        return InspectRow.stepper(path, labelFor(path), value);
-    }
-
     private static InspectRow field(JsonObject quest, String path) {
         return InspectRow.field(path, labelFor(path), displayValue(quest, path));
     }
@@ -519,7 +790,9 @@ public final class QuestPanelLayout {
     /** The strings of an array at a top-level member of the quest's tree. Absent is empty. */
     public static List<String> strings(JsonObject object, String member) {
         List<String> out = new ArrayList<>();
-        if (object.has(member) && object.get(member).isJsonArray()) {
+        // Null-tolerant, like `get`: the settings page builds its rows from the replica, and a replica
+        // that has not arrived yet is a real state rather than a caller's mistake.
+        if (object != null && object.has(member) && object.get(member).isJsonArray()) {
             for (JsonElement element : object.getAsJsonArray(member)) {
                 if (element.isJsonPrimitive()) {
                     out.add(element.getAsString());

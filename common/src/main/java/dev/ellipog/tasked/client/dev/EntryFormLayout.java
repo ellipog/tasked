@@ -1,0 +1,319 @@
+package dev.ellipog.tasked.client.dev;
+
+import com.google.gson.JsonObject;
+
+import dev.ellipog.tasked.client.BookGeometry;
+import dev.ellipog.tasked.client.OverlayLayout;
+import dev.ellipog.tasked.quest.EditorField;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * One card entry's form: its badge, its labelled fields, and the two controls in its corner.
+ *
+ * <h2>Why this replaced a flow layout</h2>
+ *
+ * <p>An entry used to be a flat list of boxes flowed left to right at fixed widths, with the label drawn
+ * <i>inside</i> each box as placeholder text. That is why it read as a wall: a box said "Count" when it was
+ * empty and "8" when it was not, a flag was a box containing the word "off", six coordinates were six
+ * identical boxes, and nothing lined up with anything because every kind had a different width.
+ *
+ * <p>A form instead. Every entry opens with a badge -- the type's icon and the type's own name, which is
+ * what makes a task a *named thing* rather than a sprite jammed against a box -- and then one field per
+ * line (two, when both are narrow), each drawn as a label in a fixed column and a control in the column
+ * beside it. Controls of a kind are the same size wherever they appear, so the eye can run down the
+ * column.
+ *
+ * <h2>One derivation, again</h2>
+ *
+ * <p>Drawing and hit-testing both ask here, the house rule: a control drawn in one place and pressed in
+ * another is the class of fault this codebase keeps designing out. The line count goes to
+ * {@link OverlayLayout#entryRowHeight}, so the card's own arithmetic keeps placing the rows below against
+ * the height the drawing will use.
+ *
+ * <p>Game-free: the editor's fields come from the registry, and nothing here touches a renderer.
+ */
+public final class EntryFormLayout {
+
+    private EntryFormLayout() {
+    }
+
+    /** Between the entry's edge and anything inside it. */
+    public static final int PAD = 4;
+
+    /** Between a label and its control, and between two controls on one line. */
+    public static final int GAP = 4;
+
+    /** The badge's icon: a whole item sprite, in a box its own size. */
+    public static final int ICON_BOX = 16;
+
+    /** The drag grip: the icon and the gutter beside it, which nothing else covers. */
+    public static final int GRIP_WIDTH = ICON_BOX + GAP + 2;
+
+    /**
+     * The label column's bounds. Its width is the form's own -- the longest label it has to show, clamped
+     * -- because one fixed number either truncates "Any dimension" or leaves a gulf beside "Count".
+     *
+     * <p>Measured at the same six pixels a character the panel's own rows assume
+     * ({@code Measure.monospace(6, 9)}): this class draws nothing, so it cannot ask a renderer, and a
+     * label's width is the one number it needs to guess. The guess is generous on purpose -- a label a
+     * pixel too narrow is truncated text, and a column a pixel too wide is air.
+     */
+    public static final int MIN_LABEL_WIDTH = 52;
+    public static final int MAX_LABEL_WIDTH = 104;
+
+    /** The width one character is assumed to take, for the label column and nothing else. */
+    public static final int CHAR_WIDTH = 6;
+
+    /** One line. The badge and every field line are this tall, and the card's arithmetic knows it. */
+    public static final int LINE_HEIGHT = OverlayLayout.ENTRY_LINE_HEIGHT;
+
+    /** A stepper's `-` and `+`, and the chip a flag is drawn as. Square, and the height of the line. */
+    public static final int BUTTON = 12;
+
+    /**
+     * How wide a narrow control is, by kind.
+     *
+     * <p>Fixed, and that is the point. A stepper sized from what was left of its cell drew its `+` at the
+     * cell's far edge, so the same count looked like a different control depending on what it happened to
+     * share a line with -- a compact `[− 8 × +]` above a `[−        +]` stretched across a half-line. A
+     * control is one width wherever it appears, and the room left over is air.
+     */
+    public static final int STEPPER_VALUE_WIDTH = 44;
+    public static final int CHOICE_WIDTH = 104;
+
+    /** The narrowest a value box may be before the layout stops trying to fit two on a line. */
+    public static final int MIN_VALUE_WIDTH = 56;
+
+    /** The reserved corner: Copy, the fold, and the cross, in that order along the badge's line. */
+    public static final int COPY_WIDTH = 34;
+    public static final int FOLD_WIDTH = 14;
+    public static final int REMOVE_WIDTH = 16;
+
+    /** No box at all, for the kinds that do not have one. */
+    public static final BookGeometry.Rect NONE = BookGeometry.Rect.at(0, 0, 0, 0);
+
+    /**
+     * One field as the form draws it.
+     *
+     * <p>Which boxes are populated follows the kind, and the screen reads them by name rather than by
+     * guessing: a number has {@code minus}, {@code value} and {@code plus}; a triple has its three
+     * {@code axes} and, for a position, the {@code action} that fills them from where the player stands;
+     * everything else has {@code value} alone and the rest are {@link #NONE}.
+     */
+    public record Cell(EditorField field, BookGeometry.Rect label, BookGeometry.Rect value,
+                       BookGeometry.Rect minus, BookGeometry.Rect plus,
+                       List<BookGeometry.Rect> axes, BookGeometry.Rect action) {
+
+        public boolean isNumber() {
+            return field.kind() == EditorField.Kind.NUMBER;
+        }
+
+        public boolean isTriple() {
+            return !axes.isEmpty();
+        }
+
+        /** The box a press on the value lands in, whichever kind it is. */
+        public BookGeometry.Rect pressTarget() {
+            return isTriple() ? axes.get(0) : value;
+        }
+    }
+
+    /**
+     * One entry, laid out: its badge, its fields, its grip and the three controls in its corner.
+     *
+     * <p>Folded, {@link #cells} is empty and {@link #lines} is one: a folded entry is its badge line, which
+     * is the same 24 pixels a one-line entry has always been.
+     *
+     * @param lines the height in lines, which is what {@link OverlayLayout#entryRowHeight} wants
+     */
+    public record Form(BookGeometry.Rect badge, BookGeometry.Rect icon, BookGeometry.Rect name,
+                       BookGeometry.Rect grip, BookGeometry.Rect copy, BookGeometry.Rect fold,
+                       BookGeometry.Rect remove, List<Cell> cells, int lines) {
+
+        public int height() {
+            return OverlayLayout.entryRowHeight(lines);
+        }
+    }
+
+    /** One entry's form, from its type's own fields, within this slot. */
+    public static Form form(String member, JsonObject entry, BookGeometry.Rect slot) {
+        return form(member, entry, slot, false);
+    }
+
+    /**
+     * The same, folded to its badge when {@code collapsed}.
+     *
+     * <p>Folding is done by handing the layout no fields at all rather than by a second code path: the
+     * badge, the grip and the corner are the same three things either way, the line count falls out of the
+     * packing, and a folded form is therefore one line for the same reason an unknown type's is.
+     */
+    public static Form form(String member, JsonObject entry, BookGeometry.Rect slot, boolean collapsed) {
+        List<EditorField> fields = collapsed ? List.of() : QuestPanelLayout.editorFor(member, entry);
+        int left = slot.x() + PAD + GRIP_WIDTH;
+        int right = slot.right() - PAD;
+
+        // The badge's line, then the fields. The corner controls share the badge's line, which is what
+        // gives the fields the full width: the old row reserved 96 pixels on their right for Copy and the
+        // cross, and every control paid for it.
+        int badgeY = slot.y() + PAD;
+        BookGeometry.Rect icon = BookGeometry.Rect.at(slot.x() + PAD + 1, badgeY, ICON_BOX, LINE_HEIGHT);
+        BookGeometry.Rect remove = BookGeometry.Rect.at(right - REMOVE_WIDTH, badgeY, REMOVE_WIDTH,
+                LINE_HEIGHT);
+        BookGeometry.Rect fold = BookGeometry.Rect.at(remove.x() - GAP - FOLD_WIDTH, badgeY, FOLD_WIDTH,
+                LINE_HEIGHT);
+        BookGeometry.Rect copy = BookGeometry.Rect.at(fold.x() - GAP - COPY_WIDTH, badgeY, COPY_WIDTH,
+                LINE_HEIGHT);
+
+        int nameWidth = Math.max(0, copy.x() - GAP - (icon.right() + GAP));
+        BookGeometry.Rect name = BookGeometry.Rect.at(icon.right() + GAP, badgeY, nameWidth, LINE_HEIGHT);
+
+        // The label column is this form's own, so a form of one-word labels stays compact and a form with
+        // "Any dimension" in it does not truncate.
+        int labelWidth = labelWidth(fields);
+        List<List<EditorField>> lines = lines(fields, right - left, labelWidth);
+        List<Cell> cells = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            int y = badgeY + (i + 1) * LINE_HEIGHT;
+            List<EditorField> line = lines.get(i);
+            if (line.size() == 1) {
+                cells.add(cell(line.get(0), left, y, right - left, labelWidth));
+            }
+            else {
+                int half = (right - left - GAP) / 2;
+                cells.add(cell(line.get(0), left, y, half, labelWidth));
+                cells.add(cell(line.get(1), left + half + GAP, y, half, labelWidth));
+            }
+        }
+        int lines_ = lines.size() + 1;
+        int gripHeight = Math.max(10, OverlayLayout.entryRowHeight(lines_) - 2 * PAD + 2);
+        BookGeometry.Rect grip = BookGeometry.Rect.at(slot.x(), slot.y() + 2, GRIP_WIDTH, gripHeight);
+        return new Form(BookGeometry.Rect.at(slot.x(), badgeY, slot.width(), LINE_HEIGHT), icon, name, grip,
+                copy, fold, remove, List.copyOf(cells), lines_);
+    }
+
+    /**
+     * The label column for these fields: the longest label, measured at the same six pixels a character
+     * the panel's own rows assume, clamped.
+     *
+     * <p>Clamped at both ends because neither extreme is right. A form of one-word labels should not
+     * reserve a third of its width for air, and a form whose longest label is a sentence would push every
+     * control off the card -- there a truncated label is the lesser fault, and the hover shows the whole
+     * of it.
+     */
+    private static int labelWidth(List<EditorField> fields) {
+        int widest = 0;
+        for (EditorField field : fields) {
+            widest = Math.max(widest, field.label().length() * CHAR_WIDTH + 6);
+        }
+        return Math.max(MIN_LABEL_WIDTH, Math.min(MAX_LABEL_WIDTH, widest));
+    }
+
+    /**
+     * The lines the fields are packed into: a narrow field shares its line with the next narrow one when
+     * both fit, and everything else takes a line of its own.
+     *
+     * <p>Two per line rather than "as many as fit": three steppers abreast on a wide card would look
+     * nothing like the same form on a narrow one, and a form whose shape depends on the window is a form
+     * an author has to re-read every time they resize.
+     */
+    private static List<List<EditorField>> lines(List<EditorField> fields, int available, int labelWidth) {
+        boolean pair = available >= 2 * (labelWidth + MIN_VALUE_WIDTH) + GAP;
+        List<List<EditorField>> out = new ArrayList<>();
+        List<EditorField> line = new ArrayList<>();
+        for (EditorField field : fields) {
+            if (!narrow(field)) {
+                flush(out, line);
+                out.add(List.of(field));
+                continue;
+            }
+            line.add(field);
+            if (line.size() == (pair ? 2 : 1)) {
+                flush(out, line);
+            }
+        }
+        flush(out, line);
+        return out;
+    }
+
+    private static void flush(List<List<EditorField>> out, List<EditorField> line) {
+        if (!line.isEmpty()) {
+            out.add(List.copyOf(line));
+            line.clear();
+        }
+    }
+
+    /** Whether a field may share its line: the kinds whose controls are small and word-shaped. */
+    private static boolean narrow(EditorField field) {
+        return switch (field.kind()) {
+            case NUMBER, FLAG, CHOICE -> true;
+            default -> false;
+        };
+    }
+
+    /** One cell: the label column at {@code x}, and the control beside it. */
+    private static Cell cell(EditorField field, int x, int y, int width, int labelWidth) {
+        BookGeometry.Rect label = BookGeometry.Rect.at(x, y, labelWidth, LINE_HEIGHT);
+        int controlLeft = x + labelWidth + GAP;
+        int room = Math.max(0, width - labelWidth - GAP);
+        BookGeometry.Rect control = BookGeometry.Rect.at(controlLeft, y, room, LINE_HEIGHT);
+
+        if (field.kind() == EditorField.Kind.NUMBER) {
+            // Three boxes rather than one: a number is almost always nudged rather than typed, and the
+            // buttons say which direction and by how much without a keyboard. All three are fixed sizes,
+            // so a stepper is the same control on a half-line as on a line of its own.
+            int valueWidth = Math.min(STEPPER_VALUE_WIDTH,
+                    Math.max(0, room - 2 * (BUTTON + GAP)));
+            BookGeometry.Rect minus = BookGeometry.Rect.at(controlLeft, y, BUTTON, LINE_HEIGHT);
+            BookGeometry.Rect value = BookGeometry.Rect.at(minus.right() + GAP, y, valueWidth, LINE_HEIGHT);
+            BookGeometry.Rect plus = BookGeometry.Rect.at(value.right() + GAP, y, BUTTON, LINE_HEIGHT);
+            return new Cell(field, label, value, minus, plus, List.of(), NONE);
+        }
+        if (field.kind() == EditorField.Kind.CHOICE) {
+            // A word box, wide enough for "Block entity type" and truncated inside when an option is
+            // longer than that -- the hover lists the whole ring.
+            BookGeometry.Rect value = BookGeometry.Rect.at(controlLeft, y,
+                    Math.min(CHOICE_WIDTH, room), LINE_HEIGHT);
+            return new Cell(field, label, value, NONE, NONE, List.of(), NONE);
+        }
+        if (field.kind() == EditorField.Kind.FLAG) {
+            // The chip, with its label in the label column: the two read as one control because they share
+            // a line, and the press covers both.
+            BookGeometry.Rect chip = BookGeometry.Rect.at(controlLeft, y, BUTTON, LINE_HEIGHT);
+            return new Cell(field, label, chip, NONE, NONE, List.of(), NONE);
+        }
+        if (field.isTriple()) {
+            // The three axes across the control column, and -- for a position -- the button that fills
+            // them from the player, on the right where a button belongs.
+            boolean position = field.kind() == EditorField.Kind.POSITION;
+            int actionWidth = position ? Math.min(76, Math.max(0, room / 3)) : 0;
+            int each = Math.max(0, (room - (position ? actionWidth + GAP : 0) - 2 * GAP) / 3);
+            List<BookGeometry.Rect> axes = new ArrayList<>();
+            for (int axis = 0; axis < 3; axis++) {
+                axes.add(BookGeometry.Rect.at(controlLeft + axis * (each + GAP), y, each, LINE_HEIGHT));
+            }
+            BookGeometry.Rect action = position
+                    ? BookGeometry.Rect.at(control.right() - actionWidth, y, actionWidth, LINE_HEIGHT)
+                    : NONE;
+            return new Cell(field, label, NONE, NONE, NONE, List.copyOf(axes), action);
+        }
+        return new Cell(field, label, control, NONE, NONE, List.of(), NONE);
+    }
+
+    /** How many lines this entry's form takes. The card layout's height input. */
+    public static int lines(String member, JsonObject entry, int slotWidth) {
+        return lines(member, entry, slotWidth, false);
+    }
+
+    /**
+     * The same, for an entry the card is folding.
+     *
+     * <p>The card asks for every entry's height on every frame, so a fold reflows the list the moment it is
+     * pressed -- there is no widget to rebuild and no cached height to invalidate.
+     */
+    public static int lines(String member, JsonObject entry, int slotWidth, boolean collapsed) {
+        return form(member, entry,
+                BookGeometry.Rect.at(0, 0, slotWidth, OverlayLayout.entryRowHeight(1)), collapsed).lines();
+    }
+}

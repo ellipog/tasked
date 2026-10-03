@@ -43,9 +43,38 @@ neoForge {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
+repositories {
+    // KubeJS's own maven. Not the BlameJared mirror: the 1.21 artifacts (2101.*) are not published
+    // there, which is what the resolution failure that pointed this out said, verbatim.
+    maven {
+        name = 'Latvian'
+        url = 'https://maven.latvian.dev/releases'
+    }
+    // And JitPack, for one thing KubeJS pulls in at *runtime* only: animated-gif-lib-for-java, which
+    // nothing else mirrors. A compileOnly dependency never needed it, which is why this only surfaced
+    // when the dev server first ran.
+    maven {
+        name = 'JitPack'
+        url = 'https://jitpack.io'
+    }
+}
+
 dependencies {
     // Armature's common API -- see the note in :fabric. Tasked names nothing from Armature's
     // NeoForge jar, and that jar is loaded as a separate mod at runtime, so there is no mod
     // dependency here either.
     compileOnly "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
+
+    // KubeJS, for the scripting plugin's class only -- see the note in gradle.properties.
+    compileOnly "dev.latvian.mods:kubejs-neoforge:${kubejs_version}"
+
+    // Armature's own NeoForge mod, for the dev runs only. Tasked requires it at runtime as a separate
+    // mod, so a dev run without it fails the same way a player's instance would -- which is how the
+    // first attempt at running a dev server ended: "Mod tasked requires armature 0.1.0 or above".
+    runtimeOnly "dev.ellipog:armature-neoforge-${minecraft_version}:${armature_version}"
+
+    // And for the dev runs, so the plugin can actually be exercised: KubeJS is optional at runtime, which
+    // is exactly why the test has to run with it present. `runtimeOnly` puts it on the run classpath and
+    // nowhere near the published jar.
+    runtimeOnly "dev.latvian.mods:kubejs-neoforge:${kubejs_version}"
 }

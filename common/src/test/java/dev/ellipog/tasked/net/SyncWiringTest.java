@@ -2,6 +2,8 @@ package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.api.teams.TeamRole;
+import dev.ellipog.tasked.client.ClientChapterReplica;
+import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.progress.ProgressionEngine;
@@ -107,6 +109,10 @@ class SyncWiringTest {
         // without the handler having done anything.
         ClientPartyCache.clear();
         TaskedNetworking.forgetTransfers();
+        // And the editor's two stores, for the same reason: a replica or a reply left by an earlier test
+        // would be read by the assertions below as if the handler had just delivered it.
+        ClientChapterReplica.clear();
+        ClientEditReplies.take();
     }
 
     // ------------------------------------------------------------------
@@ -599,5 +605,41 @@ class SyncWiringTest {
 
         assertEquals(0, TaskedNetworking.pendingTransfers());
         assertNull(null, "and nothing was completed by forgetting");
+    }
+
+    // ------------------------------------------------------------------
+    // The editor's two payloads, which had no wiring test at all
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a chapter replica arrives through the registered handler, chapter file and all")
+    void aChapterReplicaArrivesThroughTheRegisteredHandler() {
+        // The Chapter tab's whole data path, through registration, codec and handler -- the part that had
+        // no test, which is why a report of "it never picks anything up" could not be checked against one.
+        Consumer<ChapterReplicaPayload> handler = clientHandler("chapter_replica");
+        handler.accept(throughTheCodec(ChapterReplicaPayload.CODEC, new ChapterReplicaPayload(
+                "first_steps",
+                "{\"one\": {\"id\": \"one\", \"title\": \"One\"}}",
+                "{\"id\": \"first_steps\", \"title\": \"First Steps\"}")));
+
+        assertEquals("First Steps", ClientChapterReplica.chapterTree("first_steps").get("title").getAsString(),
+                "the chapter's own file is what the panel's fields are read from");
+        assertEquals("One", ClientChapterReplica.quest("first_steps", "one").get("title").getAsString(),
+                "and the quests travel beside it");
+    }
+
+    @Test
+    @DisplayName("an edit reply arrives through the registered handler, and reading it consumes it")
+    void anEditReplyArrivesThroughTheRegisteredHandler() {
+        Consumer<EditorReplyPayload> handler = clientHandler("editor_reply");
+        handler.accept(throughTheCodec(EditorReplyPayload.CODEC,
+                new EditorReplyPayload("first_steps", true, "made_up_id", "applied")));
+
+        EditorReplyPayload reply = ClientEditReplies.take();
+        assertNotNull(reply, "the handler put it where the screen reads");
+        assertEquals("first_steps", reply.chapter());
+        assertTrue(reply.ok());
+        assertEquals(List.of("applied"), reply.lines());
+        assertNull(ClientEditReplies.take(), "and reading it clears it, so a refusal is not re-reported");
     }
 }

@@ -36,6 +36,7 @@ public record ChapterGroup(
         String id,
         QuestText title,
         List<QuestText> description,
+        Optional<ItemRef> icon,
         List<String> aliases,
         boolean collapsedByDefault,
         List<Chapter> chapters
@@ -55,7 +56,7 @@ public record ChapterGroup(
      * step by a test rather than by a comment.
      */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
-            "id", "title", "description", "aliases", "collapsedByDefault", "chapters");
+            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "chapters");
 
     /** Finds a chapter by id or alias. */
     public Optional<Chapter> chapter(String idOrAlias) {
@@ -74,6 +75,9 @@ public record ChapterGroup(
             // moved there and why a one-element list comes back as a bare string.
             QuestText.LIST_OR_ONE.optionalFieldOf("description", List.of())
                     .forGetter(ChapterGroup::description),
+            // Optional, unlike a chapter's own icon: a group with none falls back on the client to the
+            // first chapter under it, so absent and "authored as paper" have to stay distinguishable.
+            ItemRef.CODEC.optionalFieldOf("icon").forGetter(ChapterGroup::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(ChapterGroup::aliases),
             // Whether the book shows this group's chapters the first time it sees the tree.
             //

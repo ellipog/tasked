@@ -1,0 +1,39 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_unseen",
+  "title": "The Unseen",
+  "subtitle": "Every hiding flag the format has, one file each",
+  "description": [
+    "The chapter is a chain you can watch reveal itself. First Light is visible",
+    "from the start; the two veils behind it appear one at a time, each revealed by",
+    "the one before; and the vault at the end of the chain opens its card only",
+    "when it can be started.",
+    "",
+    "Off to the side are the three that hide differently. A Quiet Word withholds",
+    "its description until it is done. The Hermit is not on the canvas at all",
+    "until you have picked up a single ender pearl. The Crossroads fans out into",
+    "three roads, and only one of them can ever be completed.",
+    "",
+    "Walk it with /tasked complete and /tasked progress to watch the canvas",
+    "change -- the hidden quests appear as their prerequisites become visible,",
+    "which is a thing no screenshot of this chapter can show."
+  ],
+  "theme": "amethyst",
+  "icon": {
+    "item": "minecraft:ender_eye"
+  },
+  "quests": [
+    "the_first_light.json",
+    "behind_the_veil.json",
+    "the_second_veil.json",
+    "the_locked_vault.json",
+    "a_quiet_word.json",
+    "the_hidden_room.json",
+    "the_hub.json",
+    "the_hermit.json",
+    "the_crossroads.json",
+    "north_road.json",
+    "south_road.json",
+    "east_road.json"
+  ]
+}

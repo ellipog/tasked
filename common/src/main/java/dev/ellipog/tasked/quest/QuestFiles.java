@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.quest;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
@@ -15,8 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -114,6 +117,83 @@ public final class QuestFiles {
      * every file inside as unlisted content — a mod error-walling on a folder it wrote itself.
      */
     public static final String SCHEMA_DIRECTORY = "_schema";
+
+    /**
+     * The optional manifest at the quest root, which declares the order of the top level.
+     *
+     * <h2>What it is for, and what its absence means</h2>
+     *
+     * <p>Groups used to be ordered by folder name, because there was no file above them to declare an
+     * order. That is fine until somebody wants to move one — a reorder by rename is not a reorder, it
+     * is an id change — so this file is the place above them. It lists every top-level entry of the
+     * book in order: a group, a chapter that belongs to no group, or a version-1 file.
+     *
+     * <p><b>Absence is not a fault.</b> A tree with no {@code index.json} is read exactly as it always
+     * was: every root folder is a group, and groups are ordered by folder name. That is what makes this
+     * addition backwards compatible by construction rather than by a migration, and it is why the
+     * loader only starts requiring an entry for everything once the file exists.
+     */
+    public static final String INDEX_MANIFEST = "index.json";
+
+    /**
+     * The suffix a file or folder carries once it has been deleted through the editor.
+     *
+     * <p>The delete in this mod is recoverable: a quest file becomes {@code <id>.json.deleted} rather
+     * than being erased. Explorer deletes are the same idea at folder scale — {@code <id>.deleted},
+     * with the contents inside — so the walk has to skip that suffix at every level, exactly as it
+     * skips the underscore prefix. The two rules are different in kind: {@code _} means "not content,
+     * deliberately", and {@code .deleted} means "content that was removed, kept in case". Both mean
+     * the walk must not read it.
+     */
+    public static final String DELETED_SUFFIX = ".deleted";
+
+    /** Whether a single name is a recoverable delete, and so skipped wherever it appears. */
+    public static boolean isDeletedName(String name) {
+        return name != null && name.endsWith(DELETED_SUFFIX);
+    }
+
+    /**
+     * The root folder reward tables live in, beside the book rather than inside it.
+     *
+     * <p>A table is not a sidebar row, not a chapter and not a quest: it is a named roll of rewards a
+     * {@code tasked:random}/{@code loot}/{@code all_table}/{@code choice} reward points at. Putting
+     * them under {@code index.json} would have meant a fourth entry kind and a table pretending to be
+     * book order; the folder is reserved by name instead, the way {@code _schema} is reserved by
+     * prefix. Unlike that one, this name carries content, so it is a word rather than an underscore:
+     * an author should be able to find it.
+     */
+    public static final String REWARD_TABLES_DIRECTORY = "reward_tables";
+
+    /** Whether a root entry is Tasked's own storage rather than book content. */
+    public static boolean isReservedName(String name) {
+        return REWARD_TABLES_DIRECTORY.equals(name);
+    }
+
+    /**
+     * The reward-table files at the root, name-sorted. Empty when there is no such folder.
+     *
+     * <p>Read outside the discovery walk on purpose: a table is not a {@code Declaration} and must
+     * not travel through the book's assembly, where every new kind drags through the index, the
+     * geometry and the sync. The walk only needs to know to leave the folder alone.
+     */
+    public static List<Path> rewardTableFiles(Path questRoot) {
+        Path folder = questRoot.resolve(REWARD_TABLES_DIRECTORY);
+        if (!Files.isDirectory(folder)) {
+            return List.of();
+        }
+        List<Path> entries = listSorted(folder);
+        if (entries == null) {
+            return List.of();
+        }
+        List<Path> files = new ArrayList<>();
+        for (Path entry : entries) {
+            String name = entry.getFileName().toString();
+            if (Files.isRegularFile(entry) && isQuestFile(name) && !isDeletedName(name)) {
+                files.add(entry);
+            }
+        }
+        return List.copyOf(files);
+    }
 
     private QuestFiles() {
     }
@@ -285,21 +365,142 @@ public final class QuestFiles {
             return new Discovery(List.of(), problems, 0);
         }
 
-        for (Path entry : entries) {
-            String name = entry.getFileName().toString();
-            if (DeclaredPaths.isIgnoredName(name)) {
-                // `_schema/` and every other underscore-prefixed name at the root. See the class note.
-                continue;
-            }
-            if (Files.isDirectory(entry) && !Files.isSymbolicLink(entry)) {
-                discoverGroup(questRoot, entry, declarations, problems, examined);
-            }
-            else if (isQuestFile(name)) {
-                discoverFlatFile(questRoot, entry, declarations, problems, examined);
+        Path indexPath = questRoot.resolve(INDEX_MANIFEST);
+        if (Files.isRegularFile(indexPath)) {
+            discoverIndexed(questRoot, indexPath, entries, declarations, problems, examined);
+        }
+        else {
+            for (Path entry : entries) {
+                String name = entry.getFileName().toString();
+                if (DeclaredPaths.isIgnoredName(name) || isDeletedName(name) || isReservedName(name)) {
+                    // `_schema/` and every other underscore-prefixed name at the root, anything a
+                    // recoverable delete left behind, and the reward tables' folder -- which is
+                    // content, just not the book's. See the class note.
+                    continue;
+                }
+                if (Files.isDirectory(entry) && !Files.isSymbolicLink(entry)) {
+                    discoverGroup(questRoot, entry, declarations, problems, examined);
+                }
+                else if (isQuestFile(name)) {
+                    discoverFlatFile(questRoot, entry, declarations, problems, examined);
+                }
             }
         }
 
         return new Discovery(List.copyOf(declarations), problems, examined[0]);
+    }
+
+    /**
+     * The root when an {@code index.json} declares it.
+     *
+     * <h2>What changes, and what does not</h2>
+     *
+     * <p>Everything the index lists is walked in the order it lists it, and a root chapter is walked
+     * as a chapter rather than rejected for having no group folder above it — that is the whole point
+     * of the manifest. A group entry resolves to a group folder exactly as the unindexed walk would
+     * have found it, so the rules <i>inside</i> a group do not change at all.
+     *
+     * <p>Everything at the root that the index does <b>not</b> name is an error. That is the same
+     * choice {@code chapters} and {@code quests} already make one level down, and for the same reason:
+     * content sitting in the tree that nothing will read is invisible, and only the author can say
+     * whether it is a mistake or a note to be prefixed. The one asymmetry is that this rule exists
+     * only while the manifest does — without it there is nothing to be listed in, and the old
+     * folder-name walk is the honest reading.
+     */
+    private static void discoverIndexed(Path root, Path indexPath, List<Path> entries,
+                                        List<Declaration> out, Problems problems, int[] examined) {
+        String indexDisplay = display(root, indexPath);
+        examined[0]++;
+        Optional<JsonDocument> parsed = parse(indexPath, indexDisplay, problems);
+        if (parsed.isEmpty()) {
+            return;
+        }
+        JsonDocument document = parsed.get();
+
+        JsonElement list = document.get("$.entries").orElse(null);
+        if (list == null || !list.isJsonArray()) {
+            problems.error(document, "$.entries", list == null
+                    ? "no \"entries\" - " + INDEX_MANIFEST + " has to list the top level of the book, in"
+                            + " order. An empty list is a valid answer and an absent one is not, because"
+                            + " the two say different things about the tree."
+                    : "expected a list of entries, found " + Checks.kindOf(list) + ". Each entry names a"
+                            + " \"group\", a \"chapter\" or a version-1 \"file\".");
+            return;
+        }
+
+        // What this manifest accounted for, so the sweep afterwards can say what it did not. The
+        // manifest itself is in the set, or the sweep would report the file it just read.
+        Set<String> listed = new LinkedHashSet<>();
+        listed.add(INDEX_MANIFEST);
+
+        int index = 0;
+        for (JsonElement element : list.getAsJsonArray()) {
+            String entryPath = "$.entries[" + (index++) + "]";
+            if (!element.isJsonObject()) {
+                problems.error(document, entryPath, "expected an object naming a \"group\", a \"chapter\""
+                        + " or a version-1 \"file\", found " + Checks.kindOf(element));
+                continue;
+            }
+            JsonObject object = element.getAsJsonObject();
+            String key = null;
+            int named = 0;
+            for (String candidate : List.of("group", "chapter", "file")) {
+                if (object.has(candidate)) {
+                    key = candidate;
+                    named++;
+                }
+            }
+            if (named != 1) {
+                problems.error(document, entryPath, named == 0
+                        ? "this entry names nothing. Write exactly one of \"group\", \"chapter\" or"
+                                + " \"file\"."
+                        : "this entry names more than one kind. An entry is one group, one chapter or one"
+                                + " version-1 file, and it cannot be two of them.");
+                continue;
+            }
+            JsonElement value = object.get(key);
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                problems.error(document, entryPath + "." + key, "expected the name as a string, found "
+                        + Checks.kindOf(value));
+                continue;
+            }
+            String name = value.getAsString();
+            if (!listed.add(name)) {
+                problems.error(document, entryPath + "." + key, "\"" + name + "\" is listed more than"
+                        + " once. An entry is the whole of that thing's place in the book, so a second"
+                        + " mention has no meaning to give it.");
+                continue;
+            }
+
+            DeclaredPaths.Kind want = key.equals("file") ? DeclaredPaths.Kind.FILE
+                    : DeclaredPaths.Kind.DIRECTORY;
+            DeclaredPaths.Resolved resolved = DeclaredPaths.resolveSibling(root, name, want);
+            if (!resolved.ok()) {
+                problems.add(document, entryPath, DataProblem.Severity.ERROR, resolved.problem());
+                continue;
+            }
+
+            switch (key) {
+                case "group" -> discoverGroup(root, resolved.path(), out, problems, examined);
+                // A null parent: at the root there is no manifest above this one, and that null is also
+                // what tells the loader this chapter has no group. See `QuestLoader.assemble`.
+                case "chapter" -> discoverChapter(root, resolved.path(), null, out, problems, examined);
+                case "file" -> discoverFlatFile(root, resolved.path(), out, problems, examined);
+                default -> throw new IllegalStateException("unreachable entry kind " + key);
+            }
+        }
+
+        for (Path entry : entries) {
+            String name = entry.getFileName().toString();
+            if (DeclaredPaths.isIgnoredName(name) || isDeletedName(name) || isReservedName(name)
+                    || listed.contains(name)) {
+                continue;
+            }
+            problems.add(display(root, entry), new JsonLocation(1, 1, "$"), DataProblem.Severity.ERROR,
+                    "this is at the root of the quest tree and " + INDEX_MANIFEST + " does not mention it"
+                            + " - so it will never load. Add an entry for \"" + name + "\" in the order it"
+                            + " should sit, or prefix the name with \"_\" to leave it out deliberately.");
+        }
     }
 
     /**
@@ -383,7 +584,7 @@ public final class QuestFiles {
 
         for (Path entry : entries) {
             String name = entry.getFileName().toString();
-            if (DeclaredPaths.isIgnoredName(name) || name.equals(GROUP_MANIFEST)) {
+            if (DeclaredPaths.isIgnoredName(name) || name.equals(GROUP_MANIFEST) || isDeletedName(name)) {
                 continue;
             }
             if (!Files.isDirectory(entry)) {
@@ -472,7 +673,7 @@ public final class QuestFiles {
 
         for (Path entry : entries) {
             String name = entry.getFileName().toString();
-            if (DeclaredPaths.isIgnoredName(name) || name.equals(CHAPTER_MANIFEST)) {
+            if (DeclaredPaths.isIgnoredName(name) || name.equals(CHAPTER_MANIFEST) || isDeletedName(name)) {
                 continue;
             }
             if (Files.isDirectory(entry)) {
@@ -569,6 +770,17 @@ public final class QuestFiles {
      * handles "this file was not there": skip it and say so. The two are different messages and the
      * same consequence, which is why they are not one branch.
      */
+    /**
+     * Parses one file into a positioned document, outside the walk.
+     *
+     * <p>For readers that own a file kind the walk does not produce — the reward tables, whose folder
+     * is reserved rather than listed. Same parse, same messages: a table with a syntax error is
+     * reported at its line like everything else.
+     */
+    public static Optional<JsonDocument> parseFile(Path path, String display, Problems problems) {
+        return parse(path, display, problems);
+    }
+
     private static Optional<JsonDocument> parse(Path path, String display, Problems problems) {
         String text;
         try {

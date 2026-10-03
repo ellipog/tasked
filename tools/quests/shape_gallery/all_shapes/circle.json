@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "circle",
+  "title": "Circle",
+  "subtitle": "Round, and greedy with space",
+  "description": [
+    "A circle, good for a focal quest and poor for a dense tree: the corners of its square are outside it, so two circles side by side waste the space between them.",
+    "",
+    "It is the shape that shows why the icon's fit cannot be one constant. A circle needs an inset of about `size/2 * (1 - 1/sqrt(2))` before a square fits inside it -- 7 pixels at 48, against the rounded rectangle's 4."
+  ],
+  "icon": {
+    "item": "minecraft:ender_pearl"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "circle",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the circle shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

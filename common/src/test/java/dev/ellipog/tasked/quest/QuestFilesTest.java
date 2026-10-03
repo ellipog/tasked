@@ -85,6 +85,14 @@ class QuestFilesTest {
                 """.formatted(id, id, quests);
     }
 
+    /** The root manifest. {@code entries} is raw JSON so a test can write a malformed one. */
+    private static String index(String entries) {
+        return """
+                { "$schema": "./_schema/index.schema.json",
+                  "entries": %s }
+                """.formatted(entries);
+    }
+
     /** A whole quest. Only {@code id} matters to discovery — decoding is the loader's business. */
     private static String quest(String id) {
         return """
@@ -714,6 +722,178 @@ class QuestFilesTest {
                     "group order first, then declaration order inside each");
             assertEquals(found.of(QuestFiles.Kind.QUEST).size(), found.questDisplays().size(),
                     "and it is the same set as the quest declarations, in the same order");
+        }
+    }
+
+    @Nested
+    @DisplayName("index.json, the manifest that declares the root")
+    class IndexManifest {
+
+        @Test
+        @DisplayName("declares the order of the groups, overruling folder names")
+        void theIndexDeclaresGroupOrder(@TempDir Path root) throws IOException {
+            // The whole reason the manifest exists: before it, a group's place was its folder name, so
+            // moving one meant renaming it -- which is an id change, not a reorder.
+            write(root, "zzz_last/group.json", group("zzz_last", "[]"));
+            write(root, "aaa_first/group.json", group("aaa_first", "[]"));
+            write(root, "index.json", index("[{\"group\": \"zzz_last\"}, {\"group\": \"aaa_first\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), messages(found.problems()));
+            assertEquals(List.of("zzz_last/group.json", "aaa_first/group.json"),
+                    displays(found, QuestFiles.Kind.GROUP));
+        }
+
+        @Test
+        @DisplayName("a chapter listed at the root belongs to no group")
+        void aRootChapterIsWalkedWithoutAGroup(@TempDir Path root) throws IOException {
+            // The case the folder format could not express at all: a chapter with no group above it.
+            // Its declaration carries a null parent, which is what the loader reads as "no group" and
+            // what makes it a root row in the sidebar.
+            write(root, "loose/chapter.json", chapter("loose", "[\"only.json\"]"));
+            write(root, "loose/only.json", quest("only"));
+            write(root, "grouped/group.json", group("grouped", "[]"));
+            write(root, "index.json",
+                    index("[{\"chapter\": \"loose\"}, {\"group\": \"grouped\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), messages(found.problems()));
+            assertEquals(List.of("loose/chapter.json"), displays(found, QuestFiles.Kind.CHAPTER));
+            assertEquals(List.of("loose/only.json"), displays(found, QuestFiles.Kind.QUEST));
+            assertEquals(List.of("grouped/group.json"), displays(found, QuestFiles.Kind.GROUP));
+            assertNull(found.of(QuestFiles.Kind.CHAPTER).get(0).parentDisplay(),
+                    "the root is not a manifest, and null is how the loader tells a loose chapter apart");
+        }
+
+        @Test
+        @DisplayName("a version-1 file can be listed by name, so a mixed tree keeps working")
+        void aFlatFileCanBeListed(@TempDir Path root) throws IOException {
+            // Discovery refuses to leave a root file unaccounted for, and a version-1 file has no
+            // folder to be named as a group or chapter -- so the index names it as a file. Without
+            // this entry a tree that gained an index would stop loading its old flat content.
+            write(root, "legacy.json", """
+                    { "version": 1, "chapterGroups": [] }
+                    """);
+            write(root, "index.json", index("[{\"file\": \"legacy.json\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), messages(found.problems()));
+            assertEquals(List.of("legacy.json"), displays(found, QuestFiles.Kind.FLAT_V1));
+        }
+
+        @Test
+        @DisplayName("anything at the root it does not list is reported")
+        void unlistedContentIsReported(@TempDir Path root) throws IOException {
+            // The same rule a group's chapters and a chapter's quests already live under: content the
+            // walk will not read is invisible, and only the author can say whether it is a mistake or
+            // a note. The asymmetry with the unindexed walk is deliberate -- without a manifest there
+            // is nothing to be listed in, so nothing to report.
+            write(root, "listed/group.json", group("listed", "[]"));
+            write(root, "forgotten/group.json", group("forgotten", "[]"));
+            write(root, "index.json", index("[{\"group\": \"listed\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(found.ok());
+            assertMentions(found.problems(), "index.json does not mention it");
+            assertMentions(found.problems(), "forgotten");
+            assertEquals(List.of("listed/group.json"), displays(found, QuestFiles.Kind.GROUP),
+                    "and the listed content still loads");
+        }
+
+        @Test
+        @DisplayName("an entry that resolves to nothing is reported against the entry")
+        void anUnresolvableEntryIsReported(@TempDir Path root) throws IOException {
+            write(root, "index.json", index("[{\"group\": \"missing\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(found.ok());
+            assertMentions(found.problems(), "missing");
+            // Reported against the entry itself, not against a folder that does not exist.
+            assertMentions(found.problems(), "index.json");
+        }
+
+        @Test
+        @DisplayName("deleted folders are skipped at every level, listed or not")
+        void deletedFoldersAreSkipped(@TempDir Path root) throws IOException {
+            // A recoverable delete is a rename to `<name>.deleted`, for a chapter and for a group. The
+            // walk has to skip the suffix everywhere -- and the unlisted-content sweep must not report
+            // it either, or undoing a delete would require editing the manifest by hand.
+            write(root, "gone.deleted/group.json", group("gone", "[]"));
+            write(root, "live/group.json", group("live", "[\"kept\"]"));
+            write(root, "live/kept/chapter.json", chapter("kept", "[]"));
+            write(root, "live/old_chapter.deleted/chapter.json", chapter("old_chapter", "[]"));
+            write(root, "index.json", index("[{\"group\": \"live\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), messages(found.problems()));
+            assertEquals(List.of("live/group.json"), displays(found, QuestFiles.Kind.GROUP));
+            assertEquals(List.of("live/kept/chapter.json"), displays(found, QuestFiles.Kind.CHAPTER));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The reward tables' folder
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("the reward tables' folder")
+    class RewardTables {
+
+        @Test
+        @DisplayName("is skipped by the walk, with no index to list it in")
+        void reservedFolderWithoutAnIndex(@TempDir Path root) throws IOException {
+            wellFormedTree(root);
+            write(root, "reward_tables/loot.json", "{}");
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), messages(found.problems()));
+            assertEquals(3, found.size(), "the tables' folder is not a declaration of any kind");
+            assertEquals(List.of("getting_started/group.json"), displays(found, QuestFiles.Kind.GROUP));
+        }
+
+        @Test
+        @DisplayName("is legal beside an index that does not list it -- it is not book content")
+        void reservedFolderBesideAnIndex(@TempDir Path root) throws IOException {
+            // The rule that makes this matter: once index.json exists, everything at the root it does
+            // not name is an error. Without the reservation, creating a reward table would error-wall
+            // a perfectly good tree.
+            write(root, "listed/group.json", group("listed", "[]"));
+            write(root, "reward_tables/loot.json", "{}");
+            write(root, "index.json", index("[{\"group\": \"listed\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), "an unlisted reward_tables folder must not be the unlisted-content "
+                    + "error it would be without the reservation: " + messages(found.problems()));
+            assertEquals(List.of("listed/group.json"), displays(found, QuestFiles.Kind.GROUP));
+        }
+
+        @Test
+        @DisplayName("its files are read by the table reader, name-sorted, and nothing else is")
+        void tableFilesAreListed(@TempDir Path root) throws IOException {
+            write(root, "reward_tables/b_second.json", "{}");
+            write(root, "reward_tables/a_first.json", "{}");
+            write(root, "reward_tables/notes.txt", "not a table");
+            write(root, "reward_tables/old.json.deleted", "{}");
+
+            List<Path> files = QuestFiles.rewardTableFiles(root);
+
+            assertEquals(List.of("a_first.json", "b_second.json"),
+                    files.stream().map(path -> path.getFileName().toString()).toList(),
+                    "json files in name order, the deleted one and the note left alone");
+        }
+
+        @Test
+        @DisplayName("an absent folder is an empty list, not an error")
+        void absentFolderIsEmpty(@TempDir Path root) {
+            assertEquals(List.of(), QuestFiles.rewardTableFiles(root));
         }
     }
 

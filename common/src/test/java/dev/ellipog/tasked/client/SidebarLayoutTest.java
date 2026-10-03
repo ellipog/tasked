@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -751,6 +752,60 @@ class SidebarLayoutTest {
                     titles(sidebar));
             assertTrue(row(sidebar, "group:aaa_start").label().contains("Getting Started"),
                     "while the label carries the marker as well as the word");
+        }
+    }
+
+    @Nested
+    @DisplayName("remembered expansion")
+    class RememberedExpansion {
+
+        /**
+         * One group whose file says closed, one whose file says open — so "remembered" and "authored"
+         * are different answers in both directions and a pass cannot come from one of them alone.
+         */
+        private SidebarLayout twoGroups() {
+            return SidebarLayout.of(
+                    List.of(new SidebarLayout.Group("shut", "Shut", true),
+                            new SidebarLayout.Group("wide", "Wide", false)),
+                    List.of(new SidebarLayout.ChapterRow("a", "A", "shut"),
+                            new SidebarLayout.ChapterRow("b", "B", "wide")));
+        }
+
+        @Test
+        @DisplayName("a group the player opened stays open, though its file says closed")
+        void rememberedOpenWins() {
+            SidebarLayout layout = twoGroups();
+            assertFalse(layout.isExpanded(SidebarLayout.groupKey("shut")), "the authored default first");
+
+            layout.applyExpansion(Map.of(SidebarLayout.groupKey("shut"), true));
+
+            assertTrue(layout.isExpanded(SidebarLayout.groupKey("shut")),
+                    "and the player's own choice after — this is what a rebuild was throwing away");
+        }
+
+        @Test
+        @DisplayName("and one the player closed stays closed")
+        void rememberedClosedWins() {
+            SidebarLayout layout = twoGroups();
+
+            layout.applyExpansion(Map.of(SidebarLayout.groupKey("wide"), false));
+
+            assertFalse(layout.isExpanded(SidebarLayout.groupKey("wide")));
+        }
+
+        @Test
+        @DisplayName("memory of a group that is no longer there is ignored")
+        void unknownKeysAreIgnored() {
+            // A renamed or deleted group leaves its old key behind, and a chapter key is not a group at
+            // all. Neither may throw, and neither may touch the groups that do exist.
+            SidebarLayout layout = twoGroups();
+
+            layout.applyExpansion(Map.of(
+                    SidebarLayout.groupKey("deleted"), true,
+                    SidebarLayout.chapterKey("a"), true));
+
+            assertFalse(layout.isExpanded(SidebarLayout.groupKey("shut")));
+            assertTrue(layout.isExpanded(SidebarLayout.groupKey("wide")));
         }
     }
 }

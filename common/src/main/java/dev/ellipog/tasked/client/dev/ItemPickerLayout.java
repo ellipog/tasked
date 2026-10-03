@@ -89,6 +89,20 @@ public final class ItemPickerLayout {
      */
     public static List<Row> compose(List<ItemPicker.Entry> inventory, List<ItemPicker.Entry> matches,
                                     Current current, String typedCandidate, String query) {
+        return compose(inventory, matches, current, typedCandidate, query, null);
+    }
+
+    /**
+     * The same, with the caller's own words over the results.
+     *
+     * <p>{@code heading} is what separates the two callers, and not only in wording. The item picker passes
+     * null: its results mean something once a query has been typed, and before that what is offered is what
+     * the player carries. A search field passes its own heading and shows its list whether or not anything
+     * has been typed -- ten rows of what the registry holds is what tells an author what the field can even
+     * hold, and an empty box and an empty registry must not look alike.
+     */
+    public static List<Row> compose(List<ItemPicker.Entry> inventory, List<ItemPicker.Entry> matches,
+                                    Current current, String typedCandidate, String query, String heading) {
         List<Row> rows = new ArrayList<>();
         if (current.clearable() && !current.id().isEmpty()) {
             // The row the caller has already decided is legal -- it is only ever offered for the
@@ -100,10 +114,13 @@ public final class ItemPickerLayout {
             // like. Shown so it is never silent, and pickable so pressing it keeps it.
             rows.add(new Row(Kind.MISSING, current.id(), current.id(), "missing - the id is kept"));
         }
+        boolean results = !matches.isEmpty() || typedCandidate != null;
+        boolean show = heading != null ? results
+                : results && query != null && !query.isBlank();
         // The results above the inventory, because a query is about the whole registry and the list
         // someone is reading is the answer -- what they carry is the fallback, not the headline.
-        if (query != null && !query.isBlank() && (!matches.isEmpty() || typedCandidate != null)) {
-            rows.add(heading("All items"));
+        if (show) {
+            rows.add(heading(heading == null ? "All items" : heading));
             if (typedCandidate != null) {
                 rows.add(new Row(Kind.MISSING, typedCandidate, typedCandidate,
                         "not installed - use it anyway"));

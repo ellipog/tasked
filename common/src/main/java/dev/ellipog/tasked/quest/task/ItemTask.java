@@ -9,6 +9,8 @@ import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskCommon;
 import dev.ellipog.tasked.quest.TaskContext;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.stats.Stats;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
@@ -30,19 +32,25 @@ import java.util.Set;
  * inheritance the plan borrowed from FTB Quests. An author of a resource-hungry pack sets it once on
  * the chapter; an author who wants the friendlier behaviour sets nothing.
  */
-public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consumeItems) implements QuestTask {
+public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consumeItems,
+                       ComponentMatch match, boolean onlyFromCrafting) implements QuestTask {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, "item");
 
     /** This type's own fields, for the validator. {@code "type"} and the common fields are added by it. */
-    public static final Set<String> FIELDS = Set.of("item", "count", "components", "consumeItems");
+    public static final Set<String> FIELDS =
+            Set.of("item", "count", "components", "consumeItems", "match", "onlyFromCrafting");
 
     public static final MapCodec<ItemTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             // The common settings first, so every task in a file reads in the same order.
             TaskCommon.MAP_CODEC.forGetter(ItemTask::common),
             // A MapCodec, so "item" and "count" sit flat here rather than nested under "item".
             ItemRef.MAP_CODEC.forGetter(ItemTask::item),
-            Codec.BOOL.optionalFieldOf("consumeItems").forGetter(ItemTask::consumeItems)
+            Codec.BOOL.optionalFieldOf("consumeItems").forGetter(ItemTask::consumeItems),
+            // Strict is the default because it is what this type has always matched: a file that says
+            // nothing must keep meaning what it meant before the field existed.
+            ComponentMatch.CODEC.optionalFieldOf("match", ComponentMatch.STRICT).forGetter(ItemTask::match),
+            Codec.BOOL.optionalFieldOf("onlyFromCrafting", false).forGetter(ItemTask::onlyFromCrafting)
     ).apply(instance, ItemTask::new));
 
     @Override
@@ -66,15 +74,14 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
      * <p>Stops as soon as {@code required} is reached, so the cost of the scan is bounded by the
      * requirement rather than by the size of the inventory.
      */
-    private static int countIn(Inventory inventory, ItemRef wanted, int required) {
-        ItemStack template = wanted.toStack();
+    private static int countIn(Inventory inventory, ItemStack template, ComponentMatch match, int required) {
         if (template.isEmpty()) {
             return 0;
         }
         int found = 0;
         for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
             ItemStack stack = inventory.getItem(slot);
-            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, template)) {
+            if (match.matches(template, stack)) {
                 found += stack.getCount();
                 if (found >= required) {
                     return found;
@@ -99,7 +106,19 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
 
         @Override
         public int current(ItemTask task, TaskContext context) {
-            return countIn(context.player().getInventory(), task.item(), task.item().count());
+            ItemStack template = task.item().toStack();
+            if (template.isEmpty()) {
+                return 0;
+            }
+            if (task.onlyFromCrafting()) {
+                // Counted from the player's own statistics rather than from the inventory, which is
+                // the closest this build gets to FTBQ's "only what you crafted": the stat is lifetime
+                // and monotonic, so handing the stack away does not un-count it. Documented in the
+                // schema as the difference.
+                int crafted = context.player().getStats().getValue(Stats.ITEM_CRAFTED.get(template.getItem()));
+                return Math.min(task.item().count(), crafted);
+            }
+            return countIn(context.player().getInventory(), template, task.match(), task.item().count());
         }
 
         @Override
@@ -107,6 +126,35 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
             // Only worth a button when submitting actually does something. A presence-only task
             // completes by itself the moment the player has the items.
             return task.consumeItems().orElse(false);
+        }
+
+        @Override
+        public boolean takesResources(ItemTask task, boolean chapterDefault) {
+            return task.consumes(chapterDefault);
+        }
+
+        @Override
+        public int take(ItemTask task, ServerPlayer player, int count) {
+            ItemStack template = task.item().toStack();
+            if (template.isEmpty()) {
+                return 0;
+            }
+            // From the first matching slots, and a slot holding more than is needed is shrunk rather
+            // than eaten whole -- taking three of five logs leaves two behind.
+            int remaining = count;
+            var inventory = player.getInventory();
+            for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
+                ItemStack stack = inventory.getItem(slot);
+                if (!task.match().matches(template, stack)) {
+                    continue;
+                }
+                int take = Math.min(remaining, stack.getCount());
+                stack.shrink(take);
+                remaining -= take;
+                inventory.setItem(slot, stack.isEmpty() ? ItemStack.EMPTY : stack);
+            }
+            inventory.setChanged();
+            return count - remaining;
         }
     };
 

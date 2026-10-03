@@ -1,0 +1,16 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "shape_gallery",
+  "title": "Shape Gallery",
+  "collapsedByDefault": true,
+  "description": [
+    "One chapter, eleven quests, one per shape: rounded, square, circle, diamond, hexagon, octagon, pentagon, gear, heart, tome and none.",
+    "",
+    "It is the reference for the shape field. Every node is the same size and the same distance from its neighbours, so a difference you see between two of them is the shape and not the layout -- an exhibit that varies two things shows nothing.",
+    "",
+    "The chapter is collapsed in the sidebar because it is a reference rather than a story: nobody reads it front to back, and a reader who wants it knows where it is."
+  ],
+  "chapters": [
+    "all_shapes"
+  ]
+}

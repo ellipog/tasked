@@ -10,6 +10,7 @@ import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.QuestState;
+import dev.ellipog.tasked.progress.StageService;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestFiles;
@@ -233,9 +234,6 @@ class QuestPlaythroughTest {
     void theSeededExamplesLoad() throws IOException {
         assertTrue(loaded.ok(), () -> "the seeded questlines did not load cleanly:\n" + render(loaded.problems()));
 
-        assertEquals(examples.size(), loaded.filesFound(),
-                "every seeded file should have been found and read");
-
         // Counted from the seeded file names, and this is the fourth version of this check.
         //
         // The first asserted `5 quests in 1 chapter from 1 file`. That was right until the second and
@@ -264,9 +262,19 @@ class QuestPlaythroughTest {
         int seededChapters = 0;
         int seededQuests = 0;
         int seededFlat = 0;
+        int seededTables = 0;
         for (String name : examples) {
             Path relative = Path.of(name);
             String fileName = relative.getFileName().toString();
+
+            if (relative.getNameCount() > 1
+                    && relative.getName(0).toString().equals(QuestFiles.REWARD_TABLES_DIRECTORY)) {
+                // A reward table, not a quest. It sits in its reserved folder, the loader reads it in
+                // its own pass and keeps it out of the index, so counting it as a quest here would
+                // fail the count below by exactly the number of tables.
+                seededTables++;
+                continue;
+            }
 
             if (fileName.equals(QuestFiles.GROUP_MANIFEST)) {
                 seededGroups++;
@@ -305,13 +313,30 @@ class QuestPlaythroughTest {
         assertEquals(seededQuests, TaskedQuests.index().questCount(),
                 "every quest in the seeded files should be in the index");
 
+        // The files the loader examines are the quest tree's, and a reward table is not one of them:
+        // it lives in its reserved folder, the discovery walk skips it by name, and its own pass reads
+        // it. So the seeded count comes down by the tables before it meets filesFound.
+        assertEquals(examples.size() - seededTables, loaded.filesFound(),
+                "every seeded file the loader examines should have been found and read. Reward tables"
+                        + " are seeded but not examined -- they are read by their own pass -- so they"
+                        + " come off the seeded count here.");
+
+        // And the tables are loaded, keyed by file name: the same contract as a chapter's quest list,
+        // and the one a `tasked:loot` reward like The Winnings depends on resolving.
+        assertEquals(seededTables, loaded.rewardTables().size(),
+                "every seeded reward table should be loaded, keyed by its file name without the suffix");
+        assertTrue(seededTables > 0,
+                "the examples no longer include a reward table, so nothing in the playthrough rolls one"
+                        + " -- add one under tools/quests/reward_tables/ or stop counting on it");
+
         // And not vacuously: every count above is zero if the walk found nothing, and zero equals zero.
         assertTrue(seededQuests > 0 && seededGroups > 0,
                 "the counting walk found no content at all under " + EXAMPLES.toAbsolutePath()
                         + ", so every assertion above is comparing zero with zero");
 
         note("the seeded examples are " + seededQuests + " quest(s) in " + seededChapters
-                + " chapter(s) in " + seededGroups + " group(s), from " + examples.size() + " file(s)");
+                + " chapter(s) in " + seededGroups + " group(s) and " + seededTables
+                + " reward table(s), from " + examples.size() + " file(s)");
     }
 
     @Test
@@ -591,10 +616,10 @@ class QuestPlaythroughTest {
         // Collected by the member who did NOT gather, and deliberately.
         //
         // The payout belongs to the party's *record*, not to the inventory that happened to satisfy it,
-        // so either member can collect it -- and now that claiming is separate from completing, "who
-        // gets it" has the only honest answer: whoever asks. This test asks from the side a "pay the
-        // gatherer" shortcut would get wrong, which is what makes it worth asserting rather than the
-        // other way round.
+        // so either member can collect theirs -- and now that claiming is separate from completing,
+        // "who gets it" has the only honest answer: whoever asks. This test asks from the side a "pay
+        // the gatherer" shortcut would get wrong, which is what makes it worth asserting rather than
+        // the other way round.
         assertEquals(0, countInInventoryOf(friend, Items.WOODEN_AXE),
                 "nothing is handed over at completion, to either member");
         assertEquals(0, countInInventoryOf(player, Items.WOODEN_AXE), "to either of them");
@@ -605,8 +630,23 @@ class QuestPlaythroughTest {
                         + claimed.text());
         assertEquals(1, countInInventoryOf(player, Items.WOODEN_AXE),
                 "the member who asked receives the reward");
-        assertEquals(0, countInInventoryOf(friend, Items.WOODEN_AXE),
-                "and the member who gathered does not -- one payout, to whoever collected it");
+
+        // And the other member collects their own copy: progress is the team's, a payout is each
+        // player's. This is FTB Quests' model -- one reward each, not one per team -- and the half
+        // that a single team-wide "claimed" flag could never express.
+        HeadlessServer.Outcome friendClaim = asOperator(friend, "/tasked claim punch_a_tree");
+        assertEquals(1, friendClaim.result(),
+                () -> "the member who gathered has their own copy to collect. It said:\n"
+                        + friendClaim.text());
+        assertEquals(1, countInInventoryOf(friend, Items.WOODEN_AXE), "the friend's own axe");
+        assertEquals(1, countInInventoryOf(player, Items.WOODEN_AXE),
+                "and the owner keeps theirs -- neither claim settled the other's");
+
+        // Neither of them can claim again; each has their copy, once.
+        assertRefused(asOperator("/tasked claim punch_a_tree"),
+                "the owner has already collected their copy");
+        assertRefused(asOperator(friend, "/tasked claim punch_a_tree"),
+                "and so has the friend");
     }
 
     @Test
@@ -1323,6 +1363,161 @@ class QuestPlaythroughTest {
     }
 
     // ------------------------------------------------------------------
+    // The stage gate
+    // ------------------------------------------------------------------
+
+    /** The flag the induction chapter grants: one player's, not the team's. */
+    private static final ResourceLocation THE_MARK =
+            ResourceLocation.fromNamespaceAndPath("the_induction", "marked");
+
+    @Test
+    @Order(25)
+    @DisplayName("a stage-gated quest is refused for a player without the stage, and nothing is written")
+    void aStageGateShutsTheQuestForAPlayerWithoutIt() {
+        // The gate is an overlay, not a dependency: the_mark declares no dependsOn at all, so the
+        // engine's own answer for the team is UNLOCKED. What shuts it is `requiresStage`, and that is
+        // per player -- the difference this whole feature exists to make.
+        assertFalse(hasStage(player, THE_MARK), "this test is about a player who does not have the mark");
+        assertEquals(QuestState.UNLOCKED, stateOf("the_mark"),
+                "the_mark has no prerequisites, so the stored answer is unlocked -- the gate is not an edge");
+
+        assertTrue(stageLocked().contains("the_mark"),
+                "the sync's per-player set should name the_mark as shut for this player: " + stageLocked());
+
+        HeadlessServer.Outcome attempt = asOperator("/tasked complete the_mark");
+        assertRefused(attempt, "the_mark requires a stage this player does not have");
+        assertNotEquals(QuestState.COMPLETED, stateOf("the_mark"),
+                "a refusal must leave the quest unfinished");
+        assertEquals(0, recordedTask("the_mark", 0),
+                "and must not have recorded the stage task -- a shut gate refuses before anything is written");
+    }
+
+    @Test
+    @Order(26)
+    @DisplayName("claiming the summons' stage reward marks the player, and the gate opens")
+    void theStageRewardMarksThePlayerAndTheGateOpens() {
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:writable_book");
+        assertEquals(1, given.result(), () -> "/give should have worked:\n" + given.text());
+
+        assertTrue(tickUntil(() -> stateOf("the_summons") == QuestState.COMPLETED, Duration.ofSeconds(20)),
+                () -> "a writable book did not complete the_summons. It is " + stateOf("the_summons")
+                        + " and task 0 is at " + recordedTask("the_summons", 0));
+
+        // The reward is a stage, and it waits for a claim like every other example reward -- so the
+        // grant happens at the claim, which is the path a stage reward really takes.
+        assertFalse(hasStage(player, THE_MARK), "nothing has claimed the stage yet");
+
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_summons");
+        assertEquals(1, claimed.result(), () -> "the stage should have been granted:\n" + claimed.text());
+        assertTrue(hasStage(player, THE_MARK), "the claim is what grants a stage reward");
+
+        assertFalse(stageLocked().contains("the_mark"),
+                "the player holds the stage, so the_mark is no longer shut: " + stageLocked());
+
+        // The other half of the same feature: a stage task is measured, never handed in, so the quest
+        // completes by itself the moment the flag is held -- there is no button to press.
+        assertTrue(tickUntil(() -> stateOf("the_mark") == QuestState.COMPLETED, Duration.ofSeconds(20)),
+                () -> "the_mark's stage task did not satisfy once the stage was held. The quest is "
+                        + stateOf("the_mark") + " and task 0 is recorded at " + recordedTask("the_mark", 0));
+
+        note("the stage reward granted " + THE_MARK + " on claim, and the stage task completed the_mark"
+                + " with no button pressed");
+    }
+
+    @Test
+    @Order(27)
+    @DisplayName("taking the stage away refuses the claim, and granting it again pays out")
+    void aShutGateRefusesTheClaimAndRegrantingPays() {
+        assertEquals(QuestState.COMPLETED, stateOf("the_mark"), "order 26 completed it");
+        int apples = countInInventory(Items.GOLDEN_APPLE);
+
+        HeadlessServer.Outcome removed = asOperator(
+                "/tasked stage remove tasked-tester the_induction:marked");
+        assertEquals(1, removed.result(), () -> "the stage should have been taken away:\n" + removed.text());
+        assertTrue(stageLocked().contains("the_mark"),
+                "with the stage gone the_mark is shut for this player again: " + stageLocked());
+
+        HeadlessServer.Outcome refused = asOperator("/tasked claim the_mark");
+        assertRefused(refused, "a shut gate refuses the payout, not only the completion");
+        assertEquals(apples, countInInventory(Items.GOLDEN_APPLE), "and nothing was handed over");
+
+        HeadlessServer.Outcome regranted = asOperator(
+                "/tasked stage add tasked-tester the_induction:marked");
+        assertEquals(1, regranted.result(), () -> "the stage should have been granted:\n" + regranted.text());
+
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_mark");
+        assertEquals(1, claimed.result(), () -> "the claim should have gone through:\n" + claimed.text());
+        assertEquals(apples + 1, countInInventory(Items.GOLDEN_APPLE),
+                "granting the stage back is enough to collect -- the work was already done");
+
+        note("a removed stage refused the claim, and granting it back paid out without repeating the task");
+    }
+
+    @Test
+    @Order(28)
+    @DisplayName("a stage-removing reward clears the flag, and the gate reads shut again")
+    void aStageRemovingRewardClearsTheFlag() {
+        assertTrue(hasStage(player, THE_MARK), "order 27 left the player marked");
+        assertEquals(QuestState.UNLOCKED, stateOf("the_fall"),
+                "the_fall depends on the completed the_mark");
+
+        HeadlessServer.Outcome submitted = asOperator("/tasked submit the_fall 0");
+        assertEquals(1, submitted.result(),
+                () -> "the checkmark should have been accepted:\n" + submitted.text());
+
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_fall");
+        assertEquals(1, claimed.result(), () -> "the fall should have been collected:\n" + claimed.text());
+        assertFalse(hasStage(player, THE_MARK), "the_fall's reward takes the stage away");
+
+        // And the flag's absence is the gate's input, so the_mark reads shut for this player again --
+        // even though it is completed. The overlay is about what this player may do next, and the
+        // stored state is untouched: the fall clears a flag, it does not un-complete the quest.
+        assertTrue(stageLocked().contains("the_mark"),
+                "cleared, so the gate is shut again: " + stageLocked());
+        assertEquals(QuestState.COMPLETED, stateOf("the_mark"),
+                "the stored state stays completed while the per-player overlay reads locked");
+
+        note("the fall's remove-stage reward cleared " + THE_MARK + ", and the gate shut again while the"
+                + " completed quest stayed completed");
+    }
+
+    // ------------------------------------------------------------------
+    // Reward tables
+    // ------------------------------------------------------------------
+
+    @Test
+    @Order(29)
+    @DisplayName("a quest's loot reward rolls the seeded table, and the weight-zero entry always lands")
+    void aLootRewardRollsTheSeededTable() {
+        // The end of the table feature, played: reward_tables/loot.json is seeded beside the book,
+        // The Winnings names it with a tasked:loot reward, and claiming the quest rolls it. The
+        // weight-zero entry is what makes the assertion exact -- five experience points, granted
+        // once per roll, and the only experience in the table, where the item entries are a
+        // distribution.
+        assertTrue(TaskedQuests.rewardTables().containsKey("loot"),
+                "the seeded examples should have loaded the loot table; loaded: "
+                        + TaskedQuests.rewardTables().keySet());
+
+        HeadlessServer.Outcome submitted = asOperator("/tasked submit the_winnings 0");
+        assertEquals(1, submitted.result(),
+                () -> "the checkmark should have been accepted:\n" + submitted.text());
+
+        int before = server.callOnServerThread(() -> player.totalExperience);
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_winnings");
+        assertEquals(1, claimed.result(),
+                () -> "the loot reward should have been collected:\n" + claimed.text());
+
+        int gained = server.callOnServerThread(() -> player.totalExperience) - before;
+        assertEquals(5, gained,
+                "the weight-zero entry is five experience points, granted once per roll, and it is"
+                        + " the only experience in the table -- so the delta is exact where the item"
+                        + " entries are a distribution");
+
+        note("a loot reward rolled the seeded table: 5 XP guaranteed, and the weighted entries rolled");
+    }
+
+    // ------------------------------------------------------------------
     // Driving and reading
     // ------------------------------------------------------------------
 
@@ -1451,6 +1646,24 @@ class QuestPlaythroughTest {
     /** The progress owner a player's quest state is read from. Their team's id, solo or not. */
     private static UUID ownerOf(ServerPlayer who) {
         return server.callOnServerThread(() -> ProgressService.progressOwner(server.server(), who));
+    }
+
+    /** Whether one player holds a stage, read on the server thread like every other read here. */
+    private static boolean hasStage(ServerPlayer who, ResourceLocation stage) {
+        return server.callOnServerThread(() -> StageService.has(server.server(), who.getUUID(), stage));
+    }
+
+    /**
+     * The quests the sync would draw locked for this player: the per-player overlay, not the stored
+     * state.
+     *
+     * <p>The set the client is actually told, computed by the same call {@code sendProgress} makes --
+     * which is the point. Asserting {@code stateOf} here would assert the team's answer and miss the
+     * one thing a stage gate changes.
+     */
+    private static java.util.Set<String> stageLocked() {
+        return server.callOnServerThread(() ->
+                ProgressService.stageLockedQuests(server.server(), player, TaskedQuests.index()));
     }
 
     /**

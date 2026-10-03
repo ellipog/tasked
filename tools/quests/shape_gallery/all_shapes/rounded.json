@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "rounded",
+  "title": "Rounded",
+  "subtitle": "The default",
+  "description": [
+    "A rectangle with rounded corners, and the shape a quest gets when the file says nothing at all.",
+    "",
+    "The corner is a quarter of the node's size, in integer arithmetic, so a node at 18 pixels cuts 4 and not 5 -- one pixel of corner, invisible in a picture and a change to every quest that already exists if it ever moved.",
+    "",
+    "This is the shape that packs into a grid best, which is why it is the default."
+  ],
+  "icon": {
+    "item": "minecraft:book"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 56,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the rounded shape"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

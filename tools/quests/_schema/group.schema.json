@@ -28,6 +28,10 @@
       "items": { "$ref": "#/definitions/id" },
       "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
     },
+    "icon": {
+      "$ref": "#/definitions/itemRef",
+      "description": "The item the book draws on this group's row. Optional: without it the row falls back to the first chapter under the group."
+    },
     "collapsedByDefault": {
       "type": "boolean",
       "default": false,
@@ -41,6 +45,26 @@
   },
 
   "definitions": {
+    "itemRef": {
+      "description": "An item, a count, and optional data components. Not an ItemStack - resolved at the moment it is used.",
+      "type": "object",
+      "required": ["item"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "type": "string",
+          "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+          "description": "Namespaced item id, e.g. minecraft:oak_log. An item this build does not have keeps its id and the quest still loads: the row draws a placeholder and says the item is missing, so a removed mod can come back."
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 6400, "default": 1 },
+        "components": {
+          "type": "object",
+          "description": "1.21 data components, keyed by component id in the datapack's own spelling. A text component's value is a string holding JSON, as the codec writes it -- { \"minecraft:custom_name\": \"\\\"Tempered Pickaxe\\\"\" } -- and the editor writes that form when you pick a renamed item.",
+          "additionalProperties": true
+        }
+      }
+    },
+
     "text": {
       "description": "Either a plain string, or a translation key with an English fallback.",
       "oneOf": [

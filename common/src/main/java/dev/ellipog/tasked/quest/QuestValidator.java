@@ -93,7 +93,7 @@ public final class QuestValidator {
     private static final Set<String> QUEST_FIELDS = union(
             union(Set.of(
                     "id", "title", "subtitle", "description", "icon", "aliases", "dependsOn",
-                    "prerequisiteMode", "minRequired", "tasks", "rewards"),
+                    "dependencyLines", "prerequisiteMode", "minRequired", "tasks", "rewards"),
                     QuestLayout.FIELDS),
             QuestRules.FIELDS);
 
@@ -125,6 +125,35 @@ public final class QuestValidator {
      * while a {@code group.json} <i>is</i> the group and its fields are at {@code $}. The checks are the
      * same checks at a different path, which is why they are shared rather than written twice.
      */
+    /**
+     * One {@code reward_tables/*.json}.
+     *
+     * <p>Like a chapter: its own keys, then each entry — and each entry's reward is checked by the
+     * same {@link #checkReward} a quest's rewards go through, so a table entry cannot be a shape a
+     * quest reward could not be. The whole document's codec verdict is the loader's decode step, the
+     * same split every other file kind uses.
+     */
+    public static void validateRewardTableDocument(JsonDocument document, Problems problems) {
+        if (!isObject(document, "$", problems)) {
+            return;
+        }
+        Checks.rejectUnknown(document, "$", withSchema(dev.ellipog.tasked.quest.loot.RewardTable.FIELDS),
+                problems);
+        var entries = Checks.array(document, "$.entries", problems);
+        if (entries == null) {
+            return;
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            String path = "$.entries[" + i + "]";
+            if (!isObject(document, path, problems)) {
+                continue;
+            }
+            Checks.rejectUnknown(document, path,
+                    dev.ellipog.tasked.quest.loot.RewardTable.Entry.FIELDS, problems);
+            checkReward(document, path + ".reward", problems);
+        }
+    }
+
     public static void validateGroupDocument(JsonDocument document, Problems problems) {
         validateGroupAt(document, "$", problems, false, GROUP_DOCUMENT_FIELDS);
     }
@@ -226,6 +255,10 @@ public final class QuestValidator {
         if (document.has(path + ".collapsedByDefault")) {
             Checks.optionalBool(document, path + ".collapsedByDefault", problems);
         }
+        // The group's icon, on the same terms as a chapter's: optional, and when present an item that
+        // resolves. A typo or a missing mod is reported here rather than as a sidebar row that silently
+        // draws nothing -- and it is validated at all because the editor writes this field.
+        checkIcon(document, path + ".icon", problems);
 
         if (!document.has(path + ".chapters")) {
             problems.warn(document, path, "no \"chapters\" - this chapter group is empty");
@@ -329,6 +362,7 @@ public final class QuestValidator {
         if (document.has(path + ".defaultConsumeItems")) {
             Checks.optionalBool(document, path + ".defaultConsumeItems", problems);
         }
+        checkDependencyStyle(document, path + ".dependencyStyle", problems, false);
 
         // A theme name is checked for being a non-empty string and nothing more, and that stopping
         // point is the point of it: the theme catalogue is a <b>client</b> concept, and this validator
@@ -456,6 +490,34 @@ public final class QuestValidator {
             });
         }
 
+        // The two counted flags of the dependency and visibility families. Bounded here as well as in
+        // the codec, so a hand-written file gets a sentence rather than a decode failure -- and the
+        // bounds come from the record that owns them, so the two cannot disagree.
+        for (String counted : new String[] {"maxCompletableDependents", "invisibleUntilTasks"}) {
+            if (document.has(path + "." + counted)) {
+                Checks.optionalInt(document, path + "." + counted, problems).ifPresent(count -> {
+                    if (count < QuestRules.MIN_COUNT || count > QuestRules.MAX_COUNT) {
+                        problems.error(document, path + "." + counted,
+                                counted + " must be between " + QuestRules.MIN_COUNT + " and "
+                                        + QuestRules.MAX_COUNT + ", found " + count);
+                    }
+                });
+            }
+        }
+
+        if (document.has(path + ".rotation")) {
+            Checks.optionalInt(document, path + ".rotation", problems).ifPresent(rotation -> {
+                if (rotation < QuestLayout.MIN_ROTATION || rotation > QuestLayout.MAX_ROTATION) {
+                    problems.error(document, path + ".rotation",
+                            "rotation must be between " + QuestLayout.MIN_ROTATION + " and "
+                                    + QuestLayout.MAX_ROTATION + " degrees, found " + rotation
+                                    + (rotation == 360
+                                            ? " - a full turn is the shape itself, so write 0"
+                                            : ""));
+                }
+            });
+        }
+
         if (document.has(path + ".minRequired")) {
             Checks.optionalInt(document, path + ".minRequired", problems).ifPresent(count -> {
                 if (count < 0) {
@@ -466,6 +528,7 @@ public final class QuestValidator {
         }
 
         checkDependencies(document, path + ".dependsOn", problems);
+        checkDependencyLines(document, path + ".dependencyLines", problems);
         checkTasks(document, path + ".tasks", problems);
         checkRewards(document, path + ".rewards", problems);
     }
@@ -542,6 +605,14 @@ public final class QuestValidator {
         Checks.rejectUnknown(document, path,
                 union(union(allTaskFields(), TaskCommon.FIELDS), Set.of("type")), problems);
 
+        // A task whose logic somebody else provides: its id is checked against what this build actually has
+        // registered. A warning rather than an error, because a pack may legitimately ship a quest for a mod
+        // that is not installed here -- the reward path already says as much at grant time -- and because a
+        // script registering its handler later in the same load is a fact a validator cannot see. What it
+        // catches is the typo, and the mod that is simply absent: the two reasons a custom task sits at zero
+        // progress forever with nothing on screen saying why.
+        checkCustomHandler(document, path, type, CustomType.TASK, problems);
+
         if (document.has(path + ".optional")) {
             Checks.optionalBool(document, path + ".optional", problems);
         }
@@ -571,6 +642,68 @@ public final class QuestValidator {
                 .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
     }
 
+    /**
+     * Which half of a quest a custom id belongs to: the two registries it can be looked up in.
+     *
+     * <p>One enum rather than two near-identical checks, because the pair is the whole of the difference --
+     * the same sentence with a different noun, the same lookup against a different map.
+     */
+    private enum CustomType {
+        TASK("task", dev.ellipog.tasked.quest.task.CustomTask.TYPE,
+                dev.ellipog.tasked.quest.task.CustomTask.CustomTasks::ids),
+        REWARD("reward", dev.ellipog.tasked.quest.reward.CustomReward.TYPE,
+                dev.ellipog.tasked.quest.reward.CustomReward.CustomRewards::ids);
+
+        private final String word;
+        private final ResourceLocation type;
+        private final java.util.function.Supplier<java.util.Set<String>> handlers;
+
+        CustomType(String word, ResourceLocation type,
+                   java.util.function.Supplier<java.util.Set<String>> handlers) {
+            this.word = word;
+            this.type = type;
+            this.handlers = handlers;
+        }
+
+        /** The noun the warning uses: "this task does nothing". */
+        String word() {
+            return word;
+        }
+
+        /** The type id a document has to name for this check to apply. */
+        ResourceLocation type() {
+            return type;
+        }
+
+        /** Every id this build has a handler registered for. */
+        java.util.Set<String> handlers() {
+            return handlers.get();
+        }
+    }
+
+    /**
+     * Warns when a custom task's or reward's id has nothing registered for it in this build.
+     *
+     * <p>A warning and not an error, and the difference is the point: a pack that ships a quest for a mod
+     * the player has not installed meant to, and the quest is not broken -- it is inert. What this catches
+     * is the typo, and the mod that is simply absent; both look identical from inside the game, where such a
+     * task sits at zero progress forever with nothing on screen saying why.
+     */
+    private static void checkCustomHandler(JsonDocument document, String path,
+                                           Optional<ResourceLocation> type, CustomType kind,
+                                           Problems problems) {
+        if (type.isEmpty() || !type.get().equals(kind.type())) {
+            return;
+        }
+        Checks.optionalString(document, path + ".id", problems).ifPresent(id -> {
+            if (!kind.handlers().contains(id)) {
+                problems.warn(document, path + ".id",
+                        "nothing is registered for \"" + id + "\" in this build - the mod or script that "
+                                + "provides it is not loaded, so this " + kind.word() + " does nothing");
+            }
+        });
+    }
+
     private static void checkRewards(JsonDocument document, String path, Problems problems) {
         if (!document.has(path)) {
             return;
@@ -595,6 +728,10 @@ public final class QuestValidator {
         }
         // The union of every reward type's fields, for the reason given in checkTask.
         Checks.rejectUnknown(document, path, union(allRewardFields(), Set.of("type")), problems);
+
+        // The reward half of the same check: a custom reward whose handler is not installed grants nothing,
+        // and the log line at grant time is the runtime signal -- this is the one an author reads.
+        checkCustomHandler(document, path, type, CustomType.REWARD, problems);
 
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);
@@ -764,6 +901,146 @@ public final class QuestValidator {
                         + "' is not a valid quest id; only lowercase letters, digits and underscores are allowed");
             }
         }
+    }
+
+    /**
+     * The per-line overrides: an object keyed by the dependency each entry styles.
+     *
+     * <p>The keys are dependency ids and are checked as such elsewhere — this checks the shape, so a
+     * misspelled setting or an unknown value is reported where the author wrote it rather than silently
+     * doing nothing at draw time.
+     */
+    private static void checkDependencyLines(JsonDocument document, String path, Problems problems) {
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonObject()) {
+            problems.error(document, path, "expected an object keyed by dependency id, found "
+                    + Checks.kindOf(element) + ". Each entry styles one line:"
+                    + " \"a_quest\": { \"form\": \"curved\" }.");
+            return;
+        }
+        for (java.util.Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            checkDependencyStyle(document, path + "." + entry.getKey(), problems);
+        }
+    }
+
+    /**
+     * One style object: whose keys are the four axes and whose values are names this build knows.
+     *
+     * <p>One check for both places a style can appear — a chapter's default and a line's override —
+     * because they are one shape, and two checks would be two vocabularies the day one of them grew.
+     * An absent object is fine; the codec fills nothing and the built-ins take over.
+     */
+    private static void checkDependencyStyle(JsonDocument document, String path, Problems problems) {
+        checkDependencyStyle(document, path, problems, true);
+    }
+
+    /**
+     * The same, told whether this is a line's own style or a chapter's default.
+     *
+     * <p>Anchors are refused in the chapter's: which rim a line meets is a fact about that line's two
+     * ends, so a chapter-wide angle would be wrong for almost every edge. The setting exists as a
+     * per-line tool and the message says so rather than leaving an author to wonder why it does nothing.
+     */
+    private static void checkDependencyStyle(JsonDocument document, String path, Problems problems,
+                                             boolean allowAnchors) {
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonObject()) {
+            problems.error(document, path, "expected an object of line settings, found "
+                    + Checks.kindOf(element) + ". Write any of \"form\", \"arrows\", \"dash\" or"
+                    + " \"weight\", and leave out the ones this line does not choose.");
+            return;
+        }
+        for (java.util.Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+            String key = entry.getKey();
+            String fieldPath = path + "." + key;
+            if (!allowAnchors && (key.equals("fromAnchor") || key.equals("toAnchor"))) {
+                problems.error(document, fieldPath, "an anchor is per line, not per chapter: which rim a"
+                        + " line meets depends on where its two ends are, so set it on the line itself");
+                continue;
+            }
+            if (key.equals("fromHandle") || key.equals("toHandle")) {
+                if (!allowAnchors) {
+                    problems.error(document, fieldPath, "a split control point is per line, not per"
+                            + " chapter: set it on the line itself");
+                    continue;
+                }
+                JsonElement value = entry.getValue();
+                boolean pair = value.isJsonArray() && value.getAsJsonArray().size() == 2;
+                if (pair) {
+                    for (JsonElement each : value.getAsJsonArray()) {
+                        // Not `pair = ...`: a mixed pair like [0.3, "x"] has to be refused, and an
+                        // assignment per element would let the last one overwrite the verdict and then
+                        // throw on getAsDouble.
+                        if (!each.isJsonPrimitive() || !each.getAsJsonPrimitive().isNumber()) {
+                            pair = false;
+                            break;
+                        }
+                    }
+                }
+                if (!pair) {
+                    problems.error(document, fieldPath, "expected two numbers - along and across, as"
+                            + " fractions of the line's own chord, like [0.33, 0.2]");
+                    continue;
+                }
+                double along = value.getAsJsonArray().get(0).getAsDouble();
+                double across = value.getAsJsonArray().get(1).getAsDouble();
+                if (along < -0.5 || along > 1.5 || Math.abs(across) > 0.9) {
+                    problems.error(document, fieldPath, "a control point has to stay near its line:"
+                            + " along is -0.5 to 1.5 and across is -0.9 to 0.9");
+                }
+                continue;
+            }
+            if (key.equals("bend") || key.equals("fromAnchor") || key.equals("toAnchor")) {
+                // The one numeric axis: a fraction of the chord, and its limit is the drag's own.
+                JsonElement value = entry.getValue();
+                if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) {
+                    problems.error(document, fieldPath, "expected a number, found " + Checks.kindOf(value));
+                    continue;
+                }
+                double bend = value.getAsDouble();
+                if (key.equals("bend") && Math.abs(bend) > DependencyStyle.MAX_BEND) {
+                    problems.error(document, fieldPath, "a bend is between -" + DependencyStyle.MAX_BEND
+                            + " and " + DependencyStyle.MAX_BEND + " - " + bend
+                            + " would double the line back on itself");
+                }
+                continue;
+            }
+            Class<? extends Enum<?>> axis = DependencyStyle.axisType(key);
+            if (axis == null) {
+                problems.error(document, fieldPath, "unknown line setting \"" + key + "\" - the settings"
+                        + " are form, arrows, dash, weight and bend, and per line also fromAnchor,"
+                        + " toAnchor, fromHandle and toHandle");
+                continue;
+            }
+            JsonElement value = entry.getValue();
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                problems.error(document, fieldPath, "expected a name, found " + Checks.kindOf(value));
+                continue;
+            }
+            String name = value.getAsString();
+            if (!DependencyStyle.known(axis, name)) {
+                problems.error(document, fieldPath, "\"" + name + "\" is not a " + key + " this build"
+                        + " knows - try one of " + names(axis) + ".");
+            }
+        }
+    }
+
+    /** The names an axis accepts, for a message. */
+    private static String names(Class<? extends Enum<?>> axis) {
+        StringBuilder out = new StringBuilder();
+        for (Enum<?> value : axis.getEnumConstants()) {
+            if (!out.isEmpty()) {
+                out.append(", ");
+            }
+            out.append(value.name().toLowerCase(java.util.Locale.ROOT));
+        }
+        return out.toString();
     }
 
     /** A text value, in either of its two forms. */

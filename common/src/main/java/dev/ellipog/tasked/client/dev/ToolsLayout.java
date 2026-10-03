@@ -69,6 +69,16 @@ public final class ToolsLayout {
     public static final int FEEDBACK_HEIGHT = 12;
     public static final int PREVIEW_HEIGHT = 96;
 
+    /**
+     * The Chapter tab's header band: the chapter's icon, its title and its subtitle.
+     *
+     * <p>Fixed above the scrolling rows rather than drawn as the list's first row, because it says
+     * which chapter the fields below belong to -- a name that scrolls away is a column of unlabelled
+     * values. It is also where the icon lives, which is the one place the icon's item id can be seen
+     * as the item it names.
+     */
+    public static final int CHAPTER_HEADER_HEIGHT = 44;
+
     /** One row of a list: a theme, a colour, or a switch. */
     public static final int ROW_HEIGHT = 16;
     public static final int ROW_GAP = 1;
@@ -232,9 +242,13 @@ public final class ToolsLayout {
         cursor = feedback.bottom();
 
         if (tab == Tab.CHAPTER) {
-            return new Frame(panel, tabs, feedback, empty(x, cursor),
-                    take(x, cursor, inner, Math.max(0, floor - cursor), floor),
-                    empty(x, cursor), empty(x, cursor), empty(x, cursor));
+            // The header band takes the room the theme tab spends on its preview, and the list gets
+            // everything below it: this tab has no swatch, no channels and no actions to reserve.
+            BookGeometry.Rect header = take(x, cursor, inner, CHAPTER_HEADER_HEIGHT, floor);
+            int listTop = header.bottom() + (header.height() > 0 ? SECTION_GAP : 0);
+            BookGeometry.Rect list = take(x, listTop, inner, Math.max(0, floor - listTop), floor);
+            return new Frame(panel, tabs, feedback, header, list, empty(x, cursor), empty(x, cursor),
+                    empty(x, cursor));
         }
 
         // What the band will need, so the list can take everything else and the band lands at the bottom
@@ -273,6 +287,36 @@ public final class ToolsLayout {
     private static BookGeometry.Rect take(int x, int y, int width, int wanted, int floor) {
         int at = Math.min(y, floor);
         return BookGeometry.Rect.at(x, at, width, Math.max(0, Math.min(wanted, floor - at)));
+    }
+
+    /**
+     * The chapter header band's parts: the icon's box, and the two lines of text beside it.
+     *
+     * <p>Here rather than in the drawing for the same reason every other rectangle in this class is: the
+     * icon is also a thing a press could land on one day, and the box it is drawn in has to be the box
+     * it is hit-tested by. The parts are clamped into the band in both dimensions, so a panel too short
+     * for its own header yields zero-height parts rather than ink outside the panel.
+     */
+    public record ChapterHeader(BookGeometry.Rect icon, BookGeometry.Rect title,
+                                BookGeometry.Rect subtitle) {
+    }
+
+    /** The header band's parts, from the band the frame placed. */
+    public static ChapterHeader chapterHeader(BookGeometry.Rect band) {
+        int iconSize = Math.max(0, Math.min(24, band.height() - 8));
+        int iconY = Math.min(band.y() + (band.height() - iconSize) / 2, band.bottom() - iconSize);
+        BookGeometry.Rect icon = BookGeometry.Rect.at(band.x() + 2, iconY, iconSize, iconSize);
+
+        int textX = Math.min(icon.right() + 8, band.right());
+        int textWidth = Math.max(0, band.right() - textX);
+        int titleHeight = Math.max(0, Math.min(12, band.height() - 6));
+        int titleY = Math.min(band.y() + 6, band.bottom() - titleHeight);
+        BookGeometry.Rect title = BookGeometry.Rect.at(textX, titleY, textWidth, titleHeight);
+
+        int subtitleHeight = Math.max(0, Math.min(10, band.bottom() - title.bottom() - 2));
+        int subtitleY = Math.min(title.bottom() + 2, band.bottom() - subtitleHeight);
+        BookGeometry.Rect subtitle = BookGeometry.Rect.at(textX, subtitleY, textWidth, subtitleHeight);
+        return new ChapterHeader(icon, title, subtitle);
     }
 
     // ------------------------------------------------------------------

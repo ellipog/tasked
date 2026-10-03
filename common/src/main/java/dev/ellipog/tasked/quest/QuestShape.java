@@ -10,12 +10,14 @@ import dev.ellipog.armature.client.ui.shape.Shapes;
  *
  * <h2>This is a name, not a geometry</h2>
  *
- * <p>The four shapes live in Armature as {@link Shapes}, where the arithmetic can be used by anything —
- * a button, a panel border, a theme. What is here is the <b>vocabulary a quest file writes</b>:
- * {@code "rounded"}, {@code "circle"}, {@code "hexagon"}, {@code "tome"}. Every method below forwards
- * to a {@link Shape}, and the indirection is deliberate rather than vestigial: a data format needs a
- * closed set of names that cannot change without someone noticing, and an extensible geometry type
- * needs the opposite. Those are two different jobs and this class is the smaller one.
+ * <p>The shapes live in Armature as {@link Shapes}, where the arithmetic can be used by anything — a
+ * button, a panel border, a theme. What is here is the <b>vocabulary a quest file writes</b>:
+ * {@code "rounded"}, {@code "square"}, {@code "circle"}, {@code "diamond"}, {@code "hexagon"},
+ * {@code "octagon"}, {@code "pentagon"}, {@code "gear"}, {@code "heart"}, {@code "tome"} and
+ * {@code "none"}. Every method below forwards to a {@link Shape}, and the indirection is deliberate
+ * rather than vestigial: a data format needs a closed set of names that cannot change without someone
+ * noticing, and an extensible geometry type needs the opposite. Those are two different jobs and this
+ * class is the smaller one.
  *
  * <h2>Why the geometry moved, and what the move cost</h2>
  *
@@ -44,20 +46,55 @@ import dev.ellipog.armature.client.ui.shape.Shapes;
  * absent, because it reads as supported. The tell was a javadoc describing behaviour no test could
  * observe — which is the general form of that bug, and the reason the tests in Armature assert
  * invariants rather than numbers.
+ *
+ * <h2>{@link #NONE} is a presentation, not an outline</h2>
+ *
+ * <p>Every other name here draws a panel and is hit-tested by that panel's own pixels. {@code "none"}
+ * draws no panel at all — the node is its icon — and is the one deliberate exception to "a click lands
+ * on exactly the pixels that were drawn": its geometry is the square, so the icon fits the node and the
+ * node is clickable, but there is no outline to land on. {@link #drawsPanel()} is how the drawing asks,
+ * and it is a method on the name rather than a shape in Armature because "draw nothing" is not a
+ * geometry — a rectangle is, and that is what it forwards to.
  */
 public enum QuestShape {
 
     /** A rectangle with rounded corners. The default, and the one that packs into a grid best. */
     ROUNDED(Shapes.ROUNDED),
 
+    /** A plain rectangle. The honest "no styling" choice, for a tree that should read as a grid. */
+    SQUARE(Shapes.RECT),
+
     /** A circle. Good for a focal quest, poor for a dense tree. */
     CIRCLE(Shapes.CIRCLE),
 
-    /** A hexagon. Reads as "hex tech", and tiles without gaps. */
+    /** A diamond: points at the top and bottom. Reads as a focal or key node. */
+    DIAMOND(Shapes.DIAMOND),
+
+    /** A flat-topped hexagon. Reads as "hex tech", and tiles without gaps. */
     HEXAGON(Shapes.HEXAGON),
 
+    /** A square with straight corner chamfers. Reads as cut stone, or as a hub. */
+    OCTAGON(Shapes.OCTAGON),
+
+    /** A point-up pentagon with a flat base. The one shape here whose widest row is not its middle. */
+    PENTAGON(Shapes.PENTAGON),
+
+    /** A hub with eight teeth. The busiest silhouette here, and the one that made the icon fit exact. */
+    GEAR(Shapes.GEAR),
+
+    /** Two lobes and a point: the only shape whose rows have more than one span. */
+    HEART(Shapes.HEART),
+
     /** A book seen from the front. For chapter entry points. */
-    TOME(Shapes.TOME);
+    TOME(Shapes.TOME),
+
+    /**
+     * No panel at all: the icon alone, on the canvas.
+     *
+     * <p>Its geometry is the square, so the icon's fit and the node's clickable area are the node's own
+     * box — see the class note for why this one shape is allowed to break the click-equals-drawing rule.
+     */
+    NONE(Shapes.RECT);
 
     public static final Codec<QuestShape> CODEC = Codecs.enumByName(QuestShape.class);
 
@@ -86,6 +123,17 @@ public enum QuestShape {
     }
 
     /**
+     * Whether this shape draws a panel.
+     *
+     * <p>False for {@link #NONE} only: a node with no outline, whose icon is the whole of it. The
+     * drawing reads this to skip the panel, the hover ring and the state wash; the hit test does not,
+     * because a node nobody can click is not a shape choice, it is a broken node.
+     */
+    public boolean drawsPanel() {
+        return this != NONE;
+    }
+
+    /**
      * A shape by its JSON name, falling back rather than throwing.
      *
      * <p>For the client, which reads a name off the wire. A payload from a server running a newer version
@@ -111,14 +159,16 @@ public enum QuestShape {
     // ------------------------------------------------------------------
 
     /**
-     * The horizontal extent of this shape on {@code row} of a {@code size}-pixel square.
+     * The horizontal extents of this shape on {@code row} of a {@code size}-pixel square.
      *
-     * @return {@code {from, to}} in local coordinates, {@code from} inclusive and {@code to} exclusive,
-     *     or {@code null} when the row is outside the shape. Never empty and never outside the square —
-     *     both of those are the interface's job, so no shape here can get them wrong.
+     * @return {@code {from, to, …}} in local coordinates, each {@code from} inclusive and {@code to}
+     *     exclusive, or {@code null} when the row is outside the shape. Never empty, never outside the
+     *     square, always sorted and never overlapping — all four are the interface's job, so no shape
+     *     here can get them wrong. More than one pair is a row with more than one piece of material,
+     *     which is a heart's notch and a gear's teeth.
      */
-    public int[] span(int row, int size) {
-        return geometry.span(row, size);
+    public int[] spans(int row, int size) {
+        return geometry.spans(row, size);
     }
 
     /** Whether a point is inside a node of this shape, in the node's own coordinates. */
@@ -135,8 +185,8 @@ public enum QuestShape {
      * The smallest inset whose square lies wholly inside this shape — the largest icon that fits.
      *
      * <p>Derived from the spans rather than a constant, so it cannot disagree with what is drawn or
-     * clickable. At 48 pixels the four shapes want 4, 7, 6 and 5, and 7 for a circle is exactly the
-     * inscribed square, {@code size/√2}, which is the arithmetic arriving at the answer a pencil would.
+     * clickable. At 48 pixels the four original shapes want 4, 7, 6 and 5, and 7 for a circle is exactly
+     * the inscribed square, {@code size/√2}, which is the arithmetic arriving at the answer a pencil would.
      */
     public int maxIconInset(int size) {
         return geometry.maxInset(size);

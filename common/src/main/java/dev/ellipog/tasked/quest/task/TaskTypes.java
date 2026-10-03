@@ -6,9 +6,11 @@ import dev.ellipog.armature.api.data.TypeDispatch;
 import dev.ellipog.armature.api.data.TypeSpec;
 import dev.ellipog.armature.api.registry.SimpleRegistry;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.quest.EditorField;
 import dev.ellipog.tasked.quest.ItemRef;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.QuestText;
+import dev.ellipog.tasked.quest.RegistryRef;
 import dev.ellipog.tasked.quest.TaskCommon;
 import net.minecraft.resources.ResourceLocation;
 
@@ -61,25 +63,235 @@ public final class TaskTypes {
 
     /** A registered type: what reads it, how it is evaluated, and what represents it. */
     private record Entry(TypeSpec<QuestTask> spec, TaskBehaviour<QuestTask> behaviour, ItemRef icon,
-                         Function<QuestTask, TaskDisplay> display, Supplier<QuestTask> defaults) {
+                         Function<QuestTask, TaskDisplay> display,
+                         java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+                         Supplier<QuestTask> defaults) {
     }
 
     // Declared first: static initialisation runs in declaration order, and the entries below register
     // into this.
     private static final SimpleRegistry<Entry> REGISTRY = SimpleRegistry.create("quest task types");
 
+    /**
+     * The settings every task has, as the form draws them: whether it is required, and how often it is
+     * tried.
+     *
+     * <p>Appended to every registered type's form rather than written into each spec, so a type cannot
+     * offer a variant of "optional" that means something else. {@code autoSubmitTicks} is the cadence the
+     * engine re-checks a task at, which is why its unit is ticks rather than a duration: an item task at
+     * every tick is a scan of every player's inventory twenty times a second.
+     */
+    private static final List<EditorField> COMMON_EDITOR = List.of(
+            EditorField.flag("optional", "Optional")
+                    .hint("shown to the player, but the quest does not wait for it"),
+            EditorField.number("autoSubmitTicks", "Checked every", "ticks")
+                    .hint("how often the server re-checks this task; ticks, twenty to the second"));
+
     /** {@code tasked:item} — have enough of an item. */
     public static final QuestTaskType<ItemTask> ITEM = register(
-            "item", ItemTask.MAP_CODEC, ItemTask.FIELDS, ItemTask.BEHAVIOUR,
+            "item", ItemTask.MAP_CODEC, ItemTask.FIELDS, java.util.List.of(
+                    EditorField.item("item", "Hand in")
+                            .hint("the item to hand over; the picker keeps the data of the one you pick, "
+                                    + "so an enchanted sword is not a plain one"),
+                    EditorField.number("count", "Count", "\u00d7")
+                            .hint("how many of them"),
+                    EditorField.flag("consumeItems", "Consume")
+                            .hint("handing the task in takes the items from the player"),
+                    EditorField.choice("match", "Match", "none", "fuzzy", "strict")
+                            .hint("how closely a carried stack must match: none ignores its data, fuzzy "
+                                    + "needs the data it names, strict needs the whole stack"),
+                    EditorField.flag("onlyFromCrafting", "Crafted only")
+                            .hint("only items the player crafted themselves count")),
+            ItemTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1), ItemTask.DISPLAY,
             () -> new ItemTask(TaskCommon.DEFAULT,
-                    new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1), Optional.empty()));
+                    new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1), Optional.empty(),
+                    ComponentMatch.STRICT, false));
+
+    /** {@code tasked:item_tag} — have enough of any item in a tag. */
+    public static final QuestTaskType<ItemTagTask> ITEM_TAG = register(
+            "item_tag", ItemTagTask.MAP_CODEC, ItemTagTask.FIELDS, java.util.List.of(
+                    EditorField.tag("tag", "Tag")
+                            .hint("any item in this tag counts; pick one from the tags the pack declares"),
+                    EditorField.number("count", "Count", "\u00d7")
+                            .hint("how many of them"),
+                    EditorField.flag("consumeItems", "Consume")
+                            .hint("handing the task in takes the items from the player")),
+            ItemTagTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("barrel"), 1), ItemTagTask.DISPLAY,
+            () -> new ItemTagTask(new TaskCommon(false, 20),
+                    ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty()));
 
     /** {@code tasked:checkmark} — the player says they did it. */
     public static final QuestTaskType<CheckmarkTask> CHECKMARK = register(
-            "checkmark", CheckmarkTask.MAP_CODEC, CheckmarkTask.FIELDS, CheckmarkTask.BEHAVIOUR,
+            "checkmark", CheckmarkTask.MAP_CODEC, CheckmarkTask.FIELDS, java.util.List.of(
+                    EditorField.text("title", "Tick text", "the words on the button a player presses")
+                            .hint("the words on the button a player presses to say they did it")),
+            CheckmarkTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("knowledge_book"), 1), CheckmarkTask.DISPLAY,
             () -> new CheckmarkTask(TaskCommon.DEFAULT, QuestText.literal("Did it")));
+
+    /** {@code tasked:dimension} — be in a dimension. */
+    public static final QuestTaskType<DimensionTask> DIMENSION = register(
+            "dimension", DimensionTask.MAP_CODEC, DimensionTask.FIELDS, java.util.List.of(
+                    EditorField.search("dimension", "Dimension", EditorField.Source.DIMENSION)
+                            .hint("the dimension the player has to be in")),
+            DimensionTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("ender_pearl"), 1), DimensionTask.DISPLAY,
+            () -> new DimensionTask(new TaskCommon(false, 100),
+                    ResourceLocation.withDefaultNamespace("overworld")));
+
+    /** {@code tasked:biome} — be in a biome, or any biome of a tag. */
+    public static final QuestTaskType<BiomeTask> BIOME = register(
+            "biome", BiomeTask.MAP_CODEC, BiomeTask.FIELDS, java.util.List.of(
+                    EditorField.search("biome", "Biome", EditorField.Source.BIOME)
+                            .hint("the biome to stand in; a #tag counts any biome of it")),
+            BiomeTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("oak_sapling"), 1), BiomeTask.DISPLAY,
+            () -> new BiomeTask(new TaskCommon(false, 20), RegistryRef.parse("minecraft:plains")));
+
+    /** {@code tasked:structure} — be inside a structure, or one of a structure tag. */
+    public static final QuestTaskType<StructureTask> STRUCTURE = register(
+            "structure", StructureTask.MAP_CODEC, StructureTask.FIELDS, java.util.List.of(
+                    EditorField.search("structure", "Structure", EditorField.Source.STRUCTURE)
+                            .hint("the structure to be inside; a #tag counts any of them")),
+            StructureTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("filled_map"), 1), StructureTask.DISPLAY,
+            () -> new StructureTask(new TaskCommon(false, 20),
+                    RegistryRef.parse("minecraft:village_plains")));
+
+    /** {@code tasked:advancement} — earn an advancement, or one criterion of one. */
+    public static final QuestTaskType<AdvancementTask> ADVANCEMENT = register(
+            "advancement", AdvancementTask.MAP_CODEC, AdvancementTask.FIELDS, java.util.List.of(
+                    EditorField.search("advancement", "Advancement", EditorField.Source.ADVANCEMENT)
+                            .hint("the advancement to earn"),
+                    EditorField.text("criterion", "One criterion",
+                                    "leave empty for the whole advancement")
+                            .hint("count one criterion of it instead of the whole advancement")),
+            AdvancementTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("book"), 1), AdvancementTask.DISPLAY,
+            () -> new AdvancementTask(new TaskCommon(false, 5),
+                    ResourceLocation.withDefaultNamespace("story/root"), Optional.empty()));
+
+    /** {@code tasked:stat} — reach a vanilla statistic value. */
+    public static final QuestTaskType<StatTask> STAT = register(
+            "stat", StatTask.MAP_CODEC, StatTask.FIELDS, java.util.List.of(
+                    EditorField.search("stat", "Statistic", EditorField.Source.STAT)
+                            .hint("which statistic to watch"),
+                    EditorField.number("value", "Reach", "")
+                            .hint("the number that statistic has to reach")),
+            StatTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("comparator"), 1), StatTask.DISPLAY,
+            () -> new StatTask(new TaskCommon(false, 3),
+                    ResourceLocation.withDefaultNamespace("walk_one_cm"), 1000));
+
+    /** {@code tasked:location} — stand in a box, in a dimension or in any. */
+    public static final QuestTaskType<LocationTask> LOCATION = register(
+            "location", LocationTask.MAP_CODEC, LocationTask.FIELDS, java.util.List.of(
+                    EditorField.search("dimension", "Dimension", EditorField.Source.DIMENSION)
+                            .hint("the dimension the box is in"),
+                    EditorField.flag("ignoreDimension", "Any dimension")
+                            .hint("counts anywhere, instead of only in the dimension above"),
+                    EditorField.position("position", "Corner")
+                            .hint("one corner of the box, in blocks; My position fills it from where you "
+                                    + "stand, and the dimension with it"),
+                    EditorField.size("size", "Box size")
+                            .hint("how far the box reaches from that corner")),
+            LocationTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("compass"), 1), LocationTask.DISPLAY,
+            () -> new LocationTask(new TaskCommon(false, 3), Optional.empty(), false,
+                    java.util.List.of(0, 0, 0), java.util.List.of(8, 8, 8)));
+
+    /** {@code tasked:xp} — hand over experience points or levels. */
+    public static final QuestTaskType<XpTask> XP = register(
+            "xp", XpTask.MAP_CODEC, XpTask.FIELDS, java.util.List.of(
+                    EditorField.number("value", "Hand in", "XP")
+                            .hint("how much experience to hand over"),
+                    EditorField.flag("points", "Levels instead")
+                            .hint("count levels rather than points")),
+            XpTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpTask.DISPLAY,
+            () -> new XpTask(new TaskCommon(false, 20), 100, true));
+
+    /** {@code tasked:fluid} — hand over fluid, carried in buckets for now. */
+    public static final QuestTaskType<FluidTask> FLUID = register(
+            "fluid", FluidTask.MAP_CODEC, FluidTask.FIELDS, java.util.List.of(
+                    EditorField.search("fluid", "Hand in", EditorField.Source.FLUID)
+                            .hint("which fluid to hand over, carried in buckets"),
+                    EditorField.number("amount", "Amount", "mB")
+                            .hint("how much of it, in millibuckets; a bucket is a thousand")),
+            FluidTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("water_bucket"), 1), FluidTask.DISPLAY,
+            () -> new FluidTask(new TaskCommon(false, 20),
+                    ResourceLocation.withDefaultNamespace("water"), 1000));
+
+    /** {@code tasked:observation} — look at a block or entity for long enough. */
+    public static final QuestTaskType<ObservationTask> OBSERVATION = register(
+            "observation", ObservationTask.MAP_CODEC, ObservationTask.FIELDS, java.util.List.of(
+                    EditorField.choice("observeType", "Look for", "block", "block_tag", "block_state",
+                                    "block_entity", "block_entity_type", "entity_type", "entity_type_tag")
+                            .hint("what counts as looking: a block, a tag of them, one block state, a block "
+                                    + "entity, or an entity -- the list below follows this"),
+                    EditorField.search("toObserve", "Target", EditorField.Source.OBSERVATION_TARGET)
+                            .hint("the block or entity to look at"),
+                    EditorField.number("timer", "For", "ticks")
+                            .hint("how long to look at it; ticks, twenty to the second")),
+            ObservationTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("spyglass"), 1), ObservationTask.DISPLAY,
+            () -> new ObservationTask(new TaskCommon(false, 20), ObservationTask.ObserveType.BLOCK,
+                    "minecraft:beacon", 40));
+
+    /** {@code tasked:kill} — kill entities, by type or tag, optionally filtered. */
+    public static final QuestTaskType<KillTask> KILL = register(
+            "kill", KillTask.MAP_CODEC, KillTask.FIELDS, java.util.List.of(
+                    EditorField.search("entity", "Entity", EditorField.Source.ENTITY)
+                            .hint("the mob to kill"),
+                    EditorField.tag("entityTypeTag", "Entity tag", EditorField.Source.ENTITY_TAG)
+                            .hint("or a tag, to count any mob in it"),
+                    EditorField.number("value", "Kills", "kills")
+                            .hint("how many to kill"),
+                    EditorField.text("customName", "Named", "only counts a mob with this name")
+                            .hint("only counts a mob with this name"),
+                    EditorField.text("nbtFilter", "NBT", "an SNBT filter, for what an id cannot say")
+                            .hint("an SNBT filter, for the mobs an id cannot pick out")),
+            KillTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("iron_sword"), 1), KillTask.DISPLAY,
+            () -> new KillTask(new TaskCommon(false, 20),
+                    Optional.of(ResourceLocation.withDefaultNamespace("zombie")), Optional.empty(), 1,
+                    Optional.empty(), Optional.empty()));
+
+    /**
+     * {@code tasked:custom} — progress measured by somebody else's code.
+     *
+     * <p>The scripting hook, and the one type here whose logic does not live in this mod: a mod or a script
+     * registers a handler for the id the task names. See {@link CustomTask} for the whole of it.
+     */
+    public static final QuestTaskType<CustomTask> CUSTOM = register(
+            "custom", CustomTask.MAP_CODEC, CustomTask.FIELDS, java.util.List.of(
+                    EditorField.text("id", "Task id", "the id a mod or a script registered")
+                            .hint("the id a mod or a script registered a handler for; the validator warns "
+                                    + "when this build has nothing registered for it"),
+                    EditorField.number("value", "Count", "")
+                            .hint("how many the handler has to count to")),
+            CustomTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("jigsaw"), 1), CustomTask.DISPLAY,
+            () -> new CustomTask(new TaskCommon(false, 20), "example:custom", 1));
+
+    /**
+     * {@code tasked:stage} — the player has a stage.
+     *
+     * <p>The read half of the flags a pack grants, whose write half is the stage reward, a command or a
+     * script. See {@link StageTask}.
+     */
+    public static final QuestTaskType<StageTask> STAGE = register(
+            "stage", StageTask.MAP_CODEC, StageTask.FIELDS, java.util.List.of(
+                    EditorField.text("stage", "Stage", "the id a reward, a command or a script grants")
+                            .hint("the stage the player has to have; a stage exists by being granted, so "
+                                    + "there is no list to pick from and no id to validate")),
+            StageTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("lever"), 1), StageTask.DISPLAY,
+            () -> new StageTask(new TaskCommon(false, 20),
+                    ResourceLocation.fromNamespaceAndPath("example", "stage")));
 
     private TaskTypes() {
     }
@@ -113,8 +325,26 @@ public final class TaskTypes {
                                                                   ItemRef icon,
                                                                   Function<T, TaskDisplay> display,
                                                                   Supplier<T> defaults) {
-        return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, behaviour,
-                icon, display, defaults);
+        return register(path, codec, fields, java.util.List.of(), behaviour, icon, display, defaults);
+    }
+
+    /**
+     * The same registration, carrying the type's own editor form.
+     *
+     * <p>The overload an addon wants: the fields it declared make a form the editor draws, so a new type
+     * is a new <i>layout</i> rather than a row of generic boxes. A type that registers without one gets a
+     * form derived from its field names -- see {@code EditorSpecs} -- which is a floor rather than a goal.
+     */
+    public static <T extends QuestTask> QuestTaskType<T> register(String path,
+                                                                  MapCodec<T> codec,
+                                                                  Set<String> fields,
+                                                                  java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+                                                                  TaskBehaviour<T> behaviour,
+                                                                  ItemRef icon,
+                                                                  Function<T, TaskDisplay> display,
+                                                                  Supplier<T> defaults) {
+        return register(ResourceLocation.fromNamespaceAndPath(Tasked.MOD_ID, path), codec, fields, editor,
+                behaviour, icon, display, defaults);
     }
 
     /**
@@ -128,9 +358,25 @@ public final class TaskTypes {
                                                                   ItemRef icon,
                                                                   Function<T, TaskDisplay> display,
                                                                   Supplier<T> defaults) {
-        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, fields, behaviour, icon, display, defaults);
+        return register(id, codec, fields, java.util.List.of(), behaviour, icon, display, defaults);
+    }
+
+    /** The same, under an id you choose, with the type's own editor form. */
+    public static <T extends QuestTask> QuestTaskType<T> register(ResourceLocation id,
+                                                                  MapCodec<T> codec,
+                                                                  Set<String> fields,
+                                                                  java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
+                                                                  TaskBehaviour<T> behaviour,
+                                                                  ItemRef icon,
+                                                                  Function<T, TaskDisplay> display,
+                                                                  Supplier<T> defaults) {
+        // The common settings ride on the form as well as on the field list -- see COMMON_EDITOR.
+        List<EditorField> form = new java.util.ArrayList<>(editor);
+        form.addAll(COMMON_EDITOR);
+        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, fields, List.copyOf(form), behaviour, icon,
+                display, defaults);
         REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon,
-                widenDisplay(display), () -> defaults.get()));
+                widenDisplay(display), List.copyOf(form), () -> defaults.get()));
         return typed;
     }
 
@@ -212,6 +458,22 @@ public final class TaskTypes {
         return REGISTRY.get(id).map(Entry::icon).orElse(ItemRef.DEFAULT_ICON);
     }
 
+    /**
+     * The fields of a registered type as the editor draws them.
+     *
+     * <p>The type's own form when it declared one, and a form derived from its field names when it did
+     * not -- so an addon's type is a form the day it registers, whether or not it thought about the
+     * editor. Empty for an id this build does not know, which is the same refusal every other accessor
+     * here makes.
+     */
+    public static java.util.List<dev.ellipog.tasked.quest.EditorField> editorOf(ResourceLocation id) {
+        return REGISTRY.get(id)
+                .map(entry -> entry.editor().isEmpty()
+                        ? dev.ellipog.tasked.quest.EditorSpecs.derive(entry.spec().fields())
+                        : entry.editor())
+                .orElse(java.util.List.of());
+    }
+
     @SuppressWarnings("unchecked")
     private static <T extends QuestTask> TypeSpec<QuestTask> widenSpec(QuestTaskType<T> type) {
         return new TypeSpec<>() {
@@ -238,6 +500,15 @@ public final class TaskTypes {
      * <p>The cast in the lambdas is sound for the same reason the spec's is: the behaviour travels
      * with the id and the codec, so the only value ever handed to the downcast is one produced by
      * this very codec.
+     *
+     * <h2>Every method is forwarded, and the first version of this is why</h2>
+     *
+     * <p>It forwarded {@code required}, {@code current} and {@code canSubmitByHand} and left the rest
+     * to the interface's defaults — which meant an item task's {@code takesResources} was read as
+     * {@code false} at every call site that goes through this wrapper, and consuming tasks silently
+     * stopped taking anything. The example pack never consumes, so nothing failed. So the rule here
+     * is: when {@link TaskBehaviour} grows a method, this wrapper grows a line, and a type's override
+     * only exists if it is actually reachable through the registry.
      */
     @SuppressWarnings("unchecked")
     private static <T extends QuestTask> TaskBehaviour<QuestTask> widenBehaviour(TaskBehaviour<T> behaviour) {
@@ -256,6 +527,27 @@ public final class TaskTypes {
             public boolean canSubmitByHand(QuestTask task) {
                 return behaviour.canSubmitByHand((T) task);
             }
+
+            @Override
+            public boolean acceptsClientSubmit(QuestTask task) {
+                return behaviour.acceptsClientSubmit((T) task);
+            }
+
+            @Override
+            public boolean takesResources(QuestTask task, boolean chapterDefault) {
+                return behaviour.takesResources((T) task, chapterDefault);
+            }
+
+            @Override
+            public int take(QuestTask task, net.minecraft.server.level.ServerPlayer player, int count) {
+                return behaviour.take((T) task, player, count);
+            }
+
+            @Override
+            public int onEntityDeath(QuestTask task, net.minecraft.server.level.ServerPlayer killer,
+                                     net.minecraft.world.entity.LivingEntity killed) {
+                return behaviour.onEntityDeath((T) task, killer, killed);
+            }
         };
     }
 
@@ -268,6 +560,7 @@ public final class TaskTypes {
 
     private record SimpleQuestTaskType<T extends QuestTask>(
             ResourceLocation id, MapCodec<T> codec, Set<String> fields,
+            java.util.List<dev.ellipog.tasked.quest.EditorField> editor,
             TaskBehaviour<T> behaviour, ItemRef icon, Function<T, TaskDisplay> display,
             Supplier<T> defaultsSupplier
     ) implements QuestTaskType<T> {

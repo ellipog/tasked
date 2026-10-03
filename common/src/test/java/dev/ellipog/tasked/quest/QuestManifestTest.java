@@ -156,6 +156,31 @@ class QuestManifestTest {
         }
 
         @Test
+        @DisplayName("the icon is optional, and absent stays distinguishable from one authored as paper")
+        void iconIsOptional() {
+            // Unlike a chapter's icon, whose codec defaults it to paper, a group's has to be able to say
+            // "I declared none": the client falls back to the first chapter under the group for that
+            // case, and a default of paper here would make the fallback unreachable.
+            GroupManifest none = decode(GroupManifest.CODEC, """
+                    { "id": "g", "title": "G", "chapters": [] }
+                    """);
+            assertTrue(none.icon().isEmpty(), "a group that declares no icon has none");
+
+            GroupManifest one = decode(GroupManifest.CODEC, """
+                    { "id": "g", "title": "G", "icon": { "item": "minecraft:anvil" }, "chapters": [] }
+                    """);
+            assertEquals("minecraft:anvil", one.icon().orElseThrow().item().toString());
+
+            Problems problems = validateGroupDoc("""
+                    { "id": "g", "title": "G", "icon": { "item": "minecraft:anvil" }, "chapters": [] }
+                    """);
+            // Errors, not "nothing at all": an empty chapter list is a warning this document earns
+            // whatever its icon says, and what is being checked here is that the icon is not refused
+            // as an unknown field the way `progressionMode` above is.
+            assertFalse(problems.hasErrors(), "the icon is a known field:" + messages(problems));
+        }
+
+        @Test
         @DisplayName("a one-line description written as a bare string still works")
         void aBareStringDescriptionWorks() {
             // The same union a chapter group's description has always had, and it came with the field
