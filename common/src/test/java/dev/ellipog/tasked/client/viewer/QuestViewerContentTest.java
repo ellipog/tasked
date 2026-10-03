@@ -1,5 +1,7 @@
 package dev.ellipog.tasked.client.viewer;
 
+import dev.ellipog.armature.integration.PagePalette;
+import dev.ellipog.armature.integration.QuestContent;
 import dev.ellipog.armature.integration.QuestPage;
 import dev.ellipog.armature.integration.QuestRef;
 import dev.ellipog.armature.integration.QuestRow;
@@ -224,5 +226,67 @@ class QuestViewerContentTest {
         assertEquals("Tasks", content.tasksLabel().getString());
         assertEquals("Rewards", content.rewardsLabel().getString());
         assertFalse(content.categoryIcon().isEmpty(), "the category needs an icon to be drawn");
+    }
+
+    @Test
+    @DisplayName("a reward's live row carries a status, never a count")
+    void rewardRowsCarryStatusNotProgress() {
+        accept(ONE_QUEST);
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 100L,
+                "{\"quests\":{\"tree\":{\"state\":\"COMPLETED\",\"tasks\":[8,4,0,1],\"claimable\":true}}}"
+                        .getBytes(StandardCharsets.UTF_8), 50L);
+
+        QuestRow reward = content.liveReward("tree", 0);
+        assertEquals(0, reward.need(), "a reward is not a requirement, so it draws no bar");
+        assertTrue(reward.claimable(), "completed, unlocked and unclaimed is Ready");
+        assertFalse(reward.done(), "no player in a test JVM has claimed anything");
+        assertFalse(reward.locked());
+    }
+
+    @Test
+    @DisplayName("a reward's claim state is per player, read from the cache")
+    void rewardClaimsArePerPlayer() {
+        accept(ONE_QUEST);
+        UUID player = UUID.randomUUID();
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 100L,
+                ("{\"quests\":{\"tree\":{\"state\":\"COMPLETED\",\"tasks\":[8,4,0,1],"
+                        + "\"claims\":{\"" + player + "\":[0]}}}}").getBytes(StandardCharsets.UTF_8), 50L);
+
+        assertTrue(ClientQuestCache.rewardClaimedBy(player, "tree", 0));
+        assertFalse(ClientQuestCache.rewardClaimedBy(UUID.randomUUID(), "tree", 0),
+                "a teammate's claim is not this player's");
+        assertFalse(ClientQuestCache.rewardClaimedBy(player, "tree", 1), "row one is unclaimed");
+    }
+
+    @Test
+    @DisplayName("the state, its colour and the reward status words all come from the content")
+    void stateColourAndStatusWords() {
+        accept(ONE_QUEST);
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+
+        assertEquals(PagePalette.LOCKED, content.stateColour("tree"), "no progress reads locked");
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 1L,
+                "{\"quests\":{\"tree\":{\"state\":\"UNLOCKED\",\"tasks\":[0,0,0,0]}}}"
+                        .getBytes(StandardCharsets.UTF_8), 1L);
+        assertEquals(PagePalette.AVAILABLE, content.stateColour("tree"));
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 1L,
+                "{\"quests\":{\"tree\":{\"state\":\"STARTED\",\"tasks\":[1,0,0,0]}}}"
+                        .getBytes(StandardCharsets.UTF_8), 1L);
+        assertEquals(PagePalette.PROGRESS, content.stateColour("tree"));
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 1L,
+                "{\"quests\":{\"tree\":{\"state\":\"COMPLETED\",\"tasks\":[8,4,0,1]}}}"
+                        .getBytes(StandardCharsets.UTF_8), 1L);
+        assertEquals(PagePalette.COMPLETE, content.stateColour("tree"));
+
+        assertEquals("Ready", content.rewardStatusLabel(QuestContent.RewardStatus.READY).getString());
+        assertEquals("Locked", content.rewardStatusLabel(QuestContent.RewardStatus.LOCKED).getString());
+        assertEquals("Claimed", content.rewardStatusLabel(QuestContent.RewardStatus.CLAIMED).getString());
     }
 }

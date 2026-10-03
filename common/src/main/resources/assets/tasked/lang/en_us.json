@@ -7,6 +7,9 @@
     "tasked.viewer.category": "Quests",
     "tasked.viewer.tasks": "Tasks",
     "tasked.viewer.rewards": "Rewards",
+    "tasked.viewer.ready": "Ready",
+    "tasked.viewer.locked": "Locked",
+    "tasked.viewer.claimed": "Claimed",
     "emi.category.tasked.quests": "Quests",
 
     "tasked.command.version": "Tasked %s, on Armature %s",

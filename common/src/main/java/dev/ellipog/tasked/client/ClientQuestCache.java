@@ -640,6 +640,24 @@ public final class ClientQuestCache {
     }
 
     /**
+     * Whether <b>this player</b> has already collected one reward.
+     *
+     * <p>The same fact {@link #canClaimFor} folds into one answer for the whole quest, asked about a
+     * single row: a viewer page draws a status per reward — ready, locked or claimed — and a claim is
+     * a player's own, so a teammate's collection does not mark this player's row. The reward's own
+     * {@code team} flag decides, exactly as the claim path does.
+     */
+    public static boolean rewardClaimedBy(UUID player, String questId, int rewardIndex) {
+        Progress found = progress.get(questId);
+        Entry entry = entry(questId);
+        if (found == null || entry == null || player == null
+                || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
+            return false;
+        }
+        return found.claimed(player, rewardIndex, entry.rewards().get(rewardIndex).team());
+    }
+
+    /**
      * Ticks of cooldown left for a quest, adjusted for the time since the sync arrived.
      *
      * <p>Adjusted rather than sent live, because a cooldown is a countdown and counting it down from a

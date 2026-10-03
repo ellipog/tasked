@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.client.viewer;
 
 import dev.ellipog.armature.integration.ItemQuestIndex;
+import dev.ellipog.armature.integration.PagePalette;
 import dev.ellipog.armature.integration.QuestContent;
 import dev.ellipog.armature.integration.QuestPage;
 import dev.ellipog.armature.integration.QuestRef;
@@ -9,7 +10,9 @@ import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.QuestBook;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.QuestBookScreen;
+import dev.ellipog.tasked.progress.QuestState;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderSet;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -25,6 +28,7 @@ import net.minecraft.world.item.Items;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -113,14 +117,42 @@ public final class QuestViewerContent implements QuestContent {
             return blankRow();
         }
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
+        // Null in a headless JVM (and a client with no player yet), where no claim can be known:
+        // the row then reads unlocked-and-unclaimed rather than crashing a viewer.
+        Minecraft minecraft = Minecraft.getInstance();
+        UUID player = minecraft == null || minecraft.player == null ? null : minecraft.player.getUUID();
+        boolean claimed = player != null && ClientQuestCache.rewardClaimedBy(player, questId, index);
         boolean locked = !ClientQuestCache.rewardLockOf(questId, index).isEmpty();
-        return new QuestRow(rewardIcon(reward), rewardLabel(reward), 0, reward.count(),
-                false, locked, "", index);
+        boolean claimable = !claimed && !locked
+                && ClientQuestCache.stateOf(questId) == QuestState.COMPLETED;
+        // No count on a reward row: a "0 / 1" under a reward reads as a task still owed, and the
+        // status the adapters draw in its place says what the row actually is.
+        return new QuestRow(rewardIcon(reward), rewardLabel(reward), 0, 0,
+                claimed, locked, claimable, "", index);
     }
 
     @Override
     public String stateText(String questId) {
         return QuestBookScreen.stateLabel(ClientQuestCache.stateOf(questId));
+    }
+
+    @Override
+    public int stateColour(String questId) {
+        return switch (ClientQuestCache.stateOf(questId)) {
+            case COMPLETED -> PagePalette.COMPLETE;
+            case STARTED -> PagePalette.PROGRESS;
+            case UNLOCKED -> PagePalette.AVAILABLE;
+            case LOCKED -> PagePalette.LOCKED;
+        };
+    }
+
+    @Override
+    public Component rewardStatusLabel(RewardStatus status) {
+        return switch (status) {
+            case READY -> Component.translatableWithFallback("tasked.viewer.ready", "Ready");
+            case LOCKED -> Component.translatableWithFallback("tasked.viewer.locked", "Locked");
+            case CLAIMED -> Component.translatableWithFallback("tasked.viewer.claimed", "Claimed");
+        };
     }
 
     @Override
