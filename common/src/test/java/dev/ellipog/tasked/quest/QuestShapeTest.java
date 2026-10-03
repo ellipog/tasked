@@ -205,7 +205,10 @@ class QuestShapeTest {
         // the geometry being reachable only as a set of delegating methods.
         for (QuestShape shape : QuestShape.values()) {
             assertNotNull(shape.geometry());
-            assertTrue(shape.geometry().spans(0, 48) != null,
+            // The middle of a 48-pixel node, not its first row: a regular hexagon's top edge is not at
+            // the top of its square, so row 0 is outside it by design -- which is the shape being right
+            // rather than the geometry being unreachable. Every shape has material here.
+            assertTrue(shape.geometry().spans(24, 48) != null,
                     shape + "'s geometry returned nothing for a row inside it");
         }
     }

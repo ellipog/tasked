@@ -2,11 +2,11 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "hexagon",
   "title": "Hexagon",
-  "subtitle": "Flat top, straight taper",
+  "subtitle": "Six sides, flat top",
   "description": [
-    "A flat-topped hexagon: full width through the middle, tapering in a straight line to each edge.",
+    "A true flat-topped hexagon: a horizontal edge at the top and the bottom, straight flanks between them, and a point at each side. The taper reaches the vertical middle, which is what makes it six sides.",
     "",
-    "The straight taper is the whole read. An arc of the same depth is a rounded rectangle, and the two are hard to tell apart in a small picture -- which is why the test for this shape asserts that the taper's steps are equal rather than merely that it narrows."
+    "The shape this replaced tapered only a quarter of the way in and then ran its flanks straight up to the top edge -- so at node size it was an octagon wearing a hexagon's name. Flat-topped because then its width is the node's width, the horizontal weight an item sprite wants; regular, so it keeps a few rows of air above and below rather than being stretched to fill."
   ],
   "icon": {
     "item": "minecraft:honeycomb"

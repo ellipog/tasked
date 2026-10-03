@@ -10,8 +10,9 @@
     "",
     "iconScale 0.6 with a size of 40: a small node holding a small icon,",
     "so this reads as a marker on the road rather than as a stop on it.",
-    "The scale is a fraction of the largest square that fits the node, so",
-    "it composes with the size instead of overriding it."
+    "The scale is a fraction of the node -- the outline caps it, so a",
+    "shape with less room draws the largest item it can hold rather than",
+    "quietly shrinking the request."
   ],
   "icon": { "item": "minecraft:cactus" },
   "x": 396,

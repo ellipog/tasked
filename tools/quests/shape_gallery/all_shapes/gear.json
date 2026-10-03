@@ -4,9 +4,9 @@
   "title": "Gear",
   "subtitle": "A hub with teeth",
   "description": [
-    "A round hub with eight teeth standing off it: the busiest silhouette in the set, and the one that made the icon fit exact.",
+    "A large solid hub with eight teeth -- six on the smallest nodes, or the teeth merge -- cut as wide-rooted trapezoids: wider where they meet the hub than at their tips, which is what makes the silhouette read as cut rather than grown.",
     "",
-    "A row through a tooth is wider than the gap row nearer the middle, so a search that only checked the edges of a candidate square would put the icon through the outline. The fit here asks every row instead."
+    "The hub reaches just over two thirds of the way across, so a centred item has material under it and an edge to be seen against. A row through a tooth is wider than the gap row nearer the middle, so the icon's fit asks every row rather than only the ends of a candidate square."
   ],
   "icon": {
     "item": "minecraft:redstone"

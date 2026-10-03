@@ -65,8 +65,8 @@ reader would not yet see, which is the point of the `hideTextUntilComplete` flag
 | `x`, `y` | `0` | Position on the canvas, in canvas units rather than pixels, so the layout survives a window resize. Grid spacing is 32. |
 | `shape` | `rounded` | The outline: `rounded`, `square`, `circle`, `diamond`, `hexagon`, `octagon`, `pentagon`, `gear`, `heart`, `tome`, or `none`. |
 | `size` | `48` | The node's width and height, 16–512 pixels. |
-| `rotation` | `0` | Degrees clockwise. Any shape can be turned; a full turn is written as `0`, because it is the same shape. |
-| `iconScale` | `0.75` | How much of the largest square that fits the node the icon fills. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
+| `rotation` | `0` | Degrees clockwise. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |
+| `iconScale` | `0.75` | How much of the node the icon fills; the outline caps it, so a shape with less room draws the largest item it can hold. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
 | `showTitle` | `false` | Draw the quest's name under its node. Off by default, because a canvas of fifty names is a wall of text — the name is on hover either way. |
 
 A shape of `none` draws no panel at all: the node is its icon, and the whole square is clickable. Every

@@ -50,7 +50,7 @@
     "shape": {
       "enum": ["rounded", "square", "circle", "diamond", "hexagon", "octagon", "pentagon", "gear", "heart", "tome", "none"],
       "default": "rounded",
-      "description": "The node's outline. `rounded` packs into a grid best; `none` draws no panel at all - the icon alone - and is still clickable, its hit area being the square."
+      "description": "The node's outline, each drawn at its own true proportions. `rounded` packs into a grid best; `none` draws no panel at all - the icon alone - and is still clickable, its hit area being the square."
     },
     "size": { "type": "integer", "minimum": 16, "maximum": 512, "default": 48 },
     "iconScale": {
@@ -58,14 +58,14 @@
       "minimum": 0.25,
       "maximum": 1.0,
       "default": 0.75,
-      "description": "How much of the largest square that fits the node the icon fills. 1.0 is corner to corner; the default leaves a margin so the node's shape reads."
+      "description": "How much of the node the icon fills. The outline caps it: a shape with less room draws the largest item it can hold, so the frames stay comparable. 1.0 is corner to corner; the default leaves a margin so the node's shape reads."
     },
     "rotation": {
       "type": "integer",
       "minimum": 0,
       "maximum": 359,
       "default": 0,
-      "description": "How far the node is turned, in degrees clockwise. A full turn is written as 0 rather than 360, because the geometry treats them as the same shape and one spelling of \"not turned\" is one thing for a file to say."
+      "description": "How far the node is turned, in degrees clockwise. Every shape can be turned: a rotation rotates the outline rather than naming a second one, and the node is drawn, clicked and icon-fitted in its turned form. A turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as 0, because it is the same shape."
     },
     "showTitle": {
       "type": "boolean",

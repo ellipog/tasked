@@ -2,11 +2,11 @@
   "$schema": "../../../_schema/quest.schema.json",
   "id": "pentagon",
   "title": "Pentagon",
-  "subtitle": "Point up, flat base",
+  "subtitle": "A shield",
   "description": [
-    "A pentagon standing on its flat base, which makes it the one shape here that is deliberately asymmetric top to bottom.",
+    "A shield: a full-width flat top, vertical flanks down to the middle, and a straight taper to a point at the bottom. The point sits where an item has nothing, and the flat edge where a sprite's top goes.",
     "",
-    "Its widest row is not its middle either: the shoulders are about a third of the way down and the sides taper slightly from there. Nothing in the geometry depends on where the widest row is -- the icon's fit walks every row a candidate square would cover."
+    "The shape before it was point-up with a flat base -- the house orientation -- which put its point exactly where an item's own head wants to sit. Its mass is at the top, so the item's anchor sits three percent of the node above the middle rather than on the box's centre."
   ],
   "icon": {
     "item": "minecraft:gold_ingot"

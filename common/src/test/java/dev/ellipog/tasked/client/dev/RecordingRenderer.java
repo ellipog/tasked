@@ -2,6 +2,7 @@ package dev.ellipog.tasked.client.dev;
 
 import dev.ellipog.armature.client.render.GuiRenderer;
 
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -97,6 +98,13 @@ final class RecordingRenderer implements GuiRenderer {
     @Override
     public boolean face(UUID player, int boxX, int boxY, int box) {
         return false;
+    }
+
+    @Override
+    public void texture(ResourceLocation texture, int x, int y, int width, int height) {
+        // The panels this recorder exists for draw no textures -- the pin star is a viewer page's, and
+        // the page's own recorder keeps it. A no-op rather than a throw, for the same reason icon and
+        // face answer false: a test may draw a panel that happens to contain one.
     }
 
     @Override

@@ -6,6 +6,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.quest.QuestTask;
+import dev.ellipog.tasked.quest.TagLabels;
 import dev.ellipog.tasked.quest.TaskCommon;
 import dev.ellipog.tasked.quest.TaskContext;
 
@@ -98,8 +99,14 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
         }
     };
 
-    public static final Function<ItemTagTask, TaskDisplay> DISPLAY = task ->
-            // The tag is the subject; the count rides the row's progress chip.
-            TaskDisplay.ofTranslatableText("tasked.task.item_tag", "Hand in #" + task.tag(),
-                    "#" + task.tag(), task.count());
+    public static final Function<ItemTagTask, TaskDisplay> DISPLAY = task -> {
+        // The tag is the subject, and the count rides the row's progress chip. The subject is the
+        // humanized tag -- "Hand in Any Iron Ores", not "Hand in #Ores/iron" -- because item_tag has
+        // no per-task title to prefer, and an id is the author's spelling rather than a player's
+        // sentence. The raw id is not lost: it travels as the row's tagId, which the book's hover
+        // prints and the viewer adapters build their tag ingredients from.
+        String label = TagLabels.humanize(task.tag());
+        return TaskDisplay.ofTranslatableText("tasked.task.item_tag", "Hand in " + label, label,
+                task.count());
+    };
 }

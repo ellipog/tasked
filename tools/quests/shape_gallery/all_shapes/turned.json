@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "turned",
+  "title": "Turned Square",
+  "subtitle": "Rigid, and fitted to its node",
+  "description": [
+    "A square turned forty-one degrees: the angle a report named when a turned node came out squashed.",
+    "",
+    "The turn is a pure rotation of the shape's own definition, and the turned outline is then fitted to the node with one uniform scale -- the same factor on both axes -- so nothing is cut off at the node's edge and nothing is stretched to make it fit. A square at 45 degrees becomes the largest diamond the node holds; at 41 it is that diamond a little off true.",
+    "",
+    "The shape this replaced sampled its own pixels inside the node's square, so a shape that filled its node -- which every one of them does -- lost its corners to the node's edge at any angle. That is what the squashed nodes were."
+  ],
+  "icon": {
+    "item": "minecraft:compass"
+  },
+  "x": 0,
+  "y": 288,
+  "shape": "square",
+  "size": 56,
+  "rotation": 41,
+  "showTitle": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "I have looked at the turned square"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 1
+    }
+  ]
+}

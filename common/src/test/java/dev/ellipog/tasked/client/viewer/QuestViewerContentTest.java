@@ -1,10 +1,10 @@
 package dev.ellipog.tasked.client.viewer;
 
-import dev.ellipog.armature.integration.PagePalette;
-import dev.ellipog.armature.integration.QuestContent;
-import dev.ellipog.armature.integration.QuestPage;
-import dev.ellipog.armature.integration.QuestRef;
-import dev.ellipog.armature.integration.QuestRow;
+import dev.ellipog.tasked.client.viewer.PagePalette;
+import dev.ellipog.tasked.client.viewer.QuestContent;
+import dev.ellipog.tasked.client.viewer.QuestPage;
+import dev.ellipog.tasked.client.viewer.QuestRef;
+import dev.ellipog.tasked.client.viewer.QuestRow;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.quest.Fixtures;

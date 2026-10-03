@@ -8,6 +8,7 @@ import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.party.PartyStore;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.quest.TreeRefresh;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.net.TaskedNetworking;
@@ -162,6 +163,9 @@ public final class Tasked {
             // The other half: a player leaving takes their Invite row with them, and their dot off
             // every roster they were on.
             TaskedNetworking.sendRostersToAllParties(player.getServer());
+            // A pending tree refresh must not wait for a tick that may never come -- this can be the
+            // last player, and the reload is the server's own state, not only the broadcast.
+            flushTree(player.getServer());
         });
 
         // The engine. Runs once per player tick, and dedupes internally -- see
@@ -181,6 +185,9 @@ public final class Tasked {
             if (server == null) {
                 return;
             }
+            // One reload and one tree broadcast per tick, however many edits arrived -- the coalesced
+            // half of the editor's server work; see TreeRefresh.
+            flushTree(server);
             Set<UUID> changed = ProgressService.tick(server);
             if (!changed.isEmpty()) {
                 TaskedNetworking.sendProgressToOwners(server, changed, ProgressSyncPayload.REASON_CHANGED);
@@ -211,6 +218,20 @@ public final class Tasked {
             TaskedCommand.register(dispatcher);
             Constants.LOG.info("Tasked: /tasked registered");
         });
+    }
+
+    /**
+     * Runs a pending tree reload+broadcast, if any edit asked for one.
+     *
+     * <p>Called from the player tick and from a player leaving. The flag is the whole of the
+     * coalescing — see {@link TreeRefresh} — and this method only supplies the server the refresh
+     * needs, which is what keeps the flag itself testable without one.
+     */
+    private static void flushTree(net.minecraft.server.MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        TreeRefresh.flush(() -> TaskedNetworking.refreshTree(server));
     }
 
     /**

@@ -17,6 +17,7 @@ import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.quest.TreeRefresh;
 
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
@@ -495,6 +496,18 @@ public final class TaskedNetworking {
     }
 
     /**
+     * Reloads the loaded tree and broadcasts it: the coalesced half of an edit's server work.
+     *
+     * <p>Called by the tick flush rather than per operation — see {@link TreeRefresh} — so a burst of
+     * edits pays for one reload and one broadcast. The op itself is still applied synchronously by
+     * {@link #handleEditorOp}, and its reply is still immediate.
+     */
+    public static void refreshTree(MinecraftServer server) {
+        TaskedQuests.reload();
+        sendTreeToAll(server);
+    }
+
+    /**
      * Pushes progress to every online member of the teams named in {@code owners}.
      *
      * <h2>Why this is the method that was missing</h2>
@@ -760,11 +773,10 @@ public final class TaskedNetworking {
 
         EditorOps.Applied applied = TaskedQuests.editors().apply(payload.chapter(), op);
         if (applied.ok()) {
-            TaskedQuests.reload();
-            MinecraftServer server = sender.getServer();
-            if (server != null) {
-                sendTreeToAll(server);
-            }
+            // The reload and the all-player tree broadcast are coalesced to one per server tick -- see
+            // TreeRefresh -- so a burst of edits pays for them once. The reply below stays per op, so
+            // the author hears about every operation immediately.
+            TreeRefresh.request();
         }
         reply(sender, payload.chapter(), applied.ok(),
                 applied.questId() == null ? "" : applied.questId(),

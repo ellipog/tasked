@@ -6,7 +6,7 @@
   "description": [
     "Two round lobes with a notch between them, and a point below.",
     "",
-    "It is the shape that made a row able to hold more than one span: its top rows are two separate pieces of material, and its lower rows are one. A single interval per row could not say that, so a heart would have been a shield with a filled-in dip."
+    "Fitted whole: the curve is two units wide and 1.512 tall, so it fills the node's height and keeps air at its sides. The first version stretched that box over the node in both directions, which made it about 20 percent too wide for its height -- and made a turned heart look sheared, because the stretch turned with it. Its mass is under the lobes, so the item's anchor sits three percent of the node above the middle."
   ],
   "icon": {
     "item": "minecraft:golden_apple"

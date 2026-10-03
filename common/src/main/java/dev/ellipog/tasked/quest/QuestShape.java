@@ -70,22 +70,22 @@ public enum QuestShape {
     /** A diamond: points at the top and bottom. Reads as a focal or key node. */
     DIAMOND(Shapes.DIAMOND),
 
-    /** A flat-topped hexagon. Reads as "hex tech", and tiles without gaps. */
+    /** A true flat-topped hexagon: a horizontal edge top and bottom, points at the sides. */
     HEXAGON(Shapes.HEXAGON),
 
-    /** A square with straight corner chamfers. Reads as cut stone, or as a hub. */
+    /** A regular octagon: equal straight chamfers on all four corners. Reads as cut stone. */
     OCTAGON(Shapes.OCTAGON),
 
-    /** A point-up pentagon with a flat base. The one shape here whose widest row is not its middle. */
+    /** A shield: a flat full-width top, vertical flanks, and a point at the bottom. */
     PENTAGON(Shapes.PENTAGON),
 
-    /** A hub with eight teeth. The busiest silhouette here, and the one that made the icon fit exact. */
+    /** Eight wide-rooted trapezoidal teeth round a large hub. The busiest silhouette here. */
     GEAR(Shapes.GEAR),
 
     /** Two lobes and a point: the only shape whose rows have more than one span. */
     HEART(Shapes.HEART),
 
-    /** A book seen from the front. For chapter entry points. */
+    /** A codex: a flat spine notched at head and tail, and a rounded fore-edge. */
     TOME(Shapes.TOME),
 
     /**
@@ -99,7 +99,7 @@ public enum QuestShape {
     public static final Codec<QuestShape> CODEC = Codecs.enumByName(QuestShape.class);
 
     /**
-     * How much of the largest square that fits an icon is actually used.
+     * How much of the node an icon is asked to fill, before the outline caps it.
      *
      * <p>Bounded in one place, because two places is how a number and its validation come to disagree.
      * {@code QuestLayout}'s codec and {@code QuestValidator} both read these, so there is no second copy
@@ -108,7 +108,7 @@ public enum QuestShape {
      */
     public static final double MIN_ICON_SCALE = Shape.MIN_ICON_SCALE;
 
-    /** Full size: the icon fills the largest square that fits, which is what the book shipped with. */
+    /** The whole node, capped by the outline: corner to corner on a square, unchanged from what shipped. */
     public static final double MAX_ICON_SCALE = Shape.MAX_ICON_SCALE;
 
     private final Shape geometry;

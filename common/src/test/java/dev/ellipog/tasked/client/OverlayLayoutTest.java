@@ -394,19 +394,19 @@ class OverlayLayoutTest {
         // assertion above still passes.
         Layout layout = build(PROSE, 1, 1, 1, 200);
 
-        int prose = layout.slot(OverlayLayout.proseKey(0)).y();
         int tasks = layout.slot(OverlayLayout.TASKS_HEADING).y();
         int task = layout.slot(OverlayLayout.taskKey(0)).y();
         int rewards = layout.slot(OverlayLayout.REWARDS_HEADING).y();
         int reward = layout.slot(OverlayLayout.rewardKey(0)).y();
+        int prose = layout.slot(OverlayLayout.proseKey(0)).y();
         int requires = layout.slot(OverlayLayout.REQUIRES_HEADING).y();
         int dependency = layout.slot(OverlayLayout.dependencyKey(0)).y();
 
-        assertTrue(prose < tasks, "the description comes first");
         assertTrue(tasks < task, "a heading comes before its rows");
         assertTrue(task < rewards, "tasks come before rewards");
         assertTrue(rewards < reward);
-        assertTrue(reward < requires, "requirements come last");
+        assertTrue(reward < prose, "the description comes after the two sections it describes");
+        assertTrue(prose < requires, "and the way in stays the last section");
         assertTrue(requires < dependency);
     }
 
@@ -541,13 +541,18 @@ class OverlayLayoutTest {
         String joined = String.join("\n", paragraphs);
         List<TextArea.Span> lines = TextArea.wrap(joined, width, FONT::width);
 
+        // The block's own origin, subtracted below: the prose sits after the tasks and rewards now, so
+        // the two models agree on the *spacing* they place -- which is what this compares -- and not on
+        // a y that is the body's top only while the prose is the first thing on the card.
+        int base = layout.slot(OverlayLayout.proseKey(0)).y();
+
         for (int paragraph = 0; paragraph < paragraphs.size(); paragraph++) {
             int start = 0;
             for (int i = 0; i < paragraph; i++) {
                 start += paragraphs.get(i).length() + 1;   // + the newline between them
             }
             int visualLine = TextArea.lineOf(start, lines);
-            int slotY = layout.slot(OverlayLayout.proseKey(paragraph)).y();
+            int slotY = layout.slot(OverlayLayout.proseKey(paragraph)).y() - base;
             int drawnY = TextArea.lineTop(lines, visualLine, OverlayLayout.LINE_HEIGHT,
                     OverlayLayout.PARAGRAPH_GAP);
 

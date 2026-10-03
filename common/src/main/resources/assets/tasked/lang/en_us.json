@@ -11,6 +11,9 @@
     "tasked.viewer.locked": "Locked",
     "tasked.viewer.claimed": "Claimed",
     "emi.category.tasked.quests": "Quests",
+    "tasked.viewer.open": "Click to open this quest in the book",
+    "tasked.viewer.pin": "Pin quest to sidebar (A)",
+    "tasked.viewer.unpin": "Unpin from sidebar",
 
     "tasked.command.version": "Tasked %s, on Armature %s",
     "tasked.command.echo": "Tasked echo %s",

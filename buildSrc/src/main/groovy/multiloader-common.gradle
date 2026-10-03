@@ -61,6 +61,49 @@ repositories {
         name = 'BlameJared'
         url = 'https://maven.blamejared.com'
     }
+
+    // -------------------------------------------------------------------------
+    // The two repositories the recipe-viewer adapters need. The third viewer's
+    // artefacts are already covered by BlameJared above.
+    //
+    // TerraformersMC answers and then redirects to the same maintainer's newer
+    // host; Gradle follows the redirect, and the coordinate is the one the
+    // viewer's own README documents for a multi-loader project.
+    // -------------------------------------------------------------------------
+    maven {
+        name = 'TerraformersMC'
+        url = 'https://maven.terraformersmc.com/'
+    }
+    maven {
+        name = 'Shedaniel'
+        url = 'https://maven.shedaniel.me/'
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The three viewer APIs, for the adapters under client/viewer/.
+//
+// Same rule as Armature's parties adapters: `compileOnly`, so none of them reaches a jar, the
+// published POM, or a consumer's classpath -- and a client without any of them loses nothing. This
+// is also what keeps a class-loading failure impossible: only the adapter files under
+// client/viewer/ name these packages, and `.utils/check_integration.py` fails the build if anything
+// else ever does.
+//
+// EMI is read from its full loader-neutral jar rather than its `:api` classifier, deliberately:
+// the adapter needs the reload entry point, and that lives in the runtime package the classifier
+// excludes. JEI's `common-api` is the opposite case -- the whole API package, no dependencies, no
+// loader types at all. REI has no loader-neutral mojmap artefact, so its NeoForge API jar is the
+// compile target for both loader projects: common/ reads official names, and the Fabric module
+// remaps its output to intermediary on the way into the jar.
+//
+// No `testImplementation` here: no test constructs an adapter -- everything decidable is pushed
+// into QuestContent and ItemQuestIndex, which name no viewer -- so putting a viewer jar on the
+// test runtime classpath would only make it easier to break that rule.
+// ---------------------------------------------------------------------------
+dependencies {
+    compileOnly "dev.emi:emi-xplat-mojmap:${emi_version}"
+    compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
+    compileOnly "me.shedaniel:RoughlyEnoughItems-api-neoforge:${rei_version}"
 }
 
 // Declare capabilities on the outgoing configurations.

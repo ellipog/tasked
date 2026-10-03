@@ -4,12 +4,11 @@
   "title": "Tome",
   "subtitle": "A book on its side",
   "description": [
-    "A book seen from the front, turned ninety degrees -- which is what the rotation field is for, and",
-    "the reason every shape can be turned rather than a few of them having turned variants.",
+    "A book seen from the front, turned ninety degrees, with a flat spine notched at its head and tail and a rounded fore-edge.",
     "",
-    "The outline is re-sampled at the angle rather than looked up from a second table, so the drawing,",
-    "the click and the icon's fit all come from the turned shape. The icon stays upright in the middle",
-    "of it, in the largest square that fits the turned outline."
+    "The notches are the codex cue: one straight side and one round side is a shape, not a book, and at node size the old outline read as a D-pad button as often as a tome.",
+    "",
+    "The turn rotates the shape's own definition rather than re-sampling its pixels, and the turned outline is fitted to the node with one uniform scale -- nothing is cut off at the node's edge and nothing is stretched. The icon stays upright in the middle of it, in the largest square that fits the turned outline."
   ],
   "icon": {
     "item": "minecraft:writable_book"

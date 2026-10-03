@@ -34,6 +34,7 @@ import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.viewer.QuestBookFocus;
+import dev.ellipog.tasked.client.viewer.RecipeLookups;
 import dev.ellipog.tasked.client.dev.HexColour;
 import dev.ellipog.tasked.client.dev.ChapterNaming;
 import dev.ellipog.tasked.client.dev.ChapterPanel;
@@ -925,7 +926,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             QuestState state = ClientQuestCache.stateOf(entry.id());
             QuestState was = lastStates.put(entry.id(), state);
             if (was != null && was != QuestState.COMPLETED && state == QuestState.COMPLETED) {
-                fresh.add(entry.title());
+                fresh.add(titleOf(entry));
             }
         }
         for (int i = 0; i < Math.min(fresh.size(), ToastStack.MAX); i++) {
@@ -959,6 +960,16 @@ public final class QuestBookScreen extends ArmatureScreen {
     private record RowTooltip(Slot box, List<String> lines) {
     }
 
+    /**
+     * A task's or reward's row that can send the player to a recipe viewer, from the last frame's
+     * own drawing — the contract {@code editTargets} and the picker rows already use, so a press
+     * lands on the row that was drawn and a row scrolled out of the card is not pressable.
+     */
+    private final List<RowItem> rowItems = new ArrayList<>();
+
+    private record RowItem(Slot box, RecipeLookups.Target target) {
+    }
+
     /** The field being edited inline, by path, and the widget editing it. One at a time. */
     private String editingPath;
     private ArmatureTextField inlineField;
@@ -983,8 +994,20 @@ public final class QuestBookScreen extends ArmatureScreen {
     private final dev.ellipog.tasked.client.dev.SettingsDraft settingsDraft =
             new dev.ellipog.tasked.client.dev.SettingsDraft();
 
+    /**
+     * The card's field values the server has not answered yet — see {@code FieldDraft} for why a
+     * stepper cannot wait for the round trip. It is a second draft rather than the settings page's
+     * because it expires on a different signal: the settings preview reads the tree, which arrives in
+     * milliseconds, while these fields read the replica, which lags by up to its retry window.
+     */
+    private static final dev.ellipog.tasked.client.dev.FieldDraft fieldDraft =
+            new dev.ellipog.tasked.client.dev.FieldDraft();
+
     /** Which slider the pointer has hold of ("size"/"iconScale"/"rotation"), or null. */
     private String draggingSlider;
+
+    /** The value under the pointer during a drag: the release commits this, not the draft. */
+    private double draggingValue;
 
     /** The settings preview's resolved outline, and the shape and angle it was resolved from. */
     private QuestShape previewShape;
@@ -1922,7 +1945,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 @Override
                 public List<String> dependencies(String id) {
                     ClientQuestCache.Entry entry = cacheEntryFor(id);
-                    return entry == null ? List.of() : entry.dependencies();
+                    return entry == null ? List.of() : dependenciesOf(entry);
                 }
             };
 
@@ -2022,7 +2045,8 @@ public final class QuestBookScreen extends ArmatureScreen {
      * it is reached by zooming out, not by a file.
      */
     private int nodeSize(ClientQuestCache.Entry entry) {
-        return Math.max(12, Math.round(entry.size() * viewport().scale()));
+        int size = fieldDraft.number(entry.chapterId(), entry.id(), "size", entry.size());
+        return Math.max(12, Math.round(size * viewport().scale()));
     }
 
     private int nodeScreenX(ClientQuestCache.Entry entry) {
@@ -2144,26 +2168,18 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * The editor for the chapter on screen, or null.
-     *
-     * <h2>Two conditions, and both are about whether an edit could work at all</h2>
-     *
-     * <p><b>Developer mode</b>, because this is a tool. And <b>a singleplayer host</b>, because the quest
-     * files are on the server's disk: a client joined to somebody else's server can read its own
-     * {@code config/tasked/quests}, which is not the questline it is looking at — an editor that wrote
-     * there would appear to work and change nothing anybody would ever see. So it refuses, and the
-     * developer screen says why rather than leaving a dead key.
-     *
-     * <p>Null is the answer for both, and every caller treats it as "no editing here" rather than as an
-     * error: this is the state of every player who is not a pack author.
-     */
-    /**
      * Whether this player may edit at all: edit mode on, and the permission the server will check for itself.
      *
      * <p>This used to also open the chapter's files on the *client*, which went with the client's write path.
      * The files belong to the server now; a client on a dedicated server has none of its own to open, and the
      * gate that matters is the one in the payload handler. What is left here is the courtesy — not offering a
      * control whose only answer would be a refusal.
+     *
+     * <p>Two ops-2 authors on one server are therefore a supported state, and the optimistic drafts assume
+     * one: a structural edit by the other author moves the indices a pending value names. Locally that
+     * shift is forgotten at the gesture ({@code FieldDraft.forgetList}); from the other author it is
+     * caught only when the copy comes back shorter than the draft's index (the guard in
+     * {@code reconcile}), and a same-length reorder is left to the {@code STALE_MILLIS} backstop.
      */
     private boolean mayEditNow() {
         return DevMode.on() && mayEdit();
@@ -2505,6 +2521,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             boolean editing = mayEditNow();
             JsonObject chapter = editing ? ClientChapterReplica.chapterTree(effectiveChapter())
                     : new JsonObject();
+            // The pending chapter values, so a title or a rule shows the press's value before the
+            // replica catches up -- every row below is built from this one tree.
+            chapter = fieldDraft.overlaid(effectiveChapter(),
+                    dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER, chapter);
             readChapterIdentity(chapter);
             ChapterPanelLayout.GroupInfo group = editing ? chapterGroupInfo(effectiveChapter()) : null;
             chapterRows = editing
@@ -2713,8 +2733,50 @@ public final class QuestBookScreen extends ArmatureScreen {
     private JsonObject replicaQuest() {
         String chapter = effectiveChapter();
         String target = editTarget();
-        return chapter == null || target == null
-                ? null : ClientChapterReplica.quest(chapter, target);
+        if (chapter == null || target == null) {
+            return null;
+        }
+        // The draft applied at the paths the ops write, and that is the whole of the card's optimism:
+        // every read below goes through here, so a stepper shows what it asked for before the replica
+        // catches up. It has to be an overlay rather than a check per read -- the draft is keyed by the
+        // op's path (`tasks.0.count`) while the drawing reads a field's path relative to its entry
+        // (`count`), and the first version's per-read check therefore never matched a task or reward.
+        return fieldDraft.overlaid(chapter, target, ClientChapterReplica.quest(chapter, target));
+    }
+
+    /**
+     * A quest's prerequisites, with a pending dependency edit winning over the tree's list.
+     *
+     * <p>The canvas reads the *tree*, not the replica, so a dependency edit needs this read to be
+     * optimistic: the edge is drawn from the list this returns, which is why adding or removing a
+     * prerequisite shows on the press rather than on the tree that follows it. Static, and keyed by the
+     * entry's own chapter, because the canvas and the delete notes ask from static helpers.
+     */
+    private static List<String> dependenciesOf(ClientQuestCache.Entry entry) {
+        return fieldDraft.strings(entry.chapterId(), entry.id(), "dependsOn", entry.dependencies());
+    }
+
+    /** A quest's title, with a committed rename winning over the tree the sidebar draws. */
+    private static String titleOf(ClientQuestCache.Entry entry) {
+        return fieldDraft.text(entry.chapterId(), entry.id(), "title", entry.title());
+    }
+
+    /** The same, for the subtitle. */
+    private static String subtitleOf(ClientQuestCache.Entry entry) {
+        return fieldDraft.text(entry.chapterId(), entry.id(), "subtitle", entry.subtitle());
+    }
+
+    /** The shape the canvas should draw, with a pending settings-page change winning over the tree. */
+    private static QuestShape drawnShape(ClientQuestCache.Entry entry) {
+        String name = fieldDraft.text(entry.chapterId(), entry.id(), "shape", "");
+        if (!name.isEmpty()) {
+            for (QuestShape shape : QuestShape.values()) {
+                if (shape.name().equalsIgnoreCase(name)) {
+                    return shape;
+                }
+            }
+        }
+        return entry.shape();
     }
 
     /**
@@ -2779,20 +2841,22 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         JsonObject tree = chapter
                 ? ClientChapterReplica.chapterTree(effectiveChapter()) : replicaQuest();
-        java.util.function.Function<JsonElement, EditorOp> op = chapter
-                ? value -> new EditorOp.SetChapter(path, value)
-                : value -> new EditorOp.SetField(target, path, value);
+        // The quest case goes through the draft, so a committed value shows at once; the chapter case
+        // is the settings draft's territory and sends directly.
+        java.util.function.Consumer<JsonElement> commit = chapter
+                ? value -> sendChapterField(path, value)
+                : value -> sendField(target, path, value);
         if (typed.isEmpty()) {
             // Empty means absent: the field is removed rather than written as nothing -- the same
             // decision the model's SetField was given a null for.
-            send(op.apply(null));
+            commit.accept(null);
             return;
         }
         if (path.equals("aliases")) {
             // One field for the list, because an alias is one word: commas between them, empties gone.
             List<String> aliases = Arrays.stream(typed.split(","))
                     .map(String::trim).filter(alias -> !alias.isEmpty()).toList();
-            send(op.apply(stringArray(aliases)));
+            commit.accept(stringArray(aliases));
             return;
         }
         InspectField<?> field = QuestPanelLayout.fieldFor(tree, path);
@@ -2802,7 +2866,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             rebuildWidgets();
             return;
         }
-        send(op.apply(jsonOf(result.value())));
+        commit.accept(jsonOf(result.value()));
     }
 
     /** A chapter flag's press: the opposite of what the chapter tree says now. */
@@ -2814,8 +2878,13 @@ public final class QuestBookScreen extends ArmatureScreen {
             pressGroupToggle(path.substring(ChapterPanelLayout.GROUP_PREFIX.length()));
             return;
         }
-        JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
-        send(new EditorOp.SetChapter(path, new JsonPrimitive(!flagOn(chapter, path))));
+        JsonObject chapter = fieldDraft.overlaid(effectiveChapter(),
+                dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                ClientChapterReplica.chapterTree(effectiveChapter()));
+        sendChapterField(path, new JsonPrimitive(!flagOn(chapter, path)));
+        // The button's own label is built from this value, so the flip is visible on this press
+        // rather than on the tree that follows it.
+        rebuildWidgets();
     }
 
     /**
@@ -2830,11 +2899,15 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (!mayEditNow()) {
             return;
         }
-        JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
+        JsonObject chapter = fieldDraft.overlaid(effectiveChapter(),
+                dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                ClientChapterReplica.chapterTree(effectiveChapter()));
         String next = ChapterPanelLayout.cycleChoice(choice,
                 ChapterPanelLayout.choiceValue(chapter, choice), step);
         ChapterPanelLayout.Edit edit = ChapterPanelLayout.choiceEdit(chapter, choice, next);
-        send(new EditorOp.SetChapter(edit.path(), edit.value()));
+        sendChapterField(edit.path(), edit.value());
+        // The row is drawn from the rows built on this value, so it steps on this press.
+        rebuildWidgets();
         status(choice.label() + ": " + ChapterPanelLayout.choiceLabel(choice, next), false);
     }
 
@@ -2941,7 +3014,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (!mayEditNow()) {
             return;
         }
-        JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
+        JsonObject chapter = fieldDraft.overlaid(effectiveChapter(),
+                dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                ClientChapterReplica.chapterTree(effectiveChapter()));
         readChapterIdentity(chapter);
         pickTarget = PickTarget.CHAPTER;
         pickIcon = chapterIcon;
@@ -3014,10 +3089,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             String dependency = key.substring(QuestPanelLayout.DEPENDENCY_PREFIX.length());
             List<String> remaining = QuestPanelLayout.strings(quest, "dependsOn").stream()
                     .filter(each -> !each.equals(dependency)).toList();
-            send(new EditorOp.SetField(target, "dependsOn", stringArray(remaining)));
+            sendField(target, "dependsOn", stringArray(remaining));
             return;
         }
-        send(new EditorOp.SetField(target, key, new JsonPrimitive(!flagOn(quest, key))));
+        sendField(target, key, new JsonPrimitive(!flagOn(quest, key)));
     }
 
     /** The panel's action rows: adding a dependency, a task, a reward; and the type picker's rows. */
@@ -3097,7 +3172,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         }
         conditions.add(fresh);
-        send(new EditorOp.SetField(editTarget(), prefix + ".conditions", conditions));
+        sendField(editTarget(), prefix + ".conditions", conditions);
         pickingConditionFor = null;
         status("Added a " + typeId + " condition", false);
     }
@@ -3142,7 +3217,12 @@ public final class QuestBookScreen extends ArmatureScreen {
                 rebuilt.add(held.get(i).deepCopy());
             }
         }
-        send(new EditorOp.SetField(editTarget(), listPath, rebuilt));
+        // The list's shape changes here, and a pending value indexed inside it would name a different
+        // condition afterwards -- the same failure `pressEntry` forgets for, one nesting level down.
+        // `rebuilt` was read through the overlay, so it already carries every other condition's pending
+        // values; forgetting the leaves loses nothing the array draft that follows does not hold.
+        fieldDraft.forgetList(effectiveChapter(), editTarget(), listPath);
+        sendField(editTarget(), listPath, rebuilt);
         status("Removed the condition", false);
     }
 
@@ -3205,6 +3285,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (found == null || !found.isJsonObject()) {
             return;
         }
+        // The list's shape is about to change, so a pending value indexed inside it no longer names
+        // the entry the author was editing -- see FieldDraft.forgetList for what that would commit.
+        fieldDraft.forgetList(effectiveChapter(), editTarget(), member);
         if (copy) {
             send(new EditorOp.Insert(editTarget(), member, index + 1, found.getAsJsonObject().deepCopy()));
             status("Copied " + member.substring(0, member.length() - 1) + " " + (index + 1), false);
@@ -3392,9 +3475,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         // Sent to the chapter that was being edited, not to the one on screen: the pick may have been
-        // taken in another chapter or group entirely.
-        TaskedNetworking.sendEditorOp(pick.chapter(),
-                new EditorOp.SetField(pick.quest(), "dependsOn", stringArray(result.dependsOn())));
+        // taken in another chapter or group entirely — and the draft goes under that chapter too, since
+        // that is whose replica will answer for it.
+        sendField(pick.chapter(), pick.quest(), "dependsOn", stringArray(result.dependsOn()));
         status(pick.quest() + " now depends on " + id, false);
         returnToEditedQuest(pick);
     }
@@ -3442,7 +3525,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         dependencies.add(typed);
-        send(new EditorOp.SetField(target, "dependsOn", stringArray(dependencies)));
+        sendField(target, "dependsOn", stringArray(dependencies));
     }
 
     /** Folds or unfolds one of the quest panel's sections. */
@@ -4307,7 +4390,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             // pressed would be exactly the staleness the rebuild exists to end, and pressing a stale
             // Current row would write the old id back over the new one.
             if (pickTarget == PickTarget.CHAPTER) {
-                JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
+                JsonObject chapter = fieldDraft.overlaid(effectiveChapter(),
+                        dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                        ClientChapterReplica.chapterTree(effectiveChapter()));
                 readChapterIdentity(chapter);
                 pickIcon = chapterIcon;
                 pickName = chapterHeader.title();
@@ -4658,7 +4743,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 }
             }
         }
-        return new dev.ellipog.tasked.client.dev.QuestSettingsPanel.View(entry.title(), entry.icon(),
+        return new dev.ellipog.tasked.client.dev.QuestSettingsPanel.View(titleOf(entry), entry.icon(),
                 shape, previewGeometry(shape, rotation), rotation, size, iconScale, showTitle,
                 hoveredCell, hoveredKey,
                 entry.chapterDefaultPrerequisiteMode().name().toLowerCase(java.util.Locale.ROOT));
@@ -4847,14 +4932,14 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         int textX = iconX + HEADER_ICON + 6;
         target(r, EditAction.FIELD, "title", BookGeometry.Rect.at(textX - 2, card.y() + 10,
-                        Math.max(60, r.textWidth(entry.title()) + 6), 12),
-                textX, card.y() + 12, entry.title(), null, -1, mouseX, mouseY);
+                        Math.max(60, r.textWidth(titleOf(entry)) + 6), 12),
+                textX, card.y() + 12, titleOf(entry), null, -1, mouseX, mouseY);
 
         String where = entry.chapterTitle()
-                + (entry.subtitle().isEmpty() ? "" : "  \u00b7  " + entry.subtitle());
+                + (subtitleOf(entry).isEmpty() ? "" : "  \u00b7  " + subtitleOf(entry));
         target(r, EditAction.FIELD, "subtitle", BookGeometry.Rect.at(textX - 2, card.y() + 24,
                         Math.max(80, r.textWidth(where) + 6), 12),
-                textX, card.y() + 26, entry.subtitle(), null, -1, mouseX, mouseY);
+                textX, card.y() + 26, subtitleOf(entry), null, -1, mouseX, mouseY);
     }
 
     /**
@@ -5658,21 +5743,23 @@ public final class QuestBookScreen extends ArmatureScreen {
     /**
      * A stepper's press: the number moves by one, or by ten with shift held.
      *
-     * <p>One op per press, so Ctrl+Z undoes one nudge -- which is what a nudge is. Clamped at zero,
-     * because every number in the format counts something and a negative count is a refusal the server
+     * <p>One op per press, so Ctrl+Z undoes one nudge -- which is what a nudge is. The base comes from
+     * the tree the card draws, which carries the draft, so spamming the button accumulates instead of
+     * sending the same value from a stale copy — see {@code FieldDraft}. Clamped at zero, because
+     * every number in the format counts something and a negative count is a refusal the server
      * would report as a sentence rather than as an edit.
      */
     private void nudge(EditTarget target, int direction) {
         JsonObject quest = replicaQuest();
-        if (quest == null || editTarget() == null) {
+        String questId = editTarget();
+        if (quest == null || questId == null) {
             return;
         }
         JsonElement found = QuestPanelLayout.get(quest, target.path());
         int current = found != null && found.isJsonPrimitive() && found.getAsJsonPrimitive().isNumber()
                 ? found.getAsInt() : 0;
         int step = direction * (Screen.hasShiftDown() ? 10 : 1);
-        send(new EditorOp.SetField(editTarget(), target.path(),
-                new JsonPrimitive(Math.max(0, current + step))));
+        sendField(questId, target.path(), new JsonPrimitive(Math.max(0, current + step)));
     }
 
     /**
@@ -5696,7 +5783,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         int at = field.options().indexOf(target.value());
         String next = field.options().get((at + 1) % field.options().size());
-        send(new EditorOp.SetField(editTarget(), target.path(), new JsonPrimitive(next)));
+        sendField(editTarget(), target.path(), new JsonPrimitive(next));
     }
 
     /**
@@ -5741,7 +5828,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         corner.add(pos.getX());
         corner.add(pos.getY());
         corner.add(pos.getZ());
-        send(new EditorOp.SetField(editTarget(), target.path(), corner));
+        sendField(editTarget(), target.path(), corner);
 
         JsonObject entry = entryAt(quest, target.member(), target.index());
         // The object that owns this position's siblings: the entry, or -- for a condition's field -- the
@@ -5758,8 +5845,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                         : QuestPanelLayout.editorFor(target.member(), holder)).stream()
                         .anyMatch(field -> field.path().equals("dimension"));
         if (hasDimension && minecraft.level != null) {
-            send(new EditorOp.SetField(editTarget(), container + ".dimension",
-                    new JsonPrimitive(minecraft.level.dimension().location().toString())));
+            sendField(editTarget(), container + ".dimension",
+                    new JsonPrimitive(minecraft.level.dimension().location().toString()));
         }
     }
 
@@ -6064,8 +6151,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         switch (target.action()) {
             case FLAG -> {
                 if (quest != null && editTarget() != null) {
-                    send(new EditorOp.SetField(editTarget(), target.path(),
-                            new JsonPrimitive(!flagOn(quest, target.path()))));
+                    sendField(editTarget(), target.path(),
+                            new JsonPrimitive(!flagOn(quest, target.path())));
                 }
             }
             case FIELD, RAW -> openInlineEditor(target, mouseX, mouseY);
@@ -6091,7 +6178,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 if (quest != null && editTarget() != null) {
                     List<String> remaining = QuestPanelLayout.strings(quest, "dependsOn").stream()
                             .filter(each -> !each.equals(target.path())).toList();
-                    send(new EditorOp.SetField(editTarget(), "dependsOn", stringArray(remaining)));
+                    sendField(editTarget(), "dependsOn", stringArray(remaining));
                 }
             }
             case COPY_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), true);
@@ -6454,14 +6541,14 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         if ("description".equals(path)) {
             if (text == null || text.trim().isEmpty()) {
-                send(new EditorOp.SetField(target, "description", null));
+                sendField(target, "description", null);
                 return;
             }
             // Split back into paragraphs and drop the blank ones at the ends: a blank line at the end of
             // the prose is where the caret was, not content. A blank line *between* two paragraphs is a
             // paragraph break and is written as one. See `Prose`.
             List<String> paragraphs = Prose.trimmed(List.of(text.split("\n", -1)));
-            send(new EditorOp.SetField(target, "description", stringArray(paragraphs)));
+            sendField(target, "description", stringArray(paragraphs));
             return;
         }
         if (path.matches("(tasks|rewards)\\.\\d+(\\.conditions\\.\\d+)?")) {
@@ -6471,7 +6558,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             try {
                 JsonElement parsed = com.google.gson.JsonParser.parseString(text);
-                send(new EditorOp.SetField(target, path, parsed));
+                sendField(target, path, parsed);
             }
             catch (RuntimeException malformed) {
                 status("That is not JSON \u2014 " + malformed.getMessage(), true);
@@ -6479,7 +6566,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         if (text == null || text.trim().isEmpty()) {
-            send(new EditorOp.SetField(target, path, null));
+            sendField(target, path, null);
             return;
         }
         InspectField<?> field = QuestPanelLayout.fieldFor(replicaQuest(), path);
@@ -6489,7 +6576,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             rebuildWidgets();
             return;
         }
-        send(new EditorOp.SetField(target, path, jsonOf(result.value())));
+        sendField(target, path, jsonOf(result.value()));
     }
 
     // ------------------------------------------------------------------
@@ -6700,7 +6787,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 rebuildWidgets();
                 return;
             }
-            send(new EditorOp.SetField(quest, clearPath, null));
+            sendField(quest, clearPath, null);
             status("Cleared", false);
             rebuildWidgets();
             return;
@@ -6729,7 +6816,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             else {
                 rebuilt.add("components", components);
             }
-            send(new EditorOp.SetField(quest, objectPath, rebuilt));
+            sendField(quest, objectPath, rebuilt);
         }
         else if ("icon.item".equals(path)) {
             JsonObject icon = new JsonObject();
@@ -6744,10 +6831,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             else {
                 icon.add("components", components);
             }
-            send(new EditorOp.SetField(quest, "icon", icon));
+            sendField(quest, "icon", icon);
         }
         else {
-            send(new EditorOp.SetField(quest, path, new JsonPrimitive(id)));
+            sendField(quest, path, new JsonPrimitive(id));
         }
         status(data.isEmpty() ? "Set to " + id : "Set to " + id + " with its data", false);
         rebuildWidgets();
@@ -6777,7 +6864,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (id == null) {
             // The whole object, not its `item` member: both codecs read `icon` as an item reference
             // whose item is required, so an emptied member would be a file that will not load.
-            send(group ? new EditorOp.SetGroup("icon", null) : new EditorOp.SetChapter("icon", null));
+            if (group) {
+                send(new EditorOp.SetGroup("icon", null));
+            }
+            else {
+                sendChapterField("icon", null);
+            }
             status("Cleared", false);
             rebuildWidgets();
             return;
@@ -6789,7 +6881,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (components != null) {
             icon.add("components", components);
         }
-        send(group ? new EditorOp.SetGroup("icon", icon) : new EditorOp.SetChapter("icon", icon));
+        if (group) {
+            send(new EditorOp.SetGroup("icon", icon));
+        }
+        else {
+            sendChapterField("icon", icon);
+        }
         status(data.isEmpty() ? "Set to " + id : "Set to " + id + " with its data", false);
         rebuildWidgets();
     }
@@ -7048,18 +7145,25 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         if ("chapter".equals(member)) {
-            JsonObject chapter = ClientChapterReplica.chapterTree(effectiveChapter());
+            // The pending order, not the replica's: two reorders inside the replica window would
+            // otherwise compute the second from the first's stale order and drop it.
+            JsonObject chapter = fieldDraft.overlaid(effectiveChapter(),
+                    dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                    ClientChapterReplica.chapterTree(effectiveChapter()));
             List<String> names = new ArrayList<>(QuestPanelLayout.strings(chapter, "quests"));
             if (from >= names.size() || to >= names.size() || to < 0) {
                 return;
             }
             names.add(to, names.remove(from));
-            send(new EditorOp.SetChapter("quests", stringArray(names)));
+            sendChapterField("quests", stringArray(names));
         }
         else {
             if (quest == null) {
                 return;
             }
+            // The entries are about to shift, so a pending value indexed inside the list no longer
+            // names the entry the author was editing.
+            fieldDraft.forgetList(effectiveChapter(), quest, member);
             send(new EditorOp.MoveEntry(quest, member, from, to));
         }
         status("Moved to position " + (to + 1), false);
@@ -7674,7 +7778,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 if (entry.chapterId().equals(chapterId)) {
                     continue;
                 }
-                for (String dependency : entry.dependencies()) {
+                for (String dependency : dependenciesOf(entry)) {
                     if (ids.contains(dependency)) {
                         dependents++;
                         break;
@@ -8028,7 +8132,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             if (ids.contains(entry.id())) {
                 continue;
             }
-            for (String dependency : entry.dependencies()) {
+            for (String dependency : dependenciesOf(entry)) {
                 if (ids.contains(dependency)) {
                     dependents++;
                     break;
@@ -8060,7 +8164,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private List<MenuItem> lineMenuItems(String from, String to) {
         ClientQuestCache.Entry dependent = entryFor(to);
-        boolean overridden = dependent != null && dependent.dependencyLines().containsKey(from);
+        boolean overridden = dependent != null && dependencyLinesOf(dependent).has(from);
         String suffix = " \u2192 " + to;
         List<MenuItem> items = new ArrayList<>();
         List<MenuItem> forms = new ArrayList<>();
@@ -8119,7 +8223,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         double bend = style.bendOr(DEFAULT_BEND);
         entry.add("fromHandle", handleArray(LineArt.equivalentFromHandle(bend)));
         entry.add("toHandle", handleArray(LineArt.equivalentToHandle(bend)));
-        send(new EditorOp.SetField(to, "dependencyLines", lines));
+        sendField(to, "dependencyLines", lines);
         status("Line " + from + " -> " + to + ": split into two handles", false);
     }
 
@@ -8134,7 +8238,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (entry.isEmpty()) {
             lines.remove(from);
         }
-        send(new EditorOp.SetField(to, "dependencyLines", lines.isEmpty() ? null : lines));
+        sendField(to, "dependencyLines", lines.isEmpty() ? null : lines);
         status("Line " + from + " -> " + to + ": handles joined", false);
     }
 
@@ -8158,13 +8262,45 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private JsonObject lineOverride(String from, String to) {
         ClientQuestCache.Entry dependent = entryFor(to);
-        JsonObject lines = new JsonObject();
-        if (dependent != null) {
-            dependent.dependencyLines().forEach((dependency, style) -> lines.add(dependency, style.asJson()));
-        }
-        JsonObject style = dependent != null && dependent.dependencyLines().containsKey(from)
-                ? dependent.dependencyLines().get(from).asJson() : new JsonObject();
+        JsonObject lines = dependent == null ? new JsonObject() : dependencyLinesOf(dependent);
+        JsonObject style = lines.has(from) && lines.get(from).isJsonObject()
+                ? lines.getAsJsonObject(from).deepCopy() : new JsonObject();
         lines.add(from, style);
+        return lines;
+    }
+
+    /**
+     * A quest's dependency-line overrides as the editor has them: the pending write first, then the
+     * file's own copy, then the synced tree's parsed styles.
+     *
+     * <p>Every writer rebuilds the whole map for one axis's change, so the base has to include a
+     * pending sibling edit — reading the synced tree alone dropped an axis the author had just set,
+     * and the server's whole-object write then discarded it. The replica is the file's own answer, so
+     * it carries axes the synced tree never shows; the parsed tree is the last resort.
+     *
+     * <p>The replica is only the file's own answer for the tree on screen: a broadcast that moved the
+     * revision past it is the newer truth — another author's edit, with no draft to cover it — and
+     * rebuilding from the older copy would drop that edit when the whole object is written back. So
+     * the copy is read while its revision is the tree's, and the synced tree otherwise. The fallback
+     * re-serializes the parsed tree, so an axis this build does not know — written by a newer one — is
+     * not carried while the copy is stale; the replica's raw JSON is the only place it survives, which
+     * is why the copy is preferred the moment it is current.
+     */
+    private static JsonObject dependencyLinesOf(ClientQuestCache.Entry entry) {
+        JsonElement drafted = fieldDraft.value(entry.chapterId(), entry.id(), "dependencyLines");
+        if (drafted != null && drafted.isJsonObject()) {
+            return drafted.getAsJsonObject().deepCopy();
+        }
+        ClientChapterReplica.Copy copy = ClientChapterReplica.of(entry.chapterId());
+        if (copy != null && copy.revision() == ClientQuestCache.treeRevision()) {
+            JsonObject quest = copy.quests().get(entry.id());
+            JsonElement stored = quest == null ? null : QuestPanelLayout.get(quest, "dependencyLines");
+            if (stored != null && stored.isJsonObject()) {
+                return stored.getAsJsonObject().deepCopy();
+            }
+        }
+        JsonObject lines = new JsonObject();
+        entry.dependencyLines().forEach((dependency, style) -> lines.add(dependency, style.asJson()));
         return lines;
     }
 
@@ -8172,7 +8308,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void setLineAxis(String from, String to, String axis, String value) {
         JsonObject lines = lineOverride(from, to);
         lines.getAsJsonObject(from).addProperty(axis, value);
-        send(new EditorOp.SetField(to, "dependencyLines", lines));
+        sendField(to, "dependencyLines", lines);
         status("Line " + from + " \u2192 " + to + ": " + axis + " " + value, false);
     }
 
@@ -8184,7 +8320,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (style.isEmpty()) {
             lines.remove(from);
         }
-        send(new EditorOp.SetField(to, "dependencyLines", lines.isEmpty() ? null : lines));
+        sendField(to, "dependencyLines", lines.isEmpty() ? null : lines);
         status("Line " + from + " \u2192 " + to + ": chapter default", false);
     }
 
@@ -8194,9 +8330,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (dependent == null) {
             return;
         }
-        List<String> remaining = dependent.dependencies().stream()
+        List<String> remaining = dependenciesOf(dependent).stream()
                 .filter(each -> !each.equals(dependencyId)).toList();
-        send(new EditorOp.SetField(dependentId, "dependsOn", stringArray(remaining)));
+        sendField(dependentId, "dependsOn", stringArray(remaining));
         status("Removed " + dependencyId + " \u2192 " + dependentId, false);
     }
 
@@ -8526,7 +8662,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private List<LineArt.Candidate<String[]>> edgeCandidates(List<ClientQuestCache.Entry> quests) {
         List<LineArt.Candidate<String[]>> candidates = new ArrayList<>();
         for (ClientQuestCache.Entry quest : quests) {
-            for (String dependencyId : quest.dependencies()) {
+            for (String dependencyId : dependenciesOf(quest)) {
                 ClientQuestCache.Entry dependency = entryFor(dependencyId);
                 if (dependency == null || !quests.contains(dependency)) {
                     continue;
@@ -8583,7 +8719,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         JsonObject lines = lineOverride(from, to);
         lines.getAsJsonObject(from).add(HANDLE_FROM_HANDLE.equals(kind) ? "fromHandle" : "toHandle",
                 handleArray(handle));
-        send(new EditorOp.SetField(to, "dependencyLines", lines));
+        sendField(to, "dependencyLines", lines);
         status("Line " + from + " -> " + to + ": control point moved", false);
     }
 
@@ -8600,7 +8736,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         JsonObject lines = lineOverride(from, to);
         lines.getAsJsonObject(from).addProperty(HANDLE_FROM.equals(kind) ? "fromAnchor" : "toAnchor",
                 degrees);
-        send(new EditorOp.SetField(to, "dependencyLines", lines));
+        sendField(to, "dependencyLines", lines);
         status("Line " + from + " -> " + to + ": anchor " + Math.round(degrees) + "°", false);
     }
 
@@ -8618,14 +8754,14 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         LineArt.Point here = new LineArt.Point((int) nodeX(node), (int) nodeY(node));
         List<LineArt.Point> linked = new ArrayList<>();
-        for (String dependency : node.dependencies()) {
+        for (String dependency : dependenciesOf(node)) {
             ClientQuestCache.Entry parent = entryFor(dependency);
             if (parent != null && !parent.id().equals(id)) {
                 linked.add(new LineArt.Point((int) nodeX(parent), (int) nodeY(parent)));
             }
         }
         for (ClientQuestCache.Entry other : questsIn(effectiveChapter())) {
-            if (!other.id().equals(id) && other.dependencies().contains(id)) {
+            if (!other.id().equals(id) && dependenciesOf(other).contains(id)) {
                 linked.add(new LineArt.Point((int) nodeX(other), (int) nodeY(other)));
             }
         }
@@ -8643,7 +8779,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void setLineBend(String from, String to, double bend) {
         JsonObject lines = lineOverride(from, to);
         lines.getAsJsonObject(from).addProperty("bend", bend);
-        send(new EditorOp.SetField(to, "dependencyLines", lines));
+        sendField(to, "dependencyLines", lines);
         status("Line " + from + " -> " + to + ": bend " + Math.round(bend * 100) + "%", false);
     }
 
@@ -8758,8 +8894,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                         // The chapter's default is the *absence* of the field, not a string that spells
                         // it out: a quest that says "all_completed" keeps saying it when the chapter's
                         // default changes, which is the whole difference between the two states.
-                        send(new EditorOp.SetField(editTarget(), row.key(),
-                                next.isEmpty() ? null : new JsonPrimitive(next)));
+                        sendField(editTarget(), row.key(),
+                                next.isEmpty() ? null : new JsonPrimitive(next));
                     }
                 }
                 case DEPENDENCY -> {
@@ -8770,7 +8906,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                         List<String> left = new ArrayList<>(
                                 QuestPanelLayout.strings(quest, "dependsOn"));
                         left.remove(id);
-                        send(new EditorOp.SetField(editTarget(), "dependsOn", stringArray(left)));
+                        sendField(editTarget(), "dependsOn", stringArray(left));
                         status("No longer depends on " + id, false);
                     }
                 }
@@ -8801,7 +8937,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private String dependencyTitle(String id) {
         ClientQuestCache.Entry entry = entryFor(id);
-        return entry == null ? id : entry.title();
+        return entry == null ? id : titleOf(entry);
     }
 
     /**
@@ -8843,15 +8979,15 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         List<String> dependencies = new ArrayList<>(QuestPanelLayout.strings(quest, "dependsOn"));
         dependencies.addAll(add);
-        send(new EditorOp.SetField(target, "dependsOn", stringArray(dependencies)));
+        sendField(target, "dependsOn", stringArray(dependencies));
         status(target + " now depends on " + add.size() + (add.size() == 1 ? " quest" : " quests"), false);
     }
 
     /** A swatch's press: the shape, remembered for the preview and sent to the server. */
     private void chooseShape(QuestShape shape) {
         settingsDraft.shape(shape, revision());
-        send(new EditorOp.SetField(editTarget(), "shape",
-                new JsonPrimitive(shape.name().toLowerCase(java.util.Locale.ROOT))));
+        sendField(editTarget(), "shape",
+                new JsonPrimitive(shape.name().toLowerCase(java.util.Locale.ROOT)));
     }
 
     /** An arrow's press: the field stepped by its own amount, remembered and sent. */
@@ -8862,7 +8998,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             int current = settingsDraft.rotation(intField(quest, key, 0));
             int next = Math.floorMod(current + step * 15, 360);
             settingsDraft.rotation(next, revision());
-            send(new EditorOp.SetField(editTarget(), key, new JsonPrimitive((long) next)));
+            sendField(editTarget(), key, new JsonPrimitive((long) next));
             return;
         }
         if (key.equals("iconScale")) {
@@ -8870,7 +9006,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             double next = Math.max(QuestShape.MIN_ICON_SCALE,
                     Math.min(QuestShape.MAX_ICON_SCALE, Math.round((current + step * 0.05) * 100) / 100.0));
             settingsDraft.iconScale(next, revision());
-            send(new EditorOp.SetField(editTarget(), key, new JsonPrimitive(next)));
+            sendField(editTarget(), key, new JsonPrimitive(next));
             return;
         }
         int current = (int) settingsDraft.size(key.equals("size") ? intField(quest, key, 48)
@@ -8890,7 +9026,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         else if (key.equals("maxCompletableDependents") || key.equals("invisibleUntilTasks")) {
             next = Math.max(0, Math.min(dev.ellipog.tasked.quest.QuestRules.MAX_COUNT, next));
         }
-        send(new EditorOp.SetField(editTarget(), key, new JsonPrimitive((long) next)));
+        sendField(editTarget(), key, new JsonPrimitive((long) next));
     }
 
     /** A slider drag: the value under the pointer, remembered for the preview and not yet sent. */
@@ -8908,42 +9044,66 @@ public final class QuestBookScreen extends ArmatureScreen {
         // value clamped to the maximum on the first pixel. The drawing had been mapped; this had not.
         dev.ellipog.armature.client.ui.kit.Viewport column = settingsView.viewport();
         if (draggingSlider.equals("size")) {
-            settingsDraft.size(dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
+            draggingValue = dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
                     column, mouseX, dev.ellipog.tasked.client.dev.QuestSettingsLayout.MIN_SIZE,
-                    dev.ellipog.tasked.client.dev.QuestSettingsLayout.MAX_SIZE, true), revision());
+                    dev.ellipog.tasked.client.dev.QuestSettingsLayout.MAX_SIZE, true);
         }
         else if (draggingSlider.equals("rotation")) {
-            settingsDraft.rotation(dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
+            draggingValue = dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
                     column, mouseX, dev.ellipog.tasked.client.dev.QuestSettingsLayout.MIN_ROTATION,
-                    dev.ellipog.tasked.client.dev.QuestSettingsLayout.MAX_ROTATION, false), revision());
+                    dev.ellipog.tasked.client.dev.QuestSettingsLayout.MAX_ROTATION, false);
         }
         else {
-            int hundredths = dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
-                    column, mouseX, 25, 100, false);
-            settingsDraft.iconScale(hundredths / 100.0, revision());
+            draggingValue = dev.ellipog.tasked.client.dev.QuestSettingsLayout.valueAtScreen(slot,
+                    column, mouseX, 25, 100, false) / 100.0;
+        }
+        stampDragging(revision());
+    }
+
+    /**
+     * Stamps the value under the pointer into the preview draft, at a revision.
+     *
+     * <p>Called on every pointer move and again from the frame path, because a drag outlives tree
+     * revisions: the settings draft expires on a revision move, and without the re-stamp the preview
+     * would snap back to the server's value mid-gesture — and the release, which commits the dragged
+     * value, would otherwise look like it committed a value the author never saw.
+     */
+    private void stampDragging(long revision) {
+        if (draggingSlider == null) {
+            return;
+        }
+        if (draggingSlider.equals("size")) {
+            settingsDraft.size((int) Math.round(draggingValue), revision);
+        }
+        else if (draggingSlider.equals("rotation")) {
+            settingsDraft.rotation((int) Math.round(draggingValue), revision);
+        }
+        else {
+            settingsDraft.iconScale(draggingValue, revision);
         }
     }
 
-    /** A slider's release: the one commit for the whole drag. */
+    /**
+     * A slider's release: the one commit for the whole drag, from the value the pointer was on.
+     *
+     * <p>The dragged value rather than the draft, and that is the fix for a real fault: the settings
+     * draft expires on any tree revision, and a revision landing between the last pointer move and
+     * the release would have committed the value the drag <i>started</i> from — the knob snapped back
+     * and the old number went to the file. See {@link #stampDragging}.
+     */
     private void releaseSlider() {
         if (draggingSlider == null || editTarget() == null) {
             draggingSlider = null;
             return;
         }
         String key = draggingSlider;
+        double value = draggingValue;
         draggingSlider = null;
-        JsonObject quest = replicaQuest();
-        if (key.equals("size")) {
-            send(new EditorOp.SetField(editTarget(), key,
-                    new JsonPrimitive((long) settingsDraft.size(intField(quest, key, 48)))));
-        }
-        else if (key.equals("rotation")) {
-            send(new EditorOp.SetField(editTarget(), key,
-                    new JsonPrimitive((long) settingsDraft.rotation(intField(quest, key, 0)))));
+        if (key.equals("rotation") || key.equals("size")) {
+            sendField(editTarget(), key, new JsonPrimitive((long) Math.round(value)));
         }
         else {
-            send(new EditorOp.SetField(editTarget(), key,
-                    new JsonPrimitive(settingsDraft.iconScale(doubleField(quest, key, 0.75)))));
+            sendField(editTarget(), key, new JsonPrimitive(value));
         }
     }
 
@@ -8952,12 +9112,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         return ClientQuestCache.treeRevision();
     }
 
+    /**
+     * A settings-page number, read from the tree the page is drawn from — which already carries the
+     * draft, so an arrow or a slider shows what it asked for before the replica catches up.
+     */
     private int intField(JsonObject quest, String key, int fallback) {
         JsonElement value = quest == null ? null : QuestPanelLayout.get(quest, key);
         return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()
                 ? value.getAsInt() : fallback;
     }
 
+    /** The same, for a fractional field: see {@link #intField}. */
     private double doubleField(JsonObject quest, String key, double fallback) {
         JsonElement value = quest == null ? null : QuestPanelLayout.get(quest, key);
         return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()
@@ -9802,6 +9967,23 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The settings page's pending values expire on the same signal: the tree arriving is what makes
         // the file's own answer the current one, and the draft is only there to cover the round trip.
         settingsDraft.onRevision(revision);
+        // A drag outlives revisions: what the pointer is showing is the author's current ask, so the
+        // expiry must not snap it back mid-gesture — the release commits the dragged value.
+        stampDragging(revision);
+        // The card fields' drafts expire on the copy instead, because these values are drawn from the
+        // replica and the replica lags: a draft is dropped when the copy holds what was asked for, and
+        // a copy that disagrees past the backstop wins. See FieldDraft for why the two rules differ.
+        ClientChapterReplica.Copy copy = ClientChapterReplica.of(effectiveChapter());
+        fieldDraft.reconcile(effectiveChapter(),
+                copy == null ? null : copy.revision(),
+                (owner, path) -> {
+                    JsonObject tree = copy == null ? null
+                            : dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER.equals(owner)
+                                    ? copy.chapterTree()
+                                    : copy.quests().get(owner);
+                    return tree == null ? null : QuestPanelLayout.get(tree, path);
+                },
+                Util.getMillis());
         // And the selection, because an id this tree does not hold is a phantom the next gesture would
         // act on -- see `pruneSelection` for why the revision is the right moment and the only one.
         pruneSelection(revision);
@@ -10228,7 +10410,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The hovered node's title, under the pointer. */
     private void drawNodeCaption(GuiRenderer r, ClientQuestCache.Entry entry) {
         QuestNodeArt.caption(r, nodeScreenX(entry), nodeScreenY(entry), nodeSize(entry),
-                entry.title(), canvasLeft(), canvasRight(), canvasBottom());
+                titleOf(entry), canvasLeft(), canvasRight(), canvasBottom());
     }
 
     // drawIcon(GuiGraphics, ...) used to be here, delegating to ArmatureTheme's copy. Both are gone:
@@ -10276,9 +10458,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         };
 
         // `entry.geometry()` rather than `entry.shape()`: the outline with its rotation applied, built
-        // once when the tree arrived rather than per node per frame.
-        QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, entry.shape(), entry.geometry(),
-                entry.icon(), entry.iconScale(), edge, ring, wash));
+        // once when the tree arrived rather than per node per frame. A pending shape or rotation — a
+        // settings-page change the tree has not carried yet — is drawn through the same cached outline
+        // table, so the canvas follows the click; icon scale is read through the draft the same way.
+        QuestShape drawnShape = drawnShape(entry);
+        int drawnRotation = fieldDraft.number(entry.chapterId(), entry.id(), "rotation", entry.rotation());
+        boolean draftedLook = drawnShape != entry.shape() || drawnRotation != entry.rotation();
+        QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, drawnShape,
+                draftedLook ? ClientQuestCache.geometry(drawnShape, drawnRotation) : entry.geometry(),
+                entry.icon(),
+                fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
+                edge, ring, wash));
 
         if (mayEditNow() && !questVisible(entry.id())) {
             // Marked, because the author is looking at a node the reader's book does not draw -- and
@@ -10318,7 +10508,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         // a named quest next to an unnamed one has the whole gap to itself, because the unnamed one
         // draws nothing there to collide with.
         List<ClientQuestCache.Entry> named = quests.stream()
-                .filter(ClientQuestCache.Entry::showTitle)
+                .filter(e -> fieldDraft.flag(e.chapterId(), e.id(), "showTitle", e.showTitle()))
                 .toList();
         if (named.isEmpty()) {
             return;
@@ -10337,7 +10527,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             int x = nodeScreenX(entry);
             int y = nodeScreenY(entry);
 
-            String shown = Measure.truncate(entry.title(), room, textMeasure(r));
+            String shown = Measure.truncate(titleOf(entry), room, textMeasure(r));
             int width = r.textWidth(shown);
             // Clamped inward so a label on the edge node is not half off the canvas, but never so far
             // that it slides away from the node it belongs to.
@@ -10424,11 +10614,19 @@ public final class QuestBookScreen extends ArmatureScreen {
      *
      * <p>One expression, and the same one the hover and the hit test use — a line drawn under one style
      * and hit-tested under another is a line whose pixels do not answer the pointer that can see them.
+     *
+     * <p>A pending write for this line's map wins over the tree, for the same reason the menu reads
+     * through {@link #dependencyLinesOf}: with a handle write still in flight the tree is the past, and
+     * the menu would offer "Split handles" on a line the author just joined — and seed a split from the
+     * stale bend. The synced tree stays the base otherwise: the canvas draws the tree, and the replica
+     * can be older than it.
      */
     private static DependencyStyle lineStyle(ClientQuestCache.Entry entry, String dependencyId) {
-        return entry.dependencyLines().getOrDefault(dependencyId, DependencyStyle.UNSET)
-                .over(entry.chapterDependencyStyle())
-                .resolved();
+        JsonElement drafted = fieldDraft.value(entry.chapterId(), entry.id(), "dependencyLines");
+        DependencyStyle own = drafted != null && drafted.isJsonObject()
+                ? DependencyStyle.from(drafted.getAsJsonObject().get(dependencyId))
+                : entry.dependencyLines().getOrDefault(dependencyId, DependencyStyle.UNSET);
+        return own.over(entry.chapterDependencyStyle()).resolved();
     }
 
     /**
@@ -10473,7 +10671,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 // still appears as a prerequisite of everything that depends on it.
                 continue;
             }
-            for (String dependencyId : quest.dependencies()) {
+            for (String dependencyId : dependenciesOf(quest)) {
                 ClientQuestCache.Entry dependency = byId.get(dependencyId);
                 if (dependency == null) {
                     // A dependency in another chapter, or one filtered out. Not drawn: a line to
@@ -11028,7 +11226,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         List<ClientQuestCache.Entry> waiting = claimableQuests();
         List<InspectRow> rows = new ArrayList<>();
         for (ClientQuestCache.Entry entry : waiting) {
-            rows.add(InspectRow.action(REWARD_PREFIX + entry.id(), entry.title()));
+            rows.add(InspectRow.action(REWARD_PREFIX + entry.id(), titleOf(entry)));
         }
         rewardRows = List.copyOf(rows);
 
@@ -11239,12 +11437,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // `InlineEdit.replaces`. The state tag stays either way: it is not part of the title, and its x
         // is derived from the title's width, so it does not move when the title's drawing changes hands.
         if (!InlineEdit.replaces("title", editingPath)) {
-            r.text(entry.title(), textX, top + 12, InlineEdit.ink("title"));
+            r.text(titleOf(entry), textX, top + 12, InlineEdit.ink("title"));
         }
-        r.text(stateLabel(state), textX + r.textWidth(entry.title()) + 10, top + 12,
+        r.text(stateLabel(state), textX + r.textWidth(titleOf(entry)) + 10, top + 12,
                 stateColour(state));
 
-        String where = entry.chapterTitle() + (entry.subtitle().isEmpty() ? "" : "  \u00b7  " + entry.subtitle());
+        String where = entry.chapterTitle() + (subtitleOf(entry).isEmpty() ? "" : "  \u00b7  " + subtitleOf(entry));
         // The read line carries the chapter name as well; the field edits the subtitle alone, so
         // drawing both would print the chapter title through the field's text.
         if (!InlineEdit.replaces("subtitle", editingPath)) {
@@ -11279,6 +11477,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // three expressions for it — bodyLeft/bodyRight/bodyTop/bodyBottom written out in the drawing
         // and again in the clamp — which is the same class of mistake as the two controls that were
         // once drawn on top of each other.
+        //
+        // The clickable rows are rebuilt from this pass, and cleared here rather than with the tooltip
+        // lists at the end of the frame: a press arrives *between* frames, so the list it reads has to
+        // be the last frame's drawing — the same lifecycle `editTargets` has, and the reason a list
+        // cleared after drawing would always be empty by the time a click asks.
+        rowItems.clear();
         try (GuiRenderer.Scoped clip = r.clip(body)) {
             drawProse(r, layout, body, mouseX, mouseY);
             drawTasks(r, entry, layout, body, mouseX, mouseY, now);
@@ -11313,7 +11517,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 .showsDetails(entry.hideDetailsUntilStartable(), state);
         return OverlayLayout.stack(
                         readerProse(r, text ? entry.description() : List.of(), body.viewWidth()),
-                        entry.tasks().size(), entry.rewards().size(), entry.dependencies().size(), false,
+                        entry.tasks().size(), entry.rewards().size(), dependenciesOf(entry).size(), false,
                         new OverlayLayout.Reveal(text, details))
                 .build(body.viewWidth(), textMeasure(r));
     }
@@ -11517,6 +11721,24 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * A press on a row that has something to look up: the chosen viewer opens, and the press is
+     * consumed.
+     *
+     * <p>Consumed even when no viewer is installed: a press inside the reader's card did nothing
+     * before this feature, and it still does nothing — the difference is only that the row answers
+     * when there is a viewer to answer with.
+     */
+    private boolean pressRowItem(double mouseX, double mouseY) {
+        for (RowItem item : rowItems) {
+            if (item.box().contains(mouseX, mouseY)) {
+                RecipeLookups.open(item.target());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The row's own box inside its slot: the icon's height, at the slot's top.
      *
      * <h2>Because a slot is an advance, not a row</h2>
@@ -11552,7 +11774,7 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     private void drawDependencies(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout,
                                   Viewport body) {
-        if (entry.dependencies().isEmpty()) {
+        if (dependenciesOf(entry).isEmpty()) {
             // No REQUIRES section at all, rather than one saying nothing. The layout omits it for the
             // same reason, so there is no heading to draw and no room reserved for one.
             return;
@@ -11567,12 +11789,12 @@ public final class QuestBookScreen extends ArmatureScreen {
                 : "REQUIRES · " + satisfied + " of " + progress.required() + " met";
         drawHeading(r, placed(layout, body, OverlayLayout.REQUIRES_HEADING), heading);
 
-        for (int i = 0; i < entry.dependencies().size(); i++) {
+        for (int i = 0; i < dependenciesOf(entry).size(); i++) {
             Slot slot = placed(layout, body, OverlayLayout.dependencyKey(i));
             if (slot == null) {
                 continue;
             }
-            String dependency = entry.dependencies().get(i);
+            String dependency = dependenciesOf(entry).get(i);
             ClientQuestCache.Entry other = entryFor(dependency);
             // The *rule's* bar, not completion: under `all_started` and `one_started` a prerequisite
             // with any task progress has done its job, and a cross beside it said otherwise.
@@ -11595,7 +11817,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private static dev.ellipog.tasked.client.dev.DependencyProgress dependencyProgressOf(
             ClientQuestCache.Entry entry) {
         return new dev.ellipog.tasked.client.dev.DependencyProgress(entry.effectivePrerequisiteMode(),
-                entry.minRequired(), entry.dependencies());
+                entry.minRequired(), dependenciesOf(entry));
     }
 
     /** A section label and its rule, at the slot the layout reserved for it. */
@@ -11783,6 +12005,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The same box answers the hover and registers the row's explanation, so the row that lights up
         // is exactly the row that explains itself.
         Slot row = rowBox(slot);
+        // The row's target, from the rule the tests hold (BookRowTargets): an item task, or a tag
+        // task, and nothing for a row with neither. Collected from the drawing pass so the press and
+        // the hover come from one description of where a row is -- the rowTooltips contract.
+        RecipeLookups.Target target = BookRowTargets.ofTask(task);
+        if (target != null) {
+            rowItems.add(new RowItem(row, target));
+        }
         if (row.contains(mouseX, mouseY)) {
             // The player's explanation, not the author's: this hover is read by someone who has never
             // heard of a task type. The second line is about pressing Submit, so it is decided by the
@@ -11790,7 +12019,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             // one that is not there is the one way this hover can lie.
             List<String> lines = new ArrayList<>(QuestPanelLayout.playerTooltip("tasks", task.type(),
                     task.manual() && !locked));
+            if (!task.tagId().isEmpty()) {
+                // The raw id, kept for the hover: the row's label is the humanized tag now, and the
+                // one thing "Any Iron Ores" cannot tell a player is which id to hand in.
+                lines.add(1, "#" + task.tagId());
+            }
             appendConditionLines(lines, task.conditions(), ClientQuestCache.taskLockOf(entry.id(), index));
+            if (RecipeLookups.canOpen(target)) {
+                lines.add("Click for recipes");
+            }
             rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
@@ -11979,6 +12216,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // Registered exactly as the task row's is, one member over: the same box answers the hover and
         // carries the explanation.
         Slot row = rowBox(slot);
+        // The row's target, from the same rule the task row uses: an item reward, and nothing for a
+        // reward with no item. Collected from the drawing pass, like the rowTooltips below.
+        RecipeLookups.Target target = BookRowTargets.ofReward(reward);
+        if (target != null) {
+            rowItems.add(new RowItem(row, target));
+        }
         if (row.contains(mouseX, mouseY)) {
             // The task row's rule, one member over: the player's explanation, never the author's.
             // A reward is collected rather than handed in, so there is no second line to pick.
@@ -11986,6 +12229,9 @@ public final class QuestBookScreen extends ArmatureScreen {
                     QuestPanelLayout.playerTooltip("rewards", reward.type(), false));
             appendConditionLines(lines, reward.conditions(),
                     ClientQuestCache.rewardLockOf(entry.id(), index));
+            if (RecipeLookups.canOpen(target)) {
+                lines.add("Click for recipes");
+            }
             rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
@@ -12181,6 +12427,19 @@ public final class QuestBookScreen extends ArmatureScreen {
                         fieldDrag = editingPath != null;
                         return true;
                     }
+                }
+                if (clickedOutsideCard(mouseX, mouseY)) {
+                    closeOverlay();
+                }
+            }
+            else if (overlay == Overlay.QUEST && !mayEditNow() && button == 0) {
+                // The reader's card: a press on a task's or reward's row opens the chosen viewer on
+                // that row's item (or tag) -- "how is this made", the direction the viewer pages do
+                // not cover. From the last frame's own list, so the row that lights up is the row
+                // that answers; a press that hits no row keeps the old behaviour: outside closes,
+                // inside is swallowed.
+                if (pressRowItem(mouseX, mouseY)) {
+                    return true;
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
                     closeOverlay();
@@ -12897,12 +13156,14 @@ public final class QuestBookScreen extends ArmatureScreen {
                 if (landing != null && !landing.id().equals(from)) {
                     JsonObject quest = ClientChapterReplica.quest(chapter, landing.id());
                     if (quest != null) {
-                        List<String> dependencies =
-                                new ArrayList<>(QuestPanelLayout.strings(quest, "dependsOn"));
+                        // Built on the draft, not the replica: an edge drag that lands while another
+                        // prerequisite is still pending must keep it rather than overwrite it.
+                        List<String> dependencies = new ArrayList<>(fieldDraft.strings(chapter,
+                                landing.id(), "dependsOn", QuestPanelLayout.strings(quest, "dependsOn")));
                         if (!dependencies.contains(from)) {
                             dependencies.add(from);
-                            send(new EditorOp.SetField(landing.id(), "dependsOn",
-                                    stringArray(dependencies)));
+                            sendField(chapter, landing.id(), "dependsOn",
+                                    stringArray(dependencies));
                         }
                         else {
                             status(landing.id() + " already depends on " + from, true);
@@ -13386,6 +13647,44 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * A card field's commit: the value is remembered locally, then sent.
+     *
+     * <p>The draft is what makes a stepper spammable — see {@code FieldDraft} for the whole story —
+     * and one op per press stays, so Ctrl+Z still undoes one nudge. The chapter case is deliberately
+     * not here: a chapter or group field is drawn from the tree, and its draft is the settings one.
+     */
+    private void sendField(String quest, String path, JsonElement value) {
+        sendField(effectiveChapter(), quest, path, value);
+    }
+
+    /**
+     * The same, for an edit aimed at another chapter: a dependency pick taken in one chapter can be
+     * for a quest in the chapter it was opened from, and the draft has to live under the chapter whose
+     * replica will answer for it.
+     */
+    private void sendField(String chapter, String quest, String path, JsonElement value) {
+        if (quest == null) {
+            return;
+        }
+        fieldDraft.set(chapter, quest, path, value,
+                ClientQuestCache.treeRevision(), Util.getMillis());
+        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, new EditorOp.SetField(quest, path, value));
+    }
+
+    /**
+     * A chapter field's commit: the same draft, under the chapter's own owner.
+     *
+     * <p>The chapter's file is in the replica, so the same convergence rule applies — the value holds
+     * until the copy holds it, and a refusal clears it. The Chapter tab reads it through
+     * {@code FieldDraft.overlaid}, because it builds all of its rows from the tree at once.
+     */
+    private void sendChapterField(String path, JsonElement value) {
+        fieldDraft.set(effectiveChapter(), dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                path, value, ClientQuestCache.treeRevision(), Util.getMillis());
+        send(new EditorOp.SetChapter(path, value));
+    }
+
+    /**
      * Commits a finished drag.
      *
      * <p>The position is rounded to whole content units, which is the grid a quest file is authored on:
@@ -13498,7 +13797,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         for (String id : ids) {
             JsonObject tree = ClientChapterReplica.quest(chapter, id);
             if (tree != null) {
-                trees.add(tree);
+                // What the author sees is what is copied: a pending edit is part of the selection's
+                // value, and the clipboard deep-copies, so a later overlay cannot reach into it.
+                trees.add(fieldDraft.overlaid(chapter, id, tree));
             }
         }
         if (trees.isEmpty()) {
@@ -13713,41 +14014,54 @@ public final class QuestBookScreen extends ArmatureScreen {
             autoScrollSidebar();
         }
 
-        EditorReplyPayload reply = ClientEditReplies.take();
-        if (reply == null) {
-            return;
-        }
-        if (!reply.chapter().equals(effectiveChapter())) {
-            // The answer is about a chapter the author has navigated away from. It is still news about
-            // that chapter's copy -- a refusal is exactly why its panel would keep saying "has not
-            // arrived yet" -- so it is recorded and logged rather than dropped in silence, which is what
-            // made the placeholder's lie impossible to diagnose.
+        // Every answer nobody has read yet, oldest first. A burst of quick edits -- spamming a stepper
+        // -- puts several between two ticks, and the store used to keep only the last, so a refusal in
+        // the middle was lost. A refusal also drops that chapter's pending values: the edit did not
+        // stick, and the copy's own answer is the truth.
+        for (EditorReplyPayload reply : ClientEditReplies.drain()) {
             if (!reply.ok()) {
-                String said = String.join(" ", reply.lines());
-                ClientChapterReplica.refuse(reply.chapter(), said);
-                Constants.LOG.info("tasked: replica for \"{}\" was refused while another chapter was open: {}",
-                        reply.chapter(), said);
+                fieldDraft.forgetChapter(reply.chapter());
+                // The settings page's pending values are the same kind of ask and end the same way. A
+                // refusal does not move the tree, so `onRevision` would never drop them and the preview
+                // would keep drawing — and the next arrow press would accumulate from — the value the
+                // server just said no to. The page belongs to the effective chapter, so only that
+                // chapter's refusal clears it; a drag re-stamps itself on the next frame either way.
+                if (reply.chapter().equals(effectiveChapter())) {
+                    settingsDraft.clear();
+                }
             }
-            return;
-        }
-        for (String line : reply.lines()) {
-            if (reply.ok()) {
-                report(line);
+            if (!reply.chapter().equals(effectiveChapter())) {
+                // The answer is about a chapter the author has navigated away from. It is still news about
+                // that chapter's copy -- a refusal is exactly why its panel would keep saying "has not
+                // arrived yet" -- so it is recorded and logged rather than dropped in silence, which is what
+                // made the placeholder's lie impossible to diagnose.
+                if (!reply.ok()) {
+                    String said = String.join(" ", reply.lines());
+                    ClientChapterReplica.refuse(reply.chapter(), said);
+                    Constants.LOG.info("tasked: replica for \"{}\" was refused while another chapter was open: {}",
+                            reply.chapter(), said);
+                }
+                continue;
             }
-            else {
-                // Recorded, so the Chapter tab's placeholder can say what the server said instead of
-                // claiming a copy is still on its way.
-                ClientChapterReplica.refuse(reply.chapter(), line);
-                Constants.LOG.info("tasked: replica for \"{}\" was refused: {}", reply.chapter(), line);
-                toast(line, true);
-                say("\u00a7c" + line);
+            for (String line : reply.lines()) {
+                if (reply.ok()) {
+                    report(line);
+                }
+                else {
+                    // Recorded, so the Chapter tab's placeholder can say what the server said instead of
+                    // claiming a copy is still on its way.
+                    ClientChapterReplica.refuse(reply.chapter(), line);
+                    Constants.LOG.info("tasked: replica for \"{}\" was refused: {}", reply.chapter(), line);
+                    toast(line, true);
+                    say("\u00a7c" + line);
+                }
             }
-        }
-        if (reply.ok() && !reply.questId().isEmpty()) {
-            // A quest the server made: created, or duplicated. Selecting it here rather than when the op was
-            // sent, because the id is the server's to choose and this is the first moment the author has it.
-            selectedQuest = reply.questId();
-            report("Now editing " + reply.questId());
+            if (reply.ok() && !reply.questId().isEmpty()) {
+                // A quest the server made: created, or duplicated. Selecting it here rather than when the op was
+                // sent, because the id is the server's to choose and this is the first moment the author has it.
+                selectedQuest = reply.questId();
+                report("Now editing " + reply.questId());
+            }
         }
     }
 
@@ -13864,6 +14178,9 @@ public final class QuestBookScreen extends ArmatureScreen {
     @Override
     public void removed() {
         super.removed();
+        // The pending values die with the screen: reopening reads the server's copy, and a draft from
+        // a session that is over must not answer for it.
+        fieldDraft.clear();
         // Nothing to undo, and that is worth recording because there used to be three lines here.
         //
         // A chapter's theme was a global claim in an earlier round: it was applied when the chapter was

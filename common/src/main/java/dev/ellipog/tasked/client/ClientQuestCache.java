@@ -326,19 +326,30 @@ public final class ClientQuestCache {
          * passed to the containment test, not baked into the table.
          */
         public dev.ellipog.armature.client.ui.shape.Shape geometry() {
-            if (rotation == QuestLayout.DEFAULT_ROTATION) {
-                return shape.geometry();
-            }
-            long key = ((long) shape.ordinal() << 16) | (rotation & 0xFFFF);
-            return ROTATED.computeIfAbsent(key, ignored ->
-                    dev.ellipog.armature.client.ui.shape.Shapes.rotated(shape.geometry(), rotation));
+            return ClientQuestCache.geometry(shape, rotation);
         }
+    }
+
+    /**
+     * The outline for a shape at an angle, cached for the whole client.
+     *
+     * <p>What {@link Entry#geometry()} reads, and public because a drafted shape or rotation — a
+     * settings-page change the tree has not carried yet — asks for a table the tree has not built.
+     * Keyed by the shape and the angle, which are the whole of what the sampling depends on.
+     */
+    public static dev.ellipog.armature.client.ui.shape.Shape geometry(
+            QuestShape shape, int rotation) {
+        if (rotation == QuestLayout.DEFAULT_ROTATION) {
+            return shape.geometry();
+        }
+        long key = ((long) shape.ordinal() << 16) | (rotation & 0xFFFF);
+        return ROTATED.computeIfAbsent(key, ignored ->
+                dev.ellipog.armature.client.ui.shape.Shapes.rotated(shape.geometry(), rotation));
     }
 
     /** Sampled rotated outlines, keyed by (shape ordinal, rotation). See {@link Entry#geometry()}. */
     private static final java.util.concurrent.ConcurrentHashMap<Long, dev.ellipog.armature.client.ui.shape.Shape>
             ROTATED = new java.util.concurrent.ConcurrentHashMap<>();
-
     /**
      * One quest's progress, as the server last reported it.
      *
@@ -817,6 +828,9 @@ public final class ClientQuestCache {
         chapterCount = 0;
         syncedAt = 0;
         treeReceived = false;
+        // The sampled outlines go with the trees that asked for them: they are keyed by shape and
+        // angle, so they cannot go stale, but a world's worth of them is not this world's to keep.
+        ROTATED.clear();
         // Moved rather than left alone, because clearing changes what the cache holds as surely as
         // receiving does: a screen that seeded an outline at the old revision would otherwise keep
         // drawing that tree's rows for a cache that has nothing in it.

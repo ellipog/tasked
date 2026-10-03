@@ -3,6 +3,7 @@ package dev.ellipog.tasked.client.dev;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.tasked.Constants;
 
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.UUID;
@@ -18,7 +19,7 @@ import java.util.UUID;
  * code and then ask a player whether the game feels better.
  *
  * <p>So this wraps the real renderer when the dev mode is on, counts the frame, and logs a line a
- * second: fills, labels, icons and batched regions. Before the batching work a chapter of curves reads
+ * second: fills, labels, icons, textures and batched regions. Before the batching work a chapter of curves reads
  * in the tens of thousands of fills; with it, the same fills arrive in one batched region per frame,
  * which is the number that matters — the fills still exist, the <i>submissions</i> do not.
  *
@@ -34,6 +35,7 @@ public final class CountingRenderer implements GuiRenderer {
     private int fills;
     private int texts;
     private int icons;
+    private int textures;
     private int batches;
 
     public CountingRenderer(GuiRenderer delegate) {
@@ -59,8 +61,8 @@ public final class CountingRenderer implements GuiRenderer {
             return;
         }
         lastReportNanos = now;
-        Constants.LOG.info("tasked: book frame -- {} fill(s), {} text(s), {} icon(s), {} batched region(s)",
-                fills, texts, icons, batches);
+        Constants.LOG.info("tasked: book frame -- {} fill(s), {} text(s), {} icon(s), {} texture(s), {} batched region(s)",
+                fills, texts, icons, textures, batches);
     }
 
     @Override
@@ -106,6 +108,12 @@ public final class CountingRenderer implements GuiRenderer {
     public boolean face(UUID player, int boxX, int boxY, int box) {
         icons++;
         return delegate.face(player, boxX, boxY, box);
+    }
+
+    @Override
+    public void texture(ResourceLocation texture, int x, int y, int width, int height) {
+        textures++;
+        delegate.texture(texture, x, y, width, height);
     }
 
     @Override

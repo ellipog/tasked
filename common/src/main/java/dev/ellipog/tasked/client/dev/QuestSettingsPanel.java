@@ -87,7 +87,7 @@ public final class QuestSettingsPanel {
             Map.entry("shape", "The node's outline. A click lands on exactly the pixels it draws."),
             Map.entry("rotation", "How far the node is turned, in degrees clockwise."),
             Map.entry("size", "How big the node draws on the canvas: 16 to 512 pixels."),
-            Map.entry("iconScale", "How much of the largest square that fits the icon fills."),
+            Map.entry("iconScale", "How much of the node the icon fills; the outline caps it."),
             Map.entry("icon", "The item in the middle of the node."),
             Map.entry("showTitle", "Draw the quest's name under its node."),
             Map.entry("x", "Canvas position. Drag the node on the canvas, or type a number."),

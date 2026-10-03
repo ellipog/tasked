@@ -57,7 +57,7 @@ public final class QuestNodeArt {
      *                   {@code ItemStack.EMPTY} because the game-free tests cannot build a stack at all
      *                   — touching that class bootstraps the item registry, which there is no registry
      *                   to bootstrap — and "no item" is a real state a caller may want to draw.
-     * @param iconScale  how much of the largest square that fits the icon fills
+     * @param iconScale  how much of the node the icon is asked to fill; the outline caps it
      * @param edge       the panel's border colour, from the node's state
      * @param ring       the hover or selection ring's colour, or 0 for none
      * @param wash       the state wash's colour, or 0 for none
@@ -71,7 +71,8 @@ public final class QuestNodeArt {
     /** Draws one node with its corner at {@code x, y}. */
     public static void draw(GuiRenderer r, int x, int y, Look look) {
         int size = look.size();
-        ArmatureTheme.Spans spans = look.geometry()::spans;
+        Shape geometry = look.geometry();
+        ArmatureTheme.Spans spans = geometry::spans;
 
         // The hover and selection ring, drawn FIRST and one pixel larger, so the node's own panel
         // covers all but its outer edge. What shows is a one-pixel ring that follows the shape.
@@ -80,9 +81,20 @@ public final class QuestNodeArt {
         // hexagonal node that is a box drawn round a disc -- which reads as two unrelated things
         // stacked. Following the shape is also what FTB Quests does, and for the same reason: the ring
         // is the node saying "this one", so it has to be the node's shape saying it.
+        // The ring is the panel's own outline one pixel out, not the same shape function sampled at
+        // `size + 2`: a second sampling is a second silhouette, and where a size-dependent feature steps
+        // between the two sizes -- a gear's tooth count, a rounded rectangle's radius -- the ring had
+        // gaps where the panel had material. See `Outlines`.
+        //
+        // Drawn as two fills rather than as a panel: the halo in the ring's colour, and then the panel's
+        // own outline in the node's fill. What survives is a band exactly one pixel wide all the way
+        // round, which is the whole point of a ring. A panel would paint its own eroded table inside the
+        // halo instead, and that closing paints over the panel's gaps -- the space between two gear
+        // teeth, a tome's notch -- leaving the ring broken and fill colour outside the outline.
         if (look.ring() != 0) {
-            ArmatureTheme.shapePanel(r, x - 1, y - 1, size + 2, ArmatureTheme.nodeFill(), look.ring(),
-                    spans);
+            ArmatureTheme.fillShape(r, x - 1, y - 1, size + 2, look.ring(),
+                    geometry.outer()::spans);
+            ArmatureTheme.fillShape(r, x, y, size, ArmatureTheme.nodeFill(), geometry::spans);
         }
 
         // The panel, in the node's own shape. A shape is a row-to-span lookup and nothing else, so the
@@ -110,10 +122,11 @@ public final class QuestNodeArt {
         if (!drewItem) {
             // No icon, or one the client cannot resolve, or a node too small to hold one. A block in the
             // state colour still reads as a node in a graph, where an empty one reads as a bug -- and it
-            // follows the shape, so a small circle is a small circle rather than a square inside it.
+            // follows the shape, so a small circle is a small circle rather than a square inside it. The
+            // block is the panel's own outline inset by the same amount, for the reason the fill is.
             int inset = Math.max(1, size / 4);
             ArmatureTheme.fillShape(r, x + inset, y + inset, size - inset * 2,
-                    (look.edge() & 0x00FFFFFF) | 0xB0000000, spans);
+                    (look.edge() & 0x00FFFFFF) | 0xB0000000, geometry.inner(inset)::spans);
         }
 
         // The state, as a wash over the node. It used to be a chip with a cross in the node's
@@ -133,10 +146,10 @@ public final class QuestNodeArt {
             // overlay that draws *under* the thing it overlays is invisible, which is a bug that looks
             // like the overlay was never called.
             //
-            // The spans are looked up at `size - 2`, because that is the size this call passes -- a
-            // shape is a function of (row, size), not a fixed table, so the same method reference gives
-            // the smaller outline for free. That is the design paying for itself.
-            ArmatureTheme.fillShape(r, x + 1, y + 1, size - 2, look.wash(), spans);
+            // The table is the panel's own, one pixel in -- `geometry.inner()` -- rather than the shape
+            // sampled at `size - 2`, which is what used to let a wash spill past the outline it is meant
+            // to be dimming.
+            ArmatureTheme.fillShape(r, x + 1, y + 1, size - 2, look.wash(), geometry.inner()::spans);
         }
     }
 

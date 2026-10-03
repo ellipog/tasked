@@ -4,7 +4,7 @@
   "title": "Shape Gallery",
   "collapsedByDefault": true,
   "description": [
-    "One chapter, eleven quests, one per shape: rounded, square, circle, diamond, hexagon, octagon, pentagon, gear, heart, tome and none.",
+    "One chapter, twelve quests: one per shape -- rounded, square, circle, diamond, hexagon, octagon, pentagon, gear, heart, tome and none -- and one square turned forty-one degrees to show what a rotation does.",
     "",
     "It is the reference for the shape field. Every node is the same size and the same distance from its neighbours, so a difference you see between two of them is the shape and not the layout -- an exhibit that varies two things shows nothing.",
     "",

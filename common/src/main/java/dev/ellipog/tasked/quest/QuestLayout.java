@@ -23,7 +23,12 @@ import java.util.Set;
 public record QuestLayout(int x, int y, QuestShape shape, int size, double iconScale, int rotation) {
 
     /**
-     * The share of the node the icon fills, unless a quest says otherwise.
+     * The share of the node the icon is asked to fill, unless a quest says otherwise.
+     *
+     * <p>A share of the <b>node</b>, not of whatever square the chosen shape happens to hold: a circle
+     * that could hold less draws the largest item it can instead of quietly applying three-quarters to a
+     * smaller square, which is what made one frame's item look lost and another's cramped at the same
+     * setting.
      *
      * <p>Three-quarters rather than the full square, because at full size a node is a picture with a
      * one-pixel outline around it — which looks fine for one quest and like a contact sheet for fifty.

@@ -44,9 +44,9 @@ versionRange = "[2101.7.2,)"
 ordering = "AFTER"
 side = "BOTH"
 
-# The recipe viewers, all optional and all client-only: the adapters live in Armature, and a client
-# with none of them loses nothing. Declared here as well so a pack author reading Tasked's own mod
-# list can see the integration is meant to be there rather than infer it.
+# The recipe viewers, all optional and all client-only: the adapters live in this mod
+# (client/viewer), and a client with none of them loses nothing. Declared here so a pack author
+# reading Tasked's own mod list can see the integration is meant to be there rather than infer it.
 [[dependencies.${mod_id}]]
 modId = "emi"
 type = "optional"

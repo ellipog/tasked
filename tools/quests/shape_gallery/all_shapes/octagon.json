@@ -4,7 +4,7 @@
   "title": "Octagon",
   "subtitle": "Cut stone",
   "description": [
-    "A square with straight 45-degree corners. The chamfer is a third of the size against the rounded rectangle's quarter, so the difference is visible rather than a pixel of opinion.",
+    "A regular octagon: a square with equal straight chamfers on all four corners, cut at 1/(2+sqrt(2)) of the size -- about 29 percent, where the first version cut a third.",
     "",
     "Reads as cut stone, or as a hub -- the node other nodes connect through."
   ],

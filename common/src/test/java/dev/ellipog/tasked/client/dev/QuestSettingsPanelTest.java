@@ -118,7 +118,10 @@ class QuestSettingsPanelTest {
     @DisplayName("the hovered row's explanation is on the help line")
     void theHelpLineExplainsWhatIsHovered() {
         RecordingRenderer r = draw(view(QuestShape.ROUNDED, "iconScale"));
-        assertTrue(r.texts().stream().anyMatch(drawn -> drawn.text().contains("largest square")),
+        // The help line says what the field means now: a share of the node that the outline caps, rather
+        // than a share of whatever square the shape happens to hold.
+        assertTrue(r.texts().stream().anyMatch(drawn -> drawn.text().contains("of the node")
+                        && drawn.text().contains("caps")),
                 "the help line did not explain the icon scale: " + r.describe());
 
         RecordingRenderer quiet = draw(view(QuestShape.ROUNDED, null));

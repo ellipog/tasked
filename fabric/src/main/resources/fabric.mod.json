@@ -16,6 +16,15 @@
         ],
         "client": [
             "dev.ellipog.tasked.fabric.TaskedFabricClient"
+        ],
+        "emi": [
+            "dev.ellipog.tasked.client.viewer.emi.TaskedEmiPlugin"
+        ],
+        "jei_mod_plugin": [
+            "dev.ellipog.tasked.client.viewer.jei.TaskedJeiPlugin"
+        ],
+        "rei_client": [
+            "dev.ellipog.tasked.client.viewer.rei.TaskedReiPlugin"
         ]
     },
     "depends": {

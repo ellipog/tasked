@@ -5,10 +5,11 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.ellipog.armature.api.client.ArmatureClient;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureScreens;
-import dev.ellipog.armature.integration.Integrations;
+import dev.ellipog.tasked.client.viewer.Integrations;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientChapterReplica;
+import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.viewer.QuestViewerContent;
 import dev.ellipog.tasked.net.TaskedNetworking;
@@ -70,9 +71,9 @@ public final class TaskedFabricClient implements ClientModInitializer {
         DevMode.loadFromConfig();
         ClientAppearance.loadFromConfig();
 
-        // The recipe-viewer seam: Tasked's content goes into Armature's integration as soon as the
-        // client exists, and whichever viewer is installed reads it when it registers. No viewer is
-        // named here -- the seam is Armature's, and this only says what the content is.
+        // The recipe-viewer seam: the content goes in as soon as the client exists, and whichever
+        // viewer is installed reads it when it registers. No viewer is named here -- the seam is this
+        // mod's, and this only says what the content is.
         Integrations.install(new QuestViewerContent());
 
         // The client half of Fabric's two-part payload registration.
@@ -84,6 +85,8 @@ public final class TaskedFabricClient implements ClientModInitializer {
             // never sees where a player looks. See ObservationWatcher.
             ObservationWatcher.tick(client);
             ArmatureClient.tick();
+            // The viewer's half: the content's revision check, then the one chosen adapter's tick.
+            Integrations.tick();
         });
 
         // A payload can arrive for a world being left, and a cache holding it would be read by the
@@ -98,6 +101,8 @@ public final class TaskedFabricClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientQuestCache.clear();
             ClientChapterReplica.clear();
+            // And the edit answers in flight for a world being left: the next screen must not report them.
+            ClientEditReplies.clear();
             // The half-counted observations go with the tree they were counted against.
             ObservationWatcher.reset();
             TaskedNetworking.forgetTransfers();

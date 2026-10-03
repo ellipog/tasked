@@ -348,6 +348,11 @@ public final class OverlayLayout {
      * Dropping the last gap would leave the drawing and the range disagreeing by five pixels, which is
      * precisely the class of defect this class exists to remove.
      *
+     * <p>The body's order is the reader's: the tasks and rewards first — what the quest asks of you and
+     * gives you — then the description as the context underneath them, then REQUIRES. A quest whose
+     * details are withheld keeps the description first, because the two sections above it are absent
+     * entirely.
+     *
      * @param description      the prose paragraphs, in order. Empty means the empty state is placed.
      * @param taskCount        how many tasks. Zero means the empty state is placed.
      * @param rewardCount      how many rewards. Zero means the empty state is placed.
@@ -443,32 +448,6 @@ public final class OverlayLayout {
 
         Stack stack = Stack.stack();
 
-        if (!reveal.text()) {
-            // Nothing at all, not even the empty state: "No description." is a statement about the
-            // quest, and a quest whose text is withheld has one.
-            description = List.of();
-        }
-        else if (description.isEmpty()) {
-            stack.row(NO_DESCRIPTION, DESCRIPTION_ADVANCE);
-        }
-        for (int i = 0; i < description.size(); i++) {
-            Prose paragraph = description.get(i);
-            /*
-             * Placed as the caller measured it, not wrapped here.
-             *
-             * A paragraph arrives with its visual lines and the width of the widest, because whoever wraps
-             * it is the only one who can: a markdown paragraph's bold spans are wider than the same words
-             * plain, so only the caller with a font can say where its lines break, and the editor's raw
-             * text is wrapped by the plain measure instead. One shape, two producers -- and the rule that a
-             * blank line is a line is the producer's: `Prose.of` turns an empty string into one empty line,
-             * where `TextWrap` alone would return no lines at all ("nothing in, nothing out") and the blank
-             * line would reserve nothing.
-             */
-            stack.block(proseKey(i), paragraph.width(), paragraph.lines().size() * paragraph.lineHeight(),
-                    Stack.Align.LEFT);
-            stack.gap(PARAGRAPH_GAP);
-        }
-
         // The heading by hand rather than through Stack.heading() -- see the class note on why this
         // pane's tail is six and not four.
         //
@@ -477,8 +456,9 @@ public final class OverlayLayout {
         // they are what says how to unlock it -- so `hideDetailsUntilStartable` hides what the quest
         // asks of you and gives you, and leaves the way in.
         if (reveal.details()) {
-            stack.gap(SECTION_GAP)
-                    .text(TASKS_HEADING, "TASKS", Stack.Align.LEFT)
+            // No leading gap: the tasks are the first thing on the card now. The gap that used to sit
+            // here was the prose's, and it moved down with the prose to below these two sections.
+            stack.text(TASKS_HEADING, "TASKS", Stack.Align.LEFT)
                     .gap(SECTION_TAIL);
             if (taskCount == 0) {
                 // A row either way, so an empty list and a one-item list take the same space. The old code
@@ -504,6 +484,40 @@ public final class OverlayLayout {
             if (editing) {
                 stack.row(REWARDS_ADD, ROW_ADVANCE, inset());
             }
+        }
+
+        // The description, below the two sections it describes: a reader deciding what to do reads the
+        // tasks and rewards first, and the prose is the context underneath them. The gap is the one the
+        // prose used to sit *after* (SECTION_GAP), so the card's total height is unchanged and only the
+        // order moved. When the details are withheld the sections above are absent and the prose is
+        // still first, which is what a locked quest's card has always looked like.
+        if (reveal.details()) {
+            stack.gap(SECTION_GAP);
+        }
+        if (!reveal.text()) {
+            // Nothing at all, not even the empty state: "No description." is a statement about the
+            // quest, and a quest whose text is withheld has one.
+            description = List.of();
+        }
+        else if (description.isEmpty()) {
+            stack.row(NO_DESCRIPTION, DESCRIPTION_ADVANCE);
+        }
+        for (int i = 0; i < description.size(); i++) {
+            Prose paragraph = description.get(i);
+            /*
+             * Placed as the caller measured it, not wrapped here.
+             *
+             * A paragraph arrives with its visual lines and the width of the widest, because whoever wraps
+             * it is the only one who can: a markdown paragraph's bold spans are wider than the same words
+             * plain, so only the caller with a font can say where its lines break, and the editor's raw
+             * text is wrapped by the plain measure instead. One shape, two producers -- and the rule that a
+             * blank line is a line is the producer's: `Prose.of` turns an empty string into one empty line,
+             * where `TextWrap` alone would return no lines at all ("nothing in, nothing out") and the blank
+             * line would reserve nothing.
+             */
+            stack.block(proseKey(i), paragraph.width(), paragraph.lines().size() * paragraph.lineHeight(),
+                    Stack.Align.LEFT);
+            stack.gap(PARAGRAPH_GAP);
         }
 
         // Absent entirely when there is nothing to require, which is a real difference from the other
