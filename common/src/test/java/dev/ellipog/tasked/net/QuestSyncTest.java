@@ -399,6 +399,23 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("an item-tag task carries its tag, and an item task carries none")
+    void aTagTaskCarriesItsTag() {
+        // The tag is a field rather than a fragment of the row's sentence: it is what lets a recipe
+        // viewer answer "which quests want one of these logs", and display text is not data. It rides
+        // the existing tree payload, exactly like the observation fields beside it.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": ["
+                        + "{\"type\": \"tasked:item_tag\", \"tag\": \"minecraft:logs\", \"count\": 4},"
+                        + "{\"type\": \"tasked:item\", \"item\": \"minecraft:oak_log\", \"count\": 1}]}"));
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals("minecraft:logs", entryFor("a").tasks().get(0).tagId());
+        assertEquals("", entryFor("a").tasks().get(1).tagId(), "an item task names an item, not a tag");
+    }
+
+    @Test
     @DisplayName("a checkmark arrives as text, with the author's own words as the fallback")
     void checkmarkArrives() {
         QuestIndex index = Fixtures.indexOf(Fixtures.file(

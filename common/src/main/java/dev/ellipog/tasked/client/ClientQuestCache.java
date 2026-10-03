@@ -64,6 +64,13 @@ public final class ClientQuestCache {
                             String type, String label, String labelFallback, String labelArg, String itemId,
                             /** The observation fields, empty for every other type: what to watch, how. */
                             String observeType, String observeTarget, int observeTicks,
+                            /**
+                             * The item tag a {@code tasked:item_tag} task hands in, empty for every other
+                             * type. The same distinction {@code itemId} draws for item tasks: a viewer
+                             * cannot find a tag task from an item without knowing which tag it is, and
+                             * its sentence is not a field.
+                             */
+                            String tagId,
                             /** The gates this task carries, for the locked row's hover. Empty for none. */
                             List<ConditionEntry> conditions) {
 
@@ -1016,6 +1023,7 @@ public final class ClientQuestCache {
                 str(json, "observeType"),
                 str(json, "observeTarget"),
                 json.has("observeTicks") ? json.get("observeTicks").getAsInt() : 0,
+                str(json, "tag"),
                 conditionEntries(json));
     }
 

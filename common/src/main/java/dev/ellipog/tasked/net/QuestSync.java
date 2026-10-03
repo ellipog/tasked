@@ -488,6 +488,13 @@ public final class QuestSync {
             json.addProperty("observeTarget", observation.toObserve());
             json.addProperty("observeTicks", observation.timer());
         }
+        // A tag task's tag, as a field rather than scraped out of its sentence. The row reads
+        // "#minecraft:logs" either way, but a recipe viewer has to know *which items* that is to answer
+        // "which quests use this log", and display text is not data. It travels on the existing tree
+        // payload: the same message, one more field, and only for the type that has one.
+        if (task instanceof dev.ellipog.tasked.quest.task.ItemTagTask tag) {
+            json.addProperty("tag", tag.tag().toString());
+        }
         conditionsAsJson(task.common().conditions(), json);
         return json;
     }
