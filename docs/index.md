@@ -1,41 +1,70 @@
 # Tasked documentation
 
-Tasked is a questing mod: you describe quests in JSON, it draws them on a pannable canvas, and the
-server decides what counts as done.
+Tasked is a questing engine for Minecraft 1.21.1, on Fabric and NeoForge. A pack author describes a
+[[quest]] line in JSON, Tasked draws it on a pannable [[canvas]], and the server decides what counts
+as done — the client renders what it is told and nothing more, so no player can complete a quest by
+editing their own game.
 
 > [!NOTE]
-> Tasked is at 0.1.0: the quest format, the loader and validator, the progression engine, the sync, the
-> quest book and its in-game editor all work on both loaders. These pages describe what exists, and are
-> written as the features land rather than in advance.
+> **Tasked is at 0.1.0, and everything these pages describe works on both loaders.** The quest folder
+> format and its [[validator]], the progression engine, server-authoritative sync, the quest book and
+> its in-game editor are all built. 0.x is the promise that the format may still move; where a subject
+> is unfinished, the page says so rather than describing what is planned.
+
+## What it needs
+
+| | |
+|---|---|
+| Minecraft | 1.21.1, on Fabric or NeoForge |
+| Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
+| NeoForge | 21.1.252+ |
+| Armature | 0.1.0+, required on both loaders — [[armature:index]] is the library Tasked is built on |
+| KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tasked:kubejs]] |
+
+Tasked ships no questlines of its own. It is an engine, and installing it does not put somebody else's
+content in your config; the worked questlines live in the repository under `tools/quests/`, as
+authoring material for a pack's first chapter.
 
 ## Where to start
 
 | Page | What it is |
 |---|---|
-| [Design preview](design-preview) | Every element these docs can render, on one page |
-| [KubeJS scripting](kubejs) | Driving the questline from a script: stages, events, custom types |
+| [[tasked:quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
+| [[tasked:quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
+| [[tasked:tasks]] | The fifteen task types, and what each one counts |
+| [[tasked:rewards]] | The ten reward types, and the reward tables behind four of them |
+| [[tasked:validation]] | What the validator checks, and what a mistake reads like |
+| [[tasked:commands]] | The `/tasked` commands, for players and operators |
+| [[tasked:kubejs]] | Driving a questline from a KubeJS script |
 
-## Descriptions are markdown
+## From files to a running questline
 
-A description is an array of paragraphs, and each paragraph is read as **markdown** when a player opens the
-quest:
+<Steps>
+  <Step title="Write the quest files">
+    A pack is folders and JSON under `config/tasked/quests/`. The shape of that tree is the subject of
+    [[tasked:quest-files]]; the short version is one folder per [[chapter]], one file per quest.
+  </Step>
+  <Step title="Load it">
+    ```cmd
+    /tasked reload
+    ```
 
-- `**bold**`, `*italic*` (or `_italic_`) and `` `code` ``;
-- `[text](https://example.com)` for a link — underlined, and it opens in the browser when clicked. Only
-  `http` and `https` open; anything else is refused with a word in the status bar;
-- a line starting with `#`..`######` is a heading, and one starting with `- `, `* ` or `+ ` is a bullet.
-  Headings come in four sizes -- `#` is twice the body text, then `##` at 1.75x, `###` at 1.5x and
-  `####` at 1.25x; `#####` and `######` use the smallest of those, because the card's font has one
-  size and the body's is its floor;
-- a backslash escapes the character after it (`\*` is a literal star).
+    Reads the folder without a restart and reports what loaded, what it refused, and why.
+  </Step>
+  <Step title="Look at it">
+    Press `B`, or use the Quest Book item. The book draws exactly what the server loaded, and a task's
+    progress ticks as you play.
+  </Step>
+</Steps>
 
-A line break is a line break, exactly as it has always been: markdown here does not join lines into flowing
-paragraphs, because these files are written a line per paragraph and joining them would re-wrap prose an
-author had already wrapped. The file keeps the raw markdown — the editor shows it as written, and only the
-reader's card renders it.
+## The book, briefly
 
-## What is coming
+A player opens the quest book from the **Quest Book** item or the `B` key. It is a pannable, zoomable
+canvas of nodes: a quest's `x`/`y` is its place, its shape, size, rotation and icon are all authored,
+and the lines between nodes are its dependencies. From a quest's card a player submits tasks, claims
+[[reward]]s, and picks between a choice reward's entries. A player in a party sees the roster there
+too, and the counts the party's mode combines.
 
-The authoring guide — how to write a quest file, what every field does, and how the validator reports
-a mistake — is not written yet. Until it lands, the JSON schema in `docs/` is the reference, and the
-example quests in `tools/quests/` are the worked examples.
+A player with permission level 2 gets **Edit** and **Tools** in the book's header. That is the in-game
+editor, and it writes the same files these pages describe — the server re-checks the permission and
+validates before anything lands on disk, so the client never writes a file.

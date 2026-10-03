@@ -1,0 +1,152 @@
+# Rewards
+
+Rewards are what a quest gives when it completes. They are separate from [[task]]s, evaluated once,
+and by default they wait for the player to claim them — the claim button on a finished quest's card,
+or **Claim all** for everything outstanding.
+
+```json
+{ "type": "tasked:item", "item": "minecraft:diamond", "count": 4 }
+```
+
+## Every reward has these
+
+| Field | Default | Meaning |
+|---|---|---|
+| `team` | the tree's `defaultTeamReward` | One claim for the team, rather than one per player. |
+| `auto` | `default` | When it is handed over. See below. |
+| `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
+| `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tasked rewards block`. |
+
+`auto` decides the moment the reward changes hands:
+
+| Value | Meaning |
+|---|---|
+| `default` | Follow the tree's own `defaultAutoClaim` — which defaults to `disabled`. |
+| `enabled` | Give it the moment the quest completes. |
+| `disabled` | Wait for a claim. |
+| `no_toast` | Give it automatically, without a toast. |
+| `invisible` | Give it automatically, without telling the player. |
+
+An operator can hold every automatic payout at once with `/tasked rewards block`, whatever individual
+rewards say, and release it with `/tasked rewards unblock`. The switch is stored in the team's
+progress rather than in a save, so it is a server-side decision and not up to the player being paid.
+
+## The types
+
+| Type | Gives |
+|---|---|
+| `tasked:advancement` | An advancement, or one criterion of one. |
+| `tasked:choice` | One entry of a table, picked by the player. |
+| `tasked:command` | A command, run as the player. |
+| `tasked:custom` | Whatever a registered handler does. |
+| `tasked:item` | Items. |
+| `tasked:loot` | A table roll that can come up empty. |
+| `tasked:random` | A weighted table roll that promises something. |
+| `tasked:all_table` | Every entry of a table. |
+| `tasked:stage` | A stage, granted or taken away. |
+| `tasked:xp` | Experience, in points or levels. |
+
+## Simple rewards
+
+| Type | Field | Meaning |
+|---|---|---|
+| `tasked:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
+| `tasked:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
+| `tasked:stage` | `stage`, `remove` | The stage to set; `remove: true` takes it away instead of granting it. |
+| `tasked:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
+
+## `tasked:item`
+
+| Field | Default | Meaning |
+|---|---|---|
+| `item` | — | The item's namespaced id. |
+| `count` | `1` | How many. |
+| `components` | — | 1.21 data components, as on the item task. |
+| `randomBonus` | `0` | Up to this many more, rolled at random on top of the count. |
+| `onlyOne` | `false` | Skip it if the player already carries this item. |
+
+## `tasked:command`
+
+The escape hatch every pack reaches for, and the one reward whose reach is the whole server — so it
+runs through the server's own dispatcher with the player as the source.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `command` | — | The command, without the leading slash. |
+| `permissionLevel` | `2` | The level it runs at; 2 is a command block's. |
+| `silent` | `false` | Do not say in chat that it ran. |
+
+The placeholders are FTB Quests' own, kept whole so a pack moved from it does not have to learn a
+second vocabulary for the same sentence:
+
+| Placeholder | Becomes |
+|---|---|
+| `{p}` | The player's scoreboard name |
+| `{x}`, `{y}`, `{z}` | The player's block position |
+| `{chapter}` | The id of the chapter the quest belongs to |
+| `{quest}` | The quest's id |
+| `{team}`, `{team_id}`, `{long_team_id}` | The progress owner's id |
+| `{member_count}`, `{online_member_count}` | How many members the party has |
+
+An unknown brace-word is left as written rather than blanked: a command that says `{player}` to an
+operator reading the log is a one-second fix, and a command that silently loses the word is a mystery.
+
+```json
+{
+  "type": "tasked:command",
+  "command": "say {p} finished {quest}",
+  "permissionLevel": 2
+}
+```
+
+## Table rewards
+
+Four types share one shape: `tasked:random`, `tasked:loot`, `tasked:all_table` and `tasked:choice`.
+Each names a table — a file under `reward_tables/`, by id and without the `.json` suffix — or carries
+its own `inline`. The type *is* the mode; a file cannot turn a `random` into a `choice` by adding a
+field.
+
+| Type | What the roll does |
+|---|---|
+| `tasked:random` | Throws the dice `lootSize` times over the weights, and promises something: there is no empty band. |
+| `tasked:loot` | The same, except the empty band exists — `emptyWeight` is the chance of nothing on a throw. |
+| `tasked:all_table` | Grants every entry, no dice. |
+| `tasked:choice` | Sends the entries to the player and waits for the pick. |
+
+`random`, `loot` and `all_table` resolve the moment the reward is granted. `choice` cannot — the
+player picks — so the claim marks nothing until it is answered, which also means a crash between the
+offer and the pick loses nothing.
+
+## Writing a table
+
+A table is a list of entries, each an ordinary reward with a weight:
+
+```json
+{
+  "lootSize": 2,
+  "emptyWeight": 10,
+  "entries": [
+    { "weight": 0, "reward": { "type": "tasked:item", "item": "minecraft:bread", "count": 4 } },
+    { "weight": 3, "reward": { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 } },
+    { "weight": 1, "reward": { "type": "tasked:xp", "amount": 30 } }
+  ]
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `entries` | — | The table. Each entry is a `reward` and a `weight`. |
+| `emptyWeight` | `0` | The chance of nothing on a throw, against the positive weights. Only `tasked:loot` includes it. |
+| `lootSize` | `1` | How many times the dice are thrown. |
+
+A `weight` is how much of the table's probability space an entry takes; its chance is its weight over
+the total. **A weight of zero means always granted** — once per roll call — which is how a table says
+"and everyone also gets this", so the guaranteed entry lands even when the fashionable one misses.
+
+> [!TIP]
+> An entry's `reward` can itself be a table reward, so tables nest. Nesting is cut off past eight
+> levels deep with a warning in the log, which is deep enough for a loot cascade and shallow enough
+> that a table that accidentally includes itself cannot hang the server.
+
+A table that does not resolve — a typo in `table`, or a file that failed validation — logs a warning
+once and grants nothing. That is an author's mistake, not a crash.

@@ -1,7 +1,7 @@
 # KubeJS scripting
 
-A questline can be driven from a KubeJS script: stages, quest state, completions, custom task and
-reward handlers, and the six lifecycle events. The integration is **NeoForge only**, and that is
+A questline can be driven from a KubeJS script: stages, quest state, completions, custom [[task]] and
+[[reward]] handlers, and the six lifecycle events. The integration is **NeoForge only**, and that is
 KubeJS's doing rather than a choice — KubeJS 7, the 1.21 line, publishes no Fabric artifact. The
 operations themselves live in `TaskedScripts`, which names no KubeJS type, so the Fabric build carries
 the same Java API for addons; only the script binding is NeoForge's.
@@ -86,9 +86,10 @@ Register handlers at the top level of a server script, not inside a listener: th
 consulted when a quest file is read, and handlers are forgotten before every script load — so a reload
 replaces them rather than stacking them, and a deleted script's handler stops existing.
 
-A `tasked:custom` task whose handler is not registered is not an error: the quest still loads and the
-validator warns that nothing in this build provides the id, which is what a pack shipping a handler
-mod as an optional dependency wants to see.
+> [!NOTE]
+> A `tasked:custom` task whose handler is not registered is not an error: the quest still loads and the
+> [[tasked:validation|validator]] warns that nothing in this build provides the id. That is what a pack
+> that ships its handler mod as an optional dependency wants to see.
 
 ## What has been verified, and what has not
 

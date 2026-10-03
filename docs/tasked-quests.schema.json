@@ -431,7 +431,8 @@
         },
         "match": {
           "enum": ["none", "fuzzy", "strict"],
-          "description": "tasked:item (task) — how closely a carried stack must match: none ignores its data, fuzzy needs the data it names, strict needs the whole stack."
+          "default": "strict",
+          "description": "tasked:item (task) — how closely a carried stack must match: none ignores its data, fuzzy needs the data it names, strict needs the whole stack. Strict is the default, so a file that says nothing keeps the meaning it had before this field existed."
         },
         "onlyFromCrafting": {
           "type": "boolean",
@@ -495,8 +496,8 @@
         },
         "points": {
           "type": "boolean",
-          "default": false,
-          "description": "tasked:xp (task) — count levels rather than points."
+          "default": true,
+          "description": "tasked:xp (task) — whether the count is experience points (true, the default) or whole levels (false)."
         },
         "fluid": {
           "$ref": "#/definitions/namespacedId",
@@ -578,7 +579,7 @@
         "levels": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:xp (task and reward) — count levels rather than points."
+          "description": "tasked:xp (reward) — give whole levels rather than points, which is the default. The task's own switch is `points`, and it reads the other way: true there counts points."
         },
         "table": {
           "type": "string",
