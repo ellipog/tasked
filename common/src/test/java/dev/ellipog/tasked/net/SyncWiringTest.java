@@ -115,6 +115,37 @@ class SyncWiringTest {
         ClientEditReplies.take();
     }
 
+    @Test
+    @DisplayName("the payload set is exactly these fourteen -- the viewer seam adds no message")
+    void theViewerSeamAddsNoPayload() {
+        // T13's claim is "no new network message": the quest tree already reaches the client, so every
+        // viewer reads the cache instead of being sent anything. A claim like that is worth a check
+        // rather than a sentence, and this is the check -- every declared id, in one list. Adding a
+        // payload means editing this list, and that is the moment to ask whether the message is needed
+        // at all, rather than the moment after a sync nobody remembers adding.
+        List<String> declared = ArmatureNetwork.registrations().stream()
+                .map(registration -> registration.type().id().toString())
+                .sorted()
+                .toList();
+
+        assertEquals(List.of(
+                "tasked:chapter_replica",
+                "tasked:choice_reward",
+                "tasked:claim_all",
+                "tasked:claim_choice",
+                "tasked:claim_reward",
+                "tasked:dimension_sync",
+                "tasked:editor_op",
+                "tasked:editor_reply",
+                "tasked:party_sync",
+                "tasked:progress_sync",
+                "tasked:quest_sync",
+                "tasked:replica_request",
+                "tasked:stage_sync",
+                "tasked:submit_task"), declared,
+                "the payload set moved; a viewer integration must not add a message");
+    }
+
     // ------------------------------------------------------------------
     // Getting at the handlers
     // ------------------------------------------------------------------

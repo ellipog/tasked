@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.client;
 
+import dev.ellipog.armature.api.client.ArmatureClient;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
 import dev.ellipog.armature.client.ArmatureTextArea;
@@ -26,11 +27,13 @@ import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
 import dev.ellipog.tasked.QuestAuthority;
+import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.editor.EditorOp;
 import dev.ellipog.tasked.net.EditorReplyPayload;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.viewer.QuestBookFocus;
 import dev.ellipog.tasked.client.dev.HexColour;
 import dev.ellipog.tasked.client.dev.ChapterNaming;
 import dev.ellipog.tasked.client.dev.ChapterPanel;
@@ -3904,6 +3907,22 @@ public final class QuestBookScreen extends ArmatureScreen {
         // theme had to be applied before the controls were made, because each control reads its colours
         // when it is constructed. With the two palettes separated by region, a control reads the chrome
         // and a canvas reads the chapter, and neither has an order dependency on the other.
+
+        // A recipe viewer that asked for the book opens it on its quest: the request is consumed here,
+        // before the branches below build for whatever overlay it names, so the card's own build path
+        // is the one that runs -- exactly as if the player had clicked the node. A request for a quest
+        // the tree no longer holds -- a viewer's click that outlived a reload -- is dropped rather than
+        // opening a card for nothing.
+        QuestBookFocus.consume().ifPresent(questId -> {
+            ClientQuestCache.Entry entry = cacheEntryFor(questId);
+            if (entry != null) {
+                selectChapter(entry.chapterId());
+                selectedQuest = questId;
+                centred = true;
+                overlay = Overlay.QUEST;
+                overlayQuest = questId;
+            }
+        });
 
         if (overlay == Overlay.QUEST) {
             // The book's own controls as well, because the book is drawn *behind* the modal rather than
@@ -13742,7 +13761,14 @@ public final class QuestBookScreen extends ArmatureScreen {
     // Text helpers
     // ------------------------------------------------------------------
 
-    private static String stateLabel(QuestState state) {
+    /**
+     * The state word a card and a viewer page both show.
+     *
+     * <p>Public since the viewer seam: an EMI or JEI row and the book's own card must not be able to
+     * disagree about what "started" is called, and the alternative -- a second switch in the content
+     * class -- is exactly how they would.
+     */
+    public static String stateLabel(QuestState state) {
         return switch (state) {
             case COMPLETED -> "Completed";
             case STARTED -> "In progress";
@@ -13778,10 +13804,30 @@ public final class QuestBookScreen extends ArmatureScreen {
      * server's chapter and pan until the new tree arrives — which looks exactly like a sync failure and
      * is not one, so it sends you looking in the wrong place.
      */
+    /**
+     * Opens the book on one quest, with its card up -- the entry point a recipe viewer calls.
+     *
+     * <p>Static and id-taking because the screen opener Armature offers carries an id and nothing
+     * else, and the book is constructed by Minecraft's screen machinery a moment later: the request is
+     * parked in {@link QuestBookFocus} and consumed by {@code init}. A quest this client does not hold
+     * -- a stale click, or a click while the tree is still arriving -- opens nothing; there is no book
+     * state for a quest that is not there.
+     */
+    public static void openOn(String questId) {
+        if (questId == null || questId.isEmpty() || cacheEntryFor(questId) == null) {
+            return;
+        }
+        QuestBookFocus.request(questId);
+        ArmatureClient.openScreen(Tasked.QUEST_BOOK_SCREEN);
+    }
+
     public static void forgetViewState() {
         selectedChapter = null;
         selectedQuest = null;
         multiSelection.clear();
+        // The viewer request goes with the selection: it names a quest of the server being left, and a
+        // book opened on the next server would look for a quest that is not there.
+        QuestBookFocus.clear();
         // The clipboard goes too: another server's quests are not this one's to paste, and a tree
         // carried across a disconnect is an op the new server would dutifully apply to its own files.
         ClientEditorClipboard.clear();
