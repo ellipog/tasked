@@ -24,8 +24,8 @@ is still read.
 them), `kill` (entity or tag, custom name, SNBT filter), `stage`, and `custom` for handlers a mod
 registers.
 
-**Ten reward types.** `item`, `xp`, a weighted `random` table, a `loot` table rolled into a crate,
-`all_table`, `choice` (the player picks), `command`, `advancement`, `stage`, and `custom`.
+**Ten reward types.** `item`, `xp`, a weighted `random` table, a `loot` table that can come up
+empty, `all_table`, `choice` (the player picks), `command`, `advancement`, `stage`, and `custom`.
 
 **Progression is declarative.** Prerequisite modes (`ALL_COMPLETED`, `ONE_COMPLETED`,
 `ALL_STARTED`, `ONE_STARTED`) with an optional `minRequired` count for OR-gates; chapters are
@@ -128,7 +128,7 @@ by convention.
 
 `docs/index.md` is the front door, and `docs/tasked-quests.schema.json` plus the per-file schemas
 under `tools/quests/_schema/` are the field reference. `tools/README.md` describes the worked
-questlines — nine of them, each a different design rather than a different difficulty — and how to
+questlines — eleven of them, each a different design rather than a different difficulty — and how to
 seed them.
 
 Based on the [MultiLoader Template](https://github.com/Jaredlll08/MultiLoader-Template), with the

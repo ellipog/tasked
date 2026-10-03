@@ -37,3 +37,8 @@ runs
 # Test-server logs. A headless run writes these, so tracking them dirties the tree on every test --
 # the same fault as build-output.txt above, one directory over.
 common/logs/
+
+# Python bytecode. `tools/seed_quests.py` belongs to this repository, so running it drops a
+# `__pycache__` beside it -- which is not something a clone should carry.
+__pycache__/
+*.pyc

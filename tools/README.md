@@ -6,7 +6,7 @@ Nothing in this folder is compiled, and nothing in it ships in the jar.
 
 ## `quests/` — the worked examples
 
-Seven complete questlines, and the reason they are here rather than in `src/main/resources` is worth
+Eleven complete questlines, and the reason they are here rather than in `src/main/resources` is worth
 stating: **Tasked ships no quests.** It is a quest engine, and a mod that installs example chapters
 into every player's config directory has made a decision that is not its to make. The first thing a
 pack author would have to do is delete somebody else's content, and every file a mod ships is a file
@@ -15,8 +15,8 @@ that has to keep working forever against a format that is still moving.
 So the examples are authoring documentation, and they arrive in a `config/tasked/quests` directory
 because somebody ran the script below.
 
-They are seven different *designs* rather than seven difficulties of the same thing, and they run
-from five quests to ninety:
+They are eleven different *designs* rather than eleven difficulties of the same thing, and they run
+from a single quest to ninety:
 
 | Group folder | What it is for | Quests |
 |---|---|---|
@@ -27,14 +27,18 @@ from five quests to ninety:
 | `the_constellation/` | A canvas with no grid in it: twenty-four nodes placed by hand to draw a serpent in the sky, most of them sixteen pixels across, with one 224-pixel moon. The extreme of position, size and icon scale. | 24 |
 | `the_mosaic/` | A picture made of quest nodes: forty-six tiles on a 48-pixel grid forming a heart, filled in by a LINEAR chapter's own list order. The largest single chapter and the one to look at rather than read. | 46 |
 | `theme_gallery/` | One chapter per shipped UI theme **apart from `default`** — fifteen of them, six quests each — with **identical geometry** and different content, so clicking between chapters shows what the theme changed. See below. | 90 |
+| `the_veil/` | Every hiding flag the format has, one file each: a chain that reveals itself a link at a time, a quest hidden until part of it is stumbled onto, text withheld until done, and a crossroads where the road taken closes the others for good. | 12 |
+| `shape_gallery/` | The `shape` field as an exhibit: eleven quests, one per shape, all the same size and the same distance apart, so a difference between two of them is the shape and not the layout. Collapsed in the sidebar by default. | 11 |
+| `the_induction/` | Stages, the one flag a player carries rather than a team: a reward grants one, a `requiresStage` gate and a stage task read it, and a third quest clears it again. | 3 |
+| `the_spoils/` | Reward tables: a quest whose `tasked:loot` reward rolls `reward_tables/loot.json` when it is collected — the weight-zero entry that always lands, and the empty band that can disappoint. | 1 |
 
 `QuestIndexTest` asserts all of it — every mechanism, all four prerequisite modes, aliases at all
 three levels and a dependency that resolves through one, the extremes of size and icon scale, a
 cross-group edge, the linear chapter of forty-odd nodes, and that the sizes really do run from a
-handful to a scroll — so a future tidy-up cannot quietly turn an exhibition into seven copies of the
+handful to a scroll — so a future tidy-up cannot quietly turn an exhibition into eleven copies of the
 first file.
 
-Two of the seven are meant to be looked at rather than read: `the_mosaic` is a heart you colour in,
+Two of the eleven are meant to be looked at rather than read: `the_mosaic` is a heart you colour in,
 and `the_constellation` is a sky. `/tasked complete <quest>` walks either of them a node at a time,
 which is how both are meant to be seen.
 
@@ -69,6 +73,10 @@ the file that has it:
 | `iconScale` at both ends | the same two files (1.0 and 0.3) |
 | a chapter wearing a theme of its own | any chapter with a `theme` field; the gallery is the fifteen that exist to be compared |
 | a picture made of positions | `the_mosaic/the_heart/` — and `the_constellation/the_wyrm/` for one drawn freehand |
+| `requiresStage`, and the stage a reward grants | `the_induction/the_rite/the_mark.json` (the gate) and `the_summons.json` (the grant) |
+| a stage task, measured and never handed in | `the_induction/the_rite/the_mark.json` |
+| a stage reward that clears a flag (`"remove": true`) | `the_induction/the_rite/the_fall.json` |
+| a reward table, and a `loot` reward that rolls it | `reward_tables/loot.json`, and `the_spoils/the_loot/the_winnings.json` |
 
 ### The layout, which is the format
 
@@ -83,6 +91,8 @@ quests/
       chapter.json            title, and the quest file names in order
       punch_a_tree.json       one whole quest per file
       make_a_table.json
+  reward_tables/              named reward tables. Reserved: not a quest, read by its own pass.
+    loot.json
   _schema/                    editor schemas. Never loaded, never copied.
 ```
 
