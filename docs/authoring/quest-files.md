@@ -48,7 +48,7 @@ because each quest unlocks when the one above it completes.
 }
 ```
 
-The fields a group or a chapter can carry beyond those are on [[tasked:quests]], because they are the
+The fields a group or a chapter can carry beyond those are on [[tasked:authoring/quests]], because they are the
 same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`, and the
 `dependencyStyle` a chapter's lines are drawn with.
 
@@ -85,7 +85,7 @@ thing it affects:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tasked:rewards]] |
+| `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tasked:authoring/rewards]] |
 | `defaultTeamReward` | `false` | Whether a reward that does not say otherwise is one claim for the team |
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
 | `detectionDelay` | `20` | Ticks after a player joins before their first task check, so a login does not run the whole book on one tick |
@@ -112,7 +112,7 @@ its former ids, and nothing that referenced the old name breaks.
 ## Reward tables
 
 Rolls live in `reward_tables/`, one file per table, named without the `.json` suffix. A reward names
-one with `"table": "dungeon"`; the file's own format is on [[tasked:rewards]].
+one with `"table": "dungeon"`; the file's own format is on [[tasked:authoring/rewards]].
 
 ## Underscores are skipped, everywhere
 
@@ -141,4 +141,4 @@ rewritten.
 `/tasked reload` re-reads the folder without a restart, and re-syncs every connected player's tree and
 progress — a quest removed, an id renamed, or a dependency broken is visible immediately rather than
 on the next reconnect. A file with an error is reported and skipped; the rest of the pack still loads.
-[[tasked:validation]] is the page about what those reports say.
+[[tasked:authoring/validation]] is the page about what those reports say.

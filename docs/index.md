@@ -19,7 +19,7 @@ editing their own game.
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
 | Armature | 0.1.0+, required on both loaders — [[armature:index]] is the library Tasked is built on |
-| KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tasked:kubejs]] |
+| KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tasked:authoring/kubejs]] |
 
 Tasked ships no questlines of its own. It is an engine, and installing it does not put somebody else's
 content in your config; the worked questlines live in the repository under `tools/quests/`, as
@@ -29,20 +29,20 @@ authoring material for a pack's first chapter.
 
 | Page | What it is |
 |---|---|
-| [[tasked:quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
-| [[tasked:quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
-| [[tasked:tasks]] | The fifteen task types, and what each one counts |
-| [[tasked:rewards]] | The ten reward types, and the reward tables behind four of them |
-| [[tasked:validation]] | What the validator checks, and what a mistake reads like |
+| [[tasked:authoring/quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
+| [[tasked:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
+| [[tasked:authoring/tasks]] | The fifteen task types, and what each one counts |
+| [[tasked:authoring/rewards]] | The ten reward types, and the reward tables behind four of them |
+| [[tasked:authoring/validation]] | What the validator checks, and what a mistake reads like |
 | [[tasked:commands]] | The `/tasked` commands, for players and operators |
-| [[tasked:kubejs]] | Driving a questline from a KubeJS script |
+| [[tasked:authoring/kubejs]] | Driving a questline from a KubeJS script |
 
 ## From files to a running questline
 
 <Steps>
   <Step title="Write the quest files">
     A pack is folders and JSON under `config/tasked/quests/`. The shape of that tree is the subject of
-    [[tasked:quest-files]]; the short version is one folder per [[chapter]], one file per quest.
+    [[tasked:authoring/quest-files]]; the short version is one folder per [[chapter]], one file per quest.
   </Step>
   <Step title="Load it">
     ```cmd

@@ -88,7 +88,7 @@ replaces them rather than stacking them, and a deleted script's handler stops ex
 
 > [!NOTE]
 > A `tasked:custom` task whose handler is not registered is not an error: the quest still loads and the
-> [[tasked:validation|validator]] warns that nothing in this build provides the id. That is what a pack
+> [[tasked:authoring/validation|validator]] warns that nothing in this build provides the id. That is what a pack
 > that ships its handler mod as an optional dependency wants to see.
 
 ## What has been verified, and what has not

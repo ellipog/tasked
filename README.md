@@ -118,7 +118,7 @@ testModsDirNeoForge=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tasked N
 | `common/` | Compiled against vanilla only — the bulk of the code. Cannot see either loader. |
 | `fabric/` | Fabric entry points and anything Fabric-specific. |
 | `neoforge/` | NeoForge entry points, the KubeJS plugin, and anything NeoForge-specific. |
-| `docs/` | The JSON schema, the description-format notes and the design preview. |
+| `docs/` | The manual: `index.md`, the command reference, the authoring guide under `authoring/`, and the published JSON schema. |
 | `tools/` | Not compiled and not shipped: the worked questlines, their per-file schemas, and the script that seeds them into a config directory. |
 
 `common/` cannot reference `fabric/` or `neoforge/`. That direction is enforced by the build, not
@@ -126,10 +126,12 @@ by convention.
 
 ## Documentation
 
-`docs/index.md` is the front door, and `docs/tasked-quests.schema.json` plus the per-file schemas
-under `tools/quests/_schema/` are the field reference. `tools/README.md` describes the worked
-questlines — eleven of them, each a different design rather than a different difficulty — and how to
-seed them.
+`docs/index.md` is the front door, and the pages under `docs/authoring/` are the manual: the quest
+folder format, every field on a quest, the fifteen task and ten reward types, what the validator
+checks, and the KubeJS binding. `docs/tasked-quests.schema.json` plus the per-file schemas under
+`tools/quests/_schema/` are the machine-readable field reference. `tools/README.md` describes the
+worked questlines — eleven of them, each a different design rather than a different difficulty — and
+how to seed them.
 
 Based on the [MultiLoader Template](https://github.com/Jaredlll08/MultiLoader-Template), with the
 Forge subproject removed.

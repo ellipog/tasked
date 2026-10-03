@@ -31,7 +31,7 @@ playing.
 
 ## Parties
 
-Party membership is stored and shared by Armature's team API ([[armature:teams]]), so the parties
+Party membership is stored and shared by Armature's team API ([[armature:api/teams]]), so the parties
 Tasked shows may be its own or another mod's, depending on what is installed.
 
 | Command | What it does |

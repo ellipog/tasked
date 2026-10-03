@@ -26,7 +26,7 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
 
 | Field | Meaning |
 |---|---|
-| `id` | Lowercase letters, digits and underscores. The name progress is stored under — see the rename note on [[tasked:quest-files]]. |
+| `id` | Lowercase letters, digits and underscores. The name progress is stored under — see the rename note on [[tasked:authoring/quest-files]]. |
 | `title` | What the player sees, under the node and at the top of its card. |
 | `subtitle` | One line beneath the title. Optional. |
 | `description` | Paragraphs, read as markdown — see below. |
@@ -79,7 +79,7 @@ computed from the quests inside it plus padding, so moving a quest moves the fra
 
 `dependsOn` is a list of quest ids — or their aliases — that must be satisfied before this one is
 open. They may live in other files, and a reference that resolves to nothing is an
-[[tasked:validation|error rather than a quiet lock]]. A [[chapter]] whose `progressionMode` is
+[[tasked:authoring/validation|error rather than a quiet lock]]. A [[chapter]] whose `progressionMode` is
 `linear` supplies the chain itself, so its quests need no `dependsOn` at all.
 
 | Field | Default | Meaning |
@@ -162,8 +162,8 @@ loads, still counts for progress, and is always shown to the editor.
 
 It is the one gate here that is **per player rather than per team**: a quest gated on a stage is open
 to a player who has it and locked to one who does not, even in the same party. Stages are granted by
-[[tasked:rewards|stage rewards]] and removed by them, read by stage tasks, and manipulated from
-scripts — see [[tasked:kubejs]].
+[[tasked:authoring/rewards|stage rewards]] and removed by them, read by stage tasks, and manipulated from
+scripts — see [[tasked:authoring/kubejs]].
 
 > [!WARNING]
 > Nothing validates that a stage exists, because a stage exists by being granted: there is no list to

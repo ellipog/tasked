@@ -10,7 +10,7 @@ Every task object carries its `type` and that type's fields, flat at the same le
 { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
 ```
 
-A field that belongs to another type is a mistake the [[tasked:validation|validator]] reports rather
+A field that belongs to another type is a mistake the [[tasked:authoring/validation|validator]] reports rather
 than a value anything reads. The list of what this build has — and every field each type takes — is
 also one command away:
 
@@ -79,7 +79,7 @@ cannot see.
 
 | Field | Meaning |
 |---|---|
-| `id` | The id a handler was registered under: by a mod during its construction, or by a script — see [[tasked:kubejs]]. |
+| `id` | The id a handler was registered under: by a mod during its construction, or by a script — see [[tasked:authoring/kubejs]]. |
 | `value` | The number the handler's answer has to reach. |
 
 The handler answers how far along the player is, and the engine treats that answer exactly as it
@@ -177,7 +177,7 @@ here as it is everywhere else.
 |---|---|
 | `stage` | The stage the player has to have, e.g. `my_pack:left_the_village`. |
 
-The read half of the same feature whose write half is a stage [[tasked:rewards|reward]], a command, or
+The read half of the same feature whose write half is a stage [[tasked:authoring/rewards|reward]], a command, or
 a script: a pack grants a stage somewhere and asks about it here. Nothing is required of the id — a
 stage exists by being granted — so a typo shows up as a task that never completes rather than as a file
 that will not load.
