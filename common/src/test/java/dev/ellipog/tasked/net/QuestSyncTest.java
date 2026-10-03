@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.ellipog.tasked.client.ClientQuestCache;
+import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestProgress;
 import dev.ellipog.tasked.progress.QuestState;
@@ -724,8 +725,8 @@ class QuestSyncTest {
             // failure -- this one cannot be weakened without deleting the line.
             String json = new String(QuestSync.treeAsJson(twoGroups()), StandardCharsets.UTF_8);
 
-            assertTrue(json.contains("\"version\":7"),
-                    "the tree should declare version 7 (the observation fields), so a reader can tell what it is looking at: " + json);
+            assertTrue(json.contains("\"version\":8"),
+                    "the tree should declare version 8 (the condition displays), so a reader can tell what it is looking at: " + json);
             assertTrue(json.contains("\"groups\""),
                     "the tree has no groups array, so the client has nothing to build headings from: " + json);
             assertTrue(json.contains("\"chapters\""),
@@ -1205,6 +1206,133 @@ class QuestSyncTest {
                         + " \"tasks\": [ { \"type\": \"tasked:checkmark\", \"title\": \"done\"} ],"
                         + " \"rewards\": ["
                         + " { \"type\": \"tasked:item\", \"item\": \"minecraft:wooden_axe\", \"count\": 1} ]}"));
+    }
+
+    // ------------------------------------------------------------------
+    // Conditions
+    // ------------------------------------------------------------------
+
+    /**
+     * One quest whose rows carry conditions: a stage gate, an item gate, and a reward with two.
+     *
+     * <p>Both display shapes are in here on purpose -- a text gate and an item gate -- because the
+     * line a hover shows is built differently for each and only the item one carries a count.
+     */
+    private static QuestIndex conditionedQuest() {
+        return Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": ["
+                        + " { \"type\": \"tasked:checkmark\", \"title\": \"done\","
+                        + "   \"conditions\": [ { \"type\": \"tasked:stage\", \"stage\": \"my_pack:marked\" } ] },"
+                        + " { \"type\": \"tasked:checkmark\", \"title\": \"more\","
+                        + "   \"conditions\": [ { \"type\": \"tasked:item\", \"item\": \"minecraft:cobblestone\","
+                        + "                       \"count\": 8 } ] } ],"
+                        + " \"rewards\": ["
+                        + " { \"type\": \"tasked:item\", \"item\": \"minecraft:wooden_axe\", \"count\": 1,"
+                        + "   \"conditions\": ["
+                        + "     { \"type\": \"tasked:item_tag\", \"tag\": \"minecraft:logs\", \"count\": 8 },"
+                        + "     { \"type\": \"tasked:party_size\", \"min\": 2 } ] } ]}"));
+    }
+
+    @Test
+    @DisplayName("a task's and a reward's conditions cross the wire, and each reads as a sentence")
+    void conditionDisplayCrossesTheWire() {
+        QuestIndex index = conditionedQuest();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = ClientQuestCache.entry("a");
+        assertNotNull(entry, "the tree must have arrived");
+
+        ClientQuestCache.TaskEntry stageGated = entry.tasks().get(0);
+        assertEquals(1, stageGated.conditions().size(), "the task's gate must be on the wire");
+        assertEquals("Have the stage my_pack:marked", stageGated.conditions().get(0).line(),
+                "a text gate reads as the sentence the key and the subject make");
+
+        ClientQuestCache.TaskEntry itemGated = entry.tasks().get(1);
+        assertEquals(1, itemGated.conditions().size());
+        assertEquals("Cobblestone \u00d78", itemGated.conditions().get(0).line(),
+                "an item gate reads as the item's own name and count, which is the one line that "
+                        + "carries its number outside the sentence");
+
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(0);
+        assertEquals(2, reward.conditions().size(), "both of the reward's gates");
+        assertEquals("Have #minecraft:logs \u00d78", reward.conditions().get(0).line(),
+                "a tag gate names the tag and the count in its subject");
+        assertEquals("Be in a party of 2 or more", reward.conditions().get(1).line(),
+                "and a party gate reads as the sentence its key writes");
+    }
+
+    @Test
+    @DisplayName("a lock arrives per row, absence reads unlocked, and a locked reward is not offered")
+    void conditionLocksArriveAndAbsenceReadsUnlocked() {
+        QuestIndex index = conditionedQuest();
+        Quest quest = Fixtures.quest(index, "a");
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        // Finished with the reward waiting: the state where a locked row would otherwise offer a
+        // Claim button the server refuses.
+        TeamProgress waiting = TeamProgress.empty().put(quest,
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, waiting, NOW);
+        UUID player = UUID.randomUUID();
+
+        Map<String, ProgressService.LockView> locks = Map.of("a", new ProgressService.LockView(
+                Map.of(0, List.of(0), 1, List.of(0)), Map.of(0, List.of(0, 1))));
+        byte[] locked = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of(), locks).json();
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, locked, CLIENT_TICK);
+
+        assertEquals(List.of(0), ClientQuestCache.taskLockOf("a", 0), "the stage gate's row");
+        assertEquals(List.of(0), ClientQuestCache.taskLockOf("a", 1), "the item gate's row");
+        assertEquals(List.of(0, 1), ClientQuestCache.rewardLockOf("a", 0),
+                "both unmet conditions, ascending, because the hover names exactly those");
+        assertTrue(ClientQuestCache.taskLockOf("a", 5).isEmpty(),
+                "a row the server said nothing about reads unlocked -- absence is the safe default "
+                        + "here, the opposite of `claimable`");
+        assertFalse(ClientQuestCache.canClaimFor(player, "a"),
+                "a reward this player is locked out of is not offered a button");
+
+        // The control, which is also the shape an older server sends: no lock keys at all.
+        byte[] none = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of(), Map.of()).json();
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, none, CLIENT_TICK);
+
+        assertTrue(ClientQuestCache.taskLockOf("a", 0).isEmpty(), "nothing is locked without locks");
+        assertTrue(ClientQuestCache.canClaimFor(player, "a"),
+                "and the claim is offered again -- the two answers come from the same map");
+    }
+
+    @Test
+    @DisplayName("a lock flip changes the quest's text, and an unchanged picture sends nothing")
+    void aLockFlipChangesTheDelta() {
+        // The delta is a comparison of the per-quest text, so a lock the client would draw must be in
+        // that text or a lock appearing would produce no message at all. The same property makes the
+        // refresh affordable: an unchanged picture serialises identically and the delta stays empty.
+        QuestIndex index = conditionedQuest();
+        Quest quest = Fixtures.quest(index, "a");
+        TeamProgress waiting = TeamProgress.empty().put(quest,
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, waiting, NOW);
+
+        Map<String, ProgressService.LockView> locks = Map.of("a", new ProgressService.LockView(
+                Map.of(0, List.of(0)), Map.of()));
+        QuestSync.Delta with = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of(), locks);
+        QuestSync.Delta without = QuestSync.progressDelta(resolution, waiting, index, null,
+                (questId, taskIndex) -> Map.of(), java.util.Set.of(), Map.of());
+        assertNotEquals(new String(with.json(), StandardCharsets.UTF_8),
+                new String(without.json(), StandardCharsets.UTF_8),
+                "a lock must be visible in the text the delta is made of");
+
+        QuestSync.Delta settled = QuestSync.progressDelta(resolution, waiting, index, with.snapshot(),
+                (questId, taskIndex) -> Map.of(), java.util.Set.of(), locks);
+        assertEquals(0, questsOf(settled.json()).size(),
+                "the same picture again must produce nothing to send, or the refresh would resend "
+                        + "every quest every second: " + new String(settled.json(), StandardCharsets.UTF_8));
+    }
+
+    private static JsonObject questsOf(byte[] json) {
+        return JsonParser.parseString(new String(json, StandardCharsets.UTF_8))
+                .getAsJsonObject().getAsJsonObject("quests");
     }
 
     @Test

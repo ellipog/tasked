@@ -6,7 +6,9 @@ import com.google.gson.JsonPrimitive;
 
 import dev.ellipog.armature.client.ui.inspect.InspectField;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
+import dev.ellipog.tasked.quest.EditorField;
 import dev.ellipog.tasked.quest.EditorSpecs;
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -263,6 +265,23 @@ public final class QuestPanelLayout {
                     new TypeChoice("tasked:stage", "Stage", "Set a stage, or take one away.",
                             "Sets story progress when you claim it."))));
 
+    private static final List<TypeGroup> CONDITION_GROUPS = List.of(
+            new TypeGroup("Items", List.of(
+                    new TypeChoice("tasked:item", "Item", "Have a count of one item.",
+                            "Have this many in your inventory."),
+                    new TypeChoice("tasked:item_tag", "Item tag", "Have a count of any item in a tag.",
+                            "Have this many items from this tag."))),
+            new TypeGroup("Progress", List.of(
+                    new TypeChoice("tasked:advancement", "Advancement", "Have earned an advancement.",
+                            "Earn this advancement."),
+                    new TypeChoice("tasked:score", "Scoreboard", "Have a score on an objective.",
+                            "Reach this score on the scoreboard."),
+                    new TypeChoice("tasked:stage", "Stage", "Have a stage.",
+                            "Story progress - another quest or a command sets this."))),
+            new TypeGroup("Party", List.of(
+                    new TypeChoice("tasked:party_size", "Party size", "Have this many members online.",
+                            "Be in a party of this many."))));
+
     /**
      * The type picker's rows: the page's own heading, then one group heading per table group with the
      * registered types of the member being added to under it.
@@ -290,8 +309,35 @@ public final class QuestPanelLayout {
     static List<InspectRow> typeRows(String member, Set<String> registered) {
         boolean tasks = !"rewards".equals(member);
         List<TypeGroup> groups = tasks ? TASK_GROUPS : REWARD_GROUPS;
+        return rowsFor(tasks ? "Add a task" : "Add a reward", groups, registered);
+    }
+
+    /**
+     * The condition picker's rows: the same machinery as the task and reward pickers, over the third
+     * registry.
+     *
+     * <p>Its own headings rather than a shared "Add a task" one, because a condition is not a task and
+     * the picker is the only place an author learns the six types' names.
+     */
+    public static List<InspectRow> conditionTypeRows() {
+        Set<String> registered = new TreeSet<>();
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            registered.add(id.toString());
+        }
+        return rowsFor("Add a condition", CONDITION_GROUPS, registered);
+    }
+
+    /**
+     * The rows one picker shows: the page's own heading, then each table group with the registered types
+     * it names, then everything the table does not name under {@link #MORE}.
+     *
+     * <p>Shared by all three pickers so a type's row, a group's heading and the fallback group cannot
+     * mean different things in different lists — and so an addon's type is in each list the day it
+     * registers, named by its id where the table has nothing to call it.
+     */
+    private static List<InspectRow> rowsFor(String heading, List<TypeGroup> groups, Set<String> registered) {
         List<InspectRow> rows = new ArrayList<>();
-        rows.add(InspectRow.heading("h:type", tasks ? "Add a task" : "Add a reward"));
+        rows.add(InspectRow.heading("h:type", heading));
         Set<String> named = new TreeSet<>();
         int group = 0;
         for (TypeGroup each : groups) {
@@ -315,6 +361,53 @@ public final class QuestPanelLayout {
             }
         }
         return List.copyOf(rows);
+    }
+
+    /**
+     * A condition type's name from the picker's table, or its prettified path for one the table does not
+     * name — an addon's, which the badge names by the spelling a file uses.
+     */
+    public static String conditionName(String typeId) {
+        for (TypeGroup group : CONDITION_GROUPS) {
+            for (TypeChoice choice : group.types()) {
+                if (choice.id().equals(typeId)) {
+                    return choice.name();
+                }
+            }
+        }
+        ResourceLocation id = ResourceLocation.tryParse(typeId);
+        return id == null ? typeId : EditorSpecs.label(id.getPath());
+    }
+
+    /**
+     * The declared form for a condition's type, or empty for one this build does not know — the raw-JSON
+     * fallback's trigger, the same as an entry's own unknown type.
+     */
+    public static List<EditorField> conditionEditorFor(JsonObject condition) {
+        String type = text(condition, "type", "");
+        ResourceLocation id = ResourceLocation.tryParse(type);
+        return id == null ? List.of() : ConditionTypes.editorOf(id);
+    }
+
+    /**
+     * The author's description of a condition type, for the picker's button hover: what the table says it
+     * is for, the fields it will ask for, and the id a file spells.
+     */
+    public static List<String> conditionTypeTooltip(String typeId) {
+        List<String> lines = new ArrayList<>();
+        for (TypeGroup group : CONDITION_GROUPS) {
+            for (TypeChoice choice : group.types()) {
+                if (choice.id().equals(typeId)) {
+                    lines.add(choice.hint());
+                }
+            }
+        }
+        ResourceLocation id = ResourceLocation.tryParse(typeId);
+        if (id != null && ConditionTypes.ids().contains(id)) {
+            lines.add("Fields: " + new TreeSet<>(ConditionTypes.fieldsOf(id)));
+        }
+        lines.add(typeId);
+        return List.copyOf(lines);
     }
 
     /**
@@ -627,7 +720,11 @@ public final class QuestPanelLayout {
         // those, as indexed numbers or through the picker. An absent structured field stays a row
         // (as text), which is how it gets created in the first place.
         return fields.stream().filter(field -> {
-            if ("components".equals(field)) {
+            // Structured fields are not rows of this panel, named or otherwise: `components` because the
+            // item control owns it, and `conditions` because the card draws the list as its own section
+            // -- a text row here would offer to write a string where the format holds a list, which is
+            // the corruption this filter exists to prevent.
+            if ("components".equals(field) || "conditions".equals(field)) {
                 return false;
             }
             JsonElement value = entry.get(field);

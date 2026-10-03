@@ -55,10 +55,6 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
         return consumeItems.orElse(chapterDefault);
     }
 
-    private static boolean matches(ItemStack stack, TagKey<Item> tag) {
-        return !stack.isEmpty() && stack.is(tag);
-    }
-
     public static final TaskBehaviour<ItemTagTask> BEHAVIOUR = new TaskBehaviour<>() {
 
         @Override
@@ -69,18 +65,7 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
         @Override
         public int current(ItemTagTask task, TaskContext context) {
             TagKey<Item> tag = TagKey.create(Registries.ITEM, task.tag());
-            int found = 0;
-            var inventory = context.player().getInventory();
-            for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
-                ItemStack stack = inventory.getItem(slot);
-                if (matches(stack, tag)) {
-                    found += stack.getCount();
-                    if (found >= task.count()) {
-                        return found;
-                    }
-                }
-            }
-            return found;
+            return ItemCounting.countIn(context.player().getInventory(), tag, task.count());
         }
 
         @Override
@@ -100,7 +85,7 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
             var inventory = player.getInventory();
             for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
                 ItemStack stack = inventory.getItem(slot);
-                if (!matches(stack, tag)) {
+                if (stack.isEmpty() || !stack.is(tag)) {
                     continue;
                 }
                 int take = Math.min(remaining, stack.getCount());

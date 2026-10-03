@@ -1,0 +1,43 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_standing",
+  "title": "The Standing",
+  "subtitle": "A scoreboard objective, asked twice",
+  "description": [
+    "Two conditions on one quest, and one objective between them: the task",
+    "opens at three points of `condition_gallery_standing`, and the reward is",
+    "only paid at five. The task's condition is what the book enforces; the",
+    "reward's is checked on every claim, so collecting early is refused with",
+    "a message and collecting again later works.",
+    "",
+    "Nothing in a quest file creates the objective -- a scoreboard does that,",
+    "with `/scoreboard objectives add condition_gallery_standing dummy`. The",
+    "name has no colon and does not need one: an objective is world state",
+    "rather than a registry id, and the scoreboard command takes a plain word.",
+    "An objective that does not exist reads as zero rather than as an error,",
+    "so a typo locks the gate instead of breaking the quest -- scores cannot",
+    "be checked at load, and that is the trade this example is written to show."
+  ],
+  "icon": { "item": "minecraft:comparator" },
+  "x": 480,
+  "y": 0,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Stand before them",
+      "conditions": [
+        { "type": "tasked:score", "objective": "condition_gallery_standing", "min": 3 }
+      ]
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:gold_ingot",
+      "auto": "disabled",
+      "conditions": [
+        { "type": "tasked:score", "objective": "condition_gallery_standing", "min": 5 }
+      ]
+    }
+  ]
+}

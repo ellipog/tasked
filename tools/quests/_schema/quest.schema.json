@@ -294,6 +294,61 @@
       }
     },
 
+    "condition": {
+      "description": "A gate on a task or a reward: every entry of a `conditions` list must hold for a player before the task counts for them, or the reward is paid to them. An empty list is met by definition.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "description": "The condition type's id, e.g. tasked:stage. The id decides which of the fields below mean anything." },
+        "item": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:item (condition) - the item to have."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6400,
+          "default": 1,
+          "description": "tasked:item and tasked:item_tag (condition) - how many of them."
+        },
+        "components": {
+          "type": "object",
+          "description": "tasked:item (condition) - 1.21 data components, as on a task's item.",
+          "additionalProperties": true
+        },
+        "match": {
+          "enum": ["none", "fuzzy", "strict"],
+          "default": "strict",
+          "description": "tasked:item (condition) - how closely a carried stack must match."
+        },
+        "tag": {
+          "type": "string",
+          "description": "tasked:item_tag (condition) - an item tag; any item in it counts."
+        },
+        "objective": {
+          "type": "string",
+          "description": "tasked:score (condition) - the scoreboard objective's name. An objective that does not exist reads as zero, so a typo locks the gate."
+        },
+        "min": {
+          "type": "integer",
+          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now."
+        },
+        "advancement": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:advancement (condition) - the advancement to have earned."
+        },
+        "criterion": {
+          "type": "string",
+          "description": "tasked:advancement (condition) - require one criterion of it instead of the whole advancement."
+        },
+        "stage": {
+          "$ref": "#/definitions/namespacedId",
+          "description": "tasked:stage (condition) - the stage to have."
+        }
+      }
+    },
+
     "anyType": {
       "description": "A task or a reward. The `type` field chooses the rest of the fields, and each field below names the type it belongs to. A field written for another type is a mistake the validator reports rather than a value anything reads.",
       "type": "object",
@@ -312,6 +367,11 @@
           "maximum": 72000,
           "default": 20,
           "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Raise it for an expensive check."
+        },
+        "conditions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/condition" },
+          "description": "Tasks and rewards. Gates that must all hold for a player before the task counts for them, or the reward is paid to them."
         },
 
         "item": {

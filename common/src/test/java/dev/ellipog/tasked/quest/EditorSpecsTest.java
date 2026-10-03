@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.quest;
 
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardCommon;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
@@ -67,8 +68,13 @@ class EditorSpecsTest {
             assertTrue(paths.containsAll(declared),
                     id + " declares " + new TreeSet<>(minus(declared, paths))
                             + ", which its form does not draw");
-            assertTrue(paths.containsAll(TaskCommon.FIELDS),
-                    id + " has no control for " + new TreeSet<>(minus(TaskCommon.FIELDS, paths))
+            // `conditions` is exempt from the flat form on purpose: a list of objects is not a cell,
+            // and the entry card draws it as its own section -- see ConditionFormLayout. Exempting it
+            // here rather than inventing a control is the honest half of that split; the condition
+            // family's own forms are covered by conditionFormsCoverTheirFields below.
+            assertTrue(paths.containsAll(minus(TaskCommon.FIELDS, Set.of("conditions"))),
+                    id + " has no control for "
+                            + new TreeSet<>(minus(minus(TaskCommon.FIELDS, Set.of("conditions")), paths))
                             + "; every task has these");
             Set<String> invented = minus(paths, union(declared, TaskCommon.FIELDS));
             assertTrue(invented.isEmpty(),
@@ -92,9 +98,29 @@ class EditorSpecsTest {
                             Set.of("auto", "excludeFromClaimAll", "ignoreRewardBlocking")),
                     id + " has no control for the base mechanics");
             Set<String> undrawn = minus(declared, paths);
-            assertTrue(undrawn.isEmpty() || undrawn.equals(Set.of("team")),
-                    id + " draws no control for " + new TreeSet<>(minus(undrawn, Set.of("team")))
-                            + "; only `team` is exempt, and it is the panel's");
+            // `team` is the panel's; `conditions` is the entry card's own section, as on the task side.
+            assertTrue(undrawn.isEmpty() || undrawn.equals(Set.of("team"))
+                            || undrawn.equals(Set.of("team", "conditions"))
+                            || undrawn.equals(Set.of("conditions")),
+                    id + " draws no control for "
+                            + new TreeSet<>(minus(undrawn, Set.of("team", "conditions")))
+                            + "; only `team` and `conditions` are exempt");
+        }
+    }
+
+    @Test
+    @DisplayName("every condition type's form draws every field it has, and nothing it does not")
+    void conditionFormsCoverTheirFields() {
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            Set<String> paths = paths(ConditionTypes.editorOf(id));
+            Set<String> declared = ConditionTypes.fieldsOf(id);
+
+            assertTrue(paths.containsAll(declared),
+                    id + " declares " + new TreeSet<>(minus(declared, paths))
+                            + ", which its form does not draw");
+            Set<String> invented = minus(paths, declared);
+            assertTrue(invented.isEmpty(),
+                    id + " draws " + invented + ", which its codec does not take");
         }
     }
 
@@ -106,6 +132,9 @@ class EditorSpecsTest {
         }
         for (ResourceLocation id : RewardTypes.ids()) {
             checkIdsAreListed(id, RewardTypes.editorOf(id));
+        }
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            checkIdsAreListed(id, ConditionTypes.editorOf(id));
         }
     }
 
@@ -129,6 +158,9 @@ class EditorSpecsTest {
         for (ResourceLocation id : RewardTypes.ids()) {
             assertUnits(id, RewardTypes.editorOf(id));
         }
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            assertUnits(id, ConditionTypes.editorOf(id));
+        }
     }
 
     private static void assertUnits(ResourceLocation id, List<EditorField> form) {
@@ -151,6 +183,9 @@ class EditorSpecsTest {
         }
         for (ResourceLocation id : RewardTypes.ids()) {
             assertHints(id, RewardTypes.editorOf(id));
+        }
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            assertHints(id, ConditionTypes.editorOf(id));
         }
     }
 

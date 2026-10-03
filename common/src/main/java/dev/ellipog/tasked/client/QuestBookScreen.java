@@ -869,7 +869,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         /** A field whose ids are a list: the press opens the picker on the field's own source. */
         SEARCH,
         /** The triangle in an entry's corner: fold it to its badge, or unfold it. */
-        TOGGLE_ENTRY
+        TOGGLE_ENTRY,
+        /** The row under an entry that opens the condition picker. */
+        CONDITION_ADD,
+        /** A condition's cross: the condition is removed from the entry's list. */
+        CONDITION_REMOVE
     }
 
     /**
@@ -1002,6 +1006,16 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** Which list the modal's type picker is adding to ("tasks"/"rewards"), or null when it is closed. */
     private String pickingEntryType;
+
+    /**
+     * Which entry's conditions list the picker is adding to, as a path ("tasks.3"), or null.
+     *
+     * <p>Separate from {@link #pickingEntryType} rather than a third member name, because the insert is
+     * a different op: a task is a new element of a top-level list ({@code EditorOp.Insert}), and a
+     * condition is a rebuilt nested array written with {@code SetField} — nested arrays have no Insert.
+     * When this is set the picker lists condition types; when the member is set it lists that member's.
+     */
+    private String pickingConditionFor;
 
     /** Which field the item picker is setting, or null when it is closed. */
     private String pickingItemPath;
@@ -3030,8 +3044,98 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void openTypePicker(String member) {
         pickingEntryType = member;
+        pickingConditionFor = null;
         overlayView.scrollTo(0);
         rebuildWidgets();
+    }
+
+    /**
+     * The same picker, adding a condition to one entry's list instead of a task or a reward.
+     *
+     * <p>{@code pathPrefix} is the entry's own path ("tasks.3"): the picker lists condition types while
+     * it is set, and the press rebuilds that entry's {@code conditions} array with the new one appended.
+     */
+    private void openConditionTypePicker(String pathPrefix) {
+        pickingEntryType = null;
+        pickingConditionFor = pathPrefix;
+        overlayView.scrollTo(0);
+        rebuildWidgets();
+    }
+
+    /**
+     * One row of the condition picker: append that type's default to the entry's conditions list.
+     *
+     * <p>A rebuilt array through {@code SetField}, not an insert op: {@code EditorOp.Insert} addresses a
+     * top-level list, and a nested one has no such op — the same move the dependency list and the chapter
+     * order already make. One op, so one undo.
+     */
+    private void pressConditionTypeRow(String typeId) {
+        String prefix = pickingConditionFor;
+        if (prefix == null || editTarget() == null) {
+            return;
+        }
+        com.google.gson.JsonObject fresh = net.minecraft.resources.ResourceLocation.tryParse(typeId) == null
+                ? null
+                : dev.ellipog.tasked.quest.condition.ConditionTypes
+                        .defaultTree(net.minecraft.resources.ResourceLocation.tryParse(typeId)).orElse(null);
+        if (fresh == null) {
+            status("This build cannot add a " + typeId + " here", true);
+            return;
+        }
+        JsonObject quest = replicaQuest();
+        if (quest == null) {
+            return;
+        }
+        com.google.gson.JsonArray conditions = new com.google.gson.JsonArray();
+        JsonElement existing = QuestPanelLayout.get(quest, prefix + ".conditions");
+        if (existing != null && existing.isJsonArray()) {
+            for (JsonElement value : existing.getAsJsonArray()) {
+                conditions.add(value.deepCopy());
+            }
+        }
+        conditions.add(fresh);
+        send(new EditorOp.SetField(editTarget(), prefix + ".conditions", conditions));
+        pickingConditionFor = null;
+        status("Added a " + typeId + " condition", false);
+    }
+
+    /**
+     * Removes one condition from its entry, by index: the list is rebuilt without it.
+     *
+     * <p>{@code path} is the condition's own path ("tasks.3.conditions.1"). Removing the last one sends
+     * an empty array rather than nothing, so the field's presence is what the author chose rather than
+     * something the write decided.
+     */
+    private void removeCondition(String path) {
+        if (editTarget() == null) {
+            return;
+        }
+        int dot = path.lastIndexOf('.');
+        int index;
+        try {
+            index = Integer.parseInt(path.substring(dot + 1));
+        }
+        catch (NumberFormatException notAnIndex) {
+            return;
+        }
+        String listPath = path.substring(0, dot);
+        JsonObject quest = replicaQuest();
+        if (quest == null) {
+            return;
+        }
+        JsonElement existing = QuestPanelLayout.get(quest, listPath);
+        if (existing == null || !existing.isJsonArray()) {
+            return;
+        }
+        com.google.gson.JsonArray rebuilt = new com.google.gson.JsonArray();
+        com.google.gson.JsonArray held = existing.getAsJsonArray();
+        for (int i = 0; i < held.size(); i++) {
+            if (i != index) {
+                rebuilt.add(held.get(i).deepCopy());
+            }
+        }
+        send(new EditorOp.SetField(editTarget(), listPath, rebuilt));
+        status("Removed the condition", false);
     }
 
     /**
@@ -3042,6 +3146,10 @@ public final class QuestBookScreen extends ArmatureScreen {
      * whose defaults cannot be encoded is refused out loud rather than inserted half-formed.
      */
     private void pressTypeRow(String typeId) {
+        if (pickingConditionFor != null) {
+            pressConditionTypeRow(typeId);
+            return;
+        }
         String member = pickingEntryType;
         if (member == null || editTarget() == null) {
             return;
@@ -4387,8 +4495,8 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         // The body is the preview itself now -- drawn, not a list of widgets -- so the only rows that
         // still need hosting are the type picker's, when it is open.
-        if (pickingEntryType != null) {
-            questRows = QuestPanelLayout.typeRows(pickingEntryType);
+        if (pickingEntryType != null || pickingConditionFor != null) {
+            questRows = pickerRows();
             Viewport body = overlayBody();
             questLayout = InspectLayout.build(questRows, body.viewWidth(), Measure.monospace(6, 9));
             overlayView.clear();
@@ -4405,11 +4513,11 @@ public final class QuestBookScreen extends ArmatureScreen {
                     // The type's registered icon and its hover description. The icon is the one the entry
                     // row will lead with once the type is added, so the picker chooses in the terms the
                     // row reads back in.
-                    ItemStack icon = typeIcon(pickingEntryType, typeId);
+                    ItemStack icon = pickerIcon(typeId);
                     if (!icon.isEmpty()) {
                         button.icon(icon);
                     }
-                    button.tooltip(typeTooltip(pickingEntryType, typeId));
+                    button.tooltip(pickerTooltip(typeId));
                     overlayView.put(row.key(), button);
                 }
             }
@@ -4596,7 +4704,7 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         // The type picker takes the body when it is open: a list of types is a list, and rows are what
         // lists are made of. The only rows left in this card.
-        if (pickingEntryType != null) {
+        if (pickingEntryType != null || pickingConditionFor != null) {
             if (questLayout != null) {
                 overlayView.apply(questLayout, body.viewWidth());
                 QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
@@ -4832,6 +4940,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             for (EntryFormLayout.Cell cell : form.cells()) {
                 drawField(r, cell, entry, member, index, mouseX, mouseY);
             }
+            for (EntryFormLayout.ConditionRow condition : form.conditions()) {
+                drawConditionRow(r, condition, entry, member, index, mouseX, mouseY);
+            }
+            drawConditionAddRow(r, form.addCondition(), member, index, mouseX, mouseY);
         }
         else if (!known && !folded) {
             drawRawRow(r, form, member, index, mouseX, mouseY);
@@ -4894,6 +5006,88 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         registerTarget(EditAction.DRAG_ENTRY, null, grip, grip.x() + 4,
                 grip.y() + (grip.height() - 8) / 2, "", member, index);
+    }
+
+    /**
+     * One condition under an entry: its badge, its own fields, and the cross that removes it.
+     *
+     * <p>A condition is edited exactly as a task is, one level down: the same registered form, the same
+     * controls, the same one-op-per-press rule — with the condition's type's form from
+     * {@code QuestPanelLayout.conditionEditorFor}. A type this build does not know gets the raw value,
+     * the same refusal an unknown entry gets: what cannot be drawn is not faked.
+     */
+    private void drawConditionRow(GuiRenderer r, EntryFormLayout.ConditionRow row, JsonObject entry,
+                                  String member, int index, int mouseX, int mouseY) {
+        JsonElement value = entry.getAsJsonArray("conditions").get(row.index());
+        if (!value.isJsonObject()) {
+            return;
+        }
+        JsonObject condition = value.getAsJsonObject();
+        String pathPrefix = member + "." + index + ".conditions." + row.index();
+        String type = condition.has("type") && condition.get("type").isJsonPrimitive()
+                ? condition.get("type").getAsString() : "not stated";
+
+        ItemStack icon = conditionIcon(type);
+        if (!icon.isEmpty()) {
+            r.icon(icon, row.icon().x(), row.icon().y(), EntryFormLayout.ICON_BOX);
+        }
+        r.text(Measure.truncate(QuestPanelLayout.conditionName(type), row.name().width() - 2,
+                        textMeasure(r)),
+                row.name().x() + 1, row.name().y() + (EntryFormLayout.LINE_HEIGHT - 8) / 2,
+                ArmatureTheme.faint());
+
+        BookGeometry.Rect remove = row.remove();
+        boolean removeHot = remove.contains(mouseX, mouseY);
+        if (removeHot) {
+            drawEditAffordance(r, remove, true);
+        }
+        String cross = "\u00d7";
+        r.text(cross, remove.x() + (remove.width() - r.textWidth(cross)) / 2,
+                remove.y() + (remove.height() - 8) / 2,
+                removeHot ? ArmatureTheme.title() : ArmatureTheme.body());
+        editTargets.add(new EditTarget(EditAction.CONDITION_REMOVE, pathPrefix, remove, remove.x(),
+                remove.y() + (remove.height() - 8) / 2, "", member, index));
+
+        if (QuestPanelLayout.conditionEditorFor(condition).isEmpty()) {
+            BookGeometry.Rect raw = BookGeometry.Rect.at(row.name().x(), row.name().bottom(),
+                    Math.max(20, row.name().width()), EntryFormLayout.LINE_HEIGHT);
+            drawEditAffordance(r, raw, raw.contains(mouseX, mouseY));
+            if (!InlineEdit.replaces(pathPrefix, editingPath)) {
+                r.text("edit JSON", raw.x() + 4, raw.y() + (EntryFormLayout.LINE_HEIGHT - 8) / 2,
+                        ArmatureTheme.faint());
+            }
+            editTargets.add(new EditTarget(EditAction.RAW, pathPrefix, raw, raw.x() + 4,
+                    raw.y() + (EntryFormLayout.LINE_HEIGHT - 8) / 2, "", member, index));
+            return;
+        }
+        for (EntryFormLayout.Cell cell : row.cells()) {
+            drawField(r, cell, entry, member, index, pathPrefix, mouseX, mouseY);
+        }
+    }
+
+    /** The row that opens the condition picker: a chip in the entry's own fields' column, and its press. */
+    private void drawConditionAddRow(GuiRenderer r, BookGeometry.Rect box, String member, int index,
+                                     int mouseX, int mouseY) {
+        if (box.width() <= 0 || box.height() <= 0) {
+            return;
+        }
+        BookGeometry.Rect chip = BookGeometry.Rect.at(box.x() + EntryFormLayout.CONDITION_INDENT, box.y(),
+                Math.min(84, Math.max(20, box.width() - EntryFormLayout.CONDITION_INDENT)), box.height());
+        boolean hot = chip.contains(mouseX, mouseY);
+        drawEditAffordance(r, chip, hot);
+        String label = "+ Condition";
+        r.text(Measure.truncate(label, chip.width() - 6, textMeasure(r)), chip.x() + 3,
+                chip.y() + (chip.height() - 8) / 2, hot ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(EditAction.CONDITION_ADD, member + "." + index, chip, chip.x() + 3,
+                chip.y() + (chip.height() - 8) / 2, "", member, index);
+    }
+
+    /** A condition type's registered icon, or nothing for one this build does not know. */
+    private static ItemStack conditionIcon(String typeId) {
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.resources.ResourceLocation.tryParse(typeId);
+        return id == null ? ItemStack.EMPTY
+                : dev.ellipog.tasked.quest.condition.ConditionTypes.iconOf(id).toStack();
     }
 
     /**
@@ -5009,8 +5203,21 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void drawField(GuiRenderer r, EntryFormLayout.Cell cell, JsonObject entry, String member,
                            int index, int mouseX, int mouseY) {
+        drawField(r, cell, entry, member, index, member + "." + index, mouseX, mouseY);
+    }
+
+    /**
+     * The same, with the path the field commits to supplied by the caller.
+     *
+     * <p>The one difference a condition makes: its fields live one level deeper, and every press it
+     * registers must carry the full path — {@code tasks.3.conditions.1.min} — while the form's own
+     * arithmetic is unchanged. The member and index still name the entry, which is what the presses that
+     * need more than a path resolve their field through.
+     */
+    private void drawField(GuiRenderer r, EntryFormLayout.Cell cell, JsonObject entry, String member,
+                           int index, String pathPrefix, int mouseX, int mouseY) {
         EditorField field = cell.field();
-        String path = member + "." + index + "." + field.path();
+        String path = pathPrefix + "." + field.path();
         String value = rawValue(entry, field.path());
         boolean on = flagOn(entry, field.path());
         boolean replaced = InlineEdit.replaces(path, editingPath);
@@ -5079,7 +5286,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                     BookGeometry.Rect box = cell.axes().get(axis);
                     String element = rawValue(entry, field.path() + "." + axis);
                     drawNumber(r, box, element, "", axes[axis], replaced, mouseX, mouseY);
-                    target(r, EditAction.FIELD, member + "." + index + "." + field.axis(axis), box,
+                    target(r, EditAction.FIELD, pathPrefix + "." + field.axis(axis), box,
                             box.x() + 4, box.y() + 3, element, member, index, mouseX, mouseY);
                 }
                 if (field.kind() == EditorField.Kind.POSITION) {
@@ -5377,6 +5584,35 @@ public final class QuestBookScreen extends ArmatureScreen {
             return null;
         }
         String relative = path.substring(prefix.length());
+        // A condition's field: the entry's list, the condition, then the field's own path. One level of
+        // nesting, and only one -- a condition has no lists of its own. Resolved here rather than by
+        // widening EditTarget, so every press that needs its field (a cycle's ring, a search's source)
+        // works for a nested field with no change of its own.
+        if (relative.startsWith("conditions.")) {
+            String tail = relative.substring("conditions.".length());
+            int dot = tail.indexOf('.');
+            if (dot < 0) {
+                return null;
+            }
+            int conditionIndex;
+            try {
+                conditionIndex = Integer.parseInt(tail.substring(0, dot));
+            }
+            catch (NumberFormatException notAnIndex) {
+                return null;
+            }
+            JsonElement found = QuestPanelLayout.get(entry, prefix + "conditions." + conditionIndex);
+            if (found == null || !found.isJsonObject()) {
+                return null;
+            }
+            String fieldPath = tail.substring(dot + 1);
+            for (EditorField field : QuestPanelLayout.conditionEditorFor(found.getAsJsonObject())) {
+                if (field.path().equals(fieldPath)) {
+                    return field;
+                }
+            }
+            return null;
+        }
         for (EditorField field : QuestPanelLayout.editorFor(member, entry)) {
             if (field.path().equals(relative)) {
                 return field;
@@ -5719,6 +5955,37 @@ public final class QuestBookScreen extends ArmatureScreen {
         return List.copyOf(lines);
     }
 
+    /** The rows the open type picker shows: the condition types when that is what is open, else the member's. */
+    private List<InspectRow> pickerRows() {
+        return pickingConditionFor != null
+                ? QuestPanelLayout.conditionTypeRows()
+                : QuestPanelLayout.typeRows(pickingEntryType);
+    }
+
+    /** A picker row's icon: the registered type's, from whichever of the three registries it came. */
+    private ItemStack pickerIcon(String typeId) {
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.resources.ResourceLocation.tryParse(typeId);
+        if (id == null) {
+            return ItemStack.EMPTY;
+        }
+        return pickingConditionFor != null
+                ? dev.ellipog.tasked.quest.condition.ConditionTypes.iconOf(id).toStack()
+                : typeIcon(pickingEntryType, typeId);
+    }
+
+    /** A picker row's hover: the author's description, from whichever registry the picker is over. */
+    private List<Component> pickerTooltip(String typeId) {
+        List<String> lines = pickingConditionFor != null
+                ? QuestPanelLayout.conditionTypeTooltip(typeId)
+                : QuestPanelLayout.typeTooltip(pickingEntryType, typeId);
+        List<Component> out = new ArrayList<>();
+        for (String line : lines) {
+            out.add(Component.literal(line));
+        }
+        return List.copyOf(out);
+    }
+
     private static ItemStack itemStack(String id) {
         net.minecraft.resources.ResourceLocation location =
                 net.minecraft.resources.ResourceLocation.tryParse(id);
@@ -5751,6 +6018,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             case ITEM -> openItemPicker(target, false);
             case ADD_TASK -> openTypePicker("tasks");
             case ADD_REWARD -> openTypePicker("rewards");
+            case CONDITION_ADD -> openConditionTypePicker(target.path());
+            case CONDITION_REMOVE -> removeCondition(target.path());
             // The form's own controls: a nudge, a cycle, and the button that fills a box from where the
             // player stands. Each is one press and one op -- see the methods for what each one sends.
             case STEP_UP -> nudge(target, 1);
@@ -6139,7 +6408,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             send(new EditorOp.SetField(target, "description", stringArray(paragraphs)));
             return;
         }
-        if (path.matches("tasks\\.\\d+|rewards\\.\\d+")) {
+        if (path.matches("(tasks|rewards)\\.\\d+(\\.conditions\\.\\d+)?")) {
             if (text == null || text.trim().isEmpty()) {
                 status("An entry cannot be empty", true);
                 return;
@@ -6387,8 +6656,16 @@ public final class QuestBookScreen extends ArmatureScreen {
                 ? null : com.google.gson.JsonParser.parseString(data);
         if (("tasks".equals(memberOf(path)) || "rewards".equals(memberOf(path)))
                 && path.endsWith(".item")) {
-            JsonObject held = memberEntry(replicaQuest(), memberOf(path), indexOf(path));
-            JsonObject rebuilt = held == null ? new JsonObject() : held.deepCopy();
+            // The object that holds item and components together: the entry itself, or -- for a
+            // condition's item field -- the condition, which is the same shape one level down. Written
+            // as one op either way, for the reason above: two ops would be two saves, and a save between
+            // them is a field holding the new item with the old data.
+            String objectPath = path.contains(".conditions.")
+                    ? path.substring(0, path.length() - ".item".length())
+                    : memberOf(path) + "." + indexOf(path);
+            JsonElement found = QuestPanelLayout.get(replicaQuest(), objectPath);
+            JsonObject rebuilt = found != null && found.isJsonObject()
+                    ? found.getAsJsonObject().deepCopy() : new JsonObject();
             rebuilt.addProperty("item", id);
             if (components == null) {
                 rebuilt.remove("components");
@@ -6396,7 +6673,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             else {
                 rebuilt.add("components", components);
             }
-            send(new EditorOp.SetField(quest, memberOf(path) + "." + indexOf(path), rebuilt));
+            send(new EditorOp.SetField(quest, objectPath, rebuilt));
         }
         else if ("icon.item".equals(path)) {
             JsonObject icon = new JsonObject();
@@ -8644,6 +8921,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         draggingSlider = null;
         if (settingsOpen) {
             pickingEntryType = null;
+            pickingConditionFor = null;
             pickingItemPath = null;
         }
         else {
@@ -8699,6 +8977,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The editor's transient state goes with the card: a picker left armed would greet the next
         // quest with a list of types, and a Delete left confirmed would delete on one press.
         pickingEntryType = null;
+        // And the condition picker's, which names an entry of the quest being closed for the same reason.
+        pickingConditionFor = null;
         // And the item picker's, for the same reason: its path names a field of the quest being closed.
         closeItemPicker();
         confirmingDelete = false;
@@ -8731,7 +9011,10 @@ public final class QuestBookScreen extends ArmatureScreen {
     private static int firstManualTask(ClientQuestCache.Entry quest) {
         for (int i = 0; i < quest.tasks().size(); i++) {
             ClientQuestCache.TaskEntry task = quest.tasks().get(i);
-            if (task.manual() && ClientQuestCache.taskProgressOf(quest.id(), i) < task.count()) {
+            // A locked task has no button: the press would be refused, and a button that refuses is
+            // worse than no button at all. The row says locked and its hover says what is missing.
+            if (task.manual() && ClientQuestCache.taskLockOf(quest.id(), i).isEmpty()
+                    && ClientQuestCache.taskProgressOf(quest.id(), i) < task.count()) {
                 return i;
             }
         }
@@ -11206,7 +11489,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             String key = OverlayLayout.rewardKey(i);
             Slot slot = placed(layout, body, key);
             if (slot != null) {
-                drawRewardRow(r, entry.rewards().get(i), slot, rowHover.amount(key, now), mouseX, mouseY);
+                drawRewardRow(r, entry, i, slot, rowHover.amount(key, now), mouseX, mouseY);
             }
         }
     }
@@ -11418,9 +11701,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // and that is correct rather than a leftover of the old full-width wash.
         boolean optional = task.optional();
         boolean manual = task.manual();
-        String tag = manual ? "hand in" : (optional ? "optional" : null);
+        // A condition this player does not meet. Locked wins the one tag slot: "hand in" would be a lie
+        // about a button that is not drawn, and the explanation is the whole point of the tag.
+        boolean locked = !ClientQuestCache.taskLockOf(entry.id(), index).isEmpty();
+        String tag = locked ? "locked" : (manual ? "hand in" : (optional ? "optional" : null));
         int tagX = tag == null ? 0 : x + availableWidth - r.textWidth(tag)
-                - (manual && optional ? r.textWidth("optional") + 6 : 0);
+                - (manual && optional && !locked ? r.textWidth("optional") + 6 : 0);
 
         // Who is contributing, right-aligned before the tag. Placed here rather than down at the
         // drawing, because the wash behind the row reaches the same edge -- two expressions of "where
@@ -11445,8 +11731,10 @@ public final class QuestBookScreen extends ArmatureScreen {
             // The player's explanation, not the author's: this hover is read by someone who has never
             // heard of a task type. `task.manual()` is the row's own flag -- the one that draws the
             // "hand in" tag -- and it is what decides the second line. See `playerTooltip`.
-            rowTooltips.add(new RowTooltip(row,
-                    QuestPanelLayout.playerTooltip("tasks", task.type(), task.manual())));
+            List<String> lines = new ArrayList<>(
+                    QuestPanelLayout.playerTooltip("tasks", task.type(), task.manual()));
+            appendConditionLines(lines, task.conditions(), ClientQuestCache.taskLockOf(entry.id(), index));
+            rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
 
@@ -11466,7 +11754,8 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         int colour = missingItem ? ArmatureTheme.blocked()
                 : satisfied ? ArmatureTheme.complete()
-                : ClientQuestCache.stateOf(entry.id()) == QuestState.LOCKED ? ArmatureTheme.blocked()
+                : locked || ClientQuestCache.stateOf(entry.id()) == QuestState.LOCKED
+                        ? ArmatureTheme.blocked()
                 : ArmatureTheme.body();
         r.text(text, textX, textY, colour);
 
@@ -11504,8 +11793,32 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (optional) {
             r.text("optional", x + availableWidth - r.textWidth("optional"), textY, ArmatureTheme.faint());
         }
-        if (manual) {
+        if (manual && !locked) {
             r.text("hand in", tagX, textY, ArmatureTheme.available());
+        }
+        if (locked) {
+            r.text("locked", tagX, textY, ArmatureTheme.blocked());
+        }
+    }
+
+    /**
+     * Appends a locked row's explanation: the gates it is missing, by the server's own naming.
+     *
+     * <p>Only the unmet ones. The server sends which condition indices failed, and the tree carried what
+     * those conditions say, so a row with three gates and one unmet names the one — and the list is the
+     * same order the author wrote, because the mask indexes into it.
+     */
+    private static void appendConditionLines(List<String> lines,
+                                             List<ClientQuestCache.ConditionEntry> conditions,
+                                             List<Integer> unmet) {
+        if (unmet.isEmpty() || conditions.isEmpty()) {
+            return;
+        }
+        lines.add("Locked - needs:");
+        for (int index : unmet) {
+            if (index >= 0 && index < conditions.size()) {
+                lines.add("  " + conditions.get(index).line());
+            }
         }
     }
 
@@ -11575,8 +11888,9 @@ public final class QuestBookScreen extends ArmatureScreen {
      * simpler than a task's: an icon, a name, and a count when there is one, with no tags reaching the
      * row's far edge.
      */
-    private void drawRewardRow(GuiRenderer r, ClientQuestCache.RewardEntry reward, Slot slot,
+    private void drawRewardRow(GuiRenderer r, ClientQuestCache.Entry entry, int index, Slot slot,
                                float hover, int mouseX, int mouseY) {
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
         int x = slot.x();
         int y = slot.y();
         int textY = y + (ROW_ICON - 8) / 2;
@@ -11585,10 +11899,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
         String text = missingItem ? reward.itemId() : rowText("rewards", reward);
         String count = reward.hasItem() && reward.count() > 1 ? "x" + reward.count() : null;
+        // A condition this player does not meet on this reward. The row is drawn shut and the tag says
+        // so; the claim button is not this row's -- see BookGeometry's claimable -- and the server
+        // refuses the payout anyway, with a message, if the press gets there.
+        boolean locked = !ClientQuestCache.rewardLockOf(entry.id(), index).isEmpty();
 
         int contentRight = x + ROW_ICON + 5 + r.textWidth(text);
         if (count != null) {
             contentRight += 5 + r.textWidth(count);
+        }
+        if (locked) {
+            contentRight = Math.max(contentRight, x + r.textWidth("locked"));
         }
 
         // The row's own box rather than its slot: see `rowBox` for the six pixels of gap between them.
@@ -11598,8 +11919,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (row.contains(mouseX, mouseY)) {
             // The task row's rule, one member over: the player's explanation, never the author's.
             // A reward is collected rather than handed in, so there is no second line to pick.
-            rowTooltips.add(new RowTooltip(row,
-                    QuestPanelLayout.playerTooltip("rewards", reward.type(), false)));
+            List<String> lines = new ArrayList<>(
+                    QuestPanelLayout.playerTooltip("rewards", reward.type(), false));
+            appendConditionLines(lines, reward.conditions(),
+                    ClientQuestCache.rewardLockOf(entry.id(), index));
+            rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
 
@@ -11614,9 +11938,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
 
         r.text(text, textX, textY,
-                missingItem ? ArmatureTheme.blocked() : ArmatureTheme.body());
+                missingItem || locked ? ArmatureTheme.blocked() : ArmatureTheme.body());
         if (count != null) {
             r.text(count, textX + r.textWidth(text) + 5, textY, ArmatureTheme.faint());
+        }
+        if (locked) {
+            r.text("locked", x + slot.width() - r.textWidth("locked"), textY, ArmatureTheme.blocked());
         }
     }
 

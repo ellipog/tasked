@@ -20,6 +20,9 @@ import dev.ellipog.tasked.quest.QuestReward;
 import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.quest.condition.ConditionDisplay;
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
+import dev.ellipog.tasked.quest.condition.QuestCondition;
 import dev.ellipog.tasked.quest.reward.RewardDisplay;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskDisplay;
@@ -80,8 +83,8 @@ public final class QuestSync {
      */
     private static final ProgressService.Contributors NOBODY = (questId, taskIndex) -> Map.of();
 
-    /** One player's last sent state: which team it was for, and the exact JSON sent per quest. */
-    private record Sent(UUID teamId, Map<String, String> quests) {
+    /** One player's last sent state: the team, the exact JSON sent per quest, and the locks it carried. */
+    private record Sent(UUID teamId, Map<String, String> quests, String locks) {
     }
 
     /**
@@ -150,6 +153,12 @@ public final class QuestSync {
      * version-6 reader ignores them and draws an observation task as a label, which is the honest
      * fallback: it cannot count what it cannot recognise.
      *
+     * <p>Version 8 added a task's or a reward's {@code conditions} — the display sentence of each gate
+     * it carries — and nothing else. Additive again: a version-7 reader draws the row without the
+     * explanation, which is the honest fallback. Which rows are <i>locked</i> for a player does not
+     * travel here at all; that is per-player state and lives on the progress channel, where every
+     * per-player fact belongs.
+     *
      * <p>The consequence, in the direction that matters most: <b>an old client on a new server still
      * draws today's flat list.</b> It reads the fields it knows and ignores the two it does not, which
      * is what Gson does with a key nobody asks for, so an install that has not been updated keeps
@@ -170,7 +179,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 7;
+    public static final int TREE_VERSION = 8;
 
     /**
      * The quest tree, as JSON.
@@ -479,6 +488,7 @@ public final class QuestSync {
             json.addProperty("observeTarget", observation.toObserve());
             json.addProperty("observeTicks", observation.timer());
         }
+        conditionsAsJson(task.common().conditions(), json);
         return json;
     }
 
@@ -502,7 +512,37 @@ public final class QuestSync {
                 .toLowerCase(java.util.Locale.ROOT));
         json.addProperty("team", reward.common().teamReward(settings.defaultTeamReward()));
         json.addProperty("excludeFromClaimAll", reward.common().excludeFromClaimAll());
+        conditionsAsJson(reward.common().conditions(), json);
         return json;
+    }
+
+    /**
+     * The gates a task or a reward carries, as the client draws them.
+     *
+     * <p>Only when there are any, so the tree a pack without conditions sends is byte-identical to what
+     * it sent before this feature: the version number is a description, and the common case should pay
+     * nothing for it. The list's order is the authored order and carries meaning — the unmet mask on
+     * the progress channel indexes into it — so it is written as it stands and never sorted.
+     */
+    private static void conditionsAsJson(List<QuestCondition> conditions, JsonObject json) {
+        if (conditions.isEmpty()) {
+            return;
+        }
+        JsonArray array = new JsonArray();
+        for (QuestCondition condition : conditions) {
+            ConditionDisplay display = ConditionTypes.displayOf(condition);
+            JsonObject entry = new JsonObject();
+            display.item().ifPresent(ref -> {
+                entry.addProperty("item", ref.item().toString());
+                entry.addProperty("count", ref.count());
+                componentsAsJson(ref, "itemComponents", entry);
+            });
+            entry.addProperty("label", display.label());
+            entry.addProperty("labelFallback", display.labelFallback());
+            entry.addProperty("labelArg", display.labelArg());
+            array.add(entry);
+        }
+        json.add("conditions", array);
     }
 
     /**
@@ -631,12 +671,32 @@ public final class QuestSync {
                                       Map<String, String> previous,
                                       ProgressService.Contributors contributors,
                                       java.util.Set<String> stageLocked) {
+        return progressDelta(resolution, progress, index, previous, contributors, stageLocked, Map.of());
+    }
+
+    /**
+     * The same, with every condition lock this player has.
+     *
+     * <p>The fourth per-player overlay on this wire — after the contributors, the claimable flag and
+     * the stage gate — and the same kind of fact: a task's or a reward's conditions are asked of one
+     * player, so two members of a party can look at one quest and see different rows shut. What a
+     * locked row <i>is</i> travels with the tree ({@code conditions}); this carries only which rows
+     * and which of their conditions failed, which is the part that changes with the world.
+     */
+    public static Delta progressDelta(ProgressionEngine.Resolution resolution,
+                                      TeamProgress progress,
+                                      QuestIndex index,
+                                      Map<String, String> previous,
+                                      ProgressService.Contributors contributors,
+                                      java.util.Set<String> stageLocked,
+                                      Map<String, ProgressService.LockView> locks) {
         JsonObject changed = new JsonObject();
         Map<String, String> snapshot = new LinkedHashMap<>();
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
-            String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked);
+            String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked,
+                    locks.getOrDefault(quest.id(), ProgressService.LockView.NONE));
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -684,7 +744,8 @@ public final class QuestSync {
                                          TeamProgress progress,
                                          Quest quest,
                                          ProgressService.Contributors contributors,
-                                         java.util.Set<String> stageLocked) {
+                                         java.util.Set<String> stageLocked,
+                                         ProgressService.LockView locks) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
@@ -752,6 +813,22 @@ public final class QuestSync {
             tasks.add(stored.progressOf(i));
         }
         one.add("tasks", tasks);
+
+        // The conditions this player does not meet, per row: the row index, then which of its
+        // conditions failed, ascending. Absence means unlocked -- the opposite default from
+        // `claimable` above, and deliberately: a client that defaulted to locked would draw every row
+        // of every older server's pack as gated. Keyed by row position, the same keying the counts
+        // above use and carrying the same limitation about reordering.
+        if (!locks.tasks().isEmpty()) {
+            JsonObject lockedTasks = new JsonObject();
+            locks.tasks().forEach((index, unmet) -> lockedTasks.add(String.valueOf(index), ints(unmet)));
+            one.add("taskLocks", lockedTasks);
+        }
+        if (!locks.rewards().isEmpty()) {
+            JsonObject lockedRewards = new JsonObject();
+            locks.rewards().forEach((index, unmet) -> lockedRewards.add(String.valueOf(index), ints(unmet)));
+            one.add("rewardLocks", lockedRewards);
+        }
 
         // Who is holding what toward each task, by task position -- the "Ellio has four of the eight"
         // line a quest book could never draw, because the engine added those parts up and threw them
@@ -857,12 +934,17 @@ public final class QuestSync {
         TeamProgress progress = ProgressService.progressFor(server, owner);
         ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, gameTime);
 
+        Map<String, ProgressService.LockView> locks =
+                ProgressService.lockView(server, index, player, owner);
+
         Delta delta = progressDelta(resolution, progress, index, full ? null : last.quests(),
                 ProgressService.contributors(owner),
                 // The quests this player's stage gate shuts: the one per-player fact the per-quest text
                 // cannot carry, because the text is built from the team's progress. See progressDelta.
-                ProgressService.stageLockedQuests(server, player, index));
-        SENT.put(player.getUUID(), new Sent(owner, delta.snapshot()));
+                ProgressService.stageLockedQuests(server, player, index),
+                // And the rows this player's conditions shut, for the same reason.
+                locks);
+        SENT.put(player.getUUID(), new Sent(owner, delta.snapshot(), lockText(locks)));
 
         // Counted here rather than at the `send` calls below. One logical message can be several
         // chunks, and it is counted once for all of them: "how many times did the server have
@@ -882,6 +964,76 @@ public final class QuestSync {
                     parts.get(i),
                     reason));
         }
+    }
+
+    /** How often the lock refresh runs, in server ticks: a second, which is as fresh as a gate needs to feel. */
+    private static final int LOCK_REFRESH_TICKS = 20;
+
+    /** The last server and game tick the lock refresh ran on. Server thread only, like {@code SENT}. */
+    private static MinecraftServer lastLockServer;
+    private static Long lastLockTick;
+
+    /**
+     * Re-asks every online player's conditions, and pushes only the players whose picture changed.
+     *
+     * <h2>Why the send-time overlay is not enough on its own</h2>
+     *
+     * <p>The stage gate's lock is computed when progress is sent, and that is enough for a gate whose
+     * input a command changes — the command sends. A condition's inputs are the world: an inventory, a
+     * score, an advancement, who is online. Picking up the last log unlocks a row with no progress
+     * event to carry the news, so a picture computed only at send time would go on saying locked until
+     * something unrelated happened.
+     *
+     * <p>So the tick re-asks, once a second, and sends only when the canonical picture differs from
+     * what this player was last sent — a picture that has not changed costs nothing on the wire, and
+     * the idle-tick invariant survives. The whole pass is skipped when no quest declares a condition,
+     * which is what keeps it free for the packs that do not use them.
+     *
+     * <p>Called from the player-tick hook, which runs per player per tick, so the guard is a
+     * comparison against the game time rather than a counter — a counter would tick twice as fast with
+     * two players online. A clock that has gone backwards is due, the same rule {@code isDue} follows
+     * for the same reason: game time is per-world while this state lives for the life of the process.
+     */
+    public static void refreshLocks(MinecraftServer server) {
+        long now = server.overworld().getGameTime();
+        if (server == lastLockServer && lastLockTick != null
+                && now - lastLockTick < LOCK_REFRESH_TICKS && now >= lastLockTick) {
+            return;
+        }
+        lastLockServer = server;
+        lastLockTick = now;
+
+        QuestIndex index = TaskedQuests.index();
+        if (index.isEmpty() || !ProgressService.hasConditions(index)) {
+            return;
+        }
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID owner = ProgressService.progressOwner(server, player);
+            String picture = lockText(ProgressService.lockView(server, index, player, owner));
+            Sent sent = SENT.get(player.getUUID());
+            if (sent != null && picture.equals(sent.locks())) {
+                continue;
+            }
+            sendProgress(server, player, ProgressSyncPayload.REASON_CHANGED);
+        }
+    }
+
+    /**
+     * The canonical text of a lock picture.
+     *
+     * <p>What the refresh compares, so equal pictures must produce equal strings: the map is sorted and
+     * every list in it is ascending by construction. This is the same property the per-quest delta text
+     * rests on, and its failure looks the same from the outside — a quest resent forever.
+     */
+    private static String lockText(Map<String, ProgressService.LockView> locks) {
+        return new java.util.TreeMap<>(locks).toString();
+    }
+
+    /** A JSON array of integers, for the sparse lock fields. */
+    private static JsonArray ints(List<Integer> values) {
+        JsonArray array = new JsonArray();
+        values.forEach(array::add);
+        return array;
     }
 
     /**

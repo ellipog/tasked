@@ -12,6 +12,9 @@ import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskContext;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.quest.condition.ConditionContext;
+import dev.ellipog.tasked.quest.condition.Conditions;
+import dev.ellipog.tasked.quest.condition.QuestCondition;
 import dev.ellipog.tasked.quest.reward.RewardContext;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.KillTask;
@@ -33,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -357,6 +361,13 @@ public final class ProgressService {
             if (ProgressionEngine.isTaskSatisfied(quest, site.taskIndex(), before)) {
                 continue;
             }
+            // At event time, which is the only moment the kill is real: a condition that was unmet
+            // when the mob died cannot be satisfied afterwards, so this is a gate on the act rather
+            // than on a later tally.
+            if (!Conditions.passes(site.task().common().conditions(),
+                    new ConditionContext(killer, server, owner))) {
+                continue;
+            }
             int delta = KillTask.BEHAVIOUR.onEntityDeath(site.task(), killer, entity);
             if (delta <= 0) {
                 continue;
@@ -530,7 +541,18 @@ public final class ProgressService {
                 // read on its own and asserted without a server. What stayed here is the asking, which
                 // is the part that needs a world.
                 List<Integer> perMember = new ArrayList<>(members.size());
+                // Who may contribute at all, which is a different question from how much they have: a
+                // member who fails the task's conditions contributes nothing, and -- see the take below
+                // -- pays nothing. An empty condition list passes, so an unconditioned task fills this
+                // with every member exactly as it always did.
+                List<ServerPlayer> contributors = new ArrayList<>(members.size());
                 for (ServerPlayer member : members) {
+                    if (!Conditions.passes(task.common().conditions(),
+                            new ConditionContext(member, server, owner))) {
+                        perMember.add(0);
+                        continue;
+                    }
+                    contributors.add(member);
                     perMember.add(behaviour.get().current(task, new TaskContext(member, index, now)));
                 }
 
@@ -609,7 +631,9 @@ public final class ProgressService {
                     // would take two and call it four. So this is a real difference in behaviour
                     // rather than a tidier way to spell the same take.
                     if (mode.takesFromEveryone()) {
-                        consumeAcross(members, task, required, behaviour.get());
+                        // From the contributors, not from everyone: an ungated member's items were never
+                        // counted toward the requirement, so they are not the requirement's to take.
+                        consumeAcross(contributors, task, required, behaviour.get());
                     }
                     else {
                         behaviour.get().take(task, holder != null ? holder : earner, required);
@@ -712,7 +736,7 @@ public final class ProgressService {
         // duplicate a payout; see the class note on the direction of that write. A team-mode reward
         // is one claim, granted to the completer; a player-mode one is granted to every member online
         // now, and the rest collect theirs when they next join (see autoClaimFor).
-        List<Grant> automatic = automaticGrants(quest, recorded, progress, settings, player,
+        List<Grant> automatic = automaticGrants(server, owner, quest, recorded, progress, settings, player,
                 onlineMembersOf(server, teamFor(server, owner)));
         QuestClaims marked = recorded.claims();
         for (Grant grant : automatic) {
@@ -776,7 +800,8 @@ public final class ProgressService {
      * its automatic ones, so unblocking is one moment rather than two behaviours. Suppression is the
      * file-wide switch, and it outranks every per-reward mode.
      */
-    private static List<Grant> automaticGrants(Quest quest, QuestProgress current, TeamProgress team,
+    private static List<Grant> automaticGrants(MinecraftServer server, UUID owner, Quest quest,
+                                               QuestProgress current, TeamProgress team,
                                                QuestSettings settings, ServerPlayer completer,
                                                List<ServerPlayer> members) {
         if (settings.suppressAllAutoclaiming()) {
@@ -791,14 +816,21 @@ public final class ProgressService {
             if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()) {
                 continue;
             }
+            // Per recipient, because the conditions are: a reward that pays each member is gated for
+            // each member. One whose conditions are unmet here is not lost -- it stays unclaimed, and
+            // the claim paths (including autoClaimFor at the next join) pick it up once they hold.
             if (reward.common().teamReward(settings.defaultTeamReward())) {
-                if (!current.claims().team().contains(index)) {
+                if (!current.claims().team().contains(index)
+                        && Conditions.passes(reward.common().conditions(),
+                                new ConditionContext(completer, server, owner))) {
                     grants.add(new Grant(index, completer, true));
                 }
             }
             else {
                 for (ServerPlayer member : members) {
-                    if (!current.claims().claimed(member.getUUID(), index, false)) {
+                    if (!current.claims().claimed(member.getUUID(), index, false)
+                            && Conditions.passes(reward.common().conditions(),
+                                    new ConditionContext(member, server, owner))) {
                         grants.add(new Grant(index, member, false));
                     }
                 }
@@ -872,6 +904,88 @@ public final class ProgressService {
     }
 
     /**
+     * The rows a player is condition-locked out of, by quest: row index -> the conditions that failed.
+     *
+     * <p>A task or a reward with no entry is not locked, and its conditions — if it has any — all held.
+     * The lists are ascending and the maps are sorted, because this value's text is compared to decide
+     * whether a client needs an update; a map iterated in a varying order would resend forever, the
+     * lesson the contributors' JSON already carries.
+     */
+    public record LockView(Map<Integer, List<Integer>> tasks, Map<Integer, List<Integer>> rewards) {
+
+        /** No locks at all, which is every player on a pack that uses no conditions. */
+        public static final LockView NONE = new LockView(Map.of(), Map.of());
+
+        public boolean isEmpty() {
+            return tasks.isEmpty() && rewards.isEmpty();
+        }
+    }
+
+    /**
+     * Every condition lock this player has, for the sync to draw and to compare against the last one.
+     *
+     * <p>Only rows that declare conditions are evaluated, so a pack that uses none pays one walk of
+     * the index per call and nothing else — and the callers skip even that when the index declares
+     * none at all; see {@link #hasConditions}.
+     *
+     * <p>Asked per player because every condition is: the sync's overlay is the one per-player fact a
+     * team's stored progress cannot express, the same reason {@link #stageLockedQuests} exists.
+     */
+    public static Map<String, LockView> lockView(MinecraftServer server, QuestIndex index,
+                                                 ServerPlayer player, UUID owner) {
+        Map<String, LockView> out = new TreeMap<>();
+        ConditionContext context = new ConditionContext(player, server, owner);
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            Quest quest = entry.quest();
+            Map<Integer, List<Integer>> tasks = lockedRows(
+                    quest.tasks().stream().map(task -> task.common().conditions()).toList(), context);
+            Map<Integer, List<Integer>> rewards = lockedRows(
+                    quest.rewards().stream().map(reward -> reward.common().conditions()).toList(), context);
+            if (!tasks.isEmpty() || !rewards.isEmpty()) {
+                out.put(quest.id(), new LockView(tasks, rewards));
+            }
+        }
+        return out;
+    }
+
+    private static Map<Integer, List<Integer>> lockedRows(List<List<QuestCondition>> conditions,
+                                                          ConditionContext context) {
+        Map<Integer, List<Integer>> out = new TreeMap<>();
+        for (int i = 0; i < conditions.size(); i++) {
+            if (conditions.get(i).isEmpty()) {
+                continue;
+            }
+            List<Integer> unmet = Conditions.unmet(conditions.get(i), context);
+            if (!unmet.isEmpty()) {
+                out.put(i, unmet);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Whether any quest declares a condition at all.
+     *
+     * <p>The lock refresh's fast path: a pack that uses no conditions — which is every pack before
+     * this feature, and most after it — must pay nothing recurring for a display it never shows.
+     */
+    public static boolean hasConditions(QuestIndex index) {
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            for (QuestTask task : entry.quest().tasks()) {
+                if (!task.common().conditions().isEmpty()) {
+                    return true;
+                }
+            }
+            for (QuestReward reward : entry.quest().rewards()) {
+                if (!reward.common().conditions().isEmpty()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Everything outstanding on one quest, or everything a claim-all is allowed to take.
      *
      * <p>{@code claimAllMode} is the only difference between the two presses: a reward marked
@@ -897,12 +1011,22 @@ public final class ProgressService {
         List<Integer> payable = new ArrayList<>();
         List<Integer> offers = new ArrayList<>();
         boolean sawBlocked = false;
+        boolean sawLocked = false;
         for (int index = 0; index < quest.rewards().size(); index++) {
             QuestReward reward = quest.rewards().get(index);
             boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
             // This player's own claim, or the team's for a team-mode reward. What a teammate has
             // collected is not this player's business -- each claim is their own copy.
             if (current.legacySettled() || current.claimed(player.getUUID(), index, teamMode)) {
+                continue;
+            }
+            // The reward's own gate, checked here so that a claim and a claim-all cannot disagree:
+            // both build `payable` and both refuse a row whose conditions are unmet, and the refusal is
+            // a message rather than a silent no-op. Nothing is marked, so the reward stays outstanding
+            // and is paid the moment the conditions hold.
+            if (!Conditions.passes(reward.common().conditions(),
+                    new ConditionContext(player, server, owner))) {
+                sawLocked = true;
                 continue;
             }
             if (isBlocked(team, reward)) {
@@ -926,6 +1050,12 @@ public final class ProgressService {
             if (sawBlocked) {
                 player.displayClientMessage(
                         Component.translatable("tasked.quest.rewards_blocked"), true);
+            }
+            else if (sawLocked) {
+                // Named separately from blocking: one is the team's switch, the other is something the
+                // player can go and do. The sync the caller sends anyway corrects the rows.
+                player.displayClientMessage(
+                        Component.translatable("tasked.quest.conditions_unmet"), true);
             }
             return false;
         }
@@ -1020,6 +1150,12 @@ public final class ProgressService {
         if (current.legacySettled() || current.claimed(player.getUUID(), rewardIndex, teamMode)) {
             return false;
         }
+        // Re-checked at the answer: the offer travelled, the conditions did not necessarily hold when
+        // it arrived, and a choice is a payout path of its own.
+        if (!Conditions.passes(reward.common().conditions(), new ConditionContext(player, server, owner))) {
+            player.displayClientMessage(Component.translatable("tasked.quest.conditions_unmet"), true);
+            return false;
+        }
 
         QuestClaims marked = teamMode
                 ? current.claims().withTeamClaim(rewardIndex)
@@ -1093,6 +1229,12 @@ public final class ProgressService {
                 if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()
                         || isBlocked(team, reward)
                         || current.claimed(player.getUUID(), index, teamMode)) {
+                    continue;
+                }
+                // The join-time half of the same gate: an offline member collects on their next login,
+                // and if the conditions do not hold then either, the reward stays owed until they do.
+                if (!Conditions.passes(reward.common().conditions(),
+                        new ConditionContext(player, server, owner))) {
                     continue;
                 }
                 owed.add(index);
@@ -1273,6 +1415,14 @@ public final class ProgressService {
 
         if (!quest.isTaskUnlocked(taskIndex,
                 earlier -> ProgressionEngine.isTaskSatisfied(quest, earlier, beforeSubmit))) {
+            return false;
+        }
+
+        // The gate, checked at the press rather than left to the tick: a submit button showing for a
+        // task whose conditions are unmet is the skip this guards against, the same way the count check
+        // below guards the items.
+        if (!Conditions.passes(task.common().conditions(), new ConditionContext(player, server, owner))) {
+            player.displayClientMessage(Component.translatable("tasked.quest.conditions_unmet"), true);
             return false;
         }
 

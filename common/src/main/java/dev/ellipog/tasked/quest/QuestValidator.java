@@ -7,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -110,6 +111,22 @@ public final class QuestValidator {
         Set<String> fields = new LinkedHashSet<>();
         for (ResourceLocation id : RewardTypes.ids()) {
             fields.addAll(RewardTypes.fieldsOf(id));
+        }
+        return fields;
+    }
+
+    /**
+     * Every condition type's own fields, for the fallback when a condition's type is unknown.
+     *
+     * <p>A third union, because a condition is a third registry: its field names live one level below a
+     * task's, where the task-level union cannot reach them, and a condition switched from one type to
+     * another must not have the old type's fields reported as unknown — the same reasoning the task and
+     * reward unions give.
+     */
+    private static Set<String> allConditionFields() {
+        Set<String> fields = new LinkedHashSet<>();
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            fields.addAll(ConditionTypes.fieldsOf(id));
         }
         return fields;
     }
@@ -633,13 +650,26 @@ public final class QuestValidator {
             checkItem(document, path, problems);
         }
 
+        int errorsBeforeConditions = problems.errorCount();
+        checkConditions(document, path + ".conditions", problems);
+        boolean conditionsBroken = problems.errorCount() > errorsBeforeConditions;
+
         // And the type's own codec gets the last word. The checks above are about names and value
         // shapes; whether the fields that are there *make a value* is the codec's question, and it is
         // the difference between a save that refuses and a file the loader drops at the next read.
         // This gap had a live defect behind it -- deleting an item task's "item" saved cleanly and
         // took the quest out of the tree -- and the loader's own message asked for it to be closed.
-        type.ifPresent(id -> TaskTypes.codecOf(id)
-                .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        //
+        // Skipped when the conditions list already reported an error, because the task's codec decodes
+        // the nested list too: without this, one broken condition produces its own precise message and
+        // then this one wrapping the same failure in the task's name. One mistake, one message is the
+        // principle the class comment states. The cost is the compound case -- a nested error and a
+        // missing field of the task's own show up one per read rather than together -- which is the
+        // rarer and the less confusing of the two trades.
+        if (!conditionsBroken) {
+            type.ifPresent(id -> TaskTypes.codecOf(id)
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        }
     }
 
     /**
@@ -737,8 +767,62 @@ public final class QuestValidator {
             checkItem(document, path, problems);
         }
 
-        // The reward half of the codec check in checkTask, for the same defect and the same reason.
-        type.ifPresent(id -> RewardTypes.codecOf(id)
+        int errorsBeforeConditions = problems.errorCount();
+        checkConditions(document, path + ".conditions", problems);
+        boolean conditionsBroken = problems.errorCount() > errorsBeforeConditions;
+
+        // The reward half of the codec check in checkTask, for the same defect and the same reason --
+        // including the skip when the conditions list already spoke, which keeps one broken condition
+        // from being reported twice.
+        if (!conditionsBroken) {
+            type.ifPresent(id -> RewardTypes.codecOf(id)
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+        }
+    }
+
+    /**
+     * Checks a {@code "conditions"} list on a task or a reward.
+     *
+     * <p>A nested list of typed objects, which is a shape the validator's other checks do not have: a
+     * task's own fields are flat on the task, while a condition's fields are one level down. So the
+     * elements get their own dispatch read, their own unknown-field union, and their own codec
+     * backstop — the same three questions as a task, asked at the nested path.
+     */
+    private static void checkConditions(JsonDocument document, String path, Problems problems) {
+        if (!document.has(path)) {
+            return;
+        }
+        var array = Checks.array(document, path, problems);
+        if (array == null) {
+            return;
+        }
+        for (int i = 0; i < array.size(); i++) {
+            checkCondition(document, path + "[" + i + "]", problems);
+        }
+    }
+
+    private static void checkCondition(JsonDocument document, String path, Problems problems) {
+        if (!isObject(document, path, problems)) {
+            return;
+        }
+        Optional<ResourceLocation> type = readType(document, path, ConditionTypes.ids(), "quest condition",
+                problems);
+        if (type.isEmpty()) {
+            Checks.rejectUnknown(document, path, union(allConditionFields(), Set.of("type")), problems);
+            return;
+        }
+        // Every condition type's fields, for the reason checkTask gives for the same union: a condition
+        // may legitimately be changed from one type to another, and flagging the old type's leftovers
+        // on every file would be noise. What this catches is the field no type anywhere understands.
+        Checks.rejectUnknown(document, path, union(allConditionFields(), Set.of("type")), problems);
+
+        // The item half of the same convention checkTask runs: an item condition declares its item
+        // under "item", and the item's values are checked the same way wherever the field appears.
+        if (document.has(path + ".item")) {
+            checkItem(document, path, problems);
+        }
+
+        type.ifPresent(id -> ConditionTypes.codecOf(id)
                 .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
     }
 

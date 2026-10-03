@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import dev.ellipog.armature.client.ui.inspect.InspectField;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
 
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -248,6 +249,68 @@ class QuestPanelLayoutTest {
 
         assertEquals(List.of("addon:mystery"), QuestPanelLayout.typeTooltip("tasks", "addon:mystery"),
                 "no hint and no registered fields: the id is the whole description");
+    }
+
+    @Test
+    @DisplayName("the condition picker lists every registered condition type once, under its own headings")
+    void conditionPickerCoversTheRegistry() {
+        List<InspectRow> rows = QuestPanelLayout.conditionTypeRows();
+        List<String> listed = rows.stream()
+                .filter(candidate -> candidate.kind() == InspectRow.Kind.ACTION)
+                .map(candidate -> candidate.key().substring(QuestPanelLayout.TYPE_PREFIX.length()))
+                .toList();
+        Set<String> expected = new TreeSet<>();
+        ConditionTypes.ids().forEach(id -> expected.add(id.toString()));
+
+        assertEquals(expected, new TreeSet<>(listed), "every registered condition is offered");
+        assertEquals(listed.size(), new TreeSet<>(listed).size(), "and offered once");
+        assertEquals("Add a condition", rows.get(0).label(), "the page says what it is for");
+        assertEquals("Stage", row(rows, QuestPanelLayout.TYPE_PREFIX + "tasked:stage").label(),
+                "a row shows the table's name for the type, not the id a file spells");
+    }
+
+    @Test
+    @DisplayName("a condition's form is the condition registry's, and an unknown type has none")
+    void conditionFormsAndNames() {
+        JsonObject stage = JsonParser.parseString(
+                "{ \"type\": \"tasked:stage\", \"stage\": \"my_pack:marked\" }").getAsJsonObject();
+        assertEquals(List.of("stage"), QuestPanelLayout.conditionEditorFor(stage).stream()
+                        .map(dev.ellipog.tasked.quest.EditorField::path).toList(),
+                "the declared form, read from the condition registry");
+        assertEquals("Stage", QuestPanelLayout.conditionName("tasked:stage"));
+        assertEquals("Custom gate", QuestPanelLayout.conditionName("addon:custom_gate"),
+                "an unnamed type reads as its prettified path");
+
+        JsonObject unknown = JsonParser.parseString(
+                "{ \"type\": \"addon:custom_gate\" }").getAsJsonObject();
+        assertTrue(QuestPanelLayout.conditionEditorFor(unknown).isEmpty(),
+                "an unknown condition type has no form -- the raw-JSON fallback's trigger");
+
+        List<String> tip = QuestPanelLayout.conditionTypeTooltip("tasked:item");
+        assertEquals("Have a count of one item.", tip.get(0), "the table's hint comes first");
+        assertTrue(tip.stream().anyMatch(line -> line.startsWith("Fields: ")),
+                "and the fields come from the registry: " + tip);
+        assertEquals("tasked:item", tip.get(tip.size() - 1), "the id a file spells is last");
+    }
+
+    @Test
+    @DisplayName("a task's conditions are the card's section, not a dock row that would write a string")
+    void conditionsAreNotDockRows() {
+        JsonObject quest = JsonParser.parseString("""
+                {
+                  "id": "gated",
+                  "title": "Gated",
+                  "tasks": [
+                    { "type": "tasked:checkmark", "title": "done",
+                      "conditions": [ { "type": "tasked:stage", "stage": "my_pack:marked" } ] }
+                  ]
+                }
+                """).getAsJsonObject();
+
+        List<InspectRow> rows = rows(quest);
+        assertFalse(rows.stream().anyMatch(candidate -> candidate.key().equals("tasks.0.conditions")),
+                "a text row for a list would offer to write a string where the format holds objects: "
+                        + rows.stream().map(InspectRow::key).toList());
     }
 
     @Test

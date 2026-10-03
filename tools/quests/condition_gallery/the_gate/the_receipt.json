@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_receipt",
+  "title": "The Receipt",
+  "subtitle": "Two conditions on one reward, and both must hold",
+  "description": [
+    "The task is an ordinary checkmark, so the quest completes on any press.",
+    "The reward is where the gate is: its claims are checked against two",
+    "conditions, and a list of conditions is an AND -- the advancement alone",
+    "does not open it, and neither do the logs alone.",
+    "",
+    "The first condition asks for an advancement, which is the one gate that",
+    "the world itself records: `/advancement grant @s only minecraft:story/root`",
+    "is the same fact the condition reads. The second asks for eight items",
+    "of the `minecraft:logs` tag -- any log counts, because a tag condition",
+    "is about the tag rather than the item.",
+    "",
+    "Read this file next to the_standing: there the reward's condition is a",
+    "score, here it is two other types, and the claim is refused the same",
+    "way in both -- with a message, and with the reward still waiting."
+  ],
+  "icon": { "item": "minecraft:paper" },
+  "x": 800,
+  "y": 0,
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Sign for it" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:emerald",
+      "auto": "disabled",
+      "conditions": [
+        { "type": "tasked:advancement", "advancement": "minecraft:story/root" },
+        { "type": "tasked:item_tag", "tag": "minecraft:logs", "count": 8 }
+      ]
+    }
+  ]
+}

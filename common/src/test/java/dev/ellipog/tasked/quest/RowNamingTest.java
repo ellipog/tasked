@@ -5,6 +5,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 
+import dev.ellipog.tasked.quest.condition.ConditionDisplay;
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
+import dev.ellipog.tasked.quest.condition.QuestCondition;
 import dev.ellipog.tasked.quest.reward.RewardDisplay;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskDisplay;
@@ -130,11 +133,34 @@ class RowNamingTest {
             }
         }
 
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            JsonObject tree = ConditionTypes.defaultTree(id).orElseThrow(() ->
+                    new AssertionError(id + " has no default tree"));
+            QuestCondition condition = ConditionTypes.dispatchCodec().parse(JsonOps.INSTANCE, tree)
+                    .getOrThrow(error -> new AssertionError(id + " did not decode: " + error));
+            ConditionDisplay display = ConditionTypes.displayOf(condition);
+            if (display.item().isPresent()) {
+                // An item condition draws the item's own name, as an item task does. There is no key of
+                // ours to check and nothing that could render as a number.
+                continue;
+            }
+            if (lang.containsKey(display.label())) {
+                used.add(display.label());
+                assertSendsItsSubject(id, display.label(), display.labelArg());
+            }
+            // A condition has no count to fall back on: its sentence's number rides the subject, so the
+            // subject is what the key is checked against. A condition type that sent none would be
+            // caught by assertSendsItsSubject above whenever its key exists.
+            assertSentence(id, display.label(), display.labelFallback(),
+                    display.labelArg().isEmpty() ? display.label() : display.labelArg(), lang);
+        }
+
         // The other direction: a row key the file holds and no type produces is a leftover of a rename
         // -- and the old `tasked.reward.stage` was exactly that after the sentences landed.
         Set<String> fileRowKeys = new TreeSet<>();
         for (String key : lang.keySet()) {
-            if ((key.startsWith("tasked.task.") || key.startsWith("tasked.reward."))
+            if ((key.startsWith("tasked.task.") || key.startsWith("tasked.reward.")
+                    || key.startsWith("tasked.condition."))
                     && !MESSAGE_KEYS.contains(key)) {
                 fileRowKeys.add(key);
             }

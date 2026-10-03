@@ -9,6 +9,7 @@ import dev.ellipog.tasked.party.PartyStore;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
+import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.minecraft.resources.ResourceLocation;
@@ -184,6 +185,11 @@ public final class Tasked {
             if (!changed.isEmpty()) {
                 TaskedNetworking.sendProgressToOwners(server, changed, ProgressSyncPayload.REASON_CHANGED);
             }
+            // The conditions' own clock: a gate whose input changed with no progress event to carry
+            // the news -- an item picked up, a level gained, a party member arriving -- would otherwise
+            // stay drawn locked until something unrelated moved. Once a second, and silent unless a
+            // player's lock picture actually changed; see QuestSync.refreshLocks.
+            QuestSync.refreshLocks(server);
         });
 
         // The kill task's hook. Quiet in the log -- a mob farm would otherwise fill it -- but the

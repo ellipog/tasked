@@ -27,7 +27,7 @@ playing.
 | `/tasked rewards block` / `unblock` | Hold or release the team's automatic payouts. |
 | `/tasked stage add <player> <stage>` | Grant a stage. |
 | `/tasked stage remove <player> <stage>` | Take one away. |
-| `/tasked types` | Every task and reward type this build has, with the fields each one takes. |
+| `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |
 
 ## Parties
 

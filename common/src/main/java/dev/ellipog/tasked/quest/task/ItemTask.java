@@ -11,7 +11,6 @@ import dev.ellipog.tasked.quest.TaskContext;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.Optional;
@@ -64,34 +63,6 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
     }
 
     /**
-     * Counts matching items in the player's inventory, including the hotbar and the off hand.
-     *
-     * <p>Strict matching: same item and same components. An enchanted pickaxe is not a plain one, and
-     * a shulker box with items inside is not an empty one. Fuzzy matching — ignore the components —
-     * is the obvious next field, and it is not here because doing it properly means deciding what
-     * "the same" means for every component, and guessing wrong is worse than being strict.
-     *
-     * <p>Stops as soon as {@code required} is reached, so the cost of the scan is bounded by the
-     * requirement rather than by the size of the inventory.
-     */
-    private static int countIn(Inventory inventory, ItemStack template, ComponentMatch match, int required) {
-        if (template.isEmpty()) {
-            return 0;
-        }
-        int found = 0;
-        for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
-            ItemStack stack = inventory.getItem(slot);
-            if (match.matches(template, stack)) {
-                found += stack.getCount();
-                if (found >= required) {
-                    return found;
-                }
-            }
-        }
-        return found;
-    }
-
-    /**
      * The behaviour, in one place.
      *
      * <p>Kept in the task's own file rather than in the registry, so that everything about
@@ -118,7 +89,8 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
                 int crafted = context.player().getStats().getValue(Stats.ITEM_CRAFTED.get(template.getItem()));
                 return Math.min(task.item().count(), crafted);
             }
-            return countIn(context.player().getInventory(), template, task.match(), task.item().count());
+            return ItemCounting.countIn(context.player().getInventory(), template, task.match(),
+                    task.item().count());
         }
 
         @Override

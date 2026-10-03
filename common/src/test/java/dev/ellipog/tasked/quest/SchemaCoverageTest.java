@@ -3,6 +3,7 @@ package dev.ellipog.tasked.quest;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.loot.RewardTable;
 import dev.ellipog.tasked.quest.reward.RewardCommon;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
@@ -106,6 +107,34 @@ class SchemaCoverageTest {
             Set<String> missing = new TreeSet<>(QuestRules.FIELDS);
             missing.removeAll(documented);
             assertTrue(missing.isEmpty(), () -> schema + " does not document these quest fields: " + missing);
+        }
+    }
+
+    @Test
+    @DisplayName("every condition field is documented, in both schemas, in the condition definition")
+    void theConditionFamilyIsDocumented() throws IOException {
+        Set<String> expected = new TreeSet<>();
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            expected.addAll(ConditionTypes.fieldsOf(id));
+        }
+
+        for (Path schema : List.of(PER_KIND, PUBLISHED)) {
+            // The condition family is a definition of its own rather than properties of anyType: a
+            // condition's fields live one level down, and documenting them at the task level would put
+            // names in anyType that no task or reward reads -- which the reverse check above refuses.
+            JsonObject condition = read(schema).getAsJsonObject("definitions").getAsJsonObject("condition");
+            Set<String> documented = condition.getAsJsonObject("properties").keySet();
+
+            Set<String> missing = new TreeSet<>(expected);
+            missing.removeAll(documented);
+            assertTrue(missing.isEmpty(), () -> schema + " does not document these condition fields: "
+                    + missing);
+
+            Set<String> invented = new TreeSet<>(documented);
+            invented.removeAll(expected);
+            invented.remove("type");
+            assertTrue(invented.isEmpty(), () -> schema + " documents condition fields no registered "
+                    + "type has: " + invented);
         }
     }
 

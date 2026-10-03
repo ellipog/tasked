@@ -20,7 +20,10 @@ recognise, so `"titl": "Punch a Tree"` produces a quest with a blank title, no e
 any log. And a codec failure names the file but not the line, which is most of what an author needs.
 
 Because a file with a structural error is **not decoded at all**, one mistake produces one message
-rather than a validator complaint followed by a codec complaint about the same thing.
+rather than a validator complaint followed by a codec complaint about the same thing. The same holds
+one level down: a broken entry in a task's or reward's `conditions` list is reported at the entry's
+own line, and the enclosing task's codec does not repeat it — a condition whose `type` no build knows
+is one error listing the condition types, not two messages saying it twice.
 
 **Cross-file checks happen when the whole tree is known.** A file on its own cannot know that an id is
 duplicated in another file, or that a `dependsOn` names a quest nobody wrote, or that two quests depend
@@ -28,9 +31,9 @@ on each other in a circle. Those are checked against the assembled tree, after e
 read.
 
 > [!TIP]
-> `/tasked types` prints every task and reward type this build has, and the field names each one
-> takes — the fastest way to check a field name without opening a schema, and the list the validator
-> itself uses.
+> `/tasked types` prints every task, reward and [[tasked:authoring/conditions|condition]] type this
+> build has, and the field names each one takes — the fastest way to check a field name without
+> opening a schema, and the list the validator itself uses.
 
 ## What happens when a file is wrong
 

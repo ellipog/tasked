@@ -1518,6 +1518,205 @@ class QuestPlaythroughTest {
     }
 
     // ------------------------------------------------------------------
+    // Conditions
+    // ------------------------------------------------------------------
+
+    /** The flag the gallery's shopping list hands out, and the two quests beside it ask for. */
+    private static final ResourceLocation THE_PASSWORD =
+            ResourceLocation.fromNamespaceAndPath("condition_gallery", "password");
+
+    /**
+     * Sets a stage on the test player, either way, without asserting the result.
+     *
+     * <p>Setup rather than a check: adding a stage a player already has, or removing one they do not,
+     * both return 0, and both leave the world in the state the caller wanted.
+     */
+    private static void setStage(ResourceLocation stage, boolean present) {
+        asOperator((present ? "/tasked stage add tasked-tester " : "/tasked stage remove tasked-tester ")
+                + stage);
+    }
+
+    @Test
+    @Order(30)
+    @DisplayName("a conditioned submit is refused without the stage and accepted the moment it is held")
+    void aConditionedSubmitIsRefusedUntilTheStageIsHeld() {
+        clearInventories();
+        setStage(THE_PASSWORD, false);
+        assertFalse(hasStage(player, THE_PASSWORD), "the setup must leave the flag unheld");
+
+        HeadlessServer.Outcome refused = asOperator("/tasked submit the_password 0");
+        assertRefused(refused, "the task's condition asks for a stage this player does not have");
+        assertEquals(0, recordedTask("the_password", 0),
+                "a refused submit must not record the checkmark -- the gate is checked at the press");
+
+        setStage(THE_PASSWORD, true);
+        HeadlessServer.Outcome accepted = asOperator("/tasked submit the_password 0");
+        assertEquals(1, accepted.result(),
+                () -> "the same press should be accepted now that the stage is held:\n" + accepted.text());
+        assertEquals(QuestState.COMPLETED, stateOf("the_password"),
+                "the checkmark was the quest's only task, so the quest is finished");
+
+        note("a conditioned checkmark was refused without the stage and accepted with it -- the gate is "
+                + "asked at the press, not only in the tick");
+    }
+
+    @Test
+    @Order(31)
+    @DisplayName("an item condition gates the press, is never consumed, and its reward grants the stage")
+    void anItemConditionGatesThePressAndItsRewardGrantsTheStage() {
+        clearInventories();
+        setStage(THE_PASSWORD, false);
+
+        HeadlessServer.Outcome refused = asOperator("/tasked submit the_shopping_list 0");
+        assertRefused(refused, "the condition wants eight cobblestone the player is not holding");
+        assertEquals(0, recordedTask("the_shopping_list", 0), "and nothing was recorded");
+
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:cobblestone 8");
+        assertEquals(1, given.result(), () -> "/give should have worked:\n" + given.text());
+
+        HeadlessServer.Outcome accepted = asOperator("/tasked submit the_shopping_list 0");
+        assertEquals(1, accepted.result(),
+                () -> "the stone is there, so the press should be accepted:\n" + accepted.text());
+        assertEquals(8, countInInventory(Items.COBBLESTONE),
+                "a condition asks; it never takes. The eight are still in the inventory");
+
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_shopping_list");
+        assertEquals(1, claimed.result(), () -> "the stage reward should pay:\n" + claimed.text());
+        assertTrue(hasStage(player, THE_PASSWORD),
+                "the reward is what grants the gallery's password, which the next quest asks for");
+
+        note("an item condition was measured without consuming, and its quest's reward granted "
+                + THE_PASSWORD);
+    }
+
+    @Test
+    @Order(32)
+    @DisplayName("a condition gates the tick's own counting, not only a press")
+    void aConditionGatesTheTickToo() {
+        clearInventories();
+        setStage(THE_PASSWORD, false);
+
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:cobblestone 8");
+        assertEquals(1, given.result(), () -> "/give should have worked:\n" + given.text());
+
+        // the_supply is an item task, so no press is involved: tick it with the stone held and the
+        // stage missing, and the count must not be taken at all.
+        for (int i = 0; i < 5; i++) {
+            tickOnce();
+            sleep(100);
+        }
+        assertNotEquals(QuestState.COMPLETED, stateOf("the_supply"),
+                "eight cobblestone without the stage must not complete the supply");
+        assertEquals(0, recordedTask("the_supply", 0),
+                "and must not record a count -- the condition gates the reading, not only the button");
+
+        setStage(THE_PASSWORD, true);
+        assertTrue(tickUntil(() -> stateOf("the_supply") == QuestState.COMPLETED, Duration.ofSeconds(20)),
+                () -> "the same stone should count once the stage is held. the_supply is "
+                        + stateOf("the_supply") + " and its task is at " + recordedTask("the_supply", 0));
+
+        note("the same eight cobblestone counted only once the stage was held -- a condition gates the "
+                + "tick, where a checkmark's gate is only ever met at a press");
+    }
+
+    @Test
+    @Order(33)
+    @DisplayName("a scoreboard condition gates a reward, and the objective is born shut at zero")
+    void aScoreConditionGatesTheClaim() {
+        clearInventories();
+
+        // The objective does not exist when the world starts, which is the state docs/conditions.md
+        // calls out: a missing objective reads as zero, so the gate is shut rather than the quest
+        // being broken. Four is deliberately one short of the reward's five.
+        HeadlessServer.Outcome added = asOperator("/scoreboard objectives add condition_gallery_standing dummy");
+        assertEquals(1, added.result(), () -> "the objective should have been created:\n" + added.text());
+        asOperator("/scoreboard players set tasked-tester condition_gallery_standing 4");
+
+        HeadlessServer.Outcome completed = asOperator("/tasked complete the_standing");
+        assertEquals(1, completed.result(),
+                () -> "an operator's complete is not gated by a task's condition:\n" + completed.text());
+
+        assertRefused(asOperator("/tasked claim the_standing"),
+                "the reward's condition wants five points and the player has four");
+        assertEquals(0, countInInventory(Items.GOLD_INGOT), "and nothing was paid");
+
+        asOperator("/scoreboard players set tasked-tester condition_gallery_standing 5");
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_standing");
+        assertEquals(1, claimed.result(),
+                () -> "five points is the reward's condition, so the claim should pay:\n" + claimed.text());
+        assertEquals(1, countInInventory(Items.GOLD_INGOT), "the ingot is the proof it did");
+
+        note("a score condition refused the claim at four and paid at five, read from the scoreboard");
+    }
+
+    @Test
+    @Order(34)
+    @DisplayName("a party-size condition counts the members online now, and a party of one cannot pass it")
+    void aPartySizeConditionCountsWhoIsHere() {
+        clearInventories();
+
+        // Start from solo, whatever the party tests above left behind: leave() is a no-op for a solo
+        // player, which is exactly the state this wants and the reason it can be called blind.
+        server.callOnServerThread(() -> {
+            Teams.of(server.server()).leave(player.getUUID());
+            Teams.of(server.server()).leave(friend.getUUID());
+            return null;
+        });
+
+        HeadlessServer.Outcome refused = asOperator("/tasked submit the_company 0");
+        assertRefused(refused, "a party of one cannot pass a party-of-two condition");
+        assertEquals(0, recordedTask("the_company", 0), "nothing recorded, either");
+
+        server.callOnServerThread(() -> {
+            var teams = Teams.of(server.server());
+            var team = teams.create("the condition party", player.getUUID());
+            assertTrue(teams.invite(team.id(), friend.getUUID()), "the friend should be invited");
+            return team.id();
+        });
+        server.callOnServerThread(() -> Teams.of(server.server()).acceptInvite(friend.getUUID()));
+
+        HeadlessServer.Outcome accepted = asOperator("/tasked submit the_company 0");
+        assertEquals(1, accepted.result(),
+                () -> "with two members online the condition holds:\n" + accepted.text());
+
+        note("a party-size condition refused a solo press and accepted it once a second member was "
+                + "online in the same party");
+    }
+
+    @Test
+    @Order(35)
+    @DisplayName("two conditions on a reward are an AND, and the last one is what opens it")
+    void twoConditionsOnARewardAreAnAnd() {
+        clearInventories();
+        // The advancement is one of the two conditions and the harder one to undo, so the setup
+        // revokes it first: 0 when it was never granted, which is not a failure here.
+        asOperator("/advancement revoke @s only minecraft:story/root");
+
+        HeadlessServer.Outcome completed = asOperator("/tasked complete the_receipt");
+        assertEquals(1, completed.result(), () -> "the receipt should complete:\n" + completed.text());
+
+        assertRefused(asOperator("/tasked claim the_receipt"),
+                "neither condition holds: no advancement, no logs");
+        assertEquals(0, countInInventory(Items.EMERALD), "nothing paid");
+
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:oak_log 8");
+        assertEquals(1, given.result(), () -> "/give should have worked:\n" + given.text());
+        assertRefused(asOperator("/tasked claim the_receipt"),
+                "eight logs satisfy one condition, and the advancement is still missing -- the list is an AND");
+
+        HeadlessServer.Outcome granted = asOperator("/advancement grant @s only minecraft:story/root");
+        assertEquals(1, granted.result(), () -> "the advancement should have been granted:\n" + granted.text());
+
+        HeadlessServer.Outcome claimed = asOperator("/tasked claim the_receipt");
+        assertEquals(1, claimed.result(),
+                () -> "both conditions hold now, so the claim should pay:\n" + claimed.text());
+        assertEquals(1, countInInventory(Items.EMERALD), "the emerald is the proof");
+
+        note("a reward with two conditions refused while one was met and paid with both -- a conditions "
+                + "list is an AND");
+    }
+
+    // ------------------------------------------------------------------
     // Driving and reading
     // ------------------------------------------------------------------
 

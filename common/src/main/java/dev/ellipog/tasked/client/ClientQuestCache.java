@@ -63,7 +63,9 @@ public final class ClientQuestCache {
     public record TaskEntry(ItemStack icon, ItemStack item, int count, boolean optional, boolean manual,
                             String type, String label, String labelFallback, String labelArg, String itemId,
                             /** The observation fields, empty for every other type: what to watch, how. */
-                            String observeType, String observeTarget, int observeTicks) {
+                            String observeType, String observeTarget, int observeTicks,
+                            /** The gates this task carries, for the locked row's hover. Empty for none. */
+                            List<ConditionEntry> conditions) {
 
         /** Whether this row draws an item at all, as opposed to text. */
         public boolean hasItem() {
@@ -128,7 +130,9 @@ public final class ClientQuestCache {
      */
     public record RewardEntry(ItemStack icon, ItemStack item, int count, String type, String label,
                               String labelFallback, String labelArg, String itemId, String auto, boolean team,
-                              boolean excludeFromClaimAll) {
+                              boolean excludeFromClaimAll,
+                              /** The gates this reward carries, for the locked row's hover. Empty for none. */
+                              List<ConditionEntry> conditions) {
 
         public boolean hasItem() {
             return !item.isEmpty();
@@ -149,6 +153,42 @@ public final class ClientQuestCache {
                 return Component.translatableWithFallback(label, labelFallback, arg);
             }
             return Component.literal(label.isEmpty() ? "?" : label);
+        }
+    }
+
+    /**
+     * One gate a task or a reward carries, resolved ready to draw.
+     *
+     * <p>What a locked row's hover names. The item is resolved here, like a task's, and the rest is the
+     * sentence: a key and an English fallback, exactly as a row's own text travels, because the server
+     * does not know this client's language. The unmet <i>indices</i> travel on the progress channel and
+     * say which of these to name — see {@link #taskLockOf}.
+     */
+    public record ConditionEntry(ItemStack item, int count, String label, String labelFallback,
+                                 String labelArg) {
+
+        /** Whether this gate is drawn as an item, with the item's own name. */
+        public boolean hasItem() {
+            return !item.isEmpty();
+        }
+
+        /**
+         * The line a hover shows.
+         *
+         * <p>An item gate reads as the item's own name and count — the number is part of the sentence
+         * here because a condition has no progress chip to carry it, which is the one place this
+         * differs from a task row. A text gate carries its number in {@code labelArg}, so the key
+         * formats to the whole sentence.
+         */
+        public String line() {
+            if (hasItem()) {
+                String name = item.getHoverName().getString();
+                return count > 1 ? name + " \u00d7" + count : name;
+            }
+            if (!labelFallback.isEmpty() && !label.isEmpty()) {
+                return Component.translatableWithFallback(label, labelFallback, labelArg).getString();
+            }
+            return label.isEmpty() ? "?" : label;
         }
     }
 
@@ -306,6 +346,10 @@ public final class ClientQuestCache {
                             Set<Integer> teamClaims,
                             /** Per player, the indices they have collected themselves. */
                             Map<UUID, Set<Integer>> claimedBy,
+                            /** Per task row, the conditions this player does not meet. Absent = unlocked. */
+                            Map<Integer, List<Integer>> taskLocks,
+                            /** The same for reward rows. */
+                            Map<Integer, List<Integer>> rewardLocks,
                             /** A pre-per-player save's "collected": nobody may claim again. */
                             boolean legacySettled) {
 
@@ -320,6 +364,16 @@ public final class ClientQuestCache {
                 return teamClaims.contains(index);
             }
             return claimedBy.getOrDefault(player, Set.of()).contains(index);
+        }
+
+        /** The conditions this player is missing on one task, ascending. Empty means not locked. */
+        List<Integer> taskLock(int index) {
+            return taskLocks.getOrDefault(index, List.of());
+        }
+
+        /** The same for one reward. */
+        List<Integer> rewardLock(int index) {
+            return rewardLocks.getOrDefault(index, List.of());
         }
     }
 
@@ -516,6 +570,28 @@ public final class ClientQuestCache {
     }
 
     /**
+     * The conditions this player does not meet on one task, ascending; empty means the task is open.
+     *
+     * <p>This player's, not the team's: two members of a party can look at one quest and see different
+     * tasks shut. Empty for a quest or task this client has no progress for, and for every task of a
+     * server that predates conditions — one answer for all three, and the safe one: a row drawn open
+     * that the server would refuse is corrected by the refusal and the sync that follows it.
+     *
+     * <p>The indices are positions in the task's own {@code conditions} list, which the tree carries;
+     * the hover uses them to name exactly what is missing rather than listing the gates that hold too.
+     */
+    public static List<Integer> taskLockOf(String questId, int taskIndex) {
+        Progress found = progress.get(questId);
+        return found == null ? List.of() : found.taskLock(taskIndex);
+    }
+
+    /** The same for one reward. */
+    public static List<Integer> rewardLockOf(String questId, int rewardIndex) {
+        Progress found = progress.get(questId);
+        return found == null ? List.of() : found.rewardLock(rewardIndex);
+    }
+
+    /**
      * Whether <b>this player</b> is finished with rewards they have not collected.
      *
      * <p>Per player, because a claim is a player's own: in a party where a teammate collected their
@@ -535,7 +611,11 @@ public final class ClientQuestCache {
             return false;
         }
         for (int index = 0; index < entry.rewards().size(); index++) {
-            if (!found.claimed(player, index, entry.rewards().get(index).team())) {
+            // A reward whose conditions this player does not meet is not claimable by them: showing
+            // the button would be showing one the server refuses. The lock is this player's, so a
+            // teammate who meets the conditions still sees theirs.
+            if (found.rewardLock(index).isEmpty()
+                    && !found.claimed(player, index, entry.rewards().get(index).team())) {
                 return true;
             }
         }
@@ -935,7 +1015,8 @@ public final class ClientQuestCache {
                 str(json, "item"),
                 str(json, "observeType"),
                 str(json, "observeTarget"),
-                json.has("observeTicks") ? json.get("observeTicks").getAsInt() : 0);
+                json.has("observeTicks") ? json.get("observeTicks").getAsInt() : 0,
+                conditionEntries(json));
     }
 
     private static RewardEntry rewardEntry(JsonObject json) {
@@ -951,7 +1032,38 @@ public final class ClientQuestCache {
                 str(json, "item"),
                 str(json, "auto"),
                 json.has("team") && json.get("team").getAsBoolean(),
-                json.has("excludeFromClaimAll") && json.get("excludeFromClaimAll").getAsBoolean());
+                json.has("excludeFromClaimAll") && json.get("excludeFromClaimAll").getAsBoolean(),
+                conditionEntries(json));
+    }
+
+    /**
+     * The gates a task or a reward carries, resolved.
+     *
+     * <p>Empty for an entry with none — every entry of a pack without conditions — and for every entry
+     * of a server that predates the field, which are the same answer: nothing to explain on hover.
+     */
+    private static List<ConditionEntry> conditionEntries(JsonObject json) {
+        if (!json.has("conditions") || !json.get("conditions").isJsonArray()) {
+            return List.of();
+        }
+        List<ConditionEntry> out = new ArrayList<>();
+        for (JsonElement value : json.getAsJsonArray("conditions")) {
+            if (!value.isJsonObject()) {
+                continue;
+            }
+            JsonObject condition = value.getAsJsonObject();
+            out.add(new ConditionEntry(
+                    condition.has("item")
+                            ? stack(condition.get("item").getAsString(),
+                                    condition.has("count") ? condition.get("count").getAsInt() : 1,
+                                    condition.get("itemComponents"))
+                            : ItemStack.EMPTY,
+                    condition.has("count") ? condition.get("count").getAsInt() : 1,
+                    str(condition, "label"),
+                    str(condition, "labelFallback"),
+                    str(condition, "labelArg")));
+        }
+        return List.copyOf(out);
     }
 
     /**
@@ -1043,6 +1155,8 @@ public final class ClientQuestCache {
                         Map.copyOf(contributors),
                         Set.copyOf(teamClaims),
                         Map.copyOf(claimedBy),
+                        lockMap(one, "taskLocks"),
+                        lockMap(one, "rewardLocks"),
                         one.has("settled") && one.get("settled").getAsBoolean()));
             }
         }
@@ -1058,6 +1172,32 @@ public final class ClientQuestCache {
         catch (NumberFormatException e) {
             return -1;
         }
+    }
+
+    /**
+     * The row locks from the wire: row index -> the condition indices that failed.
+     *
+     * <p>Absent is unlocked, the opposite default from {@code claimable} and deliberately so: a server
+     * that predates conditions sends no key at all, and a client that defaulted to locked would draw
+     * every row of every older server's pack as gated.
+     */
+    private static Map<Integer, List<Integer>> lockMap(JsonObject one, String key) {
+        if (!one.has(key) || !one.get(key).isJsonObject()) {
+            return Map.of();
+        }
+        Map<Integer, List<Integer>> out = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonElement> row : one.getAsJsonObject(key).entrySet()) {
+            int index = taskIndex(row.getKey());
+            if (index < 0 || !row.getValue().isJsonArray()) {
+                continue;
+            }
+            List<Integer> unmet = new ArrayList<>();
+            for (JsonElement value : row.getValue().getAsJsonArray()) {
+                unmet.add(value.getAsInt());
+            }
+            out.put(index, List.copyOf(unmet));
+        }
+        return Map.copyOf(out);
     }
 
     /** A member's id from the wire, or null for one this client cannot read. */

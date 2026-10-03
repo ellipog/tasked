@@ -91,6 +91,12 @@ public final class EntryFormLayout {
     public static final int FOLD_WIDTH = 14;
     public static final int REMOVE_WIDTH = 16;
 
+    /** How far a condition is indented inside its entry, per level: it is inside the task, not beside it. */
+    public static final int CONDITION_INDENT = 12;
+
+    /** How wide the "Add condition" row's control is, at most. */
+    public static final int ADD_CONDITION_WIDTH = 120;
+
     /** No box at all, for the kinds that do not have one. */
     public static final BookGeometry.Rect NONE = BookGeometry.Rect.at(0, 0, 0, 0);
 
@@ -121,16 +127,34 @@ public final class EntryFormLayout {
     }
 
     /**
-     * One entry, laid out: its badge, its fields, its grip and the three controls in its corner.
+     * One condition under an entry: its badge line, its own form's cells, and the cross that removes it.
+     *
+     * <p>No grip and no fold. A conditions list is an AND, so its order is cosmetic and there is nothing
+     * a reorder would mean; and a condition is two or three controls, which folded would still need its
+     * badge to say which one it is.
+     *
+     * @param lines the badge line plus the condition's own field lines, for the entry's total
+     */
+    public record ConditionRow(int index, BookGeometry.Rect icon, BookGeometry.Rect name,
+                               BookGeometry.Rect remove, List<Cell> cells, int lines) {
+    }
+
+    /**
+     * One entry, laid out: its badge, its fields, its conditions, its grip and the three controls in its
+     * corner.
      *
      * <p>Folded, {@link #cells} is empty and {@link #lines} is one: a folded entry is its badge line, which
      * is the same 24 pixels a one-line entry has always been.
      *
+     * @param conditions  one row per condition in the entry's list, in the order the file has them
+     * @param addCondition the press that opens the condition picker; {@link #NONE} on a folded entry or
+     *                     an unknown type, whose conditions are part of its raw JSON instead
      * @param lines the height in lines, which is what {@link OverlayLayout#entryRowHeight} wants
      */
     public record Form(BookGeometry.Rect badge, BookGeometry.Rect icon, BookGeometry.Rect name,
                        BookGeometry.Rect grip, BookGeometry.Rect copy, BookGeometry.Rect fold,
-                       BookGeometry.Rect remove, List<Cell> cells, int lines) {
+                       BookGeometry.Rect remove, List<Cell> cells, List<ConditionRow> conditions,
+                       BookGeometry.Rect addCondition, int lines) {
 
         public int height() {
             return OverlayLayout.entryRowHeight(lines);
@@ -187,10 +211,91 @@ public final class EntryFormLayout {
             }
         }
         int lines_ = lines.size() + 1;
+
+        // The conditions, under the entry's own fields: one badge line each, then the condition's own
+        // form with the same cell arithmetic, indented. Then the row that opens the picker, which is the
+        // entry's last line whenever it is open for editing -- so the height the card reserves and the
+        // rows the drawing produces come from this one place, as they do for the fields. Folded, there
+        // are none: folding is "no fields", and a condition list is part of them.
+        //
+        // Not on an unknown type: its whole entry is the raw-JSON fallback, and a condition inserted
+        // into a tree whose shape this build cannot read has nowhere to be drawn.
+        List<ConditionRow> conditionRows = new ArrayList<>();
+        boolean canAddConditions = !collapsed && QuestPanelLayout.knownType(typeOf(entry));
+        if (canAddConditions && entry.has("conditions") && entry.get("conditions").isJsonArray()) {
+            int used = lines_;
+            for (int j = 0; j < entry.getAsJsonArray("conditions").size(); j++) {
+                JsonObject condition = conditionAt(entry, j);
+                if (condition == null) {
+                    continue;
+                }
+                ConditionRow row = conditionRow(j, condition, left, right, badgeY, used);
+                conditionRows.add(row);
+                used += row.lines();
+            }
+            lines_ = used;
+        }
+        BookGeometry.Rect addCondition = canAddConditions
+                ? BookGeometry.Rect.at(left, badgeY + lines_ * LINE_HEIGHT,
+                        Math.min(ADD_CONDITION_WIDTH, Math.max(0, right - left)), LINE_HEIGHT)
+                : NONE;
+        if (canAddConditions) {
+            lines_ += 1;
+        }
+
         int gripHeight = Math.max(10, OverlayLayout.entryRowHeight(lines_) - 2 * PAD + 2);
         BookGeometry.Rect grip = BookGeometry.Rect.at(slot.x(), slot.y() + 2, GRIP_WIDTH, gripHeight);
         return new Form(BookGeometry.Rect.at(slot.x(), badgeY, slot.width(), LINE_HEIGHT), icon, name, grip,
-                copy, fold, remove, List.copyOf(cells), lines_);
+                copy, fold, remove, List.copyOf(cells), List.copyOf(conditionRows), addCondition, lines_);
+    }
+
+    /** The type an entry names, or empty when it names none or names one badly. */
+    private static String typeOf(JsonObject entry) {
+        return entry.has("type") && entry.get("type").isJsonPrimitive()
+                ? entry.get("type").getAsString() : "";
+    }
+
+    /** One of an entry's conditions, or null when the list holds something that is not an object. */
+    private static JsonObject conditionAt(JsonObject entry, int index) {
+        com.google.gson.JsonElement value = entry.getAsJsonArray("conditions").get(index);
+        return value.isJsonObject() ? value.getAsJsonObject() : null;
+    }
+
+    /**
+     * One condition's row: its badge at the indent, and its own form's cells below it.
+     *
+     * <p>The indent is per level, not per kind: the badge sits {@code CONDITION_INDENT} in from the
+     * entry's content and the fields another step in from that, so what the eye reads is "inside the
+     * task" rather than "beside it". The cells come from the same {@link #cell} arithmetic the entry's
+     * own fields use, so a count is the same stepper wherever it appears.
+     */
+    private static ConditionRow conditionRow(int index, JsonObject condition, int left, int right,
+                                             int badgeY, int line) {
+        int x = left + CONDITION_INDENT;
+        int y = badgeY + line * LINE_HEIGHT;
+        BookGeometry.Rect icon = BookGeometry.Rect.at(x, y, ICON_BOX, LINE_HEIGHT);
+        BookGeometry.Rect remove = BookGeometry.Rect.at(right - REMOVE_WIDTH, y, REMOVE_WIDTH, LINE_HEIGHT);
+        int nameWidth = Math.max(0, remove.x() - GAP - (icon.right() + GAP));
+        BookGeometry.Rect name = BookGeometry.Rect.at(icon.right() + GAP, y, nameWidth, LINE_HEIGHT);
+
+        List<EditorField> fields = QuestPanelLayout.conditionEditorFor(condition);
+        int fieldLeft = x + CONDITION_INDENT;
+        int labelWidth = labelWidth(fields);
+        List<List<EditorField>> fieldLines = lines(fields, right - fieldLeft, labelWidth);
+        List<Cell> cells = new ArrayList<>();
+        for (int i = 0; i < fieldLines.size(); i++) {
+            int cellY = y + (i + 1) * LINE_HEIGHT;
+            List<EditorField> lineFields = fieldLines.get(i);
+            if (lineFields.size() == 1) {
+                cells.add(cell(lineFields.get(0), fieldLeft, cellY, right - fieldLeft, labelWidth));
+            }
+            else {
+                int half = (right - fieldLeft - GAP) / 2;
+                cells.add(cell(lineFields.get(0), fieldLeft, cellY, half, labelWidth));
+                cells.add(cell(lineFields.get(1), fieldLeft + half + GAP, cellY, half, labelWidth));
+            }
+        }
+        return new ConditionRow(index, icon, name, remove, List.copyOf(cells), 1 + fieldLines.size());
     }
 
     /**

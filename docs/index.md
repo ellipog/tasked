@@ -33,6 +33,7 @@ authoring material for a pack's first chapter.
 | [[tasked:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
 | [[tasked:authoring/tasks]] | The fifteen task types, and what each one counts |
 | [[tasked:authoring/rewards]] | The ten reward types, and the reward tables behind four of them |
+| [[tasked:authoring/conditions]] | The six condition types — gating a task or a reward on an item, a tag, a score, an advancement, a stage or a party's size |
 | [[tasked:authoring/validation]] | What the validator checks, and what a mistake reads like |
 | [[tasked:commands]] | The `/tasked` commands, for players and operators |
 | [[tasked:authoring/kubejs]] | Driving a questline from a KubeJS script |

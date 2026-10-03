@@ -3,6 +3,8 @@ package dev.ellipog.tasked.quest;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.JsonOps;
 
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
+import dev.ellipog.tasked.quest.condition.QuestCondition;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -54,6 +56,22 @@ class RegisteredTypesTest {
             assertTrue(tree.isPresent(), id + " has no default tree, so the editor could never add it");
 
             QuestReward decoded = RewardTypes.dispatchCodec().parse(JsonOps.INSTANCE, tree.get())
+                    .getOrThrow(error -> new AssertionError(id + " default tree did not decode: " + error));
+            assertEquals(id, decoded.type(), id + "'s default decoded as another type");
+        }
+    }
+
+    @Test
+    @DisplayName("a condition type's default tree encodes, decodes, and names its own type")
+    void conditionDefaultsRoundTrip() {
+        assertTrue(ConditionTypes.count() >= 6, "the built-in catalogue is expected to be complete here");
+
+        for (ResourceLocation id : ConditionTypes.ids()) {
+            Optional<JsonObject> tree = ConditionTypes.defaultTree(id);
+            assertTrue(tree.isPresent(), id + " has no default tree, so a picker could never add it");
+            assertTrue(tree.get().has("type"), id + "'s default tree carries no type field");
+
+            QuestCondition decoded = ConditionTypes.dispatchCodec().parse(JsonOps.INSTANCE, tree.get())
                     .getOrThrow(error -> new AssertionError(id + " default tree did not decode: " + error));
             assertEquals(id, decoded.type(), id + "'s default decoded as another type");
         }

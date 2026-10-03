@@ -61,6 +61,31 @@ class EntryFormLayoutTest {
                 """).getAsJsonObject();
     }
 
+    /** A task with one condition, whose own form has fields to lay out under the task's. */
+    private static JsonObject conditionedTask() {
+        return JsonParser.parseString("""
+                {
+                  "type": "tasked:checkmark",
+                  "title": "done",
+                  "conditions": [ { "type": "tasked:stage", "stage": "my_pack:marked" } ]
+                }
+                """).getAsJsonObject();
+    }
+
+    /** A task with two conditions, the second a type this build does not know. */
+    private static JsonObject mixedConditions() {
+        return JsonParser.parseString("""
+                {
+                  "type": "tasked:checkmark",
+                  "title": "done",
+                  "conditions": [
+                    { "type": "tasked:stage", "stage": "my_pack:marked" },
+                    { "type": "addon:custom_gate", "whatever": true }
+                  ]
+                }
+                """).getAsJsonObject();
+    }
+
     private static BookGeometry.Rect slot(int width) {
         return BookGeometry.Rect.at(0, 0, width, 100);
     }
@@ -144,7 +169,8 @@ class EntryFormLayoutTest {
     @DisplayName("no two controls overlap, at any width")
     void nothingOverlaps() {
         for (String member : List.of("tasks", "rewards")) {
-            for (JsonObject entry : List.of(itemTask(), locationTask(), unknownType())) {
+            for (JsonObject entry : List.of(itemTask(), locationTask(), unknownType(), conditionedTask(),
+                    mixedConditions())) {
                 for (int width = 200; width <= 900; width += 7) {
                     List<BookGeometry.Rect> boxes = boxes(form(member, entry, width));
                     for (int i = 0; i < boxes.size(); i++) {
@@ -163,15 +189,47 @@ class EntryFormLayoutTest {
     @DisplayName("the height the card is told is the height the form draws")
     void heightIsTheDrawing() {
         EntryFormLayout.Form form = form("tasks", itemTask(), 600);
-        // The badge's line, then one line per packed line of fields -- and the card's own arithmetic
-        // turns that into pixels, so a form and the rows below it cannot disagree.
-        assertEquals(5, form.lines(),
+        // The badge's line, then one line per packed line of fields, then the row that opens the
+        // condition picker -- and the card's own arithmetic turns that into pixels, so a form and the
+        // rows below it cannot disagree.
+        assertEquals(5, 1 + distinctLineCount(form.cells()),
                 "badge, item, count+consume, match+crafted, optional+checked-every");
-        assertEquals(1 + distinctLineCount(form.cells()), form.lines());
+        assertEquals(1 + distinctLineCount(form.cells()) + 1, form.lines(),
+                "and the condition picker's row, which every open entry carries");
         assertEquals(EntryFormLayout.lines("tasks", itemTask(), 600), form.lines(),
                 "the layout's own count and the card's input are one derivation");
         assertEquals(24, form("tasks", unknownType(), 600).height(),
                 "a one-line entry is still the 24 pixels it always was");
+    }
+
+    @Test
+    @DisplayName("a condition's rows are indented under the entry, and counted in its height")
+    void conditionsLayOutUnderTheEntry() {
+        EntryFormLayout.Form form = form("tasks", conditionedTask(), 600);
+        assertEquals(1, form.conditions().size(), "the fixture's one condition");
+        EntryFormLayout.ConditionRow row = form.conditions().get(0);
+        assertTrue(row.icon().x() > form.cells().get(0).label().x(),
+                "the condition is indented inside the entry's own content");
+        assertFalse(row.cells().isEmpty(), "a known condition type draws its own form");
+        assertEquals(EntryFormLayout.REMOVE_WIDTH, row.remove().width(),
+                "and carries the cross that removes it");
+        assertTrue(row.remove().x() >= row.name().right(),
+                "the cross sits past the condition's name, on the badge's line");
+
+        int expected = 1 + distinctLineCount(form.cells())
+                + form.conditions().stream().mapToInt(EntryFormLayout.ConditionRow::lines).sum() + 1;
+        assertEquals(expected, form.lines(),
+                "the height is the badge, the fields, the conditions and the picker's row");
+        assertEquals(EntryFormLayout.lines("tasks", conditionedTask(), 600), form.lines(),
+                "the card's own count and the layout are one derivation, conditions included");
+
+        // Two conditions, the second a type this build does not know: still a row, still a line, and no
+        // cells -- the raw-JSON fallback's trigger, the same refusal an unknown entry gets.
+        EntryFormLayout.Form mixed = form("tasks", mixedConditions(), 600);
+        assertEquals(2, mixed.conditions().size());
+        assertFalse(mixed.conditions().get(0).cells().isEmpty());
+        assertTrue(mixed.conditions().get(1).cells().isEmpty(), "an unknown condition type has no form");
+        assertEquals(1, mixed.conditions().get(1).lines(), "but it is still a line of its own");
     }
 
     @Test
@@ -227,7 +285,20 @@ class EntryFormLayoutTest {
         out.add(form.copy());
         out.add(form.remove());
         out.add(form.grip());
-        for (EntryFormLayout.Cell cell : form.cells()) {
+        addCells(out, form.cells());
+        for (EntryFormLayout.ConditionRow row : form.conditions()) {
+            out.add(row.icon());
+            out.add(row.remove());
+            addCells(out, row.cells());
+        }
+        if (form.addCondition().width() > 0) {
+            out.add(form.addCondition());
+        }
+        return out;
+    }
+
+    private static void addCells(List<BookGeometry.Rect> out, List<EntryFormLayout.Cell> cells) {
+        for (EntryFormLayout.Cell cell : cells) {
             if (cell.isTriple()) {
                 out.addAll(cell.axes());
             }
@@ -242,7 +313,6 @@ class EntryFormLayoutTest {
                 out.add(cell.action());
             }
         }
-        return out;
     }
 
     private static int distinctLineCount(List<EntryFormLayout.Cell> cells) {

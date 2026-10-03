@@ -42,6 +42,7 @@
     "tasked.quest.claimed": "Collected the rewards for %s",
     "tasked.quest.not_enough": "You do not have everything this task needs.",
     "tasked.quest.rewards_blocked": "This team's rewards are being held right now.",
+    "tasked.quest.conditions_unmet": "The conditions for this are not met yet.",
     "tasked.quest.choose": "Choose your reward.",
     "tasked.reward.inventory_full": "Your inventory was full, so %s was dropped at your feet",
 
@@ -135,5 +136,11 @@
     "tasked.task.custom": "Custom task: %s",
     "tasked.task.stage": "Have the stage %s",
     "tasked.task.kill": "Kill %s",
-    "tasked.task.observation": "Observe %s"
+    "tasked.task.observation": "Observe %s",
+
+    "tasked.condition.item_tag": "Have %s",
+    "tasked.condition.advancement": "Have earned %s",
+    "tasked.condition.stage": "Have the stage %s",
+    "tasked.condition.score": "Have %s",
+    "tasked.condition.party_size": "Be in a party of %s or more"
 }

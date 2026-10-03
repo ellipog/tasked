@@ -484,6 +484,99 @@ class QuestValidatorTest {
     }
 
     @Test
+    @DisplayName("an unknown condition type lists the condition types, and only those")
+    void unknownConditionTypeIsReported() {
+        // The third registry, asked the same question as the other two. The listing is the one place
+        // the difference shows: a condition type name that silently fell back to the task registry
+        // would suggest tasked:checkmark to an author who wrote a condition.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x",
+                            "conditions": [{"type": "tasked:no_such"}]}]}""");
+
+        DataProblem problem = containing(problems, "unknown quest condition type \"tasked:no_such\"");
+        assertTrue(problem.message().contains("tasked:party_size"),
+                "the known list must be the condition registry, got: " + problem.message());
+        assertFalse(problem.message().contains("tasked:checkmark"),
+                "and not the task registry, got: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("a condition field no condition type knows is reported, with a suggestion")
+    void unknownConditionFieldIsReported() {
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x",
+                            "conditions": [{"type": "tasked:stage", "stag": "pack:x"}]}]}""");
+
+        DataProblem problem = containing(problems, "unknown field \"stag\"");
+        assertTrue(problem.message().contains("did you mean \"stage\"?"),
+                "a one-letter slip is the case this catches, got: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("a condition missing its required field is an error naming the condition type")
+    void conditionNeedsItsOwnFields() {
+        // The nested half of the item-task gap: the field names are only names, and whether they make a
+        // value is the condition's own codec's question.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x",
+                            "conditions": [{"type": "tasked:stage"}]}]}""");
+
+        DataProblem problem = containing(problems, "No key stage");
+        assertTrue(problem.severity() == DataProblem.Severity.ERROR,
+                "a condition the codec cannot read would drop the quest from the tree at the next load");
+        assertTrue(problem.message().contains("tasked:stage"),
+                "and it says which condition type the fields failed to make, got: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("one broken condition is one message, not the task's codec repeating it")
+    void aBrokenConditionIsReportedOnce() {
+        // The enclosing task's codec decodes the nested list too, so without the skip in checkTask the
+        // same root cause arrives twice -- once precisely, once wrapped in the task's name. The class
+        // comment's rule is one mistake, one message; this is what holds it for a nested list.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x",
+                            "conditions": [{"type": "tasked:stage"}]}]}""");
+
+        long aboutTheCondition = problems.all().stream()
+                .filter(problem -> problem.message().contains("No key stage"))
+                .count();
+        assertEquals(1, aboutTheCondition,
+                "the condition's own codec reports it; the task's backstop must not repeat it. Got:\n"
+                        + messages(problems));
+    }
+
+    @Test
+    @DisplayName("an item condition's item is checked where the condition stands")
+    void itemConditionChecksItsItem() {
+        // The "item" convention check, one level down: an item condition with an id this build does not
+        // have is a warning at the condition's own line, and the quest still loads.
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x",
+                            "conditions": [{"type": "tasked:item", "item": "someothermod:widget"}]}]}""");
+
+        assertFalse(problems.hasErrors(),
+                "a missing item is the warning it is everywhere else, got: " + messages(problems));
+        containing(problems, "there is no item someothermod:widget");
+    }
+
+    @Test
+    @DisplayName("a conditions list that is not a list is refused on its own line")
+    void conditionsMustBeAList() {
+        Problems problems = validateQuest("""
+                {"id": "one", "title": "One",
+                 "tasks": [{"type": "tasked:checkmark", "title": "x", "conditions": 5}]}""");
+
+        assertTrue(containing(problems, "expected a list").severity() == DataProblem.Severity.ERROR,
+                "a number where a list belongs must not be skipped, got: " + messages(problems));
+    }
+
+    @Test
     @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")
     void iconWithABrokenPatchIsRefused() {
         // The icon's half of the per-type codec check: a component patch the codec cannot read would

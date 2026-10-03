@@ -6,7 +6,7 @@ Nothing in this folder is compiled, and nothing in it ships in the jar.
 
 ## `quests/` — the worked examples
 
-Eleven complete questlines, and the reason they are here rather than in `src/main/resources` is worth
+Twelve complete questlines, and the reason they are here rather than in `src/main/resources` is worth
 stating: **Tasked ships no quests.** It is a quest engine, and a mod that installs example chapters
 into every player's config directory has made a decision that is not its to make. The first thing a
 pack author would have to do is delete somebody else's content, and every file a mod ships is a file
@@ -15,7 +15,7 @@ that has to keep working forever against a format that is still moving.
 So the examples are authoring documentation, and they arrive in a `config/tasked/quests` directory
 because somebody ran the script below.
 
-They are eleven different *designs* rather than eleven difficulties of the same thing, and they run
+They are twelve different *designs* rather than twelve difficulties of the same thing, and they run
 from a single quest to ninety:
 
 | Group folder | What it is for | Quests |
@@ -30,15 +30,16 @@ from a single quest to ninety:
 | `the_veil/` | Every hiding flag the format has, one file each: a chain that reveals itself a link at a time, a quest hidden until part of it is stumbled onto, text withheld until done, and a crossroads where the road taken closes the others for good. | 12 |
 | `shape_gallery/` | The `shape` field as an exhibit: eleven quests, one per shape, all the same size and the same distance apart, so a difference between two of them is the shape and not the layout. Collapsed in the sidebar by default. | 11 |
 | `the_induction/` | Stages, the one flag a player carries rather than a team: a reward grants one, a `requiresStage` gate and a stage task read it, and a third quest clears it again. | 3 |
+| `condition_gallery/` | Conditions, one type per quest: an item, a tag, a score, an advancement, a stage and how many of a party are online — gating a pressed task, a measured one, a reward, and one reward behind two conditions at once. | 6 |
 | `the_spoils/` | Reward tables: a quest whose `tasked:loot` reward rolls `reward_tables/loot.json` when it is collected — the weight-zero entry that always lands, and the empty band that can disappoint. | 1 |
 
 `QuestIndexTest` asserts all of it — every mechanism, all four prerequisite modes, aliases at all
 three levels and a dependency that resolves through one, the extremes of size and icon scale, a
 cross-group edge, the linear chapter of forty-odd nodes, and that the sizes really do run from a
-handful to a scroll — so a future tidy-up cannot quietly turn an exhibition into eleven copies of the
+handful to a scroll — so a future tidy-up cannot quietly turn an exhibition into twelve copies of the
 first file.
 
-Two of the eleven are meant to be looked at rather than read: `the_mosaic` is a heart you colour in,
+Two of the twelve are meant to be looked at rather than read: `the_mosaic` is a heart you colour in,
 and `the_constellation` is a sky. `/tasked complete <quest>` walks either of them a node at a time,
 which is how both are meant to be seen.
 
@@ -76,6 +77,11 @@ the file that has it:
 | `requiresStage`, and the stage a reward grants | `the_induction/the_rite/the_mark.json` (the gate) and `the_summons.json` (the grant) |
 | a stage task, measured and never handed in | `the_induction/the_rite/the_mark.json` |
 | a stage reward that clears a flag (`"remove": true`) | `the_induction/the_rite/the_fall.json` |
+| an item condition gating a task | `condition_gallery/the_gate/the_shopping_list.json` |
+| a condition gating a measured task, not a press | `condition_gallery/the_gate/the_supply.json` (with `the_password.json` for the stage it asks about) |
+| a reward gated by a scoreboard objective | `condition_gallery/the_gate/the_standing.json` |
+| a reward behind two conditions at once | `condition_gallery/the_gate/the_receipt.json` |
+| a party-size condition | `condition_gallery/the_gate/the_company.json` |
 | a reward table, and a `loot` reward that rolls it | `reward_tables/loot.json`, and `the_spoils/the_loot/the_winnings.json` |
 
 ### The layout, which is the format

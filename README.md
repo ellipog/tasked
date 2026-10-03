@@ -27,6 +27,12 @@ registers.
 **Ten reward types.** `item`, `xp`, a weighted `random` table, a `loot` table that can come up
 empty, `all_table`, `choice` (the player picks), `command`, `advancement`, `stage`, and `custom`.
 
+**Six condition types.** `item`, `item_tag`, `score` (a scoreboard objective), `advancement`,
+`stage`, and `party_size` — gates a task or a reward can carry as a `conditions` list. A measured
+task counts only for members who meet them, a submit is refused without them, and a reward is paid
+only to a player who does; a gated row is drawn locked in the book, with the unmet conditions named
+on hover.
+
 **Progression is declarative.** Prerequisite modes (`ALL_COMPLETED`, `ONE_COMPLETED`,
 `ALL_STARTED`, `ONE_STARTED`) with an optional `minRequired` count for OR-gates; chapters are
 `LINEAR` or `FLEXIBLE`; quests can repeat on a cooldown, run their tasks sequentially or
@@ -51,9 +57,9 @@ move a node with a snap grid, undo/redo, and Ctrl+S to save. The server re-check
 validates before writing; the client never writes a file.
 
 **For addons and packs.** `TaskedEvents` publishes quest, task, claim and stage events, and
-`TaskTypes.register` / `RewardTypes.register` add custom types with their own codecs and editor
-forms. On NeoForge, with KubeJS 7 present, Tasked also registers a `Tasked` script binding and a
-`TaskedEvents` event group for pack scripting.
+`TaskTypes.register` / `RewardTypes.register` / `ConditionTypes.register` add custom types with
+their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked also registers a
+`Tasked` script binding and a `TaskedEvents` event group for pack scripting.
 
 ## Requirements
 

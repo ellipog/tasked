@@ -20,6 +20,7 @@ import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestReward;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
+import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 import dev.ellipog.tasked.net.ProgressSyncPayload;
@@ -409,7 +410,12 @@ public final class TaskedCommand {
         RewardTypes.ids().forEach(id -> context.getSource().sendSuccess(
                 () -> Component.literal("  §f" + id + " §7fields: " + RewardTypes.fieldsOf(id)), false));
 
-        return TaskTypes.count() + RewardTypes.count();
+        context.getSource().sendSuccess(() -> Component.literal(
+                "§7condition types (" + ConditionTypes.count() + "):"), false);
+        ConditionTypes.ids().forEach(id -> context.getSource().sendSuccess(
+                () -> Component.literal("  §f" + id + " §7fields: " + ConditionTypes.fieldsOf(id)), false));
+
+        return TaskTypes.count() + RewardTypes.count() + ConditionTypes.count();
     }
 
     // ------------------------------------------------------------------
