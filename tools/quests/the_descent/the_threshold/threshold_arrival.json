@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "threshold_arrival",
+  "title": "The Door Down",
+  "description": [
+    "The door opens inward, which the first surveyors read as",
+    "hospitality and later surveyors read correctly.",
+    "",
+    "An observation task completes when you look at its",
+    "subject for a moment -- here, the door itself. Nothing is",
+    "carried, nothing is spent; the looking is the doing."
+  ],
+  "icon": {
+    "item": "minecraft:oak_door"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:observation",
+      "observeType": "block",
+      "toObserve": "minecraft:oak_door"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_ash_account",
+  "title": "The Ash Account",
+  "subtitle": "What the expedition spent, tallied",
+  "description": [
+    "Four obsidian, three buckets of pitch, one anchor's charge and",
+    "everything the fortress took: the expedition's ash account, read",
+    "out at the last camp in the tone the expedition's accountant has",
+    "been practising the whole way.",
+    "",
+    "The tally is a button. The accountant insists this is tradition."
+  ],
+  "icon": { "item": "minecraft:book" },
+  "x": 960,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_lantern_line"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Hear the tally" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:gold_ingot", "count": 6 }
+  ]
+}

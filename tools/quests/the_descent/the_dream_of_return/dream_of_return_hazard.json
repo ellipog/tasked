@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "dream_of_return_hazard",
+  "title": "Waking",
+  "description": [
+    "The hazard of the last stratum is the surface itself,",
+    "which arrives without warning and takes no persuasion.",
+    "Press the mark with your eyes open. That is all the",
+    "station asks and it is the hardest one."
+  ],
+  "icon": {
+    "item": "minecraft:lantern"
+  },
+  "x": 288,
+  "y": 32,
+  "shape": "gear",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Open your eyes"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:lantern",
+      "count": 1
+    }
+  ]
+}

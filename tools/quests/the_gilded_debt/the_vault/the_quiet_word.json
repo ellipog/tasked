@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_quiet_word",
+  "title": "The Quiet Word",
+  "subtitle": "Silent, and left out of Claim all",
+  "description": [
+    "The other command reward, done properly: `silent: true` says",
+    "nothing in chat, and `excludeFromClaimAll: true` leaves it for its",
+    "own press -- Claim all collects everything outstanding except the",
+    "rewards that ask to be claimed deliberately, and this is what that",
+    "field is for."
+  ],
+  "icon": { "item": "minecraft:bell" },
+  "x": 672,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_crowns_due"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Give the word" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:command",
+      "command": "title @s actionbar {p} hears the quiet word",
+      "permissionLevel": 2,
+      "silent": true,
+      "excludeFromClaimAll": true
+    },
+    { "type": "tasked:xp", "amount": 25 }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "apostle_01",
+  "title": "Sea Green",
+  "description": [
+    "Pane 2 of the apostle ring."
+  ],
+  "icon": {
+    "item": "minecraft:magenta_stained_glass"
+  },
+  "x": 456,
+  "y": 415,
+  "shape": "hexagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:magenta_stained_glass",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 12
+    }
+  ]
+}

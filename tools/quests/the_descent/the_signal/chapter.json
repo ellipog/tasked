@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_signal",
+  "title": "The Signal",
+  "subtitle": "the twelfth of fifteen depths",
+  "theme": "terminal",
+  "description": [
+    "Under the city something has been transmitting for centuries:",
+    "pulses in a line, patient, addressed to nobody in particular",
+    "and therefore to anybody still walking.",
+    "",
+    "Terminal is the theme: green on black, square, the look of a",
+    "thing that answers."
+  ],
+  "icon": {
+    "item": "minecraft:observer"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "signal_arrival.json",
+    "signal_path.json",
+    "signal_ward.json",
+    "signal_hazard.json",
+    "signal_treasure.json",
+    "signal_on.json"
+  ]
+}

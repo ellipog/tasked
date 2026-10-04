@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "prophet_01",
+  "title": "Deep Green",
+  "description": [
+    "Pane 2 of the prophet ring."
+  ],
+  "icon": {
+    "item": "minecraft:black_stained_glass"
+  },
+  "x": 450,
+  "y": 280,
+  "shape": "diamond",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:black_stained_glass",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 12
+    }
+  ]
+}

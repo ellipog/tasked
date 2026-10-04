@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_mirror",
+  "title": "The Mirror",
+  "subtitle": "form: curved, bend: 0.8, arrowHead: diamond",
+  "description": [
+    "The planet that shows the room to itself, on the deepest bow the",
+    "format allows: `form: curved` with `bend: 0.8` -- eight tenths of",
+    "the chord between its ends -- and a `diamond` head where it",
+    "arrives.",
+    "",
+    "The comet bends the other way, which is how the two extremes of",
+    "the axis got to be neighbours in the same sky."
+  ],
+  "icon": { "item": "minecraft:glass" },
+  "x": 512,
+  "y": 704,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": { "form": "curved", "bend": 0.8, "arrowHead": "diamond" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:ender_pearl" }
+  ]
+}

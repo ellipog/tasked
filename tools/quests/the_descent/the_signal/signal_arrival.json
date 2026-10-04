@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "signal_arrival",
+  "title": "A Light That Answers",
+  "description": [
+    "Carry an observer and it observes, which is the honest",
+    "way to meet whatever is sending. The light down here",
+    "blinks on a schedule the descent has been keeping all",
+    "along without knowing it."
+  ],
+  "icon": {
+    "item": "minecraft:observer"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:observer",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

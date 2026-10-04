@@ -1,0 +1,38 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_midnight_market",
+  "title": "The Midnight Market",
+  "collapsedByDefault": true,
+  "description": [
+    "A market that is only there between two and four in the morning,",
+    "down the alley that is only an alley when you are not looking at",
+    "it, run by a vendor class the province denies the existence of",
+    "and patronised by everybody in it.",
+    "",
+    "This group starts collapsed in the sidebar -- `collapsedByDefault`,",
+    "on the group manifest, which is what a group of secrets asks for --",
+    "and it is the collection's exhibit of the hiding family and the",
+    "dice: one quest hidden until it is stumbled onto, one hidden until",
+    "its prerequisite rule is met, one that withholds its details until",
+    "it can be started, a crossroads that closes two of its three roads",
+    "for good, a stall operating under a name it no longer uses -- an",
+    "alias, with a dependency written against the old name -- and",
+    "rewards thrown for: a `random` roll that promises something, a",
+    "`loot` roll with an `emptyWeight` that can disappoint, a nested",
+    "table inside a table, and an inline version of the same.",
+    "",
+    "The chapter wears `obsidian` with a `themePatch` over it -- one",
+    "colour and a corner radius of its own -- which makes it the",
+    "collection's themed chapter outside the descent, and the ghost",
+    "road in is drawn dotted, because the market's roads are rumours.",
+    "",
+    "Read it for: the whole hiding family, `maxCompletableDependents`,",
+    "a quest alias with a dependency on it, `tasked:loot` and its",
+    "`emptyWeight`, nested and inline tables, `themePatch`, a chapter",
+    "theme outside the descent, and a `collapsedByDefault` group."
+  ],
+  "icon": { "item": "minecraft:amethyst_shard" },
+  "chapters": [
+    "the_alley"
+  ]
+}

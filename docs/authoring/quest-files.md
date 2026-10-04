@@ -8,8 +8,8 @@ format: a [[chapter-group]] is a folder with a manifest, a [[chapter]] is a fold
 config/tasked/quests/
 ├── index.json                  the root: what exists, and in what order
 ├── reward_tables/              rolls a reward can name
-│   └── dungeon.json
-├── getting_started/            a chapter group
+│   └── bell_toll.json
+├── first_light/                a chapter group
 │   ├── group.json
 │   └── first_steps/            a chapter
 │       ├── chapter.json
@@ -24,8 +24,8 @@ order they should appear — that list is the only place the order is expressed:
 
 ```json
 {
-  "id": "getting_started",
-  "title": "Getting Started",
+  "id": "first_light",
+  "title": "First Light",
   "chapters": ["first_steps"]
 }
 ```
@@ -53,7 +53,7 @@ same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsu
 `dependencyStyle` a chapter's lines are drawn with.
 
 > [!WARNING]
-> **A folder's name is its id, and that is checked.** A folder called `getting_started` whose manifest
+> **A folder's name is its id, and that is checked.** A folder called `first_light` whose manifest
 > says `"id": "first_steps"` is reported, naming both sides — and the folder name wins, because every
 > path in the tree is built from it. The same goes for the name lists: a chapter named in `chapters`
 > that is not on disk is reported, and a chapter folder that no manifest names is reported too.
@@ -72,7 +72,7 @@ holds the tree's own settings.
     "detectionDelay": 20
   },
   "entries": [
-    { "group": "getting_started" },
+    { "group": "first_light" },
     { "chapter": "a_lone_chapter" },
     { "file": "stuck_in_the_past.json" }
   ]

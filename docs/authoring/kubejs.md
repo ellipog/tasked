@@ -59,7 +59,7 @@ function, and every event object is a description of what happened — public fi
 // when the thing linking the two is not a dependency edge -- a stage gate is per player, and a
 // dependency is not.
 TaskedEvents.questCompleted(event => {
-  if (event.quest === 'the_summons') {
+  if (event.quest === 'the_calling') {
     Tasked.addStage(event.player, 'my_pack:inducted')
   }
 })

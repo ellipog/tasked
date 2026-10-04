@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "glare_treasure",
+  "title": "The Salt Vein",
+  "description": [
+    "A vein of the pure white the canyon is so proud of,",
+    "twelve blocks, folded through the stone like a page",
+    "somebody marked and forgot to come back to."
+  ],
+  "icon": {
+    "item": "minecraft:white_wool"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:calcite",
+      "count": 12
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:white_wool",
+      "count": 4
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_orrery_itself",
+  "title": "The Orrery Itself",
+  "subtitle": "form: orthogonal, with split handles",
+  "description": [
+    "The frame that holds all of it, wired in with a split line:",
+    "`fromHandle` and `toHandle` are written together -- one alone is a",
+    "split with half a shape -- as `[along, across]` control points on",
+    "an orthogonal route. The heads run as a `stream` at `arrowDensity:",
+    "low`, sixty-four pixels apart, the sparsest the format goes.",
+    "",
+    "Anchors say which rim a line meets. Handles say what it does on",
+    "the way out."
+  ],
+  "icon": { "item": "minecraft:iron_block" },
+  "x": 704,
+  "y": 704,
+  "shape": "octagon",
+  "size": 56,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": {
+      "form": "orthogonal",
+      "fromHandle": [0.5, 0.4],
+      "toHandle": [0.5, -0.4],
+      "arrowPlace": "stream",
+      "arrowDensity": "low"
+    }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:anvil" }
+  ]
+}

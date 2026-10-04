@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "furnace_dark_arrival",
+  "title": "A Ceiling of Bedrock Far Above",
+  "description": [
+    "The first thing the furnace dark does is take the sky.",
+    "The dimension task completes for being here at all --",
+    "the place is the task, and the place is a whole other",
+    "furnace of one."
+  ],
+  "icon": {
+    "item": "minecraft:netherrack"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:dimension",
+      "dimension": "minecraft:the_nether"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

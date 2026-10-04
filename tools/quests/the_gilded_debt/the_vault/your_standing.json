@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "your_standing",
+  "title": "The Standing",
+  "subtitle": "A reward behind a scoreboard gate",
+  "description": [
+    "The last payout is gated: the reward carries a `score` condition,",
+    "and every path that pays a reward checks its conditions -- the",
+    "claim, Claim all, the answer to a choice, and both automatic",
+    "modes. A reward whose conditions are unmet is not lost; it stays",
+    "unclaimed and is paid the moment they hold.",
+    "",
+    "Ten standing. The objective was created by the vault's first",
+    "account and the ledger's close reads it as a task gate; this reads",
+    "it as a payout gate, which is the other half of what conditions",
+    "do."
+  ],
+  "icon": { "item": "minecraft:emerald_block" },
+  "x": 768,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_quiet_word"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Ask after your standing" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:diamond",
+      "count": 5,
+      "conditions": [
+        { "type": "tasked:score", "objective": "tasked_debt_standing", "min": 10 }
+      ]
+    }
+  ]
+}

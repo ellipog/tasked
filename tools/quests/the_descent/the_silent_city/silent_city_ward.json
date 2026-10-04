@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "silent_city_ward",
+  "title": "The Warden's Bed",
+  "description": [
+    "The shrieker at the street's end is either a doorbell",
+    "or an alarm, and the city has never needed the",
+    "distinction. Look at it -- the looking is a task -- and",
+    "then walk past it the way you would a sleeping dog."
+  ],
+  "icon": {
+    "item": "minecraft:sculk_shrieker"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:observation",
+      "observeType": "block",
+      "toObserve": "minecraft:sculk_shrieker"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

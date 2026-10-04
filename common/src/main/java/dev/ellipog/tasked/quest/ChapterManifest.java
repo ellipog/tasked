@@ -1,7 +1,10 @@
 package dev.ellipog.tasked.quest;
 
+import com.google.gson.JsonObject;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import dev.ellipog.armature.api.data.Codecs;
 
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +64,8 @@ import java.util.Optional;
  * @param theme                   a palette this chapter asks to be drawn in, or none. A <b>client</b>
  *                                concept: the catalogue lives on the client, so this is a plain string
  *                                here and is reported by the client that could not honour it.
+ * @param themePatch              token-level overrides for {@code theme}, carried raw for the client to
+ *                                parse and compose — see {@link Chapter#themePatch()}
  * @param quests                  the <b>file names</b> of this chapter's quests, in order
  */
 public record ChapterManifest(
@@ -76,13 +81,17 @@ public record ChapterManifest(
         /** The chapter's default dependency-line style; see {@link Chapter#dependencyStyle()}. */
         DependencyStyle dependencyStyle,
         Optional<String> theme,
+        Optional<JsonObject> themePatch,
+        /** The chapter's default auto-claim mode; see {@link Chapter#autoClaim()}. */
+        dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim,
         List<String> quests
 ) {
 
     /** The field names this contributes. Equal to {@link Chapter#FIELDS} — see {@link GroupManifest}. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "quests");
+            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
+            "quests");
 
     /**
      * This manifest as a chapter, with the quests its names resolved to.
@@ -93,7 +102,8 @@ public record ChapterManifest(
      */
     public Chapter toChapter(List<Quest> resolved) {
         return new Chapter(id, title, subtitle, description, icon, aliases, defaultPrerequisiteMode,
-                progressionMode, defaultConsumeItems, dependencyStyle, theme, resolved);
+                progressionMode, defaultConsumeItems, dependencyStyle, theme, themePatch, autoClaim,
+                resolved);
     }
 
     public static final Codec<ChapterManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -116,6 +126,10 @@ public record ChapterManifest(
             DependencyStyle.CODEC.optionalFieldOf("dependencyStyle", DependencyStyle.UNSET)
                     .forGetter(ChapterManifest::dependencyStyle),
             Codec.STRING.optionalFieldOf("theme").forGetter(ChapterManifest::theme),
+            Codecs.jsonObject().optionalFieldOf("themePatch").forGetter(ChapterManifest::themePatch),
+            dev.ellipog.tasked.quest.reward.RewardAutoClaim.CODEC
+                    .optionalFieldOf("autoClaim", dev.ellipog.tasked.quest.reward.RewardAutoClaim.DEFAULT)
+                    .forGetter(ChapterManifest::autoClaim),
             Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests)
     ).apply(instance, ChapterManifest::new));
 }

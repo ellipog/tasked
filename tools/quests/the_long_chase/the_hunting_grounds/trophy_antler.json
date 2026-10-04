@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "trophy_antler",
+  "title": "Trophy: Antler",
+  "subtitle": "One hook in the wall",
+  "description": [
+    "The wall above the muster stone has one hook, and the house that",
+    "owns it settles arguments by not buying a second one. The antler",
+    "mount and the hide mount share an `exclusiveGroup` -- `the_hook` --",
+    "so completing one closes the other for good.",
+    "",
+    "The second exclusive group in the collection, wearing the story it",
+    "belongs to."
+  ],
+  "icon": { "item": "minecraft:item_frame" },
+  "x": 672,
+  "y": 32,
+  "shape": "hexagon",
+  "size": 48,
+  "dependsOn": [
+    "the_pale_stag"
+  ],
+  "exclusiveGroup": "the_hook",
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glow_item_frame", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

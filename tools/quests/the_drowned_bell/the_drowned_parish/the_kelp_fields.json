@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_kelp_fields",
+  "title": "The Kelp Fields",
+  "subtitle": "The parish's only crop",
+  "description": [
+    "The kelp grows in rows out from the tower, planted by hands that",
+    "have been underwater longer than the cathedral has. Twenty-four",
+    "stalks, gathered the way the parish gathers: honestly, and without",
+    "pulling the roots.",
+    "",
+    "Kelp is rope down here. Everything the parish has ever lifted, it",
+    "lifted on kelp."
+  ],
+  "icon": { "item": "minecraft:kelp" },
+  "x": 192,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "warm_hands"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:kelp", "count": 24 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:dried_kelp_block", "count": 2 },
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

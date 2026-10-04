@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_underground",
+  "title": "The Underground",
+  "subtitle": "A place rather than a task list",
+  "description": [
+    "Every questline in this collection ends in the dark somewhere, and",
+    "this one is where the dark starts. Below the grass the hill keeps a",
+    "corridor of its own, older than the road and cooler than the road",
+    "and considerably less interested in you.",
+    "",
+    "There is nothing to carry here and nothing to press. Arrive, and the",
+    "quest agrees you have arrived -- the first of the place-tasks, which",
+    "count where you are rather than what you hold."
+  ],
+  "icon": { "item": "minecraft:iron_pickaxe" },
+  "x": 384,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "dependsOn": [
+    "stone_tools"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Descend below the surface" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:torch", "count": 16 },
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

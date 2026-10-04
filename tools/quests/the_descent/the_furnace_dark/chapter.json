@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_furnace_dark",
+  "title": "The Furnace Dark",
+  "subtitle": "the tenth of fifteen depths",
+  "theme": "nether",
+  "description": [
+    "The other side of the gate, and the descent's middle: a cavern",
+    "country under a ceiling of bedrock, red, warm, and lit by its",
+    "own bad ideas.",
+    "",
+    "Nether is the theme, worn natively here, which is the only",
+    "place it is not a costume."
+  ],
+  "icon": {
+    "item": "minecraft:netherrack"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "furnace_dark_arrival.json",
+    "furnace_dark_path.json",
+    "furnace_dark_ward.json",
+    "furnace_dark_hazard.json",
+    "furnace_dark_treasure.json",
+    "furnace_dark_on.json"
+  ]
+}

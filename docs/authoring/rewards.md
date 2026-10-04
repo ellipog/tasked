@@ -22,11 +22,47 @@ or **Claim all** for everything outstanding.
 
 | Value | Meaning |
 |---|---|
-| `default` | Follow the tree's own `defaultAutoClaim` — which defaults to `disabled`. |
+| `default` | Follow the quest's own `autoClaim`, then the chapter's, then the tree's `defaultAutoClaim` — which defaults to `disabled`. |
 | `enabled` | Give it the moment the quest completes. |
 | `disabled` | Wait for a claim. |
 | `no_toast` | Give it automatically, without a toast. |
 | `invisible` | Give it automatically, without telling the player. |
+
+### Turning it on for a whole chapter
+
+The fifty dirt-and-wood quests at the start of a pack should not be fifty clicks, and they should not
+be fifty settings either. A chapter turns auto-claim on once:
+
+```json
+{ "id": "first_steps", "autoClaim": "enabled", "quests": [ ... ] }
+```
+
+and a quest that wants to differ says so for itself:
+
+```json
+{ "id": "the_boss", "autoClaim": "disabled" }
+```
+
+The ladder, most specific first: a reward's own `auto` → the quest's `autoClaim` → the chapter's
+`autoClaim` → the pack's `defaultAutoClaim` in `index.json` → off. `default` at any level means "ask
+the level below".
+
+Two things a mode can never override:
+
+- **A choice reward is never auto-granted.** Its payout *is* the player's pick, so it stays
+  outstanding and is offered the moment the quest is claimed — whatever `auto` says. A file that sets
+  an automatic `auto` on a `tasked:choice` gets a warning saying so, because the setting would
+  otherwise read as supported.
+- **A held team gets nothing.** `/tasked rewards block` outranks every automatic mode; unblocking is
+  the one moment it is released.
+
+`no_toast` and `invisible` differ in what the client shows: both grant silently, and both also
+suppress the completion notice for that quest, so a chapter of starter quests does not announce
+itself fifty times.
+
+While anything is still waiting, the player sees it in two places: a small badge on the quest's node
+with the number of rewards, and a count beside the chapter's row in the sidebar — `The Shop (3)` —
+which is where the eye goes first.
 
 An operator can hold every automatic payout at once with `/tasked rewards block`, whatever individual
 rewards say, and release it with `/tasked rewards unblock`. The switch is stored in the team's

@@ -6,6 +6,9 @@ import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.armature.api.platform.ArmaturePlatform;
 import dev.ellipog.armature.api.platform.PlatformKind;
 import dev.ellipog.armature.api.registry.Registrar;
+import dev.ellipog.armature.api.teams.Team;
+import dev.ellipog.armature.api.teams.TeamPolicy;
+import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
 import dev.ellipog.tasked.progress.ProgressService;
@@ -182,6 +185,13 @@ class QuestPlaythroughTest {
         // its to decide.
         examples = seedExamples(configDir);
         note("seeded " + examples.size() + " example questline(s) into " + configDir.resolve("tasked/quests"));
+        // The auto-claim chapter is seeded and counted like the examples are, so the load check below
+        // keeps holding it to "everything seeded reached the index".
+        List<String> seeded = new ArrayList<>(examples);
+        seeded.addAll(seedAutoClaimChapter(configDir));
+        seeded.addAll(seedEngineChapter(configDir));
+        Collections.sort(seeded);
+        examples = List.copyOf(seeded);
 
         server = HeadlessServer.start(ROOT.resolve("universe"));
 
@@ -688,26 +698,46 @@ class QuestPlaythroughTest {
 
     @Test
     @Order(13)
-    @DisplayName("leaving takes your own progress with you, and the party keeps the party's")
-    void leavingDoesNotMoveProgress() {
-        boolean left = server.callOnServerThread(() -> Teams.of(server.server()).leave(friend.getUUID()));
-        assertTrue(left, "the friend was in a real party, so leaving should have done something");
+    @DisplayName("leaving takes the party's progress with you, and the party keeps its own copy")
+    void leavingTakesThePartysProgressWithYou() {
+        // Through the command, which is a player's own route and the one this file can assert the
+        // retained copy on: the team listener that also calls `retainFor` is registered from
+        // SERVER_STARTED, which no test JVM fires -- see order 23's note on the same gap. The
+        // command-side call is what the leave subcommand performs on a live server too, where both
+        // run and the merge is idempotent.
+        HeadlessServer.Outcome leave = asOperator(friend, "/tasked party leave");
+        assertEquals(1, leave.result(),
+                () -> "the friend was in a real party, so leaving should have worked:\n" + leave.text());
 
         assertEquals(friend.getUUID(), ownerOf(friend),
                 "an unpartied player's progress is keyed by their own id again");
         assertEquals(partyId, ownerOf(player), "and the party is unaffected by somebody leaving it");
 
         assertEquals(QuestState.COMPLETED, stateFor(player, "punch_a_tree"),
-                "the party keeps what it did together");
-        assertNotEquals(QuestState.COMPLETED, stateFor(friend, "punch_a_tree"),
-                "and the friend does not, because their own progress is their own and they never did "
-                        + "this alone. ProgressStore documents that as deliberate: merging on join would "
-                        + "hand a party whatever a new member had already done, up to and including a "
-                        + "finished questline.");
+                "the party keeps what it did together -- the record is not moved, it is copied");
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "punch_a_tree"),
+                "**and the friend keeps it too**: the nodes earned while in the party are retained on "
+                        + "departure, so a progression-gated pack cannot soft-lock somebody who did a "
+                        + "chain with friends and then went solo. `ProgressStore.retainFor` merges the "
+                        + "party's record into the leaver's own, and merging on *join* is still refused "
+                        + "-- that direction would hand a fresh party a finished questline");
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "make_a_table"),
+                "all the way down what the party finished, not only the first quest");
+
+        // And the copy is scoped to the *party's* record, not to what any member had done. The owner
+        // played through to the_underground before the party existed and the friend never did, so a
+        // merge that took the owner's record -- or the union of everything every member had ever
+        // done -- would hand it over here.
+        assertNotEquals(QuestState.COMPLETED, stateFor(friend, "the_underground"),
+                "retention copies what the party did, not what the owner did alone: merging anything "
+                        + "wider would hand a departing member a questline they never touched");
+        // While the owner is still in the party, their own view *is* the party's record, so nothing
+        // about their solo record can be read from here -- order 14 checks it after they leave, which
+        // is the only moment it becomes the record they read again.
 
         note("after " + friend.getScoreboardName() + " left: the party sees punch_a_tree="
-                + stateFor(player, "punch_a_tree") + ", and their own progress says "
-                + stateFor(friend, "punch_a_tree"));
+                + stateFor(player, "punch_a_tree") + ", and their own retained record says "
+                + stateFor(friend, "punch_a_tree") + " -- party-earned nodes kept, solo record unlowered");
     }
 
     @Test
@@ -1761,9 +1791,551 @@ class QuestPlaythroughTest {
     }
 
     // ------------------------------------------------------------------
-    // Driving and reading
+    // The party's own management: rename, transfer, settings, invitations
     // ------------------------------------------------------------------
 
+    /**
+     * A party to manage across these orders, and the friend in it where a test needs two seats.
+     *
+     * <p>Orders 38 to 43 run last of the party work and clean up after themselves: each ends with the
+     * player solo again, so nothing here changes what the later orders find. The friend is left solo
+     * by each one too, for the same reason.
+     */
+    @Test
+    @Order(38)
+    @DisplayName("/tasked party rename changes the name for the owner and refuses everybody else")
+    void renameIsOwnerOnly() {
+        // From solo, whatever the earlier orders left behind: order 34 forms a party for the
+        // party-size condition and never disbands it. `leave` is a no-op for a solo player, so both
+        // calls are safe whichever state they find -- the same trick order 34 uses in the other
+        // direction.
+        server.callOnServerThread(() -> {
+            Teams.of(server.server()).leave(player.getUUID());
+            Teams.of(server.server()).leave(friend.getUUID());
+            return null;
+        });
+
+        HeadlessServer.Outcome created = asOperator("/tasked party create rename-party");
+        assertEquals(1, created.result(),
+                () -> "a party to rename should have been created:\n" + created.text());
+        UUID id = ownerOf(player);
+
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        assertTrue(server.callOnServerThread(() ->
+                        Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent()),
+                "the friend should have joined, so the non-owner branch below has somebody in it");
+
+        HeadlessServer.Outcome byMember = asOperator(friend, "/tasked party rename not-yours");
+        assertRefused(byMember, "only the owner may rename a party");
+        assertEquals("rename-party", nameOf(id), "and the refusal changed nothing");
+
+        String tooLong = "x".repeat(64);
+        HeadlessServer.Outcome invalid = asOperator("/tasked party rename " + tooLong);
+        assertRefused(invalid, "a name past the limit is refused");
+        assertEquals("rename-party", nameOf(id), "and an invalid name writes nothing either");
+
+        HeadlessServer.Outcome renamed = asOperator("/tasked party rename the renamed party");
+        assertEquals(1, renamed.result(), () -> "/tasked party rename should have worked:\n" + renamed.text());
+        assertEquals("the renamed party", nameOf(id), "read back from the store, which is what a "
+                + "roster carries rather than the command's own output");
+
+        note("the party was renamed by its owner; a member's rename and an over-long name were both "
+                + "refused without writing");
+    }
+
+    @Test
+    @Order(39)
+    @DisplayName("/tasked party transfer hands ownership over, demotes the actor, and is owner-only")
+    void transferHandsThePartyOver() {
+        UUID id = ownerOf(player);
+        assertNotNull(id, "order 38 should have left a party to hand over");
+
+        HeadlessServer.Outcome transferred = asOperator("/tasked party transfer tasked-friend");
+        assertEquals(1, transferred.result(),
+                () -> "the owner should have been able to hand the party over:\n" + transferred.text());
+        assertEquals(friend.getUUID(), ownerOfTeam(id), "the friend owns it now");
+        assertEquals(TeamRole.MEMBER, roleOf(id, player.getUUID()),
+                "and the previous owner is an ordinary member -- the demotion the manager documents");
+
+        HeadlessServer.Outcome byMember = asOperator("/tasked party transfer tasked-tester");
+        assertRefused(byMember, "the member who just gave it away cannot take it back by themselves");
+
+        HeadlessServer.Outcome back = asOperator(friend, "/tasked party transfer tasked-tester");
+        assertEquals(1, back.result(), () -> "the new owner can hand it back:\n" + back.text());
+        assertEquals(player.getUUID(), ownerOfTeam(id), "and the run continues with the original owner");
+
+        note("ownership moved to the friend and back, and a member's transfer attempt was refused");
+    }
+
+    @Test
+    @Order(40)
+    @DisplayName("the two settings are owner-only, and member invitations obey the switch")
+    void settingsAreOwnerOnlyAndMemberInvitesObeyTheSwitch() {
+        UUID id = ownerOf(player);
+
+        HeadlessServer.Outcome off = asOperator("/tasked party member-invites off");
+        assertEquals(1, off.result(), () -> "the owner should have been able to switch it off:\n" + off.text());
+        assertEquals(new TeamPolicy(false, false), policyOf(id));
+
+        // The friend is a MEMBER, and with the switch off the refusal is the policy's. The character
+        // of this assertion is the switch: with it on, the same command from the same member is the
+        // one order 43 relies on.
+        HeadlessServer.Outcome refused = asOperator(friend, "/tasked party invite tasked-tester");
+        assertRefused(refused, "with member invitations off, an ordinary member may not invite");
+
+        HeadlessServer.Outcome on = asOperator("/tasked party member-invites on");
+        assertEquals(1, on.result(), () -> "the switch should go back on:\n" + on.text());
+        assertEquals(new TeamPolicy(false, true), policyOf(id));
+
+        HeadlessServer.Outcome notOwner = asOperator(friend, "/tasked party open on");
+        assertRefused(notOwner, "only the owner may open the party");
+        HeadlessServer.Outcome opened = asOperator("/tasked party open on");
+        assertEquals(1, opened.result(), () -> "the owner should have opened it:\n" + opened.text());
+        assertEquals(new TeamPolicy(true, true), policyOf(id));
+
+        HeadlessServer.Outcome read = asOperator("/tasked party open");
+        assertEquals(1, read.result(), () -> "the read form should report:\n" + read.text());
+
+        note("member invitations and the public switch were both owner-only, and the policy round-tripped "
+                + "through the store");
+    }
+
+    @Test
+    @Order(41)
+    @DisplayName("a solo player joins an open party, and declines or is uninvited from a closed one")
+    void joinDeclineAndCancel() {
+        UUID id = ownerOf(player);
+
+        // The friend leaves so they are solo again -- the state this whole order is about.
+        assertTrue(server.callOnServerThread(() -> Teams.of(server.server()).leave(friend.getUUID())));
+
+        // Open (order 40 left it open): joined by id, with no invitation anywhere.
+        HeadlessServer.Outcome joined = asOperator(friend, "/tasked party join " + id);
+        assertEquals(1, joined.result(),
+                () -> "an open party should be joinable from the solo screen:\n" + joined.text());
+        assertEquals(id, ownerOf(friend), "and the join moved their progress owner onto it");
+        assertTrue(server.callOnServerThread(() -> Teams.of(server.server()).leave(friend.getUUID())));
+
+        HeadlessServer.Outcome closed = asOperator("/tasked party open off");
+        assertEquals(1, closed.result());
+        HeadlessServer.Outcome refused = asOperator(friend, "/tasked party join " + id);
+        assertRefused(refused, "a closed party cannot be joined without an invitation");
+
+        // Decline: the invitee answers an invitation with a no. The first invitation here is the way
+        // in for the next step, which is the withdrawal.
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        assertTrue(invitedTo(id, friend.getUUID()), "the invitation exists to be declined");
+        HeadlessServer.Outcome declined = asOperator(friend, "/tasked party decline " + id);
+        assertEquals(1, declined.result(), () -> "the invitee should be able to decline:\n" + declined.text());
+        assertFalse(invitedTo(id, friend.getUUID()), "and the invitation is gone");
+        assertRefused(asOperator(friend, "/tasked party decline " + id), "nothing is waiting to decline now");
+
+        HeadlessServer.Outcome withdrawn = asOperator("/tasked party uninvite tasked-friend");
+        assertRefused(withdrawn, "there is no second invitation to withdraw yet");
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        HeadlessServer.Outcome uninvited = asOperator("/tasked party uninvite tasked-friend");
+        assertEquals(1, uninvited.result(), () -> "the party should be able to withdraw it:\n" + uninvited.text());
+        assertFalse(invitedTo(id, friend.getUUID()), "and the invitation is gone from the party's side");
+
+        note("a solo player joined an open party by id; a closed party refused them; an invitation was "
+                + "declined by the invitee and, sent again, withdrawn by the party");
+    }
+
+    @Test
+    @Order(42)
+    @DisplayName("a party holds eight, and both the invitation and the answer are refused past it")
+    void theMemberCapHolds() {
+        // A fresh party, so the count is known and the fixture is not somebody else's members.
+        assertTrue(server.callOnServerThread(() -> Teams.of(server.server()).leave(player.getUUID())));
+        assertEquals(1, asOperator("/tasked party create the-eight-party").result());
+        UUID id = ownerOf(player);
+
+        List<UUID> fakes = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            fakes.add(UUID.randomUUID());
+        }
+
+        // Seven in, six of them answered: the party is at seven members with one invitation pending.
+        // Fakes rather than real players on purpose -- the stored manager keys membership by uuid and
+        // never needs a connection, and eight real players would be a fixture rather than a test.
+        assertTrue(server.callOnServerThread(() -> {
+            var teams = Teams.of(server.server());
+            for (int i = 0; i < 6; i++) {
+                if (!teams.invite(player.getUUID(), id, fakes.get(i))) {
+                    return false;
+                }
+                if (teams.acceptInvite(fakes.get(i), id).isEmpty()) {
+                    return false;
+                }
+            }
+            return teams.invite(player.getUUID(), id, fakes.get(6));
+        }), "six members and a seventh invitation should have fitted in a party of eight");
+
+        assertEquals(7, sizeOf(id));
+
+        // The eighth joins, and now the party is exactly full -- while the seventh invitation is still
+        // pending. That is the case the answer re-checks capacity for: a party can fill between the
+        // invitation and the answer.
+        assertTrue(server.callOnServerThread(() ->
+                Teams.of(server.server()).invite(player.getUUID(), id, fakes.get(7))));
+        assertTrue(server.callOnServerThread(() ->
+                Teams.of(server.server()).acceptInvite(fakes.get(7), id).isPresent()));
+        assertEquals(8, sizeOf(id), "eight, which is the cap");
+
+        assertTrue(server.callOnServerThread(() ->
+                        Teams.of(server.server()).acceptInvite(fakes.get(6), id).isEmpty()),
+                "the pending invitation cannot be answered into a full party -- capacity is rechecked "
+                        + "at the answer, not only at the invitation");
+        assertFalse(server.callOnServerThread(() ->
+                        Teams.of(server.server()).invite(player.getUUID(), id, UUID.randomUUID())),
+                "and a ninth invitation is refused at the invitation");
+
+        // Clean up: the owner disbands, which is also the path where every member's retained copy is
+        // taken -- orders 42's fakes included, harmlessly.
+        HeadlessServer.Outcome disbanded = asOperator("/tasked party disband");
+        assertEquals(1, disbanded.result(), () -> "the fixture party should disband:\n" + disbanded.text());
+
+        note("a party filled to eight; a pending invitation was refused at the answer and a ninth at "
+                + "the invitation");
+    }
+
+    @Test
+    @Order(43)
+    @DisplayName("a kicked member keeps the party's nodes, and a reward already collected cannot pay twice")
+    void aKickedMemberKeepsThePartysProgressAndPaidRewardsStay() {
+        // Two rules that share one fixture: retention on a kick, and the claim copy that stops a
+        // reward collected in the party from being collected again after it.
+        assertEquals(1, asOperator("/tasked party create the-kick-party").result());
+        UUID id = ownerOf(player);
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        assertTrue(server.callOnServerThread(() ->
+                        Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent()),
+                "the friend should have joined the party to be kicked from it");
+
+        clearInventories();
+        server.onServerThread(() -> {
+            friend.getInventory().add(new ItemStack(Items.OAK_LOG, 8));
+            friend.getInventory().setChanged();
+        });
+        assertTrue(tickUntil(() -> stateFor(player, "punch_a_tree") == QuestState.COMPLETED,
+                        Duration.ofSeconds(20)),
+                () -> "the friend gathering should complete the party's punch_a_tree, as in order 11");
+
+        assertEquals(1, asOperator(friend, "/tasked claim punch_a_tree").result(),
+                "the friend collects their copy while in the party");
+        assertEquals(1, countInInventoryOf(friend, Items.WOODEN_AXE));
+
+        HeadlessServer.Outcome kicked = asOperator("/tasked party kick tasked-friend");
+        assertEquals(1, kicked.result(), () -> "the owner should have been able to remove the friend:\n"
+                + kicked.text());
+        assertEquals(friend.getUUID(), ownerOf(friend), "the friend is solo again");
+
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "punch_a_tree"),
+                "and keeps the node the party completed -- a kick is a statement about behaviour, not "
+                        + "a confiscation of progression");
+        assertRefused(asOperator(friend, "/tasked claim punch_a_tree"),
+                "and the axe they collected in the party cannot be collected again from their own "
+                        + "record: their claim travelled with them, which is what stops the merge "
+                        + "becoming a dupe");
+        assertEquals(1, countInInventoryOf(friend, Items.WOODEN_AXE), "still exactly one axe");
+
+        assertEquals(1, asOperator("/tasked party disband").result(), "and the fixture party is cleaned up");
+
+        note("a kicked member kept the party's completed node and could not re-collect the copy they "
+                + "had already claimed");
+    }
+
+    @Test
+    @Order(44)
+    @DisplayName("/tasked party handover gives the party away and leaves, in one press")
+    void handoverTransfersAndLeaves() {
+        // The successor picker's whole meaning: whoever takes the party owns it, and the player who
+        // pressed is out of it -- not "still a member of the party they just gave away", which is what
+        // the picker used to do by sending a transfer with no leave.
+        assertEquals(1, asOperator("/tasked party create the-handover-party").result());
+        UUID id = ownerOf(player);
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        assertTrue(server.callOnServerThread(() ->
+                        Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent()),
+                "the friend should have joined the party to be handed it");
+
+        HeadlessServer.Outcome handed = asOperator("/tasked party handover tasked-friend");
+        assertEquals(1, handed.result(), () -> "the handover should have worked:\n" + handed.text());
+
+        assertEquals(friend.getUUID(), ownerOfTeam(id), "the friend owns it now");
+        assertEquals(TeamRole.OWNER, roleOf(id, friend.getUUID()));
+        // The party's id, not the friend's own: they are still a member, so the record they read is
+        // the party's -- the same answer order 41 asserts for a join. Only the player who pressed is
+        // solo, and their own id is what the next assertion checks.
+        assertEquals(id, ownerOf(friend), "and reads the party's progress");
+        assertEquals(player.getUUID(), ownerOf(player),
+                "the player who pressed is solo -- the second half of the operation, which a bare "
+                        + "transfer left undone");
+        assertFalse(server.callOnServerThread(() ->
+                        Teams.of(server.server()).byId(id)
+                                .map(team -> team.isMember(player.getUUID())).orElse(false)),
+                "and they are no longer a member of it");
+
+        assertRefused(asOperator("/tasked party handover tasked-tester"),
+                "a member cannot hand a party over");
+        assertRefused(asOperator("/tasked party leave"),
+                "and they are not in a party to leave");
+
+        assertEquals(1, asOperator(friend, "/tasked party disband").result(),
+                "the fixture party is cleaned up by its new owner");
+
+        note("handover moved ownership to the friend and left the old owner solo, in one command");
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-claim: the chapter toggle, and the reward a mode can never take
+    // ------------------------------------------------------------------
+
+    @Test
+    @Order(90)
+    @DisplayName("a chapter that turns auto-claim on pays at completion, and a choice still waits")
+    void autoClaimPaysAtCompletionAndNeverEatsAChoice() {
+        // The two quests in the seeded `auto_claim` chapter differ only in their rewards: one is an
+        // item that can be handed over, the other is a choice that cannot be handed over by anyone but
+        // the player. The chapter says `autoClaim: enabled`, so both take the middle rung of the ladder.
+        HeadlessServer.Outcome paid = asOperator("/tasked complete auto_paid");
+        assertEquals(1, paid.result(), () -> "/tasked complete should have worked. It said:\n" + paid.text());
+
+        assertEquals(1, countInInventory(Items.GOLDEN_APPLE),
+                "the chapter's autoClaim paid the item at completion -- no claim command ran");
+        assertTrue(rewardClaimed("auto_paid", 0),
+                "and the claim was recorded before the grant, which is the crash-safe direction");
+
+        HeadlessServer.Outcome choice = asOperator("/tasked complete auto_choice");
+        assertEquals(1, choice.result(), () -> "/tasked complete should have worked. It said:\n"
+                + choice.text());
+
+        assertEquals(0, countInInventory(Items.DIAMOND) + countInInventory(Items.EMERALD),
+                "a choice reward is never auto-granted: its payout is the player's pick");
+        assertFalse(rewardClaimed("auto_choice", 0),
+                "and it is still outstanding, so the claim flow will offer it -- the bug this pins "
+                        + "marked it collected and granted nothing, which lost the reward silently");
+
+        note("auto-claim paid the item at completion and left the choice outstanding");
+    }
+
+    /**
+     * The auto-claim chapter, seeded beside the shipped examples.
+     *
+     * <p>Written by the test rather than added to the shipped pack on purpose: the examples are a
+     * demonstration for authors — and {@code QuestIndexTest} reads them — so a test that needs an
+     * auto-claim quest should not decide what the demonstration contains. The chapter states the mode,
+     * which is the point: neither quest says anything about auto-claim, so this exercises the middle
+     * rung rather than a per-quest setting.
+     */
+    private static List<String> seedAutoClaimChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tasked/quests/auto_claim");
+        Path chapter = quests.resolve("auto_claim");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "auto_claim", "title": "Auto Claim", "chapters": ["auto_claim"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "auto_claim", "title": "Auto Claim", "autoClaim": "enabled",
+                  "quests": ["paid.json", "choice.json"] }
+                """);
+        Files.writeString(chapter.resolve("paid.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "auto_paid", "title": "Auto Paid",
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Done" }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:golden_apple", "count": 1 }] }
+                """);
+        Files.writeString(chapter.resolve("choice.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "auto_choice",
+                  "title": "Auto Choice",
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Done" }],
+                  "rewards": [{ "type": "tasked:choice", "inline": { "entries": [
+                    { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:diamond",
+                        "count": 1 } },
+                    { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:emerald",
+                        "count": 1 } } ] } }] }
+                """);
+        // The relative names the load check counts, in the same shape `seedExamples` produces.
+        return List.of("auto_claim/group.json", "auto_claim/auto_claim/chapter.json",
+                "auto_claim/auto_claim/paid.json", "auto_claim/auto_claim/choice.json");
+    }
+
+    /**
+     * The engine chapter: one of each mechanic the stage, condition and table orders below play,
+     * seeded beside the shipped examples.
+     *
+     * <p>Written by the test for the same reason {@link #seedAutoClaimChapter} is: the shipped
+     * examples are an exhibition for authors, and what it contains is the exhibition's call. These
+     * orders, though, need quests shaped exactly for the assertion -- a gate with no dependency edge,
+     * a reward behind a scoreboard that starts at zero, a table whose weight-zero entry makes the
+     * experience delta exact -- and an exhibition that moved content around to hold the tests' hands
+     * would be documentation written for the engine rather than for the author. So the fixture
+     * travels with the test, the ids the orders name are the fixture's, and the two collections stay
+     * free to change without breaking each other.
+     */
+    private static List<String> seedEngineChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tasked/quests/engine_gallery");
+        Path chapter = quests.resolve("the_galleries");
+        Path tables = configDir.resolve("tasked/quests/reward_tables");
+        Files.createDirectories(chapter);
+        Files.createDirectories(tables);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "engine_gallery", "title": "Engine Gallery", "chapters": ["the_galleries"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "the_galleries", "title": "The Galleries",
+                  "quests": ["the_summons.json", "the_mark.json", "the_fall.json",
+                    "the_winnings.json", "the_password.json", "the_shopping_list.json",
+                    "the_supply.json", "the_standing.json", "the_company.json",
+                    "the_receipt.json", "the_false_criterion.json", "ameth_start.json"] }
+                """);
+        Files.writeString(chapter.resolve("the_summons.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_summons",
+                  "title": "The Summons",
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tasked:item", "item": "minecraft:writable_book" }],
+                  "rewards": [{ "type": "tasked:stage", "stage": "the_induction:marked" }] }
+                """);
+        Files.writeString(chapter.resolve("the_mark.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_mark",
+                  "title": "The Mark",
+                  "icon": { "item": "minecraft:golden_apple" },
+                  "requiresStage": "the_induction:marked",
+                  "tasks": [{ "type": "tasked:stage", "stage": "the_induction:marked" }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:golden_apple",
+                    "auto": "disabled" }] }
+                """);
+        Files.writeString(chapter.resolve("the_fall.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_fall",
+                  "title": "The Fall", "dependsOn": ["the_mark"],
+                  "icon": { "item": "minecraft:wither_rose" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "I will go" }],
+                  "rewards": [{ "type": "tasked:stage", "stage": "the_induction:marked",
+                    "remove": true }] }
+                """);
+        Files.writeString(chapter.resolve("the_winnings.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_winnings",
+                  "title": "The Winnings",
+                  "icon": { "item": "minecraft:gold_ingot" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "I will take my chances" }],
+                  "rewards": [{ "type": "tasked:loot", "table": "loot" }] }
+                """);
+        Files.writeString(chapter.resolve("the_password.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_password",
+                  "title": "The Password",
+                  "icon": { "item": "minecraft:name_tag" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Say the word",
+                    "conditions": [{ "type": "tasked:stage",
+                      "stage": "condition_gallery:password" }] }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:book" }] }
+                """);
+        Files.writeString(chapter.resolve("the_shopping_list.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_shopping_list",
+                  "title": "The Shopping List",
+                  "icon": { "item": "minecraft:cobblestone" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Hand over the list",
+                    "conditions": [{ "type": "tasked:item", "item": "minecraft:cobblestone",
+                      "count": 8 }] }],
+                  "rewards": [{ "type": "tasked:stage",
+                    "stage": "condition_gallery:password" }] }
+                """);
+        Files.writeString(chapter.resolve("the_supply.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_supply",
+                  "title": "The Supply",
+                  "icon": { "item": "minecraft:chest" },
+                  "tasks": [{ "type": "tasked:item", "item": "minecraft:cobblestone", "count": 8,
+                    "conditions": [{ "type": "tasked:stage",
+                      "stage": "condition_gallery:password" }] }] }
+                """);
+        Files.writeString(chapter.resolve("the_standing.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_standing",
+                  "title": "The Standing",
+                  "icon": { "item": "minecraft:gold_ingot" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Ask after your standing" }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:gold_ingot",
+                    "conditions": [{ "type": "tasked:score",
+                      "objective": "condition_gallery_standing", "min": 5 }] }] }
+                """);
+        Files.writeString(chapter.resolve("the_company.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_company",
+                  "title": "The Company",
+                  "icon": { "item": "minecraft:golden_carrot" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Bring a friend",
+                    "conditions": [{ "type": "tasked:party_size", "min": 2 }] }] }
+                """);
+        Files.writeString(chapter.resolve("the_receipt.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_receipt",
+                  "title": "The Receipt",
+                  "icon": { "item": "minecraft:emerald" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Present the receipt" }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:emerald",
+                    "conditions": [{ "type": "tasked:advancement",
+                      "advancement": "minecraft:story/root" },
+                      { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }] }] }
+                """);
+        Files.writeString(chapter.resolve("the_false_criterion.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_false_criterion",
+                  "title": "The False Criterion",
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Say the false word",
+                    "conditions": [{ "type": "tasked:advancement",
+                      "advancement": "minecraft:story/root",
+                      "criterion": "criterion_nothing_declares" }] }] }
+                """);
+        Files.writeString(chapter.resolve("ameth_start.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "ameth_start",
+                  "title": "Amethyst Start",
+                  "icon": { "item": "minecraft:amethyst_block" },
+                  "tasks": [{ "type": "tasked:item", "item": "minecraft:amethyst_shard",
+                    "count": 4 }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:amethyst_block",
+                    "count": 1 }] }
+                """);
+        Files.writeString(tables.resolve("loot.json"), """
+                { "emptyWeight": 3, "lootSize": 1,
+                  "entries": [
+                    { "weight": 0, "reward": { "type": "tasked:xp", "amount": 5 } },
+                    { "weight": 5, "reward": { "type": "tasked:item", "item": "minecraft:iron_ingot",
+                      "count": 2 } },
+                    { "weight": 3, "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } },
+                    { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:diamond" } }
+                  ] }
+                """);
+        // The relative names the load check counts, in the same shape `seedExamples` produces.
+        return List.of("engine_gallery/group.json", "engine_gallery/the_galleries/chapter.json",
+                "engine_gallery/the_galleries/the_summons.json",
+                "engine_gallery/the_galleries/the_mark.json",
+                "engine_gallery/the_galleries/the_fall.json",
+                "engine_gallery/the_galleries/the_winnings.json",
+                "engine_gallery/the_galleries/the_password.json",
+                "engine_gallery/the_galleries/the_shopping_list.json",
+                "engine_gallery/the_galleries/the_supply.json",
+                "engine_gallery/the_galleries/the_standing.json",
+                "engine_gallery/the_galleries/the_company.json",
+                "engine_gallery/the_galleries/the_receipt.json",
+                "engine_gallery/the_galleries/the_false_criterion.json",
+                "engine_gallery/the_galleries/ameth_start.json",
+                "reward_tables/loot.json");
+    }
+
+    /** Whether one of a quest's rewards is already claimed for the test player, from stored progress. */
+    private static boolean rewardClaimed(String questId, int index) {
+        return server.callOnServerThread(() -> {
+            UUID owner = ProgressService.progressOwner(server.server(), player);
+            var entry = TaskedQuests.index().quest(questId).orElse(null);
+            if (entry == null) {
+                return false;
+            }
+            return ProgressService.progressFor(server.server(), owner)
+                    .progressOf(entry.quest())
+                    .claimed(player.getUUID(), index, false);
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Driving and reading
+    // ------------------------------------------------------------------
     /**
      * How many progress messages have been produced for one reason.
      *
@@ -1889,6 +2461,45 @@ class QuestPlaythroughTest {
     /** The progress owner a player's quest state is read from. Their team's id, solo or not. */
     private static UUID ownerOf(ServerPlayer who) {
         return server.callOnServerThread(() -> ProgressService.progressOwner(server.server(), who));
+    }
+
+    /**
+     * The management reads, all against the manager rather than a command's output.
+     *
+     * <p>The file's rule, restated where it is easiest to break: a dedicated server has no language
+     * file, so a translatable renders as its key and no assertion here may read a sentence. A party's
+     * name, owner, roles, policy and invitations are all facts the store holds, so each is asked for
+     * directly -- and asking through {@code Teams.of} also exercises the source resolution the
+     * commands use.
+     */
+    private static String nameOf(UUID teamId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).map(Team::name).orElse(null));
+    }
+
+    private static UUID ownerOfTeam(UUID teamId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).map(Team::owner).orElse(null));
+    }
+
+    private static TeamRole roleOf(UUID teamId, UUID playerId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).flatMap(team -> team.roleOf(playerId)).orElse(null));
+    }
+
+    private static TeamPolicy policyOf(UUID teamId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).map(Team::policy).orElse(null));
+    }
+
+    private static boolean invitedTo(UUID teamId, UUID playerId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).map(team -> team.isInvited(playerId)).orElse(false));
+    }
+
+    private static int sizeOf(UUID teamId) {
+        return server.callOnServerThread(() ->
+                Teams.of(server.server()).byId(teamId).map(Team::size).orElse(0));
     }
 
     /** Whether one player holds a stage, read on the server thread like every other read here. */

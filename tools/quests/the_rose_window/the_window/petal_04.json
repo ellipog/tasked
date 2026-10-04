@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "petal_04",
+  "title": "The Frame",
+  "description": [
+    "Pane 5 of the petal ring, and the ring's last: pressing its mark closes the ring."
+  ],
+  "icon": {
+    "item": "minecraft:end_rod"
+  },
+  "x": 969,
+  "y": 364,
+  "shape": "octagon",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Glaze the final petal"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

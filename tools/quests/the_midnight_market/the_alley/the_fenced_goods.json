@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_fenced_goods",
+  "title": "The Fenced Goods",
+  "subtitle": "Hidden until its prerequisite rule is met",
+  "description": [
+    "The fence does not appear while there is any chance of an audience:",
+    "`hideUntilDependenciesComplete` keeps the quest off the canvas",
+    "until its prerequisite rule is satisfied -- the same rule the",
+    "card's 'met' counts, honouring `minRequired` and the started-based",
+    "modes rather than a flat all-done.",
+    "",
+    "Unlike `invisible`, this hiding ends the moment the rule is met --",
+    "a quest that waits for the street to clear rather than one that",
+    "waits to be discovered."
+  ],
+  "icon": { "item": "minecraft:trapped_chest" },
+  "x": 576,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "hideUntilDependenciesComplete": true,
+  "dependsOn": [
+    "the_hidden_room"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:string", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 6 }
+  ]
+}

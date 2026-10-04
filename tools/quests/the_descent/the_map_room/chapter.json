@@ -1,0 +1,26 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_map_room",
+  "title": "The Map Room",
+  "subtitle": "the first of fifteen depths",
+  "theme": "paper",
+  "description": [
+    "The descent begins where every descent begins, which is indoors,",
+    "at a table, with somebody insisting it can be drawn first.",
+    "",
+    "Paper is the theme of this stratum: warm, flat and certain, in",
+    "the way that only a map of a place you have never been can be."
+  ],
+  "icon": {
+    "item": "minecraft:cartography_table"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "map_room_arrival.json",
+    "map_room_path.json",
+    "map_room_ward.json",
+    "map_room_hazard.json",
+    "map_room_treasure.json",
+    "map_room_on.json"
+  ]
+}

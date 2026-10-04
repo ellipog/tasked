@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "machine_vault_treasure",
+  "title": "The Vault's Coin",
+  "description": [
+    "The vault's strongroom holds one block, red and humming,",
+    "which is either the vault's entire fortune or its entire",
+    "purpose. It is not for carrying. It is for standing in",
+    "front of, briefly, while you decide which."
+  ],
+  "icon": {
+    "item": "minecraft:redstone_block"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Consider the coin"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:redstone_block",
+      "count": 1
+    }
+  ]
+}

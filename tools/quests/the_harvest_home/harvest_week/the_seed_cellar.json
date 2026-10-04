@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_seed_cellar",
+  "title": "The Seed Cellar",
+  "subtitle": "A task gated on a tag",
+  "description": [
+    "The seed cellar lends against next year's planting, and next",
+    "year's planting is a tag: the checkmark below is gated on eight of",
+    "anything in `minecraft:seeds` -- wheat, pumpkin, melon, beetroot,",
+    "torchflower, pitcher -- which is the condition spelling of the",
+    "item_tag task."
+  ],
+  "icon": { "item": "minecraft:pumpkin_seeds" },
+  "x": 576,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_witness_list"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Take the lender's mark",
+      "conditions": [
+        { "type": "tasked:item_tag", "tag": "minecraft:seeds", "count": 8 }
+      ]
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:composter" }
+  ]
+}

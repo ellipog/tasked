@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "plough_six",
+  "title": "The Plough: Mizar",
+  "subtitle": "the sixth link, and the one with the companion",
+  "description": [
+    "Mizar rides with Alcor, which the observatory's ledger notes and",
+    "the canvas does not have room for at sixteen pixels."
+  ],
+  "icon": { "item": "minecraft:glowstone_dust" },
+  "x": 1200,
+  "y": 192,
+  "shape": "none",
+  "size": 16,
+  "iconScale": 1.0,
+  "hideUntilDependenciesVisible": true,
+  "dependsOn": [
+    "plough_five"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Find it" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

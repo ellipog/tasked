@@ -784,6 +784,94 @@ class QuestValidatorTest {
                 + messages(problems));
     }
 
+    // ------------------------------------------------------------------
+    // The chapter's theme patch: the toolkit's own reader is the check
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a well-formed theme patch on a chapter is clean")
+    void aChapterThemePatchIsClean() {
+        String extras = "\"themePatch\": {\"colours\": {\"raised\": \"#FF24242E\"}, \"cornerRadius\": 4},";
+        Problems problems = validate(Fixtures.fileWithChapter(extras, Fixtures.q("a").build()));
+
+        assertTrue(problems.isEmpty(), "a chapter may dress itself, got:" + messages(problems));
+    }
+
+    @Test
+    @DisplayName("an unknown token and an unreadable colour are both reported, at the patch's line")
+    void aBadThemePatchIsReported() {
+        // The messages are the toolkit's, which is the point of reusing its reader: they name the token
+        // or the value, and they cannot drift from what the client will actually do with the file.
+        String token = "\"themePatch\": {\"colours\": {\"no_such_token\": \"#FF24242E\"}},";
+        assertTrue(containing(validate(Fixtures.fileWithChapter(token, Fixtures.q("a").build())),
+                        "is not a colour a theme can set").severity() == DataProblem.Severity.ERROR,
+                "an unknown token must be refused");
+
+        String colour = "\"themePatch\": {\"colours\": {\"raised\": \"not a colour\"}},";
+        assertTrue(containing(validate(Fixtures.fileWithChapter(colour, Fixtures.q("a").build())),
+                        "which is not a hex").severity() == DataProblem.Severity.ERROR,
+                "an unreadable colour must be refused");
+    }
+
+    @Test
+    @DisplayName("a theme patch that is not an object is refused with the fields it takes")
+    void aNonObjectThemePatchIsRefused() {
+        String extras = "\"themePatch\": 4,";
+        DataProblem problem = containing(
+                validate(Fixtures.fileWithChapter(extras, Fixtures.q("a").build())),
+                "expected an object of theme overrides");
+
+        assertTrue(problem.message().contains("cornerRadius"),
+                "the message names what a patch may hold: " + problem.message());
+    }
+
+    // ------------------------------------------------------------------
+    // The auto-claim ladder's two author fields
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a quest and a chapter may each set an auto-claim mode")
+    void autoClaimModesAreAccepted() {
+        Problems quest = validate(file(
+                "{\"id\": \"a\", \"title\": \"a\", \"autoClaim\": \"no_toast\"}"));
+        assertTrue(quest.isEmpty(), "a quest may set its own mode, got:" + messages(quest));
+
+        Problems chapter = validate(Fixtures.fileWithChapter("\"autoClaim\": \"enabled\",",
+                Fixtures.q("a").build()));
+        assertTrue(chapter.isEmpty(), "and a chapter may set the default for its quests, got:"
+                + messages(chapter));
+    }
+
+    @Test
+    @DisplayName("a mode this build does not know is refused, with the names it does")
+    void anUnknownAutoClaimModeIsRefused() {
+        Problems problems = validate(file(
+                "{\"id\": \"a\", \"title\": \"a\", \"autoClaim\": \"sometimes\"}"));
+
+        DataProblem problem = containing(problems, "'sometimes' is not one of");
+        assertTrue(problem.message().contains("no_toast"),
+                "the message lists the real names: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("an automatic mode on a choice reward warns, because it cannot be honoured")
+    void anAutomaticChoiceRewardWarns() {
+        // The setting is not an error -- the file loads and the engine leaves the choice outstanding
+        // for the claim flow -- but it reads as supported and does nothing, which is exactly what this
+        // validator exists to say out loud.
+        String quest = """
+                {"id": "a", "title": "a",
+                 "rewards": [{"type": "tasked:choice", "auto": "enabled", "inline": {"entries": [
+                    {"weight": 1, "reward": {"type": "tasked:item", "item": "minecraft:stone"}},
+                    {"weight": 1, "reward": {"type": "tasked:xp", "amount": 5}}]}}]}""";
+        Problems problems = validate(file(quest));
+
+        assertTrue(containing(problems, "waits for the player's pick").severity()
+                        == DataProblem.Severity.WARNING,
+                "a warning, not an error: got " + messages(problems));
+        assertEquals(0, problems.errorCount(), "and the file is still loadable: " + messages(problems));
+    }
+
     private static String file(String quest) {
         return "{\"version\": 1, \"chapterGroups\": [{\"id\": \"g\", \"title\": \"G\", "
                 + "\"chapters\": [{\"id\": \"c\", \"title\": \"C\", \"quests\": [" + quest + "]}]}]}";

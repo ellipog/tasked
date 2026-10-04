@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_warm_side",
+  "title": "The Warm Side",
+  "subtitle": "The dimension task completes for being there",
+  "description": [
+    "The gate lights, the wall of it goes the colour of a held breath,",
+    "and the other side is a place with a ceiling of bedrock far above",
+    "and no weather worth the name.",
+    "",
+    "A `dimension` task completes for standing in",
+    "`minecraft:the_nether` -- the largest 'place' a task can ask for,",
+    "and the simplest: be there, and the count is met."
+  ],
+  "icon": { "item": "minecraft:netherrack" },
+  "x": 96,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_gate_stands"
+  ],
+  "tasks": [
+    { "type": "tasked:dimension", "dimension": "minecraft:the_nether" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

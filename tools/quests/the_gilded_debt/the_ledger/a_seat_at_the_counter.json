@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "a_seat_at_the_counter",
+  "title": "A Seat at the Counter",
+  "subtitle": "Refundable, which is the joke",
+  "description": [
+    "Six more emeralds, taken by the press like the last four -- the",
+    "chapter's default is doing the work, and the task does not have to",
+    "say a word about it."
+  ],
+  "icon": { "item": "minecraft:oak_stairs" },
+  "x": 96,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "open_the_books"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 6 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 2 },
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

@@ -46,16 +46,23 @@ public final class ToolsPanel {
     }
 
     /**
-     * What the theme panel is showing: the selected colour, the last thing that happened, and whether
-     * the hex field is on the band.
+     * What the theme panel is showing: the selected colour, the last thing that happened, whether
+     * the hex field is on the band, and which palette the panel is editing.
      *
      * @param selected the colour token being edited, or null
      * @param feedback the panel's one-line status, or null for none
      * @param feedbackIsError whether that status is bad news
      * @param hexEditable true when a colour is selected, so the band leaves room for the field instead of
      *     drawing the value as text -- one place showing the number, and it is the one you can type into
+     * @param theme the palette the swatches, the band and the sample's colours read from: the player's own
+     *     theme, or the open chapter's composed one while the chapter target is on. Passed in rather than
+     *     read from {@code ClientAppearance} here, so this panel has one source of truth and the chapter
+     *     target is a choice made by the screen rather than a branch in every drawing method.
+     * @param radius the corner radius in force for that target
+     * @param radiusChosen whether the target itself pins the radius, rather than inheriting the theme's
      */
-    public record State(String selected, String feedback, boolean feedbackIsError, boolean hexEditable) {
+    public record State(String selected, String feedback, boolean feedbackIsError, boolean hexEditable,
+                        dev.ellipog.armature.client.ui.Theme theme, int radius, boolean radiusChosen) {
     }
 
     /**
@@ -98,7 +105,7 @@ public final class ToolsPanel {
                 switch (row.kind()) {
                     case HEADING -> drawHeading(r, row, slot, onScreen, measure);
                     case ROW -> drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
-                    case STEPPER -> drawStepper(r, row, slot, onScreen, measure, mouseX, mouseY);
+                    case STEPPER -> drawStepper(r, row, slot, onScreen, measure, state, mouseX, mouseY);
                     case SWITCH -> drawSwitchLabel(r, row, slot, onScreen, measure);
                     // Loud rather than quiet, because quiet is what happened: the radius row fell through
                     // this dispatch into the label branch and drew as a label with no controls, and nothing
@@ -145,7 +152,7 @@ public final class ToolsPanel {
 
 
         if (token != null) {
-            int argb = ClientAppearance.LOOK.main().colour(token);
+            int argb = state.theme().colour(token);
             boolean isSelected = token.equals(state.selected());
             if (isSelected || hovered) {
                 r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
@@ -225,7 +232,7 @@ public final class ToolsPanel {
      * the player's, faint when it is still the theme's — so nothing has to explain an asterisk.
      */
     private static void drawStepper(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
-                                    Measure measure, int mouseX, int mouseY) {
+                                    Measure measure, State state, int mouseX, int mouseY) {
         Slot joined = new Slot(row.key(), onScreen.x(), onScreen.y(), slot.width(), slot.height());
         Map<String, Slot> arrows = ToolsLayout.stepper(joined);
         Slot between = ToolsLayout.stepperValue(joined);
@@ -238,17 +245,17 @@ public final class ToolsPanel {
         for (String way : List.of("down", "up")) {
             arrow(r, arrows.get(way), way, mouseX, mouseY);
         }
-        String number = String.valueOf(ClientAppearance.LOOK.radius());
+        String number = String.valueOf(state.radius());
         r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
                 textY(slot, onScreen, r) + GLYPH_NUDGE_Y,
-                ClientAppearance.LOOK.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
+                state.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
     }
 
     /** The selected colour, its channels with their numbers, and the two actions. */
     private static void drawBand(GuiRenderer r, ToolsLayout.Frame frame, State state, Measure measure) {
         String token = state.selected();
         boolean radius = ToolsLayout.RADIUS.equals(token);
-        int argb = token == null || radius ? 0 : ClientAppearance.LOOK.main().colour(token);
+        int argb = token == null || radius ? 0 : state.theme().colour(token);
 
         BookGeometry.Rect swatch = frame.swatch();
         int box = swatch.height() - 4;
@@ -279,7 +286,7 @@ public final class ToolsPanel {
         Map<String, Slot> beats = ToolsLayout.beats(frame.channels());
         if (radius) {
             Slot value = beats.get("beat:R");
-            String number = String.valueOf(ClientAppearance.LOOK.radius());
+            String number = String.valueOf(state.radius());
             r.text(number, value.x() + (value.width() - r.textWidth(number)) / 2,
                     value.y() + (value.height() - r.lineHeight()) / 2, ArmatureTheme.title());
             return;
@@ -306,12 +313,6 @@ public final class ToolsPanel {
             default -> 24;
         };
         return (argb >>> shift) & 0xFF;
-    }
-
-    /** The radius the theme underneath asks for, for the band's own reference. */
-    private static int themeRadius() {
-        var theme = dev.ellipog.armature.client.ui.Themes.any(ClientAppearance.LOOK.currentName());
-        return theme == null ? 0 : theme.cornerRadius();
     }
 
     /** A token's name, from the catalogue rather than from its id. */

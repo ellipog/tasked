@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_road_home",
+  "title": "The Road Home",
+  "subtitle": "One toll, and the road is yours",
+  "description": [
+    "The bell has said its one word and the whole parish heard it,",
+    "including the parts of the parish that are currently fish. The road",
+    "home is the road out, walked backwards, in air, at the speed of",
+    "somebody who has been underwater since breakfast.",
+    "",
+    "Its reward is written inline rather than in a table file: a",
+    "`tasked:random` roll carrying its own `entries`, with the usual",
+    "weight-zero entry at the top -- the one that always lands, so the",
+    "roll promises something even when the fashionable weights miss."
+  ],
+  "icon": { "item": "minecraft:heart_of_the_sea" },
+  "x": 1056,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_inscription"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Walk out of the sea" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:random",
+      "inline": {
+        "lootSize": 2,
+        "entries": [
+          { "weight": 0, "reward": { "type": "tasked:xp", "amount": 15 } },
+          { "weight": 4, "reward": { "type": "tasked:item", "item": "minecraft:prismarine_shard", "count": 6 } },
+          { "weight": 3, "reward": { "type": "tasked:item", "item": "minecraft:cod", "count": 4 } },
+          { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:heart_of_the_sea" } }
+        ]
+      }
+    }
+  ]
+}

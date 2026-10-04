@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "oxidation_gardens_on",
+  "title": "The Green Deepens",
+  "description": [
+    "",
+    "Past the heart the green stops being decoration and",
+    "starts being architecture: whole courses of the wall",
+    "gone verdigris, the gardens' colour at full strength,",
+    "and under it a sound that is not water.",
+    "",
+    "The ticking is the machine vault, and the machine vault",
+    "does not care that the surface sent a map. It has been",
+    "down here counting something for longer than the hill",
+    "has had a name, and it counts in redstone.",
+    "",
+    "Six stations, the same six, lit from inside.",
+    "",
+    "Leave the copper where it lies. It has been doing its",
+    "work in the dark for centuries and it is very good at",
+    "it."
+  ],
+  "icon": {
+    "item": "minecraft:cut_copper_stairs"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Go deeper"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

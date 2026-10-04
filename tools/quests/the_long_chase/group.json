@@ -1,0 +1,26 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_long_chase",
+  "title": "The Long Chase",
+  "description": [
+    "The hunting calendar of a valley that takes its sport seriously:",
+    "a muster, a bow, four quarries, and two trophies for a wall that",
+    "will only ever hold one of them, because the wall belongs to a",
+    "house that settles arguments by not buying a second hook.",
+    "",
+    "This group is where the collection keeps its hunting vocabulary:",
+    "a kill task that names its quarry, one that filters by the mob's",
+    "own data for what an id cannot pick out, one that counts a whole",
+    "tag of them, a biome named exactly rather than by tag, a vanilla",
+    "statistic, and the second exclusive group -- two trophies, one",
+    "hook.",
+    "",
+    "Read it for: `kill` with `customName`, `nbtFilter` and",
+    "`entityTypeTag`, a single-id `biome`, `stat`, and a second",
+    "`exclusiveGroup`."
+  ],
+  "icon": { "item": "minecraft:bow" },
+  "chapters": [
+    "the_hunting_grounds"
+  ]
+}

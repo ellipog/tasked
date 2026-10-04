@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_trial_road",
+  "title": "The Trial Road",
+  "subtitle": "Into the chambers",
+  "description": [
+    "The road detours through the trial chambers because the province's",
+    "only complete map of them is the one the survey is about to draw,",
+    "and the province would like it to be accurate rather than",
+    "theoretical.",
+    "",
+    "Stand inside `minecraft:trial_chambers` -- the structure task,",
+    "third of its kind in the collection, after the drowned cathedral",
+    "and the fortress wall."
+  ],
+  "icon": { "item": "minecraft:tuff_bricks" },
+  "x": 360,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "dependsOn": [
+    "the_watch_hill"
+  ],
+  "tasks": [
+    { "type": "tasked:structure", "structure": "minecraft:trial_chambers" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

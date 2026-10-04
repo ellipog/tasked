@@ -300,7 +300,41 @@ public final class ClientQuestCache {
                          * an axis nobody set arrives as the built-in rather than as an absence every
                          * drawing call site would have to remember to fill.
                          */
-                        dev.ellipog.tasked.quest.DependencyStyle chapterDependencyStyle) {
+                        dev.ellipog.tasked.quest.DependencyStyle chapterDependencyStyle,
+                        /**
+                         * The chapter's token-level theme overrides as the file wrote them, or null when
+                         * it names none. Raw JSON, like the chapter's own field: the client parses and
+                         * composes it, and the server only carried it here.
+                         */
+                        com.google.gson.JsonObject chapterThemePatch,
+                        /**
+                         * The quest's own auto-claim mode, or null when it says nothing — in which case
+                         * {@link #chapterAutoClaim} applies. See {@link #effectiveAutoClaim()}.
+                         */
+                        dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim,
+                        /**
+                         * The chapter's auto-claim mode, already resolved against the pack setting by the
+                         * server: the client needs the effective value for a quest that says nothing, and
+                         * has no chapter record to resolve one from.
+                         */
+                        dev.ellipog.tasked.quest.reward.RewardAutoClaim chapterAutoClaim) {
+
+        /**
+         * The auto-claim mode in force for this quest: its own, or the chapter's.
+         *
+         * <p>What the completion toast reads: a mode that grants silently ({@code no_toast},
+         * {@code invisible}) suppresses the notice, so an author who turned auto-claim on for fifty
+         * starter quests does not get fifty toasts either. A server too old to send either field
+         * answers {@code DEFAULT}, which is not automatic and therefore notifies — exactly the
+         * behaviour before this existed.
+         */
+        public dev.ellipog.tasked.quest.reward.RewardAutoClaim effectiveAutoClaim() {
+            if (autoClaim != null) {
+                return autoClaim;
+            }
+            return chapterAutoClaim == null
+                    ? dev.ellipog.tasked.quest.reward.RewardAutoClaim.DEFAULT : chapterAutoClaim;
+        }
 
         /**
          * The rule this quest's dependencies are judged by: its own, or the chapter's when it has none.
@@ -544,6 +578,22 @@ public final class ClientQuestCache {
         return null;
     }
 
+    /**
+     * The chapter's theme patch, or null when it declares none — the counterpart of
+     * {@link #chapterTheme}, and looked up the same way for the same reason.
+     */
+    public static com.google.gson.JsonObject chapterThemePatch(String chapterId) {
+        if (chapterId == null) {
+            return null;
+        }
+        for (Entry entry : entries) {
+            if (entry.chapterId().equals(chapterId)) {
+                return entry.chapterThemePatch();
+            }
+        }
+        return null;
+    }
+
     public static int questCount() {
         return questCount;
     }
@@ -619,25 +669,69 @@ public final class ClientQuestCache {
      * claiming, and a client that shows the button wrongly gets a refusal.
      */
     public static boolean canClaimFor(UUID player, String questId) {
-        Progress found = progress.get(questId);
+        return outstandingRewards(player, questId) > 0;
+    }
+
+    /**
+     * How many of a quest's rewards this player could collect right now.
+     *
+     * <p>The one loop behind {@link #canClaimFor} and the reward badges: a quest is claimable exactly
+     * when this is more than zero, so the node badge, the Claim button and the rewards panel cannot
+     * disagree about how much is waiting. The count is the number of rewards, not of quests, because a
+     * node's badge says "three things are here"; the sidebar's count is of quests, because that is the
+     * question a chapter's row answers — see {@link #claimableByChapter}.
+     */
+    public static int outstandingRewards(UUID player, String questId) {
+        Entry entry = entry(questId);
+        return entry == null ? 0 : outstandingIn(player, entry);
+    }
+
+    /** The same count for an entry already in hand, so the aggregates are one walk and not O(n²). */
+    private static int outstandingIn(UUID player, Entry entry) {
+        Progress found = progress.get(entry.id());
         if (found == null || found.state() != QuestState.COMPLETED || found.legacySettled()
                 || player == null) {
-            return false;
+            return 0;
         }
-        Entry entry = entry(questId);
-        if (entry == null || entry.rewards().isEmpty()) {
-            return false;
-        }
+        int outstanding = 0;
         for (int index = 0; index < entry.rewards().size(); index++) {
-            // A reward whose conditions this player does not meet is not claimable by them: showing
-            // the button would be showing one the server refuses. The lock is this player's, so a
-            // teammate who meets the conditions still sees theirs.
+            // A reward whose conditions this player does not meet is not claimable by them: counting
+            // it would show a badge the server refuses. The lock is this player's, so a teammate who
+            // meets the conditions still counts theirs.
             if (found.rewardLock(index).isEmpty()
                     && !found.claimed(player, index, entry.rewards().get(index).team())) {
-                return true;
+                outstanding++;
             }
         }
-        return false;
+        return outstanding;
+    }
+
+    /**
+     * The quests this player could collect from right now, by chapter id — the sidebar's counts.
+     *
+     * <p>A quest is counted once however many rewards it holds: a chapter's row answers "how many
+     * quests have something for me", the same question the rewards panel lists.
+     */
+    public static java.util.Map<String, Integer> claimableByChapter(UUID player) {
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        for (Entry entry : entries) {
+            if (outstandingIn(player, entry) > 0) {
+                counts.merge(entry.chapterId(), 1, Integer::sum);
+            }
+        }
+        return counts;
+    }
+
+    /** The rewards waiting per quest, by quest id — the canvas badges' own count. */
+    public static java.util.Map<String, Integer> outstandingByQuest(UUID player) {
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        for (Entry entry : entries) {
+            int outstanding = outstandingIn(player, entry);
+            if (outstanding > 0) {
+                counts.put(entry.id(), outstanding);
+            }
+        }
+        return counts;
     }
 
     /** The tree entry for a quest id, or null. */
@@ -1019,15 +1113,42 @@ public final class ClientQuestCache {
                     stack(str(quest, "chapterIcon"), 1, quest.get("chapterIconComponents")),
                     str(quest, "chapterIcon"),
                     dependencyLines(quest),
-                    DependencyStyle.from(quest.get("chapterDependencyStyle")).resolved()));
+                    DependencyStyle.from(quest.get("chapterDependencyStyle")).resolved(),
+                    // Kept as the file wrote it; a server that sends nothing (or something that is not
+                    // an object) reads as "no patch", which is the state every chapter was in before
+                    // this field existed.
+                    quest.has("chapterThemePatch") && quest.get("chapterThemePatch").isJsonObject()
+                            ? quest.getAsJsonObject("chapterThemePatch") : null,
+                    autoClaim(quest, "autoClaim"),
+                    autoClaim(quest, "chapterAutoClaim")));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
         chapters = List.copyOf(parsedChapters);
     }
 
-    /** A quest's per-line overrides, keyed by dependency id. Absent or malformed reads as none. */
-    private static java.util.Map<String, DependencyStyle> dependencyLines(JsonObject quest) {
+    /**
+     * An auto-claim mode by wire name, or null for absent or unknown.
+     *
+     * <p>Null rather than a default, because "the quest said nothing" and "the quest said default" are
+     * different states: the first falls through to the chapter's mode, the second is the quest's own
+     * answer. The same lenient read the shapes get — a name from a newer server is ignored, not fatal.
+     */
+    private static dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim(JsonObject quest, String key) {
+        String name = str(quest, key);
+        if (name.isEmpty()) {
+            return null;
+        }
+        for (dev.ellipog.tasked.quest.reward.RewardAutoClaim mode
+                : dev.ellipog.tasked.quest.reward.RewardAutoClaim.values()) {
+            if (mode.name().equalsIgnoreCase(name)) {
+                return mode;
+            }
+        }
+        return null;
+    }
+
+    /** A quest's per-line overrides, keyed by dependency id. Absent or malformed reads as none. */    private static java.util.Map<String, DependencyStyle> dependencyLines(JsonObject quest) {
         JsonElement element = quest.get("dependencyLines");
         if (element == null || !element.isJsonObject()) {
             return java.util.Map.of();

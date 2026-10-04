@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_enchanters_licence",
+  "title": "The Enchanter's Licence",
+  "subtitle": "One criterion of an advancement",
+  "description": [
+    "The licence is granted on one criterion of the enchanting",
+    "advancement: the task names `minecraft:story/enchant_item` and,",
+    "beside it, `criterion: enchanted` -- one criterion of the",
+    "advancement instead of the whole thing.",
+    "",
+    "The fee is paid in experience, which is its own kind of task: an",
+    "`xp` task is manual by design -- the press takes the points,",
+    "because experience is not something the engine should skim off",
+    "the moment you happen to be carrying enough. The ashen road's",
+    "home road pays xp back the same way.",
+    "",
+    "The ashen road's blaze rod was the whole advancement; this is the",
+    "surgical version, for advancements whose criteria are worth",
+    "separating."
+  ],
+  "icon": { "item": "minecraft:enchanting_table" },
+  "x": 576,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_first_word"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:advancement",
+      "advancement": "minecraft:story/enchant_item",
+      "criterion": "enchanted"
+    },
+    { "type": "tasked:xp", "value": 15 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:lapis_lazuli", "count": 8 }
+  ]
+}

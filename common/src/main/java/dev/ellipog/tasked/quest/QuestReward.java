@@ -37,4 +37,16 @@ public interface QuestReward {
     default Optional<String> tableId() {
         return Optional.empty();
     }
+
+    /**
+     * Whether this reward can be handed over without asking the player anything.
+     *
+     * <p>True for everything that grants what it says; false for the one type that cannot pay without a
+     * decision — a choice table, whose payout <i>is</i> the player's pick. The auto-claim paths skip a
+     * reward this is false for, leaving it outstanding for the normal claim flow; before this existed
+     * a reward marked automatic was marked collected and then granted nothing, which lost the choice.
+     */
+    default boolean autoGrantable() {
+        return true;
+    }
 }

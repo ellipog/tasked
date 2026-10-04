@@ -353,6 +353,10 @@ public final class QuestSync {
         // chapter. Filtering it out at the server would be silently discarding an author's mistake,
         // which is the failure mode this project keeps finding: a field that reads as supported.
         chapter.theme().ifPresent(name -> json.addProperty("chapterTheme", name));
+        // And the chapter's token-level overrides, carried raw: the client is the side that parses and
+        // composes them, and the validator has already checked them on the side that can name the line.
+        // Absent means the named theme (or the player's own) stands alone.
+        chapter.themePatch().ifPresent(patch -> json.add("chapterThemePatch", patch));
         // The chapter's default line style, resolved: the client draws with it directly and has no
         // chapter record to read one from -- the same reason `chapterDefaultPrerequisiteMode` rides here.
         json.add("chapterDependencyStyle", chapter.dependencyStyle().resolved().asJson());
@@ -402,6 +406,16 @@ public final class QuestSync {
         // for the same reason and with the same cost.
         json.addProperty("chapterDefaultPrerequisiteMode",
                 chapter.defaultPrerequisiteMode().name().toLowerCase(java.util.Locale.ROOT));
+        // Auto-claim travels the same way and for the same reason: the client needs the effective mode
+        // for a quest that says nothing (to suppress a toast the author asked not to see), and it has no
+        // chapter record. The quest's own mode goes only when it sets one -- absence means "whatever the
+        // chapter says" -- while the chapter's is sent already resolved against the pack setting, so the
+        // client's answer matches the server's granting exactly.
+        quest.rules().autoClaim().ifPresent(mode ->
+                json.addProperty("autoClaim", mode.name().toLowerCase(java.util.Locale.ROOT)));
+        json.addProperty("chapterAutoClaim",
+                chapter.autoClaim().resolved(TaskedQuests.settings().defaultAutoClaim()).name()
+                        .toLowerCase(java.util.Locale.ROOT));
         json.addProperty("minRequired", quest.minRequired());
         json.addProperty("maxCompletableDependents", quest.rules().maxCompletableDependents());
         // The reveal flags. Every one of them is a presentation decision the client makes against state

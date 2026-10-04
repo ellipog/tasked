@@ -1,0 +1,45 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "map_room_on",
+  "title": "Roll the Map",
+  "description": [
+    "",
+    "The map is rolled, tied, and slung across a shoulder,",
+    "which is the ceremony that turns a drawing into a plan.",
+    "",
+    "Below the map room the world stops being represented and",
+    "starts being weather. The greenwood comes first, because",
+    "the greenwood is what the surface keeps before the stone",
+    "begins: light, leaf, and the particular confidence of a",
+    "place that has never had to think about ceilings.",
+    "",
+    "Six stations lie below this one in every stratum, and they",
+    "are the same six in all of them. The arrival. The path.",
+    "The ward. The hazard. The treasure. The way on. The order",
+    "is the descent; the chapter's list is the descent's spine,",
+    "and a LINEAR chapter unlocks in exactly that order.",
+    "",
+    "What changes between strata is only the light. That is the",
+    "whole point of this chapter: click between them and watch",
+    "the same six nodes wear fifteen palettes."
+  ],
+  "icon": {
+    "item": "minecraft:paper"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Roll it away"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

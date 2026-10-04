@@ -77,6 +77,10 @@
       "default": false,
       "description": "Tasks must be done in order: the second cannot be handed in until the first is."
     },
+    "autoClaim": {
+      "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
+      "description": "Whether this quest's rewards are handed over the moment it completes, overriding the chapter's own `autoClaim` (which in turn defers to the pack setting in index.json). A reward's own `auto` still wins over this. `enabled` pays with a notification, `no_toast` silently, `invisible` with no trace; `disabled` waits for a claim. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
+    },
     "repeatable": {
       "type": "boolean",
       "default": false,

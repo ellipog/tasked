@@ -1,0 +1,32 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_cartographer",
+  "title": "The Cartographer",
+  "description": [
+    "A survey of the long road north, walked and drawn by somebody who",
+    "names everything -- which is why every node on this canvas carries",
+    "its name under it, the one chapter in the collection that turns",
+    "`showTitle` on for all of its quests and spaces them wide enough",
+    "that the names never run together.",
+    "",
+    "The lines are road lines: orthogonal out of the gate, a",
+    "chamfered conduit over the old bridge, a stepped climb to the",
+    "milestone, a double-ruled final approach. The camps are `location`",
+    "boxes, the trial chamber is a `structure` gate, and the last sheet",
+    "waits on a quest from another chapter group entirely -- the",
+    "underground of `first_light`, which is what a cross-group edge",
+    "looks like: the format's dependencies do not stop at the group",
+    "boundary, and this road does not stop at the survey's edge either.",
+    "",
+    "The chapter answers to `the_map` as well as `the_cartographer_road`",
+    "-- a chapter alias, the middle level of the format's three.",
+    "",
+    "Read it for: a fully named road, road-style `dependencyLines`,",
+    "`location` camps, the `trial_chambers` structure, a chapter alias,",
+    "and a dependency that leaves its own chapter group."
+  ],
+  "icon": { "item": "minecraft:cartography_table" },
+  "chapters": [
+    "the_survey"
+  ]
+}

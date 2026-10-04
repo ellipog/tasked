@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_account",
+  "title": "The First Account",
+  "subtitle": "A command reward that opens the scoreboard",
+  "description": [
+    "The vault's first act is clerical: claiming this quest runs",
+    "`scoreboard objectives add tasked_debt_standing dummy` as the",
+    "player, at permission level 2 -- a command block's level, which is",
+    "the default and the right one.",
+    "",
+    "A `tasked:command` reward is the escape hatch with the whole server",
+    "behind it, so it runs through the server's own dispatcher. The",
+    "placeholder vocabulary is FTB Quests' own: `{p}` the player,",
+    "`{quest}` the quest id, `{team}` the progress owner, and the rest",
+    "of the ledger on the rewards page of the manual."
+  ],
+  "icon": { "item": "minecraft:command_block" },
+  "x": 0,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_ledger_closes"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:paper", "count": 4, "consumeItems": true }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:command",
+      "command": "scoreboard objectives add tasked_debt_standing dummy",
+      "permissionLevel": 2
+    }
+  ]
+}

@@ -167,6 +167,7 @@ public final class ChapterPanelLayout {
             rows.add(choiceRow(chapter, PROGRESSION));
             rows.add(toggle(chapter, "defaultConsumeItems"));
             rows.add(choiceRow(chapter, PREREQUISITE));
+            rows.add(choiceRow(chapter, AUTO_CLAIM));
             rows.add(choiceRow(chapter, LINE_FORM));
             rows.add(choiceRow(chapter, LINE_ARROW_HEAD));
             rows.add(choiceRow(chapter, LINE_ARROW_PLACE));
@@ -275,6 +276,16 @@ public final class ChapterPanelLayout {
     public static final Choice PREREQUISITE = new Choice("defaultPrerequisiteMode", "Prerequisite",
             List.of("all_completed", "one_completed", "all_started", "one_started"), "all_completed");
 
+    /**
+     * Whether this chapter's quests hand their rewards over on completion.
+     *
+     * <p>The chapter rung of the auto-claim ladder, and the row that makes the feature an author's
+     * rather than fifty per-reward settings: the unset state defers to the pack setting in
+     * {@code index.json}, and a quest can still override this for itself.
+     */
+    public static final Choice AUTO_CLAIM = new Choice("autoClaim", "Auto-claim",
+            List.of("disabled", "enabled", "no_toast", "invisible"), "pack setting");
+
     /** The chapter's line-style default, one axis per row: what a line's "Use chapter default" resets to. */
     public static final Choice LINE_FORM = new Choice(DEPENDENCY_STYLE + ".form", "Line form",
             List.of("orthogonal", "chamfered", "straight", "stepped", "curved", "radial"), "orthogonal");
@@ -291,7 +302,7 @@ public final class ChapterPanelLayout {
             List.of("thin", "thick", "bold", "conduit"), "thin");
 
     /** The cycling rows, in the order the Rules section carries them. */
-    public static final List<Choice> CHOICES = List.of(PROGRESSION, PREREQUISITE, LINE_FORM,
+    public static final List<Choice> CHOICES = List.of(PROGRESSION, PREREQUISITE, AUTO_CLAIM, LINE_FORM,
             LINE_ARROW_HEAD, LINE_ARROW_PLACE, LINE_ARROW_DENSITY, LINE_DASH, LINE_WEIGHT);
 
     /** The cycling row a key names, or null for every other row. */

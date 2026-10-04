@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "machine_vault_hazard",
+  "title": "The Trapdoored Floor",
+  "description": [
+    "The floor ahead is a decision the vault made about",
+    "guests. Two hooks, disarmed with the care the word",
+    "implies, and the floor goes back to being a floor."
+  ],
+  "icon": {
+    "item": "minecraft:tripwire_hook"
+  },
+  "x": 288,
+  "y": 32,
+  "shape": "gear",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:tripwire_hook",
+      "count": 2
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

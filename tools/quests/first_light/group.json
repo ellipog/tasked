@@ -1,0 +1,24 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "first_light",
+  "title": "First Light",
+  "description": [
+    "The first questline to read, and the shortest: one chain of five quests,",
+    "which is what a quest is before any other chapter gets to show what a",
+    "quest can do.",
+    "",
+    "The five quests here are also the five the engine's own playthrough",
+    "test walks, which is why their ids and their mechanics never change:",
+    "eight logs that count themselves, a table, a set of stone tools, a sign",
+    "you read on purpose, and a place rather than a task list. Everything",
+    "else in this collection is a longer sentence written with the same",
+    "vocabulary.",
+    "",
+    "First light is what every descent starts by carrying. Read this one",
+    "first, then go and see what the rest of the book does with it."
+  ],
+  "icon": { "item": "minecraft:torch" },
+  "chapters": [
+    "first_steps"
+  ]
+}

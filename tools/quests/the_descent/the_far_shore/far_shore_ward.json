@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "far_shore_ward",
+  "title": "The Watcher",
+  "description": [
+    "One of the tall folk watches the bridge, and the ward",
+    "is to look back. An observation task of the entity",
+    "kind: meet its eye for the moment the task asks, and",
+    "no longer. The looking is mutual."
+  ],
+  "icon": {
+    "item": "minecraft:ender_pearl"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:observation",
+      "observeType": "entity_type",
+      "toObserve": "minecraft:enderman"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

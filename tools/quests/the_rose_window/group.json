@@ -1,0 +1,22 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_rose_window",
+  "title": "The Rose Window",
+  "description": [
+    "A picture made of quest nodes: one boss, twelve apostles, twelve",
+    "prophets, twelve saints and five petals, drawn by position and",
+    "glazed in list order by a LINEAR chapter.",
+    "",
+    "This one is meant to be looked at rather than read. Open the",
+    "chapter, then walk it a node at a time with",
+    "`/tasked complete <quest>` -- the window fills in as the list",
+    "advances, which is the whole demonstration: a LINEAR chapter's",
+    "order being a drawing as well as a progression."
+  ],
+  "icon": {
+    "item": "minecraft:purple_stained_glass"
+  },
+  "chapters": [
+    "the_window"
+  ]
+}

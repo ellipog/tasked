@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "boss_00",
+  "title": "The Rose",
+  "description": [
+    "Pane 1 of the boss ring, and the ring's last: pressing its mark closes the ring."
+  ],
+  "icon": {
+    "item": "minecraft:white_stained_glass"
+  },
+  "x": 512,
+  "y": 512,
+  "shape": "circle",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Raise the boss"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

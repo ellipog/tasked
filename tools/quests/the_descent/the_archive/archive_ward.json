@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "archive_ward",
+  "title": "The Librarian",
+  "description": [
+    "The ward is a question, and the librarian has heard",
+    "every answer from every descent that ever got this",
+    "far. State your purpose. The truthful ones are all",
+    "short."
+  ],
+  "icon": {
+    "item": "minecraft:lectern"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "State your purpose"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:enchanted_book",
+      "count": 1
+    }
+  ]
+}

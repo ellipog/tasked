@@ -396,7 +396,11 @@ public final class QuestSettingsPanel {
         Slot strip = QuestSettingsLayout.strip(slot);
         drawRowLabel(r, slot, strip, row.label());
         String value = displayValue(quest, row.key());
-        String shown = QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
+        // The auto-claim row defers to the chapter rather than to a mode, so its unset label is not the
+        // requirement row's "Chapter default (all_completed)" shape.
+        String shown = "autoClaim".equals(row.key())
+                ? QuestSettingsLayout.autoClaimLabel(value)
+                : QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
         r.text(Measure.truncate(shown, Math.max(0, strip.width() - 40),
                         Measure.of(r::textWidth, r.lineHeight())),
                 strip.x() + QuestSettingsLayout.STEPPER_WIDTH + 4,

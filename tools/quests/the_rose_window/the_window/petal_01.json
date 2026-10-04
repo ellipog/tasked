@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "petal_01",
+  "title": "The Judas Pane",
+  "description": [
+    "Pane 2 of the petal ring."
+  ],
+  "icon": {
+    "item": "minecraft:candle"
+  },
+  "x": 55,
+  "y": 364,
+  "shape": "octagon",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:candle",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 12
+    }
+  ]
+}

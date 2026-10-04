@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "apostle_03",
+  "title": "Ember",
+  "description": [
+    "Pane 4 of the apostle ring."
+  ],
+  "icon": {
+    "item": "minecraft:yellow_stained_glass"
+  },
+  "x": 400,
+  "y": 512,
+  "shape": "hexagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:yellow_stained_glass",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

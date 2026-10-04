@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_cross_pass",
+  "title": "The Cross Pass",
+  "subtitle": "The junction the first survey missed",
+  "description": [
+    "The pass forks where the first sheet showed a wall, which is the",
+    "sort of correction that makes a second survey worth funding.",
+    "Sketch the junction and the road north acquires an honesty it did",
+    "not have at mile one."
+  ],
+  "icon": { "item": "minecraft:oak_sign" },
+  "x": 504,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "dependsOn": [
+    "the_chamber_map"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Sketch the junction" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

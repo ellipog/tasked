@@ -533,6 +533,28 @@ class ToolsLayoutTest {
         }
     }
 
+    @Test
+    @DisplayName("the chapter-palette switch appears only where there is a chapter to edit")
+    void theChapterSwitchAppearsWhereItApplies() {
+        // The panel's other rows are the same either way; this one changes what everything under it
+        // edits, so it is offered only where the target exists and the author may write it.
+        assertTrue(ToolsLayout.rows(true, true, true, true).stream()
+                        .noneMatch(row -> row.key().equals(ToolsLayout.CHAPTER_THEME)),
+                "a reader's panel has no chapter target");
+
+        List<ToolsLayout.Action> available = ToolsLayout.rows(true, true, true, true, false, true);
+        ToolsLayout.Action off = available.stream()
+                .filter(row -> row.key().equals(ToolsLayout.CHAPTER_THEME))
+                .findFirst().orElseThrow();
+        assertEquals("Chapter palette", off.label());
+        assertEquals("Off", off.buttonLabel());
+
+        ToolsLayout.Action on = ToolsLayout.rows(true, true, true, true, true, true).stream()
+                .filter(row -> row.key().equals(ToolsLayout.CHAPTER_THEME))
+                .findFirst().orElseThrow();
+        assertEquals("On", on.buttonLabel(), "and the state is the label, like the other switches");
+    }
+
     private static double midX(BookGeometry.Rect rect) {
         return rect.x() + rect.width() / 2.0;
     }

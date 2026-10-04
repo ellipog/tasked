@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "black_gate_on",
+  "title": "The Frame, Complete",
+  "description": [
+    "",
+    "The frame takes its last four blocks and stands whole",
+    "for the first time since the arch was unlit, and the",
+    "darkness inside it has the particular quality of a",
+    "held breath.",
+    "",
+    "The furnace dark is next, and it is not a figure of",
+    "speech. The gate goes to a place with a ceiling of",
+    "bedrock far above and a sea that has never once been",
+    "cool.",
+    "",
+    "Six stations, the same six, in firelight.",
+    "",
+    "The lodestone stays where it lies. Whoever set it meant",
+    "to come back for it, and somebody will, and it might",
+    "as well be true for them too."
+  ],
+  "icon": {
+    "item": "minecraft:obsidian"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Light it"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

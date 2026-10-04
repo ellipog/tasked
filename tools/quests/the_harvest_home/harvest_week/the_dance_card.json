@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_dance_card",
+  "title": "The Dance Card",
+  "subtitle": "A reward gated on a scoreboard objective",
+  "description": [
+    "The dance card pays on favour, and favour is a scoreboard",
+    "objective: `tasked_harvest_favour`, created by the bell's command",
+    "reward at the start of the week and scored however the village",
+    "scores it -- the prizes below go only to a card whose objective",
+    "reads three or better.",
+    "",
+    "A missing objective reads as zero, not as an error, which is the",
+    "score condition's one warning: the bell made the objective, and a",
+    "pack that skips the bell has a gate with no keyhole."
+  ],
+  "icon": { "item": "minecraft:music_disc_cat" },
+  "x": 768,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_shepherds_tally"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Dance once" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:emerald",
+      "count": 3,
+      "conditions": [
+        { "type": "tasked:score", "objective": "tasked_harvest_favour", "min": 3 }
+      ]
+    }
+  ]
+}

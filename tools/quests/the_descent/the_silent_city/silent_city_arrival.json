@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "silent_city_arrival",
+  "title": "Where Sound Goes to Die",
+  "description": [
+    "The deep dark biome announces itself by subtraction:",
+    "no drip, no ticking, no ringing air. Stand in it and",
+    "let the place take your sound as its due."
+  ],
+  "icon": {
+    "item": "minecraft:sculk"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:biome",
+      "biome": "minecraft:deep_dark"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

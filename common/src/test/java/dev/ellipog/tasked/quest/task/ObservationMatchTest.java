@@ -41,18 +41,19 @@ class ObservationMatchTest {
     }
 
     @Test
-    @DisplayName("a block tag that is not bound matches nothing, and an unparsable one does too")
+    @DisplayName("a block tag nothing declares matches nothing, and an unparsable one does too")
     void blockByTag() {
         var log = Blocks.OAK_LOG.defaultBlockState();
 
         // A bare Bootstrap JVM has the registries but not the vanilla datapack, so tags are unbound
-        // here: every tag query answers false. That is asserted rather than worked around, because it
-        // is also the production behaviour for a tag nothing declares -- and the positive case (a
-        // bound tag matching a member) is exercised by the playthrough, where datapacks load.
+        // there: every tag query answers false. But this class shares a JVM with the playthrough,
+        // whose server loads the vanilla datapack and binds every real tag -- whether that has
+        // happened by the time this test runs is JVM ordering, and a test may not depend on it. So
+        // the negative case is asked about a tag NO datapack declares, which answers false either
+        // way and is the production behaviour for a tag nothing declares. The positive case (a bound
+        // tag matching a member) is exercised by the playthrough, where datapacks load.
         assertFalse(ObservationTask.matchesBlock(log, ObservationTask.ObserveType.BLOCK_TAG,
-                "minecraft:logs"), "an unbound tag matches nothing in this environment");
-        assertFalse(ObservationTask.matchesBlock(log, ObservationTask.ObserveType.BLOCK_TAG,
-                "minecraft:planks"));
+                "minecraft:tag_no_datapack_declares"), "a tag nothing declares matches nothing");
         assertFalse(ObservationTask.matchesBlock(log, ObservationTask.ObserveType.BLOCK_TAG,
                 "not a tag"), "an unparsable tag matches nothing");
     }

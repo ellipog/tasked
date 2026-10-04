@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_field_cleared",
+  "title": "The Field Cleared",
+  "subtitle": "Sixteen sheaves, paid before you pocket them",
+  "description": [
+    "The north field comes in first. Sixteen wheat, carried to the",
+    "green -- and the payout lands the moment the quest completes, under",
+    "the chapter's auto-claim, which is the whole point of the setting:",
+    "a week of small quests should not be a week of claim buttons."
+  ],
+  "icon": { "item": "minecraft:wheat" },
+  "x": 192,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_village_green"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:bread", "count": 6 }
+  ]
+}

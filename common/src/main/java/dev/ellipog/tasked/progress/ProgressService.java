@@ -15,6 +15,7 @@ import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.condition.ConditionContext;
 import dev.ellipog.tasked.quest.condition.Conditions;
 import dev.ellipog.tasked.quest.condition.QuestCondition;
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardContext;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.KillTask;
@@ -187,6 +188,42 @@ public final class ProgressService {
 
     public static UUID progressOwner(MinecraftServer server, ServerPlayer player) {
         return Teams.teamOf(server, player.getUUID()).id();
+    }
+
+    /**
+     * Keeps, in a player's own record, everything the party they are leaving had done.
+     *
+     * <h2>Why leaving does this, when joining deliberately does not</h2>
+     *
+     * <p>The two are asymmetric on purpose, and both directions are the promised behaviour rather than
+     * an oversight. <b>Joining merges nothing</b>: importing a player's solo record would hand a fresh
+     * party a finished questline, which is why {@code ProgressStore} has always refused it. <b>Leaving
+     * merges the party's progress into the leaver's own record</b>, so quest nodes earned together are
+     * not lost -- the alternative soft-locks a progression-gated pack the moment somebody goes solo.
+     *
+     * <p>It is a copy, not a move: the party's record stays exactly where it was, under the team id,
+     * for the members still in it. See {@link ProgressMerge} for what travels and what does not.
+     *
+     * <p>Called for every reason a membership ends -- left by choice, removed, or the party dissolved
+     * -- because the question this answers is "what did this player earn while they were here", and
+     * the answer does not change with how it ended. A kick is a statement about behaviour; confiscating
+     * quest nodes is not a moderation tool, and the command that removes somebody already says so.
+     *
+     * @param teamId the party being left. A solo record keyed by the player's own id is a no-op
+     */
+    public static void retainFor(MinecraftServer server, UUID player, UUID teamId) {
+        if (teamId == null || player == null || teamId.equals(player)) {
+            // Their own record already, so there is nothing a party holds that they do not.
+            return;
+        }
+        ProgressStore store = ProgressStore.of(server);
+        TeamProgress party = store.progressOf(teamId);
+        if (party.size() == 0) {
+            // An empty party record -- a party whose members never made progress -- merges to the
+            // player's own record unchanged, and skipping the write keeps the store clean.
+            return;
+        }
+        store.put(player, ProgressMerge.merge(store.progressOf(player), party, player));
     }
 
     /** Every quest's state, for whoever's progress this is. */
@@ -737,7 +774,10 @@ public final class ProgressService {
         // is one claim, granted to the completer; a player-mode one is granted to every member online
         // now, and the rest collect theirs when they next join (see autoClaimFor).
         List<Grant> automatic = automaticGrants(server, owner, quest, recorded, progress, settings, player,
-                onlineMembersOf(server, teamFor(server, owner)));
+                onlineMembersOf(server, teamFor(server, owner)),
+                // The ladder's middle rungs, resolved once here: reward's own `auto` overrides this,
+                // and this is the quest's mode or the chapter's (itself over the pack setting).
+                quest.autoClaim(entry.chapter().autoClaim().resolved(settings.defaultAutoClaim())));
         QuestClaims marked = recorded.claims();
         for (Grant grant : automatic) {
             marked = grant.teamClaim() ? marked.withTeamClaim(grant.index())
@@ -799,21 +839,29 @@ public final class ProgressService {
      * <p>Blocking applies here exactly as it does to a claim: a team whose rewards are held keeps even
      * its automatic ones, so unblocking is one moment rather than two behaviours. Suppression is the
      * file-wide switch, and it outranks every per-reward mode.
+     *
+     * <p>{@code fileDefault} is the ladder's middle: the quest's {@code autoClaim} over the chapter's
+     * over the pack setting, already resolved by the caller. A reward whose own {@code auto} says
+     * something other than {@code default} still wins over it.
+     *
+     * <p>A reward that cannot be granted without a decision — a choice table — is skipped rather than
+     * selected: it stays outstanding and the claim flow offers it, which is the only path that can pay
+     * it. Before {@link QuestReward#autoGrantable} existed it was marked collected and granted nothing.
      */
     private static List<Grant> automaticGrants(MinecraftServer server, UUID owner, Quest quest,
                                                QuestProgress current, TeamProgress team,
                                                QuestSettings settings, ServerPlayer completer,
-                                               List<ServerPlayer> members) {
+                                               List<ServerPlayer> members, RewardAutoClaim fileDefault) {
         if (settings.suppressAllAutoclaiming()) {
             return List.of();
         }
         List<Grant> grants = new ArrayList<>();
         for (int index = 0; index < quest.rewards().size(); index++) {
             QuestReward reward = quest.rewards().get(index);
-            if (isBlocked(team, reward)) {
+            if (isBlocked(team, reward) || !reward.autoGrantable()) {
                 continue;
             }
-            if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()) {
+            if (!reward.common().autoClaim(fileDefault).automatic()) {
                 continue;
             }
             // Per recipient, because the conditions are: a reward that pays each member is gated for
@@ -1239,6 +1287,10 @@ public final class ProgressService {
         boolean grantedAny = false;
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
             Quest quest = entry.quest();
+            // The same ladder the completion path resolves, so a quest auto-claims on join exactly as
+            // it would have at completion. The entry carries its chapter, so no second lookup.
+            RewardAutoClaim fileDefault =
+                    quest.autoClaim(entry.chapter().autoClaim().resolved(settings.defaultAutoClaim()));
             QuestProgress current = team.progressOf(quest);
             if (current.state() != QuestState.COMPLETED || current.legacySettled()) {
                 continue;
@@ -1248,7 +1300,8 @@ public final class ProgressService {
             for (int index = 0; index < quest.rewards().size(); index++) {
                 QuestReward reward = quest.rewards().get(index);
                 boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
-                if (!reward.common().autoClaim(settings.defaultAutoClaim()).automatic()
+                if (!reward.autoGrantable()
+                        || !reward.common().autoClaim(fileDefault).automatic()
                         || isBlocked(team, reward)
                         || current.claimed(player.getUUID(), index, teamMode)) {
                     continue;

@@ -1,0 +1,30 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_far_side",
+  "title": "The Far Side",
+  "subtitle": "twelve stops between the gate and the home road",
+  "description": [
+    "The road is walked in order, because the road is the order: gate,",
+    "shore, fortress, forest, bridge, watchtower, blaze road, and the",
+    "lantern line that does not light until everything behind it is",
+    "done.",
+    "",
+    "The watchtower's line is hazard-taped. The expedition drew it",
+    "that way on the map first and the canvas is simply agreeing."
+  ],
+  "icon": { "item": "minecraft:soul_lantern" },
+  "quests": [
+    "the_gate_stands.json",
+    "the_warm_side.json",
+    "the_shore_road.json",
+    "the_fortress_wall.json",
+    "the_quiet_forest.json",
+    "the_bridgeworks.json",
+    "the_watchtower.json",
+    "the_blaze_road.json",
+    "the_triumph.json",
+    "the_lantern_line.json",
+    "the_ash_account.json",
+    "the_home_road.json"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_bell_rope",
+  "title": "The Bell Rope",
+  "subtitle": "Kelp for the lift, rope for the catch",
+  "description": [
+    "The bell hangs at the top of the tower and the tower is full of",
+    "water, which makes the rope the whole problem. Two leads for the",
+    "rigging that takes the weight once the kelp has done its part."
+  ],
+  "icon": { "item": "minecraft:lead" },
+  "x": 672,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_cathedral"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:lead", "count": 2 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

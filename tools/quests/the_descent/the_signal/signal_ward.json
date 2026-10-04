@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "signal_ward",
+  "title": "The Handshake",
+  "description": [
+    "The ward is a question asked twice. Pulse the lamp,",
+    "wait, pulse it again, and the dark answers in kind.",
+    "Every expedition that got this far reported the same",
+    "thing: it was waiting for a reply, not a rescue."
+  ],
+  "icon": {
+    "item": "minecraft:redstone_lamp"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Answer it twice"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

@@ -4,9 +4,11 @@ import dev.ellipog.armature.api.client.ArmatureClient;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
 import dev.ellipog.armature.client.ArmatureTextArea;
+import dev.ellipog.armature.client.ArmatureSwitch;
 import dev.ellipog.armature.client.ArmatureTextField;
 import dev.ellipog.armature.client.Look;
 import dev.ellipog.armature.client.ArmatureTheme;
+import dev.ellipog.armature.client.Tooltips;
 import dev.ellipog.armature.client.ui.ArmatureLive;
 import dev.ellipog.armature.client.ui.ArmatureScreen;
 import dev.ellipog.armature.client.ui.Theme;
@@ -39,6 +41,8 @@ import dev.ellipog.tasked.client.dev.HexColour;
 import dev.ellipog.tasked.client.dev.ChapterNaming;
 import dev.ellipog.tasked.client.dev.ChapterPanel;
 import dev.ellipog.tasked.client.dev.ChapterPanelLayout;
+import dev.ellipog.tasked.client.dev.ChapterTheme;
+import dev.ellipog.tasked.client.dev.CanvasReveal;
 import dev.ellipog.tasked.client.dev.ClientEditorClipboard;
 import dev.ellipog.tasked.client.dev.EntryFormLayout;
 import dev.ellipog.tasked.quest.EditorField;
@@ -53,6 +57,7 @@ import dev.ellipog.tasked.client.dev.MenuFlyoutArt;
 import dev.ellipog.tasked.client.dev.MenuPlacement;
 import dev.ellipog.tasked.client.dev.QuestPanel;
 import dev.ellipog.tasked.client.dev.QuestSettingsLayout;
+import dev.ellipog.tasked.client.dev.RewardBadge;
 import dev.ellipog.tasked.client.dev.QuestSettingsPanel;
 import dev.ellipog.tasked.client.dev.SettingsDraft;
 import dev.ellipog.tasked.quest.DependencyStyle;
@@ -568,6 +573,38 @@ public final class QuestBookScreen extends ArmatureScreen {
     private String overlayQuest;
 
     /**
+     * The card's back stack: one entry per "Requires" jump, newest last.
+     *
+     * <p>A prerequisite chain is four deep — Rocket, Fuel Tank, Steel Plate, Blast Furnace — before a
+     * reader notices they cannot step back without losing the thread, so every jump out of a card
+     * remembers the card it left: which quest, and where its body was scrolled and folded. Cleared
+     * when the card closes or a fresh card opens from the canvas; a jump or a step back keeps it.
+     */
+    private final List<CardVisit> overlayHistory = new ArrayList<>();
+
+    /** One card in the back stack: the quest, and the body state it was left in. */
+    private record CardVisit(String questId, int scrollY, Set<String> folded) {
+    }
+
+    /**
+     * The locate-on-canvas move in flight: which node it is going to, and where it started.
+     *
+     * <p>Advanced once a frame from the canvas drawing — the only place the move can be seen, since a
+     * card hides the canvas — and cancelled by any manual pan or zoom, because a camera that fights the
+     * hand is worse than no camera move at all.
+     */
+    private String glideQuest;
+    private long glideStart;
+    private int glideFromX;
+    private int glideFromY;
+    private int glideToX;
+    private int glideToY;
+
+    /** The node whose outline is flashing after a locate, and when the flash began. */
+    private String flashQuest;
+    private long flashStart;
+
+    /**
      * The party panel's laid-out rows, and the scroll view that places its controls from them.
      *
      * <h2>Why the layout is a field rather than a local of the widget pass</h2>
@@ -586,8 +623,12 @@ public final class QuestBookScreen extends ArmatureScreen {
      * the card's edge from answering the pointer. See {@code PartyPanelLayout} for the layout and
      * {@code ScrollView} for the placement; between them there is one expression for where a row is.
      */
-    private Layout partyLayout;
-    private final ScrollView partyView = ScrollView.of(Viewport.fixed());
+    private Layout partyLeftLayout;
+    private Layout partyRightLayout;
+    private PartyPanelLayout.Face partyLeftFace;
+    private PartyPanelLayout.Face partyRightFace;
+    private final ScrollView partyLeftView = ScrollView.of(Viewport.fixed());
+    private final ScrollView partyRightView = ScrollView.of(Viewport.fixed());
 
     /**
      * The card the panel was built into: what the widgets were placed inside, and what the drawing and
@@ -595,25 +636,19 @@ public final class QuestBookScreen extends ArmatureScreen {
      *
      * <h2>Why this is a field rather than a second computation</h2>
      *
-     * <p>Because the card is now sized from the panel's own layout -- {@code modalFramed(layout.height(),
-     * ...)} -- so "where is the card" and "where do the rows go" come from one pass. A drawing that
-     * re-derived it would be the second arithmetic this whole round removed: the two agree until a row
-     * is added, and the disagreement is a card that does not hold what is drawn in it.
+     * <p>Because the card is built once and everything inside it is placed from that one rectangle — the
+     * two columns, their viewports, the footer and the clip. A drawing that re-derived it would be the
+     * second arithmetic this panel was rewritten twice to remove.
      */
     private BookGeometry.Rect partyCard;
 
     /**
-     * The panel's action rows: Create, an Accept per invitation, an Invite per online player, and the
-     * mode row.
-     *
-     * <h2>Why kept, when the widgets already carry their own positions</h2>
-     *
-     * <p>Because each row's *label* is drawn by the panel rather than by a widget -- a row is a label
-     * with an optional button beside it, and only the button is a control. So the drawing needs the
-     * same rows the buttons were made from, and a second derivation of them is how a name ends up
-     * beside somebody else's button.
+     * The rows each column drew, kept because a row's <i>label</i> is drawn by the panel rather than by
+     * a widget: only the controls are widgets, so the drawing needs the same lines the controls were
+     * made from, and a second derivation of them is how a name ends up beside somebody else's button.
      */
-    private List<PartyPanelLayout.Action> partyRows = new ArrayList<>();
+    private List<PartyPanelLayout.Line> partyLeftLines = new ArrayList<>();
+    private List<PartyPanelLayout.Line> partyRightLines = new ArrayList<>();
 
     /**
      * The footer's Disband control, and whether it has been pressed once and is waiting for a second.
@@ -626,11 +661,77 @@ public final class QuestBookScreen extends ArmatureScreen {
      *
      * <p>The control is kept rather than found by key because the label is changed <b>on it</b>. A
      * rebuild would be the other way to change a label, and it cannot be: a rebuild goes through
-     * {@code init}, which clears this flag -- so arming and rebuilding would be the same press, and the
-     * second press would send.
+     * {@code init}, which disarms — so arming and rebuilding would be the same press, and the second
+     * press would send. The window is three seconds: a confirmation that never expires is not a
+     * confirmation, it is a flag a player sets and forgets.
      */
     private ArmatureButton disbandButton;
-    private boolean disbandArmed;
+    private final ArmedPress disbandPress = new ArmedPress();
+
+    /** Which question the panel is asking, if any: the two flows that need an answer before acting. */
+    private enum PartyPhase {
+        /** The ordinary panel. */
+        NONE,
+        /** Hand the party to one member, confirmed. */
+        CONFIRM_TRANSFER,
+        /** The owner is leaving and must pick who owns it — or disband. */
+        PICK_SUCCESSOR
+    }
+
+    private PartyPhase partyPhase = PartyPhase.NONE;
+    private UUID partyPhaseTarget;
+
+    /** Whether the owner has the inline rename field open, on the left column's name row. */
+    private boolean partyRenaming;
+
+    /**
+     * What the solo face's two fields hold between rebuilds.
+     *
+     * <p>Kept because a rebuild recreates the widgets — the roster revision moves on every push, and a
+     * rebuild is what redraws the panel — so the text a player was typing has to survive in a field the
+     * screen owns, or it would be wiped by somebody else's join.
+     */
+    private String partyCreateName = "";
+    private String partySearch = "";
+    private boolean partyCreateFocused;
+    private boolean partySearchFocused;
+    private ArmatureTextField partyCreateField;
+    private ArmatureTextField partySearchField;
+    private ArmatureTextField partyNameField;
+
+    /**
+     * The member rows' owner controls, by member id.
+     *
+     * <p>Kept because their <b>visibility</b> is decided at draw time from the row's hover: the widgets
+     * exist whenever the viewer may use them, and a row that is not hovered draws neither. See
+     * {@code drawPartyMembers} — the alternative, creating them on hover, would be widgets made in a
+     * drawing pass.
+     */
+    private final Map<UUID, ArmatureButton> partyRemoveButtons = new java.util.HashMap<>();
+    private final Map<UUID, ArmatureButton> partyTransferButtons = new java.util.HashMap<>();
+
+    /**
+     * Every row control the panel built, by control key.
+     *
+     * <h2>Why these are placed here rather than registered with the scroll view</h2>
+     *
+     * <p>{@code ScrollView} matches a registered widget to a slot <b>by key</b>, and its slots are the
+     * layout's rows. A row with one control registered under the row's own key works -- and that is how
+     * the search field is handled. A row with <b>two</b> controls cannot: two widgets would need one
+     * row key, and a control key like {@code right:open:switch} is a key no row carries -- so the view
+     * hides it as "registered but not in this layout". That is exactly what happened to the settings
+     * switches and the rename pencil: built, added, invisible.
+     *
+     * <p>So the controls are placed from {@link PartyPanelLayout#controlSlots} every frame, in the same
+     * pass that reads the layout for everything else -- one derivation for the rectangle, read by the
+     * placement, the hover logic and the preview. The scroll views keep what they are good at: the
+     * clamp, the bar and the wheel.
+     */
+    private final Map<String, net.minecraft.client.gui.components.AbstractWidget> partyControls =
+            new java.util.HashMap<>();
+
+    /** The measure every party row is built with. Fixed-width, because a row is a fixed height. */
+    private static final Measure TEXT_MEASURE = Measure.monospace(6, 9);
 
     /**
      * The member row's own metrics live in {@link PartyPanelLayout}, where the row's composition is.
@@ -822,6 +923,15 @@ public final class QuestBookScreen extends ArmatureScreen {
      *  cannot see is there. */
     private boolean toolsColoursOpen = true;
 
+    /**
+     * Whether the Theme tab is editing the open chapter's palette rather than the player's own theme.
+     *
+     * <p>Off by default: the panel's day-to-day job is the player's theme, and the chapter target is the
+     * author's switch. It writes the chapter file through the same field op every other chapter edit
+     * uses, so an undo takes it back like any other change.
+     */
+    private boolean themeTargetsChapter;
+
     /** The panel's list: its rows are widgets, so they move when it scrolls. */
     private final dev.ellipog.armature.client.ui.kit.ScrollView toolsView =
             dev.ellipog.armature.client.ui.kit.ScrollView.of(
@@ -863,6 +973,10 @@ public final class QuestBookScreen extends ArmatureScreen {
     private enum EditAction {
         FIELD, FLAG, ITEM, RAW, ADD_TASK, ADD_REWARD, ADD_DEP, PICK_DEP, REMOVE_DEP, COPY_ENTRY,
         REMOVE_ENTRY,
+        /** A prerequisite's name: the press opens that quest's card, the reader's own jump. */
+        NAVIGATE_DEP,
+        /** A prerequisite's locate icon: close the card and take the canvas to that node. */
+        LOCATE_DEP,
         /** The row's leading strip: a press that travels becomes a reorder. */
         DRAG_ENTRY,
         /** A stepper's two chips: the number moves by one, or by ten with shift held. */
@@ -902,6 +1016,33 @@ public final class QuestBookScreen extends ArmatureScreen {
     private long announcedProgress = -1;
 
     /**
+     * The reward counts the badges read, rebuilt only when the progress or the tree moves.
+     *
+     * <p>One walk over the entries per revision rather than one per node per frame: the maps answer
+     * "what is waiting" for the canvas and the sidebar at once, and both are read every frame.
+     */
+    private record RewardCounts(long progress, long tree, java.util.UUID player,
+                                Map<String, Integer> byQuest, Map<String, Integer> byChapter) {
+    }
+
+    private RewardCounts rewardCounts;
+
+    /** The badge counts in force, recomputed when the progress, the tree or the viewer changes. */
+    private RewardCounts rewardCounts() {
+        long progress = ClientQuestCache.progressRevision();
+        long tree = ClientQuestCache.treeRevision();
+        java.util.UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+        RewardCounts current = rewardCounts;
+        if (current != null && current.progress() == progress && current.tree() == tree
+                && java.util.Objects.equals(current.player(), self)) {
+            return current;
+        }
+        rewardCounts = new RewardCounts(progress, tree, self,
+                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self));
+        return rewardCounts;
+    }
+
+    /**
      * What each quest was in the last progress sync that was read.
      *
      * <p>Kept so a quest that <i>becomes</i> collectable can be told from one that was already: a sync
@@ -928,6 +1069,14 @@ public final class QuestBookScreen extends ArmatureScreen {
             QuestState state = ClientQuestCache.stateOf(entry.id());
             QuestState was = lastStates.put(entry.id(), state);
             if (was != null && was != QuestState.COMPLETED && state == QuestState.COMPLETED) {
+                // A quest whose rewards are handed over silently says nothing: the author asked for the
+                // mode, and fifty starter quests announcing themselves is the noise auto-claim exists to
+                // remove. See RewardAutoClaim.notifies -- this is the half that made `no_toast` and
+                // `invisible` mean something.
+                dev.ellipog.tasked.quest.reward.RewardAutoClaim mode = entry.effectiveAutoClaim();
+                if (mode.automatic() && !mode.notifies()) {
+                    continue;
+                }
                 fresh.add(titleOf(entry));
             }
         }
@@ -970,6 +1119,19 @@ public final class QuestBookScreen extends ArmatureScreen {
     private final List<RowItem> rowItems = new ArrayList<>();
 
     private record RowItem(Slot box, RecipeLookups.Target target) {
+    }
+
+    /**
+     * The reader card's prerequisite rows, from the last frame's drawing: where a press navigates or
+     * locates.
+     *
+     * <p>The same lifecycle as {@link #rowItems} — rebuilt by the drawing, read by the click — with one
+     * row carrying two targets: the row itself is the jump to that quest's card, and the locate icon at
+     * its right edge (or a middle-click or shift-click anywhere on it) is "show me where it is".
+     */
+    private final List<DependencyTarget> dependencyTargets = new ArrayList<>();
+
+    private record DependencyTarget(Slot row, BookGeometry.Rect locate, String questId) {
     }
 
     /** The field being edited inline, by path, and the widget editing it. One at a time. */
@@ -2021,23 +2183,6 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * The party card's body rectangle, as a viewport: the one rectangle the clip, the scroll clamp and
-     * the scrollbar all read.
-     *
-     * <p>Re-applied on every use, like {@link #overlayBody()} and for the same reason — a resize gives a
-     * new card, and bounds from the previous window would clamp a scroll against a rectangle that is no
-     * longer on screen. Empty rather than absent for a card that has not been built: the input handlers
-     * read this too, and a click before the first frame is a click on a panel that does not exist yet.
-     */
-    private Viewport partyBody() {
-        if (partyCard == null) {
-            return partyView.viewport().bounds(0, 0, 0, 0);
-        }
-        BookGeometry.Rect body = BookGeometry.modalBody(partyCard);
-        return partyView.viewport().bounds(body.x(), body.y(), body.width(), body.height());
-    }
-
-    /**
      * A node's drawn size: the quest's own size, times the zoom.
      *
      * <p>This used to clamp the size to 26..48, which made the file's 16..512 range a field that did
@@ -2245,11 +2390,14 @@ public final class QuestBookScreen extends ArmatureScreen {
      * calculation could only ever be judged by eye.
      */
     private void zoomAt(double mouseX, double mouseY, float factor) {
+        // A zoom is the hand taking the camera: a glide still in flight must not fight it.
+        glideQuest = null;
         viewport().zoomAt(mouseX, mouseY, factor);
     }
 
     /** Zooms about the view port's centre, for the buttons, which have no pointer position. */
     private void zoomCentre(float factor) {
+        glideQuest = null;
         viewport().zoomAboutCentre(factor);
     }
 
@@ -2387,106 +2535,502 @@ public final class QuestBookScreen extends ArmatureScreen {
      * players online offers was to open the book and look. What stays is the one thing this class knows
      * and that method cannot -- who is looking.
      */
-    private List<PartyPanelLayout.Action> partyRows(PartyRoster roster, PartySnapshot snapshot) {
-        String self = minecraft == null || minecraft.player == null
-                ? "" : minecraft.player.getScoreboardName();
-        return PartyPanelLayout.actions(roster, snapshot, self);
+    private void buildPartyWidgets() {
+        partyLeftView.clear();
+        partyRightView.clear();
+        partyLeftLines = new ArrayList<>();
+        partyRightLines = new ArrayList<>();
+        partyNameField = null;
+        partyCreateField = null;
+        partySearchField = null;
+        partyRemoveButtons.clear();
+        partyTransferButtons.clear();
+        partyControls.clear();
+
+        PartyRoster roster = partyRoster();
+        PartySnapshot snapshot = ClientPartyCache.snapshot();
+
+        if (!partiesAvailable()) {
+            // Singleplayer with LAN closed. The panel stays reachable and says why, rather than a
+            // button greyed out with a tooltip: a disabled control explains nothing about the one
+            // action that changes the state, and the notice's second line is that action.
+            buildPartyNotice();
+            return;
+        }
+        if (partyPhase != PartyPhase.NONE) {
+            buildPartyPhase(roster);
+            return;
+        }
+        if (!roster.isReal()) {
+            buildPartySolo(roster, snapshot);
+            return;
+        }
+        buildPartyActive(roster, snapshot);
     }
 
-    private void buildPartyWidgets() {
-        PartyRoster roster = partyRoster();
-        List<PartyPanelLayout.Action> wanted = partyRows(roster, ClientPartyCache.snapshot());
+    /**
+     * The two columns' viewports of a card's body, left then right.
+     *
+     * <p>One function rather than two rectangles computed at each use: the split is
+     * {@code PartyPanelLayout}'s share, and the two widths must add up to the body — a caller deriving
+     * "the right column is what is left" a second time is the arithmetic that agrees until the gap
+     * changes.
+     */
+    private Viewport partyColumn(boolean left) {
+        ScrollView view = left ? partyLeftView : partyRightView;
+        if (partyCard == null) {
+            return view.viewport().bounds(0, 0, 0, 0);
+        }
+        BookGeometry.Rect body = BookGeometry.modalBody(partyCard);
+        int wide = PartyPanelLayout.leftWidth(body.width());
+        int x = left ? body.x() : body.x() + wide + PartyPanelLayout.COLUMN_GAP;
+        int width = left ? wide : PartyPanelLayout.rightWidth(body.width());
+        return view.viewport().bounds(x, body.y(), width, body.height());
+    }
 
-        // The width first, with the height unknown. `modalFramed`'s width does not depend on its height
-        // -- asserted in `BookGeometryTest` -- and that is what lets a card be sized from a layout which
-        // needs the card's width to be built. Both numbers are then the layout's, and the body is the
-        // card's own inset rather than a margin written here.
-        int bodyWidth = Math.max(0, geometry().modalFramed(0, BookGeometry.PARTY_MODAL_WIDTH).width()
-                - BookGeometry.MODAL_INSET * 2);
+    /**
+     * The scroll view a pointer is over: the left column left of the split, the right column after.
+     *
+     * <p>The two columns scroll independently because they are different lists; a wheel aimed at the
+     * roster must not move the settings out from under it. A pointer outside the card still lands on
+     * one of them by this rule, which is the same thing the old single view did (clamped).
+     */
+    private ScrollView partyScrollAt(double mouseX) {
+        BookGeometry.Rect body = partyCard == null ? null : BookGeometry.modalBody(partyCard);
+        if (body == null) {
+            return partyLeftView;
+        }
+        int split = body.x() + PartyPanelLayout.leftWidth(body.width()) + PartyPanelLayout.COLUMN_GAP / 2;
+        return mouseX < split ? partyLeftView : partyRightView;
+    }
 
-        // One layout for the whole panel -- title, roster, actions -- and it is what the card is sized
-        // from. The measure is never consulted: every element `PartyPanelLayout` contributes is a `row`,
-        // whose height is declared rather than wrapped, and `SidebarLayout` uses the same stand-in for
-        // the same reason.
-        partyLayout = PartyPanelLayout.build(roster, wanted, bodyWidth, Measure.monospace(6, 9));
+    /**
+     * The notice card: a small content-sized panel with one way out.
+     *
+     * <h2>Wrapped at the width the card will really have</h2>
+     *
+     * <p>The card is clamped to the window, so wrapping at the preferred 320 would under-count the
+     * lines in a narrow window and the sentences would be cut again. The width is asked of
+     * {@code modal()} -- which does not depend on the content -- and the same number sizes the card,
+     * wraps the text and builds the rows, so the three cannot disagree.
+     */
+    private void buildPartyNotice() {
+        int cardWidth = Math.min(BookGeometry.PARTY_MODAL_WIDTH, geometry().modal().width());
+        int textWidth = Math.max(0, cardWidth - BookGeometry.MODAL_INSET * 2);
+        PartyPanelLayout.Face face = PartyPanelLayout.notice(
+                partyText("tasked.screen.party.unavailable"),
+                partyText("tasked.screen.party.unavailable.why"),
+                partyText("tasked.screen.party.unavailable.how"),
+                textWidth, TEXT_MEASURE);
+        partyCard = geometry().modalFramed(faceHeight(face, cardWidth), cardWidth);
+        partyLeftFace = face;
+        partyLeftLines = face.lines();
+        partyLeftLayout = face.build(partyBodyWidth(), TEXT_MEASURE);
+        partyLeftView.apply(partyLeftLayout, partyBodyWidth());
+        placePartyControls(partyLeftFace);
+        singleFooter("tasked.screen.party.back", this::closeOverlay);
+    }
 
-        BookGeometry.Rect card = geometry().modalFramed(partyLayout.height(),
+    /**
+     * A card for a question the panel asked: the transfer confirmation and the successor picker.
+     *
+     * <h2>Why these are separate cards rather than rows in the party</h2>
+     *
+     * <p>Because both interrupt: neither is information about the party, they are questions about what
+     * to do with it, and one of them — the successor picker — is reached by pressing Leave, so
+     * answering "no" has to put the player back where they were rather than into some changed panel.
+     * A phase with its own card is that, and it is also what keeps the main panel's controls from
+     * staying live under a question.
+     */
+    private void buildPartyPhase(PartyRoster roster) {
+        List<PartyPanelLayout.Line> lines = new ArrayList<>();
+        List<PartyPanelLayout.Control> actions = new ArrayList<>();
+
+        if (partyPhase == PartyPhase.CONFIRM_TRANSFER) {
+            String target = nameOfMember(roster, partyPhaseTarget);
+            lines.add(PartyPanelLayout.Line.header("confirm:title",
+                    Component.translatable("tasked.screen.party.confirm.transfer.title").getString()));
+            lines.add(PartyPanelLayout.Line.plain("confirm:body",
+                    Component.translatable("tasked.screen.party.confirm.transfer.body", target)
+                            .getString()));
+            actions.add(PartyPanelLayout.Control.primary("phase:confirm",
+                    "/tasked party transfer " + target));
+            actions.add(PartyPanelLayout.Control.small("phase:cancel", null));
+        }
+        else {
+            lines.add(PartyPanelLayout.Line.header("confirm:title",
+                    Component.translatable("tasked.screen.party.confirm.successor.title").getString()));
+            lines.add(PartyPanelLayout.Line.plain("confirm:body",
+                    Component.translatable("tasked.screen.party.confirm.successor.body").getString()));
+            for (PartyRoster.Member member : roster.members()) {
+                if (member.self()) {
+                    continue;
+                }
+                lines.add(PartyPanelLayout.Line.controls("succeed:" + member.id(), member.name(),
+                        PartyPanelLayout.Control.primary("succeed-go:" + member.id(),
+                                "/tasked party handover " + member.name())));
+            }
+            actions.add(PartyPanelLayout.Control.small("phase:disband", "/tasked party disband"));
+            actions.add(PartyPanelLayout.Control.small("phase:cancel", null));
+        }
+        lines.add(PartyPanelLayout.Line.controls("confirm:actions", "",
+                actions.toArray(new PartyPanelLayout.Control[0])));
+
+        PartyPanelLayout.Face face = PartyPanelLayout.face(lines);
+        partyCard = geometry().modalFramed(faceHeight(face, BookGeometry.PARTY_MODAL_WIDTH),
                 BookGeometry.PARTY_MODAL_WIDTH);
-        partyCard = card;
-        partyRows = wanted;
+        partyLeftFace = face;
+        partyLeftLines = face.lines();
+        partyLeftLayout = face.build(partyBodyWidth(), TEXT_MEASURE);
+        partyLeftView.apply(partyLeftLayout, partyBodyWidth());
+        placePartyControls(partyLeftFace);
+        singleFooter("tasked.screen.party.back", this::cancelPartyPhase);
+    }
 
-        // The scroll view is emptied and refilled per build, and its bounds are set from the card
-        // before anything is registered -- `apply` clamps the offset against them, so registering
-        // first would place the rows against the previous window's body on a resize.
-        partyView.clear();
-        Viewport body = partyBody();
+    /** The solo onboarding: start a party on the left, join one on the right. */
+    private void buildPartySolo(PartyRoster roster, PartySnapshot snapshot) {
+        if (partyCreateName.isEmpty()) {
+            partyCreateName = defaultPartyName();
+        }
+        partyLeftFace = PartyPanelLayout.soloLeft(roster, snapshot, selfName(), partyCreateName);
+        partyRightFace = PartyPanelLayout.soloRight(snapshot);
+        buildTwoColumns();
+        buildPartyFooter(Footer.doneOnly(), roster);
 
-        Map<String, BookGeometry.Rect> footer =
-                geometry().modalControls(card, partyActionCount(roster), true);
+        partyCreateField = new ArmatureTextField(0, 0, 0, 0, partyCreateName);
+        partyCreateField.onSubmit(text -> {
+            partyCreateName = text;
+            runPartyCommand("/tasked party create " + text.trim());
+        });
+        modalRedraws.add(partyCreateField::render);
+        addRenderableWidget(partyCreateField);
+        if (partyCreateFocused) {
+            setFocused(partyCreateField);
+        }
+    }
 
-        // The Remove buttons, one per member the roster permits. The permission is asked once, at the
-        // moment the widget is made, and the button's rectangle is a *strip* of its row -- so the
-        // derivation travels to the scroll view with the registration rather than being computed here.
-        // A widget created at 0,0 with no size is the sidebar's own shape (`buildSidebarWidgets`):
-        // `apply` sets x, y, width and height from the slot, and a button created at its final size
-        // would be a second description of where a row goes.
+    /** The active party: the roster on the left, its management on the right. */
+    private void buildPartyActive(PartyRoster roster, PartySnapshot snapshot) {
+        partyLeftFace = PartyPanelLayout.activeLeft(roster, snapshot);
+        partyRightFace = PartyPanelLayout.activeRight(roster, snapshot, selfName(), partySearch);
+        buildTwoColumns();
+        buildPartyFooter(Footer.of(roster.canDisband(), roster.canLeave() && roster.memberCount() > 1),
+                roster);
+
+        // The roster rows are not `Line`s: they are `PartyRoster`'s own composition, nested into the
+        // left column's stack in `activeLeft`. Their buttons are registered here against that stack.
         for (PartyRoster.Member member : roster.members()) {
-            if (!member.canRemove()) {
-                continue;
+            if (member.canRemove()) {
+                ArmatureButton remove = control(0, 0, 0, 0,
+                        Component.translatable("tasked.screen.party.remove"),
+                        () -> runPartyCommand("/tasked party kick " + member.name()));
+                if (remove != null) {
+                    remove.tooltip(List.of(
+                            Component.literal("Remove " + member.name() + " from the party"),
+                            Component.literal("They keep the progress they earned here")));
+                    partyRemoveButtons.put(member.id(), remove);
+                }
             }
-            ArmatureButton remove = control(0, 0, 0, 0,
-                    Component.translatable("tasked.screen.party.remove"),
-                    () -> runPartyCommand("/tasked party kick " + member.name()));
-            if (remove != null) {
-                remove.tooltip(List.of(
-                        Component.literal("Remove " + member.name() + " from the party"),
-                        Component.literal("They keep their own progress, as always")));
-                partyView.put(member.key(), remove, row -> PartyRoster.removeSlot(member, row));
-            }
-        }
-
-        // The action rows, placed by the same layout their labels are drawn from -- so a row's label and
-        // its button cannot come from two computations that agree until one of them changes.
-        for (PartyPanelLayout.Action action : wanted) {
-            if (!action.hasButton()) {
-                continue;
-            }
-            ArmatureButton button = control(0, 0, 0, 0,
-                    Component.literal(action.buttonLabel()),
-                    () -> runPartyCommand(action.command()));
-            if (button != null) {
-                button.tooltip(List.of(Component.literal(action.buttonLabel() + ": " + action.label()),
-                        Component.literal(action.command())));
-                partyView.put(action.key(), button, PartyPanelLayout::buttonStrip);
+            if (member.canTransfer()) {
+                ArmatureButton transfer = control(0, 0, 0, 0,
+                        Component.translatable("tasked.screen.party.transfer"),
+                        () -> openPartyPhase(PartyPhase.CONFIRM_TRANSFER, member.id()));
+                if (transfer != null) {
+                    transfer.tooltip(List.of(
+                            Component.literal("Make " + member.name() + " the owner"),
+                            Component.literal("You stay in the party as a member")));
+                    partyTransferButtons.put(member.id(), transfer);
+                }
             }
         }
 
-        // One call that sets the scroll range from the layout's height, places every control at the
-        // rectangle its own derivation gave it, and hides the ones outside the card. The drawing re-runs
-        // it each frame, so a scroll moves the widgets with the rows they belong to.
-        partyView.apply(partyLayout, body.viewWidth());
+        // The party's name is the rename control: a flat, empty-labelled button laid over its row, so
+        // the name itself is what a player clicks. It draws nothing (flat, no label) and the label
+        // underneath is the name. A pencil was the first shape and it is gone at the owner's request --
+        // and it was also the control the scroll view's key matching hid, so one control fewer to get
+        // wrong. Non-owners get no target at all.
+        if (roster.canRename() && !partyRenaming) {
+            ArmatureButton rename = control(0, 0, 0, 0, Component.empty(), () -> {
+                partyRenaming = true;
+                rebuildWidgets();
+            });
+            if (rename != null) {
+                rename.flat(true);
+                rename.tooltip(List.of(Component.translatable("tasked.screen.party.rename")));
+                partyControls.put("left:name:edit", rename);
+            }
+        }
+
+        // The rename field replaces the name row's label while it is open, so there is one thing in
+        // that row rather than a field over a name.
+        if (partyRenaming) {
+            partyNameField = new ArmatureTextField(0, 0, 0, 0, snapshot.teamName());
+            partyNameField.onSubmit(text -> {
+                partyRenaming = false;
+                runPartyCommand("/tasked party rename " + text.trim());
+            });
+            modalRedraws.add(partyNameField::render);
+            addRenderableWidget(partyNameField);
+            setFocused(partyNameField);
+        }
+
+        // The search field, on the right column's own row.
+        partySearchField = new ArmatureTextField(0, 0, 0, 0, partySearch);
+        partySearchField.onSubmit(text -> {
+            partySearch = text;
+            partySearchFocused = false;
+            rebuildWidgets();
+        });
+        modalRedraws.add(partySearchField::render);
+        addRenderableWidget(partySearchField);
+        if (partySearchFocused) {
+            setFocused(partySearchField);
+        }
+    }
+
+    /** Builds both columns from the faces and registers every line's controls. */
+    private void buildTwoColumns() {
+        partyCard = geometry().modal();
+        partyLeftLayout = partyLeftFace.build(partyColumn(true).viewWidth(), TEXT_MEASURE);
+        partyRightLayout = partyRightFace.build(partyColumn(false).viewWidth(), TEXT_MEASURE);
+        partyLeftLines = partyLeftFace.lines();
+        partyRightLines = partyRightFace.lines();
+        partyLeftView.apply(partyLeftLayout, partyColumn(true).viewWidth());
+        partyRightView.apply(partyRightLayout, partyColumn(false).viewWidth());
+        placePartyControls(partyLeftFace);
+        placePartyControls(partyRightFace);
+    }
+
+    /**
+     * Registers a face's controls: a button per command, a switch per toggle, a screen action per
+     * key.
+     *
+     * <p>Each control's rectangle is derived from its own row's slot — one derivation for all three
+     * kinds, so a switch and a button in the same column cannot be placed by two arithmetics that
+     * agree until one row grows a control.
+     */
+    private void placePartyControls(PartyPanelLayout.Face face) {
+        for (PartyPanelLayout.Line line : face.lines()) {
+            List<PartyPanelLayout.Control> controls = line.controls();
+            for (int i = 0; i < controls.size(); i++) {
+                PartyPanelLayout.Control spec = controls.get(i);
+                if (spec.isToggle()) {
+                    ArmatureSwitch toggle = new ArmatureSwitch(0, 0, toggleState(spec.key()));
+                    toggle.onToggle(() -> runPartyCommand(toggleCommand(spec.key(), toggle.selected())));
+                    modalRedraws.add(toggle::draw);
+                    addRenderableWidget(toggle);
+                    partyControls.put(spec.key(), toggle);
+                }
+                else if (spec.sendsCommand()) {
+                    ArmatureButton button = control(0, 0, 0, 0,
+                            buttonLabel(spec, line), () -> runPartyCommand(spec.command()));
+                    if (button != null) {
+                        button.accent(spec.accent());
+                        button.tooltip(List.of(Component.literal(partyText(line.label())),
+                                Component.literal(spec.command())));
+                        partyControls.put(spec.key(), button);
+                    }
+                }
+                else {
+                    ArmatureButton cancel = control(0, 0, 0, 0,
+                            Component.translatable("tasked.screen.party.cancel"),
+                            this::cancelPartyPhase);
+                    if (cancel != null) {
+                        partyControls.put(spec.key(), cancel);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The footer, from which of the three controls exist.
+     *
+     * <h2>Why a record rather than two booleans</h2>
+     *
+     * <p>Because the three are a set the layout, the buttons and the preview all have to agree about —
+     * a sole owner hides Leave and keeps Disband, a member sees Leave and Done, the notice sees Done
+     * alone — and passing "hasDisband, hasLeave" around as two loose booleans is two chances to
+     * transpose them.
+     */
+    private record Footer(boolean disband, boolean leave, boolean done) {
+
+        static Footer of(boolean disband, boolean leave) {
+            return new Footer(disband, leave, true);
+        }
+
+        static Footer doneOnly() {
+            return new Footer(false, false, true);
+        }
+    }
+
+    /** Places the footer's controls for a card, from the same map the preview reads. */
+    private void buildPartyFooter(Footer wanted, PartyRoster roster) {
+        Map<String, BookGeometry.Rect> footer = geometry().partyControls(
+                partyCard, wanted.disband(), wanted.leave(), wanted.done());
 
         ArmatureButton leave = control(footer.get("leave"),
                 Component.translatable("tasked.screen.party.leave"),
-                () -> runPartyCommand("/tasked party leave"));
+                () -> {
+                    if (roster.canDisband() && roster.memberCount() > 1) {
+                        // The owner may not simply leave: the party would be handed over by the
+                        // fallback rule, to whoever the sort happens to name. The spec asks, and this
+                        // is the ask.
+                        openPartyPhase(PartyPhase.PICK_SUCCESSOR, null);
+                    }
+                    else {
+                        runPartyCommand("/tasked party leave");
+                    }
+                });
         if (leave != null) {
             leave.tooltip(List.of(Component.literal("Leave the party"),
-                    Component.literal("Your own progress is never touched by it")));
+                    Component.literal("You keep the progress you earned here")));
         }
 
         ArmatureButton disband = control(footer.get("disband"),
                 Component.translatable("tasked.screen.party.disband"),
                 this::pressDisband);
         if (disband != null) {
+            // Warning amber, not the blocked grey: the button is destructive, and a grey label was
+            // read as "this one is unavailable to me". See ArmatureButton.Ink.DANGER.
+            disband.ink(ArmatureButton.Ink.DANGER);
             disband.tooltip(List.of(Component.literal("Dissolve the party"),
-                    Component.literal("Only the owner may do this")));
+                    Component.literal("Press again within three seconds to confirm")));
             disbandButton = disband;
         }
 
-        control(footer.get("back"), Component.translatable("tasked.screen.party.back"),
-                this::closeOverlay);
+        ArmatureButton done = control(footer.get("done"),
+                Component.translatable("tasked.screen.party.done"), this::closeOverlay);
+        if (done != null) {
+            done.accent(true);
+        }
     }
 
+    /** A one-button footer for the notice and the phases: Back, at Done's own place. */
+    private void singleFooter(String labelKey, Runnable onPress) {
+        Map<String, BookGeometry.Rect> footer = geometry().partyControls(partyCard, false, false, true);
+        control(footer.get("done"), Component.translatable(labelKey), onPress);
+    }
+
+    /** The body width of a content-sized card, for a single-column face. */
+    private int partyBodyWidth() {
+        return Math.max(0, partyCard.width() - BookGeometry.MODAL_INSET * 2);
+    }
+
+    /** A content-sized face's height, to hand {@code modalFramed}. */
+    private int faceHeight(PartyPanelLayout.Face face, int width) {
+        return face.build(width - BookGeometry.MODAL_INSET * 2, TEXT_MEASURE).height();
+    }
+
+    /** Whether parties can be used at all: singleplayer with LAN closed is the one refusal. */
+    private boolean partiesAvailable() {
+        if (minecraft == null || !minecraft.hasSingleplayerServer()) {
+            // A dedicated server, or a multiplayer one: parties are what the panel is for.
+            return true;
+        }
+        var integrated = minecraft.getSingleplayerServer();
+        return integrated == null || integrated.isPublished();
+    }
+
+    /**
+     * A row's words: a translation key when one is given, the text itself otherwise.
+     *
+     * <p>The layout is game-free and cannot call {@code Component}, so it carries keys for the strings
+     * a translator owns and literal text for the ones it composes from data — a member's name, a
+     * count, an age. This is the one place the two are told apart, and the marker is the key prefix
+     * every such key shares.
+     */
+    private static String partyText(String label) {
+        return label != null && label.startsWith("tasked.") ? Component.translatable(label).getString() : label;
+    }
+
+    private String selfName() {
+        return minecraft == null || minecraft.player == null ? "" : minecraft.player.getScoreboardName();
+    }
+
+    /** The name the create field starts with: the player's own, made safe for a command argument. */
+    private String defaultPartyName() {
+        String self = selfName();
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < self.length(); i++) {
+            char c = self.charAt(i);
+            out.append(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-' ? c : '_');
+        }
+        return (self.isEmpty() ? "My" : out.toString()) + " party";
+    }
+
+    private String nameOfMember(PartyRoster roster, UUID id) {
+        for (PartyRoster.Member member : roster.members()) {
+            if (member.id().equals(id)) {
+                return member.name();
+            }
+        }
+        return "?";
+    }
+
+    /** The label a line's button wears, from the control's key. */
+    private Component buttonLabel(PartyPanelLayout.Control spec, PartyPanelLayout.Line line) {
+        String key = spec.key();
+        if (key.startsWith("accept:")) {
+            return Component.translatable("tasked.screen.party.accept");
+        }
+        if (key.startsWith("decline:")) {
+            return Component.translatable("tasked.screen.party.decline");
+        }
+        if (key.startsWith("invite-go:")) {
+            return Component.translatable("tasked.screen.party.invite");
+        }
+        if (key.startsWith("join:")) {
+            return Component.translatable("tasked.screen.party.join");
+        }
+        if (key.startsWith("cancel:")) {
+            return Component.translatable("tasked.screen.party.cancel");
+        }
+        if (key.startsWith("succeed-go:")) {
+            return Component.translatable("tasked.screen.party.choose");
+        }
+        if (key.startsWith("phase:confirm")) {
+            return Component.translatable("tasked.screen.party.confirm");
+        }
+        if (key.startsWith("phase:disband")) {
+            return Component.translatable("tasked.screen.party.disband");
+        }
+        if (key.startsWith("solo:create")) {
+            return Component.translatable("tasked.screen.party.create");
+        }
+        return Component.literal(line.label().isEmpty() ? key : partyText(line.label()));
+    }
+
+    /** Which switch a toggle key is: the member-invite policy, or the public one. */
+    private boolean toggleState(String key) {
+        PartyRoster roster = partyRoster();
+        return key.startsWith("right:open") ? roster.openJoin() : roster.membersCanInvite();
+    }
+
+    /** The command a flipped switch sends: the policy in force with that one field changed. */
+    private String toggleCommand(String key, boolean value) {
+        PartyRoster roster = partyRoster();
+        boolean open = key.startsWith("right:open") ? value : roster.openJoin();
+        boolean memberInvites = key.startsWith("right:open") ? roster.membersCanInvite() : value;
+        // Two commands rather than one that takes both, because each switch means one change and a
+        // command carrying the other field's current value would be a way for a stale read to undo a
+        // change made between the draw and the press.
+        return open != roster.openJoin()
+                ? "/tasked party open " + (open ? "on" : "off")
+                : "/tasked party member-invites " + (memberInvites ? "on" : "off");
+    }
+
+    private void openPartyPhase(PartyPhase phase, UUID target) {
+        partyPhase = phase;
+        partyPhaseTarget = target;
+        rebuildWidgets();
+    }
+
+    private void cancelPartyPhase() {
+        partyPhase = PartyPhase.NONE;
+        partyPhaseTarget = null;
+        rebuildWidgets();
+    }
     /**
      * The tools panel's controls: its switches, its rows, its channel steppers and its two actions.
      *
@@ -2559,7 +3103,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                             ArmatureButton pick = control(0, 0, 0, 0,
                                     Component.literal(row.value().isEmpty() ? "Pick an item\u2026" : row.value()),
                                     this::openChapterItemPicker);
-                            pick.textColour(ArmatureTheme.body()).icon(chapterIcon).alignLeft(true);
+                            pick.ink(ArmatureButton.Ink.BODY).icon(chapterIcon).alignLeft(true);
                             toolsView.put(row.key(), pick, InspectLayout::controlBand);
                             continue;
                         }
@@ -2596,7 +3140,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                         ArmatureButton button = control(0, 0, 0, 0,
                                 Component.literal(on ? "On" : "Off"),
                                 () -> pressChapterToggle(row.key()));
-                        button.textColour(ArmatureTheme.body());
+                        button.ink(ArmatureButton.Ink.BODY);
                         toolsView.put(row.key(), button, InspectLayout::controlBand);
                     }
                     case HEADING -> {
@@ -2616,7 +3160,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
 
         toolsRows = ToolsLayout.rows(DevMode.on(), ClientAppearance.LOOK.motion(), DevMode.snap(),
-                toolsColoursOpen);
+                toolsColoursOpen, themeTargetsChapter,
+                // The chapter target writes a file, so it is offered only where there is a chapter and an
+                // author: a reader's Theme tab stays about their own theme.
+                mayEditNow() && effectiveChapter() != null);
         toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
 
         toolsView.clear();
@@ -2660,7 +3207,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                         // missing-glyph boxes.
                         Component.literal(way.equals("down") ? "\u2212" : "+"),
                         () -> nudgeChannel(channel, step));
-                button.textColour(ArmatureTheme.body());
+                button.ink(ArmatureButton.Ink.BODY);
             }
         }
 
@@ -2690,8 +3237,18 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         control(ToolsLayout.revert(toolsFrame.actions()),
                 Component.translatable("tasked.dev.reset"), this::revertSelected);
-        control(ToolsLayout.save(toolsFrame.actions()),
+        ArmatureButton save = control(ToolsLayout.save(toolsFrame.actions()),
                 Component.translatable("tasked.dev.save"), this::saveTheme);
+        if (save != null) {
+            // Saving writes a client theme file from the player's own theme, which is not what a chapter
+            // palette is: while the chapter target is on, the button stands down rather than writing the
+            // wrong thing.
+            save.active = !themeTargetsChapter;
+            if (themeTargetsChapter) {
+                save.tooltip(Component.literal("Saving writes your own themes - switch the chapter"
+                        + " palette off to save one"));
+            }
+        }
 
         toolsView.apply(toolsLayout, toolsFrame.list().width());
     }
@@ -2717,6 +3274,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         else if (key.equals(ToolsLayout.SNAP)) {
             DevMode.setSnap(!DevMode.snap());
             status(DevMode.snap() ? "Snap on \u2014 Alt places freely" : "Snap off", false);
+            rebuildWidgets();
+        }
+        else if (key.equals(ToolsLayout.CHAPTER_THEME)) {
+            themeTargetsChapter = !themeTargetsChapter;
+            // The selection names a token either way; the value under it changes source, and a band still
+            // showing the last number would be showing the wrong palette's.
+            toolsSelected = null;
+            status(themeTargetsChapter
+                    ? "Editing this chapter's palette \u2014 changes are saved to the chapter file"
+                    : "Editing your own theme", false);
             rebuildWidgets();
         }
     }
@@ -3603,22 +4170,146 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The shape row's arrows: one step of corner radius each. */
     private void stepRadius(int delta) {
+        if (themeTargetsChapter) {
+            writeThemeRadius(net.minecraft.util.Mth.clamp(editedRadius() + delta, Look.MIN_RADIUS,
+                    Look.MAX_RADIUS));
+            status("Chapter border radius " + editedRadius()
+                    + (editedRadiusChosen() ? "  (theme's own: " + editedBaseRadius() + ")" : ""), false);
+            rebuildWidgets();
+            return;
+        }
         ClientAppearance.LOOK.setRadius(net.minecraft.util.Mth.clamp(ClientAppearance.LOOK.radius() + delta,
                 Look.MIN_RADIUS, Look.MAX_RADIUS));
         status("Border radius " + ClientAppearance.LOOK.radius()
-                + (ClientAppearance.LOOK.radiusChosen() ? "  (theme's own: " + themeRadius() + ")" : ""), false);
+                + (ClientAppearance.LOOK.radiusChosen() ? "  (theme's own: " + editedBaseRadius() + ")" : ""),
+                false);
         rebuildWidgets();
     }
 
-    /** The theme's own radius, for the message: what a Revert would go back to. */
-    private static int themeRadius() {
-        var theme = Themes.any(ClientAppearance.LOOK.currentName());
-        return theme == null ? 0 : theme.cornerRadius();
+    /**
+     * The palette the Theme tab is editing: the open chapter's composed one, or the player's own.
+     *
+     * <p>One expression, read by the panel's drawing and by every handler, so a swatch and the number it
+     * writes can never come from different palettes.
+     */
+    private Theme editedTheme() {
+        return themeTargetsChapter ? viewportTheme() : ClientAppearance.LOOK.main();
     }
 
-    /** The selected colour's value, as the field should show it. */
+    /** The radius in force for the panel's target. */
+    private int editedRadius() {
+        return themeTargetsChapter ? editedTheme().cornerRadius() : ClientAppearance.LOOK.radius();
+    }
+
+    /** Whether the target itself pins the radius, rather than inheriting the theme's. */
+    private boolean editedRadiusChosen() {
+        return themeTargetsChapter ? chapterThemePatchOf(effectiveChapter()).has("cornerRadius")
+                : ClientAppearance.LOOK.radiusChosen();
+    }
+
+    /** The radius the theme underneath asks for: what a Revert goes back to. */
+    private int editedBaseRadius() {
+        if (!themeTargetsChapter) {
+            Theme theme = Themes.any(ClientAppearance.LOOK.currentName());
+            return theme == null ? 0 : theme.cornerRadius();
+        }
+        // The chapter's named theme without its patch: the radius the chapter's own override replaced.
+        return ChapterTheme.compose(ClientQuestCache.chapterTheme(effectiveChapter()), null,
+                ClientAppearance.LOOK.main()).cornerRadius();
+    }
+
+    /**
+     * The open chapter's theme patch as the editor has it: the pending write first, then the file's own
+     * copy, then what the tree last sent — the same three-layer read {@code dependencyLinesOf} makes, for
+     * the same reason: every writer rebuilds the whole object, so a pending sibling edit has to be in the
+     * base or the server's whole-object write discards it.
+     */
+    private JsonObject chapterThemePatchOf(String chapter) {
+        if (chapter == null) {
+            return new JsonObject();
+        }
+        JsonElement drafted = fieldDraft.value(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                "themePatch");
+        if (drafted != null && drafted.isJsonObject()) {
+            return drafted.getAsJsonObject().deepCopy();
+        }
+        ClientChapterReplica.Copy copy = ClientChapterReplica.of(chapter);
+        if (copy != null && copy.revision() == ClientQuestCache.treeRevision()) {
+            JsonElement stored = QuestPanelLayout.get(copy.chapterTree(), "themePatch");
+            if (stored != null && stored.isJsonObject()) {
+                return stored.getAsJsonObject().deepCopy();
+            }
+        }
+        JsonObject sent = ClientQuestCache.chapterThemePatch(chapter);
+        return sent == null ? new JsonObject() : sent.deepCopy();
+    }
+
+    /**
+     * Writes one token into whichever palette the panel is editing, or removes it when {@code argb} is
+     * null.
+     *
+     * <p>Two destinations behind one call, because the panel's handlers must not each remember which: the
+     * player's theme lives in this client's appearance file, and a chapter's patch is a chapter field
+     * written through the same op every other chapter edit uses — so Ctrl+Z takes a chapter colour back
+     * like any other change.
+     */
+    private void writeThemeToken(String token, Integer argb) {
+        if (!themeTargetsChapter) {
+            if (argb == null) {
+                ClientAppearance.LOOK.clearCustom(token);
+            }
+            else {
+                ClientAppearance.LOOK.setCustom(token, argb);
+            }
+            return;
+        }
+        JsonObject patch = chapterThemePatchOf(effectiveChapter());
+        JsonObject colours = patch.has("colours") && patch.get("colours").isJsonObject()
+                ? patch.getAsJsonObject("colours") : new JsonObject();
+        if (argb == null) {
+            colours.remove(token);
+        }
+        else {
+            colours.addProperty(token, String.format("#%08X", argb));
+        }
+        if (colours.isEmpty()) {
+            patch.remove("colours");
+        }
+        else {
+            patch.add("colours", colours);
+        }
+        sendChapterThemePatch(patch);
+    }
+
+    /** Writes (or clears) the corner radius on the panel's target. */
+    private void writeThemeRadius(Integer radius) {
+        if (!themeTargetsChapter) {
+            if (radius == null) {
+                ClientAppearance.LOOK.clearRadius();
+            }
+            else {
+                ClientAppearance.LOOK.setRadius(radius);
+            }
+            return;
+        }
+        JsonObject patch = chapterThemePatchOf(effectiveChapter());
+        if (radius == null) {
+            patch.remove("cornerRadius");
+        }
+        else {
+            patch.addProperty("cornerRadius", radius);
+        }
+        sendChapterThemePatch(patch);
+    }
+
+    /** Sends a chapter's whole patch object; an empty patch is removed rather than written. */
+    private void sendChapterThemePatch(JsonObject patch) {
+        sendChapterField("themePatch", patch.isEmpty() ? null : patch);
+    }
+
+    /** The selected colour's value, as the field should show it — from the palette being edited. */
     private String hexOf(String token) {
-        return token == null ? "" : String.format("#%06X", ClientAppearance.LOOK.main().colour(token) & 0xFFFFFF);
+        return token == null ? "" : String.format("#%06X", editedTheme().colour(token) & 0xFFFFFF);
     }
 
     /**
@@ -3638,7 +4329,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (text.isEmpty() || toolsSelected == null) {
             return;
         }
-        Integer argb = HexColour.parse(text, ClientAppearance.LOOK.main().colour(toolsSelected));
+        Integer argb = HexColour.parse(text, editedTheme().colour(toolsSelected));
         if (argb == null) {
             status("\"" + text + "\" is not a hex colour - try #4A90D9", true);
             // The field goes back to the colour it belongs to, silently. Rebuilding the widgets here is what
@@ -3647,8 +4338,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             refreshHexField();
             return;
         }
-        ClientAppearance.LOOK.setCustom(toolsSelected, argb);
-        status(labelOfToken(toolsSelected) + " set to " + String.format("#%08X", argb), false);
+        writeThemeToken(toolsSelected, argb);
+        status(labelOfToken(toolsSelected) + " set to " + String.format("#%08X", argb)
+                + (themeTargetsChapter ? "  (this chapter)" : ""), false);
         refreshHexField();
     }
 
@@ -3672,7 +4364,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (token == null) {
             return;
         }
-        int argb = ClientAppearance.LOOK.main().colour(token);
+        int argb = editedTheme().colour(token);
         int shift = switch (channel) {
             case "R" -> 16;
             case "G" -> 8;
@@ -3680,7 +4372,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             default -> 24;
         };
         int value = net.minecraft.util.Mth.clamp(((argb >>> shift) & 0xFF) + step, 0, 255);
-        ClientAppearance.LOOK.setCustom(token, (argb & ~(0xFF << shift)) | (value << shift));
+        writeThemeToken(token, (argb & ~(0xFF << shift)) | (value << shift));
         rebuildWidgets();
     }
 
@@ -3689,20 +4381,23 @@ public final class QuestBookScreen extends ArmatureScreen {
      * the corner radius, which has no selection of its own now that its arrows live in its row.
      */
     private void revertSelected() {
+        boolean chapter = themeTargetsChapter;
         if (toolsSelected == null) {
-            ClientAppearance.LOOK.clearRadius();
-            status("Border radius back to the theme's own", false);
+            writeThemeRadius(null);
+            status(chapter ? "Chapter border radius back to the theme's own"
+                    : "Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }
         if (ToolsLayout.RADIUS.equals(toolsSelected)) {
-            ClientAppearance.LOOK.clearRadius();
-            status("Border radius back to the theme's own", false);
+            writeThemeRadius(null);
+            status(chapter ? "Chapter border radius back to the theme's own"
+                    : "Border radius back to the theme's own", false);
             rebuildWidgets();
             return;
         }
-        ClientAppearance.LOOK.clearCustom(toolsSelected);
-        status("Reverted " + labelOfToken(toolsSelected), false);
+        writeThemeToken(toolsSelected, null);
+        status("Reverted " + labelOfToken(toolsSelected) + (chapter ? " in this chapter" : ""), false);
         rebuildWidgets();
     }
 
@@ -3743,30 +4438,29 @@ public final class QuestBookScreen extends ArmatureScreen {
         return toolsFrame.panel().contains(mouseX, mouseY);
     }
 
-        /**
-     * Disband, which takes two presses. See {@link #disbandArmed} for why it is the only one that asks.
+    /**
+     * Disband, which takes two presses inside a three-second window.
      *
      * <p>The label is changed on the control rather than by rebuilding the panel, and that is not a
-     * shortcut: a rebuild goes through {@code init}, which clears the flag, so arming and rebuilding
-     * cannot be the same press.
+     * shortcut: a rebuild goes through {@code init}, which disarms — so arming and rebuilding cannot be
+     * the same press. The window lives in {@link ArmedPress}, which is where its boundaries are
+     * testable; this method only decides what to do about the answer.
      */
     private void pressDisband() {
-        if (disbandArmed) {
-            disarmDisband();
+        if (disbandPress.press(net.minecraft.Util.getMillis())) {
             runPartyCommand("/tasked party disband");
             return;
         }
-        disbandArmed = true;
         if (disbandButton != null) {
-            disbandButton.setMessage(Component.translatable("tasked.screen.party.confirm"));
-            disbandButton.tooltip(List.of(Component.literal("Press again to dissolve the party"),
+            disbandButton.setMessage(Component.translatable("tasked.screen.party.confirm_again"));
+            disbandButton.tooltip(List.of(Component.literal("Press again within three seconds"),
                     Component.literal("Everybody keeps the progress they earned")));
         }
     }
 
-    /** Undoes an armed Disband. Every other press on the panel does this, and so does a rebuild. */
+    /** Undoes an armed Disband. A rebuild does it, and so does the window lapsing. */
     private void disarmDisband() {
-        disbandArmed = false;
+        disbandPress.disarm();
         if (disbandButton != null) {
             disbandButton.setMessage(Component.translatable("tasked.screen.party.disband"));
         }
@@ -3787,25 +4481,90 @@ public final class QuestBookScreen extends ArmatureScreen {
                 slot.width(), slot.height());
     }
 
-    /** How many of Leave and Disband the viewer may use, 0 to 2. What the footer is built for. */
-    private static int partyActionCount(PartyRoster roster) {
-        int count = 0;
-        if (roster.canLeave()) {
-            count++;
+    /**
+     * Places one of the panel's widgets at a content slot, with the kit's own cull rule.
+     *
+     * <p>The scroll view is not asked to do this because it matches widgets by row key and a row may
+     * hold two controls -- see {@link #partyControls}. The rule it would have applied is kept here
+     * instead: map through the viewport, hide a widget the viewport cannot show, and the same
+     * half-open test it uses (a row whose bottom edge is exactly at the viewport's top is off screen).
+     *
+     * <p>A null slot hides the widget rather than leaving it where it was: an unplaced control is one
+     * whose row is not in this face at all, and leaving it on screen would be the previous panel's
+     * control drawn over this one.
+     */
+    private void placePartyWidget(net.minecraft.client.gui.components.AbstractWidget widget,
+                                  Slot slot, Viewport body) {
+        if (widget == null) {
+            return;
         }
-        if (roster.canDisband()) {
-            count++;
+        if (slot == null) {
+            widget.visible = false;
+            return;
         }
-        return count;
+        Slot onScreen = screenSlot(body, slot);
+        widget.setX(onScreen.x());
+        widget.setY(onScreen.y());
+        widget.setWidth(onScreen.width());
+        widget.setHeight(onScreen.height());
+        widget.visible = onScreen.y() < body.viewBottom() && onScreen.bottom() > body.originY();
     }
 
+    /** Places a face's row controls, one per control, from the row's own strip. */
+    private void placePartyLineControls(PartyPanelLayout.Face face, Layout layout, Viewport body) {
+        if (face == null || layout == null) {
+            return;
+        }
+        for (PartyPanelLayout.Line line : face.lines()) {
+            if (!line.hasControls()) {
+                continue;
+            }
+            Slot row = layout.slot(line.key());
+            List<Slot> slots = row == null ? List.of() : PartyPanelLayout.controlSlots(line, row);
+            for (int i = 0; i < line.controls().size(); i++) {
+                placePartyWidget(partyControls.get(line.controls().get(i).key()),
+                        i < slots.size() ? slots.get(i) : null, body);
+            }
+        }
+    }
+
+    /** Places a text field in this face's row for it, if the face has that row. */
+    private void placePartyField(net.minecraft.client.gui.components.AbstractWidget field,
+                                 PartyPanelLayout.Face face, Layout layout, String key, Viewport body) {
+        if (field == null || face == null || layout == null) {
+            return;
+        }
+        PartyPanelLayout.Line line = face.line(key);
+        Slot row = layout.slot(key);
+        placePartyWidget(field, line == null || row == null ? null
+                : PartyPanelLayout.textSlot(line, row), body);
+    }
+
+    /**
+     * Opens the party panel at the top of both columns, with no question left over.
+     *
+     * <p>The phases and the fields are reset here rather than in a rebuild: a panel opened afresh is a
+     * new interaction, and a half-typed search from ten minutes ago would make the invite list look
+     * like it was missing people. The scroll reset is documented at the {@code scrollTo} call below.
+     */
     private void openPartyOverlay() {
         overlay = Overlay.PARTY;
         overlayQuest = null;
+        partyPhase = PartyPhase.NONE;
+        partyPhaseTarget = null;
+        partyRenaming = false;
+        partySearch = "";
+        partySearchFocused = false;
+        partyCreateFocused = false;
+        // The name a player typed for a party they no longer have must not greet them as if it were
+        // that party: clearing it lets the build re-derive the default from their own name, so the
+        // field is a suggestion for a new party rather than a leftover. See the create heading.
+        partyCreateName = "";
         // Opened at the top, and reset before the rebuild rather than after: the rebuild's own `apply`
         // clamps against the new content, and an offset left from a previous party would be clamped
         // into range rather than forgotten -- a panel that opened halfway down for no visible reason.
-        partyView.scrollTo(0);
+        partyLeftView.scrollTo(0);
+        partyRightView.scrollTo(0);
         rebuildWidgets();
     }
 
@@ -3965,23 +4724,36 @@ public final class QuestBookScreen extends ArmatureScreen {
         closeButton = null;
         partyButton = null;
         rewardsButton = null;
-        // Cleared with them: the rows are drawn from this list, so a rebuild that left it alone would
-        // draw the previous panel's rows over the new one. The card and the layout go with it, because
-        // one pass records them together and a card left behind would draw a box for a panel that no
-        // longer exists.
-        partyRows = new ArrayList<>();
+        // Cleared with them: the rows are drawn from these lists, so a rebuild that left them alone
+        // would draw the previous panel's rows over the new one. The card and the layouts go with them,
+        // because one pass records them together and a card left behind would draw a box for a panel
+        // that no longer exists.
+        partyLeftLines = new ArrayList<>();
+        partyRightLines = new ArrayList<>();
+        partyLeftFace = null;
+        partyRightFace = null;
         partyCard = null;
-        partyLayout = null;
-        // And the scroll view's widgets, for the reason the three above are cleared: they belong to the
-        // panel being replaced. `buildPartyWidgets` clears it too, but only on the branch that builds a
-        // panel — a rebuild for a quest would otherwise leave the scroll view holding controls that are
-        // no longer on the screen.
-        partyView.clear();
+        partyLeftLayout = null;
+        partyRightLayout = null;
+        // And the scroll views' widgets, for the reason the three above are cleared: they belong to
+        // the panel being replaced. `buildPartyWidgets` clears them too, but only on the branch that
+        // builds a panel -- a rebuild for a quest would otherwise leave the views holding controls
+        // that are no longer on the screen.
+        partyLeftView.clear();
+        partyRightView.clear();
         // And the armed Disband, because a rebuild is a new panel: the row a player armed may not be
         // there any more, and a control that says "Confirm" for a press it no longer remembers is
         // worse than one that forgot.
         disbandButton = null;
-        disbandArmed = false;
+        disbandPress.disarm();
+        partyNameField = null;
+        partyCreateField = null;
+        partySearchField = null;
+        partyControls.clear();
+        // `partyRenaming` is deliberately NOT reset here, and that is a fix for a report: the name's
+        // own press sets the flag and then rebuilds, so a reset in this path cancelled the edit on the
+        // same click -- "edit party name doesn't do anything". A panel opened afresh still resets it,
+        // in `openPartyOverlay`; a rebuild keeps whatever interaction was in progress.
 
         // No theme is applied here, and there used to be one call. A chapter's palette is now a scope
         // opened and closed within a single frame -- see `drawCanvas` and `renderWith` -- so there is
@@ -4006,6 +4778,9 @@ public final class QuestBookScreen extends ArmatureScreen {
                 centred = true;
                 overlay = Overlay.QUEST;
                 overlayQuest = questId;
+                // A card opened from outside the book is a fresh session, not a continuation of one:
+                // there is no "where I came from" for the arrow to return to.
+                overlayHistory.clear();
             }
         });
 
@@ -4174,12 +4949,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         control(controls.get("zoomIn"), Component.literal("+"), () -> zoomCentre(1.25F))
                 .tooltip(List.of(Component.literal("Zoom in"),
                         Component.literal("Or scroll up over the canvas")))
-                .textColour(ArmatureTheme.body());
+                .ink(ArmatureButton.Ink.BODY);
 
         control(controls.get("zoomOut"), Component.literal("\u2212"), () -> zoomCentre(0.8F))
                 .tooltip(List.of(Component.literal("Zoom out"),
                         Component.literal("Or scroll down over the canvas")))
-                .textColour(ArmatureTheme.body());
+                .ink(ArmatureButton.Ink.BODY);
 
         // A glyph rather than the word "Centre", because it is an 18-pixel square: "Centre" in that
         // box would be cut off by the button's own font measurement -- and it was that measurement that
@@ -4193,7 +4968,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         })
                 .tooltip(List.of(Component.literal("Re-centre the view"),
                         Component.literal("Drag with left or middle to pan")))
-                .textColour(ArmatureTheme.body());
+                .ink(ArmatureButton.Ink.BODY);
     }
 
     /**
@@ -4230,7 +5005,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         });
         if (closeButton != null) {
-            closeButton.textColour(ArmatureTheme.body());
+            closeButton.ink(ArmatureButton.Ink.BODY);
         }
 
         // Labelled here rather than by the drawing, and that is a fix rather than a preference. The
@@ -4245,7 +5020,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         partyButton = control(controls.get("party"),
                 Component.translatable("tasked.screen.party.button"), this::openPartyOverlay);
         if (partyButton != null) {
-            partyButton.textColour(ArmatureTheme.body());
+            partyButton.ink(ArmatureButton.Ink.BODY);
         }
 
         // The rewards button, between Close and Party -- the spot `BookGeometry.partyButton` was anchored
@@ -4255,7 +5030,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         rewardsButton = control(controls.get("rewards"),
                 Component.translatable("tasked.screen.rewards.button"), this::openRewardsOverlay);
         if (rewardsButton != null) {
-            rewardsButton.textColour(ArmatureTheme.body());
+            rewardsButton.ink(ArmatureButton.Ink.BODY);
             int waiting = claimableQuests().size();
             rewardsButton.tooltip(Component.translatable(waiting == 0
                     ? "tasked.screen.rewards.none" : "tasked.screen.rewards.waiting", waiting));
@@ -4271,7 +5046,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             editButton = control(controls.get("edit"),
                     Component.literal("Edit"), () -> setEditing(!DevMode.on()));
             if (editButton != null) {
-                editButton.textColour(ArmatureTheme.body())
+                editButton.ink(ArmatureButton.Ink.BODY)
                         .selected(DevMode.on())
                         .tooltip(List.of(Component.literal("Edit this questline"),
                                 Component.literal("Drag nodes, create, duplicate, delete"),
@@ -4284,7 +5059,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                         rebuildWidgets();
                     });
             if (toolsButton != null) {
-                toolsButton.textColour(ArmatureTheme.body())
+                toolsButton.ink(ArmatureButton.Ink.BODY)
                         .selected(toolsOpen)
                         .tooltip(List.of(Component.literal("Tools"),
                                 Component.literal("Theme, colours and the preview")));
@@ -4306,6 +5081,11 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** Edit mode on or off, with the header control and the panel following. */
     private void setEditing(boolean on) {
         DevMode.setOn(on);
+        // Leaving edit mode drops the chapter target with it: its switch is not drawn for a reader, and a
+        // panel still pointed at a chapter would offer colours the server would refuse to write.
+        if (!on) {
+            themeTargetsChapter = false;
+        }
         report(on ? "Edit mode on" : "Edit mode off");
         rebuildWidgets();
     }
@@ -4415,7 +5195,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             ArmatureButton back = control(geometry().overlayControls(false).get("back"),
                     Component.literal("Back"), this::closePickerOverlay);
             if (back != null) {
-                back.textColour(ArmatureTheme.body())
+                back.ink(ArmatureButton.Ink.BODY)
                         .tooltip(Component.literal("Escape also closes this"));
             }
             setBookControlsActive(false);
@@ -4427,6 +5207,22 @@ public final class QuestBookScreen extends ArmatureScreen {
             overlay = Overlay.NONE;
             rebuildWidgets();
             return;
+        }
+
+        // The back arrow, in the header's empty right-hand side and above the card like every modal
+        // control. A prerequisite chain is four deep before anyone notices they cannot step back
+        // without losing the thread, and the footer's Back leaves the whole card — so one press per
+        // level, like a browser. Built for the reader and the editor alike: the editor's header marks
+        // are drawn on top of this band, so the two must not share a corner.
+        BookGeometry.Rect card = geometry().modal();
+        ArmatureButton backArrow = control(card.right() - BookGeometry.MODAL_INSET - 20, card.y() + 13,
+                20, 20, Component.literal("\u2190"), this::backInCards);
+        if (backArrow != null) {
+            // Inert while there is nothing to go back to, rather than hidden: a control that appears
+            // and disappears with the stack would move under the pointer that is using it.
+            backArrow.active = !overlayHistory.isEmpty();
+            backArrow.ink(ArmatureButton.Ink.BODY)
+                    .tooltip(Component.literal("Back to the quest you came from"));
         }
 
         // An author opening a quest gets the editor, not the reader: the same card, with the fields
@@ -4491,7 +5287,7 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         ArmatureButton back = control(controls.get("back"), Component.literal("Back"), this::closeOverlay);
         if (back != null) {
-            back.textColour(ArmatureTheme.body())
+            back.ink(ArmatureButton.Ink.BODY)
                     .tooltip(Component.literal("Escape also closes this"));
         }
     }
@@ -4525,7 +5321,6 @@ public final class QuestBookScreen extends ArmatureScreen {
         // must commit nothing: a rebuild that blurred the box would otherwise set the field to the
         // text it happened to be holding.
         itemSearch.onSubmit(text -> { });
-        itemSearch.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
         addRenderableWidget(itemSearch);
         // **Redrawn after the card, because the widget pass runs before it.** This is the third
         // time this exact ordering has cost something: the modal's card is painted after
@@ -4584,22 +5379,24 @@ public final class QuestBookScreen extends ArmatureScreen {
                     Component.literal(confirmingDelete ? "Really delete?" : "Delete"),
                     this::pressDeleteQuest);
             if (questDeleteButton != null) {
-                questDeleteButton.textColour(
-                        confirmingDelete ? ArmatureTheme.blocked() : ArmatureTheme.body());
+                // A live role rather than a captured colour: the armed state's red is the theme's
+                // blocked ink, and this card is drawn inside the chapter's scope.
+                questDeleteButton.ink(confirmingDelete ? ArmatureButton.Ink.BLOCKED
+                        : ArmatureButton.Ink.BODY);
             }
             control(duplicate, Component.literal("Duplicate"), this::duplicateQuest)
-                    .textColour(ArmatureTheme.body());
+                    .ink(ArmatureButton.Ink.BODY);
             control(copy, Component.literal("Copy"), this::copyQuest)
-                    .textColour(ArmatureTheme.body());
+                    .ink(ArmatureButton.Ink.BODY);
             settingsButton = control(settings, Component.literal("Settings"), this::toggleSettings);
             if (settingsButton != null) {
-                settingsButton.textColour(ArmatureTheme.body()).selected(settingsOpen)
+                settingsButton.ink(ArmatureButton.Ink.BODY).selected(settingsOpen)
                         .tooltip(Component.literal("Shape, size, placement and rules"));
             }
         }
         ArmatureButton done = control(controls.get("back"), Component.literal("Done"), this::closeOverlay);
         if (done != null) {
-            done.textColour(ArmatureTheme.body()).tooltip(Component.literal("Escape also closes this"));
+            done.ink(ArmatureButton.Ink.BODY).tooltip(Component.literal("Escape also closes this"));
         }
 
         buildPickerWidgets();
@@ -4662,8 +5459,6 @@ public final class QuestBookScreen extends ArmatureScreen {
                 String path = row.key();
                 ArmatureTextField field = new ArmatureTextField(0, 0, 0, 0, questValue(quest, path));
                 field.onSubmit(text -> commitField(path, text, false));
-                field.colours(ArmatureTheme.title(), ArmatureTheme.recessed(),
-                        ArmatureTheme.panelEdge());
                 settingsView.put(row.key(), field,
                         dev.ellipog.tasked.client.dev.QuestSettingsLayout::strip);
                 addRenderableWidget(field);
@@ -5884,17 +6679,32 @@ public final class QuestBookScreen extends ArmatureScreen {
                 box.y() + (box.height() - 8) / 2, "", null, -1));
     }
 
-    /** One prerequisite: its name, and a cross to remove it. */
+    /** One prerequisite: its name (a jump to that quest), a locate icon, and a cross to remove it. */
     private void drawDependencyRow(GuiRenderer r, Slot slot, String name, int mouseX, int mouseY) {
         if (slot == null) {
             return;
         }
         int y = slot.y() + 2;
         int height = Math.max(8, slot.height() - 4);
+        BookGeometry.Rect locate = BookGeometry.Rect.at(slot.right() - 52, y, 18, height);
         BookGeometry.Rect nameBox = BookGeometry.Rect.at(slot.x(), y,
-                Math.max(60, slot.width() - 40), height);
+                Math.max(60, slot.width() - 74), height);
+        boolean nameHover = nameBox.contains(mouseX, mouseY);
+        if (nameHover) {
+            // The name is a jump now, and the wash is the affordance: an edit box would say "type
+            // here", which is what the add row underneath says.
+            r.fill(nameBox.x() - 2, nameBox.y(), nameBox.right(), nameBox.bottom(),
+                    ArmatureTheme.rowHover());
+        }
         r.text(Measure.truncate(name, nameBox.width() - 8, textMeasure(r)), nameBox.x() + 2,
                 y + (height - 8) / 2, ArmatureTheme.body());
+        editTargets.add(new EditTarget(EditAction.NAVIGATE_DEP, name, nameBox, nameBox.x() + 2,
+                y + (height - 8) / 2, "", null, -1));
+
+        drawLocateIcon(r, locate.x() + locate.width() / 2, y + height / 2,
+                locate.contains(mouseX, mouseY) ? ArmatureTheme.body() : ArmatureTheme.faint());
+        editTargets.add(new EditTarget(EditAction.LOCATE_DEP, name, locate, locate.x(), locate.y(),
+                "", null, -1));
 
         BookGeometry.Rect remove = BookGeometry.Rect.at(slot.right() - 30, y, 26, height);
         drawEditAffordance(r, remove, remove.contains(mouseX, mouseY));
@@ -6183,6 +6993,10 @@ public final class QuestBookScreen extends ArmatureScreen {
                     sendField(editTarget(), "dependsOn", stringArray(remaining));
                 }
             }
+            // A prerequisite's name and its locate icon are the card's own navigation: the same two
+            // the reader's rows carry, so both modes of the card teach one behaviour.
+            case NAVIGATE_DEP -> navigateToQuest(target.path());
+            case LOCATE_DEP -> locateOnCanvas(target.path());
             case COPY_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), true);
             case REMOVE_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), false);
             case DRAG_ENTRY -> {
@@ -7369,6 +8183,76 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * The chapter rows' reward counts, right-aligned in each row: "(3)" where three quests have
+     * something waiting.
+     *
+     * <p>Right-aligned rather than appended to the row's label, and that is a correctness point rather
+     * than taste: the label is truncated from its end, so on a long chapter name the count would be the
+     * first thing cut — and it is the one part that must never be lost.
+     *
+     * <p>Only chapters with something waiting, and never groups: a group is a heading, and "(0)" is a
+     * number nobody needs.
+     */
+    private void drawSidebarRewardCounts(GuiRenderer r, int mouseX, int mouseY) {
+        Map<String, Integer> counts = rewardCounts().byChapter();
+        SidebarLayout layout = sidebar();
+        if (counts.isEmpty() || layout == null) {
+            return;
+        }
+        for (SidebarLayout.Row row : layout.rows()) {
+            Integer count = counts.get(row.id());
+            if (row.group() || count == null) {
+                continue;
+            }
+            BookGeometry.Rect rect = placedRect(row.key());
+            if (rect == null) {
+                continue;
+            }
+            String text = "(" + count + ")";
+            // The chapter's own accent — the same token its node badges wear — rather than the row's
+            // chrome ink. The count is the chapter's mark, so it follows the chapter's palette even
+            // though the row it sits in is the book's own: a themed chapter's "(3)" is the colour of
+            // the coins on its canvas, and the two read as one feature. The row's states still speak:
+            // hover and selection brighten it rather than recolouring it, which is what a mark with a
+            // colour of its own can do.
+            int accent = themeFor(row.id()).inProgress();
+            boolean selected = row.id().equals(effectiveChapter());
+            int colour = selected ? Colour.shade(accent, 0.35F)
+                    : rect.contains(mouseX, mouseY) ? Colour.shade(accent, 0.15F) : accent;
+            r.text(text, rect.right() - 4 - r.textWidth(text),
+                    rect.y() + (rect.height() - 8) / 2, colour);
+        }
+    }
+
+    /**
+     * The reward badges: a small mark pinned to each node's outline while that quest has rewards this
+     * player has not collected.
+     *
+     * <p>Drawn on the canvas and therefore inside the chapter's theme scope, so the badge is already
+     * the chapter's own colour: a themed chapter's badges take its {@code inProgress}, not the
+     * player's. The count comes from one walk per revision (see {@link #rewardCounts}), and the
+     * badge's own art and anchoring are {@link RewardBadge}'s.
+     */
+    private void drawRewardBadges(GuiRenderer r, List<ClientQuestCache.Entry> visible) {
+        Map<String, Integer> waiting = rewardCounts().byQuest();
+        if (waiting.isEmpty()) {
+            return;
+        }
+        for (ClientQuestCache.Entry quest : visible) {
+            Integer count = waiting.get(quest.id());
+            if (count == null) {
+                continue;
+            }
+            // The badge anchors itself to this node's own outline and shrinks with it; the ring is a
+            // darker shade of the badge's own colour rather than a theme edge, because a grey outline
+            // around a gold disc reads as two unrelated things.
+            int fill = ArmatureTheme.inProgress();
+            RewardBadge.draw(r, quest.geometry(), nodeScreenX(quest), nodeScreenY(quest), nodeSize(quest),
+                    count, fill, Colour.shade(fill, -0.45F), ArmatureTheme.canvas());
+        }
+    }
+
+    /**
      * Scrolls the sidebar while a drag is held near one of its edges.
      *
      * <p>One row's pitch a tick, which is the same step a wheel notch takes — the list moves the way it
@@ -7506,8 +8390,6 @@ public final class QuestBookScreen extends ArmatureScreen {
         // must commit nothing.
         namingTitle.onSubmit(text -> { });
         namingId.onSubmit(text -> { });
-        namingTitle.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
-        namingId.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
         addRenderableWidget(namingTitle);
         addRenderableWidget(namingId);
         BookGeometry.Rect card = geometry().modal();
@@ -7525,7 +8407,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         BookGeometry.Rect back = controls.get("back");
         if (back != null) {
             control(back, Component.literal("Cancel"), this::closeNaming)
-                    .textColour(ArmatureTheme.body());
+                    .ink(ArmatureButton.Ink.BODY);
         }
         BookGeometry.Rect primary = controls.get("submit");
         if (primary != null) {
@@ -7611,7 +8493,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (addChapter != null) {
             ArmatureButton button = control(addChapter, Component.literal("+ Chapter"),
                     this::newChapterFromToolbar);
-            button.textColour(ArmatureTheme.body()).flat(true).tooltip(
+            button.ink(ArmatureButton.Ink.BODY).flat(true).tooltip(
                     Component.literal("Add a chapter to the selected group"));
             button.visible = mayEditNow();
         }
@@ -7619,7 +8501,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (addGroup != null) {
             ArmatureButton button = control(addGroup, Component.literal("+ Group"),
                     this::newGroupFromToolbar);
-            button.textColour(ArmatureTheme.body()).flat(true).tooltip(
+            button.ink(ArmatureButton.Ink.BODY).flat(true).tooltip(
                     Component.literal("Add a group at the end of the list"));
             button.visible = mayEditNow();
         }
@@ -9041,8 +9923,11 @@ public final class QuestBookScreen extends ArmatureScreen {
                         JsonElement value = QuestPanelLayout.get(quest, row.key());
                         String current = value != null && value.isJsonPrimitive()
                                 ? value.getAsString() : "";
-                        String next = dev.ellipog.tasked.client.dev.QuestSettingsLayout
-                                .cycleRequirement(current, step);
+                        String next = "autoClaim".equals(row.key())
+                                ? dev.ellipog.tasked.client.dev.QuestSettingsLayout
+                                        .cycleAutoClaim(current, step)
+                                : dev.ellipog.tasked.client.dev.QuestSettingsLayout
+                                        .cycleRequirement(current, step);
                         // The chapter's default is the *absence* of the field, not a string that spells
                         // it out: a quest that says "all_completed" keeps saying it when the chapter's
                         // default changes, which is the whole difference between the two states.
@@ -9344,6 +10229,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         overlayQuest = null;
         overlayView.scrollTo(0);
         rowHover.clear();
+        // The chain of jumps ends with the card: a stale stack would replay a trail from a card the
+        // reader closed, and the next card they open is a fresh session with its own history.
+        overlayHistory.clear();
         // The folds are the card's too: the next card has its own list, and an index folded here names
         // nothing there.
         entryFolded.clear();
@@ -9363,6 +10251,134 @@ public final class QuestBookScreen extends ArmatureScreen {
         inlineArea = null;
         editingPath = null;
         rebuildWidgets();
+    }
+
+    /**
+     * Opens a quest's card from a "Requires" jump, putting the card being left on the back stack.
+     *
+     * <p>Navigation rather than selection: the reader is following a chain, and the chain is the
+     * context — so the card being left keeps its scroll and its folds, and the header's arrow is one
+     * press away. The canvas selection follows the jump as well, because the card is a detour: closing
+     * it should leave the canvas where the reader ended up, not where they started.
+     *
+     * <p>A quest in another chapter is reached by switching chapters first, exactly as the sidebar
+     * would: a card cannot be shown for a chapter the book is not on, and in edit mode every commit
+     * would otherwise go to the wrong file.
+     */
+    private void navigateToQuest(String questId) {
+        ClientQuestCache.Entry target = entryFor(questId);
+        if (target == null || questId.equals(overlayQuest)) {
+            // An id the tree does not know cannot be opened, and a jump to the card already showing is
+            // not a jump. Both are silent: there is nothing here for a player to fix.
+            return;
+        }
+        if (overlay == Overlay.QUEST && overlayQuest != null) {
+            overlayHistory.add(new CardVisit(overlayQuest, overlayView.viewport().scrollY(),
+                    Set.copyOf(entryFolded)));
+        }
+        if (!target.chapterId().equals(effectiveChapter())) {
+            selectChapter(target.chapterId());
+        }
+        selectedQuest = questId;
+        multiSelection.clear();
+        openOverlay(questId);
+    }
+
+    /** The header's arrow: back to the card this one was reached from, as it was left. */
+    private void backInCards() {
+        if (overlayHistory.isEmpty()) {
+            return;
+        }
+        CardVisit visit = overlayHistory.remove(overlayHistory.size() - 1);
+        ClientQuestCache.Entry target = entryFor(visit.questId());
+        if (target == null) {
+            // The quest was deleted while its card sat on the stack: a blank card is worse than a
+            // dropped visit, so the visit goes and the button rebuilds without it.
+            rebuildWidgets();
+            return;
+        }
+        if (!target.chapterId().equals(effectiveChapter())) {
+            selectChapter(target.chapterId());
+        }
+        selectedQuest = visit.questId();
+        multiSelection.clear();
+        openOverlay(visit.questId());
+        // `openOverlay` resets the body to the top and drops the folds; the visit remembers how this
+        // card was left, and a step back that lost the reader's place would not be a step back.
+        overlayView.scrollTo(visit.scrollY());
+        entryFolded.clear();
+        entryFolded.addAll(visit.folded());
+    }
+
+    /**
+     * Takes the canvas to a quest: closes the card, switches chapter when the quest lives elsewhere,
+     * glides the camera until the node is centred, and flashes its outline.
+     *
+     * <p>What the prerequisite row's locate icon and the shift/middle-click gesture both call. The
+     * flash is the half that answers "which of these forty nodes is it": a camera that arrives at an
+     * unremarkable square has moved the question rather than answered it.
+     */
+    private void locateOnCanvas(String questId) {
+        ClientQuestCache.Entry target = entryFor(questId);
+        if (target == null) {
+            status("No quest " + questId + " to show", true);
+            return;
+        }
+        closeOverlay();
+        if (!target.chapterId().equals(effectiveChapter())) {
+            selectChapter(target.chapterId());
+        }
+        selectedQuest = questId;
+        multiSelection.clear();
+        // The view is the caller's now, not the chapter auto-centre's: `centreCanvas` re-centres a
+        // chapter once, and a glide it kept overriding would never arrive.
+        pannedChapter = effectiveChapter();
+        centred = true;
+        startGlide(target);
+        flashQuest = questId;
+        flashStart = Util.getMillis();
+    }
+
+    /** Starts the camera's glide to a node's centre, from where the view stands now. */
+    private void startGlide(ClientQuestCache.Entry entry) {
+        Viewport view = viewport();
+        glideQuest = entry.id();
+        glideStart = Util.getMillis();
+        glideFromX = view.offsetX();
+        glideFromY = view.offsetY();
+        // Content coordinates for the node's middle, through the drawing's own helpers — so the target
+        // is the node as it is drawn, draft size included, rather than a second opinion about where it
+        // is. The zoom does not change: "show me where it is" is not "zoom in on it".
+        glideToX = CanvasReveal.offsetX(view.viewWidth(), view.contentX(nodeCentreX(entry)), view.scale());
+        glideToY = CanvasReveal.offsetY(view.viewHeight(), view.contentY(nodeCentreY(entry)), view.scale());
+    }
+
+    /**
+     * Advances the camera's glide, if one is in flight.
+     *
+     * <p>Called once a frame from the canvas drawing, which is the only place the move can be seen: the
+     * canvas is not drawn while a card is up, so a glide cannot run on behind one.
+     */
+    private void advanceGlide(long now) {
+        if (glideQuest == null) {
+            return;
+        }
+        ClientQuestCache.Entry target = entryFor(glideQuest);
+        if (target == null || !target.chapterId().equals(effectiveChapter())) {
+            // The chapter changed under the glide (a sidebar press mid-flight): the view belongs to the
+            // chapter now, and dragging it to a node that is not on screen is the wrong kind of help.
+            glideQuest = null;
+            return;
+        }
+        long elapsed = now - glideStart;
+        Viewport view = viewport();
+        if (elapsed >= CanvasReveal.GLIDE_MILLIS) {
+            view.setOffset(glideToX, glideToY);
+            glideQuest = null;
+            return;
+        }
+        view.setOffset(CanvasReveal.glide(glideFromX, glideToX, elapsed, CanvasReveal.GLIDE_MILLIS),
+                CanvasReveal.glide(glideFromY, glideToY, elapsed, CanvasReveal.GLIDE_MILLIS));
     }
 
     /** The first task a player hands over by hand, or -1. */
@@ -9546,6 +10562,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             try (GuiRenderer.Scoped clip = renderer.clip(book.x(), geometry().chapterListTop(),
                     book.right(), book.bottom())) {
                 super.render(graphics, mouseX, mouseY, partialTick);
+                // The chapter rows' reward counts, over the labels they belong to and inside the same
+                // clip: a count drawn outside the list would be a count over the header.
+                drawSidebarRewardCounts(renderer, mouseX, mouseY);
                 // The drag's own marks, above the rows it is about and inside the clip for the same
                 // reason the rows are: a seam line that escaped the list would draw into the header.
                 drawSidebarDrag(renderer);
@@ -9653,10 +10672,25 @@ public final class QuestBookScreen extends ArmatureScreen {
                     // And the list holds exactly the modal's own controls: `beginModalControls` cleared it
                     // after the book's were built, the same boundary `setBookControlsActive` uses. The
                     // book stays behind the card, which is where its own comment says it belongs.
-                    for (java.util.function.Consumer<GuiRenderer> redraw : modalRedraws) {
-                        redraw.accept(renderer);
+                    //
+                    // The controls draw inside the chapter's palette when the modal belongs to the
+                    // chapter -- the card's buttons, the picker's search box, a rename field. Party,
+                    // choice and rewards are player cards and keep the main theme, by position rather
+                    // than by a special case: no scope is opened for them. See `chapterBoundOverlay`.
+                    if (chapterBoundOverlay()) {
+                        try (ArmatureTheme.Scope theme = ArmatureTheme.scope(viewportTheme())) {
+                            for (java.util.function.Consumer<GuiRenderer> redraw : modalRedraws) {
+                                redraw.accept(renderer);
+                            }
+                            drawOpenEditor(renderer);
+                        }
                     }
-                    drawOpenEditor(renderer);
+                    else {
+                        for (java.util.function.Consumer<GuiRenderer> redraw : modalRedraws) {
+                            redraw.accept(renderer);
+                        }
+                        drawOpenEditor(renderer);
+                    }
                 }
                 finally {
                     pose.popPose();
@@ -9674,11 +10708,17 @@ public final class QuestBookScreen extends ArmatureScreen {
             pose.pushPose();
             pose.translate(0F, 0F, TOOLTIP_Z - CHROME_Z);
             // The notices first, so a tooltip -- which is what the pointer is asking for -- stays on top.
+            // They keep the main theme: a toast is the book talking, not the chapter.
             drawToasts(renderer, Util.getMillis());
-            drawPendingLabels(renderer);
-            drawRowTooltips(renderer, mouseX, mouseY);
-            drawLinkTarget(renderer, mouseX, mouseY);
-            drawTooltips(renderer, mouseX, mouseY);
+            // The tooltips describe what is under the pointer, so they wear that surface's palette: a
+            // caption over a chapter's canvas is that chapter's, and one over the sidebar is the book's
+            // own. The toasts above are outside this scope on purpose.
+            try (ArmatureTheme.Scope theme = ArmatureTheme.scope(tooltipTheme(mouseX, mouseY))) {
+                drawPendingLabels(renderer);
+                drawRowTooltips(renderer, mouseX, mouseY);
+                drawLinkTarget(renderer, mouseX, mouseY);
+                drawTooltips(renderer, mouseX, mouseY);
+            }
             pose.popPose();
 
             // Consumed, because they are drawn here rather than where they are collected: the card fills
@@ -9854,144 +10894,198 @@ public final class QuestBookScreen extends ArmatureScreen {
         // as well as testing it.
     }
     /**
-     * The party panel's card: a title, the roster, and the actions.
+     * The party panel, whichever face it is showing.
      *
-     * <h2>Every row comes from the layout the widgets were placed from</h2>
+     * <h2>Two columns, two viewports, one rectangle each</h2>
      *
-     * <p>Which is the reason {@link #partyLayout} is a field. A drawing that recomputed its own rows
-     * would put a member's name beside a Remove button belonging to somebody else, and that failure only
-     * appears when a party has the wrong number of members in it -- the case a single-member test never
-     * reaches.
-     *
-     * <h2>Scrolled, and clipped by a scissor</h2>
-     *
-     * <p>The body is a {@link ScrollView}'s viewport, so a roster taller than its card is reachable
-     * rather than lost. Three things come from that one rectangle: the clip the drawing is wrapped in,
-     * the scroll clamp, and where each row lands — because the panel's rows are placed by
-     * {@code apply} and drawn here, and both ask the viewport. A row half past the card's edge is cut
-     * off by the clip rather than skipped, which is the shape the old "skip a row past the body"
-     * comparison had, generalised to a region that moves.
-     *
-     * <p>The clip is the one place a scissor is right, and it replaced a comparison: skipping whole
-     * rows cannot express a partially visible one, and a partially visible row is what a scroll is.
+     * <p>Every position below comes from a layout the build pass recorded, through the viewport that
+     * owns the scroll \u2014 the same rule the panel always had, now per column. The clip is the
+     * column's, so a row scrolled past its edge is cut off rather than drawn over the other column.
      */
     private void drawPartyOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
-        PartyRoster roster = partyRoster();
         BookGeometry.Rect card = partyCard;
-        Layout layout = partyLayout;
-        if (card == null || layout == null) {
-            // Not built: `buildPartyWidgets` records the card and the layout together, so neither can
-            // be set without the other, and a card derived here would be the second arithmetic this
-            // round removed.
+        if (card == null || partyLeftFace == null) {
             return;
         }
 
-        // Re-applied here rather than only at build time, like the overlay's own body: a scroll that
-        // happened since the last frame is already in the widget positions, and a resize cannot leave
-        // the clamp measuring the previous window.
-        Viewport body = partyBody();
-        partyView.apply(layout, body.viewWidth());
+        // The armed Disband lapses on its own: a control still saying "press again" a minute after the
+        // first press is a control that lies about what it will do next.
+        if (disbandPress.lapsed(now)) {
+            disarmDisband();
+        }
 
         // No dim: `renderWith` fills one before dispatching to an overlay, and a second put two
         // translucent blacks over a world that is not otherwise drawn.
         ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
-        // Everything below is content, and content is clipped to the body. The card is not: it is the
-        // frame the content moves inside.
-        try (GuiRenderer.Scoped clip = r.clip(body)) {
-            drawPartyRows(r, layout, roster, body, now);
+        drawPartyFace(r, partyLeftFace, partyLeftLayout, partyLeftView, partyColumn(true), now);
+        if (partyRightFace != null) {
+            drawPartyFace(r, partyRightFace, partyRightLayout, partyRightView, partyColumn(false), now);
         }
 
-        // The bar, from the same viewport as the clip and the clamp, and drawn only when there is more
-        // than fits. Like the quest overlay's, it is not draggable -- the sidebar's is, because a list is
-        // a thing a pointer is already in; a modal's bar is read, and the wheel is how it is moved.
-        partyView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        // The roster rows are the left column's own composition rather than `Line`s -- see
+        // `buildPartyActive` -- so they are drawn here, against the same layout their buttons were
+        // registered against.
+        PartyRoster roster = partyRoster();
+        if (roster.isReal() && partyPhase == PartyPhase.NONE && partiesAvailable()
+                && partyRightFace != null && partyLeftLayout != null) {
+            drawPartyMembers(r, partyLeftLayout, roster, partyColumn(true), now);
+        }
     }
 
-    /** The panel's content, drawn at the positions the viewport puts its rows in. */
-    private void drawPartyRows(GuiRenderer r, Layout layout, PartyRoster roster, Viewport body,
-                               long now) {
-        // The title, placed by the layout like every other row. Its key *is* its translation key -- see
-        // `PartyPanelLayout.TITLE` -- so there is no second table mapping one to the other.
-        rowLabel(r, layout, PartyPanelLayout.TITLE, body,
-                Component.translatable(PartyPanelLayout.TITLE).getString(), ArmatureTheme.title());
-
-        if (roster.isReal()) {
-            for (PartyRoster.Member member : roster.members()) {
-                Slot slot = layout.slot(member.key());
-                if (slot == null) {
+    /**
+     * One column: its rows' text, and the scrollbar when there is more than fits.
+     *
+     * <p>Re-applied every frame rather than only at build time, like the quest overlay's body: a
+     * scroll that happened since the last frame is already in the widget positions, and a resize
+     * cannot leave the clamp measuring the previous window.
+     */
+    private void drawPartyFace(GuiRenderer r, PartyPanelLayout.Face face, Layout layout,
+                               ScrollView view, Viewport body, long now) {
+        if (layout == null) {
+            return;
+        }
+        view.apply(layout, body.viewWidth());
+        // Placement first, then the drawing: every widget this column owns gets its rectangle from the
+        // same layout the rows are drawn from, so a switch cannot sit beside the wrong label.
+        placePartyLineControls(face, layout, body);
+        placePartyField(partyCreateField, face, layout, "solo:create", body);
+        placePartyField(partyNameField, face, layout, "left:name", body);
+        placePartyField(partySearchField, face, layout, "right:search", body);
+        // The click target over the party's name, when this face has that row and the viewer may rename.
+        placePartyWidget(partyControls.get("left:name:edit"), layout.slot("left:name"), body);
+        try (GuiRenderer.Scoped clip = r.clip(body)) {
+            for (PartyPanelLayout.Line line : face.lines()) {
+                Slot slot = layout.slot(line.key());
+                if (slot == null || line.label().isEmpty()) {
                     continue;
                 }
                 Slot onScreen = screenSlot(body, slot);
-
-                rowHover.update(member.key(), now);
-                float hover = rowHover.amount(member.key(), now);
-                if (hover > 0F) {
-                    rowWash(r, onScreen, onScreen.right(), hover);
-                }
-
-                // The portrait, then the marker for who is connected, then the name. The marker is drawn
-                // whether or not the face drew, so a player with no skin cannot take the one part of
-                // this row that is about presence with it. Where the fact comes from: the roster's own
-                // member, which the server answered -- see `PartyRoster.Member`.
-                int portraitX = onScreen.x() + PartyPanelLayout.HEAD_INSET;
-                r.face(member.id(), portraitX,
-                        onScreen.y() + (onScreen.height() - PartyPanelLayout.HEAD_BOX) / 2,
-                        PartyPanelLayout.HEAD_BOX);
-
-                int markerX = portraitX + PartyPanelLayout.HEAD_BOX + PartyPanelLayout.HEAD_GAP;
-                int dotY = onScreen.y() + (onScreen.height() - PartyPanelLayout.STATUS_DOT) / 2;
-                r.fill(markerX, dotY, markerX + PartyPanelLayout.STATUS_DOT,
-                        dotY + PartyPanelLayout.STATUS_DOT,
-                        member.online() ? ArmatureTheme.title() : ArmatureTheme.faint());
-
-                int nameX = markerX + PartyPanelLayout.STATUS_DOT + PartyPanelLayout.STATUS_GAP;
-                int textY = onScreen.y() + (onScreen.height() - r.lineHeight()) / 2
-                        + PartyPanelLayout.NAME_DROP;
-                // The name stops short of the room the row reserved for its Remove button, so it cannot
-                // run under the button or the rank that sits inside it.
-                r.text(Measure.truncate(member.label(),
-                                Math.max(0, onScreen.width() - (nameX - onScreen.x()) - 4), textMeasure(r)),
-                        nameX, textY,
-                        member.self() ? ArmatureTheme.title() : ArmatureTheme.body());
-
-                // The rank, right-aligned in the room the row reserved for its Remove button -- the same
-                // reservation the button is placed inside, so the word and the button cannot overlap.
-                String role = member.roleLabel();
-                int roleX = onScreen.right() - PartyRoster.REMOVE_WIDTH
-                        - PartyRoster.REMOVE_INSET * 2 - r.textWidth(role);
-                if (roleX > onScreen.x() + 4) {
-                    r.text(role, roleX, textY, ArmatureTheme.faint());
+                int colour = line.header()
+                        ? ArmatureTheme.heading()
+                        : ArmatureTheme.body();
+                String label = partyText(line.label());
+                // The label stops short of the room the row reserved for its controls, so it cannot run
+                // under a switch or a button.
+                r.text(Measure.truncate(label,
+                                Math.max(0, onScreen.width() - line.controlRoom() - 8), textMeasure(r)),
+                        onScreen.x() + 4, onScreen.y() + (onScreen.height() - r.lineHeight()) / 2,
+                        colour);
+                if (line.detail() != null && !line.detail().isEmpty()) {
+                    String detail = partyText(line.detail());
+                    int detailX = onScreen.right() - line.controlRoom() - 4 - r.textWidth(detail);
+                    if (detailX > onScreen.x() + 4) {
+                        r.text(detail, detailX,
+                                onScreen.y() + (onScreen.height() - r.lineHeight()) / 2,
+                                ArmatureTheme.faint());
+                    }
                 }
             }
         }
-        else {
-            // The empty state's two lines, from the same layout -- see `PartyPanelLayout` for why a
-            // player with no party is shown a panel rather than nothing.
-            rowLabel(r, layout, PartyPanelLayout.NO_PARTY, body,
-                    Component.translatable(PartyPanelLayout.NO_PARTY).getString(), ArmatureTheme.body());
-            rowLabel(r, layout, PartyPanelLayout.HINT, body,
-                    Component.translatable(PartyPanelLayout.HINT).getString(), ArmatureTheme.faint());
-        }
+        view.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+    }
 
-        // The rule between the roster and the actions: a one-pixel row the layout placed, so where the
-        // two lists meet is not a second expression of how tall the roster was.
-        Slot rule = layout.slot(PartyPanelLayout.RULE);
-        if (rule != null) {
-            Slot onScreen = screenSlot(body, rule);
-            r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
-                    ArmatureTheme.panelEdge());
-        }
+    /**
+     * The roster's member rows: portrait, presence, name, and the role chip.
+     *
+     * <h2>The chip and the hover controls share one strip</h2>
+     *
+     * <p>Both belong at the row's right edge and only one can matter at a time: the chip says who
+     * somebody is until the pointer is on their row, and then the owner's Transfer and Remove replace
+     * it \u2014 which is how two controls fit in a column that also has to hold a name. The wash, the
+     * chip and the buttons all read the same {@link Hover}, so the row cannot be hovered for one of
+     * them and not the others.
+     */
+    private void drawPartyMembers(GuiRenderer r, Layout layout, PartyRoster roster, Viewport body,
+                                  long now) {
+        for (PartyRoster.Member member : roster.members()) {
+            Slot slot = layout.slot(member.key());
+            if (slot == null) {
+                continue;
+            }
+            Slot onScreen = screenSlot(body, slot);
 
-        // The action rows' labels. Their buttons are widgets; only the text is drawn here, and the room
-        // it may use is the slot the button was placed from -- so a label cannot be given the width of a
-        // row that already spent part of it on a control.
-        for (PartyPanelLayout.Action action : partyRows) {
-            rowLabel(r, layout, action.key(), body, action.label(), ArmatureTheme.body());
+            rowHover.update(member.key(), now);
+            float hover = rowHover.amount(member.key(), now);
+            if (hover > 0F) {
+                rowWash(r, onScreen, onScreen.right(), hover);
+            }
+
+            int portraitX = onScreen.x() + PartyPanelLayout.HEAD_INSET;
+            r.face(member.id(), portraitX,
+                    onScreen.y() + (onScreen.height() - PartyPanelLayout.HEAD_BOX) / 2,
+                    PartyPanelLayout.HEAD_BOX);
+
+            int markerX = portraitX + PartyPanelLayout.HEAD_BOX + PartyPanelLayout.HEAD_GAP;
+            int dotY = onScreen.y() + (onScreen.height() - PartyPanelLayout.STATUS_DOT) / 2;
+            r.fill(markerX, dotY, markerX + PartyPanelLayout.STATUS_DOT,
+                    dotY + PartyPanelLayout.STATUS_DOT,
+                    member.online() ? ArmatureTheme.title() : ArmatureTheme.faint());
+
+            int nameX = markerX + PartyPanelLayout.STATUS_DOT + PartyPanelLayout.STATUS_GAP;
+            int textY = onScreen.y() + (onScreen.height() - r.lineHeight()) / 2
+                    + PartyPanelLayout.NAME_DROP;
+            // The name may use the whole slot: the slot is already narrowed by the action strip, so
+            // subtracting the strip again here would cost the name its room twice -- which it did,
+            // truncating every name to three characters beside three owner controls that are only
+            // *sometimes* drawn.
+            r.text(Measure.truncate(member.label(),
+                            Math.max(0, onScreen.width() - (nameX - onScreen.x()) - 4),
+                            textMeasure(r)),
+                    nameX, textY, member.self() ? ArmatureTheme.title() : ArmatureTheme.body());
+
+            // The chip, in the same strip the hover controls occupy. Drawn only while the row is at
+            // rest, so a hover reads as "these are the actions" rather than as a third state.
+            if (hover <= 0.05F) {
+                drawRoleChip(r, member, onScreen, textY);
+            }
+
+            // And the controls' visibility follows the same hover. Placed first -- the rectangle comes
+            // from the row's own strip, like every other control here -- and then hidden unless the row
+            // is hovered, so a scrolled-out button is neither drawn nor clickable.
+            Slot rowSlot = layout.slot(member.key());
+            ArmatureButton remove = partyRemoveButtons.get(member.id());
+            if (remove != null) {
+                placePartyWidget(remove, rowSlot == null ? null
+                        : PartyRoster.removeSlot(member, rowSlot), body);
+                remove.visible = remove.visible && (hover > 0.05F || remove.isHoveredOrFocused());
+            }
+            ArmatureButton transfer = partyTransferButtons.get(member.id());
+            if (transfer != null) {
+                placePartyWidget(transfer, rowSlot == null ? null
+                        : PartyRoster.transferSlot(member, rowSlot), body);
+                transfer.visible = transfer.visible && (hover > 0.05F || transfer.isHoveredOrFocused());
+            }
         }
     }
 
+    /**
+     * The role chip: a small bordered badge with the role's word.
+     *
+     * <h2>Why the colours are tokens rather than the spec's gold and slate</h2>
+     *
+     * <p>Armature's themes carry no gold, and a colour written here would be the one value in this
+     * screen a theme could not reach \u2014 the mistake every other drawing in this file avoids. So the
+     * owner wears the brightest ink and everybody else the faintest, which reads as the same
+     * hierarchy on every palette instead of on one.
+     */
+    private void drawRoleChip(GuiRenderer r, PartyRoster.Member member, Slot onScreen, int textY) {
+        String role = member.roleLabel().toUpperCase(java.util.Locale.ROOT);
+        int width = r.textWidth(role) + PartyPanelLayout.CHIP_PAD * 2;
+        // Right-aligned in the strip the row reserved, where the hover buttons also go: the chip and
+        // the controls share one place because only one of them is ever the answer.
+        int x = onScreen.right() + PartyRoster.actionStrip() - PartyPanelLayout.CONTROL_INSET - width;
+        if (x <= onScreen.right() + 1) {
+            return;
+        }
+        int chipY = onScreen.y() + (onScreen.height() - PartyPanelLayout.CHIP_HEIGHT) / 2;
+        int ink = member.owner() ? ArmatureTheme.title() : ArmatureTheme.faint();
+        ArmatureTheme.panel(r, x, chipY, width, PartyPanelLayout.CHIP_HEIGHT,
+                ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
+        r.text(role, x + PartyPanelLayout.CHIP_PAD,
+                chipY + (PartyPanelLayout.CHIP_HEIGHT - r.lineHeight()) / 2, ink);
+    }
     /**
      * One row's label, drawn where its slot is.
      *
@@ -10101,7 +11195,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
                     new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
-                            toolsSelected != null),
+                            toolsSelected != null, editedTheme(), editedRadius(), editedRadiusChosen()),
                     mouseX, mouseY);
         }
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
@@ -10289,10 +11383,14 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void drawPendingLabels(GuiRenderer r) {
         for (PendingLabel label : pendingLabels) {
             BookGeometry.Rect box = label.box();
+            // The tooltip tokens, the same three the toolkit's box uses: a caption anchored to an icon
+            // and a tooltip anchored to the pointer are the same kind of surface, and a theme that set
+            // one and not the other would look half-done.
             r.fill(box.x() - 1, box.y() - 1, box.right() + 1, box.bottom() + 1,
-                    ArmatureTheme.panelEdge());
+                    ArmatureTheme.tooltipEdge());
             r.fill(box.x(), box.y(), box.right(), box.bottom(), ArmatureTheme.tooltipFill());
-            r.text(label.text(), box.x() + 4, box.y() + (box.height() - 8) / 2, ArmatureTheme.title());
+            r.text(label.text(), box.x() + 4, box.y() + (box.height() - 8) / 2,
+                    ArmatureTheme.tooltipText());
         }
     }
 
@@ -10345,31 +11443,13 @@ public final class QuestBookScreen extends ArmatureScreen {
      * mods is built from {@code Component.literal}, so there was no style to lose. See
      * {@code ArmatureButton.tooltip} for the same note on the other side of the call.
      */
+    /**
+     * The box near the pointer, from the toolkit: the theme's tooltip tokens and the flip geometry
+     * every screen shares. The wrapper stays because the call sites read better with the screen's own
+     * size folded in.
+     */
     private void drawTooltip(GuiRenderer r, List<String> lines, int mouseX, int mouseY) {
-        int textWidth = 0;
-        for (String line : lines) {
-            textWidth = Math.max(textWidth, r.textWidth(line));
-        }
-
-        int boxWidth = textWidth + 8;
-        int boxHeight = lines.size() * r.lineHeight() + 6;
-        int x = mouseX + 10;
-        int y = mouseY - 11;
-        if (x + boxWidth > width) {
-            x = mouseX - boxWidth - 4;
-        }
-        if (y + boxHeight > height) {
-            y = height - boxHeight - 2;
-        }
-        y = Math.max(2, y);
-
-        ArmatureTheme.panel(r, x, y, boxWidth, boxHeight, ArmatureTheme.panel(),
-                ArmatureTheme.controlEdgeBright());
-        int lineY = y + 4;
-        for (String line : lines) {
-            r.text(line, x + 4, lineY, ArmatureTheme.body());
-            lineY += r.lineHeight();
-        }
+        Tooltips.draw(r, lines, mouseX, mouseY, width, height);
     }
 
     // ------------------------------------------------------------------
@@ -10426,6 +11506,10 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The canvas's own drawing, inside the clip. Returns the hovered node, for the caption above. */
     private ClientQuestCache.Entry drawCanvasContents(GuiRenderer r, int mouseX, int mouseY,
                                                       List<ClientQuestCache.Entry> quests, long now) {
+        // The locate glide first, before anything reads a screen position: a frame is the unit the
+        // camera moves in, and this is the only drawing the move can be seen in -- the canvas is not
+        // drawn while a card is up.
+        advanceGlide(now);
         r.fill(canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), ArmatureTheme.canvas());
 
         // The node under the pointer first, because a node owns the right-click and so owns the hover
@@ -10465,12 +11549,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         // off-canvas, which is why this is the node half of the zoom fix.
         List<ClientQuestCache.Entry> visible = quests.stream().filter(this::nodeVisible).toList();
         for (ClientQuestCache.Entry quest : visible) {
-            drawNode(r, quest, nodeHover.amount(quest.id(), now));
+            float flash = quest.id().equals(flashQuest)
+                    ? CanvasReveal.flash(now - flashStart, CanvasReveal.FLASH_MILLIS) : 0F;
+            drawNode(r, quest, nodeHover.amount(quest.id(), now), flash);
         }
         // Titles in their own pass, after every node, so a label can see the other nodes -- see the
         // comment on drawLabels for what happened when it could not. Fed the visible list, because the
         // overlap it tests for is a collision with a node that was *drawn*.
         drawLabels(r, visible);
+        // The reward badges last of the node furniture: a title's backdrop is opaque and reaches the
+        // corner on a long name, so a badge drawn with the nodes would vanish exactly when the chapter
+        // is busiest.
+        drawRewardBadges(r, visible);
 
         // The handle layer **after the nodes**, deliberately: a dot that overlaps a node -- an anchor
         // dragged round to its far side -- has to be on top of it, or the thing in your hand disappears.
@@ -10574,7 +11664,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     // asked to solve a rendering problem. Two layers of forwarding around one pose-stack manipulation,
     // and the manipulation is the only part that had anything to say.
 
-    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover) {
+    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover, float flash) {
         QuestState state = ClientQuestCache.stateOf(entry.id());
         int size = nodeSize(entry);
         int x = nodeScreenX(entry);
@@ -10593,8 +11683,14 @@ public final class QuestBookScreen extends ArmatureScreen {
         // appearing. `translucent` rather than `alphaOf`: HOVER_RING is already 0x80 alpha, and
         // `alphaOf` would discard that and make a fully-hovered ring twice as bright as it has always
         // been. Selection is not animated at all -- the row you are on is a state, not a transition.
+        //
+        // The locate flash outranks both while it lasts: it is the answer to "where did that quest
+        // go", and the one moment the node must not blend in with its neighbours.
         int ring = 0;
-        if (hover > 0F || isSelected) {
+        if (flash > 0F) {
+            ring = Colour.translucent(ArmatureTheme.selectedRing(), flash);
+        }
+        else if (hover > 0F || isSelected) {
             ring = isSelected
                     ? ArmatureTheme.selectedRing()
                     : Colour.translucent(ArmatureTheme.hoverRing(), hover);
@@ -11267,7 +12363,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         ArmatureButton later = control(geometry().overlayControls(false).get("back"),
                 Component.literal("Keep for later"), this::closeChoice);
         if (later != null) {
-            later.textColour(ArmatureTheme.body())
+            later.ink(ArmatureButton.Ink.BODY)
                     .tooltip(Component.literal("The reward stays yours to collect, and Claim asks again"));
         }
     }
@@ -11432,7 +12528,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         ArmatureButton back = control(controls.get("back"),
                 Component.translatable("tasked.screen.rewards.back"), this::closeOverlay);
         if (back != null) {
-            back.textColour(ArmatureTheme.body());
+            back.ink(ArmatureButton.Ink.BODY);
         }
     }
 
@@ -11649,11 +12745,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // be the last frame's drawing — the same lifecycle `editTargets` has, and the reason a list
         // cleared after drawing would always be empty by the time a click asks.
         rowItems.clear();
+        dependencyTargets.clear();
         try (GuiRenderer.Scoped clip = r.clip(body)) {
             drawProse(r, layout, body, mouseX, mouseY);
             drawTasks(r, entry, layout, body, mouseX, mouseY, now);
             drawRewards(r, entry, layout, body, mouseX, mouseY, now);
-            drawDependencies(r, entry, layout, body);
+            drawDependencies(r, entry, layout, body, mouseX, mouseY, now);
         }
 
         // The bar, and it draws nothing when the content fits. Its geometry comes from the same
@@ -11860,6 +12957,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         for (int i = 0; i < entry.rewards().size(); i++) {
             keys.add(OverlayLayout.rewardKey(i));
         }
+        // The prerequisites are rows of the body too: they carry a hover wash and a press, and both
+        // read the row the pointer is over from this one list.
+        for (int i = 0; i < dependenciesOf(entry).size(); i++) {
+            keys.add(OverlayLayout.dependencyKey(i));
+        }
         return keys;
     }
 
@@ -11939,7 +13041,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     private void drawDependencies(GuiRenderer r, ClientQuestCache.Entry entry, Layout layout,
-                                  Viewport body) {
+                                  Viewport body, int mouseX, int mouseY, long now) {
         if (dependenciesOf(entry).isEmpty()) {
             // No REQUIRES section at all, rather than one saying nothing. The layout omits it for the
             // same reason, so there is no heading to draw and no room reserved for one.
@@ -11960,17 +13062,84 @@ public final class QuestBookScreen extends ArmatureScreen {
             if (slot == null) {
                 continue;
             }
+            String key = OverlayLayout.dependencyKey(i);
             String dependency = dependenciesOf(entry).get(i);
             ClientQuestCache.Entry other = entryFor(dependency);
             // The *rule's* bar, not completion: under `all_started` and `one_started` a prerequisite
             // with any task progress has done its job, and a cross beside it said otherwise.
             boolean met = progress.satisfies(dependency, ClientQuestCache::stateOf);
             String label = other != null ? other.title() : dependency;
-            // A tick and a cross. The cross is U+00D7 rather than the heavier U+2716, which is one of
-            // the few symbols this font does not carry -- see `BookGeometry.TOOLS_BUTTON_WIDTH`.
-            r.text((met ? "\u2714" : "\u00d7") + "  " + label, slot.x(), slot.y(),
+
+            // The row's own box, and the wash the whole row is a target under: the row jumps to that
+            // quest's card, so the wash is the affordance that says so before the press.
+            Slot row = rowBox(slot);
+            float hover = rowHover.amount(key, now);
+            if (hover > 0F) {
+                r.fill(row.x() - 3, row.y() - 1, Math.round(body.visibleRight()), row.bottom() + 1,
+                        Colour.translucent(ArmatureTheme.rowHover(), hover));
+            }
+            BookGeometry.Rect locate = locateBox(slot);
+            // A tick and a cross. The cross is U+00D7 rather than the heavier U+2716, which is one of the
+            // few symbols this font does not carry -- see `BookGeometry.TOOLS_BUTTON_WIDTH`. Cut to the
+            // room the locate icon leaves, so a long title cannot run under it, and centred on the row:
+            // the label used to be drawn at the slot's top edge while the icon was centred, which read
+            // as text sitting high in the wash.
+            String line = (met ? "\u2714" : "\u00d7") + "  " + label;
+            r.text(Measure.truncate(line, Math.max(24, locate.x() - slot.x() - 8), textMeasure(r)),
+                    slot.x(), slot.y() + (slot.height() - 8) / 2,
                     met ? ArmatureTheme.complete() : ArmatureTheme.blocked());
+            drawLocateIcon(r, locate.x() + locate.width() / 2, locate.y() + locate.height() / 2,
+                    locate.contains(mouseX, mouseY) ? ArmatureTheme.body() : ArmatureTheme.faint());
+            dependencyTargets.add(new DependencyTarget(row, locate, dependency));
         }
+    }
+
+    /** The locate icon's box: at the row's right edge, the size of the row it sits in. */
+    private static BookGeometry.Rect locateBox(Slot slot) {
+        int size = Math.max(8, Math.min(12, slot.height()));
+        return BookGeometry.Rect.at(slot.right() - size, slot.y() + (slot.height() - size) / 2, size,
+                size);
+    }
+
+    /**
+     * The locate icon: a small diamond ring with a dot in it — "show me where this is".
+     *
+     * <p>Drawn from pixels rather than written as a character, for the same reason the tick and the
+     * cross are chosen carefully: the font carries no crosshair, and a missing glyph is a box.
+     */
+    private static void drawLocateIcon(GuiRenderer r, int cx, int cy, int colour) {
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                int distance = Math.abs(dx) + Math.abs(dy);
+                if (distance == 2 || distance == 0) {
+                    r.fill(cx + dx, cy + dy, cx + dx + 1, cy + dy + 1, colour);
+                }
+            }
+        }
+    }
+
+    /**
+     * A press on a prerequisite row: the row itself jumps to that quest's card, while the locate icon
+     * — or a middle-click or shift-click anywhere on the row — closes the card and takes the canvas to
+     * the node instead.
+     *
+     * <p>From the last frame's own drawing, the same contract every other row in the card follows.
+     */
+    private boolean pressDependencyRow(double mouseX, double mouseY, int button) {
+        for (DependencyTarget target : dependencyTargets) {
+            if (!target.row().contains(mouseX, mouseY)) {
+                continue;
+            }
+            boolean locate = button == 2 || hasShiftDown() || target.locate().contains(mouseX, mouseY);
+            if (locate) {
+                locateOnCanvas(target.questId());
+            }
+            else if (button == 0) {
+                navigateToQuest(target.questId());
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -12512,9 +13681,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             // than the three-pixel bar (`ScrollView.scrollbarHit`) and its outer edge reaches one pixel
             // past the card -- so the order decides whether that pixel drags the bar or closes the
             // panel, and a scrollbar you can miss by a pixel is the thing the wide band exists to fix.
-            if (overlay == Overlay.PARTY && partyView.scrollbarHit(mouseX, mouseY)) {
-                partyView.beginThumbDrag(mouseY);
-                partyView.dragThumbTo(mouseY);
+            if (overlay == Overlay.PARTY && partyScrollAt(mouseX).scrollbarHit(mouseX, mouseY)) {
+                partyScrollAt(mouseX).beginThumbDrag(mouseY);
+                partyScrollAt(mouseX).dragThumbTo(mouseY);
             }
             else if (overlay == Overlay.CHOICE && button == 0) {
                 // The bar and the outside; nothing else. An entry is a widget and answers on release,
@@ -12583,6 +13752,13 @@ public final class QuestBookScreen extends ArmatureScreen {
                 // the mark and the press.
                 for (EditTarget target : editTargets) {
                     if (target.box().contains(mouseX, mouseY)) {
+                        // Shift on a prerequisite's name is the locate gesture, the same as the
+                        // reader's rows: "do not open it, show me where it is". Scoped to this one
+                        // target, so the steppers' shift meaning (ten at a time) is untouched.
+                        if (target.action() == EditAction.NAVIGATE_DEP && hasShiftDown()) {
+                            locateOnCanvas(target.path());
+                            return true;
+                        }
                         pressEditTarget(target, mouseX, mouseY);
                         // **The press that opens a field owns the drag that follows it.** Press at one end
                         // of the prose and drag to the other is how a description is selected -- and the
@@ -12598,13 +13774,22 @@ public final class QuestBookScreen extends ArmatureScreen {
                     closeOverlay();
                 }
             }
-            else if (overlay == Overlay.QUEST && !mayEditNow() && button == 0) {
+            else if (overlay == Overlay.QUEST && !mayEditNow() && (button == 0 || button == 2)) {
                 // The reader's card: a press on a task's or reward's row opens the chosen viewer on
                 // that row's item (or tag) -- "how is this made", the direction the viewer pages do
                 // not cover. From the last frame's own list, so the row that lights up is the row
                 // that answers; a press that hits no row keeps the old behaviour: outside closes,
                 // inside is swallowed.
-                if (pressRowItem(mouseX, mouseY)) {
+                //
+                // A prerequisite row is the card's own navigation: a plain press opens that quest's
+                // card, and its locate icon -- or a middle-click or shift-click anywhere on the row --
+                // closes the card and takes the canvas to the node instead.
+                if (pressDependencyRow(mouseX, mouseY, button)) {
+                    return true;
+                }
+                // The recipe-viewer rows answer the left press alone; a middle press that hit no
+                // prerequisite falls through to the outside test, exactly as it did before.
+                if (button == 0 && pressRowItem(mouseX, mouseY)) {
                     return true;
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
@@ -12750,6 +13935,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             pressedAlt = Screen.hasAltDown();
             panContentX = viewport().contentX(mouseX);
             panContentY = viewport().contentY(mouseY);
+            // A pan is the hand taking the camera: a glide still in flight must not fight it.
+            glideQuest = null;
 
             String chapter = effectiveChapter();
             ClientQuestCache.Entry under = chapter == null ? null
@@ -13104,12 +14291,13 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
 
-        if (sidebarView.draggingThumb() || partyView.draggingThumb()) {
+        if (sidebarView.draggingThumb() || partyLeftView.draggingThumb()
+                || partyRightView.draggingThumb()) {
             if (sidebarView.draggingThumb()) {
                 sidebarView.dragThumbTo(mouseY);
             }
             else {
-                partyView.dragThumbTo(mouseY);
+                partyScrollAt(mouseX).dragThumbTo(mouseY);
             }
             return true;
         }
@@ -13272,7 +14460,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         // program ever written, and releasing on the last position the bar saw is what makes the end
         // of a drag land where the pointer was when it was let go.
         if (choiceView.endThumbDrag() || rewardView.endThumbDrag() || overlayView.endThumbDrag()
-                || sidebarView.endThumbDrag() || partyView.endThumbDrag()
+                || sidebarView.endThumbDrag() || partyLeftView.endThumbDrag()
+                || partyRightView.endThumbDrag()
                 || toolsView.endThumbDrag()) {
             return true;
         }
@@ -13505,7 +14694,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             // the canvas behind a party panel. A modal that answers the pointer but not the wheel is a
             // modal with a hole in it -- and one that answers the wheel by doing nothing is still
             // answering it, which is what stops the list behind it from moving.
-            partyView.scrollBy(-(int) (scrollY * 30));
+            partyScrollAt(mouseX).scrollBy(-(int) (scrollY * 30));
             return true;
         }
 
@@ -13562,6 +14751,39 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /** Escape closes the overlay rather than the book, if one is open. */
+    /**
+     * The party panel's two live fields.
+     *
+     * <h2>Why the search rebuilds on every character</h2>
+     *
+     * <p>Because the invite list is drawn from the layout, and the layout is built once per rebuild —
+     * filtering at draw time would leave rows registered for players whose names no longer match, so a
+     * click could land on an invisible button. A rebuild re-creates the field with the text preserved
+     * in {@link #partySearch} and re-focuses it, which is why the screen keeps that string at all: the
+     * widget is not the storage.
+     */
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        boolean handled = super.charTyped(codePoint, modifiers);
+        if (!handled) {
+            return false;
+        }
+        if (getFocused() == partySearchField && partySearchField != null) {
+            partySearch = partySearchField.value();
+            partySearchFocused = true;
+            rebuildWidgets();
+            return true;
+        }
+        if (getFocused() == partyCreateField && partyCreateField != null) {
+            // No rebuild: the create field is the only thing its text affects, so there is nothing to
+            // redraw until it is submitted.
+            partyCreateName = partyCreateField.value();
+            partyCreateFocused = true;
+            return true;
+        }
+        return true;
+    }
+
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         // The naming card's own keys, read before anything else: Enter is the button the card is for,
@@ -14126,6 +15348,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // place for it.
         long millis = Util.getMillis();
         toasts.expire(millis);
+        // The locate flash's own expiry, for the same reason: the drawing asks `CanvasReveal.flash`
+        // every frame and draws nothing once it is over, and the state that named the node goes when
+        // the flash does rather than outliving it.
+        if (flashQuest != null && millis - flashStart >= CanvasReveal.FLASH_MILLIS) {
+            flashQuest = null;
+        }
         long synced = ClientQuestCache.progressRevision();
         if (synced != announcedProgress) {
             announcedProgress = synced;
@@ -14397,22 +15625,57 @@ public final class QuestBookScreen extends ArmatureScreen {
      * {@link #warnAboutThemeOnce}.
      */
     private static Theme viewportTheme() {
-        String chapter = effectiveChapter();
+        return themeFor(effectiveChapter());
+    }
+
+    /**
+     * The palette one chapter asks for, by id: its named theme with its token patch over it, or the
+     * player's own when it names neither.
+     *
+     * <p>Takes the chapter rather than reading the effective one, because the sidebar's counts are
+     * drawn for every chapter with something waiting — each row's count is that chapter's own mark,
+     * and it has to resolve the palette of the chapter it counts, not of the one on screen.
+     */
+    private static Theme themeFor(String chapter) {
         if (chapter == null) {
             return ClientAppearance.LOOK.main();
         }
-
         String named = ClientQuestCache.chapterTheme(chapter);
-        if (named == null) {
-            return ClientAppearance.LOOK.main();
-        }
-
-        Theme found = Themes.any(named);
-        if (found == null) {
+        if (named != null && !named.isBlank() && !ChapterTheme.known(named)) {
             warnAboutThemeOnce(chapter, named);
-            return ClientAppearance.LOOK.main();
         }
-        return found;
+        // The chapter's token patch composes over whatever the name resolved to — including over the
+        // player's own theme, for a chapter that set colours without naming one. See ChapterTheme.
+        return ChapterTheme.compose(named, ClientQuestCache.chapterThemePatch(chapter),
+                ClientAppearance.LOOK.main());
+    }
+
+    /**
+     * Whether the open overlay belongs to the chapter rather than to the player.
+     *
+     * <p>The quest card, the item picker and the naming card are all about the chapter on screen — the
+     * picker is choosing that chapter's or its quest's icon, the naming card is renaming that chapter.
+     * The party, choice and rewards cards are the player's own, wherever they are standing, so they keep
+     * the main theme. This is the one list, so a modal added later is themed by a decision rather than
+     * by whether somebody remembered to open a scope.
+     */
+    private boolean chapterBoundOverlay() {
+        return overlay == Overlay.QUEST || overlay == Overlay.PICKER || overlay == Overlay.NAMING;
+    }
+
+    /**
+     * The palette a tooltip belongs to: the surface under the pointer, or the book's own.
+     *
+     * <p>A tooltip describes what it is next to, so it takes that surface's theme — the caption over a
+     * chapter's canvas wears the chapter's colours, and one over the sidebar wears the book's. Chrome
+     * answers with {@link ArmatureTheme#chrome()} rather than the main theme, so a tooltip drawn while
+     * a chapter scope happens to be open cannot inherit it by accident.
+     */
+    private Theme tooltipTheme(int mouseX, int mouseY) {
+        if (chapterBoundOverlay() || (overlay == Overlay.NONE && inCanvas(mouseX, mouseY))) {
+            return viewportTheme();
+        }
+        return ArmatureTheme.chrome();
     }
 
     /**

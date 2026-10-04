@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "prophet_07",
+  "title": "The Spoke",
+  "description": [
+    "Pane 8 of the prophet ring."
+  ],
+  "icon": {
+    "item": "minecraft:yellow_stained_glass_pane"
+  },
+  "x": 574,
+  "y": 744,
+  "shape": "diamond",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:yellow_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

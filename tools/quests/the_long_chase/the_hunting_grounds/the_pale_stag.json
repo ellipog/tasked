@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_pale_stag",
+  "title": "The Pale Stag",
+  "subtitle": "A kill task that names its quarry",
+  "description": [
+    "The valley's white wolf has been called a stag so long that the",
+    "calendar has given up correcting anybody. This is what a",
+    "`customName` filter is for: the kill task names",
+    "`minecraft:wolf` and, beside it, the name the nametag says -- and",
+    "only a wolf carrying that exact name counts.",
+    "",
+    "A name is the one thing an entity id cannot reach. The field",
+    "exists because the calendar kept getting filed under 'wolf'."
+  ],
+  "icon": { "item": "minecraft:white_wool" },
+  "x": 384,
+  "y": 64,
+  "shape": "star",
+  "size": 56,
+  "showTitle": true,
+  "dependsOn": [
+    "the_tracks"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:kill",
+      "entity": "minecraft:wolf",
+      "customName": "The Pale Stag",
+      "value": 1
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 30 }
+  ]
+}

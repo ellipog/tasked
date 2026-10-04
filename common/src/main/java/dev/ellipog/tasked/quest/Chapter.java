@@ -1,7 +1,10 @@
 package dev.ellipog.tasked.quest;
 
+import com.google.gson.JsonObject;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import dev.ellipog.armature.api.data.Codecs;
 
 import java.util.List;
 import java.util.Optional;
@@ -70,6 +73,26 @@ public record Chapter(
          */
         DependencyStyle dependencyStyle,
         Optional<String> theme,
+        /**
+         * Token-level overrides for the theme above — a {@code ThemePatch} as the toolkit writes it.
+         *
+         * <p>Raw JSON rather than a parsed patch, because the parser lives on the client and a dedicated
+         * server has no business understanding colours: the model carries the object, the validator
+         * checks it with the toolkit's own tolerant reader (so a bad token is reported at the author's
+         * line), and the client composes it over the named theme when it draws. Absent means the named
+         * theme stands alone.
+         */
+        Optional<JsonObject> themePatch,
+        /**
+         * Whether this chapter's quests hand their rewards over the moment they complete.
+         *
+         * <p>The chapter rung of the auto-claim ladder, and the reason it exists: fifty early-game
+         * quests should be one line in the chapter file rather than fifty settings. A quest overrides
+         * it, a reward's own {@code auto} overrides that, and {@code DEFAULT} defers to the pack
+         * setting in {@code index.json}. Rewards that need a decision are never auto-granted whatever
+         * this says — see {@link dev.ellipog.tasked.quest.reward.RewardAutoClaim}.
+         */
+        dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim,
         List<Quest> quests
 ) {
 
@@ -83,7 +106,8 @@ public record Chapter(
      */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "quests");
+            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
+            "quests");
 
     /** Finds a quest by id or alias. */
     public Optional<Quest> quest(String idOrAlias) {
@@ -130,6 +154,10 @@ public record Chapter(
             DependencyStyle.CODEC.optionalFieldOf("dependencyStyle", DependencyStyle.UNSET)
                     .forGetter(Chapter::dependencyStyle),
             Codec.STRING.optionalFieldOf("theme").forGetter(Chapter::theme),
+            Codecs.jsonObject().optionalFieldOf("themePatch").forGetter(Chapter::themePatch),
+            dev.ellipog.tasked.quest.reward.RewardAutoClaim.CODEC
+                    .optionalFieldOf("autoClaim", dev.ellipog.tasked.quest.reward.RewardAutoClaim.DEFAULT)
+                    .forGetter(Chapter::autoClaim),
             Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
     ).apply(instance, Chapter::new));
 }

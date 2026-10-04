@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "prophet_03",
+  "title": "Linen",
+  "description": [
+    "Pane 4 of the prophet ring."
+  ],
+  "icon": {
+    "item": "minecraft:white_stained_glass_pane"
+  },
+  "x": 280,
+  "y": 450,
+  "shape": "diamond",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:white_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

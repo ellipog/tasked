@@ -7,6 +7,7 @@ import com.mojang.serialization.MapCodec;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.armature.client.ui.ThemePatch;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
@@ -380,6 +381,13 @@ public final class QuestValidator {
         if (document.has(path + ".defaultConsumeItems")) {
             Checks.optionalBool(document, path + ".defaultConsumeItems", problems);
         }
+        // The chapter rung of the auto-claim ladder, on the chapter walk. Checked like every other
+        // closed set, so a typo is reported here rather than silently deferring to the pack setting.
+        if (document.has(path + ".autoClaim")) {
+            Checks.optionalString(document, path + ".autoClaim", problems)
+                    .ifPresent(name -> checkEnum(document, path + ".autoClaim", name,
+                            dev.ellipog.tasked.quest.reward.RewardAutoClaim.class, problems));
+        }
         checkDependencyStyle(document, path + ".dependencyStyle", problems, false);
 
         // A theme name is checked for being a non-empty string and nothing more, and that stopping
@@ -399,6 +407,27 @@ public final class QuestValidator {
                             "a theme name may not be empty - remove the field to use the player's own theme");
                 }
             });
+        }
+
+        // The patch's contents are the toolkit's business, so its own tolerant reader is the check:
+        // the messages it produces name the token or the value, which is exactly what an author needs
+        // and exactly what a hand-written list of rules here would eventually stop saying. Reported at
+        // the field's own line, on the side that can refuse the file — the client that composes the
+        // patch reads leniently and simply ignores what it cannot honour.
+        if (document.has(path + ".themePatch")) {
+            JsonElement patch = document.get(path + ".themePatch").orElse(null);
+            if (patch == null || !patch.isJsonObject()) {
+                problems.error(document, path + ".themePatch", "expected an object of theme overrides,"
+                        + " found " + Checks.kindOf(patch) + ". Write any of \"colours\", \"cornerRadius\","
+                        + " \"motion\" or \"easing\".");
+            }
+            else {
+                java.util.List<String> patchProblems = new java.util.ArrayList<>();
+                ThemePatch.fromJson(patch.getAsJsonObject(), patchProblems);
+                for (String message : patchProblems) {
+                    problems.error(document, path + ".themePatch", message);
+                }
+            }
         }
 
         if (!document.has(path + ".quests")) {
@@ -468,6 +497,13 @@ public final class QuestValidator {
         }
         if (document.has(path + ".showTitle")) {
             Checks.optionalBool(document, path + ".showTitle", problems);
+        }
+        // The quest rung of the auto-claim ladder; the chapter's is checked in the chapter walk. A typo
+        // here would silently defer to the chapter, which is the drift this closed-set check prevents.
+        if (document.has(path + ".autoClaim")) {
+            Checks.optionalString(document, path + ".autoClaim", problems)
+                    .ifPresent(name -> checkEnum(document, path + ".autoClaim", name,
+                            dev.ellipog.tasked.quest.reward.RewardAutoClaim.class, problems));
         }
         if (document.has(path + ".iconScale")) {
             checkIconScale(document, path + ".iconScale", problems);
@@ -759,6 +795,26 @@ public final class QuestValidator {
         }
         // The union of every reward type's fields, for the reason given in checkTask.
         Checks.rejectUnknown(document, path, union(allRewardFields(), Set.of("type")), problems);
+
+        // A choice reward cannot be handed over without the player's pick, so an automatic mode on one
+        // is a setting that does nothing -- the "validated and then ignored" drift this file exists to
+        // catch. A warning rather than an error: the file is not broken, the setting is. The engine
+        // skips such a reward rather than eating it (see QuestReward#autoGrantable), so this is an
+        // author being told their intent cannot be honoured, not a defect to refuse.
+        if (document.has(path + ".auto")) {
+            boolean automatic = Checks.optionalString(document, path + ".auto", problems)
+                    .map(name -> name.equalsIgnoreCase("enabled") || name.equalsIgnoreCase("no_toast")
+                            || name.equalsIgnoreCase("invisible"))
+                    .orElse(false);
+            boolean choice = type
+                    .map(id -> id.equals(dev.ellipog.tasked.quest.reward.TableReward.TYPE_CHOICE))
+                    .orElse(false);
+            if (automatic && choice) {
+                problems.warn(document, path + ".auto",
+                        "a choice reward waits for the player's pick, so an automatic \"auto\" does "
+                                + "nothing here - remove it, or use a random or loot reward instead");
+            }
+        }
 
         // The reward half of the same check: a custom reward whose handler is not installed grants nothing,
         // and the log line at grant time is the runtime signal -- this is the one an author reads.

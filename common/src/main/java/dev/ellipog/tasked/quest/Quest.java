@@ -100,6 +100,12 @@ public record Quest(
         return rules.sequentialTasks();
     }
 
+    /** The auto-claim mode in force for this quest; see {@link QuestRules#autoClaim}. */
+    public dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim(
+            dev.ellipog.tasked.quest.reward.RewardAutoClaim fallback) {
+        return rules.autoClaim(fallback);
+    }
+
     public boolean invisible() {
         return rules.invisible();
     }

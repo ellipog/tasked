@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_black_gate",
+  "title": "The Black Gate",
+  "subtitle": "the ninth of fifteen depths",
+  "theme": "obsidian",
+  "description": [
+    "A ruined portal at the bottom of the world's crust: glass that",
+    "bites, an arch somebody unlit, and a darkness the torches",
+    "agree not to discuss.",
+    "",
+    "Obsidian is the theme, which is the stone's own name for",
+    "patience."
+  ],
+  "icon": {
+    "item": "minecraft:obsidian"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "black_gate_arrival.json",
+    "black_gate_path.json",
+    "black_gate_ward.json",
+    "black_gate_hazard.json",
+    "black_gate_treasure.json",
+    "black_gate_on.json"
+  ]
+}

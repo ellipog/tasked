@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "warm_hands",
+  "title": "Warm Hands",
+  "subtitle": "The sea has one opinion about your lungs",
+  "description": [
+    "The parish has buried four bell-raisers and all of them came up the",
+    "same way, which was not carefully. Wear the helmet. The helmet is",
+    "the parish's whole health-and-safety budget and it has never once",
+    "been worn by anybody who then drowned.",
+    "",
+    "An item task that does not consume: carry it, and the task counts it",
+    "for as long as you keep it on you."
+  ],
+  "icon": { "item": "minecraft:turtle_helmet" },
+  "x": 96,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_road_out"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:turtle_helmet", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "oxidation_gardens_path",
+  "title": "The Cuttings",
+  "description": [
+    "Somebody smelted down here. The cuttings are sorted by",
+    "hand into grades that only make sense in the dark, and",
+    "four ingots of the good grade is the local toll."
+  ],
+  "icon": {
+    "item": "minecraft:copper_ingot"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:copper_ingot",
+      "count": 4
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:spyglass",
+      "count": 1
+    }
+  ]
+}

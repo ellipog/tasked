@@ -1,0 +1,42 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_descent",
+  "title": "The Descent",
+  "description": [
+    "One descent, fifteen palettes. The story runs from a map room on",
+    "the surface to the End and the dream of the way home, and every",
+    "stratum of it is one of the fifteen themes this build ships --",
+    "every one but `default`, which is the book's own frame rather",
+    "than a chapter.",
+    "",
+    "Each chapter is the same six stations -- the arrival, the path,",
+    "the ward, the hazard, the treasure, the way on -- at the same",
+    "coordinates, in the same shapes, at the same sizes. Click between",
+    "the chapters and a difference you see is the theme and nothing",
+    "else. That is what makes this group the way to compare them:",
+    "one story, fifteen lights.",
+    "",
+    "The chapters are LINEAR, so the chapter's own list is the",
+    "progression and no quest here carries a `dependsOn`."
+  ],
+  "icon": {
+    "item": "minecraft:ladder"
+  },
+  "chapters": [
+    "the_map_room",
+    "the_greenwood",
+    "the_threshold",
+    "the_gravel_gallery",
+    "the_glare",
+    "the_oxidation_gardens",
+    "the_machine_vault",
+    "the_resonant_halls",
+    "the_black_gate",
+    "the_furnace_dark",
+    "the_silent_city",
+    "the_signal",
+    "the_archive",
+    "the_far_shore",
+    "the_dream_of_return"
+  ]
+}

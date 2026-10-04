@@ -628,6 +628,45 @@ class QuestSyncTest {
                 "a quest that overrides nothing carries no map at all");
     }
 
+    @Test
+    @DisplayName("a chapter's theme patch rides the wire raw, and the cache hands it back")
+    void chapterThemePatchRoundTrips(@TempDir Path temp) throws IOException {
+        // Raw rather than parsed: the client is the side that composes a patch, and the server's job is
+        // to carry what the file said. Asserted through the real loader because the two ends are the
+        // writer and the reader, and the shape between them is the thing that can disagree.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("group/chapter"));
+        Files.writeString(quests.resolve("group/group.json"), """
+                { "id": "group", "title": "Group", "chapters": ["chapter"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "chapter", "title": "Chapter",
+                  "theme": "tome",
+                  "themePatch": { "colours": { "raised": "#FF24242E" }, "cornerRadius": 4 },
+                  "quests": ["one.json"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/one.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "one", "title": "One" }
+                """);
+
+        QuestLoader.Result loaded = QuestLoader.load(temp);
+        assertTrue(loaded.ok(), () -> "the fixture has to load cleanly:\n"
+                + loaded.problems().all().stream().map(problem -> problem.render())
+                        .reduce("", (a, b) -> a + "\n" + b));
+        QuestIndex index = loaded.index();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals("tome", ClientQuestCache.chapterTheme("chapter"),
+                "the name still travels as it did");
+        JsonObject patch = ClientQuestCache.chapterThemePatch("chapter");
+        assertNotNull(patch, "the patch must survive the wire");
+        assertEquals("#FF24242E",
+                patch.getAsJsonObject("colours").get("raised").getAsString(),
+                "a colour arrives as the file wrote it");
+        assertEquals(4, patch.get("cornerRadius").getAsInt(), "and so does the radius");
+    }
+
     // ------------------------------------------------------------------
     // Chapter groups, which version 2 added
     // ------------------------------------------------------------------
@@ -1147,6 +1186,87 @@ class QuestSyncTest {
                 "and not once they have collected their own copy");
         assertTrue(ClientQuestCache.canClaimFor(UUID.randomUUID(), "a"),
                 "a teammate still has their own copy to collect -- the whole point of per-player claims");
+    }
+
+    @Test
+    @DisplayName("the badge counts agree with the button: per quest, per chapter, per player")
+    void theBadgeCountsAgreeWithTheButton() {
+        // The counts the node badge and the sidebar read come from the same loop `canClaimFor` does, and
+        // this is the assertion that keeps them from drifting: a badge saying "3" over a Claim button
+        // that refuses, or a chapter row counting a quest the panel does not list, is the kind of
+        // mismatch that reads as a broken count rather than as a bug in one of the two.
+        QuestIndex index = rewardedQuest();
+        Quest quest = Fixtures.quest(index, "a");
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        TeamProgress waiting = TeamProgress.empty().put(quest,
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(false));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, waiting, NOW), waiting, index),
+                CLIENT_TICK);
+
+        UUID player = UUID.randomUUID();
+        String chapter = ClientQuestCache.entry("a").chapterId();
+
+        assertEquals(1, ClientQuestCache.outstandingRewards(player, "a"),
+                "one reward is waiting, and the badge says how many");
+        assertTrue(ClientQuestCache.canClaimFor(player, "a"), "and the button is offered for the same quest");
+        assertEquals(1, ClientQuestCache.outstandingByQuest(player).get("a"));
+        assertEquals(1, ClientQuestCache.claimableByChapter(player).get(chapter),
+                "the chapter's row counts the quest, not its rewards");
+
+        TeamProgress collected = waiting.put(quest, waiting.progressOf(quest)
+                .withClaims(dev.ellipog.tasked.progress.QuestClaims.NONE.withPlayerClaim(player, 0)));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, collected, NOW), collected, index),
+                CLIENT_TICK);
+
+        assertEquals(0, ClientQuestCache.outstandingRewards(player, "a"));
+        assertFalse(ClientQuestCache.canClaimFor(player, "a"), "the count and the button are one loop");
+        assertTrue(ClientQuestCache.outstandingByQuest(player).isEmpty(), "no badge for nothing waiting");
+        assertTrue(ClientQuestCache.claimableByChapter(player).isEmpty(), "and no count on the chapter row");
+        assertEquals(1, ClientQuestCache.outstandingRewards(UUID.randomUUID(), "a"),
+                "a teammate's badge is still there -- the counts are per player like the claims");
+    }
+
+    @Test
+    @DisplayName("a chapter's auto-claim mode rides the wire, and the quest's own wins")
+    void autoClaimRoundTrips(@TempDir Path temp) throws IOException {
+        // The client needs the effective mode for one thing -- whether a completion announces itself --
+        // and it has no chapter record, so the chapter's value travels resolved against the pack setting
+        // exactly as the prerequisite default does. The quest's own value travels only when it says one,
+        // so the client can tell "this quest chose" from "this quest deferred".
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("group/chapter"));
+        Files.writeString(quests.resolve("group/group.json"), """
+                { "id": "group", "title": "Group", "chapters": ["chapter"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "chapter", "title": "Chapter", "autoClaim": "enabled",
+                  "quests": ["quiet.json", "loud.json"] }
+                """);
+        Files.writeString(quests.resolve("group/chapter/quiet.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "quiet", "title": "Quiet" }
+                """);
+        Files.writeString(quests.resolve("group/chapter/loud.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "loud", "title": "Loud",
+                  "autoClaim": "disabled" }
+                """);
+
+        QuestLoader.Result loaded = QuestLoader.load(temp);
+        assertTrue(loaded.ok(), () -> "the fixture has to load cleanly:\n"
+                + loaded.problems().all().stream().map(problem -> problem.render())
+                        .reduce("", (a, b) -> a + "\n" + b));
+        QuestIndex index = loaded.index();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals(dev.ellipog.tasked.quest.reward.RewardAutoClaim.ENABLED,
+                entryFor("quiet").effectiveAutoClaim(),
+                "a quest that says nothing takes the chapter's mode -- the middle rung");
+        assertEquals(dev.ellipog.tasked.quest.reward.RewardAutoClaim.DISABLED,
+                entryFor("loud").effectiveAutoClaim(),
+                "and a quest that says something keeps it");
     }
 
     @Test

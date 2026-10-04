@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_festival",
+  "title": "The Festival",
+  "subtitle": "Bring somebody: party_size: 2",
+  "description": [
+    "The week closes with the festival, and the festival's prize is",
+    "gated on togetherness: a `party_size` condition with `min: 2`,",
+    "which counts members of the party who are ONLINE NOW -- and you",
+    "count as one, so this is the bring-a-friend gate exactly as the",
+    "manual describes it.",
+    "",
+    "Nothing else about the party matters to this condition: not its",
+    "mode, not its owner, not its roster. Only how many are standing",
+    "here."
+  ],
+  "icon": { "item": "minecraft:firework_rocket" },
+  "x": 1056,
+  "y": 32,
+  "shape": "star",
+  "size": 64,
+  "showTitle": true,
+  "dependsOn": [
+    "the_wedding_feast"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Light the lanterns" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:totem_of_undying",
+      "conditions": [
+        { "type": "tasked:party_size", "min": 2 }
+      ]
+    },
+    { "type": "tasked:xp", "amount": 30 }
+  ]
+}

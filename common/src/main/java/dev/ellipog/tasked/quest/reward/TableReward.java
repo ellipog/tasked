@@ -51,6 +51,18 @@ public record TableReward(RewardCommon common, Mode mode, Optional<String> table
 
     public static final Set<String> FIELDS = Set.of("table", "inline");
 
+    /**
+     * A choice cannot be auto-granted: its payout is the player's pick.
+     *
+     * <p>The other three modes roll or list their entries and pay immediately, so they are as
+     * automatic as any item reward. This override is what keeps an auto-claim from marking a choice
+     * collected and granting nothing — the offer waits for the claim flow instead.
+     */
+    @Override
+    public boolean autoGrantable() {
+        return mode != Mode.CHOICE;
+    }
+
     /** Which of the four table rewards this is. */
     public enum Mode {
         RANDOM,

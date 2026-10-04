@@ -1,7 +1,9 @@
 package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.teams.Team;
+import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
+import dev.ellipog.armature.api.teams.Teams;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -46,20 +48,48 @@ import java.util.UUID;
  * fields — and a roster with somebody missing is worse than a roster with a character removed from a
  * name.
  *
- * @param teamId   the party's id, which is also the key its progress is stored under
- * @param teamName its name. Empty for a team that has none
- * @param owner    who owns it
- * @param members  everyone in it, in no particular order. The client sorts for display
+ * <h2>Growing the format without breaking either end</h2>
+ *
+ * <p>Every list is a tagged line, and a reader skips a tag it does not know. Extending an existing
+ * line is done by appending fields and reading with a limit, which is what makes the invitation line
+ * safe to grow: a client from before this build reads the first two fields it expects and ignores the
+ * sender and the time, instead of mis-parsing them as part of the name. A payload from before it reads
+ * as a party whose policy is the default and whose invitations have no time — the honest reading of
+ * "the server did not say".
+ *
+ * @param teamId       the party's id, which is also the key its progress is stored under
+ * @param teamName     its name. Empty for a team that has none
+ * @param owner        who owns it
+ * @param members      everyone in it, in no particular order. The client sorts for display
+ * @param invites      the invitations <b>this recipient</b> holds, with who sent each and when
+ * @param online       every connected player's name, which the panel's Invite search filters
+ * @param mode         the party's quest-counting mode, by id
+ * @param present      the ids of everyone online, which is what decides a member's status dot
+ * @param sent         the invitations <b>this party</b> has out, for the panel's outgoing list
+ * @param policy       what the members may do beyond their role. See {@code TeamPolicy}
+ * @param memberLimit  how many members the party may hold, or zero when the source cannot say
+ * @param publicParties open parties a solo player may join, capped and sorted. Empty for a member
  */
 public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Member> members,
                             List<Invite> invites, List<String> online, String mode,
-                            List<UUID> present) {
+                            List<UUID> present, List<SentInvite> sent, TeamPolicy policy,
+                            int memberLimit, List<PublicParty> publicParties) {
 
     /** The field separator. See the class note on why it is stripped from names. */
     private static final String SEP = "\u001f";
 
     /** How many fields one member occupies. */
     private static final int MEMBER_FIELDS = 3;
+
+    /**
+     * The most open parties one snapshot carries.
+     *
+     * <p>A browse list is a convenience, not a directory: the panel shows it on the solo screen, and a
+     * server where two hundred parties are open would put all of them in every solo player's packet for
+     * a list nobody reads to the end of. The cap is applied after sorting by name, so which ones travel
+     * is stable rather than dependent on the source's iteration order.
+     */
+    public static final int MAX_PUBLIC_PARTIES = 20;
 
     /**
      * One member.
@@ -83,16 +113,59 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
      * party yet, so nothing in the roster or the tree implies it. A panel without this shows an empty
      * state and no way to answer an invitation that is waiting.
      *
-     * @param teamId   the party that invited them
-     * @param teamName its name, so the client does not need a second round trip to say what it is
+     * <h2>The sender and the time, and where they come from</h2>
+     *
+     * <p>The invitation row shows whose party it is, who asked and when, so all three travel — the
+     * sender because an invitee deciding may want to know which member thought of them, and the time so
+     * an old invitation can be told from one that arrived a minute ago. A source that cannot say keeps
+     * {@code at == 0} and the owner as the sender; see {@code TeamInvite}.
+     *
+     * @param teamId      the party that invited them
+     * @param teamName    its name, so the client does not need a second round trip to say what it is
+     * @param inviter     who sent it. May be the owner when the source cannot distinguish
+     * @param inviterName the sender's name, resolved server-side like a member's
+     * @param age         how long ago it was sent, in ticks, counted on the <b>server's</b> clock when
+     *                    the snapshot was built — or zero when the source cannot say. An age rather
+     *                    than a timestamp because the client has no server clock: a raw game time
+     *                    would render as however old the world is
      */
-    public record Invite(UUID teamId, String teamName) {
+    public record Invite(UUID teamId, String teamName, UUID inviter, String inviterName, long age) {
+
+        /** Whether the server could say when this was sent. See the class note: zero means unknown. */
+        public boolean hasTime() {
+            return age > 0L;
+        }
+    }
+
+    /**
+     * An invitation this party has out, and has not had answered.
+     *
+     * <p>What the panel's outgoing list draws and its Cancel button acts on. Carries the invited
+     * player's <b>name</b> rather than their id because the cancel goes through a command, and a
+     * command takes a name — a player who logged off can still be uninvited by the name the list
+     * shows.
+     *
+     * @param name who was invited
+     * @param age  how long ago it was sent, in ticks on the server's clock, or zero when unknown
+     */
+    public record SentInvite(String name, long age) {
+    }
+
+    /**
+     * A party anybody may join, as the solo screen lists it.
+     *
+     * @param teamId  the party to join
+     * @param name    what it calls itself
+     * @param members how many are in it now
+     * @param limit   how many may be, or zero when the source cannot say
+     */
+    public record PublicParty(UUID teamId, String name, int members, int limit) {
     }
 
     /** A snapshot of nobody being in any party, which is a real answer rather than an absent one. */
     public static PartySnapshot none() {
         return new PartySnapshot(new UUID(0L, 0L), "", new UUID(0L, 0L), List.of(), List.of(), List.of(),
-                "one_member", List.of());
+                "one_member", List.of(), List.of(), TeamPolicy.DEFAULT, 0, List.of());
     }
 
     /** Whether this describes a party at all. False is the answer for a player who is alone. */
@@ -103,9 +176,9 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     /**
      * The roster as one string.
      *
-     * <p>The header is three lines and each member is one. A truncated message therefore loses whole
-     * members rather than corrupting the ones before it, and {@link #unpack} ignores a partial trailing
-     * member rather than throwing — which is the right direction, because the alternative is a client
+     * <p>The header is four lines and every entry is one. A truncated message therefore loses whole
+     * entries rather than corrupting the ones before it, and {@link #unpack} ignores a partial trailing
+     * entry rather than throwing — which is the right direction, because the alternative is a client
      * disconnected by a malformed packet over a roster it could have drawn most of.
      */
     public String pack() {
@@ -121,14 +194,25 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                     .append(member.role().name()).append(SEP)
                     .append(clean(member.name())).append('\n');
         }
+        // The invitation line grew a sender and a time by *appending* them. A reader written against
+        // the old shape splits with a limit of two and keeps teamId and teamName; the extra fields are
+        // ignored rather than read as part of the name. See the class note.
         for (Invite invite : invites) {
             out.append('i').append(SEP)
                     .append(invite.teamId()).append(SEP)
-                    .append(clean(invite.teamName())).append('\n');
+                    .append(clean(invite.teamName())).append(SEP)
+                    .append(invite.inviter()).append(SEP)
+                    .append(clean(invite.inviterName())).append(SEP)
+                    .append(invite.age()).append('\n');
+        }
+        for (SentInvite invite : sent) {
+            out.append('s').append(SEP)
+                    .append(clean(invite.name())).append(SEP)
+                    .append(invite.age()).append('\n');
         }
         for (String name : online) {
             // No id: the client invites by *name*, because a command takes a name and the player it
-            // names may not be anyone this client has a uuid for. See PartySnapshot's note on why the
+            // names may not be anyone this client has a uuid for. See this class's note on why the
             // action goes through a command at all.
             out.append('o').append(SEP).append(clean(name)).append('\n');
         }
@@ -137,10 +221,22 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
             // member's line. Two reasons, and the second is what decided it: the member line is split
             // with a limit, so a fourth field would be read as part of the name by anybody who did not
             // know about it -- and this tag is skipped by a reader that does not recognise it, which is
-            // the tolerance the format already states. The check the client used to make, a member's
-            // name against the online *names*, is a guess where the server has the answer: it goes wrong
-            // on a rename, and it disagrees with itself about case.
+            // the tolerance the format already states.
             out.append('p').append(SEP).append(who).append('\n');
+        }
+        // One settings line rather than three header lines, so the header stays the four fields an
+        // older reader requires. The line is skipped by a reader that does not know the tag, which
+        // leaves it on the default policy -- the same state a snapshot from before the switches has.
+        out.append('g').append(SEP)
+                .append(policy.openJoin()).append(SEP)
+                .append(policy.membersCanInvite()).append(SEP)
+                .append(memberLimit).append('\n');
+        for (PublicParty party : publicParties) {
+            out.append('u').append(SEP)
+                    .append(party.teamId()).append(SEP)
+                    .append(clean(party.name())).append(SEP)
+                    .append(party.members()).append(SEP)
+                    .append(party.limit()).append('\n');
         }
         return out.toString();
     }
@@ -171,11 +267,15 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
 
         List<Member> members = new ArrayList<>();
         List<Invite> invites = new ArrayList<>();
+        List<SentInvite> sent = new ArrayList<>();
         List<String> online = new ArrayList<>();
         List<UUID> present = new ArrayList<>();
+        List<PublicParty> publicParties = new ArrayList<>();
+        TeamPolicy policy = TeamPolicy.DEFAULT;
+        int limit = 0;
 
-        // One tagged line per entry, so the three lists can grow independently and a reader that does
-        // not know a tag skips it rather than mis-parsing the rest. That is the property that makes the
+        // One tagged line per entry, so the lists can grow independently and a reader that does not
+        // know a tag skips it rather than mis-parsing the rest. That is the property that makes the
         // format tolerant of an older client: an unknown prefix is ignored, and everything it does
         // understand still arrives.
         for (int i = 4; i < lines.length; i++) {
@@ -200,6 +300,12 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                         invites.add(invite);
                     }
                 }
+                case 's' -> {
+                    SentInvite invite = sentOrNull(body);
+                    if (invite != null) {
+                        sent.add(invite);
+                    }
+                }
                 case 'o' -> {
                     if (!body.isEmpty()) {
                         online.add(body);
@@ -211,6 +317,26 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                         present.add(who);
                     }
                 }
+                case 'g' -> {
+                    String[] parts = body.split(SEP);
+                    if (parts.length >= 3) {
+                        // Booleans are read leniently: anything that is neither "true" nor "false"
+                        // leaves the default in place, because a malformed settings line must not
+                        // decide who may invite.
+                        boolean open = Boolean.parseBoolean(parts[0]);
+                        boolean memberInvites = Boolean.parseBoolean(parts[1]);
+                        if (isBoolean(parts[0]) && isBoolean(parts[1])) {
+                            policy = new TeamPolicy(open, memberInvites);
+                        }
+                        limit = intOrZero(parts[2]);
+                    }
+                }
+                case 'u' -> {
+                    PublicParty party = publicOrNull(body);
+                    if (party != null) {
+                        publicParties.add(party);
+                    }
+                }
                 default -> {
                     // An older format, or a newer one: skipped rather than guessed at.
                 }
@@ -218,17 +344,54 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
 
         return new PartySnapshot(teamId, lines[1], owner, List.copyOf(members),
-                List.copyOf(invites), List.copyOf(online), lines[3], List.copyOf(present));
+                List.copyOf(invites), List.copyOf(online), lines[3], List.copyOf(present),
+                List.copyOf(sent), policy, limit, List.copyOf(publicParties));
     }
 
-    /** An invitation, or null for a line this build cannot read. */
+    /**
+     * An invitation, or null for a line this build cannot read.
+     *
+     * <p>The first two fields are required and everything after them is optional, which is what makes
+     * the line readable by a build from either side of the change: before the sender and the time were
+     * appended there were two fields, and a reader of either shape takes what it recognises.
+     */
     private static Invite inviteOrNull(String body) {
-        String[] parts = body.split(java.util.regex.Pattern.quote(SEP), 2);
+        String[] parts = body.split(SEP, 6);
         if (parts.length < 2) {
             return null;
         }
         UUID teamId = uuidOrNull(parts[0]);
-        return teamId == null ? null : new Invite(teamId, parts[1]);
+        if (teamId == null) {
+            return null;
+        }
+        UUID inviter = parts.length >= 3 ? uuidOrNull(parts[2]) : null;
+        String inviterName = parts.length >= 4 ? parts[3] : "";
+        long at = parts.length >= 5 ? longOrZero(parts[4]) : 0L;
+        return new Invite(teamId, parts[1], inviter == null ? new UUID(0L, 0L) : inviter, inviterName, at);
+    }
+
+    /** An outgoing invitation, or null for a line this build cannot read. */
+    private static SentInvite sentOrNull(String body) {
+        String[] parts = body.split(SEP, 3);
+        if (parts.length == 0 || parts[0].isEmpty()) {
+            return null;
+        }
+        long at = parts.length >= 2 ? longOrZero(parts[1]) : 0L;
+        return new SentInvite(parts[0], at);
+    }
+
+    /** An open party, or null for a line this build cannot read. */
+    private static PublicParty publicOrNull(String body) {
+        String[] parts = body.split(SEP, 5);
+        if (parts.length < 3) {
+            return null;
+        }
+        UUID teamId = uuidOrNull(parts[0]);
+        if (teamId == null) {
+            return null;
+        }
+        return new PublicParty(teamId, parts[1], intOrZero(parts[2]),
+                parts.length >= 4 ? intOrZero(parts[3]) : 0);
     }
 
     private static Member memberOrNull(String line) {
@@ -274,6 +437,28 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
     }
 
+    private static long longOrZero(String raw) {
+        try {
+            return Long.parseLong(raw);
+        }
+        catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    private static int intOrZero(String raw) {
+        try {
+            return Integer.parseInt(raw);
+        }
+        catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static boolean isBoolean(String raw) {
+        return "true".equals(raw) || "false".equals(raw);
+    }
+
     /** A name with the separator and any newline removed. See the class note. */
     private static String clean(String raw) {
         if (raw == null) {
@@ -316,7 +501,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
      */
     public static PartySnapshot of(MinecraftServer server, UUID teamId) {
         // `byId`, not `teamOf`. See above: `teamOf` takes a player and would answer for nobody.
-        Optional<Team> found = dev.ellipog.armature.api.teams.Teams.of(server).byId(teamId);
+        Optional<Team> found = Teams.of(server).byId(teamId);
         if (found.isEmpty()) {
             // No such party. A disbanded one, or an id from a message that outlived its team — and
             // `none()` is the honest answer rather than a synthesised team of one.
@@ -334,11 +519,25 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         List<Member> members = new ArrayList<>(team.size());
         team.members().forEach((id, role) -> members.add(new Member(id, nameOf(server, id), role)));
 
+        // The outgoing invitations are a property of the party, so they are built here rather than by
+        // the per-recipient call: every member's panel shows the same outgoing list, and the only list
+        // that differs per member is the incoming one. See `withPlayers`.
+        List<SentInvite> sent = new ArrayList<>(team.invites().size());
+        team.invites().forEach((invited, invite) -> {
+            // A stored timestamp becomes an age here, while there is a server clock to subtract it
+            // from. The wire carries the age; see Invite and SentInvite on why.
+            long age = invite.at() <= 0L
+                    ? 0L
+                    : Math.max(0L, server.overworld().getGameTime() - invite.at());
+            sent.add(new SentInvite(nameOf(server, invited), age));
+        });
+
         // The invitations and the online list are filled by the caller that has the server, not here:
         // this method's only argument is a team id, and neither list is a property of a team. See
         // `withPlayers`.
         return new PartySnapshot(team.id(), team.name(), team.owner(), List.copyOf(members),
-                List.of(), List.of(), "one_member", List.of());
+                List.of(), List.of(), "one_member", List.of(), List.copyOf(sent), team.policy(),
+                Teams.of(server).memberLimit(), List.of());
     }
 
     /**
@@ -365,12 +564,42 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         names.sort(String::compareToIgnoreCase);
 
         return new PartySnapshot(teamId, teamName, owner, members,
-                List.copyOf(invitesFor.apply(recipient)), List.copyOf(names), mode, List.copyOf(present));
+                List.copyOf(invitesFor.apply(recipient)), List.copyOf(names), mode, List.copyOf(present),
+                sent, policy, memberLimit, publicParties);
     }
 
     /** The same snapshot with the party's counting mode filled in. See {@link #mode}. */
     public PartySnapshot withMode(String counted) {
-        return new PartySnapshot(teamId, teamName, owner, members, invites, online, counted, present);
+        return new PartySnapshot(teamId, teamName, owner, members, invites, online, counted, present,
+                sent, policy, memberLimit, publicParties);
+    }
+
+    /**
+     * The same snapshot with the server's open parties filled in.
+     *
+     * <h2>Who the list is for, and why it is capped</h2>
+     *
+     * <p>The solo screen: a player in no party needs to know which parties on this server are open
+     * before a Join button can mean anything. A member's panel never draws it, so only the solo pushes
+     * fill it — see {@code TaskedNetworking.sendOwnRosterTo}. Sorted by name and capped at
+     * {@link #MAX_PUBLIC_PARTIES}, so which parties travel is stable rather than depending on the
+     * source's iteration order.
+     */
+    public PartySnapshot withPublic(MinecraftServer server) {
+        List<PublicParty> open = new ArrayList<>();
+        var teams = Teams.of(server);
+        int limit = teams.memberLimit();
+        for (Team team : teams.allTeams()) {
+            if (!team.policy().openJoin()) {
+                continue;
+            }
+            open.add(new PublicParty(team.id(), team.name(), team.size(), limit));
+            if (open.size() >= MAX_PUBLIC_PARTIES) {
+                break;
+            }
+        }
+        return new PartySnapshot(teamId, teamName, owner, members, invites, online, mode, present,
+                sent, policy, memberLimit, List.copyOf(open));
     }
 
     /**
@@ -430,7 +659,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         online.sort(String::compareToIgnoreCase);
 
         return new PartySnapshot(teamId, teamName, owner, List.copyOf(named), List.copyOf(invites),
-                List.copyOf(online), mode, present);
+                List.copyOf(online), mode, present, sent, policy, memberLimit, publicParties);
     }
 
     /** The mode this party counts by, or the default when an older server sent none. */
@@ -439,7 +668,14 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                 .orElse(dev.ellipog.tasked.party.PartyMode.DEFAULT);
     }
 
-    private static String nameOf(MinecraftServer server, UUID player) {
+    /**
+     * A player's name, from the player list, or eight characters of their id when they are offline.
+     *
+     * <p>Package-private rather than private because {@code TaskedNetworking} resolves the same two
+     * kinds of name — a member's and an invite sender's — and a second copy of this fallback is a
+     * second place for the two to disagree about what an offline player is called.
+     */
+    static String nameOf(MinecraftServer server, UUID player) {
         var found = server.getPlayerList().getPlayer(player);
         if (found != null) {
             return found.getScoreboardName();
@@ -506,6 +742,8 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
                 // field sends nobody and every row reads as offline, which is the honest reading of
                 // "nobody told me" -- and better than the guess this replaced, which joined two lists
                 // by a player's name.
-                snapshot.present()::contains);
+                snapshot.present()::contains,
+                snapshot.policy(),
+                snapshot.memberLimit());
     }
 }

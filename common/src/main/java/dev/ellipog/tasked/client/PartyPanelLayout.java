@@ -5,138 +5,107 @@ import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
+import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
 import dev.ellipog.tasked.net.PartySnapshot;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
- * The party panel: a title, the roster, and the actions that belong to a party.
+ * The party panel: what each face of it says, and where every row and control goes.
  *
- * <h2>The whole panel, not just the roster</h2>
+ * <h2>Faces rather than one shape</h2>
  *
- * <p>This used to describe only the part <i>below</i> the action rows, and the screen described the rest
- * itself — the title, where the actions went, and how tall the card had to be. That split is what the
- * reported fault was made of, and it is worth being exact about it because the two halves each looked
- * right:
+ * <p>The panel has four things it can be, and they are genuinely different screens rather than one
+ * screen with rows missing:
  *
- * <pre>
- * PartyPanelLayout:   title (11) + gap (7) + one member row (18)                  = 36
- * the screen's sum:   one action row (18) + gap (12) + one member row (18)        = 48
- * </pre>
+ * <ul>
+ *   <li>{@link #notice()} — parties are unavailable, with the one instruction that changes that.</li>
+ *   <li>{@link #soloLeft} / {@link #soloRight} — no party: start one, answer the invitations that are
+ *       waiting, join an open one.</li>
+ *   <li>{@link #activeLeft} / {@link #activeRight} — a party: who is in it and what the owner may
+ *       change, split into two columns.</li>
+ *   <li>{@link #confirm} — a small card for a question that must be answered: hand the party over,
+ *       pick a successor, or disband.</li>
+ * </ul>
  *
- * <p>The second sum is missing the title and the gap under it, so the card was built <b>sixteen pixels
- * too short</b> — and the drawing, which skips a row that would fall past the body, skipped exactly the
- * rows that mattered. A party of one showed "Counts: one_member" and a Change button, and no members.
- * The arithmetic was not wrong by a mistake; it was wrong because there were two of it.
+ * <h2>One description, and the screen is sized from it</h2>
  *
- * <h2>One description, and the card is sized from it</h2>
+ * <p>Every builder returns a {@link Face}: the stack that places the rows and the list of
+ * {@link Line}s the screen registers controls from. The two halves cannot disagree about a row's
+ * location because there is one object, and a control's rectangle is derived from the row's own
+ * {@link Slot} — see {@link #controlSlots}. That is the property the old panel was rewritten for
+ * when its card and its rows came from two sums, and it is kept rather than re-learned.
  *
- * <p>So this is now the <b>whole</b> panel, actions included, and {@link #build} returns the one
- * {@link Layout} that says both where every row goes and how tall the content is. The screen sizes the
- * card from {@code layout.height()} and places the rows from the same object, so a term added here
- * cannot be forgotten there — there is no "there" to forget it in.
+ * <h2>Where each half of it lives</h2>
  *
- * <p>That is the same property the kit exists for, one level up: {@code Stack.build} places and measures
- * in one call, and this composes a stack whose height is the card's body. A panel that grows when a
- * member joins grows because the layout got taller, not because somebody adjusted a constant.
+ * <p>{@link PartyRoster} is Armature's, because a member, a rank and "may I remove them" are facts
+ * about a <b>team</b>. This class is Tasked's, because what it composes around the roster is one
+ * screen's: a heading whose words come from this mod's language file, rows whose buttons send
+ * <i>this</i> mod's commands, and a two-column body that exists because this panel's spec says so.
  *
- * <h2>Where each half of it lives, and why that is a test rather than a habit</h2>
+ * <h2>Game-free, so it can be asserted on</h2>
  *
- * <p>{@link PartyRoster} is Armature's, because a member, a rank and "may I remove them" are all facts
- * about a <b>team</b> — and any mod with a party wants exactly that list. This class is Tasked's,
- * because what it composes <i>around</i> the roster is one screen's: a heading whose words come from this
- * mod's language file, rows whose buttons are wired to <i>this</i> mod's commands, and a place in the
- * quest book's column.
- *
- * <p>That is the opposite answer from {@code PartyMode}, which is Tasked's because a mode combines
- * <i>oak logs</i> and only a quest has an opinion about oak logs. Applying the same test twice and
- * getting two different answers is the point of having a test.
- *
- * <h2>Why this is not inside the screen</h2>
- *
- * <p>Because {@code QuestBookScreen} extends {@code Screen} and needs a running Minecraft to
- * instantiate, so nothing in it can be asserted on. The height this produces is what the panel's own
- * scroll range comes from — the same argument {@code OverlayLayout} records — so
- * {@code PartyPanelLayoutTest} can ask how tall the panel is, and that its rows do not overlap, without
- * a client. It can also ask the question this round was about, which no screenshot could answer for
- * every party size: <b>is every member row inside the body the card was built for</b>.
- *
- * <h2>An empty party is drawn, not hidden</h2>
- *
- * <p>A player with no party sees the title and two lines saying so, one of which names the way out. A
- * panel that vanished when the answer was "no" would leave a player who has been told parties exist with
- * no way to find out that they do not have one — and no place the Create button could go.
- *
- * <h2>Keys</h2>
- *
- * <p>The member rows and their Remove buttons carry {@link PartyRoster}'s own keys, because that class
- * made them and this one only places them. What is this class's is the {@code action:} namespace —
- * Leave and Disband are not per-member, so they are not the roster's to name — plus the four keys the
- * panel draws itself, which are named here so the drawing has one place to look them up.
+ * <p>Every field is a record, an id, a string or a number, so {@code PartyPanelLayoutTest} can ask
+ * the questions that matter — is every control inside its row, does a solo player get a Create
+ * control and a member not, are the two columns inside the card — with no window and no client.
  */
 public final class PartyPanelLayout {
 
     // ------------------------------------------------------------------
-    // Metrics
+    // Geometry
     // ------------------------------------------------------------------
 
-    /** The title row's height. A line of text, with room for the member count beside it. */
-    public static final int TITLE_HEIGHT = 11;
+    /** The space between the two columns. */
+    public static final int COLUMN_GAP = 8;
 
-    /** The space under the title, before the roster or the empty state. */
-    public static final int TITLE_TAIL = 7;
+    /** The left column's share of the body, in percent. The spec's 55/45 split. */
+    public static final int LEFT_SHARE = 55;
 
-    /** The height of one line in the empty state. */
-    public static final int EMPTY_ADVANCE = 11;
+    /** The height of an ordinary row. */
+    public static final int ROW_HEIGHT = 18;
 
-    /** Between the empty state's two lines. Smaller than {@link #TITLE_TAIL}: they are one thought. */
-    public static final int EMPTY_GAP = 3;
+    /** Between two rows in the same section. */
+    public static final int ROW_GAP = 3;
 
-    /** How tall an action row is. The row height everywhere else, so a column lines up. */
-    public static final int ACTION_HEIGHT = 18;
-
-    /** Between two stacked action rows. */
-    public static final int ACTION_GAP = 3;
-
-    /** The space either side of the rule that separates the roster from the actions. */
+    /** The space either side of a rule that separates sections. */
     public static final int SECTION_GAP = 7;
 
-    /**
-     * How wide an action row's button is.
-     *
-     * <p>Wider than the footer's Leave and Disband, because these labels are "Create", "Accept" and
-     * "Invite" rather than a five-letter word, and because a row's button sits against the card's edge
-     * rather than in a footer where three things share one line. Sized from the longest of them at the
-     * same six-pixels-a-character measurement the footer uses.
-     */
-    public static final int ROW_BUTTON = 62;
+    /** The title row's height. A line of text. */
+    public static final int TITLE_HEIGHT = 11;
 
-    /** Kept between a row's right edge and the button that sits in its reserved strip. */
-    public static final int ROW_BUTTON_INSET = 2;
+    /** The space under the title, before the first section. */
+    public static final int TITLE_TAIL = 7;
+
+    /** The height of one line in an empty state. */
+    public static final int EMPTY_ADVANCE = 11;
+
+    /** Between an empty state's two lines. Smaller than {@link #TITLE_TAIL}: they are one thought. */
+    public static final int EMPTY_GAP = 3;
+
+    /** How wide an ordinary row button is — Create, Accept, Invite, Join, Choose. */
+    public static final int ROW_BUTTON = 58;
+
+    /** How wide a short one is — Decline, Cancel. */
+    public static final int SHORT_BUTTON = 46;
+
+    /** How wide a settings toggle is. Matches {@code ArmatureSwitch}'s own width. */
+    public static final int SWITCH_WIDTH = 22;
+
+    /** Kept between a row's right edge and the controls in its reserved strip. */
+    public static final int CONTROL_INSET = 2;
+
+    /** Between two controls in one row. */
+    public static final int CONTROL_GAP = 2;
 
     // ------------------------------------------------------------------
     // A member row's interior
     // ------------------------------------------------------------------
 
-    /**
-     * The six numbers that place a member row's own contents.
-     *
-     * <h2>Why they are here rather than in the screen</h2>
-     *
-     * <p>Because they are the row's composition, and this class is where a row's composition lives: a
-     * portrait, the marker for who is connected, a name, and a rank. They were private to
-     * {@code QuestBookScreen}, which put a drawing metric in the one class in either mod that cannot be
-     * asked anything — so the preview could not draw a member row without a second copy of all six, and
-     * a second copy of a number is the fault this project hunts. Here they are readable by the screen,
-     * the tests and the dump alike.
-     *
-     * <p>The portrait box is twelve rather than the sixteen a Minecraft item takes, because a face is
-     * an 8×8 skin crop scaled up and twelve is the size that reads as a portrait rather than as an
-     * inventory slot; {@code NAME_DROP} is optical rather than arithmetic, and its own note says why.
-     */
+    /** The portrait box: an 8x8 skin crop scaled up. */
     public static final int HEAD_BOX = 12;
 
     /** How far a portrait sits from its row's left edge, and the gap between it and the marker. */
@@ -150,279 +119,564 @@ public final class PartyPanelLayout {
     /**
      * How far a member's name sits below its row's own centre.
      *
-     * <p>Optical rather than arithmetic: the line box a label is drawn in carries descender space under
-     * the baseline, so text centred by that box reads a pixel or two high — which it did, beside a face
-     * centred on its own rectangle. The report was "moved down a teeny tiny bit, like 1 or 2 pixels",
-     * and two is where it stopped reading high.
+     * <p>Optical rather than arithmetic: the line box a label is drawn in carries descender space
+     * under the baseline, so text centred by that box reads a pixel or two high beside a face
+     * centred on its own rectangle.
      */
     public static final int NAME_DROP = 2;
+
+    /** The role chip: height, padding either side of its word, and the gap before the action strip. */
+    public static final int CHIP_HEIGHT = 11;
+    public static final int CHIP_PAD = 4;
+    public static final int CHIP_GAP = 4;
+
+    /**
+     * The side of the square that replaces the chip when a role has no chip to show.
+     *
+     * <p>A role outside the three this build knows is drawn as a marker rather than as a word,
+     * because a chip is a badge and a badge for something unnamed says nothing.
+     */
+    public static final int CHIP_MARK = 4;
 
     // ------------------------------------------------------------------
     // Keys
     // ------------------------------------------------------------------
 
-    /**
-     * The title row, named by its translation key.
-     *
-     * <h2>Why these three are named by their translation key and the rest are not</h2>
-     *
-     * <p>Because for these three the translation key <i>is</i> the string: this class and the screen are
-     * the only two things that ever see them, and one of the two has to name them. A layout key like
-     * {@code "party:title"} would need a second table in the screen mapping it back to the one thing it
-     * can possibly be — three rows, three right answers, and so three chances to be wrong.
-     *
-     * <p>The member rows and the action rows are a different case and keep their own namespaces: a
-     * member's text comes from the roster and an action's from the caller's own row list, so neither is
-     * this class's to name.
-     *
-     * <p>One sentence was corrected here rather than left: it said "the screen also puts the member
-     * count at its right", and the screen does not — the count is in the party button's tooltip, where a
-     * roster of nine is written out in words. A preview drawn from that sentence would have invented a
-     * number.
-     */
+    /** The party panel's own title, on the solo face. */
     public static final String TITLE = "tasked.screen.party.title";
 
-    /** The line shown when the player is in no party. See {@link #TITLE} for the naming. */
-    public static final String NO_PARTY = "tasked.screen.party.none";
-
-    /** The second line of the empty state: what to do about it. See {@link #TITLE}. */
-    public static final String HINT = "tasked.screen.party.hint";
-
-    /** The rule between the roster and the actions. One pixel tall, drawn across the body. */
-    public static final String RULE = "party:rule";
-
-    /** Leaving a party you are in. */
-    public static final String LEAVE = "action:leave";
-
-    /** Dissolving a party you own. */
-    public static final String DISBAND = "action:disband";
-
-    private PartyPanelLayout() {
-    }
-
-    /**
-     * One row of the panel: a label on the left, and optionally a button on the right.
-     *
-     * <h2>Why a record rather than a widget per case</h2>
-     *
-     * <p>Because every state of this panel -- no party, an invitation waiting, a roster -- is "a list of
-     * rows with an action beside some of them", and the differences between them are what the rows
-     * <i>say</i> rather than how they are placed. So the placement is one loop over this list, and a
-     * state is a different list.
-     *
-     * @param key         what places this row
-     * @param label       what the row says, drawn at its left
-     * @param buttonLabel the button's label, or null for a row with no action
-     * @param command     the command the button sends, or null when there is no button
-     */
-    public record Action(String key, String label, String buttonLabel, String command) {
-
-        /**
-         * A row with a button beside it.
-         *
-         * <p>A factory rather than the canonical constructor at the call site, because a caller writing
-         * {@code new Action(key, label, button, command)} four positional arguments deep is one
-         * transposition away from a button labelled with a command. This says which of the two strings
-         * is which.
-         *
-         * <p>Every row this panel has today carries a button. There was a {@code plain} factory here for
-         * a row that only reads, and it went when it turned out that the two rows which looked like
-         * candidates both want a control: the mode row wants a Change, and an invitation wants an
-         * Accept. A factory with no callers is a guess about a caller that may never exist.
-         */
-        public static Action button(String key, String label, String buttonLabel, String command) {
-            return new Action(key, label, buttonLabel, command);
-        }
-
-        /**
-         * Whether this row has a control at all.
-         *
-         * <p>A button needs both halves: a label to draw and a command to send. A row with one and not
-         * the other is a control that either cannot be read or cannot work, so this asks for both
-         * rather than trusting the caller to have supplied them together.
-         */
-        public boolean hasButton() {
-            return buttonLabel != null && command != null;
-        }
+                            private PartyPanelLayout() {
     }
 
     // ------------------------------------------------------------------
-    // The panel
+    // The row model
     // ------------------------------------------------------------------
 
     /**
-     * The panel's elements, in order, as an unbuilt stack.
+     * One control in a row's reserved strip.
      *
-     * <p>Unbuilt so the caller supplies the column width and the font, which is what lets a test build
-     * it with a known width per character and ask the same questions the screen's own layout answers.
+     * <h2>Why a command is nullable, and what the two null shapes mean</h2>
      *
-     * <p>The roster's rows are {@link PartyRoster#composition() the roster's own}, nested in whole. That
-     * is not tidiness: this file used to build them itself, from the same constants, which is two
-     * descriptions of one thing — and it left Armature's version with no callers, so its inset for the
-     * Remove button's column was written out twice and only one of them was ever exercised.
+     * <p>A control with a command is a button whose press sends exactly what a typed command sends —
+     * the same design the rest of the panel follows, where the server re-checks everything. A null
+     * command is a control the <b>screen</b> answers, and there are exactly two kinds:
+     * {@link #toggle(String)} is placed as a switch and reports on/off, and a null-command control
+     * whose key ends in {@code :rename} opens the inline rename field. The screen decides by key,
+     * which is the same rule the panel already uses for its own rows: a key is what a click routes by.
      *
-     * <p>The gaps go <b>before</b> each row after the first rather than after each row, so the layout does
-     * not end with one. A trailing gap places no slot, so {@code Layout.height()} — the bottom edge of the
-     * lowest slot — would not count it, and the card would be built shorter than the content it holds.
-     * That is the fault this class was rewritten for, arriving by a second route, so it is worth the
-     * sentence.
-     *
-     * @param roster  the roster to draw. Its {@code isReal} decides whether members or the empty state
-     *                appear, which is not the same as its member count — a party of one is a party
-     * @param actions the rows below the roster: Create, an Accept per invitation, Invite per online
-     *                player, and the mode row. Empty is allowed and means no rule is drawn either
+     * @param key     what places this control and what a click is routed by
+     * @param command the command a press sends, or null for a control the screen answers
+     * @param width   how wide it is
+     * @param accent  whether it wears the accent fill — one per row at most, so a row has a primary
      */
-    public static Stack stack(PartyRoster roster, List<Action> actions) {
-        Objects.requireNonNull(roster, "roster");
-        Objects.requireNonNull(actions, "actions");
+    public record Control(String key, String command, int width, boolean accent) {
 
-        Stack stack = Stack.stack();
-
-        stack.row(TITLE, TITLE_HEIGHT).gap(TITLE_TAIL);
-
-        if (roster.isReal()) {
-            // The roster's own composition, nested rather than re-listed. This file used to write that
-            // loop itself -- one row per member, the gap before each row after the first, and its own
-            // copy of the inset that reserves a Remove button's column -- which left Armature's
-            // `PartyRoster.composition` with no callers at all and put one inset in two places. Two
-            // descriptions of one thing is the fault this codebase hunts; the kit was missing
-            // `Stack.append`, and that is the gap the duplicate grew in.
-            stack.append(roster.composition());
-        }
-        else {
-            // Two lines rather than one, because the second is the only place a player is told what to do
-            // about it. The old empty state said "You are not in a party" and stopped, which left the
-            // Create button to be found by experiment.
-            stack.row(NO_PARTY, EMPTY_ADVANCE).gap(EMPTY_GAP).row(HINT, EMPTY_ADVANCE);
+        public static Control button(String key, String command) {
+            return new Control(key, command, ROW_BUTTON, false);
         }
 
-        if (!actions.isEmpty()) {
-            // A rule rather than a gap, because the two lists are different kinds of thing: the roster is
-            // who you are with, and everything below it is something you can do. A rule is what says so.
-            //
-            // Written as a one-pixel row with a key rather than as `Stack.divider`, which places a null
-            // key: the drawing looks its slots up by key, and a null key is by design unfindable. A rule
-            // nobody can look up is a rule nobody can draw.
-            stack.gap(SECTION_GAP).row(RULE, 1).gap(SECTION_GAP);
+        public static Control primary(String key, String command) {
+            return new Control(key, command, ROW_BUTTON, true);
+        }
 
-            for (int i = 0; i < actions.size(); i++) {
-                if (i > 0) {
-                    stack.gap(ACTION_GAP);
-                }
-                Action action = actions.get(i);
-                // Room for a button only where there is one. A row that reserved it anyway would have its
-                // label stopping short of the card's edge for no reason a reader could see — the same
-                // distinction the roster does *not* make, and the reason is that a roster is a column of
-                // identical rows where a mismatch is visible and an action list is not.
-                stack.row(action.key(), ACTION_HEIGHT, action.hasButton() ? actionRoom() : Insets.NONE);
+        public static Control small(String key, String command) {
+            return new Control(key, command, SHORT_BUTTON, false);
+        }
+
+        /** A settings switch: the screen places an {@code ArmatureSwitch} and answers its toggle. */
+        public static Control toggle(String key) {
+            return new Control(key, null, SWITCH_WIDTH, false);
+        }
+
+        /** Whether a press sends a command rather than being answered by the screen. */
+        public boolean sendsCommand() {
+            return command != null;
+        }
+
+        /** Whether this is placed as a switch. See {@link #toggle}. */
+        public boolean isToggle() {
+            return command == null && key.endsWith(":switch");
+        }
+    }
+
+    /**
+     * One row of a face: a label, an optional detail at the right, and the controls beside them.
+     *
+     * <h2>Why one record rather than a widget per case</h2>
+     *
+     * <p>Every face is "a list of rows, some with controls", and the differences are what the rows
+     * <i>say</i> rather than how they are placed. So the placement is one loop over this list and a
+     * face is a different list.
+     *
+     * @param key      what places this row
+     * @param label    what the row says, drawn at its left. May be empty for a field row the screen
+     *                 fills with a text field
+     * @param detail   what the row says at its right — a timestamp, a member count, an "online"
+     *                 marker — or null. Drawn faint, except where the screen accents it
+     * @param controls the controls in the row's strip, left to right. Empty is allowed
+     * @param header   whether this row is a section heading. Drawn in heading ink, and the one thing
+     *                 about a row's appearance the layout states rather than the screen, because which
+     *                 rows are headings is a property of the face
+     * @param height   how tall this row is. {@link #ROW_HEIGHT} for everything that holds a control or
+     *                 a label; shorter for the pre-wrapped prose rows the notice is made of, where one
+     *                 row is one line of a sentence rather than a thing with a control beside it
+     */
+    public record Line(String key, String label, String detail, List<Control> controls, boolean header,
+                       int height) {
+
+        public Line {
+            controls = List.copyOf(controls);
+        }
+
+        public static Line plain(String key, String label) {
+            return new Line(key, label, null, List.of(), false, ROW_HEIGHT);
+        }
+
+        public static Line header(String key, String label) {
+            return new Line(key, label, null, List.of(), true, ROW_HEIGHT);
+        }
+
+        /** One line of pre-wrapped prose. See {@link #notice} for the only face that builds these. */
+        public static Line prose(String key, String label) {
+            return new Line(key, label, null, List.of(), false, EMPTY_ADVANCE);
+        }
+
+        /** A blank row, for the space between two paragraphs. Carries no words, so nothing is drawn. */
+        public static Line spacer(String key) {
+            return new Line(key, "", null, List.of(), false, EMPTY_GAP);
+        }
+
+        public static Line detail(String key, String label, String detail) {
+            return new Line(key, label, detail, List.of(), false, ROW_HEIGHT);
+        }
+
+        public static Line controls(String key, String label, Control... controls) {
+            return new Line(key, label, null, List.of(controls), false, ROW_HEIGHT);
+        }
+
+        public static Line controls(String key, String label, String detail, Control... controls) {
+            return new Line(key, label, detail, List.of(controls), false, ROW_HEIGHT);
+        }
+
+        public boolean hasControls() {
+            return !controls.isEmpty();
+        }
+
+        /** What a row must keep clear for its controls, controls included. */
+        public int controlRoom() {
+            if (controls.isEmpty()) {
+                return 0;
             }
+            int room = CONTROL_INSET * 2;
+            for (Control control : controls) {
+                room += control.width() + CONTROL_GAP;
+            }
+            return room - CONTROL_GAP;
+        }
+    }
+
+    /**
+     * One column: the stack that places its rows, and the rows themselves.
+     *
+     * <p>The screen holds the {@link Line}s to register controls from and the stack to build the
+     * column's layout from, and both came out of one call — so a row the layout places and a row the
+     * screen registers a button for cannot be two different rows.
+     */
+    public record Face(Stack stack, List<Line> lines) {
+
+        /** The column built in {@code width}, with the height its rows come to. */
+        public Layout build(int width, Measure measure) {
+            return stack.build(Math.max(0, width), measure);
         }
 
+        /** Where a line's control strip is, given the layout. See {@link #controlSlots}. */
+        public List<Slot> controlSlots(Layout layout, String key) {
+            Slot row = layout.slot(key);
+            Line line = line(key);
+            return row == null || line == null ? List.of() : PartyPanelLayout.controlSlots(line, row);
+        }
+
+        /** Where a line's text may go, given the layout: its row minus the controls' strip. */
+        public Slot textSlot(Layout layout, String key) {
+            Slot row = layout.slot(key);
+            Line line = line(key);
+            return row == null || line == null ? null : PartyPanelLayout.textSlot(line, row);
+        }
+
+        /** The line this face placed under {@code key}, or null. */
+        public Line line(String key) {
+            for (Line line : lines) {
+                if (line.key().equals(key)) {
+                    return line;
+                }
+            }
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Building
+    // ------------------------------------------------------------------
+
+    /**
+     * A list of lines as a stack, with each row reserving room for its own controls.
+     *
+     * <p>The gap goes <b>before</b> each row after the first rather than after each row, so the layout
+     * does not end with one. A trailing gap places no slot, so {@code Layout.height()} — the bottom
+     * edge of the lowest slot — would not count it, and the column would be built shorter than its
+     * content. That is the fault this class was rewritten for once already, arriving by a second
+     * route, so it is worth the sentence.
+     */
+    public static Stack stack(List<Line> lines) {
+        Objects.requireNonNull(lines, "lines");
+        Stack stack = Stack.stack();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i > 0) {
+                stack.gap(ROW_GAP);
+            }
+            Line line = lines.get(i);
+            stack.row(line.key(), line.height(), line.controlRoom() == 0
+                    ? Insets.NONE
+                    : new Insets(0, 0, line.controlRoom(), 0));
+        }
         return stack;
     }
 
+    /** The same, for a face. See {@link Face#build}. */
+    public static Face face(List<Line> lines) {
+        return new Face(stack(lines), List.copyOf(lines));
+    }
+
     /**
-     * The panel built in a column of {@code width}: the rows placed, and the height.
+     * Where a row's text may go: the row minus the room its controls reserved.
      *
-     * <p>The one call a caller needs, and it is now the one call for the <b>whole</b> panel rather than
-     * for its lower half. The height it returns is what the card is built from, so the box and the rows
-     * inside it cannot come from two sums — see the class note for what they did when they could.
+     * <p>The complement of {@link #controlSlots}, and it exists because a row holding a text field is
+     * the one case where the screen must place a widget <i>inside</i> the label area rather than beside
+     * it — the create-name field and the invite search. Both come from the same row slot, so the
+     * field and the button beside it cannot disagree about where the row is.
      */
-    public static Layout build(PartyRoster roster, List<Action> actions, int width, Measure measure) {
+    public static Slot textSlot(Line line, Slot row) {
+        Objects.requireNonNull(line, "line");
+        Objects.requireNonNull(row, "row");
+        return new Slot(line.key(), row.x(), row.y(),
+                Math.max(0, row.width() - line.controlRoom()), row.height());
+    }
+
+    /**
+     * Where a row's controls go: right-aligned as a group, left to right in the order given.
+     *
+     * <p>Derived from the row's own {@link Slot} rather than from a second computation of where the
+     * row is — the property the kit exists for. The strip starts at the row's right edge, because the
+     * row's inset reserved that room; a {@code STRETCH} row is narrowed by its inset, so the controls
+     * belong outside the slot and inside the gap it left for them.
+     */
+    public static List<Slot> controlSlots(Line line, Slot row) {
+        Objects.requireNonNull(line, "line");
+        Objects.requireNonNull(row, "row");
+        if (line.controls().isEmpty()) {
+            return List.of();
+        }
+        int total = 0;
+        for (Control control : line.controls()) {
+            total += control.width() + CONTROL_GAP;
+        }
+        total -= CONTROL_GAP;
+        // **Plus** the inset: the row's right inset reserved this room *outside* the narrowed slot, so
+        // the strip starts at the slot's right edge and runs into that reservation. The first version
+        // subtracted, which put every switch, button and pencil inside the text area -- the arithmetic
+        // wrote the sentence above and then did the opposite of it.
+        int x = row.right() + CONTROL_INSET;
+        List<Slot> out = new ArrayList<>(line.controls().size());
+        for (Control control : line.controls()) {
+            out.add(new Slot(control.key(), x, row.y(), control.width(), row.height()));
+            x += control.width() + CONTROL_GAP;
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * The two column widths of a body, left then right.
+     *
+     * <p>One function rather than two, because the two must add up: a caller computing "the right
+     * column is what is left" twice is the arithmetic that agrees until a gap or a share changes.
+     */
+    public static int leftWidth(int bodyWidth) {
+        // The gap is taken out first, so the share is of the space the columns actually get: 55% of
+        // the body would leave the two columns and their gap overflowing by a fraction of it.
+        return Math.max(0, bodyWidth - COLUMN_GAP) * LEFT_SHARE / 100;
+    }
+
+    public static int rightWidth(int bodyWidth) {
+        return Math.max(0, bodyWidth - COLUMN_GAP - leftWidth(bodyWidth));
+    }
+
+    // ------------------------------------------------------------------
+    // The faces
+    // ------------------------------------------------------------------
+
+    /**
+     * The notice: parties are unavailable in singleplayer with LAN closed.
+     *
+     * <p>Two lines, and the second is the one that changes the state — the same argument the old
+     * empty state's second line made. A greyed-out button would leave a player with the question
+     * "why" and no way to have it answered.
+     *
+     * <h2>The words arrive resolved, because they have to be wrapped</h2>
+     *
+     * <p>Every other face carries translation keys and the screen substitutes them at draw time. This
+     * one cannot: the wrap depends on the sentences themselves, so the caller resolves them from the
+     * language file and hands them over with the width the card will actually have.
+     */
+    public static Face notice(String title, String why, String how, int width, Measure measure) {
         Objects.requireNonNull(measure, "measure");
-        return stack(roster, actions).build(Math.max(0, width), measure);
+        List<Line> lines = new ArrayList<>();
+        lines.add(Line.header("party:notice:title", title));
+        lines.add(Line.spacer("party:notice:gap0"));
+        // One row per wrapped line, so a sentence survives a narrow window instead of being cut off.
+        // The heights come from the wrap itself: a long "why" takes two rows and the card is built
+        // from the rows, which is why the caller wraps at the width the card will actually have.
+        int[] index = {0};
+        for (String line : TextWrap.wrap(why, Math.max(0, width), measure)) {
+            lines.add(Line.prose("party:notice:why:" + index[0]++, line));
+        }
+        lines.add(Line.spacer("party:notice:gap1"));
+        index[0] = 0;
+        for (String line : TextWrap.wrap(how, Math.max(0, width), measure)) {
+            lines.add(Line.prose("party:notice:fix:" + index[0]++, line));
+        }
+        return face(lines);
     }
-
-    /** The same, for an action row's own button. See {@link #ROW_BUTTON}. */
-    private static Insets actionRoom() {
-        return new Insets(0, 0, ROW_BUTTON + ROW_BUTTON_INSET * 2, 0);
-    }
-
-    // ------------------------------------------------------------------
-    // The rows
-    // ------------------------------------------------------------------
 
     /**
-     * The rows the panel shows, given the roster and what the client was last told.
+     * The solo face's left column: start a party, and answer what is waiting.
      *
-     * <h2>What this does not do, and the reason it is worth stating</h2>
+     * <h2>The create card: a heading, then the field</h2>
      *
-     * <p>It does not decide permissions. Every command behind these buttons re-checks on the server --
-     * that is the whole design -- so a row offered wrongly is a refusal rather than a wrong change. The
-     * panel's job is to offer the useful thing, not to be the authority.
-     *
-     * <p>Offers <b>Invite</b> for every online player who is not already in the party, including players
-     * already invited: the server refuses a duplicate, and hiding the row would mean the panel had to
-     * know who was already invited, which is a fact it would then have to keep in step. A <b>member</b>
-     * is excluded, because the roster already says who they are and the row could only fail.
-     *
-     * <h2>Why this is here rather than in the screen</h2>
-     *
-     * <p>Because it is a rule about the panel's <i>content</i>, and a screen cannot be asked anything:
-     * this method lived in {@code QuestBookScreen} as a private one, so the only way to see what a party
-     * of three with two players online offers was to open the book and look. It is a pure function of
-     * the roster, the snapshot and the viewer's name, so it can be asserted and drawn without a game --
-     * which is what lets the preview show the rows the screen would.
-     *
-     * @param self the viewer's own name, so their own row is not offered as somebody to invite. Empty
-     *             for a caller with no player, which offers every online player and no one twice
+     * <p>The heading says "Start a party" and the row below it is the editable name — the screen
+     * draws the field in that row's text slot, prefilled from the player's own name. The heading is
+     * what distinguishes a form from a list entry; see the note at the row itself for the report that
+     * made that concrete.
      */
-    public static List<Action> actions(PartyRoster roster, PartySnapshot snapshot, String self) {
-        Objects.requireNonNull(roster, "roster");
+    public static Face soloLeft(PartyRoster roster, PartySnapshot snapshot, String self, String createName) {
         Objects.requireNonNull(snapshot, "snapshot");
+        List<Line> lines = new ArrayList<>();
+        lines.add(Line.plain(TITLE, "Parties"));
 
-        List<Action> rows = new ArrayList<>();
-        String me = self == null ? "" : self;
+        // A heading before the field, and it is not decoration: without it the row is a text box
+        // holding a party-shaped name and a button, which reads as *the party you are in* rather than
+        // as a form for a new one -- a player who has just disbanded saw their old party's name in the
+        // box and understood the party to still exist. The heading is the spec's own "top card
+        // (Create)" and it is what makes the row say what it does.
+        lines.add(Line.header("solo:create:heading", "tasked.screen.party.create.heading"));
+        lines.add(Line.controls("solo:create", createName,
+                Control.primary("solo:create:go", "/tasked party create " + createName)));
 
-        if (!roster.isReal()) {
-            // Creating needs a name and there is no text field in the kit, so the name is derived from
-            // the player's own. **Every character in it has to survive Brigadier**, and the first
-            // version did not: it built `Ellipog's party`, and an apostrophe is not a character the
-            // parser is obliged to accept in an unquoted argument -- so the button produced a command
-            // the server refused.
-            String base = me.isEmpty() ? "My" : sanitise(me);
-            // "Start a party" rather than "Not in a party": the layout draws the empty state's own line
-            // saying that, and a row repeating it would say the same thing twice on one panel.
-            rows.add(Action.button("create", "Start a party", "Create",
-                    "/tasked party create " + base + " party"));
-
-            for (PartySnapshot.Invite invite : snapshot.invites()) {
-                rows.add(Action.button("accept:" + invite.teamId(),
-                        "Invited to " + invite.teamName(), "Accept", "/tasked party accept"));
-            }
+        lines.add(Line.header("solo:incoming", "tasked.screen.party.section.incoming"));
+        if (snapshot.invites().isEmpty()) {
+            lines.add(Line.plain("solo:incoming:none", "tasked.screen.party.section.incoming.none"));
         }
         else {
-            // The counting rule, as a line of text rather than as the cycling button this used to be.
-            // The report was "remove the counts thing, and change button since it doesnt do anything" --
-            // and the reason it read as doing nothing is that the press closed the panel, so the new
-            // label arrived after the panel was gone. The rule is still set by `/tasked party mode`;
-            // what is here is the answer, so a party can see which rule is in force without a command.
-            //
-            // A row with no button rather than a fourth control: `Action.hasButton()` is false when
-            // either half is missing, and the layout reserves no button strip for a row without one.
-            rows.add(new Action("mode", "Counts: " + snapshot.modeOr().id(), null, null));
-        }
-
-        for (String name : snapshot.online()) {
-            // Neither the viewer nor a member is offered an invitation: a member is already in the
-            // party, so the row would be a button whose only possible answer is the server's refusal --
-            // "offer the useful thing" is the rule this method states, and that is not it.
-            //
-            // The membership test is the roster's own, and the roster is the same object the member rows
-            // are drawn from, so the two cannot come to disagree about who is in the party. Until this
-            // was written the method's own doc said "not already in the party" and the code asked only
-            // about the viewer, so a party of three were each offered invitations to the party they were
-            // in -- visible in the preview's `trio` state, which is how it was found.
-            if (name.equalsIgnoreCase(me) || isMember(roster, name)) {
-                continue;
+            for (PartySnapshot.Invite invite : snapshot.invites()) {
+                // The inviter's name is in the detail rather than the label, because the label is the
+                // party and the question "which party" comes before "who asked".
+                String sender = invite.inviterName().isEmpty() ? "someone" : invite.inviterName();
+                String when = relativeTime(invite.age());
+                lines.add(Line.controls("invite:" + invite.teamId(), invite.teamName(),
+                        when.isEmpty() ? sender : sender + " - " + when,
+                        Control.primary("accept:" + invite.teamId(), "/tasked party accept " + invite.teamId()),
+                        Control.small("decline:" + invite.teamId(), "/tasked party decline " + invite.teamId())));
             }
-            rows.add(Action.button("invite:" + name, name, "Invite",
-                    "/tasked party invite " + name));
         }
-        return List.copyOf(rows);
+        return face(lines);
     }
 
-    /** Whether a name is one of the roster's own members. Compared by name, which is what the rows hold. */
+    /** The solo face's right column: the open parties anyone may join. */
+    public static Face soloRight(PartySnapshot snapshot) {
+        List<Line> lines = new ArrayList<>();
+        lines.add(Line.header("solo:public", "tasked.screen.party.section.public"));
+        if (snapshot.publicParties().isEmpty()) {
+            lines.add(Line.plain("solo:public:none", "tasked.screen.party.section.public.none"));
+        }
+        else {
+            for (PartySnapshot.PublicParty party : snapshot.publicParties()) {
+                String count = party.limit() > 0
+                        ? party.members() + "/" + party.limit()
+                        : String.valueOf(party.members());
+                lines.add(Line.controls("public:" + party.teamId(), party.name(), count,
+                        Control.button("join:" + party.teamId(), "/tasked party join " + party.teamId())));
+            }
+        }
+        return face(lines);
+    }
+
+    /**
+     * The active face's left column: the identity and the roster.
+     *
+     * <p>The name row's control is the rename pencil, present only for the owner — the permission is
+     * asked here rather than at the screen, because "may I rename" is {@code PartyRoster}'s answer and
+     * a panel that decided for itself would draw a pencil the server refuses.
+     */
+    public static Face activeLeft(PartyRoster roster, PartySnapshot snapshot) {
+        Objects.requireNonNull(roster, "roster");
+        List<Line> lines = new ArrayList<>();
+
+        // A plain line, always. The rename control is the screen's: it lays a flat, empty button over
+        // this row when the viewer may rename, so the name itself is what a player clicks. The layout
+        // cannot draw that -- the affordance is the label the screen already draws -- and a control
+        // here would reserve a strip beside the name for something invisible.
+        String name = snapshot.teamName().isEmpty() ? "tasked.screen.party.unnamed" : snapshot.teamName();
+        lines.add(Line.plain("left:name", name));
+
+        int online = 0;
+        for (PartyRoster.Member member : roster.members()) {
+            if (member.online()) {
+                online++;
+            }
+        }
+        lines.add(Line.detail("left:stats", "Members - " + members(roster.memberCount(), roster.memberLimit()),
+                online + " online"));
+
+        // The roster's own composition, nested in whole -- the member rows and their reserved action
+        // strip -- under the identity rows. It is appended rather than listed as `Line`s because a
+        // member row is `PartyRoster`'s: a portrait, a presence marker and a name, whose rules about
+        // order and authority Armature owns and tests. This face composes around it, which is exactly
+        // the split `PartyRoster`'s own note argues for.
+        Stack stack = stack(lines).gap(ROW_GAP).append(roster.composition());
+        return new Face(stack, lines);
+    }
+
+    /** The active face's right column: the settings, then the people who could be invited. */
+    public static Face activeRight(PartyRoster roster, PartySnapshot snapshot, String self, String query) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        List<Line> lines = new ArrayList<>();
+
+        lines.add(Line.header("right:settings", "tasked.screen.party.section.settings"));
+        lines.add(Line.controls("right:member-invites", "tasked.screen.party.setting.member_invites",
+                Control.toggle("right:member-invites:switch")));
+        lines.add(Line.controls("right:open", "tasked.screen.party.setting.open",
+                Control.toggle("right:open:switch")));
+
+        lines.add(Line.header("right:invite", "tasked.screen.party.section.invite"));
+        lines.add(Line.plain("right:search", ""));
+
+        List<String> invitable = invitable(snapshot, roster, self, query);
+        if (invitable.isEmpty()) {
+            // Two different facts, and the message must say which: nobody else is on the server, or
+            // the search hid them. Asking the *unfiltered* list which it is -- the first version
+            // compared the online list instead, and told a player alone on their server "Nobody
+            // matches", as though a filter were responsible.
+            boolean anyone = !invitable(snapshot, roster, self, "").isEmpty();
+            lines.add(Line.plain("right:invite:none", anyone
+                    ? "tasked.screen.party.invite.none.filtered"
+                    : "tasked.screen.party.invite.none.empty"));
+        }
+        else {
+            for (String name : invitable) {
+                lines.add(Line.controls("invite:" + name, name,
+                        Control.button("invite-go:" + name, "/tasked party invite " + name)));
+            }
+        }
+
+        lines.add(Line.header("right:outgoing", "tasked.screen.party.section.outgoing"));
+        if (snapshot.sent().isEmpty()) {
+            lines.add(Line.plain("right:outgoing:none", "tasked.screen.party.outgoing.none"));
+        }
+        else {
+            for (PartySnapshot.SentInvite invite : snapshot.sent()) {
+                String when = relativeTime(invite.age());
+                lines.add(Line.controls("sent:" + invite.name(), "Invited " + invite.name(), when,
+                        Control.small("cancel:" + invite.name(), "/tasked party uninvite " + invite.name())));
+            }
+        }
+        return face(lines);
+    }
+
+    /**
+     * The invitation list: everybody online who is not the viewer and not already in the party,
+     * filtered by the search box.
+     *
+     * <p>A pure function of the snapshot, the roster and the query, so a test can ask what a party of
+     * three with four players online offers — and so the screen cannot accidentally offer the viewer
+     * an invitation to their own party, which is what the old panel did until a preview showed it.
+     * Players already invited are excluded: their row is in the outgoing list with a Cancel, and a
+     * second Invite control could only be refused.
+     */
+    public static List<String> invitable(PartySnapshot snapshot, PartyRoster roster, String self,
+                                         String query) {
+        String me = self == null ? "" : self;
+        String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
+        List<String> out = new ArrayList<>();
+        for (String name : snapshot.online()) {
+            if (name.equalsIgnoreCase(me) || isMember(roster, name) || isSent(snapshot, name)) {
+                continue;
+            }
+            if (!needle.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(needle)) {
+                continue;
+            }
+            out.add(name);
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * A small card for a question: a title, a line of body text, and the controls that answer it.
+     *
+     * <p>Used for the transfer confirmation, the successor picker's frame and the disband prompt.
+     * One builder rather than three near-identical ones — the difference between them is the words
+     * and which controls answer, which is exactly what the arguments are.
+     */
+    public static Face confirm(String title, String body, Control... controls) {
+        List<Line> lines = new ArrayList<>();
+        lines.add(Line.plain("confirm:title", title));
+        if (body != null && !body.isEmpty()) {
+            lines.add(Line.plain("confirm:body", body));
+        }
+        lines.add(Line.controls("confirm:actions", "", controls));
+        return face(lines);
+    }
+
+    // ------------------------------------------------------------------
+    // Small pure answers
+    // ------------------------------------------------------------------
+
+    /**
+     * The member count, with the cap when one is known.
+     *
+     * <p>{@code 3/8} where the source states a limit and {@code 3 members} where it does not — zero is
+     * the manager's "cannot say", and inventing a cap for a foreign source would be a header that
+     * disagrees with the server's own refusal. See {@code PartyRoster.hasMemberLimit}.
+     */
+    public static String members(int count, int limit) {
+        return limit > 0 ? count + "/" + limit : count + " members";
+    }
+
+    /**
+     * How long ago something happened, coarsely, or empty when the source did not say.
+     *
+     * <p>Coarse on purpose: an invitation's age is read to answer "is this stale", and seconds of
+     * precision would be a number that changes between two frames for no one's benefit. The input is
+     * an <b>age</b> in game ticks, counted on the server's clock when the snapshot was built — see
+     * {@code PartySnapshot.Invite} on why a timestamp could not travel — and the answer is one of a
+     * handful of words.
+     */
+    public static String relativeTime(long ageTicks) {
+        if (ageTicks <= 0L) {
+            return "";
+        }
+        long minutes = ageTicks / 20L / 60L;
+        if (minutes < 1L) {
+            return "just now";
+        }
+        if (minutes < 60L) {
+            return minutes + "m ago";
+        }
+        long hours = minutes / 60L;
+        if (hours < 24L) {
+            return hours + "h ago";
+        }
+        return (hours / 24L) + "d ago";
+    }
+
     private static boolean isMember(PartyRoster roster, String name) {
         for (PartyRoster.Member member : roster.members()) {
             if (member.name().equalsIgnoreCase(name)) {
@@ -432,92 +686,12 @@ public final class PartyPanelLayout {
         return false;
     }
 
-    /**
-     * A string that can be an unquoted command argument.
-     *
-     * <p>Letters, digits, spaces, underscores and hyphens; everything else becomes an underscore. That
-     * is a superset of what Brigadier's unquoted argument accepts and a subset of what a Minecraft name
-     * can contain, which is the whole point: the set of characters a name <i>may</i> hold and the set an
-     * argument may hold are not the same, and the panel builds one from the other.
-     */
-    private static String sanitise(String raw) {
-        StringBuilder out = new StringBuilder(raw.length());
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            out.append(Character.isLetterOrDigit(c) || c == ' ' || c == '_' || c == '-' ? c : '_');
+    private static boolean isSent(PartySnapshot snapshot, String name) {
+        for (PartySnapshot.SentInvite invite : snapshot.sent()) {
+            if (invite.name().equalsIgnoreCase(name)) {
+                return true;
+            }
         }
-        return out.toString();
-    }
-
-    /**
-     * Where a member's Remove button goes, given the layout the panel was built into.
-     *
-     * <p>Looks the member's own row up by its key and delegates the placement to
-     * {@link PartyRoster#removeSlot}, so the panel does not repeat a single number of the button's
-     * geometry. A member who may not be removed yields null, and a caller iterating the roster can skip
-     * the nulls — which is what makes it impossible to place a button whose permission was not checked.
-     */
-    public static Slot removeSlot(PartyRoster roster, Layout layout, PartyRoster.Member member) {
-        Objects.requireNonNull(roster, "roster");
-        Objects.requireNonNull(layout, "layout");
-        if (member == null) {
-            return null;
-        }
-        return PartyRoster.removeSlot(member, layout.slot(member.key()));
-    }
-
-    /**
-     * Where an action row's button goes, given the layout the panel was built into.
-     *
-     * <h2>Why this mirrors {@link #removeSlot} rather than being its general case</h2>
-     *
-     * <p>Because the two reserve their room in different places and for different reasons, and folding
-     * them together would mean one of the two reading a number that belongs to the other. A member row's
-     * button is placed by {@code PartyRoster}, which owns that geometry because it owns the roster; an
-     * action row's is placed here, because the action rows are this class's composition and Armature has
-     * no opinion about them.
-     *
-     * <p>The shape is deliberately identical — look up the row, land inside the strip it reserved, return
-     * null when there is no button — so a caller iterating rows does not have to remember which kind it is
-     * holding. What differs is only where the arithmetic lives.
-     *
-     * <p>Returns null for a row with no button <b>and</b> for a key the layout does not hold, which a
-     * caller treats the same way: there is nothing to place.
-     */
-    public static Slot actionSlot(Layout layout, Action action) {
-        Objects.requireNonNull(layout, "layout");
-        if (action == null || !action.hasButton()) {
-            return null;
-        }
-        Slot row = layout.slot(action.key());
-        return row == null ? null : buttonStrip(row);
-    }
-
-    /**
-     * The rectangle an action row's button occupies, given the row's own slot.
-     *
-     * <h2>Why this is a function of the row rather than of the layout</h2>
-     *
-     * <p>Because the scroll view needs to derive a control's rectangle from the slot the layout holds,
-     * once per placement, without knowing which row it is looking at. Handing this to
-     * {@code ScrollView.put} at registration is what keeps a scrolled button on its own row: the
-     * placement and the drawing ask the same slot of the same layout, and this is the only expression of
-     * where the button sits inside it.
-     *
-     * <p>The strip starts at the row's <b>right edge plus the inset</b>, because the row's own inset
-     * reserved that room: a {@code STRETCH} row is narrowed by its insets, so the button belongs outside
-     * the slot and inside the gap the slot left for it. That is the opposite of
-     * {@code PartyRoster.removeSlot}, whose button sits inside the row it narrows, and the two are
-     * deliberately not folded together — see {@link #actionSlot}.
-     */
-    public static Slot buttonStrip(Slot row) {
-        Objects.requireNonNull(row, "row");
-        int width = Math.min(ROW_BUTTON, Math.max(0, row.width()));
-        return new Slot(row.key(), row.right() + ROW_BUTTON_INSET, row.y(), width, row.height());
-    }
-
-    /** Whether a key is one of the two footer actions rather than a row or a button. */
-    public static boolean isAction(String key) {
-        return LEAVE.equals(key) || DISBAND.equals(key);
+        return false;
     }
 }

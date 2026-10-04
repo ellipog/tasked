@@ -3,9 +3,12 @@ package dev.ellipog.tasked.progress;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 
+import dev.ellipog.tasked.quest.QuestRules;
 import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardCommon;
+import dev.ellipog.tasked.quest.reward.TableReward;
+import dev.ellipog.tasked.quest.reward.XpReward;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -16,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -66,6 +70,63 @@ class QuestClaimTest {
         assertTrue(claims.claimed(bob, 1, true), "one claim settles it for the team");
         assertFalse(claims.claimed(alice, 1, false),
                 "and a team claim is not a personal one -- the maps do not bleed");
+    }
+
+    // ------------------------------------------------------------------
+    // The auto-claim ladder: reward > quest > chapter > pack > off
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a reward's own mode wins, and `default` asks the level below")
+    void aRewardsOwnModeWins() {
+        assertEquals(RewardAutoClaim.ENABLED, RewardAutoClaim.ENABLED.resolved(RewardAutoClaim.DISABLED),
+                "an explicit reward mode is not overruled by anything below it");
+        assertEquals(RewardAutoClaim.DISABLED, RewardAutoClaim.DEFAULT.resolved(RewardAutoClaim.DISABLED),
+                "and `default` is exactly the deferral");
+        assertEquals(RewardAutoClaim.DEFAULT,
+                RewardCommon.DEFAULT.autoClaim(RewardAutoClaim.DEFAULT),
+                "a reward that says nothing arrives as `default`, which is the state the ladder needs");
+    }
+
+    @Test
+    @DisplayName("the quest's mode overrides the chapter's, and unset falls through to it")
+    void theQuestOverridesTheChapter() {
+        QuestRules stated = QuestRules.CODEC.parse(JsonOps.INSTANCE,
+                JsonParser.parseString("{\"autoClaim\": \"no_toast\"}")).getOrThrow();
+        assertEquals(RewardAutoClaim.NO_TOAST, stated.autoClaim(RewardAutoClaim.ENABLED),
+                "the quest's own mode wins over the chapter's");
+
+        QuestRules silent = QuestRules.CODEC.parse(JsonOps.INSTANCE,
+                JsonParser.parseString("{}")).getOrThrow();
+        assertEquals(RewardAutoClaim.ENABLED, silent.autoClaim(RewardAutoClaim.ENABLED),
+                "a quest that says nothing takes the chapter's mode");
+
+        // And the chapter's own default defers to the pack setting, which is what makes the middle rung
+        // of the ladder a real state rather than a pinned value.
+        assertEquals(RewardAutoClaim.INVISIBLE,
+                RewardAutoClaim.DEFAULT.resolved(RewardAutoClaim.INVISIBLE));
+    }
+
+    @Test
+    @DisplayName("a choice reward cannot be auto-granted; every other table mode can")
+    void aChoiceIsNeverAutoGranted() {
+        // The bug this pins: an automatic mode used to select a choice reward, mark it collected and
+        // then grant nothing -- the offer never happened, so the reward was silently lost. The engine
+        // now skips these and leaves them outstanding for the claim flow.
+        TableReward choice = new TableReward(RewardCommon.DEFAULT, TableReward.Mode.CHOICE,
+                Optional.empty(), Optional.empty());
+        assertFalse(choice.autoGrantable(), "a choice's payout is the player's pick");
+
+        for (TableReward.Mode mode : TableReward.Mode.values()) {
+            if (mode == TableReward.Mode.CHOICE) {
+                continue;
+            }
+            assertTrue(new TableReward(RewardCommon.DEFAULT, mode, Optional.empty(), Optional.empty())
+                            .autoGrantable(),
+                    mode + " rolls or lists its entries and pays immediately");
+        }
+        assertTrue(new XpReward(RewardCommon.DEFAULT, 10, false).autoGrantable(),
+                "and an ordinary reward is automatic by default");
     }
 
     @Test

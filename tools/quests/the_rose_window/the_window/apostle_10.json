@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "apostle_10",
+  "title": "Frost",
+  "description": [
+    "Pane 11 of the apostle ring."
+  ],
+  "icon": {
+    "item": "minecraft:brown_stained_glass"
+  },
+  "x": 609,
+  "y": 456,
+  "shape": "hexagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:brown_stained_glass",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 6
+    }
+  ]
+}

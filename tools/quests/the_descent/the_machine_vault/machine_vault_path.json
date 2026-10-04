@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "machine_vault_path",
+  "title": "The Running Light",
+  "description": [
+    "A line of dust on the floor runs the length of the",
+    "vault, lit end to end, going somewhere with great",
+    "determination. Eight dust restores the stretch where the",
+    "wire gave up."
+  ],
+  "icon": {
+    "item": "minecraft:redstone"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:redstone",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

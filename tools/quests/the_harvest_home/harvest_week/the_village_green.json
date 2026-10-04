@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_village_green",
+  "title": "The Village Green",
+  "subtitle": "Be inside the village",
+  "description": [
+    "The week happens on the green, and the green is a structure task:",
+    "stand inside `minecraft:village_plains` and the quest counts you,",
+    "which is the drowned cathedral's trick applied to somewhere with",
+    "better drainage."
+  ],
+  "icon": { "item": "minecraft:oak_stairs" },
+  "x": 96,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_bells_rung"
+  ],
+  "tasks": [
+    { "type": "tasked:structure", "structure": "minecraft:village_plains" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:cookie", "count": 8 }
+  ]
+}

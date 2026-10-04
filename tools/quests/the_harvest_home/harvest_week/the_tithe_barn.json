@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_tithe_barn",
+  "title": "The Tithe Barn",
+  "subtitle": "Two hundred and fifty-six sheaves, paid without a toast",
+  "description": [
+    "The barn takes the tithe in sheaves, and it takes them seriously:",
+    "256 wheat, the count at which the progress bar stops being a",
+    "number and becomes the point.",
+    "",
+    "Its reward carries `auto: no_toast` -- paid automatically like the",
+    "rest of the chapter, but without the completion notice, which is",
+    "how a long grind finishes quietly instead of announcing itself",
+    "like the bell did."
+  ],
+  "icon": { "item": "minecraft:hay_block" },
+  "x": 288,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_field_cleared"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat", "count": 256 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:golden_hoe", "auto": "no_toast" }
+  ]
+}

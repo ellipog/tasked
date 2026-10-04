@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "furnace_dark_ward",
+  "title": "Ghast Glass",
+  "description": [
+    "The ward is quartz, two of it, from ore that grows in",
+    "the ceiling the way tears grow in one eye. What the",
+    "ghasts guard they guard badly, but from a great",
+    "height, and that is its own kind of lock."
+  ],
+  "icon": {
+    "item": "minecraft:quartz"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:quartz",
+      "count": 2
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "plough_seven",
+  "title": "The Plough: Alkaid",
+  "subtitle": "the last link of the reveal",
+  "description": [
+    "The handle's end, and the end of the chain: seven stars, each",
+    "hidden until the one before it is visible, the whole constellation",
+    "uncovers itself link by link from the comet inward. Sixteen",
+    "pixels, no shape, corner-to-corner icon -- the Plough in the",
+    "smallest format the canvas draws."
+  ],
+  "icon": { "item": "minecraft:glowstone_dust" },
+  "x": 1248,
+  "y": 224,
+  "shape": "none",
+  "size": 16,
+  "iconScale": 1.0,
+  "hideUntilDependenciesVisible": true,
+  "dependsOn": [
+    "plough_six"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Find it" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:nether_star" }
+  ]
+}

@@ -5,7 +5,7 @@ that points at a quest that was renamed, a cycle nobody can unlock. Tasked's ans
 files before anything tries to trust them, and to say what is wrong in the format a compiler uses:
 
 ```
-quests/getting_started/first_steps/punch_a_tree.json:14:9: error: unknown field "titl" (did you mean "title"?)
+quests/first_light/first_steps/punch_a_tree.json:14:9: error: unknown field "titl" (did you mean "title"?)
 ```
 
 File, line, column, severity, message. That is `DataProblem.render()`, and it is what the log carries

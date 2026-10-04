@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.net;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
+import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
@@ -583,7 +584,13 @@ class SyncWiringTest {
                 List.of(), List.of("TaskedTester", "SomebodyElse"), "pooled",
                 // Both of them connected, which is what a client's marker is drawn from now: the
                 // presence travels as its own lines, by id, rather than being guessed at by name.
-                List.of(self, friend)).pack();
+                List.of(self, friend),
+                // And the fields the panel grew after the first version: an outgoing invitation, the
+                // policy the settings switches read, the member cap the header writes, and -- for a
+                // solo recipient -- the open parties it may join.
+                List.of(new PartySnapshot.SentInvite("SomebodyElse", 12L)),
+                new TeamPolicy(true, false), 8,
+                List.of(new PartySnapshot.PublicParty(party, "the crew", 2, 8))).pack();
 
         long before = ClientPartyCache.rosterRevision();
 

@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_survey",
+  "title": "The First Survey",
+  "subtitle": "The road begins as a blank sheet",
+  "description": [
+    "Every named road in the province started the same way: one",
+    "surveyor, one blank sheet, and the particular confidence of a",
+    "person drawing a line into country they have not seen.",
+    "",
+    "This chapter draws every name it has -- `showTitle: true` on all",
+    "thirteen -- which is the exception in this collection, not the",
+    "rule. Named nodes keep 144 pixels between neighbours in a row, so",
+    "the labels never run together; the crowding check at load is what",
+    "enforces the habit."
+  ],
+  "icon": { "item": "minecraft:paper" },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:map", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

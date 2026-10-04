@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "far_shore_on",
+  "title": "Toward the Centre",
+  "description": [
+    "",
+    "The shore runs inward to a place the stone will not",
+    "describe, and the descent has walked every stratum",
+    "except the one at the very centre of this one.",
+    "",
+    "The dream of return is the fifteenth stratum and it",
+    "is not a place. It is what the walk home looks like",
+    "from inside, when the surface is close enough to",
+    "impossible and the body is doing the walking and the",
+    "mind is already at the map room table.",
+    "",
+    "Six stations, the same six, lit in colours the",
+    "surface has no names for.",
+    "",
+    "The archive's record still has its blank line. Home",
+    "is the direction that fills it in."
+  ],
+  "icon": {
+    "item": "minecraft:ender_eye"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Walk inward"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

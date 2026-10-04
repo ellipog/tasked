@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_first_word",
+  "title": "The First Word",
+  "subtitle": "requiresStage, and the stage task reading it back",
+  "description": [
+    "The first word of the rite proper, and the college will not hear it",
+    "from somebody it has not inducted: `requiresStage: my_pack:inducted`",
+    "gates the whole quest on the stage -- per player rather than per",
+    "team, so a party's inducted member can read it and their",
+    "uninducted teammate cannot, in the same world at the same time.",
+    "",
+    "The stage task inside reads the same flag back: it completes the",
+    "moment the player has the stage and is never handed in, because a",
+    "flag has nothing to hand. Nothing validates that a stage exists --",
+    "a stage exists by being granted -- so a typo here is a quest nobody",
+    "can ever open, and the college's handwriting is its own hazard."
+  ],
+  "icon": { "item": "minecraft:lapis_lazuli" },
+  "x": 480,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "requiresStage": "my_pack:inducted",
+  "dependsOn": [
+    "the_oral"
+  ],
+  "tasks": [
+    { "type": "tasked:stage", "stage": "my_pack:inducted" },
+    { "type": "tasked:item", "item": "minecraft:lapis_lazuli", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:amethyst_shard", "count": 4 }
+  ]
+}

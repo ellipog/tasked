@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "patron_south",
+  "title": "The Southern Patron",
+  "subtitle": "Two of the three will do",
+  "description": [
+    "The southern patron collects sand, for reasons the ledger describes",
+    "as 'glass, eventually' and leaves there. Sixteen blocks, on the",
+    "nail."
+  ],
+  "icon": { "item": "minecraft:sand" },
+  "x": 384,
+  "y": 128,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "collect_the_dues"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:sand", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

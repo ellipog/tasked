@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_sail",
+  "title": "The Sail",
+  "subtitle": "form: orthogonal, anchored at both ends",
+  "description": [
+    "The solar sail, docked: `form: orthogonal`, with the line leaving",
+    "the sun at `fromAnchor: 90` and meeting the sail at `toAnchor: 270`",
+    "-- the angles a line leaves or meets a node at, zero east and",
+    "growing clockwise, and per-line only, because which rim a line",
+    "meets is a fact about its two ends and the chapter cannot know it."
+  ],
+  "icon": { "item": "minecraft:white_banner" },
+  "x": 845,
+  "y": 704,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": { "form": "orthogonal", "fromAnchor": 90, "toAnchor": 270 }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:phantom_membrane", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:elytra" }
+  ]
+}

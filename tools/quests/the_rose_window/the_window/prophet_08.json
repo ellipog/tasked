@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "prophet_08",
+  "title": "Rust",
+  "description": [
+    "Pane 9 of the prophet ring."
+  ],
+  "icon": {
+    "item": "minecraft:lime_stained_glass_pane"
+  },
+  "x": 682,
+  "y": 682,
+  "shape": "diamond",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:lime_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

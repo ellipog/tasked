@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "far_shore_path",
+  "title": "The Bridge of Breath",
+  "description": [
+    "Eight blocks of the shore's own stone, bridging the",
+    "first gap. The gaps out here are not measured in",
+    "blocks. They are measured in what you brought to",
+    "cross them with."
+  ],
+  "icon": {
+    "item": "minecraft:purpur_block"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:end_stone",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

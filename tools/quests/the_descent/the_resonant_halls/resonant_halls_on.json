@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "resonant_halls_on",
+  "title": "Where the Hum Points",
+  "description": [
+    "",
+    "The hum the halls have been keeping to themselves turns",
+    "out to be directional, and it points down a passage the",
+    "crystal does not follow. The candle-end somebody left",
+    "at the junction burns steady, unbothered by echoes.",
+    "",
+    "The black gate is next: obsidian, and a portal frame",
+    "that somebody built and somebody else unlit, and a",
+    "darkness beyond the crystal's range.",
+    "",
+    "Six stations, the same six, gone quiet.",
+    "",
+    "The halls keep your footsteps for a long time behind",
+    "you. It is the closest thing the descent has had to",
+    "company that speaks."
+  ],
+  "icon": {
+    "item": "minecraft:candle"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Follow the hum"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

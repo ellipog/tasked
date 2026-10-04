@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "resonant_halls_treasure",
+  "title": "The Tinted Pane",
+  "description": [
+    "Four panes of the smoky glass somebody blew down here,",
+    "in a room where the crystal holds the light and the",
+    "glass decides what it is worth."
+  ],
+  "icon": {
+    "item": "minecraft:tinted_glass"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:tinted_glass",
+      "count": 4
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:spyglass",
+      "count": 1
+    }
+  ]
+}

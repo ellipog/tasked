@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.net;
 
+import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
 
@@ -45,10 +46,14 @@ class PartySnapshotTest {
         return new PartySnapshot(TEAM, "the crew", OWNER,
                 List.of(new PartySnapshot.Member(OWNER, "Ellipog", TeamRole.OWNER),
                         new PartySnapshot.Member(MEMBER, "Tester", TeamRole.MEMBER)),
-                List.of(new PartySnapshot.Invite(TEAM, "another party")),
+                List.of(new PartySnapshot.Invite(TEAM, "another party", MEMBER, "Tester", 44L)),
                 List.of("Ellipog", "Tester"),
                 "pooled",
-                List.of(OWNER));
+                List.of(OWNER),
+                List.of(new PartySnapshot.SentInvite("Tester", 33L)),
+                new TeamPolicy(true, false),
+                8,
+                List.of(new PartySnapshot.PublicParty(TEAM, "the crew", 2, 8)));
     }
 
     @Nested
@@ -76,6 +81,23 @@ class PartySnapshotTest {
                     "and who was connected, which is what the marker on a member's row is drawn from "
                             + "-- a field the round trip would otherwise drop in silence, on a test whose "
                             + "name says every field survives");
+
+            // The fields the invitation row grew, and the party's own settings. Each is asserted in
+            // its non-default state: an assertion against a default is an assertion a reader that
+            // ignored the field entirely would also pass.
+            PartySnapshot.Invite invite = back.invites().get(0);
+            assertEquals(MEMBER, invite.inviter(), "who sent the invitation");
+            assertEquals("Tester", invite.inviterName(), "and their name, so the row can draw it");
+            assertEquals(44L, invite.age(), "and how long ago, so an old invitation can be told from a new one");
+            assertTrue(invite.hasTime());
+            assertEquals(List.of(new PartySnapshot.SentInvite("Tester", 33L)), back.sent(),
+                    "the party's outgoing invitations, which its own panel lists with a Cancel");
+            assertEquals(new TeamPolicy(true, false), back.policy(),
+                    "both switches, in the state that is not the default, so a reader that dropped "
+                            + "the settings line cannot pass");
+            assertEquals(8, back.memberLimit(), "and the cap the header writes as 3/8");
+            assertEquals(1, back.publicParties().size(), "and the browse list a solo player joins from");
+            assertEquals(2, back.publicParties().get(0).members());
         }
 
         @Test
@@ -101,7 +123,8 @@ class PartySnapshotTest {
             // than one with a character removed from a name, so the direction of the fallback matters.
             PartySnapshot hostile = new PartySnapshot(TEAM, "cre" + SEP + "w", OWNER,
                     List.of(new PartySnapshot.Member(OWNER, "Elli" + SEP + "pog", TeamRole.OWNER)),
-                    List.of(), List.of(), "one_member", List.of());
+                    List.of(), List.of(), "one_member", List.of(),
+                    List.of(), TeamPolicy.DEFAULT, 0, List.of());
 
             PartySnapshot back = PartySnapshot.unpack(hostile.pack());
 
@@ -196,6 +219,71 @@ class PartySnapshotTest {
     }
 
     @Nested
+    @DisplayName("Growing the format, from both sides")
+    class GrowingTheFormat {
+
+        @Test
+        @DisplayName("an invitation line from before the sender and time reads as an unknown sender")
+        void anOldInvitationLineReads() {
+            // The shape this line had before the panel grew its invitation rows: two fields. The
+            // reader must take what it recognises rather than fail or mis-parse -- this is what a
+            // snapshot from an older server looks like.
+            String packed = TEAM + "\ncrew\n" + OWNER + "\none_member\n"
+                    + "i" + SEP + TEAM + SEP + "another party\n";
+
+            PartySnapshot back = PartySnapshot.unpack(packed);
+
+            PartySnapshot.Invite invite = back.invites().get(0);
+            assertEquals("another party", invite.teamName());
+            assertEquals(new UUID(0L, 0L), invite.inviter(), "no sender travelled");
+            assertFalse(invite.hasTime(), "and no time -- zero is the honest unknown, see TeamInvite");
+        }
+
+        @Test
+        @DisplayName("a settings line this build cannot read leaves the default policy in place")
+        void junkSettingsLeaveTheDefault() {
+            // A malformed settings line must not decide who may invite: a boolean that is neither
+            // "true" nor "false" keeps the default, and an unreadable cap reads as unknown.
+            String packed = TEAM + "\ncrew\n" + OWNER + "\none_member\n"
+                    + "g" + SEP + "maybe" + SEP + "maybe" + SEP + "lots\n";
+
+            PartySnapshot back = PartySnapshot.unpack(packed);
+
+            assertEquals(TeamPolicy.DEFAULT, back.policy());
+            assertEquals(0, back.memberLimit(), "zero is 'the server did not say', not a real cap");
+        }
+
+        @Test
+        @DisplayName("a snapshot from before the new lines keeps every default")
+        void anOlderSnapshotKeepsEveryDefault() {
+            // The other direction: a client from this build reading a server that predates the
+            // settings, the outgoing list and the browse list. Every added field has a documented
+            // default, and this is what asserts it is actually reached.
+            String packed = TEAM + "\ncrew\n" + OWNER + "\npooled\n"
+                    + "m" + SEP + OWNER + SEP + "OWNER" + SEP + "Ellipog\n";
+
+            PartySnapshot back = PartySnapshot.unpack(packed);
+
+            assertEquals(TeamPolicy.DEFAULT, back.policy());
+            assertEquals(0, back.memberLimit());
+            assertTrue(back.sent().isEmpty());
+            assertTrue(back.publicParties().isEmpty());
+        }
+
+        @Test
+        @DisplayName("the idle snapshot carries the defaults, not nothing")
+        void noneCarriesTheDefaults() {
+            PartySnapshot empty = PartySnapshot.none();
+
+            assertEquals(TeamPolicy.DEFAULT, empty.policy(),
+                    "so a switch drawn from an empty snapshot reads its documented initial state");
+            assertEquals(0, empty.memberLimit());
+            assertTrue(empty.sent().isEmpty());
+            assertTrue(empty.publicParties().isEmpty());
+        }
+    }
+
+    @Nested
     @DisplayName("As the panel draws it")
     class AsARoster {
 
@@ -238,7 +326,8 @@ class PartySnapshotTest {
             PartySnapshot swapped = new PartySnapshot(TEAM, "the crew", OWNER,
                     List.of(new PartySnapshot.Member(OWNER, "Tester", TeamRole.OWNER),
                             new PartySnapshot.Member(MEMBER, "Ellipog", TeamRole.MEMBER)),
-                    List.of(), List.of("Ellipog"), "one_member", List.of(MEMBER));
+                    List.of(), List.of("Ellipog"), "one_member", List.of(MEMBER),
+                    List.of(), TeamPolicy.DEFAULT, 0, List.of());
 
             PartyRoster roster = PartySnapshot.toRoster(swapped, OWNER);
 

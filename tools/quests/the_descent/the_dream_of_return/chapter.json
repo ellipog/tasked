@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_dream_of_return",
+  "title": "The Dream of Return",
+  "subtitle": "the fifteenth of fifteen depths",
+  "theme": "neon",
+  "description": [
+    "The fifteenth stratum is not down. It is the walk home, seen",
+    "from the inside: colours with no names, a stair that is not",
+    "there, a door that is.",
+    "",
+    "Neon is the theme, because dreams do not do subtlety and",
+    "neither does this one."
+  ],
+  "icon": {
+    "item": "minecraft:sea_lantern"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "dream_of_return_arrival.json",
+    "dream_of_return_path.json",
+    "dream_of_return_ward.json",
+    "dream_of_return_hazard.json",
+    "dream_of_return_treasure.json",
+    "dream_of_return_on.json"
+  ]
+}

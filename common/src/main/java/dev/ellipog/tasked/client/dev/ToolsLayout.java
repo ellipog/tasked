@@ -131,6 +131,15 @@ public final class ToolsLayout {
     public static final String MOTION = "motion";
     public static final String SNAP = "snap";
 
+    /**
+     * The switch that points the panel at the open chapter's palette instead of the player's theme.
+     *
+     * <p>Only offered while there is a chapter to edit and the author may edit it: the chapter target
+     * writes the chapter file, which is an author's tool, and a reader's Theme tab stays about their own
+     * theme.
+     */
+    public static final String CHAPTER_THEME = "theme:chapter";
+
     /** The one foldable section. Pressing its heading folds it. */
     /** The shape section: one row, the corner radius, and it is selected through the band like a colour. */
     public static final String SHAPE_SECTION = "section:shape";
@@ -408,10 +417,27 @@ public final class ToolsLayout {
      */
     public static List<Action> rows(boolean editOn, boolean motionOn, boolean snapOn,
                                     boolean coloursOpen) {
+        return rows(editOn, motionOn, snapOn, coloursOpen, false, false);
+    }
+
+    /**
+     * The same, with the chapter-palette switch where it applies.
+     *
+     * @param chapterTarget whether the panel is editing the open chapter's palette
+     * @param chapterTargetAvailable whether there is a chapter to edit and the author may edit it
+     */
+    public static List<Action> rows(boolean editOn, boolean motionOn, boolean snapOn,
+                                    boolean coloursOpen, boolean chapterTarget,
+                                    boolean chapterTargetAvailable) {
         List<Action> rows = new ArrayList<>();
         rows.add(Action.toggle(EDIT, "Edit mode", editOn ? "On" : "Off"));
         rows.add(Action.toggle(MOTION, "Motion", motionOn ? "On" : "Off"));
         rows.add(Action.toggle(SNAP, "Snap", snapOn ? "On" : "Off"));
+        if (chapterTargetAvailable) {
+            // After the three global switches and before Shape, because it changes what the rest of the
+            // panel is about: everything under it edits the chapter's palette rather than your own.
+            rows.add(Action.toggle(CHAPTER_THEME, "Chapter palette", chapterTarget ? "On" : "Off"));
+        }
 
         // Shape before colours: the two knobs that are not a colour, then the palette.
         rows.add(Action.heading(SHAPE_SECTION, "Shape"));

@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_watch_hill",
+  "title": "The Watch Hill",
+  "subtitle": "A location box, drawn to scale",
+  "description": [
+    "The survey camps are boxes on the sheet, and the quest makes it",
+    "literal: a `location` task with a `position` corner and a `size`,",
+    "and `ignoreDimension: true` because the example does not presume",
+    "to know which world the survey walked.",
+    "",
+    "A pack writing this for its own map names the dimension and draws",
+    "the box its camp really occupies. The field is the difference",
+    "between 'visit the place' and 'be inside this rectangle'."
+  ],
+  "icon": { "item": "minecraft:barrel" },
+  "x": 288,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "dependsOn": [
+    "the_ford"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:location",
+      "position": [0, 64, 0],
+      "size": [48, 48, 48],
+      "ignoreDimension": true
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:cooked_mutton", "count": 4 }
+  ]
+}

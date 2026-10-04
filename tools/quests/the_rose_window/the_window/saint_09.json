@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "saint_09",
+  "title": "Aster",
+  "description": [
+    "Pane 10 of the saint ring."
+  ],
+  "icon": {
+    "item": "minecraft:quartz"
+  },
+  "x": 880,
+  "y": 512,
+  "shape": "pentagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:quartz",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 12
+    }
+  ]
+}

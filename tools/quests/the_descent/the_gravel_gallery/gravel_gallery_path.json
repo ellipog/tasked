@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "gravel_gallery_path",
+  "title": "Where the Water Drips",
+  "description": [
+    "The gallery has one sound and it is this. The drips are",
+    "the only clock down here, and they keep perfect time for",
+    "anybody patient enough to be told nothing twice."
+  ],
+  "icon": {
+    "item": "minecraft:clay_ball"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Stand and listen"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:clay_ball",
+      "count": 4
+    }
+  ]
+}

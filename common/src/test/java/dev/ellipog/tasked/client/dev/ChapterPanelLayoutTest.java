@@ -65,7 +65,7 @@ class ChapterPanelLayoutTest {
                 "one heading per section, in the order an author reads them");
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
-                        "progressionMode", "defaultConsumeItems", "defaultPrerequisiteMode",
+                        "progressionMode", "defaultConsumeItems", "defaultPrerequisiteMode", "autoClaim",
                         "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
                         "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight"),
                 rows.stream().filter(row -> !row.isHeading()
@@ -84,6 +84,7 @@ class ChapterPanelLayoutTest {
 
         assertEquals("Progression", row(rows, "progressionMode").label());
         assertEquals("Prerequisite", row(rows, "defaultPrerequisiteMode").label());
+        assertEquals("Auto-claim", row(rows, "autoClaim").label());
         assertEquals("Aliases", row(rows, "aliases").label());
         assertEquals("Line form", row(rows, "dependencyStyle.form").label());
         assertEquals("Line head", row(rows, "dependencyStyle.arrowHead").label());
@@ -164,6 +165,11 @@ class ChapterPanelLayoutTest {
         assertEquals("stepped",
                 ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_FORM, "straight", 1),
                 "the step past straight is the stepped route the vocabulary now has");
+        assertEquals("enabled", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.AUTO_CLAIM, "disabled", 1),
+                "the auto-claim ring follows the same order as the reward-level modes");
+        assertEquals("Default (pack setting)",
+                ChapterPanelLayout.choiceLabel(ChapterPanelLayout.AUTO_CLAIM, ""),
+                "and the unset state names what it defers to, like every other row");
         assertEquals("none", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_ARROW_HEAD, "", -1),
                 "down from unset wraps to the last head value");
         assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_WEIGHT, "not_a_weight", 0),

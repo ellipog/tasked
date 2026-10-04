@@ -4,6 +4,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
+
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.Optional;
@@ -54,16 +56,43 @@ public record QuestRules(boolean repeatable,
                           * integration is the shape being matched -- it is how a pack writes "this chapter
                           * follows that one" when the thing linking them is not a dependency edge.
                           */
-                         Optional<ResourceLocation> requiresStage) {
+                         Optional<ResourceLocation> requiresStage,
+                         /**
+                          * Whether this quest's rewards are handed over the moment it completes, with the
+                          * chapter's default for a quest that says nothing.
+                          *
+                          * <p>The middle rung of the ladder: a reward's own {@code auto} wins over this,
+                          * this wins over the chapter's {@code autoClaim}, and the chapter's wins over the
+                          * pack setting in {@code index.json}. Absent rather than {@code DEFAULT} because
+                          * "this quest has no opinion" is a real state an author needs — the alternative
+                          * would pin the chapter's default the moment a quest is edited.
+                          *
+                          * <p>The point of it is the fifty dirt-and-wood quests at the start of a pack: a
+                          * chapter turns auto-claim on once, and the players are spared fifty clicks.
+                          * Rewards that need a decision — a {@code tasked:choice} table — are never
+                          * auto-granted whatever this says; they wait for the pick.
+                          */
+                         Optional<RewardAutoClaim> autoClaim) {
 
     public static final QuestRules DEFAULT = new QuestRules(false, 0, false, false, false,
-            Optional.empty(), 0, false, false, false, false, false, 0, Optional.empty());
+            Optional.empty(), 0, false, false, false, false, false, 0, Optional.empty(), Optional.empty());
 
     /** The field names this contributes, for the validator to allow at quest level. */
     public static final Set<String> FIELDS = Set.of("repeatable", "repeatCooldownTicks", "sequentialTasks",
             "invisible", "showTitle", "exclusiveGroup", "maxCompletableDependents",
             "hideUntilDependenciesComplete", "hideUntilDependenciesVisible", "hideDependencyLines",
-            "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "requiresStage");
+            "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "requiresStage",
+            "autoClaim");
+
+    /**
+     * The auto-claim mode in force for this quest: its own, or the chapter's default.
+     *
+     * <p>One accessor rather than an {@code orElse} at each call site, so the server's grant path and
+     * the client's toast path cannot resolve the ladder differently.
+     */
+    public RewardAutoClaim autoClaim(RewardAutoClaim fallback) {
+        return autoClaim.orElse(fallback);
+    }
 
     /** The bounds of the two counted flags: a cap of dependents, and a number of tasks. */
     public static final int MIN_COUNT = 0;
@@ -120,7 +149,10 @@ public record QuestRules(boolean repeatable,
             // The stage gate: an id, like every other name in this format, and nothing checks that the
             // stage exists -- one exists by being granted, so a validator would be guessing about a grant a
             // script may make tomorrow.
-            ResourceLocation.CODEC.optionalFieldOf("requiresStage").forGetter(QuestRules::requiresStage)
+            ResourceLocation.CODEC.optionalFieldOf("requiresStage").forGetter(QuestRules::requiresStage),
+            // The middle rung of the auto-claim ladder; see the component's javadoc. Absent means the
+            // chapter decides.
+            RewardAutoClaim.CODEC.optionalFieldOf("autoClaim").forGetter(QuestRules::autoClaim)
     ).apply(instance, QuestRules::new));
 
     public static final Codec<QuestRules> CODEC = MAP_CODEC.codec();

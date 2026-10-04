@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "saint_08",
+  "title": "Wheat",
+  "description": [
+    "Pane 9 of the saint ring."
+  ],
+  "icon": {
+    "item": "minecraft:amethyst_shard"
+  },
+  "x": 831,
+  "y": 696,
+  "shape": "pentagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:amethyst_shard",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

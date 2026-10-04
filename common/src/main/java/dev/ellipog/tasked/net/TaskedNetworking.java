@@ -886,7 +886,19 @@ public final class TaskedNetworking {
     private static java.util.List<PartySnapshot.Invite> invitesFor(MinecraftServer server, UUID player) {
         java.util.List<PartySnapshot.Invite> out = new java.util.ArrayList<>();
         for (Team team : dev.ellipog.armature.api.teams.Teams.of(server).invitesFor(player)) {
-            out.add(new PartySnapshot.Invite(team.id(), team.name()));
+            // Who sent it and when are the two facts the invitation row shows besides the party's
+            // name. A source that cannot say stores the owner and a zero time -- see TeamInvite --
+            // and both truthfully reach the panel through here rather than being flattened to a
+            // team id and a name, which is what this line used to do.
+            var invite = team.inviteOf(player).orElse(null);
+            UUID inviter = invite == null ? team.owner() : invite.inviter();
+            // Stored timestamp to wire age, while the server clock is in hand: the client has no
+            // server clock, so a raw game time would render as however old the world is.
+            long age = invite == null || invite.at() <= 0L
+                    ? 0L
+                    : Math.max(0L, server.overworld().getGameTime() - invite.at());
+            out.add(new PartySnapshot.Invite(team.id(), team.name(), inviter,
+                    PartySnapshot.nameOf(server, inviter), age));
         }
         return out;
     }
@@ -975,13 +987,67 @@ public final class TaskedNetworking {
         }
         Optional<Team> mine = dev.ellipog.armature.api.teams.Teams.of(server).realTeamOf(player.getUUID());
         if (mine.isEmpty()) {
-            sendRoster(player, PartySnapshot.none());
+            // The public list rides on the solo snapshot: a player in no party is the one who can use
+            // a browse list of open parties, and their panel draws it under the invitations. Filled
+            // here rather than for every snapshot because a member's panel never draws it.
+            sendRoster(player, PartySnapshot.none().withPublic(server));
             return;
         }
         UUID teamId = mine.get().id();
         sendRoster(player, PartySnapshot.of(server, teamId)
                 .withArriving(server, player, id -> invitesFor(server, id))
                 .withMode(dev.ellipog.tasked.party.PartyStore.of(server).modeOf(teamId).id()));
+    }
+
+    /**
+     * A player's current roster, built for a recipient who is already in the player list.
+     *
+     * <h2>Why this exists beside {@link #sendOwnRosterTo}</h2>
+     *
+     * <p>Because the two answer "who is this player, as far as the server can see". A login needs
+     * {@code withArriving} — the player list does not yet contain them, and the whole reason that
+     * method exists is a login that drew its own row as offline. Every other push happens long after
+     * the join, where the list is the right source and the player object is not in hand: a command
+     * knows the target's id, not their {@code ServerPlayer}. Splitting the two keeps the login's
+     * exceptional shape at the login, where it is a fact rather than a guess.
+     */
+    public static void sendOwnRosterById(MinecraftServer server, UUID playerId) {
+        if (server == null) {
+            return;
+        }
+        Optional<Team> mine = dev.ellipog.armature.api.teams.Teams.of(server).realTeamOf(playerId);
+        if (mine.isEmpty()) {
+            sendRosterTo(server, playerId, PartySnapshot.none().withPublic(server));
+            return;
+        }
+        UUID teamId = mine.get().id();
+        sendRosterTo(server, playerId, PartySnapshot.of(server, teamId)
+                .withPlayers(server, playerId, id -> invitesFor(server, id))
+                .withMode(dev.ellipog.tasked.party.PartyStore.of(server).modeOf(teamId).id()));
+    }
+
+    /**
+     * Every solo player's public list, refreshed.
+     *
+     * <h2>Why only the solo players</h2>
+     *
+     * <p>Because the list is drawn on the solo screen. A member's snapshot is pushed by
+     * {@link #sendPartyToTeam} when their party changes, and their panel never draws the browse list,
+     * so sending it to them would be a message per member per party event for a list nobody sees.
+     *
+     * <p>Called on the events that change the <i>set</i> of public parties or the counts in it: a
+     * party formed, disbanded, joined, or switched public. Each of those is rare, and the alternative
+     * is a browse list that is as stale as the server is busy.
+     */
+    public static void sendPublicLists(MinecraftServer server) {
+        if (server == null) {
+            return;
+        }
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (dev.ellipog.armature.api.teams.Teams.of(server).realTeamOf(player.getUUID()).isEmpty()) {
+                sendOwnRosterById(server, player.getUUID());
+            }
+        }
     }
 
     /**
@@ -995,7 +1061,10 @@ public final class TaskedNetworking {
      * makes it convincing. So a disband sends this to each former member rather than sending nothing.
      */
     public static void sendNoPartyTo(MinecraftServer server, UUID playerId) {
-        sendRosterTo(server, playerId, PartySnapshot.none());
+        // With the public list, like every other solo push: a player who has just left or disbanded is
+        // the one looking at the browse list, and a bare `none()` would show them "No public parties
+        // right now" until some later event refreshed it.
+        sendRosterTo(server, playerId, PartySnapshot.none().withPublic(server));
     }
 
     /**

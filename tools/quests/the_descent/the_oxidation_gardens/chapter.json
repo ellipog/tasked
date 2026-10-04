@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_oxidation_gardens",
+  "title": "The Oxidation Gardens",
+  "subtitle": "the sixth of fifteen depths",
+  "theme": "copper",
+  "description": [
+    "Where water found copper and neither party has finished the",
+    "argument: green veins through brown stone, gardens of a metal",
+    "that blooms instead of growing.",
+    "",
+    "Copper is the theme, oxidised the exact amount the weather",
+    "chose."
+  ],
+  "icon": {
+    "item": "minecraft:copper_block"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "oxidation_gardens_arrival.json",
+    "oxidation_gardens_path.json",
+    "oxidation_gardens_ward.json",
+    "oxidation_gardens_hazard.json",
+    "oxidation_gardens_treasure.json",
+    "oxidation_gardens_on.json"
+  ]
+}

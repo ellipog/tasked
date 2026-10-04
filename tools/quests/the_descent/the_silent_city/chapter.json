@@ -1,0 +1,26 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_silent_city",
+  "title": "The Silent City",
+  "subtitle": "the eleventh of fifteen depths",
+  "theme": "deep_dark",
+  "description": [
+    "Below even the furnace dark: a city the dark grew over, its",
+    "streets sculk, its silence total and its hearing excellent.",
+    "",
+    "Deep Dark is the theme, which is not a look down here. It is",
+    "the building material."
+  ],
+  "icon": {
+    "item": "minecraft:sculk"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "silent_city_arrival.json",
+    "silent_city_path.json",
+    "silent_city_ward.json",
+    "silent_city_hazard.json",
+    "silent_city_treasure.json",
+    "silent_city_on.json"
+  ]
+}

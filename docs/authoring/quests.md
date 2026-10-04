@@ -130,6 +130,7 @@ For a whole chapter:
 | `repeatable` | `false` | Completable more than once. `timesCompleted` survives each completion, and something depending on it stays satisfied. |
 | `repeatCooldownTicks` | `0` | Ticks to wait between completions. 2400 is two minutes. |
 | `sequentialTasks` | `false` | Tasks must be handed in in order: the second cannot be handed in until the first is. |
+| `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tasked:authoring/rewards]]. |
 | `exclusiveGroup` | — | Quests sharing a name are mutually exclusive: completing one locks the others, permanently. A [[exclusive-group]] is a choice of paths. Scoped to the chapter. |
 | `maxCompletableDependents` | `0` | At most this many of the quests depending on this one may complete; the rest stay locked for good. `0` is no cap. A dependent already completed stays completed. |
 
@@ -184,5 +185,9 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 |---|---|---|
 | `defaultPrerequisiteMode` | `all_completed` | The `prerequisiteMode` a quest uses unless it says otherwise. |
 | `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. |
+| `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tasked:authoring/rewards]]. |
 | `dependencyStyle` | built-ins | The drawing defaults for the chapter's lines. |
 | `theme` | — | A palette the chapter asks to be drawn in. A client concept: the catalogue lives on the client, so the name is a plain string here, and a client that cannot resolve it says so. |
+| `themePatch` | — | Token-level overrides for `theme` — individual colours and a corner radius, applied over the named theme (or over the player's own when no theme is named). The Theme tab's "Chapter palette" switch writes this; a file can also carry it by hand: `{ "colours": { "raised": "#FF24242E" }, "cornerRadius": 4 }`. |
+
+A chapter's palette reaches everything that belongs to it — the canvas, the quest cards and their buttons and fields, the picker and rename cards, and the tooltips describing them — while the book's own chrome (sidebar, header, menus, tools panel, notices) keeps the player's theme. `themePatch` is how a chapter sets "raised surfaces at `#24242E`, radius 4" without shipping a whole theme file.

@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "black_gate_treasure",
+  "title": "The Kept Ember",
+  "description": [
+    "A lodestone at the gate's foot, set by whoever meant to",
+    "find their way back from wherever the gate went. It has",
+    "never been claimed. Compasses are sentimental; that is",
+    "the whole trick of them."
+  ],
+  "icon": {
+    "item": "minecraft:lodestone"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:lodestone",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:compass",
+      "count": 1
+    }
+  ]
+}

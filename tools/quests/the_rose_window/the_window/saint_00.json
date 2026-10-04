@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "saint_00",
+  "title": "Plum",
+  "description": [
+    "Pane 1 of the saint ring."
+  ],
+  "icon": {
+    "item": "minecraft:purple_stained_glass_pane"
+  },
+  "x": 512,
+  "y": 144,
+  "shape": "pentagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:purple_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

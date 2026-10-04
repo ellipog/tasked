@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "greenwood_path",
+  "title": "The Deer Path",
+  "description": [
+    "The deer were here first and their path is better, which",
+    "is the usual arrangement. It loses light in stages, the",
+    "way a story does when it heads underground."
+  ],
+  "icon": {
+    "item": "minecraft:oak_sapling"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item_tag",
+      "tag": "minecraft:leaves",
+      "count": 16
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:sweet_berries",
+      "count": 4
+    }
+  ]
+}

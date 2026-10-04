@@ -487,7 +487,7 @@ public final class BookGeometry {
      *
      * <p>Written as the sum because the sum is the definition. A reader who wants to know how tall a
      * card has to be should be able to read it off the four constants that decide it, not multiply
-     * {@code MODAL_CHROME} by one and check {@link #modalControls} by eye.
+     * {@code MODAL_CHROME} by one and check {@link #partyControls} by eye.
      */
     public static final int MODAL_CHROME =
             MODAL_INSET + MODAL_FOOTER_GAP + OVERLAY_CONTROL_HEIGHT + MODAL_INSET;
@@ -813,7 +813,7 @@ public final class BookGeometry {
      *
      * <p>The footer's row is {@link #OVERLAY_CONTROL_HEIGHT}, not the footer's actual controls: this says
      * how much room is <b>reserved</b> for them, and a caller that wanted to know where a specific button
-     * went asks {@link #modalControls} instead. Two questions, two methods, and neither re-derives the
+     * went asks {@link #partyControls} instead. Two questions, two methods, and neither re-derives the
      * other's answer.
      */
     public static Rect modalBody(Rect card) {
@@ -1143,7 +1143,7 @@ public final class BookGeometry {
      * The quest overlay's footer, inside a card the caller supplies.
      *
      * <p>Submit on the left and Back on the right, and Back moves up a row when the two would
-     * collide. Kept separate from {@link #modalControls} because the two cards hold different
+     * collide. Kept separate from {@link #partyControls} because the two cards hold different
      * controls -- see that method's note -- and this one takes its own width for Submit rather
      * than the short party actions'.
      */
@@ -1170,77 +1170,54 @@ public final class BookGeometry {
     }
 
     /**
-     * The party panel's footer: up to two short actions on the left, Back on the right.
+     * The party panel's footer: Disband and Leave on the left, Done on the right.
      *
      * <h2>Why this is a separate shape rather than reusing the quest one</h2>
      *
      * <p>Because its controls are not a Submit/Back pair, and pretending they are would put a 130-pixel
      * button in a card whose real actions are "Leave" and "Disband". Reusing {@code overlayControls(boolean)}
      * would also mean asking it a question it cannot answer -- whether the viewer may leave is a fact about
-     * a roster, not about a quest -- and the overloads say so in their signatures.
+     * a roster, not about a quest -- and the signatures say so.
      *
-     * <h2>The two actions share a row, and Back moves rather than collides</h2>
+     * <h2>The weighting is the spec's, and it is deliberate</h2>
      *
-     * <p>Same fallback the quest overlay uses, applied to a different set: measure against the card, and
-     * move Back up a row if the three do not fit. One expression for the decision rather than a
-     * per-control check, so two controls cannot disagree about whether they collided.
+     * <p><b>Disband</b> takes the far left, alone and red-bordered, because it is the only action here
+     * that destroys something. <b>Leave</b> sits beside it as an ordinary control. <b>Done</b> is
+     * right-aligned and worn as the primary, because leaving the panel is what most presses of this
+     * footer mean — a footer whose dangerous action is the easiest to hit is a footer that will be hit.
      *
-     * <p>The action origin is the same whether there is one action or two, so a party of one and a party
-     * of three put "Leave" in the same place. That matters because the panel's footer is the one part of
-     * it whose position does not move when the membership does.
+     * <p>The origin of each is a function of which controls exist rather than of how many: a lone owner
+     * and an owner with members present put Disband in the same place, so the panel's one stable row
+     * stays stable when a member joins. The old shape counted "actions" and put Leave first; this one
+     * names them, because the two have different weights and a count cannot say so.
      *
-     * @param actions  how many of Leave and Disband the viewer may use, 0 to 2
-     * @param hasBack  whether to place Back at all -- a caller drawing a preview may not want it
+     * @param hasDisband whether the viewer may dissolve the party. Owner only
+     * @param hasLeave   whether the viewer may leave it. False for a party of one, where Disband is the
+     *                   only honest word for the one exit
+     * @param hasDone    whether to place Done at all -- a caller drawing a preview may not want it
      */
-    public Map<String, Rect> overlayControls(int actions, boolean hasBack) {
-        return modalControls(modal(), actions, hasBack);
-    }
-
-    /**
-     * The same, placed inside a caller's own card.
-     *
-     * <h2>Why this takes the card rather than using {@link #overlay()}</h2>
-     *
-     * <p>Because a modal sized to its content has a rectangle the caller computed, and a footer placed
-     * against a *different* rectangle is a footer outside its card -- the fault this class exists to
-     * prevent, and one that a smaller card makes reachable: at the old size the two rectangles were
-     * nearly the same, so using the wrong one looked almost right.
-     */
-    public Map<String, Rect> modalControls(Rect card, int actions, boolean hasBack) {
+    public Map<String, Rect> partyControls(Rect card, boolean hasDisband, boolean hasLeave, boolean hasDone) {
         Map<String, Rect> out = new LinkedHashMap<>();
         int height = OVERLAY_CONTROL_HEIGHT;
         // The same equal inset as the quest footer and as the panel's own rows. See MODAL_INSET for the
         // four numbers this replaced.
         int rowY = card.bottom() - MODAL_INSET - height;
 
-        Rect back = null;
-        if (hasBack) {
-            back = Rect.at(card.right() - MODAL_INSET - BACK_WIDTH, rowY, BACK_WIDTH, height);
+        if (hasDone) {
+            out.put("done", Rect.at(card.right() - MODAL_INSET - BACK_WIDTH, rowY, BACK_WIDTH, height));
         }
-
-        if (actions <= 0) {
-            if (back != null) {
-                out.put("back", back);
-            }
-            return out;
+        if (hasDisband) {
+            out.put("disband", Rect.at(card.x() + MODAL_INSET, rowY, PARTY_ACTION_WIDTH, height));
         }
-
-        Rect first = Rect.at(card.x() + MODAL_INSET, rowY, PARTY_ACTION_WIDTH, height);
-        out.put("leave", first);
-        if (actions >= 2) {
-            out.put("disband", Rect.at(first.right() + ROW_GAP, rowY, PARTY_ACTION_WIDTH, height));
+        if (hasLeave) {
+            int x = hasDisband
+                    ? card.x() + MODAL_INSET + PARTY_ACTION_WIDTH + ROW_GAP
+                    : card.x() + MODAL_INSET;
+            out.put("leave", Rect.at(x, rowY, PARTY_ACTION_WIDTH, height));
         }
-
-        if (back != null) {
-            if (back.x() < first.right() + ROW_GAP) {
-                // Not room for all three on one row, so Back moves up and keeps its right alignment.
-                back = Rect.at(back.x(), rowY - height - ROW_GAP, BACK_WIDTH, height);
-            }
-            out.put("back", back);
-        }
-
         return out;
     }
+
 
     // ------------------------------------------------------------------
     // Pure arithmetic the screen also uses

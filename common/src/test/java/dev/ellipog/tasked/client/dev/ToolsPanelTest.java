@@ -41,7 +41,7 @@ class ToolsPanelTest {
                 frame.list().width(), frame.list().height());
         RecordingRenderer r = new RecordingRenderer();
 
-        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false), 0, 0);
+        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false, dev.ellipog.armature.client.ui.Themes.MODERN, 4, false), 0, 0);
 
         Slot row = layout.slot(ToolsLayout.RADIUS);
         // Mapped by hand rather than with `ToolsLayout.onScreen`: the mapping is the earlier test's, and this
@@ -55,7 +55,9 @@ class ToolsPanelTest {
                     () -> "nothing drawn where this arrow is: " + arrow + "  (" + r.describe() + ")");
         }
         Slot number = ToolsLayout.stepperValue(onScreen);
-        assertTrue(r.wroteWithin("0", number.x(), number.y(), number.right(), number.bottom()),
+        // The number the *state* carries, not the player's stored one: the panel reads its palette from
+        // the state so the chapter target can point it somewhere else, and this is what says so.
+        assertTrue(r.wroteWithin("4", number.x(), number.y(), number.right(), number.bottom()),
                 () -> "the radius is not drawn between the arrows: " + r.describe());
         assertTrue(r.wroteWithin("Border radius", onScreen.x(), onScreen.y(), onScreen.right(),
                         onScreen.bottom()),
@@ -77,7 +79,7 @@ class ToolsPanelTest {
                 frame.list().width(), frame.list().height());
         RecordingRenderer r = new RecordingRenderer();
 
-        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false), 0, 0);
+        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false, dev.ellipog.armature.client.ui.Themes.MODERN, 4, false), 0, 0);
 
         for (ToolsLayout.Action row : rows) {
             Slot slot = layout.slot(row.key());

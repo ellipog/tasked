@@ -1,0 +1,27 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_greenwood",
+  "title": "The Greenwood",
+  "subtitle": "the second of fifteen depths",
+  "theme": "vanilla_plus",
+  "description": [
+    "The surface keeps a forest between the map room and the stone, as",
+    "though the world were fond of this part and wanted it to last.",
+    "",
+    "Vanilla Plus is the theme of the greenwood: the game's own palette,",
+    "with nothing added and nothing animating, because the trees are",
+    "already moving."
+  ],
+  "icon": {
+    "item": "minecraft:oak_sapling"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "greenwood_arrival.json",
+    "greenwood_path.json",
+    "greenwood_ward.json",
+    "greenwood_hazard.json",
+    "greenwood_treasure.json",
+    "greenwood_on.json"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_resonant_halls",
+  "title": "The Resonant Halls",
+  "subtitle": "the eighth of fifteen depths",
+  "theme": "amethyst",
+  "description": [
+    "Geode country, grown enormous: halls of purple crystal that",
+    "ring when struck and keep every sound a little longer than the",
+    "air should.",
+    "",
+    "Amethyst is the theme, at the exact pitch of the halls."
+  ],
+  "icon": {
+    "item": "minecraft:amethyst_shard"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "resonant_halls_arrival.json",
+    "resonant_halls_path.json",
+    "resonant_halls_ward.json",
+    "resonant_halls_hazard.json",
+    "resonant_halls_treasure.json",
+    "resonant_halls_on.json"
+  ]
+}

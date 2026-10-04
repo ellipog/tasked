@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "greenwood_hazard",
+  "title": "The Stinging Air",
+  "description": [
+    "The hollow ahead is a wasp nest the shape of a valley.",
+    "There is no fighting a place. Mark the station when the",
+    "air clears and the swarm settles back into itself."
+  ],
+  "icon": {
+    "item": "minecraft:honeycomb"
+  },
+  "x": 288,
+  "y": 32,
+  "shape": "gear",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Wait out the swarm"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:honeycomb",
+      "count": 2
+    }
+  ]
+}

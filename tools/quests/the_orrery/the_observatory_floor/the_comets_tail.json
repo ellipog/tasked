@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_comets_tail",
+  "title": "The Comet's Tail",
+  "subtitle": "one task of two is optional",
+  "description": [
+    "The tail is dust and theory. The dust is `optional: true` -- a task",
+    "that does not have to be done for the quest to complete -- and the",
+    "theory is the checkmark that is not. A quest whose tasks are ALL",
+    "optional completes on any one of them, because a quest where",
+    "nothing at all is required would complete itself the instant it",
+    "unlocked; with one required task, the optional one is exactly what",
+    "the word means."
+  ],
+  "icon": { "item": "minecraft:blaze_powder" },
+  "x": 256,
+  "y": 832,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_comet"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:blaze_powder", "count": 4, "optional": true },
+    { "type": "tasked:checkmark", "title": "Confirm the theory" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

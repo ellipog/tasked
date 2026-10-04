@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "glare_ward",
+  "title": "Squint",
+  "description": [
+    "The ward in the glare is not a wall or a door. It is the",
+    "habit of looking slightly away from anything bright,",
+    "which here is everything. Mark the station when you have",
+    "learned it."
+  ],
+  "icon": {
+    "item": "minecraft:bone_block"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Shield your eyes"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

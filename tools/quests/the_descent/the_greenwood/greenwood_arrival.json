@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "greenwood_arrival",
+  "title": "Under the Canopy",
+  "description": [
+    "The road down is a road up first, over a hill the map",
+    "insists is gentle. The forest takes the hill's side.",
+    "",
+    "A biome task counts standing in the place itself -- here,",
+    "any forest the tag `#minecraft:is_forest` holds. The place",
+    "is the task; there is nothing to hand in."
+  ],
+  "icon": {
+    "item": "minecraft:oak_leaves"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:biome",
+      "biome": "#minecraft:is_forest"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

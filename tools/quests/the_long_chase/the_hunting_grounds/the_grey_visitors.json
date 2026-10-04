@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_grey_visitors",
+  "title": "The Grey Visitors",
+  "subtitle": "Any of the tag",
+  "description": [
+    "Patrols come over the ridge most weeks and the valley counts them",
+    "the way it counts everything, which is precisely. Three of the",
+    "illagers of the tag -- `#minecraft:illagers` -- and the count is",
+    "the second use of `entityTypeTag` in this collection, which is",
+    "either redundancy or the mark of a hunting valley."
+  ],
+  "icon": { "item": "minecraft:crossbow" },
+  "x": 576,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_tracks"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:kill",
+      "entityTypeTag": "minecraft:illagers",
+      "value": 3
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:emerald", "count": 3 }
+  ]
+}

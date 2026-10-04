@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_shepherd",
+  "title": "The Shepherd",
+  "subtitle": "dash: double, arrowHead: triangle",
+  "description": [
+    "The moon-herding planet, drawn as two hairlines either side of the",
+    "route -- `dash: double`, which ignores weight because two hairlines",
+    "have already decided what they weigh -- arriving under a",
+    "`triangle` head."
+  ],
+  "icon": { "item": "minecraft:hay_block" },
+  "x": 845,
+  "y": 320,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": { "dash": "double", "arrowHead": "triangle" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:wheat", "count": 16 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

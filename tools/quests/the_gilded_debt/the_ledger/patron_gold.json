@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "patron_gold",
+  "title": "The Gold Patron",
+  "subtitle": "One of a pair, and the pair is exclusive",
+  "description": [
+    "The gold patron and the silver patron have not spoken since the",
+    "incident, and the counting-house has stopped trying. Their two",
+    "quests share an `exclusiveGroup`, which makes them mutually",
+    "exclusive: complete one and the other locks, permanently, whatever",
+    "your progress in it was.",
+    "",
+    "A choice of paths is written as a name the siblings share. The cap",
+    "on a fan-out -- at most N dependents complete, the rest locked --",
+    "is a different field on the parent, and the midnight market has",
+    "the example of that one."
+  ],
+  "icon": { "item": "minecraft:gold_ingot" },
+  "x": 576,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "two_patrons"
+  ],
+  "exclusiveGroup": "patronage",
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:gold_block", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:golden_carrot", "count": 4 },
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

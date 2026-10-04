@@ -1,0 +1,36 @@
+{
+  "$schema": "../_schema/group.schema.json",
+  "id": "the_rubric",
+  "title": "The Rubric",
+  "aliases": ["the_college"],
+  "description": [
+    "A college of enchantment, and the rite it runs when a new apprentice",
+    "is taken in: matriculation by paperwork, a wand that has to be the",
+    "wand and not merely shaped like one, an oral examination conducted",
+    "by a handler nobody outside the college has registered, and a",
+    "graduation that takes the college's word back and hands over the",
+    "diploma.",
+    "",
+    "The stage the rite turns on is `my_pack:inducted` -- the same stage",
+    "the worked KubeJS script in the manual grants and reads, and the",
+    "same ids its handlers register: `my_pack:inducted_check` for the",
+    "oral, `my_pack:announce` for the announcement. On a build without",
+    "the script, the two custom entries load with a warning naming the",
+    "missing handler, which is exactly what an optional-dependency pack",
+    "wants to see; nothing here needs the script to load.",
+    "",
+    "This group is also reachable as `the_college` -- a group alias, the",
+    "third level at which the format keeps a rename from breaking a",
+    "reference.",
+    "",
+    "Read it for: `requiresStage`, `stage` tasks and stage rewards that",
+    "grant and remove, `custom` task and reward ids, an `advancement`",
+    "task with a `criterion`, `match: strict`, `onlyFromCrafting`, an",
+    "`item_tag` task, a title written as a translation key with a",
+    "fallback, and a group alias."
+  ],
+  "icon": { "item": "minecraft:enchanted_book" },
+  "chapters": [
+    "the_rite"
+  ]
+}

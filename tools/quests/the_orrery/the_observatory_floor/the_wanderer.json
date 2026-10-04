@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_wanderer",
+  "title": "The Wanderer",
+  "subtitle": "form: straight, weight: thick, arrowHead: none",
+  "description": [
+    "The planet that visits, on a direct line at `weight: thick`,",
+    "arriving under `arrowHead: none` -- a blunt end, no glyph --",
+    "because the wanderer was never invited and does not pretend",
+    "otherwise."
+  ],
+  "icon": { "item": "minecraft:compass" },
+  "x": 179,
+  "y": 320,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": { "form": "straight", "weight": "thick", "arrowHead": "none" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:purpur_block", "count": 4 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

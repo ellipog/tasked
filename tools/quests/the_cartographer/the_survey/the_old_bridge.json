@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_old_bridge",
+  "title": "The Old Bridge",
+  "subtitle": "chamfered, in conduit",
+  "description": [
+    "The bridge predates the road and the road defers to it: the line",
+    "north crosses as a chamfered step -- the circuit-trace form,",
+    "corners cut at forty-five degrees -- drawn in `weight: conduit`,",
+    "the six-pixel conductor with dark borders around a lighter core.",
+    "",
+    "The road's one piece of inherited infrastructure, and it is drawn",
+    "like it."
+  ],
+  "icon": { "item": "minecraft:stone_brick_slab" },
+  "x": 72,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "dependsOn": [
+    "the_first_survey"
+  ],
+  "dependencyLines": {
+    "the_first_survey": { "form": "chamfered", "weight": "conduit" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:oak_planks", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

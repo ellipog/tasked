@@ -32,6 +32,14 @@ import java.util.UUID;
  * automatically: a new member arriving with four hundred completed quests would hand the whole party
  * a finished questline.
  *
+ * <h2>Leaving is the asymmetric half, and it is deliberate</h2>
+ *
+ * <p>What is refused on a join is done on a departure: {@code ProgressService.retainFor} merges the
+ * party's record into the leaver's own, so quest nodes earned together are kept by whoever leaves and
+ * a progression-gated pack cannot soft-lock somebody who goes solo. The party's record is not moved —
+ * the members still in it read exactly what they did before — and nothing is imported the other way.
+ * One direction would finish a questline for free; the other would erase one.
+ *
  * <h2>Saved per world</h2>
  *
  * <p>A {@link SavedData} on the overworld rather than per-dimension, so a quest finished in the

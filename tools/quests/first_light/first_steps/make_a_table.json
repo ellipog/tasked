@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "make_a_table",
+  "title": "Make a Table",
+  "subtitle": "Three boards up, three boards across",
+  "description": [
+    "Eight logs make a table, and a table makes everything else possible,",
+    "which is the closest thing a crafting recipe has to a thesis",
+    "statement.",
+    "",
+    "The task counts one crafting table carried. It does not consume, so",
+    "the table stays on you -- put it down somewhere you will find again,",
+    "because every chapter after this one assumes you did."
+  ],
+  "icon": { "item": "minecraft:crafting_table" },
+  "x": 192,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "dependsOn": [
+    "punch_a_tree"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:crafting_table", "count": 1 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:stick", "count": 8 }
+  ]
+}

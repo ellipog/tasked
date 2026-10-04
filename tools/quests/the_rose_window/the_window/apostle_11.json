@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "apostle_11",
+  "title": "Iron White",
+  "description": [
+    "Pane 12 of the apostle ring, and the ring's last: pressing its mark closes the ring."
+  ],
+  "icon": {
+    "item": "minecraft:green_stained_glass"
+  },
+  "x": 568,
+  "y": 415,
+  "shape": "hexagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Set the first leadline"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

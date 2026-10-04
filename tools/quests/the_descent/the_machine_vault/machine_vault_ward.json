@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "machine_vault_ward",
+  "title": "The Comparator's Rule",
+  "description": [
+    "At the vault's mid-point stands a comparator, comparing",
+    "the same two signals since before the hill had stairs.",
+    "It has never once changed its mind. Carry one and learn",
+    "from it."
+  ],
+  "icon": {
+    "item": "minecraft:comparator"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:comparator",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:repeater",
+      "count": 2
+    }
+  ]
+}

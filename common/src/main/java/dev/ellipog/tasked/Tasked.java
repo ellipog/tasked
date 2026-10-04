@@ -312,9 +312,19 @@ public final class Tasked {
                     player, team.name(), team.id());
             TaskedNetworking.sendTeamChange(eventServer, team, null);
             TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+            // A public party's member count moved, and the solo screen draws it.
+            TaskedNetworking.sendPublicLists(eventServer);
         });
         TeamEvents.MEMBER_LEFT.register((eventServer, team, player, reason) -> {
             Constants.LOG.info("Tasked: {} left team '{}' ({})", player, team.name(), reason);
+
+            // **First, before any push below**: the leaver's own record is about to become the one
+            // they read, and it has to hold what they earned in the party. Doing it here rather than
+            // in the stored manager is deliberate: leaving is an Armature event, and what progress
+            // means is Tasked's business -- the same seam the party mode and the roster pushes use.
+            // Every reason, including DISBANDED, which reaches here once per member with the team
+            // already gone from the store but its progress record still keyed by the id below.
+            ProgressService.retainFor(eventServer, player, team.id());
 
             if (reason == TeamEvents.Reason.DISBANDED) {
                 TaskedNetworking.sendProgressToPlayer(eventServer, player,
@@ -334,6 +344,36 @@ public final class Tasked {
             // now, so their panel goes to the empty state rather than merely losing a row.
             TaskedNetworking.sendPartyToTeam(eventServer, team.id());
             TaskedNetworking.sendNoPartyTo(eventServer, player);
+            TaskedNetworking.sendPublicLists(eventServer);
+        });
+
+        // The name can appear on a solo player's browse list, and a rename changes every member's
+        // header -- so both audiences, in one place.
+        TeamEvents.TEAM_RENAMED.register((eventServer, team) -> {
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+            TaskedNetworking.sendPublicLists(eventServer);
+        });
+
+        // Roles and the owner moved, so the roster every member is drawing is now wrong. Progress does
+        // not move with ownership -- a team keys it, not a player -- so nothing else is owed here.
+        TeamEvents.OWNER_TRANSFERRED.register((eventServer, team, previousOwner) -> {
+            Constants.LOG.info("Tasked: team '{}' handed from {} to {}", team.name(), previousOwner, team.owner());
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+        });
+
+        // Both switches change what a panel offers -- the owner's toggles and every member's Invite
+        // rows -- and whether the party appears on the solo browse list at all.
+        TeamEvents.POLICY_CHANGED.register((eventServer, team) -> {
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+            TaskedNetworking.sendPublicLists(eventServer);
+        });
+
+        // An invitation is not membership, so no progress moves -- but two panels change: the party's
+        // outgoing list, and the invitee's incoming one. The invitee may be in another party or in
+        // none, so their own roster is what they are sent rather than the inviting party's.
+        TeamEvents.INVITE_CHANGED.register((eventServer, team, target, kind) -> {
+            TaskedNetworking.sendPartyToTeam(eventServer, team.id());
+            TaskedNetworking.sendOwnRosterById(eventServer, target);
         });
 
         // The party's chosen progress mode goes with the party.
@@ -344,7 +384,11 @@ public final class Tasked {
         // command or not at all. A party disbanded through a foreign mod's own screen still leaves a
         // line behind, and that is stated rather than implied: the id is a fresh UUID every time, so
         // the entry is unreadable rather than wrong. See PartyStore.clear.
-        TeamEvents.TEAM_DISBANDED.register((eventServer, team) ->
-                PartyStore.of(eventServer).clear(team.id()));
+        TeamEvents.TEAM_DISBANDED.register((eventServer, team) -> {
+            PartyStore.of(eventServer).clear(team.id());
+            // And the browse list, because a disbanded party leaves it. Here rather than in the
+            // per-member MEMBER_LEFT(DISBANDED) branch, which runs once per member for one disband.
+            TaskedNetworking.sendPublicLists(eventServer);
+        });
     }
 }

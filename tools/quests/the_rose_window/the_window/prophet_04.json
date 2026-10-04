@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "prophet_04",
+  "title": "Dusk",
+  "description": [
+    "Pane 5 of the prophet ring."
+  ],
+  "icon": {
+    "item": "minecraft:orange_stained_glass_pane"
+  },
+  "x": 280,
+  "y": 574,
+  "shape": "diamond",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:orange_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "signal_on",
+  "title": "The Signal Dives",
+  "description": [
+    "",
+    "The pulse train does not end at the decoded line. It",
+    "dives, on and down, into a shaft the city never dug",
+    "and the machine never admits to, and at the bottom of",
+    "it the signal goes to paper.",
+    "",
+    "The archive is next: shelves below shelves, a library",
+    "at the bottom of the world, kept by a librarian who",
+    "has been filing the signal since before the stairs",
+    "were worn.",
+    "",
+    "Six stations, the same six, in lamp-lit ink.",
+    "",
+    "Leave the wire running. A signal is a promise kept on",
+    "a schedule; ending one is a decision that belongs to",
+    "its maker."
+  ],
+  "icon": {
+    "item": "minecraft:daylight_detector"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Follow it down"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

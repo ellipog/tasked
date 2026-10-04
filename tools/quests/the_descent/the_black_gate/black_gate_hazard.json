@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "black_gate_hazard",
+  "title": "The Edge",
+  "description": [
+    "The gate stands on a shelf of basalt over nothing in",
+    "particular. The ward is a rule with no exceptions: the",
+    "view is free, the ledge is not furniture."
+  ],
+  "icon": {
+    "item": "minecraft:iron_boots"
+  },
+  "x": 288,
+  "y": 32,
+  "shape": "gear",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Do not lean"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:iron_boots",
+      "count": 1
+    }
+  ]
+}

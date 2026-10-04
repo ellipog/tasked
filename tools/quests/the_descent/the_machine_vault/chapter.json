@@ -1,0 +1,26 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_machine_vault",
+  "title": "The Machine Vault",
+  "subtitle": "the seventh of fifteen depths",
+  "theme": "redstone",
+  "description": [
+    "A vault of the machine that is not broken because it was never",
+    "finished: torches ticking in the dark, a running light with no",
+    "destination, counting something forever.",
+    "",
+    "Redstone is the theme, and the vault wears it as a uniform."
+  ],
+  "icon": {
+    "item": "minecraft:redstone_block"
+  },
+  "progressionMode": "linear",
+  "quests": [
+    "machine_vault_arrival.json",
+    "machine_vault_path.json",
+    "machine_vault_ward.json",
+    "machine_vault_hazard.json",
+    "machine_vault_treasure.json",
+    "machine_vault_on.json"
+  ]
+}

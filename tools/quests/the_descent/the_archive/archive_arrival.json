@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "archive_arrival",
+  "title": "Shelves Below Shelves",
+  "description": [
+    "Four books, taken from the return crate and not the",
+    "stacks, because the archive runs on a rule older than",
+    "its shelves: read anything, take nothing that has not",
+    "been copied."
+  ],
+  "icon": {
+    "item": "minecraft:book"
+  },
+  "x": 0,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:book",
+      "count": 4
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

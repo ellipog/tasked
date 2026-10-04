@@ -141,6 +141,31 @@ public final class QuestSettingsLayout {
         return value.replace('_', ' ');
     }
 
+    /**
+     * The auto-claim modes this row cycles, the unset state first.
+     *
+     * <p>The unset state and the file's own {@code "default"} mean the same thing — defer to the
+     * chapter — so only one of them is offered: two choices that do the same thing is a picker with a
+     * trap in it. The modes themselves are the reward-level vocabulary, so an author meets one set of
+     * words wherever auto-claim is configured.
+     */
+    public static final List<String> AUTO_CLAIM_CHOICES =
+            List.of("", "disabled", "enabled", "no_toast", "invisible");
+
+    /** The value a step lands on, wrapping. Empty means "the chapter decides". */
+    public static String cycleAutoClaim(String current, int step) {
+        int at = AUTO_CLAIM_CHOICES.indexOf(current == null ? "" : current.toLowerCase(Locale.ROOT));
+        if (at < 0) {
+            at = 0;
+        }
+        return AUTO_CLAIM_CHOICES.get(Math.floorMod(at + step, AUTO_CLAIM_CHOICES.size()));
+    }
+
+    /** An auto-claim value as a person reads it; the unset state names what it defers to. */
+    public static String autoClaimLabel(String value) {
+        return value == null || value.isEmpty() ? "Chapter default" : value.replace('_', ' ');
+    }
+
     private QuestSettingsLayout() {
     }
 
@@ -264,6 +289,9 @@ public final class QuestSettingsLayout {
         rows.add(new Row("repeatable", Row.Kind.SWITCH, "Repeatable"));
         rows.add(new Row("repeatCooldownTicks", Row.Kind.STEPPER, "Repeat cooldown"));
         rows.add(new Row("sequentialTasks", Row.Kind.SWITCH, "Sequential tasks"));
+        // The quest rung of the auto-claim ladder, as a closed set the picker cycles: the unset state
+        // means "the chapter decides", which is why it is first and labelled with what it defers to.
+        rows.add(new Row("autoClaim", Row.Kind.CHOICE, "Auto-claim"));
         rows.add(new Row("h:identity", Row.Kind.HEADING, "Identity extras"));
         rows.add(new Row("id", Row.Kind.VALUE, "Id"));
         rows.add(new Row("aliases", Row.Kind.FIELD, "Aliases"));

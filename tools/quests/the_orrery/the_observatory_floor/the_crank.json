@@ -1,0 +1,35 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_crank",
+  "title": "The Crank",
+  "subtitle": "sequentialTasks: true",
+  "description": [
+    "The crank is turned in order and the quest insists on it:",
+    "`sequentialTasks: true` means the second task cannot be handed in",
+    "until the first is -- fittings first, then the turn, and not the",
+    "other way round however satisfying the other way sounds.",
+    "",
+    "Its line to the frame is the demonstration of `dash: solid` at the",
+    "chapter's other defaults, which is what the crank's orderly",
+    "connection deserves."
+  ],
+  "icon": { "item": "minecraft:lever" },
+  "x": 832,
+  "y": 832,
+  "shape": "rounded",
+  "size": 48,
+  "sequentialTasks": true,
+  "dependsOn": [
+    "the_orrery_itself"
+  ],
+  "dependencyLines": {
+    "the_orrery_itself": { "dash": "solid" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:copper_ingot", "count": 4 },
+    { "type": "tasked:checkmark", "title": "Turn it" }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:redstone", "count": 8 }
+  ]
+}

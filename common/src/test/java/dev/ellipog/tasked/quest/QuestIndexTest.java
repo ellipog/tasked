@@ -3,7 +3,39 @@ package dev.ellipog.tasked.quest;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.quest.condition.AdvancementCondition;
+import dev.ellipog.tasked.quest.condition.ItemCondition;
+import dev.ellipog.tasked.quest.condition.ItemTagCondition;
+import dev.ellipog.tasked.quest.condition.PartySizeCondition;
+import dev.ellipog.tasked.quest.condition.ScoreCondition;
+import dev.ellipog.tasked.quest.condition.StageCondition;
+import dev.ellipog.tasked.quest.reward.AdvancementReward;
+import dev.ellipog.tasked.quest.reward.CommandReward;
+import dev.ellipog.tasked.quest.reward.CustomReward;
+import dev.ellipog.tasked.quest.reward.ItemReward;
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
+import dev.ellipog.tasked.quest.reward.RewardCommon;
+import dev.ellipog.tasked.quest.reward.StageReward;
+import dev.ellipog.tasked.quest.reward.TableReward;
+import dev.ellipog.tasked.quest.reward.XpReward;
+import dev.ellipog.tasked.quest.task.AdvancementTask;
+import dev.ellipog.tasked.quest.task.BiomeTask;
+import dev.ellipog.tasked.quest.task.CheckmarkTask;
+import dev.ellipog.tasked.quest.task.ComponentMatch;
+import dev.ellipog.tasked.quest.task.CustomTask;
+import dev.ellipog.tasked.quest.task.DimensionTask;
+import dev.ellipog.tasked.quest.task.FluidTask;
+import dev.ellipog.tasked.quest.task.ItemTagTask;
 import dev.ellipog.tasked.quest.task.ItemTask;
+import dev.ellipog.tasked.quest.task.KillTask;
+import dev.ellipog.tasked.quest.task.LocationTask;
+import dev.ellipog.tasked.quest.task.ObservationTask;
+import dev.ellipog.tasked.quest.task.StageTask;
+import dev.ellipog.tasked.quest.task.StatTask;
+import dev.ellipog.tasked.quest.task.StructureTask;
+import dev.ellipog.tasked.quest.task.XpTask;
+
+import net.minecraft.core.component.DataComponentPatch;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -797,6 +829,194 @@ class QuestIndexTest {
         assertTrue(named < all.size() / 2,
                 "most example quests should NOT draw their name -- that is the default, and a file where"
                         + " every quest opts in is not demonstrating anything");
+
+        // ------------------------------------------------------------------
+        // The second exhibition: the mechanisms the rewrite was for.
+        //
+        // The battery above grew one assertion at a time, whenever a mechanism turned out to have no
+        // worked example. This block is the same idea applied in one pass when the examples were
+        // rewritten: every task, reward and condition type, every value of every line-art axis, and
+        // the fields the first round of examples never touched -- matching, kill filters, the
+        // auto-claim ladder, the payout flags, theme patches. A mechanism with no example is the
+        // mechanism nobody can see how to write; this is the version a compiler reads.
+        // ------------------------------------------------------------------
+
+        // Every task type, all fifteen.
+        Class<?>[] taskTypes = {
+                ItemTask.class, ItemTagTask.class, CheckmarkTask.class, CustomTask.class,
+                DimensionTask.class, FluidTask.class, KillTask.class, LocationTask.class,
+                ObservationTask.class, StageTask.class, StatTask.class, StructureTask.class,
+                AdvancementTask.class, BiomeTask.class, XpTask.class };
+        for (Class<?> type : taskTypes) {
+            assertTrue(all.stream().anyMatch(quest -> quest.tasks().stream().anyMatch(type::isInstance)),
+                    "no example uses the " + type.getSimpleName() + " task, so nothing exercises it");
+        }
+
+        // Every reward type: the simple ones by class, and the table's four modes.
+        Class<?>[] rewardTypes = {
+                ItemReward.class, XpReward.class, TableReward.class, CommandReward.class,
+                AdvancementReward.class, StageReward.class, CustomReward.class };
+        for (Class<?> type : rewardTypes) {
+            assertTrue(all.stream().anyMatch(quest -> quest.rewards().stream().anyMatch(type::isInstance)),
+                    "no example uses the " + type.getSimpleName() + " reward, so nothing exercises it");
+        }
+        for (TableReward.Mode mode : TableReward.Mode.values()) {
+            assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                            .anyMatch(reward -> reward instanceof TableReward table && table.mode() == mode),
+                    "no example uses the " + mode + " table reward, so nothing exercises it");
+        }
+        // And both ways a table can arrive: by name and inline.
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof TableReward table && table.table().isPresent()),
+                "no example rolls a named reward table, so reward_tables/ has no reader");
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof TableReward table && table.inline().isPresent()),
+                "no example carries an inline table, so the other spelling is never seen");
+
+        // Every condition type, all six, across tasks and rewards together.
+        List<dev.ellipog.tasked.quest.condition.QuestCondition> conditions = new ArrayList<>();
+        all.stream().flatMap(quest -> quest.tasks().stream())
+                .forEach(task -> conditions.addAll(task.common().conditions()));
+        all.stream().flatMap(quest -> quest.rewards().stream())
+                .forEach(reward -> conditions.addAll(reward.common().conditions()));
+        Class<?>[] conditionTypes = {
+                ItemCondition.class, ItemTagCondition.class, ScoreCondition.class,
+                AdvancementCondition.class, StageCondition.class, PartySizeCondition.class };
+        for (Class<?> type : conditionTypes) {
+            assertTrue(conditions.stream().anyMatch(type::isInstance),
+                    "no example uses the " + type.getSimpleName() + " condition, so nothing exercises it");
+        }
+
+        // The item-matching family: fuzzy, strict, a components filter, and crafted-only.
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ItemTask item && item.match() == ComponentMatch.FUZZY),
+                "no example matches an item fuzzily, so the reading that forgives the rest of the stack"
+                        + " is never seen");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ItemTask item && item.match() == ComponentMatch.STRICT),
+                "no example matches an item strictly, so the whole-stack reading is never seen");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ItemTask item
+                                && item.item().components() != null
+                                && item.item().components() != DataComponentPatch.EMPTY),
+                "no example filters on data components, so the renamed-item spelling is never seen");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ItemTask item && item.onlyFromCrafting()),
+                "no example counts only crafted items, so onlyFromCrafting is never seen");
+
+        // The kill filters, one each: a name, an SNBT filter, and a tag.
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof KillTask kill && kill.customName().isPresent()),
+                "no example kills by custom name, so the field that reaches what an id cannot is never seen");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof KillTask kill && kill.nbtFilter().isPresent()),
+                "no example kills by SNBT filter");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof KillTask kill && kill.entityTypeTag().isPresent()),
+                "no example kills by entity tag");
+
+        // A location box that ignores its dimension, and an observation with intent.
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof LocationTask box && box.ignoreDimension()),
+                "no example writes a location box with ignoreDimension, so the field's one honest use in"
+                        + " an example is missing");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ObservationTask look
+                                && look.observeType() == ObservationTask.ObserveType.BLOCK_ENTITY),
+                "no example observes a block entity");
+        assertTrue(all.stream().flatMap(quest -> quest.tasks().stream())
+                        .anyMatch(task -> task instanceof ObservationTask look && look.timer() != 20),
+                "no example changes an observation's timer, so the field that says how long a look takes"
+                        + " is never seen");
+
+        // The auto-claim ladder: a chapter that turns it on, a quest that opts back out, and rewards
+        // that pay more quietly than either asks.
+        assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                        .anyMatch(chapter -> chapter.autoClaim() == RewardAutoClaim.ENABLED),
+                "no example chapter turns auto-claim on, so the fifty-claim-click problem has no worked"
+                        + " answer");
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().autoClaim().isPresent()
+                        && quest.rules().autoClaim().get() == RewardAutoClaim.DISABLED),
+                "no example quest opts back out of its chapter's auto-claim, so the middle rung of the"
+                        + " ladder is never demonstrated");
+        List<RewardCommon> rewardCommons = all.stream()
+                .flatMap(quest -> quest.rewards().stream()).map(QuestReward::common).toList();
+        assertTrue(rewardCommons.stream().anyMatch(common -> common.auto() == RewardAutoClaim.NO_TOAST),
+                "no example reward pays without a toast");
+        assertTrue(rewardCommons.stream().anyMatch(common -> common.auto() == RewardAutoClaim.INVISIBLE),
+                "no example reward pays invisibly");
+
+        // The payout flags, one each: once per team, held back from Claim all, past a payout block,
+        // a random bonus, skipped while carried, a silent command, and a stage taken back.
+        assertTrue(rewardCommons.stream().anyMatch(common -> common.team().orElse(false)),
+                "no example reward is claimed once for the team, so team: true is never seen");
+        assertTrue(rewardCommons.stream().anyMatch(RewardCommon::excludeFromClaimAll),
+                "no example reward is held back from Claim all");
+        assertTrue(rewardCommons.stream().anyMatch(RewardCommon::ignoreRewardBlocking),
+                "no example reward ignores a payout block, so the hold's one exception is never seen");
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof ItemReward item && item.randomBonus() > 0),
+                "no example reward rolls a random bonus on top of its count");
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof ItemReward item && item.onlyOne()),
+                "no example reward is skipped while the item is carried");
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof CommandReward command && command.silent()),
+                "no example command reward runs silently");
+        assertTrue(all.stream().flatMap(quest -> quest.rewards().stream())
+                        .anyMatch(reward -> reward instanceof StageReward stage && stage.remove()),
+                "no example stage reward removes the stage it names, so the flag's write-back is never"
+                        + " seen");
+
+        // The line-art matrix: a chapter default, per-line overrides, and every value of every axis.
+        assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                        .anyMatch(chapter -> chapter.dependencyStyle() != DependencyStyle.UNSET),
+                "no example chapter sets a dependencyStyle of its own, so the chapter default is never"
+                        + " demonstrated");
+        assertTrue(all.stream().anyMatch(quest -> !quest.dependencyLines().isEmpty()),
+                "no example overrides a single dependency line, so per-line keys are never seen");
+        List<DependencyStyle> lines = new ArrayList<>();
+        index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                .forEach(chapter -> lines.add(chapter.dependencyStyle()));
+        all.stream().forEach(quest -> lines.addAll(quest.dependencyLines().values()));
+        for (DependencyStyle.Form form : DependencyStyle.Form.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.form().orElse(null) == form),
+                    "no example line uses the " + form + " form, so nothing exercises it");
+        }
+        for (DependencyStyle.Dash dash : DependencyStyle.Dash.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.dash().orElse(null) == dash),
+                    "no example line uses the " + dash + " dash, so nothing exercises it");
+        }
+        for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.weight().orElse(null) == weight),
+                    "no example line uses the " + weight + " weight, so nothing exercises it");
+        }
+        for (DependencyStyle.ArrowHead head : DependencyStyle.ArrowHead.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.arrowHead().orElse(null) == head),
+                    "no example line uses the " + head + " arrowhead, so nothing exercises it");
+        }
+        for (DependencyStyle.ArrowPlace place : DependencyStyle.ArrowPlace.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.arrowPlace().orElse(null) == place),
+                    "no example line places its heads with " + place + ", so nothing exercises it");
+        }
+        for (DependencyStyle.ArrowDensity density : DependencyStyle.ArrowDensity.values()) {
+            assertTrue(lines.stream().anyMatch(line -> line.arrowDensity().orElse(null) == density),
+                    "no example line runs a stream at " + density + " density, so nothing exercises it");
+        }
+        assertTrue(lines.stream().anyMatch(line -> line.bend().orElse(0.0) <= -0.8)
+                        && lines.stream().anyMatch(line -> line.bend().orElse(0.0) >= 0.8),
+                "no example line bends to either extreme, so the range of the axis is never seen");
+        assertTrue(lines.stream().anyMatch(line -> line.fromAnchor().isPresent())
+                        && lines.stream().anyMatch(line -> line.toAnchor().isPresent()),
+                "no example line anchors its ends, so the per-line-only axis is never seen");
+        assertTrue(lines.stream().anyMatch(line -> line.fromHandle().isPresent())
+                        && lines.stream().anyMatch(line -> line.toHandle().isPresent()),
+                "no example line carries split handles, so the control points are never seen");
+
+        // A chapter palette with opinions of its own.
+        assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
+                        .anyMatch(chapter -> chapter.themePatch().isPresent()),
+                "no example chapter carries a themePatch, so the token-level override is never seen");
     }
 
     @Test
@@ -819,15 +1039,16 @@ class QuestIndexTest {
         // content whose whole design is comparability into fifteen unrelated chapters.
         QuestIndex index = loadExamples(temp.resolve("gallery")).index();
 
-        // Found by group id rather than by file name, because there is no longer a file that *is* the
-        // gallery: its fifteen chapters are fifteen folders, and the group's own manifest is what says
-        // which ones they are. That indirection used to be invisible — a flat file held the whole tree,
-        // so "the gallery" and "04_theme_gallery.json" were the same thing.
+        // Found by group id rather than by file name, because there is no file that *is* the
+        // gallery: its fifteen chapters are fifteen folders, and the group's own manifest is what
+        // says which ones they are. The group is `the_descent` -- one descent in fifteen palettes,
+        // which is what replaced the old theme gallery and kept the comparability contract: same
+        // six stations, same geometry, in every shipped theme.
         //
         // `orElseThrow` rather than an index into a list, so a renamed group fails with the id it looked
         // for and the groups that exist, rather than with an IndexOutOfBounds on somebody's refactor.
-        List<Chapter> chapters = index.group("theme_gallery")
-                .orElseThrow(() -> new AssertionError("no chapter group called theme_gallery in the"
+        List<Chapter> chapters = index.group("the_descent")
+                .orElseThrow(() -> new AssertionError("no chapter group called the_descent in the"
                         + " examples, so this test is looking at the wrong content. Groups present: "
                         + index.groups().stream().map(entry -> entry.group().id()).toList()))
                 .group().chapters();

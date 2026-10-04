@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "petal_03",
+  "title": "Evening",
+  "description": [
+    "Pane 4 of the petal ring."
+  ],
+  "icon": {
+    "item": "minecraft:soul_lantern"
+  },
+  "x": 794,
+  "y": 900,
+  "shape": "octagon",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:soul_lantern",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 8
+    }
+  ]
+}

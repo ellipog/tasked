@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "machine_vault_on",
+  "title": "The Machine Wanders On",
+  "description": [
+    "",
+    "The running light continues past the strongroom into a",
+    "passage the vault does not admit to having, and the",
+    "ticking changes pitch. Down here, that is an invitation.",
+    "",
+    "The resonant halls are next: geode country, where the",
+    "air rings and every footstep is Somebody Else's",
+    "Problem. The machine's light follows as far as the",
+    "crystal and then, for the first time in its long",
+    "career, stops.",
+    "",
+    "Six stations, the same six, ringing.",
+    "",
+    "Leave the wire the way you found it. It knows where it",
+    "is going even if you do not."
+  ],
+  "icon": {
+    "item": "minecraft:repeater"
+  },
+  "x": 480,
+  "y": 32,
+  "shape": "circle",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Let it tick"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

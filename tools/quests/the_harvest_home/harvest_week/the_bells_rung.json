@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_bells_rung",
+  "title": "The Bells Rung",
+  "subtitle": "The week opens, and the village pays on the spot",
+  "description": [
+    "Harvest week opens at the church bell, rung before sunrise because",
+    "the village has never once been accused of mercy.",
+    "",
+    "Complete the quest and the reward is already in your pockets: the",
+    "chapter's `autoClaim: enabled` pays on completion, with the toast",
+    "the village insists on. The reward below also creates the",
+    "scoreboard objective the dance card later reads --",
+    "`tasked_harvest_favour` -- which is the village's own ledger, made",
+    "by a command reward the moment it is paid."
+  ],
+  "icon": { "item": "minecraft:bell" },
+  "x": 0,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Ring the bell" }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:command",
+      "command": "scoreboard objectives add tasked_harvest_favour dummy",
+      "permissionLevel": 2
+    },
+    { "type": "tasked:item", "item": "minecraft:bread", "count": 4 }
+  ]
+}

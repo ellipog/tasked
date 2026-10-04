@@ -56,7 +56,11 @@ public final class MenuFlyoutArt {
             if (reset.contains(mouseX, mouseY)) {
                 r.fill(reset.x(), reset.y(), reset.right(), reset.bottom(), ArmatureTheme.rowHover());
             }
-            r.centredText("\u21ba", reset.x() + reset.width() / 2, reset.y() + 1, labelInk);
+            // `\u2190`, not the `\u21ba` this started as: the font has no circled arrow, and a reset
+            // chip that draws as the missing-glyph box reads as a rendering fault rather than as a
+            // control. `←` is the closest thing the font carries to "back to the chapter default",
+            // which is what this chip does -- see BookGeometry.TOOLS_BUTTON_WIDTH for the measured list.
+            r.centredText("\u2190", reset.x() + reset.width() / 2, reset.y() + 1, labelInk);
         }
         for (int i = 0; i < cells.cells().size(); i++) {
             drawCell(r, MenuFlyout.cellRect(rect, i, cells.cells().size()), cells.cells().get(i),

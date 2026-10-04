@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "threshold_ward",
+  "title": "The Iron Brace",
+  "description": [
+    "Four braces, set where the stair's voice changed. Iron",
+    "does not argue with stone; it waits for the stone to be",
+    "reasonable, which is most of what patience is made of.",
+    "",
+    "The items are taken when the mark is pressed -- this task",
+    "consumes on purpose."
+  ],
+  "icon": {
+    "item": "minecraft:iron_ingot"
+  },
+  "x": 192,
+  "y": 0,
+  "shape": "tome",
+  "size": 56,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:iron_ingot",
+      "count": 4,
+      "consumeItems": true
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

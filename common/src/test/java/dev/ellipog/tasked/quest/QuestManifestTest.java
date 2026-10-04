@@ -328,6 +328,7 @@ class QuestManifestTest {
                       "defaultPrerequisiteMode": "one_completed",
                       "progressionMode": "linear",
                       "defaultConsumeItems": true,
+                      "autoClaim": "no_toast",
                       "theme": "copper",
                       "quests": ["a.json"]
                     }
@@ -340,6 +341,8 @@ class QuestManifestTest {
             assertEquals(PrerequisiteMode.ONE_COMPLETED, manifest.defaultPrerequisiteMode());
             assertEquals(ProgressionMode.LINEAR, manifest.progressionMode());
             assertTrue(manifest.defaultConsumeItems());
+            assertEquals(dev.ellipog.tasked.quest.reward.RewardAutoClaim.NO_TOAST, manifest.autoClaim(),
+                    "the auto-claim default a chapter sets survives the conversion");
             assertEquals("copper", manifest.theme().orElseThrow());
         }
 

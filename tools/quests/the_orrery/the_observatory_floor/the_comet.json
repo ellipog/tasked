@@ -1,0 +1,39 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_comet",
+  "title": "The Comet",
+  "subtitle": "bend: -0.8, dash: dash_dot, a stream of arrows",
+  "description": [
+    "The comet, and the other extreme of the bow: `form: curved` at",
+    "`bend: -0.8`, the mirror's curve reflected. It runs on `dash_dot`,",
+    "and its arrows are a `stream` at `arrowDensity: high` -- a repeating",
+    "run of heads sixteen pixels apart, which is as crowded as the",
+    "format lets a line be.",
+    "",
+    "The mirror bends 0.8, the comet bends -0.8, and the chord between",
+    "them is the whole range of the axis."
+  ],
+  "icon": { "item": "minecraft:firework_rocket" },
+  "x": 179,
+  "y": 704,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": {
+      "form": "curved",
+      "bend": -0.8,
+      "dash": "dash_dot",
+      "arrowPlace": "stream",
+      "arrowDensity": "high"
+    }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:gunpowder", "count": 8 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:firework_rocket", "count": 4 }
+  ]
+}

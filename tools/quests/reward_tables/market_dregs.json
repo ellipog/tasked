@@ -1,0 +1,8 @@
+{
+  "lootSize": 1,
+  "entries": [
+    { "weight": 0, "reward": { "type": "tasked:item", "item": "minecraft:torch", "count": 4 } },
+    { "weight": 3, "reward": { "type": "tasked:item", "item": "minecraft:obsidian", "count": 2 } },
+    { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:diamond", "count": 1 } }
+  ]
+}

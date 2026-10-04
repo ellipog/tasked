@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "archive_treasure",
+  "title": "The Map That Maps Itself",
+  "description": [
+    "One book in the archive is a map of the descent, in",
+    "the descent's own hand: fifteen strata, six stations",
+    "each, and the fifteenth stratum drawn as a door with",
+    "the word HOME on it in a language that is younger",
+    "than the archive."
+  ],
+  "icon": {
+    "item": "minecraft:enchanted_book"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:enchanted_book",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

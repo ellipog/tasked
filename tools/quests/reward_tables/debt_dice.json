@@ -1,0 +1,9 @@
+{
+  "lootSize": 2,
+  "entries": [
+    { "weight": 0, "reward": { "type": "tasked:item", "item": "minecraft:paper", "count": 4 } },
+    { "weight": 5, "reward": { "type": "tasked:item", "item": "minecraft:emerald", "count": 3 } },
+    { "weight": 2, "reward": { "type": "tasked:item", "item": "minecraft:experience_bottle", "count": 2 } },
+    { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:golden_apple" } }
+  ]
+}

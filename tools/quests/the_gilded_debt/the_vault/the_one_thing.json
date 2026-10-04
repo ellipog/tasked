@@ -1,0 +1,27 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_one_thing",
+  "title": "The One Thing",
+  "subtitle": "Skipped if you already carry it",
+  "description": [
+    "The house gives one golden apple, once, and only to a player who",
+    "does not already have one: `onlyOne: true` skips the payout while",
+    "the item is in the inventory. The reward stays outstanding until",
+    "the apple is eaten and the claim is made, which is a small,",
+    "precise, and very counting-house kind of generosity."
+  ],
+  "icon": { "item": "minecraft:golden_apple" },
+  "x": 480,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_bonus_bag"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:glistering_melon_slice", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:golden_apple", "onlyOne": true }
+  ]
+}

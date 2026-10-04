@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_clockwork",
+  "title": "The Clockwork",
+  "subtitle": "form: stepped, arrowPlace: both",
+  "description": [
+    "The planet that runs the calendar, drawn as a Z broken at the",
+    "chord's midpoint -- `form: stepped` -- with its arrowheads at both",
+    "ends: `arrowPlace: both`, because the calendar reads backwards as",
+    "honestly as forwards."
+  ],
+  "icon": { "item": "minecraft:clock" },
+  "x": 704,
+  "y": 512,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_sun"
+  ],
+  "dependencyLines": {
+    "the_sun": { "form": "stepped", "arrowPlace": "both" }
+  },
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:redstone", "count": 12 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:clock" }
+  ]
+}

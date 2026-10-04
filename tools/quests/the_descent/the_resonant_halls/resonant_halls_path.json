@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "resonant_halls_path",
+  "title": "Chime Steps",
+  "description": [
+    "The stairs through the halls are cut from crystal, and",
+    "each step rings a note the last one did not. Two whole",
+    "blocks, carried for the road, ring lower."
+  ],
+  "icon": {
+    "item": "minecraft:amethyst_block"
+  },
+  "x": 96,
+  "y": 32,
+  "shape": "square",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:amethyst_block",
+      "count": 2
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

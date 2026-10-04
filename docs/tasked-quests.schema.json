@@ -145,6 +145,36 @@
       }
     },
 
+    "themePatch": {
+      "description": "Token-level overrides for a chapter's theme: individual palette colours and a corner radius, applied over the named theme (or over the player's own when the chapter names none). A client concept, like `theme` itself - the server carries it and the client composes it. The validator checks every token id and value with the toolkit's own reader.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A name for the resulting palette. Usually omitted - the Theme tab writes none, and the name only matters for a file that also wants a display name."
+        },
+        "colours": {
+          "type": "object",
+          "description": "Token id to colour, e.g. { \"raised\": \"#FF24242E\" }. A colour is #RRGGBB, #AARRGGBB, or a bare 0xAARRGGBB number. An unknown token id is reported by the validator, and the client ignores it.",
+          "additionalProperties": { "type": ["string", "integer"] }
+        },
+        "cornerRadius": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Corner radius in pixels for the chapter's surfaces. Zero is square."
+        },
+        "motion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transition duration in milliseconds. Zero disables transitions."
+        },
+        "easing": {
+          "enum": ["LINEAR", "QUAD_IN", "QUAD_OUT", "QUAD_IN_OUT", "CUBIC_OUT", "SINE_IN_OUT", "BACK_OUT"],
+          "description": "The easing curve transitions use."
+        }
+      }
+    },
     "rewardTable": {
       "description": "A roll of rewards: the table an inline-table reward carries. A weight-zero entry is always granted, once per roll call; every positive weight shares the rest of the probability space, and `lootSize` is how many times the dice are thrown.",
       "type": "object",
@@ -311,6 +341,11 @@
           "default": false,
           "description": "Whether item tasks in this chapter take the items unless the task says otherwise. The inherited default, which is why it lives here: an author sets it once for a whole trade chapter."
         },
+        "autoClaim": {
+          "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
+          "default": "default",
+          "description": "Whether this chapter's quests hand their rewards over on completion. `enabled` pays with a notification, `no_toast` silently, `invisible` with no trace at all; `disabled` waits for a claim, and `default` defers to the pack setting in index.json. A quest overrides this, and a reward's own `auto` overrides that. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
+        },
         "dependencyStyle": {
           "$ref": "#/definitions/dependencyStyle",
           "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (orthogonal, one, solid, thin), and a line that names the same axis overrides just that one."
@@ -318,6 +353,10 @@
         "theme": {
           "type": "string",
           "description": "A palette this chapter asks to be drawn in. A client concept: the catalogue of themes lives on the client, so this is a plain string here and is reported by the client that could not resolve it."
+        },
+        "themePatch": {
+          "$ref": "#/definitions/themePatch",
+          "description": "Token-level overrides for `theme`: individual colours and a corner radius applied over the named theme (or over the player's own when no theme is named). This is how a chapter sets \"raised #24242E and radius 4\" without shipping a whole theme file, and the Theme tab's chapter target writes it."
         },
 
         "quests": { "type": "array", "items": { "$ref": "#/definitions/quest" } }
@@ -390,6 +429,10 @@
           "type": "boolean",
           "default": false,
           "description": "Tasks must be done in order: the second cannot be handed in until the first is."
+        },
+        "autoClaim": {
+          "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
+          "description": "Whether this quest's rewards are handed over the moment it completes, overriding the chapter's own `autoClaim` (which in turn defers to the pack setting in index.json). A reward's own `auto` still wins over this. `enabled` pays with a notification, `no_toast` silently, `invisible` with no trace; `disabled` waits for a claim. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
         },
         "repeatCooldownTicks": {
           "type": "integer",

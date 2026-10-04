@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "read_the_sign",
+  "title": "Read the Sign",
+  "subtitle": "The first button in the book",
+  "description": [
+    "The sign at the crossroads says the road down was closed in spring,",
+    "which was true then. Read it anyway. Somebody went to the trouble of",
+    "carving it, and the carving is the only census the road will ever",
+    "take.",
+    "",
+    "A checkmark task is nothing but the button -- the game cannot see you",
+    "read, so the press is the doing. The `title` field is what the button",
+    "says, which is the one place a task gets to choose its own label."
+  ],
+  "icon": { "item": "minecraft:oak_sign" },
+  "x": 96,
+  "y": 0,
+  "shape": "tome",
+  "size": 48,
+  "dependsOn": [
+    "punch_a_tree"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "I read the sign" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

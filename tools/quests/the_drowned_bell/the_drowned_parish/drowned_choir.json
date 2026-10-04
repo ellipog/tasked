@@ -1,0 +1,34 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "drowned_choir",
+  "title": "The Drowned Choir",
+  "subtitle": "The parish sings whether or not you ask it to",
+  "description": [
+    "The drowned keep the nave, and they do not keep it quietly. Twelve",
+    "of the undead of any tag -- the parish does not ask which kind --",
+    "put down, and the choir loses its quorum.",
+    "",
+    "This is a kill task using an entity tag: `entityTypeTag` counts any",
+    "mob in `#minecraft:undead`, which is how a task says 'the sort of",
+    "thing' instead of naming one. The kills are counted by the server's",
+    "tick, not handed in."
+  ],
+  "icon": { "item": "minecraft:trident" },
+  "x": 288,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_kelp_fields"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:kill",
+      "entityTypeTag": "minecraft:undead",
+      "value": 12
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 20 }
+  ]
+}

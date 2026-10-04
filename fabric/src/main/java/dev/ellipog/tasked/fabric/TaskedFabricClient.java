@@ -10,6 +10,7 @@ import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.viewer.QuestViewerContent;
 import dev.ellipog.tasked.net.TaskedNetworking;
@@ -101,6 +102,11 @@ public final class TaskedFabricClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientQuestCache.clear();
             ClientChapterReplica.clear();
+            // The party roster too: it is written by the roster message and nothing else empties it, so
+            // without this the next world's panel opens on the last server's party -- every row a real
+            // player name, which is what makes it convincing. The join-time push corrects it a moment
+            // later, and "a moment later" is a frame of somebody else's party on screen.
+            ClientPartyCache.clear();
             // And the edit answers in flight for a world being left: the next screen must not report them.
             ClientEditReplies.clear();
             // The half-counted observations go with the tree they were counted against.

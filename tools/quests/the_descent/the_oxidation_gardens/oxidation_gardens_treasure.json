@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "oxidation_gardens_treasure",
+  "title": "The Copper Heart",
+  "description": [
+    "A single block of the metal, polished by hands rather",
+    "than weather, at the gardens' centre. Every descent that",
+    "found this room touched it. The shine is all of theirs."
+  ],
+  "icon": {
+    "item": "minecraft:copper_block"
+  },
+  "x": 384,
+  "y": 0,
+  "shape": "hexagon",
+  "size": 64,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:copper_block",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

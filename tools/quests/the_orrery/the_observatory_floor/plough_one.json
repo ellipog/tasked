@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "plough_one",
+  "title": "The Plough: Dubhe",
+  "subtitle": "sixteen pixels, the icon corner to corner",
+  "description": [
+    "The first star of the Plough, and both ends of the node's small",
+    "range at once: 16 pixels across -- the smallest a node goes -- with",
+    "the icon at `iconScale: 1.0`, corner to corner. A big node with a",
+    "small icon is a picture with room around it; a small node with a",
+    "big icon is a star.",
+    "",
+    "The shape is `none`, so the node draws no panel at all: the icon is",
+    "the node, and the whole square is clickable.",
+    "",
+    "It is also hidden: `hideUntilDependenciesVisible` keeps it off the",
+    "canvas until the comet -- its one dependency -- is itself visible,",
+    "and the six stars after it chain the same flag, so the Plough",
+    "reveals itself one link at a time. That recursion is the one rule",
+    "in the visibility family that cannot be read off a single file."
+  ],
+  "icon": { "item": "minecraft:glowstone_dust" },
+  "x": 960,
+  "y": 160,
+  "shape": "none",
+  "size": 16,
+  "iconScale": 1.0,
+  "hideUntilDependenciesVisible": true,
+  "dependsOn": [
+    "the_comet"
+  ],
+  "tasks": [
+    { "type": "tasked:checkmark", "title": "Find it" }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 5 }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_chamber_map",
+  "title": "The Chamber Map",
+  "subtitle": "Two rods, honestly come by",
+  "description": [
+    "The chambers pay their surveying fee in breeze rods, and the",
+    "chambers' opinion of 'honestly come by' is expressed at wind",
+    "speed. Two of them, carried out, and the survey's fee is paid."
+  ],
+  "icon": { "item": "minecraft:breeze_rod" },
+  "x": 432,
+  "y": 0,
+  "shape": "rounded",
+  "size": 48,
+  "showTitle": true,
+  "dependsOn": [
+    "the_trial_road"
+  ],
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:breeze_rod", "count": 2 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:wind_charge", "count": 4 }
+  ]
+}

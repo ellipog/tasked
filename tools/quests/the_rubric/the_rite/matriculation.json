@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "matriculation",
+  "title": "Matriculation",
+  "subtitle": "Three books, any of the tag",
+  "description": [
+    "The college's paperwork begins with the applicant supplying their",
+    "own reading material, which is either a tradition or a budget",
+    "decision and the bursar has never been asked which.",
+    "",
+    "An `item_tag` task: three of anything in the",
+    "`minecraft:bookshelf_books` tag, whatever they are. The tag is the",
+    "task's own field rather than a `#` pasted into an item id, which",
+    "is the format being strict about the difference between an id and",
+    "a tag everywhere at once."
+  ],
+  "icon": { "item": "minecraft:book" },
+  "x": 0,
+  "y": 64,
+  "shape": "rounded",
+  "size": 48,
+  "tasks": [
+    { "type": "tasked:item_tag", "tag": "minecraft:bookshelf_books", "count": 3 }
+  ],
+  "rewards": [
+    { "type": "tasked:xp", "amount": 10 }
+  ]
+}

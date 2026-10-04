@@ -6,7 +6,10 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 import dev.ellipog.armature.api.teams.Team;
+import dev.ellipog.armature.api.teams.TeamFeature;
+import dev.ellipog.armature.api.teams.TeamLimits;
 import dev.ellipog.armature.api.teams.TeamManager;
+import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.api.teams.Teams;
 
@@ -14,6 +17,7 @@ import dev.ellipog.tasked.net.ProgressSyncPayload;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.party.PartyMode;
 import dev.ellipog.tasked.party.PartyStore;
+import dev.ellipog.tasked.progress.ProgressService;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -23,6 +27,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -89,8 +94,56 @@ public final class TaskedPartyCommand {
                         .then(Commands.argument("player", EntityArgument.player())
                                 .executes(TaskedPartyCommand::invite)))
 
+                // Bare accepts whichever invitation is waiting -- the shape this command had first,
+                // and the one a player at a chat prompt wants. With an id it accepts *that* row's
+                // invitation, which is what the panel's Accept button needs: a player can hold two
+                // invitations, and a button on the second must not join the first party.
                 .then(Commands.literal("accept")
-                        .executes(TaskedPartyCommand::accept))
+                        .executes(TaskedPartyCommand::accept)
+                        .then(Commands.argument("party", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::acceptTarget)))
+
+                .then(Commands.literal("decline")
+                        .then(Commands.argument("party", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::decline)))
+
+                // Joining an open party needs no invitation, so it is a command of its own rather
+                // than an accept with different preconditions. See TeamManager.joinPublic.
+                .then(Commands.literal("join")
+                        .then(Commands.argument("party", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::join)))
+
+                .then(Commands.literal("rename")
+                        .then(Commands.argument("name", StringArgumentType.greedyString())
+                                .executes(TaskedPartyCommand::rename)))
+
+                .then(Commands.literal("transfer")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::transfer)))
+
+                // Hand over *and* leave, in one validated operation: what the successor picker means.
+                // Two commands from one press would leave the actor owned by nobody if the second
+                // were refused, and the second is the one that must not half-happen.
+                .then(Commands.literal("handover")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::handover)))
+
+                .then(Commands.literal("uninvite")
+                        .then(Commands.argument("player", StringArgumentType.word())
+                                .executes(TaskedPartyCommand::uninvite)))
+
+                // Both settings read with no argument and write with one, which is the shape `mode`
+                // already has. The value is a word rather than Brigadier's bool so that "on" and
+                // "off" are what the panel's switches say, and "true"/"false" are accepted too.
+                .then(Commands.literal("open")
+                        .executes(context -> settings(context, true))
+                        .then(Commands.argument("value", StringArgumentType.word())
+                                .executes(context -> setSetting(context, true))))
+
+                .then(Commands.literal("member-invites")
+                        .executes(context -> settings(context, false))
+                        .then(Commands.argument("value", StringArgumentType.word())
+                                .executes(context -> setSetting(context, false))))
 
                 .then(Commands.literal("leave")
                         .executes(TaskedPartyCommand::leave))
@@ -204,6 +257,14 @@ public final class TaskedPartyCommand {
             return 0;
         }
 
+        // The name rule is checked here so the refusal can say what is wrong, and the manager checks
+        // it again so the rule is true rather than merely reported -- see TeamLimits.
+        if (!TeamLimits.isValidName(name)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.name_invalid",
+                    TeamLimits.MAX_NAME_LENGTH));
+            return 0;
+        }
+
         Team[] created = new Team[1];
         try {
             created[0] = teams.create(name, player.getUUID());
@@ -243,24 +304,33 @@ public final class TaskedPartyCommand {
         }
         Team team = mine.get();
 
-        // Authority is checked before the call rather than after, so the message can name the reason.
-        // `invite` itself refuses an already-invited player, which is a different refusal and comes
-        // back as a false below.
-        if (team.roleOrMember(player.getUUID()) == TeamRole.MEMBER) {
-            context.getSource().sendFailure(Component.translatable("tasked.command.party.needs_rank",
-                    "officer"));
+        // Who may invite is the team's own rule -- an officer always, an ordinary member while the
+        // policy says so -- and asking it rather than re-deriving it here is what keeps this command
+        // and the manager from disagreeing about the switch. The message names the switch, because
+        // "you may not" with the reason left out is the refusal that gets reported as a bug.
+        if (!team.canInvite(player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.cannot_invite"));
             return 0;
         }
 
-        if (!teams.invite(team.id(), target.getUUID())) {
+        // The actor is passed, unlike before, so the manager enforces the same rule the check above
+        // just read. A caller known to be the owner would have worked for the old shape; the switch
+        // is what makes the actor part of the question.
+        if (!teams.invite(player.getUUID(), team.id(), target.getUUID())) {
             context.getSource().sendFailure(Component.translatable("tasked.command.party.invite_failed",
                     target.getScoreboardName()));
             return 0;
         }
 
-        // Nothing is pushed, and this is deliberate rather than an omission: an invitation is not
-        // membership, so nobody's progress owner has moved. Pushing here would be a full sync per
-        // invite, which is traffic for a change that has not happened.
+        // A source that fires events pushes through Tasked's INVITE_CHANGED listener -- the party's
+        // outgoing list moved, and the invitee's incoming list appeared where there was none. A
+        // source that fires nothing needs the push from here or not at all, which is the same split
+        // pushMembershipChange documents for membership.
+        if (!teams.firesEvents()) {
+            TaskedNetworking.sendPartyToTeam(context.getSource().getServer(), team.id());
+            TaskedNetworking.sendOwnRosterById(context.getSource().getServer(), target.getUUID());
+        }
+
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.invited",
                 target.getScoreboardName(), team.name()), false);
         // The invitee is told even though their progress did not move, because they now have
@@ -270,6 +340,17 @@ public final class TaskedPartyCommand {
     }
 
     private static int accept(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        // The bare form: whichever invitation is waiting, which is what the command did before an
+        // invitation had an id on it. The targeted form is what the panel's row uses.
+        return acceptFrom(context, null);
+    }
+
+    private static int acceptTarget(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        return acceptFrom(context, partyArg(context));
+    }
+
+    private static int acceptFrom(CommandContext<CommandSourceStack> context, UUID teamId)
+            throws CommandSyntaxException {
         ServerPlayer player = context.getSource().getPlayerOrException();
         TeamManager teams = teamsOrRefuse(context);
         if (teams == null) {
@@ -282,17 +363,302 @@ public final class TaskedPartyCommand {
         // is the player being told anyway. Captured before regardless, because the general case is a
         // player leaving a party of four to join another, and those three are owed a sync.
         Set<UUID> before = memberIdsOf(teams, player.getUUID());
+        // And which team that was, because accepting while in a party leaves it -- the same retained
+        // copy applies, and only the id can say which record to merge afterwards.
+        UUID previousTeam = teams.realTeamOf(player.getUUID()).map(Team::id).orElse(null);
 
-        Optional<Team> joined = teams.acceptInvite(player.getUUID());
+        // A malformed id is "no invitation to accept" rather than a parse failure with a stack: the
+        // id came from a panel row, and a row whose party no longer exists is the same state as a row
+        // whose id cannot be read.
+        Optional<Team> joined = teamId == null
+                ? teams.acceptInvite(player.getUUID())
+                : teams.acceptInvite(player.getUUID(), teamId);
         if (joined.isEmpty()) {
             context.getSource().sendFailure(Component.translatable("tasked.command.party.no_invite"));
             return 0;
+        }
+
+        if (previousTeam != null && !previousTeam.equals(joined.get().id())) {
+            // Switching parties is still leaving one, so the nodes earned in the old one are kept.
+            ProgressService.retainFor(context.getSource().getServer(), player.getUUID(), previousTeam);
         }
 
         pushMembershipChange(context.getSource(), teams, before, joined.get().memberIds(), player.getUUID());
 
         context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.joined",
                 joined.get().name()), false);
+        return 1;
+    }
+
+    private static int decline(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.INVITE_DECLINE)) {
+            return featureRefused(context, teams, "decline an invitation");
+        }
+
+        UUID teamId = partyArg(context);
+        if (teamId == null || !teams.declineInvite(player.getUUID(), teamId)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.decline_failed"));
+            return 0;
+        }
+
+        String name = teams.byId(teamId).map(Team::name).orElse(teamId.toString());
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.declined", name), false);
+        return 1;
+    }
+
+    private static int join(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.OPEN_JOIN)) {
+            return featureRefused(context, teams, "join an open party");
+        }
+
+        UUID teamId = partyArg(context);
+        Set<UUID> before = memberIdsOf(teams, player.getUUID());
+        Optional<Team> joined = teamId == null
+                ? Optional.empty()
+                : teams.joinPublic(teamId, player.getUUID());
+        if (joined.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.join_failed"));
+            return 0;
+        }
+
+        pushMembershipChange(context.getSource(), teams, before, joined.get().memberIds(), player.getUUID());
+
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.joined_open",
+                joined.get().name()), false);
+        return 1;
+    }
+
+    private static int rename(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.RENAME)) {
+            return featureRefused(context, teams, "rename a party");
+        }
+
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        String name = StringArgumentType.getString(context, "name");
+        if (!TeamLimits.isValidName(name)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.name_invalid",
+                    TeamLimits.MAX_NAME_LENGTH));
+            return 0;
+        }
+        if (!team.isOwner(player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_owner"));
+            return 0;
+        }
+        if (!teams.rename(player.getUUID(), team.id(), name)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.rename_failed"));
+            return 0;
+        }
+
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.renamed",
+                name.trim()), false);
+        return 1;
+    }
+
+    private static int transfer(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.TRANSFER)) {
+            return featureRefused(context, teams, "hand the party over");
+        }
+
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        UUID target = playerArg(context);
+        if (target == null || !teams.transferOwnership(player.getUUID(), team.id(), target)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.transfer_failed"));
+            return 0;
+        }
+
+        String name = nameOf(context.getSource().getServer(), target);
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.transferred",
+                name), false);
+        return 1;
+    }
+
+    /**
+     * {@code /tasked party handover <player>} — give the party away and leave it, in one press.
+     *
+     * <h2>Why this is one command rather than a transfer followed by a leave</h2>
+     *
+     * <p>Because the two halves have to happen together or not at all. The successor picker means "I am
+     * leaving; they own it now", and a client sending two commands cannot know that the second
+     * succeeded: a leave refused after a successful transfer would leave the player owned by somebody
+     * else's party while believing they had gone. Here the transfer is validated first (the actor owns
+     * it, the target is a member), and once it has happened the leave cannot fail for authority
+     * because the actor is an ordinary member. Both mutations run on the server thread in one command,
+     * so nothing observes the state between them.
+     */
+    private static int handover(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        MinecraftServer server = context.getSource().getServer();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.TRANSFER)) {
+            return featureRefused(context, teams, "hand the party over");
+        }
+
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        UUID target = playerArg(context);
+        Set<UUID> before = new LinkedHashSet<>(team.memberIds());
+        if (target == null || !teams.transferOwnership(player.getUUID(), team.id(), target)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.handover_failed"));
+            return 0;
+        }
+
+        // Their retained copy, then the departure -- the same two steps `/tasked party leave` takes,
+        // now that they are an ordinary member of a party somebody else owns.
+        ProgressService.retainFor(server, player.getUUID(), team.id());
+        if (!teams.leave(player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.handover_failed"));
+            return 0;
+        }
+
+        pushMembershipChange(context.getSource(), teams, before, memberIdsOf(teams, player.getUUID()),
+                player.getUUID());
+
+        String name = nameOf(server, target);
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.handovered",
+                name), false);
+        return 1;
+    }
+
+    private static int uninvite(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.INVITE_CANCEL)) {
+            return featureRefused(context, teams, "withdraw an invitation");
+        }
+
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        UUID target = playerArg(context);
+        if (target == null || !teams.cancelInvite(player.getUUID(), team.id(), target)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.uninvite_failed"));
+            return 0;
+        }
+
+        String name = nameOf(context.getSource().getServer(), target);
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.uninvited",
+                name), false);
+        return 1;
+    }
+
+    /** Reads one of the two party settings, with no argument to change it. */
+    private static int settings(CommandContext<CommandSourceStack> context, boolean open)
+            throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        if (open) {
+            context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.setting.open",
+                    boolWord(team.policy().openJoin())), false);
+        }
+        else {
+            context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.setting.member_invites",
+                    boolWord(team.policy().membersCanInvite())), false);
+        }
+        return 1;
+    }
+
+    /** Writes one of the two party settings. Owner only, like the panel's switches. */
+    private static int setSetting(CommandContext<CommandSourceStack> context, boolean open)
+            throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        TeamManager teams = teamsOrRefuse(context);
+        if (teams == null) {
+            return 0;
+        }
+        if (!teams.supports(TeamFeature.POLICY)) {
+            return featureRefused(context, teams, "change a party's settings");
+        }
+
+        Optional<Team> mine = teams.realTeamOf(player.getUUID());
+        if (mine.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_in"));
+            return 0;
+        }
+        Team team = mine.get();
+
+        if (!team.isOwner(player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_owner"));
+            return 0;
+        }
+
+        String raw = StringArgumentType.getString(context, "value");
+        Optional<Boolean> value = parseOnOff(raw);
+        if (value.isEmpty()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.setting_unknown",
+                    raw));
+            return 0;
+        }
+
+        TeamPolicy next = open
+                ? team.policy().withOpenJoin(value.get())
+                : team.policy().withMembersCanInvite(value.get());
+        if (!teams.setPolicy(player.getUUID(), team.id(), next)) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.setting_failed"));
+            return 0;
+        }
+
+        Component which = Component.translatable(open
+                ? "tasked.command.party.setting.open_name"
+                : "tasked.command.party.setting.member_invites_name");
+        context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.setting_set",
+                which, boolWord(value.get())), false);
         return 1;
     }
 
@@ -309,7 +675,20 @@ public final class TaskedPartyCommand {
             return 0;
         }
 
-        teams.leave(player.getUUID());
+        // The retained copy, before the leave: what the party earned is merged into the player's own
+        // record, so going solo cannot soft-lock a progression-gated pack. Called here as well as from
+        // the team listener because the listener only runs where a server lifecycle fired it -- the
+        // command is the path this file can guarantee -- and the merge is idempotent, so both running
+        // is one result rather than two.
+        retainFrom(context, teams, player.getUUID());
+
+        // The manager's answer is checked, unlike before: a source that refuses (an Open Parties and
+        // Claims owner cannot leave through our API) used to be told "Left the party" for a leave
+        // that never happened.
+        if (!teams.leave(player.getUUID())) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.leave_failed"));
+            return 0;
+        }
 
         pushMembershipChange(context.getSource(), teams, before, memberIdsOf(teams, player.getUUID()),
                 player.getUUID());
@@ -337,6 +716,10 @@ public final class TaskedPartyCommand {
                     target.getScoreboardName()));
             return 0;
         }
+
+        // A kick ends a membership like any other, and the removed player keeps what the party did --
+        // a kick is a statement about behaviour, not a confiscation of quest nodes.
+        retainFrom(context, teams, target.getUUID());
 
         // The authority check is Armature's, deliberately. `kick` returns false for an actor who does
         // not outrank the target -- and re-deriving that here would be a second copy of the rule,
@@ -377,6 +760,14 @@ public final class TaskedPartyCommand {
         }
 
         Set<UUID> before = new LinkedHashSet<>(team.memberIds());
+
+        // Every member's retained copy, because a disband ends every membership at once. Before the
+        // disband rather than after, so the party's record is still the one the merge reads -- and so
+        // a failure to retain cannot leave a party already gone.
+        for (UUID member : team.memberIds()) {
+            ProgressService.retainFor(server, member, team.id());
+        }
+
         if (!teams.disband(player.getUUID(), team.id())) {
             context.getSource().sendFailure(Component.translatable("tasked.command.party.disband_failed"));
             return 0;
@@ -455,12 +846,38 @@ public final class TaskedPartyCommand {
     private static TeamManager teamsOrRefuse(CommandContext<CommandSourceStack> context) {
         TeamManager teams = Teams.of(context.getSource().getServer());
 
+        // Singleplayer with LAN closed, and the one branch in either mod that treats a singleplayer
+        // world as anything other than a server. A party of one on a world nobody can join is a
+        // panel that can only ever show an empty roster and a Create button, so it is refused here
+        // with the one instruction that changes it. The check is the server's own -- isPublished is
+        // what "Open to LAN" sets -- rather than a client-side guess, because a command can be typed
+        // without a panel and must answer the same way the panel does.
+        MinecraftServer server = context.getSource().getServer();
+        if (server.isSingleplayer() && !server.isPublished()) {
+            context.getSource().sendFailure(Component.translatable("tasked.command.party.singleplayer"));
+            return null;
+        }
+
         if (!teams.managesMembership()) {
             context.getSource().sendFailure(Component.translatable("tasked.command.party.not_ours",
                     teams.name()));
             return null;
         }
         return teams;
+    }
+
+    /**
+     * A refusal that names the source, for an operation the source writes but cannot do.
+     *
+     * <p>The same shape as the read-only refusal and for the same reason: Open Parties and Claims
+     * manages membership and cannot rename a party, so "which source owns this" is the useful half of
+     * the answer, and a raw {@code UnsupportedOperationException} from a library is not.
+     */
+    private static int featureRefused(CommandContext<CommandSourceStack> context, TeamManager teams,
+                                      String what) {
+        context.getSource().sendFailure(Component.translatable("tasked.command.party.feature_not_ours",
+                teams.name(), what));
+        return 0;
     }
 
     /**
@@ -509,7 +926,7 @@ public final class TaskedPartyCommand {
         pushTo(source, affected);
     }
 
-    /** One full sync per player who needs one, by id, skipping anybody offline. */
+    /** One full sync, and one roster, per player who needs them, skipping anybody offline. */
     private static void pushTo(CommandSourceStack source, Set<UUID> players) {
         MinecraftServer server = source.getServer();
         if (server == null) {
@@ -520,6 +937,11 @@ public final class TaskedPartyCommand {
             // is holding the previous team's progress entirely, and a delta against it would merge one
             // party's questline onto another's.
             TaskedNetworking.sendProgressToPlayer(server, player, ProgressSyncPayload.REASON_TEAM_CHANGED);
+            // And the roster, which this used to leave to the event listeners -- correct on a source
+            // that fires events, which is the branch this method never runs on, and a silently stale
+            // panel on one that does not. A source whose parties are somebody else's is exactly where
+            // a player has no other way to be told their roster moved.
+            TaskedNetworking.sendOwnRosterById(server, player);
         }
     }
 
@@ -538,9 +960,83 @@ public final class TaskedPartyCommand {
         return Teams.teamOf(server, player.getUUID()).id();
     }
 
+    /**
+     * The party id argument, or null when it cannot be read.
+     *
+     * <p>Null rather than a parse failure with a stack trace: the id comes from a panel row, and a row
+     * whose party has been disbanded since the roster was drawn is the ordinary way for this to fail.
+     * The caller reports the operation's own refusal, which is the same sentence a live-but-wrong id
+     * gets.
+     */
+    private static UUID partyArg(CommandContext<CommandSourceStack> context) {
+        String raw = StringArgumentType.getString(context, "party");
+        try {
+            return UUID.fromString(raw);
+        }
+        catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * The player a name argument names, online or known to this server.
+     *
+     * <p>A plain word rather than a player selector, and the reason is that both callers act on
+     * somebody who may be offline: a party's outgoing list shows who is invited whether or not they
+     * are connected, and cancelling an invitation to somebody who logged off must work. A name is what
+     * both lists carry — a roster is drawn from names — so a name is what the argument takes.
+     *
+     * <p>Online first, because that is the answer whose case and spelling are authoritative, then the
+     * profile cache, which is where a player who has ever joined this server is remembered. Null when
+     * neither knows them, which the callers report as the operation's own refusal.
+     */
+    private static UUID playerArg(CommandContext<CommandSourceStack> context) {
+        return playerByName(context.getSource().getServer(), StringArgumentType.getString(context, "player"));
+    }
+
+    private static UUID playerByName(MinecraftServer server, String name) {
+        ServerPlayer online = server.getPlayerList().getPlayerByName(name);
+        if (online != null) {
+            return online.getUUID();
+        }
+        var cache = server.getProfileCache();
+        if (cache == null) {
+            // The headless test server has none; a real one always does.
+            return null;
+        }
+        return cache.get(name).map(com.mojang.authlib.GameProfile::getId).orElse(null);
+    }
+
+    /** How a boolean reads in a message: the words the panel's switches use. */
+    private static Component boolWord(boolean value) {
+        return Component.translatable(value ? "tasked.command.party.on" : "tasked.command.party.off");
+    }
+
+    /** How a boolean is typed into a command: on/off, plus the true/false Brigadier would have taken. */
+    private static Optional<Boolean> parseOnOff(String raw) {
+        return switch (raw.toLowerCase(Locale.ROOT)) {
+            case "on", "true", "yes" -> Optional.of(true);
+            case "off", "false", "no" -> Optional.of(false);
+            default -> Optional.empty();
+        };
+    }
+
     /** A player's name, or their id when they are offline. */
     private static String nameOf(MinecraftServer server, UUID player) {
         ServerPlayer found = server.getPlayerList().getPlayer(player);
         return found != null ? found.getScoreboardName() : player.toString();
+    }
+
+    /**
+     * The party's progress, kept in the player's own record before their membership ends.
+     *
+     * <p>The command-side half of what {@code Tasked}'s team listener does; see its comment for why
+     * both exist. A no-op for a solo player, which is what makes it safe to call before any mutation
+     * that might find nothing to do.
+     */
+    private static void retainFrom(CommandContext<CommandSourceStack> context, TeamManager teams,
+                                   UUID player) {
+        MinecraftServer server = context.getSource().getServer();
+        teams.realTeamOf(player).ifPresent(team -> ProgressService.retainFor(server, player, team.id()));
     }
 }

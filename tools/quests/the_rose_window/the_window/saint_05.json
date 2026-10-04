@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "saint_05",
+  "title": "Lichen",
+  "description": [
+    "Pane 6 of the saint ring."
+  ],
+  "icon": {
+    "item": "minecraft:black_stained_glass_pane"
+  },
+  "x": 328,
+  "y": 831,
+  "shape": "pentagon",
+  "size": 40,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:black_stained_glass_pane",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 12
+    }
+  ]
+}

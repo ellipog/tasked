@@ -36,13 +36,35 @@ Tasked shows may be its own or another mod's, depending on what is installed.
 
 | Command | What it does |
 |---|---|
-| `/tasked party create <name>` | Form a party; you are its owner. |
-| `/tasked party invite <player>` | Invite a player. |
-| `/tasked party accept` | Accept an invitation you have been sent. |
-| `/tasked party leave` | Leave the party you are in. |
+| `/tasked party create <name>` | Form a party; you are its owner. The name must be 1 to 32 characters. |
+| `/tasked party invite <player>` | Invite a player. Members may invite while the party's switch says so; officers always may. |
+| `/tasked party accept [party]` | Accept an invitation. With an id, that invitation exactly — a player can hold several, and the panel's Accept button names the row it is on. |
+| `/tasked party decline <party>` | Turn an invitation down. |
+| `/tasked party join <party>` | Join an open party from the solo screen, without an invitation. Refused while you are in another party. |
+| `/tasked party rename <name>` | Rename the party. Owner only; the same name rule as `create`. |
+| `/tasked party transfer <player>` | Hand ownership to a member. The previous owner becomes an ordinary member. |
+| `/tasked party handover <player>` | Give the party away **and leave it**, in one validated operation — what the panel's successor picker sends. |
+| `/tasked party uninvite <player>` | Withdraw an invitation before it is answered. Whoever sent it may always withdraw their own. |
+| `/tasked party open [on\|off]` | Read, or set, whether anybody may join without an invitation. Owner only. |
+| `/tasked party member-invites [on\|off]` | Read, or set, whether ordinary members may invite. Owner only. On by default. |
+| `/tasked party leave` | Leave the party you are in. An owner with members present is sent to the successor picker by the panel; by command the ownership fallback applies. |
 | `/tasked party kick <player>` | Remove a member. |
 | `/tasked party disband` | End the party for everyone in it. |
 | `/tasked party mode [mode]` | Read, or set, how the party's counts combine. |
+
+**Leaving keeps what you earned.** When a membership ends — leave, kick or disband — the party's
+completed quest nodes are merged into the departing player's own record (union, best-of-both), so a
+progression-gated pack cannot soft-lock somebody who did a chain with friends and then went solo. A
+reward already collected in the party stays collected; one never claimed stays claimable. Joining a
+party still imports nothing.
+
+**A party holds eight by default**, and both the invitation and the answer are refused past the cap —
+a party can fill between the two. A server may set `teams.maxMembers` between 2 and 64 in
+`config/armature/config.json`; see Armature's teams page for the file and what else is in it.
+
+**On servers whose parties come from another mod**, the commands refuse with the source's name where
+their API cannot do the operation: Open Parties and Claims has no rename, transfer or policy, and FTB
+Teams is read-only here. `mode` works everywhere, because how a party counts is Tasked's own.
 
 A party's mode decides what "the party has eight logs" means:
 

@@ -1,0 +1,36 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "the_witness_list",
+  "title": "The Witness List",
+  "subtitle": "A task gated on carrying an item",
+  "description": [
+    "The weddings of harvest week need witnesses, and the village",
+    "insists its witnesses arrive fed: the checkmark below carries an",
+    "item condition -- two golden carrots, carried -- and a submit",
+    "against an unmet condition is refused rather than ignored.",
+    "",
+    "A condition counts and never takes: the carrots are still there",
+    "after the press. Conditions gate acquiring progress; they do not",
+    "lock what is already recorded."
+  ],
+  "icon": { "item": "minecraft:golden_carrot" },
+  "x": 480,
+  "y": 32,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "the_scarecrows_blessing"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Sign the list",
+      "conditions": [
+        { "type": "tasked:item", "item": "minecraft:golden_carrot", "count": 2 }
+      ]
+    }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:cake" }
+  ]
+}

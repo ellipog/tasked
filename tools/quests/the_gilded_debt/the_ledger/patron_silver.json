@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "patron_silver",
+  "title": "The Silver Patron",
+  "subtitle": "The other half of the exclusive pair",
+  "description": [
+    "Silver, being quieter, assumes it will win. The group name is the",
+    "same as its sibling's -- `patronage` -- and that is the entire",
+    "mechanism: quests sharing an `exclusiveGroup` close each other on",
+    "completion, scoped to the chapter they sit in."
+  ],
+  "icon": { "item": "minecraft:iron_ingot" },
+  "x": 576,
+  "y": 96,
+  "shape": "rounded",
+  "size": 48,
+  "dependsOn": [
+    "two_patrons"
+  ],
+  "exclusiveGroup": "patronage",
+  "tasks": [
+    { "type": "tasked:item", "item": "minecraft:iron_block", "count": 2 }
+  ],
+  "rewards": [
+    { "type": "tasked:item", "item": "minecraft:iron_horse_armor" },
+    { "type": "tasked:xp", "amount": 15 }
+  ]
+}

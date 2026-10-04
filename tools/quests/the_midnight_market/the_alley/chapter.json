@@ -1,0 +1,37 @@
+{
+  "$schema": "../../_schema/chapter.schema.json",
+  "id": "the_alley",
+  "title": "The Alley",
+  "subtitle": "open between two and four, or thereabouts",
+  "theme": "obsidian",
+  "themePatch": { "colours": { "raised": "#FF24242E" }, "cornerRadius": 6 },
+  "description": [
+    "The alley's chapter wears `obsidian` and then argues with it a",
+    "little: the `themePatch` over the theme sets one colour of its own",
+    "and a corner radius of 6, which is the difference between 'the",
+    "chapter is this palette' and 'the chapter is this palette, with",
+    "opinions'.",
+    "",
+    "A chapter's theme covers the canvas and the quest overlay and",
+    "nothing else -- the book's own chrome stays in the player's theme,",
+    "so a violet chapter is a violet canvas inside an otherwise",
+    "unchanged book. `themePatch` is the same idea one level down: token",
+    "overrides over the named theme, without shipping a whole theme",
+    "file."
+  ],
+  "icon": { "item": "minecraft:lantern" },
+  "quests": [
+    "the_first_stall.json",
+    "the_stall_with_no_name.json",
+    "the_glazier.json",
+    "the_crossroads.json",
+    "the_vault_door.json",
+    "the_glass_blowers.json",
+    "the_vagrant_king.json",
+    "the_hidden_room.json",
+    "the_fenced_goods.json",
+    "the_market_bell.json",
+    "the_last_ledger.json",
+    "the_house_always_wins.json"
+  ]
+}

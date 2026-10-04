@@ -9,6 +9,7 @@ import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskCommon;
 import dev.ellipog.tasked.quest.TaskContext;
 
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.stats.Stats;
 
@@ -50,8 +51,16 @@ public record StatTask(TaskCommon common, ResourceLocation stat, int value) impl
 
         @Override
         public int current(StatTask task, TaskContext context) {
-            int held = context.player().getStats().getValue(Stats.CUSTOM.get(task.stat()));
-            return Math.min(held, task.value());
+            // By id, the way ObjectiveCriteria resolves a custom criterion: the registry lookup
+            // hands back the registered value, which is the one instance the StatType's
+            // identity-keyed map already holds. Asking the StatType directly for a decoded id
+            // builds a Stat whose name needs the registry's reverse lookup -- which is null here
+            // -- and the NPE lands mid-tick, in the playthrough, on the first stat task any
+            // example has ever carried. A stat this build does not have counts nothing; the
+            // validator already said so at load.
+            return BuiltInRegistries.CUSTOM_STAT.getOptional(task.stat())
+                    .map(id -> context.player().getStats().getValue(Stats.CUSTOM.get(id)))
+                    .orElse(0);
         }
 
         @Override

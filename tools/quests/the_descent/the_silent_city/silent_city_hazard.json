@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../_schema/quest.schema.json",
+  "id": "silent_city_hazard",
+  "title": "The Shriek",
+  "description": [
+    "Somewhere ahead, one went off. Not at you -- the city",
+    "is older than blame. Press the mark standing still,",
+    "which is the correct answer to everything down here."
+  ],
+  "icon": {
+    "item": "minecraft:echo_shard"
+  },
+  "x": 288,
+  "y": 32,
+  "shape": "gear",
+  "size": 48,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Stand still"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:echo_shard",
+      "count": 1
+    }
+  ]
+}
