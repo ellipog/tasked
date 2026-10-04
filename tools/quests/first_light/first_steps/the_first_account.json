@@ -1,0 +1,41 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_first_account",
+  "title": "The First Account",
+  "subtitle": "A command that makes a scoreboard objective",
+  "description": [
+    "A command reward is the escape hatch every pack reaches for, and",
+    "this one reaches for the scoreboard: it creates the",
+    "`first_light_standing` objective the festival's reward is gated on.",
+    "That is the honest way to demonstrate a score condition -- the",
+    "objective has to exist before anything can read it.",
+    "",
+    "The festival hangs off this quest in the dependency graph, so a",
+    "player meets the objective before the gate that asks about it."
+  ],
+  "icon": {
+    "item": "minecraft:writable_book"
+  },
+  "x": 0,
+  "y": 960,
+  "dependsOn": [
+    "the_bells_rung"
+  ],
+  "dependencyLines": {
+    "the_bells_rung": {
+      "weight": "bold"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Open the first account"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:command",
+      "command": "scoreboard objectives add first_light_standing dummy"
+    }
+  ]
+}

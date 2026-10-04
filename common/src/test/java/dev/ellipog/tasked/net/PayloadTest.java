@@ -119,6 +119,7 @@ class PayloadTest {
                 "tasked:claim_all",
                 "tasked:claim_choice",
                 "tasked:claim_reward",
+                "tasked:claim_reward_entry",
                 "tasked:dimension_sync",
                 "tasked:editor_op",
                 "tasked:editor_reply",
@@ -126,6 +127,7 @@ class PayloadTest {
                 "tasked:progress_sync",
                 "tasked:quest_sync",
                 "tasked:replica_request",
+                "tasked:reward_overflow",
                 "tasked:stage_sync",
                 "tasked:submit_task"), ids);
     }
@@ -139,9 +141,15 @@ class PayloadTest {
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:progress_sync"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:submit_task"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_reward"));
+        // The rewards panel's per-row press: a request like the single claim's, naming one reward by
+        // index. The other way round it would be a row whose Claim does nothing at all.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_reward_entry"));
         // The rewards panel's one press. A request like the single claim's, and registered the other
         // way round it would be a Claim all button that does nothing at all.
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_all"));
+        // What a grant had to drop. Server to client, because the server is the one that knows: the
+        // other way round it would be a book asking a question the action bar already answers.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:reward_overflow"));
         // A roster is server state, so it goes one way. Registered the other way round it would never
         // arrive, and the panel would sit on its empty state with nothing in either log.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:party_sync"));
@@ -190,6 +198,23 @@ class PayloadTest {
         assertEquals(reply.ok(), answered.ok());
         assertEquals(reply.questId(), answered.questId());
         assertEquals(List.of("line one", "line two"), answered.lines());
+    }
+
+    @Test
+    @DisplayName("the rewards inbox's two payloads survive the wire: an index and a pair of counts")
+    void rewardInboxPayloadsRoundTrip() {
+        // The per-row press names a position in the quest's reward list; the overflow notice carries
+        // two counts. Each is the whole contract of its message, so a codec that dropped a field would
+        // be a Claim that takes the wrong row or a notice that under-reports what hit the floor.
+        ClaimRewardEntryPayload press = roundTrip(ClaimRewardEntryPayload.CODEC,
+                new ClaimRewardEntryPayload("punch_a_tree", 3));
+        assertEquals("punch_a_tree", press.questId());
+        assertEquals(3, press.rewardIndex(), "the reward's index, and not the task's or an entry's");
+
+        RewardOverflowPayload dropped = roundTrip(RewardOverflowPayload.CODEC,
+                new RewardOverflowPayload(2, 64));
+        assertEquals(2, dropped.stacks(), "stacks and items are different numbers on purpose");
+        assertEquals(64, dropped.items(), "a stack of sixty-four is one drop and sixty-four items");
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {

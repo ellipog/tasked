@@ -384,4 +384,32 @@ class QuestStructureTest {
         assertTrue(editor.redo());
         assertFalse(Files.exists(root().resolve("alpha/one")));
     }
+
+    @Test
+    @DisplayName("a book setting is written into index.json, and every other declaration survives")
+    void aBookSettingIsWritten() throws IOException {
+        tree();
+        // The file is the fixture's own here: a declaration the editor does not own, beside the settings
+        // block, has to survive the read-modify-write the same way it survives a structural edit -- the
+        // lesson `indexFile`'s own comment records about the settings block being wiped by the first
+        // structural write.
+        Path index = root().resolve("index.json");
+        Files.writeString(index, "{\"futureKey\": \"kept\", \"entries\": []}");
+
+        assertTrue(QuestStructure.setIndexSetting(root(), "bookTitle", "The Orrery Ledger"));
+        String written = Files.readString(index);
+        assertTrue(written.contains("The Orrery Ledger"), written);
+        assertTrue(written.contains("futureKey"), "an unknown root key is carried over: " + written);
+        assertEquals("The Orrery Ledger", QuestSettings.load(root()).bookTitle(),
+                "and the loader reads it back");
+
+        assertTrue(QuestStructure.setIndexSetting(root(), "bookTitle", null), "and it can be removed");
+        assertEquals("", QuestSettings.load(root()).bookTitle());
+        assertTrue(Files.readString(index).contains("futureKey"), "the rest is still there");
+
+        // And a key the loader does not know is refused rather than written into a file whose schema
+        // would then refuse the whole index.
+        assertFalse(QuestStructure.setIndexSetting(root(), "notAField", "x"));
+        assertFalse(Files.readString(index).contains("notAField"), Files.readString(index));
+    }
 }

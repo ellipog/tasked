@@ -1,0 +1,36 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "patron_silver",
+  "title": "The Silver Patron",
+  "subtitle": "The other half of the pair",
+  "description": [
+    "The same group name, the same consequence, the other door. Nothing",
+    "links these two quests in the dependency graph -- the exclusivity is",
+    "its own mechanism, and the name they share is the whole of it.",
+    "",
+    "An exclusive pair is how a questline asks a player to choose rather",
+    "than to collect."
+  ],
+  "icon": {
+    "item": "minecraft:iron_ingot"
+  },
+  "x": -224,
+  "y": 416,
+  "dependsOn": [
+    "the_engine"
+  ],
+  "exclusiveGroup": "the_patrons",
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Take the silver patron's coin"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:iron_block",
+      "count": 2
+    }
+  ]
+}

@@ -44,6 +44,7 @@ class QuestSettingsPanelTest {
 
     private static final BookGeometry.Rect BODY = BookGeometry.Rect.at(0, 0, 496, 284);
 
+
     private static JsonObject quest() {
         JsonObject quest = new JsonObject();
         quest.add("id", new JsonPrimitive("smelt_iron"));

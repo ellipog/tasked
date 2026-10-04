@@ -1,0 +1,35 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_home_road",
+  "title": "The Home Road",
+  "subtitle": "Experience paid in whole levels",
+  "description": [
+    "An xp reward pays points by default; `levels: true` pays whole",
+    "levels instead. Five levels is a very different gift from five",
+    "points, and the field is the only difference between them.",
+    "",
+    "The road home is also where the command rewards begin: the bell and",
+    "the quiet word both hang off this quest."
+  ],
+  "icon": {
+    "item": "minecraft:compass"
+  },
+  "x": 192,
+  "y": 608,
+  "dependsOn": [
+    "the_dust_draw"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Take the home road"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 5,
+      "levels": true
+    }
+  ]
+}

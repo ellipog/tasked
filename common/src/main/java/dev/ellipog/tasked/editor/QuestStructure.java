@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.quest.QuestFiles;
+import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestValidator;
 
 import java.io.IOException;
@@ -878,6 +879,85 @@ public final class QuestStructure {
             }
         }
         return entries;
+    }
+
+    /**
+     * Writes one key of the tree's settings block in {@code index.json}.
+     *
+     * <p>Read-modify-write, and the modify is one key: every other root member — the entry list, the
+     * other settings, anything a future version adds — is carried over exactly as it was found, which
+     * is the same promise {@link #indexFile} makes for structural edits. A null value removes the key,
+     * and an emptied settings block is removed rather than left as an empty object.
+     *
+     * <p>Not a {@link Structure}: there are no steps here to reverse, so this does not join the
+     * editor's undo history. A caller that needs that would have to model the settings block, which is
+     * a bigger thing than two strings.
+     *
+     * @return whether the file was written
+     */
+    public static boolean setIndexSetting(Path root, String key, Object value) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        // The keys this writer will touch are the ones the loader knows: an op from a newer client
+        // naming a field this build has never heard of is refused rather than written into a file whose
+        // schema would then refuse the whole index.
+        if (!QuestSettings.FIELDS.contains(key)) {
+            return false;
+        }
+        Path path = indexPath(root);
+        JsonObject object = new JsonObject();
+        String existingText = readText(path).orElse(null);
+        if (existingText != null) {
+            try {
+                JsonElement existing = com.google.gson.JsonParser.parseString(existingText);
+                if (existing.isJsonObject()) {
+                    for (var member : existing.getAsJsonObject().entrySet()) {
+                        object.add(member.getKey(), member.getValue());
+                    }
+                }
+            }
+            catch (RuntimeException ignored) {
+                // An index that does not parse is about to be replaced by one that does; there is
+                // nothing in it that can be carried over.
+            }
+        }
+        if (!object.has("$schema")) {
+            object.addProperty("$schema", INDEX_SCHEMA);
+        }
+
+        JsonObject settings = object.has("settings") && object.get("settings").isJsonObject()
+                ? object.getAsJsonObject("settings") : new JsonObject();
+        if (value == null) {
+            settings.remove(key);
+        }
+        else {
+            JsonElement json = switch (value) {
+                case JsonElement element -> element;
+                case String text -> new com.google.gson.JsonPrimitive(text);
+                case Boolean flag -> new com.google.gson.JsonPrimitive(flag);
+                case Number number -> new com.google.gson.JsonPrimitive(number);
+                default -> null;
+            };
+            if (json == null) {
+                return false;
+            }
+            settings.add(key, json);
+        }
+        if (settings.isEmpty()) {
+            object.remove("settings");
+        }
+        else {
+            object.add("settings", settings);
+        }
+
+        try {
+            JsonFile.of(path, object).write();
+        }
+        catch (IOException e) {
+            return false;
+        }
+        return true;
     }
 
     private static JsonFile indexFile(Path root, List<Entry> entries) {

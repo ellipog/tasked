@@ -119,15 +119,21 @@ public final class BookGeometry {
     /** Between two stacked controls. */
     public static final int ROW_GAP = 4;
 
-    /** The `[Edit]` half of the author's split control: a word, so wider than a square. */
-    public static final int EDIT_BUTTON_WIDTH = 44;
+    /**
+     * The Edit pill's width: a pencil, a space and the word.
+     *
+     * <p>The pencil is {@code \u270E}, which the font carries -- see {@link #TOOLS_PILL_WIDTH} for how
+     * that list was measured, and for why every glyph here is checked rather than guessed.
+     */
+    public static final int EDIT_PILL_WIDTH = 56;
 
     /**
-     * The tools half of the split control.
+     * The Tools pill's width: the word and the triangle that says a menu drops out of it.
      *
-     * <p>A word rather than a glyph, and that is a fix rather than a preference: it was `\u2699`, which
-     * Minecraft's default font does not carry, so the button drew as the missing-glyph box -- a control
-     * that reads as a rendering fault.
+     * <p>A word rather than a glyph for the tool itself, and that is a fix rather than a preference: it
+     * was `\u2699`, which Minecraft's default font does not carry, so the button drew as the
+     * missing-glyph box -- a control that reads as a rendering fault. The triangle is {@code \u25BC},
+     * which the font does carry, and is what makes the pill read as a menu rather than a button.
      *
      * <h2>Which glyphs this font has</h2>
      *
@@ -136,14 +142,14 @@ public final class BookGeometry {
      * one, Latin Extended, Greek and Cyrillic, and a short list of symbols. {@code include/unifont.json}
      * is <b>empty</b>, so there is no unicode fallback: a codepoint outside those pages draws as a box.
      *
-     * <p><b>Present</b>: {@code + - × · • ← ↑ → ↓ ▲ ▼ ○ ● □ ‹ › « » ⌂ § ° ± ÷}. <b>Absent</b>, though an
-     * earlier version of this comment claimed otherwise: {@code ⚙ ◉ ✕ ▸ ▾ ✓}, and every other
+     * <p><b>Present</b>: {@code + - × · • ← ↑ → ↓ ↔ ▲ ▼ ○ ● □ ‹ › « » ⌂ ✎ § ° ± ÷}. <b>Absent</b>,
+     * though an earlier version of this comment claimed otherwise: {@code ⚙ ◉ ✕ ▸ ▾ ✓}, and every other
      * geometric-shape or dingbat symbol -- {@code ✕} as a close button and {@code ◉} for centre were
      * both drawing as boxes until this was measured. A control's glyph comes from the present list or it
      * does not get one, and {@code .utils/check_glyphs.py} holds the same list and fails the build on an
      * escape outside it.
      */
-    public static final int TOOLS_BUTTON_WIDTH = 46;
+    public static final int TOOLS_PILL_WIDTH = 56;
 
     /**
      * The party button's width, in the header.
@@ -156,6 +162,16 @@ public final class BookGeometry {
 
     /** The rewards button's width, in the header, between Close and Party. Wider than Party's: the word is. */
     public static final int REWARDS_BUTTON_WIDTH = 64;
+
+    /**
+     * The settings button's width, in the header, between Party and the author's split control.
+     *
+     * <p>Drawn for every player, unlike the split control beside it: the theme, the Motion switch and
+     * the corner radius are the player's own eye, and they used to be reachable only through the tools
+     * panel -- which is behind the edit permission, so the player the settings are for could not reach
+     * them. Wider than Party's: the word is.
+     */
+    public static final int SETTINGS_BUTTON_WIDTH = 56;
 
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
@@ -359,8 +375,19 @@ public final class BookGeometry {
             CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
-    /** Enough canvas to be worth showing beside the sidebar. */
-    public static final int MIN_CANVAS_WIDTH = 80;
+    /**
+     * Enough canvas for the graph, the view cluster and the author's pills side by side.
+     *
+     * <p>It was "enough canvas to be worth showing beside the sidebar" -- 80, a judgement -- and the two
+     * floating clusters have made it an arithmetic term instead. The cluster occupies
+     * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the pills
+     * occupy {@code EDIT_PILL_WIDTH + EDGE} at its right, and one {@link #EDGE} between them is the least
+     * this can honestly call a canvas. What is left for the graph is the remainder, and it is written
+     * from the constants the clusters are placed with rather than measured by eye -- which is how the
+     * width that used to be a judgement became something a test can sweep.
+     */
+    public static final int MIN_CANVAS_WIDTH =
+            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + EDIT_PILL_WIDTH + EDGE;
 
     /**
      * The room the header's title needs, left of the controls: the inset it starts at and a word.
@@ -371,25 +398,25 @@ public final class BookGeometry {
     public static final int HEADER_TITLE_ROOM = 32;
 
     /**
-     * The narrowest the panel gets, and it is the header that decides it now.
+     * The narrowest the panel gets.
      *
-     * <p>It was {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH} -- the sidebar and enough canvas to be worth
-     * showing beside it -- and that stopped being the binding term the day the header's cluster grew a
-     * fourth member. The cluster is anchored right to left from Close, and {@link #headerRightLimit} is
-     * measured from its leftmost control, so the panel has to hold the whole cluster plus
-     * {@link #HEADER_TITLE_ROOM} or the title has nowhere to go. A window narrower than this gets a panel
-     * that runs off its edges instead, which the constructor documents and the clipping handles.
+     * <p>Two terms, and the canvas decides it now: the header's run of controls -- Close, Rewards,
+     * Party, Settings -- plus {@link #HEADER_TITLE_ROOM} for the book's own name, against
+     * {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}, which is what the two floating clusters need.
      *
-     * <p>Derived from the constants the buttons are themselves placed with, so widening one moves this
-     * with it instead of leaving a number to drift. That is not tidiness: the header's own test caught
-     * exactly this when the rewards button arrived, which is the drift it exists to catch.
+     * <p>The author's controls used to be two more terms in the header's sum, and that sum was the
+     * binding one -- 336. They float over the canvas instead now (see {@link #editPill()}), which takes
+     * them out of the row that measures the panel but adds them to the canvas term, and the minimum
+     * <i>falls</i> to 257: the header had been paying for controls that were only ever drawn over the
+     * graph. Both sums are still written from the constants the controls are placed with, so widening
+     * one moves this with it -- the header's own test caught exactly that when the rewards button
+     * arrived, which is the drift it exists to catch.
      */
     public static final int MIN_PANEL_WIDTH = Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
             HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
                     + ROW_GAP + REWARDS_BUTTON_WIDTH         // Rewards
                     + ROW_GAP + PARTY_BUTTON_WIDTH           // Party
-                    + ROW_GAP + TOOLS_BUTTON_WIDTH           // the gear
-                    + ROW_GAP + EDIT_BUTTON_WIDTH            // Edit
+                    + ROW_GAP + SETTINGS_BUTTON_WIDTH        // Settings
                     + HEADER_TITLE_ROOM);
 
     /** The largest the panel gets, however big the window is. */
@@ -939,22 +966,14 @@ public final class BookGeometry {
      * <p>One expression, used by the drawing and by nothing else — but it is here rather than in the
      * screen because that is the rule this class exists to enforce, and because the alternative is a
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
+     *
+     * <p>Measured from Settings for every player now. It used to take a flag and measure from Edit for an
+     * operator, because the author's controls sat in this row and the count had to stop short of them.
+     * They float over the canvas instead (see {@link #editPill()}), the header is the same four controls
+     * for everyone, and the flag went with the difference it described.
      */
     public int headerRightLimit() {
-        return headerRightLimit(true);
-    }
-
-    /**
-     * Where the header's right-hand text has to stop, for a header that may or may not carry the
-     * author's pair.
-     *
-     * <p>The pair is built for an operator and no one else, so measuring the limit from Edit at every
-     * player is what pulled the quest count left of empty space for everybody else — the gap the report
-     * was about. Asking the cluster where it actually starts is the same rule the parameterless method
-     * follows, with the cluster the caller is about to draw.
-     */
-    public int headerRightLimit(boolean authorControls) {
-        return (authorControls ? editButton().x() : partyButton().x()) - 10;
+        return settingsButton().x() - 10;
     }
 
     /**
@@ -981,6 +1000,19 @@ public final class BookGeometry {
     }
 
     /**
+     * The settings button, in the header between Party and the author's split control: the way into the
+     * player's own appearance settings.
+     *
+     * <p>For every player, and that is the point of it existing: the theme, the Motion switch and the
+     * corner radius lived only in the author's tools panel, so the player they are for could not reach
+     * them. Anchored right to left from the party button, like every other member of the cluster.
+     */
+    public Rect settingsButton() {
+        return Rect.at(partyButton().x() - ROW_GAP - SETTINGS_BUTTON_WIDTH, partyButton().y(),
+                SETTINGS_BUTTON_WIDTH, ROW_HEIGHT);
+    }
+
+    /**
      * The rewards button, in the header between Close and Party: the way into the rewards panel.
      *
      * <p>The spot this class was already holding. {@link #partyButton}'s anchor was written right to
@@ -996,26 +1028,64 @@ public final class BookGeometry {
     }
 
     /**
-     * The author's split control: `[Edit]` toggles edit mode, and the square `⚙` opens the tools panel.
+     * The author's pills, in the canvas's top-right corner: a column, mirroring the view cluster.
      *
-     * <h2>Why one unit rather than two buttons</h2>
+     * <h2>Why the corner, and why a column</h2>
      *
-     * <p>Because they are one thing -- "the author's controls" -- and both are drawn only for a player who
-     * may edit the questline, which is the same permission `/tasked reload` asks for. Placed left of the
-     * party button, so the header reads: `[Edit] [gear] [Party] [Close]`.
+     * <p>The header belongs to the book and every player reads it, so the author's controls left it for
+     * the corner that is already a control strip -- the view cluster's mirror on the far side. A column
+     * because the cluster on the left is one: Edit on top, and the Tools pill dropping in beneath it when
+     * edit mode is on, which is one of the two arrangements the design asks for ("or drops as a vertical
+     * stack beneath it") and the one that keeps Edit still while the second pill comes and goes.
      *
-     * <p>The square half is the height of a control, so the two read as a unit rather than as a wide
-     * button and an accident.
+     * <p>Right-aligned on the canvas edge rather than centred as a pair: the inactive state is the single
+     * Edit pill, and a pill that hugged the middle to reserve a slot for an absent neighbour would be
+     * exactly the dead space the split header was retired to remove.
      */
-    public Rect toolsButton() {
-        return Rect.at(partyButton().x() - ROW_GAP - TOOLS_BUTTON_WIDTH, partyButton().y(),
-                TOOLS_BUTTON_WIDTH, ROW_HEIGHT);
+    public Rect editPill() {
+        return Rect.at(canvas.right() - EDGE - EDIT_PILL_WIDTH, canvas.y() + EDGE,
+                EDIT_PILL_WIDTH, ROW_HEIGHT);
     }
 
-    /** The `[Edit]` half. Wider: it carries a word. */
-    public Rect editButton() {
-        return Rect.at(toolsButton().x() - ROW_GAP - EDIT_BUTTON_WIDTH, toolsButton().y(),
-                EDIT_BUTTON_WIDTH, ROW_HEIGHT);
+    /** The Tools half, directly beneath the Edit pill with the cluster's own gap. */
+    public Rect toolsPill() {
+        return Rect.at(editPill().right() - TOOLS_PILL_WIDTH, editPill().y() + ROW_HEIGHT + VIEW_GAP,
+                TOOLS_PILL_WIDTH, ROW_HEIGHT);
+    }
+
+    /**
+     * The backing panel behind the pills, drawn so they read as one group.
+     *
+     * <p>Takes whether the Tools pill is showing because the mat is what says "one unit": a mat sized
+     * for two pills under a single pill reads as a control that failed to draw.
+     */
+    public Rect pillMat(boolean withTools) {
+        int height = withTools ? ROW_HEIGHT * 2 + VIEW_GAP : ROW_HEIGHT;
+        return Rect.at(editPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
+                EDIT_PILL_WIDTH + VIEW_MAT * 2, height + VIEW_MAT * 2);
+    }
+
+    /**
+     * The band the author's pills occupy at the top of the canvas, from the canvas edge to the bottom
+     * of the pair's mat.
+     *
+     * <p>{@code (EDGE - VIEW_MAT) + (ROW_HEIGHT * 2 + VIEW_GAP) + VIEW_MAT * 2}: the mat's overhang, two
+     * pills, the gap between them, and the mat again. Sized for the pair even when only Edit is showing,
+     * because the drawer beneath it must not move when the Tools pill comes and goes -- which is the
+     * whole reason this band is reserved rather than measured from what is currently drawn.
+     */
+    public static final int AUTHOR_PILL_BAND =
+            (EDGE - VIEW_MAT) + (ROW_HEIGHT * 2 + VIEW_GAP) + VIEW_MAT * 2;
+
+    /**
+     * The canvas minus the pill band, for the inspector drawer.
+     *
+     * <p>The drawer is the author's too, and it starts below the pills: a rail that ran up to the
+     * canvas's top edge would put its first row under a control floating over it.
+     */
+    public Rect authorRail() {
+        return Rect.at(canvas.x(), canvas.y() + AUTHOR_PILL_BAND, canvas.width(),
+                canvas.height() - AUTHOR_PILL_BAND);
     }
 
     /**
@@ -1083,11 +1153,19 @@ public final class BookGeometry {
         out.put("rewards", rewardsButton());
         out.put("party", partyButton());
 
-        // The author's split control, left of the party button. Always in the map and drawn only for a
+        // The settings button, for every player, left of the party button. In the map and drawn for
+        // everybody, unlike the author's controls, which are not in this row at all any more: these are
+        // the player's own settings.
+        out.put("settings", settingsButton());
+
+        // The author's pills, over the canvas's top-right corner. Always in the map and drawn only for a
         // player who may edit: geometry is what the overlap sweep checks, and a control that appeared in
-        // the map only sometimes would be a control the sweep tests in one build and not the next.
-        out.put("edit", editButton());
-        out.put("tools", toolsButton());
+        // the map only sometimes would be a control the sweep tests in one build and not the next. They
+        // are placed here rather than with the view cluster below so that the map's source order still
+        // reads as the header first, then the canvas furniture -- the same order the old header pair
+        // occupied.
+        out.put("editPill", editPill());
+        out.put("toolsPill", toolsPill());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
         // only for an author -- the same convention as `edit` and `tools` above, and for the same

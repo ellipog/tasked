@@ -6,7 +6,6 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.quest.ItemRef;
 import dev.ellipog.tasked.quest.QuestReward;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
@@ -73,11 +72,11 @@ public record ItemReward(RewardCommon common, ItemRef item, int randomBonus, boo
             // add() puts what it can into the inventory and returns false if some of it did not fit.
             // What does not fit is dropped at the player's feet rather than discarded -- a quest
             // reward that silently evaporates because the player was full is the kind of bug that
-            // gets a mod uninstalled.
+            // gets a mod uninstalled. The drop is reported rather than announced: one press can
+            // overflow on many stacks, and the claim operation says the one sentence. See RewardFeedback.
             if (!context.player().addItem(give)) {
                 context.player().drop(give, false);
-                context.player().displayClientMessage(
-                        Component.translatable("tasked.reward.inventory_full", reward.item().describe()), true);
+                context.feedback().dropped(give);
             }
             remaining -= size;
         }

@@ -1,0 +1,34 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_triumph",
+  "title": "The Triumph",
+  "subtitle": "An advancement reward",
+  "description": [
+    "An advancement reward awards the advancement itself, optionally",
+    "narrowed to one criterion the way the task of the same name is. This",
+    "one hands over the Nether achievement outright.",
+    "",
+    "It is the mirror of the advancement *task* in the hunt arm: one asks",
+    "whether the player earned it, the other makes sure they have."
+  ],
+  "icon": {
+    "item": "minecraft:firework_rocket"
+  },
+  "x": -160,
+  "y": 768,
+  "dependsOn": [
+    "the_bonus_bag"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Mark the triumph"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:advancement",
+      "advancement": "minecraft:story/enter_the_nether"
+    }
+  ]
+}

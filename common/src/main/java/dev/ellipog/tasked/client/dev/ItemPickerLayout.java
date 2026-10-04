@@ -35,7 +35,16 @@ public final class ItemPickerLayout {
         CLEAR,
         /** An id with no item behind it: the field's own value, or one typed on purpose. Kept, marked. */
         MISSING,
-        ITEM
+        ITEM,
+        /**
+         * A file in the pack, picked by {@code TexturePicker}.
+         *
+         * <p>The same list, one more thing a row can be: the texture picker composes its rows through
+         * this class so the two lists share the frame, the heights, the scroll and the hit test -- and
+         * the drawing is where the two differ, because a picture is not an item. {@link #pickable}
+         * accepts it with every kind that is not a heading.
+         */
+        TEXTURE
     }
 
     /**
@@ -107,12 +116,14 @@ public final class ItemPickerLayout {
         if (current.clearable() && !current.id().isEmpty()) {
             // The row the caller has already decided is legal -- it is only ever offered for the
             // quest's icon, where "clear" means the optional field goes and the default applies.
-            rows.add(new Row(Kind.CLEAR, "", "Clear", "goes back to the default"));
+            rows.add(new Row(Kind.CLEAR, "", Labels.of("tasked.dev.picker.clear"),
+                    Labels.of("tasked.dev.picker.clear_detail")));
         }
         if (!current.id().isEmpty() && !current.known()) {
             // The field's own value when the build cannot resolve it: what a mod that went away looks
             // like. Shown so it is never silent, and pickable so pressing it keeps it.
-            rows.add(new Row(Kind.MISSING, current.id(), current.id(), "missing - the id is kept"));
+            rows.add(new Row(Kind.MISSING, current.id(), current.id(),
+                    Labels.of("tasked.dev.picker.missing")));
         }
         boolean results = !matches.isEmpty() || typedCandidate != null;
         boolean show = heading != null ? results
@@ -120,17 +131,17 @@ public final class ItemPickerLayout {
         // The results above the inventory, because a query is about the whole registry and the list
         // someone is reading is the answer -- what they carry is the fallback, not the headline.
         if (show) {
-            rows.add(heading(heading == null ? "All items" : heading));
+            rows.add(heading(heading == null ? Labels.of("tasked.dev.picker.all_items") : heading));
             if (typedCandidate != null) {
                 rows.add(new Row(Kind.MISSING, typedCandidate, typedCandidate,
-                        "not installed - use it anyway"));
+                        Labels.of("tasked.dev.picker.not_installed")));
             }
             for (ItemPicker.Entry entry : matches) {
                 rows.add(item(entry));
             }
         }
         if (!inventory.isEmpty()) {
-            rows.add(heading("In your inventory"));
+            rows.add(heading(Labels.of("tasked.dev.picker.inventory")));
             for (ItemPicker.Entry entry : inventory) {
                 rows.add(item(entry));
             }

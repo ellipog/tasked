@@ -19,6 +19,7 @@ import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
+import dev.ellipog.tasked.client.QuestNotifier;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -88,6 +89,9 @@ public final class TaskedFabricClient implements ClientModInitializer {
             ArmatureClient.tick();
             // The viewer's half: the content's revision check, then the one chosen adapter's tick.
             Integrations.tick();
+            // The notice half: the one detector of completions and claims, which speaks whether or not
+            // the book is open. See QuestNotifier.
+            QuestNotifier.tick();
         });
 
         // A payload can arrive for a world being left, and a cache holding it would be read by the
@@ -111,6 +115,10 @@ public final class TaskedFabricClient implements ClientModInitializer {
             ClientEditReplies.clear();
             // The half-counted observations go with the tree they were counted against.
             ObservationWatcher.reset();
+            // And the completion diff, or the next server's progress would be read against this one's
+            // states and a quest that was locked here and complete there would announce a completion
+            // that never happened in front of this player.
+            QuestNotifier.reset();
             TaskedNetworking.forgetTransfers();
         });
 

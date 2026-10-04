@@ -1,0 +1,44 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_armoured_husk",
+  "title": "The Armoured Husk",
+  "subtitle": "A kill by nbtFilter",
+  "description": [
+    "`nbtFilter` is an SNBT subset match against the mob's saved data --",
+    "the field for the mobs an id cannot pick out. `{IsBaby:1b}` counts",
+    "only the small ones, which is a hunt with a different shape from the",
+    "species.",
+    "",
+    "The line into it is `dash: hazard` at `weight: thick`: the",
+    "hatch-marked run the road signs use, two pixels wide instead of one."
+  ],
+  "icon": {
+    "item": "minecraft:iron_chestplate"
+  },
+  "x": 448,
+  "y": 448,
+  "dependsOn": [
+    "the_hunt"
+  ],
+  "dependencyLines": {
+    "the_hunt": {
+      "dash": "hazard",
+      "weight": "thick"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:kill",
+      "entity": "minecraft:zombie",
+      "nbtFilter": "{IsBaby:1b}",
+      "value": 3
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:iron_ingot",
+      "count": 6
+    }
+  ]
+}

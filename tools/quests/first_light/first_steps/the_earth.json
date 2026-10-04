@@ -1,0 +1,41 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_earth",
+  "title": "The Earth",
+  "subtitle": "hideDependencyLines, and a custom reward",
+  "description": [
+    "`hideDependencyLines` draws no line arriving at this quest. The node",
+    "itself is unaffected, and quests that depend on it still draw their",
+    "lines to it -- one edge's worth of line art, withheld.",
+    "",
+    "The reward is `tasked:custom`, the write half of the custom pair: it",
+    "does whatever a handler registered under `first_light:announce`",
+    "does, and warns rather than failing when no handler is registered.",
+    "The KubeJS page has the script."
+  ],
+  "icon": {
+    "item": "minecraft:grass_block"
+  },
+  "x": -672,
+  "y": -416,
+  "dependsOn": [
+    "the_far_star"
+  ],
+  "hideDependencyLines": true,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Look back at the earth"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:custom",
+      "id": "first_light:announce"
+    },
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

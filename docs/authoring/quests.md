@@ -96,17 +96,17 @@ open. They may live in other files, and a reference that resolves to nothing is 
 
 The chapter's `dependencyStyle` sets how its lines look; `dependencyLines` overrides one dependency's
 line, axis by axis. Only the axes a line names are overridden — the rest fall back to the chapter,
-then to the built-ins (`orthogonal`, a chevron at the target, `solid`, `thin`).
+then to the built-ins (`chamfered`, a chevron at the target, `solid`, `thin`).
 
 | Axis | Values | Meaning |
 |---|---|---|
-| `form` | `orthogonal`, `chamfered`, `straight`, `stepped`, `curved`, `radial` | The route's shape: a three-segment step, the same step with 45° corner cuts (a circuit trace), a direct line, a Z broken at the chord's midpoint, a smooth bow, or a circular arc. `curved` and `radial` read `bend`. |
+| `form` | `orthogonal`, `chamfered`, `straight`, `curved` | The route's shape: a three-segment step, the same step with 45° corner cuts (a circuit trace, and the built-in default), a direct line, or a smooth bow. `curved` reads `bend`. |
 | `arrowHead` | `chevron`, `triangle`, `dot`, `diamond`, `none` | The glyph an arrowhead is drawn as. `chevron` is the built-in; `none` is a blunt line end. |
 | `arrowPlace` | `target`, `both`, `mid`, `stream` | Where the heads sit: one at the dependent end (the built-in), one at each end, one in the middle of the route, or a repeating run. |
 | `arrowDensity` | `low`, `medium`, `high` | How far apart a `stream` repeats: 64, 32 or 16 pixels. |
 | `dash` | `solid`, `dashed`, `dotted`, `dash_dot`, `double`, `hazard` | The line's pattern. `double` is two hairlines either side of the route and ignores `weight`; `hazard` is the run plus diagonal hatch marks. |
 | `weight` | `thin`, `thick`, `bold`, `conduit` | How many pixels wide: 1, 2, 3, or a 6-pixel conduit with dark borders around a lighter core. |
-| `bend` | −0.8–0.8 | How far a curved or radial line bows, as a fraction of the chord between its ends. |
+| `bend` | −0.8–0.8 | How far a curved line bows, as a fraction of the chord between its ends. |
 | `fromAnchor` / `toAnchor` | degrees | The angle a line leaves or meets a node at, 0 east and growing clockwise. Per line only, because which rim a line meets is a fact about its two ends. |
 | `fromHandle` / `toHandle` | `[along, across]` | A split line's control points. They are written together — one alone is a split with half a shape. |
 
@@ -188,6 +188,6 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 | `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tasked:authoring/rewards]]. |
 | `dependencyStyle` | built-ins | The drawing defaults for the chapter's lines. |
 | `theme` | — | A palette the chapter asks to be drawn in. A client concept: the catalogue lives on the client, so the name is a plain string here, and a client that cannot resolve it says so. |
-| `themePatch` | — | Token-level overrides for `theme` — individual colours and a corner radius, applied over the named theme (or over the player's own when no theme is named). The Theme tab's "Chapter palette" switch writes this; a file can also carry it by hand: `{ "colours": { "raised": "#FF24242E" }, "cornerRadius": 4 }`. |
+| `themePatch` | — | Token-level overrides for `theme` — individual colours and a corner radius, applied over the named theme (or over the player's own when no theme is named). The Chapter tab's appearance section writes this; a file can also carry it by hand: `{ "colours": { "raised": "#FF24242E" }, "cornerRadius": 4 }`. |
 
 A chapter's palette reaches everything that belongs to it — the canvas, the quest cards and their buttons and fields, the picker and rename cards, and the tooltips describing them — while the book's own chrome (sidebar, header, menus, tools panel, notices) keeps the player's theme. `themePatch` is how a chapter sets "raised surfaces at `#24242E`, radius 4" without shipping a whole theme file.

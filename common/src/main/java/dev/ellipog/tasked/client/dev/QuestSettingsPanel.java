@@ -84,33 +84,32 @@ public final class QuestSettingsPanel {
      * what a control has to say about itself.
      */
     private static final Map<String, String> HELP = Map.ofEntries(
-            Map.entry("shape", "The node's outline. A click lands on exactly the pixels it draws."),
-            Map.entry("rotation", "How far the node is turned, in degrees clockwise."),
-            Map.entry("size", "How big the node draws on the canvas: 16 to 512 pixels."),
-            Map.entry("iconScale", "How much of the node the icon fills; the outline caps it."),
-            Map.entry("icon", "The item in the middle of the node."),
-            Map.entry("showTitle", "Draw the quest's name under its node."),
-            Map.entry("x", "Canvas position. Drag the node on the canvas, or type a number."),
-            Map.entry("y", "Canvas position. Drag the node on the canvas, or type a number."),
-            Map.entry("repeatable", "A repeatable quest can be completed again after its cooldown."),
-            Map.entry("repeatCooldownTicks", "Ticks between completions. 2400 is two minutes."),
-            Map.entry("sequentialTasks", "Tasks must be handed in in order."),
-            Map.entry("invisible", "Hidden until it is completed."),
-            Map.entry("exclusiveGroup", "Quests sharing a group lock each other out for good."),
-            Map.entry("prerequisiteMode", "How many prerequisites must be satisfied: all, or any one."),
-            Map.entry("minRequired", "An exact count, for an \"any three of five\". 0 uses the rule."),
-            Map.entry("maxCompletableDependents", "How many quests may complete off this one. 0 is no cap."),
-            Map.entry(QuestSettingsLayout.DEPENDENCY_SELECTED,
-                    "Add every node selected on the canvas as a prerequisite."),
-            Map.entry(QuestPanelLayout.DEPENDENCY_PICK, "Arm the canvas: the next node clicked is added."),
-            Map.entry("invisibleUntilTasks", "With Invisible on: shown once this many tasks have progress."),
-            Map.entry("hideUntilDependenciesComplete", "Hidden until this quest's prerequisites are met."),
-            Map.entry("hideUntilDependenciesVisible", "Hidden until at least one prerequisite is itself shown."),
-            Map.entry("hideDependencyLines", "Do not draw the lines arriving at this quest."),
-            Map.entry("hideTextUntilComplete", "The card shows no description until it is completed."),
-            Map.entry("hideDetailsUntilStartable", "The card shows no task details until it can be started."),
-            Map.entry("id", "The quest's id. Renaming it needs an alias: progress files name it."),
-            Map.entry("aliases", "Other names this quest answers to, comma-separated."));
+            Map.entry("shape", "tasked.dev.help.shape"),
+            Map.entry("rotation", "tasked.dev.help.rotation"),
+            Map.entry("size", "tasked.dev.help.size"),
+            Map.entry("iconScale", "tasked.dev.help.icon_scale"),
+            Map.entry("icon", "tasked.dev.help.icon"),
+            Map.entry("showTitle", "tasked.dev.help.show_title"),
+            Map.entry("x", "tasked.dev.help.position"),
+            Map.entry("y", "tasked.dev.help.position"),
+            Map.entry("repeatable", "tasked.dev.help.repeatable"),
+            Map.entry("repeatCooldownTicks", "tasked.dev.help.repeat_cooldown"),
+            Map.entry("sequentialTasks", "tasked.dev.help.sequential_tasks"),
+            Map.entry("invisible", "tasked.dev.help.invisible"),
+            Map.entry("exclusiveGroup", "tasked.dev.help.exclusive_group"),
+            Map.entry("prerequisiteMode", "tasked.dev.help.prerequisite_mode"),
+            Map.entry("minRequired", "tasked.dev.help.min_required"),
+            Map.entry("maxCompletableDependents", "tasked.dev.help.max_dependents"),
+            Map.entry(QuestSettingsLayout.DEPENDENCY_SELECTED, "tasked.dev.help.add_selected"),
+            Map.entry(QuestPanelLayout.DEPENDENCY_PICK, "tasked.dev.help.pick_on_canvas"),
+            Map.entry("invisibleUntilTasks", "tasked.dev.help.visible_after_tasks"),
+            Map.entry("hideUntilDependenciesComplete", "tasked.dev.help.hide_until_deps_done"),
+            Map.entry("hideUntilDependenciesVisible", "tasked.dev.help.hide_until_deps_shown"),
+            Map.entry("hideDependencyLines", "tasked.dev.help.hide_dependency_lines"),
+            Map.entry("hideTextUntilComplete", "tasked.dev.help.hide_text_until_done"),
+            Map.entry("hideDetailsUntilStartable", "tasked.dev.help.hide_details_until_startable"),
+            Map.entry("id", "tasked.dev.help.id"),
+            Map.entry("aliases", "tasked.dev.help.aliases"));
 
     /**
      * Draws the whole page: the preview, the controls, and the help line under them.
@@ -165,22 +164,25 @@ public final class QuestSettingsPanel {
         int x = pane.x() + (pane.width() - drawn) / 2;
         int y = pane.y() + (pane.height() - drawn) / 2;
 
+        // The border is `nodeEdgeAvailable`, not `available`: the canvas's node borders read the four
+        // node-edge tokens, and a preview drawn with the state ink would show a border the canvas will
+        // not draw -- the exact kind of preview that drifts from the thing it previews.
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(drawn, shape, view.geometry(), view.icon(),
-                iconScale, ArmatureTheme.available(), 0, 0));
+                iconScale, ArmatureTheme.nodeEdgeAvailable(), 0, 0));
 
         if (view.showTitle() && !view.title().isEmpty()) {
             QuestNodeArt.caption(r, x, y, drawn, view.title(), pane.x(), pane.right(),
                     Math.min(pane.bottom(), frame.caption().y()));
         }
 
-        String caption = shape.name().toLowerCase(java.util.Locale.ROOT)
-                + " \u00b7 " + size + " px";
+        String caption = Labels.of("tasked.dev.preview.caption",
+                shape.name().toLowerCase(java.util.Locale.ROOT), size);
         if (view.rotation() != 0) {
-            caption += " \u00b7 turned " + view.rotation() + "\u00b0";
+            caption += Labels.of("tasked.dev.preview.turned", view.rotation());
         }
-        caption += " \u00b7 icon " + trim(iconScale);
+        caption += Labels.of("tasked.dev.preview.icon", trim(iconScale));
         if (zoom < 0.999) {
-            caption += " \u00b7 shown at " + Math.round(zoom * 100) + "%";
+            caption += Labels.of("tasked.dev.preview.shown_at", Math.round(zoom * 100));
         }
         r.text(Measure.truncate(caption, frame.caption().width(),
                         Measure.of(r::textWidth, r.lineHeight())),
@@ -214,12 +216,13 @@ public final class QuestSettingsPanel {
                 Slot onScreen = InspectLayout.onScreen(column, slot);
                 boolean hovered = row.key().equals(view.hoveredKey());
                 switch (row.kind()) {
-                    case HEADING -> r.text(row.label(), onScreen.x(),
+                    case HEADING -> r.text(Labels.of(row.label()), onScreen.x(),
                             onScreen.y() + (onScreen.height() - 8) / 2, ArmatureTheme.title());
                     case SHAPE_GRID -> drawShapeGrid(r, onScreen, view, measure);
                     case SLIDER -> drawSlider(r, onScreen, row, view, hovered, mouseX, mouseY);
                     case STEPPER -> drawStepper(r, onScreen, row, quest, hovered);
-                    case SWITCH -> drawSwitch(r, onScreen, row, flag(quest, row.key()), hovered);
+                    case SWITCH -> drawSwitch(r, onScreen, row, QuestPanelLayout.flag(quest, row.key()),
+                            hovered);
                     case FIELD -> drawFieldLabel(r, onScreen, row, quest, measure);
                     case VALUE -> drawValue(r, onScreen, row, quest, measure);
                     case ICON -> drawIconRow(r, onScreen, view, hovered);
@@ -345,7 +348,12 @@ public final class QuestSettingsPanel {
     private static void drawSwitch(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row, boolean on,
                                    boolean hovered) {
         Slot strip = QuestSettingsLayout.strip(slot);
-        drawRowLabel(r, slot, strip, row.label() + (on ? " \u00b7 on" : " \u00b7 off"));
+        // The state is composed here from the live flag, not baked into the row: the row is built once
+        // and the tree can change under it -- a press writes a draft the server has not answered yet --
+        // so a label that carried the state would be a switch whose word and knob disagree. The two
+        // suffixes are keys of their own, separator included, so a language can move or drop the dot.
+        drawRowLabel(r, slot, strip, Labels.of(row.label())
+                + Labels.of(on ? "tasked.dev.switch_on" : "tasked.dev.switch_off"));
         BookGeometry.Rect track = QuestSettingsLayout.switchTrack(strip);
         ArmatureTheme.panel(r, track.x(), track.y(), track.width(), track.height(),
                 on ? ArmatureTheme.available()
@@ -421,7 +429,10 @@ public final class QuestSettingsPanel {
                                        Measure measure) {
         Slot strip = QuestSettingsLayout.strip(slot);
         int room = Math.max(0, strip.x() - slot.x() - 6);
-        r.text(Measure.truncate(row.label(), room, measure), slot.x(),
+        // The label is a quest's own title, or its id when the client has never heard of it -- content
+        // rather than prose, so `Labels.of` passes it through; the equality checks below read the raw
+        // label, which is what the two-line layout is decided by.
+        r.text(Measure.truncate(Labels.of(row.label()), room, measure), slot.x(),
                 slot.y() + (slot.height() - 8) / 2 - (row.label().equals(row.key().substring(
                         QuestSettingsLayout.DEPENDENCY_PREFIX.length())) ? 0 : 3),
                 ArmatureTheme.title());
@@ -444,16 +455,19 @@ public final class QuestSettingsPanel {
         Slot strip = QuestSettingsLayout.strip(slot);
         BookGeometry.Rect button = QuestSettingsLayout.actionBox(strip);
         // "Add selected" with no selection is drawn dimmed, and its press is refused: a button that
-        // looks live and does nothing is the thing this page keeps being fixed for.
+        // looks live and does nothing is the thing this page keeps being fixed for. Which of the two
+        // keys the row carries is the answer -- the counted one is only chosen when something is
+        // selected -- so this reads the key rather than sniffing the label for a bracket.
         boolean live = !row.key().equals(QuestSettingsLayout.DEPENDENCY_SELECTED)
-                || row.label().endsWith(")");
+                || row.label().equals(QuestSettingsLayout.ADD_SELECTED_COUNT);
         ArmatureTheme.panel(r, button.x(), button.y(), button.width(), button.height(),
                 hovered && live ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)
                         : ArmatureTheme.raised(),
                 ArmatureTheme.panelEdge());
-        r.text(Measure.truncate(row.label(), Math.max(0, button.width() - 8),
+        String label = Labels.of(row.label());
+        r.text(Measure.truncate(label, Math.max(0, button.width() - 8),
                         Measure.of(r::textWidth, r.lineHeight())),
-                button.x() + (button.width() - r.textWidth(row.label())) / 2,
+                button.x() + (button.width() - r.textWidth(label)) / 2,
                 button.y() + (button.height() - 8) / 2,
                 live ? ArmatureTheme.body() : ArmatureTheme.faint());
     }
@@ -461,13 +475,13 @@ public final class QuestSettingsPanel {
     /** The icon row: the item itself, and a button that opens the picker. */
     private static void drawIconRow(GuiRenderer r, Slot slot, View view, boolean hovered) {
         Slot strip = QuestSettingsLayout.strip(slot);
-        drawRowLabel(r, slot, strip, "Icon");
+        drawRowLabel(r, slot, strip, "tasked.dev.quest.icon");
         BookGeometry.Rect button = iconButton(strip);
         ArmatureTheme.panel(r, button.x(), button.y(), button.width(), button.height(),
                 hovered ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)
                         : ArmatureTheme.raised(),
                 ArmatureTheme.panelEdge());
-        String label = "Change\u2026";
+        String label = Labels.of("tasked.dev.change");
         r.text(label, button.x() + (button.width() - r.textWidth(label)) / 2,
                 button.y() + (button.height() - 8) / 2, ArmatureTheme.body());
         if (view.icon() != null && !view.icon().isEmpty()) {
@@ -484,10 +498,10 @@ public final class QuestSettingsPanel {
     // The pieces
     // ------------------------------------------------------------------
 
-    /** A row's label, truncated to the room left of its strip. */
+    /** A row's label, truncated to the room left of its strip. The label is a key; resolved here. */
     private static void drawRowLabel(GuiRenderer r, Slot slot, Slot strip, String label) {
         int room = Math.max(0, strip.x() - slot.x() - 6);
-        r.text(Measure.truncate(label, room, Measure.of(r::textWidth, r.lineHeight())),
+        r.text(Measure.truncate(Labels.of(label), room, Measure.of(r::textWidth, r.lineHeight())),
                 slot.x(), slot.y() + (slot.height() - 8) / 2, ArmatureTheme.body());
     }
 
@@ -517,9 +531,10 @@ public final class QuestSettingsPanel {
         // that should have been avoided -- so the null is checked here, once.
         String text = view.hoveredKey() == null ? null : HELP.get(view.hoveredKey());
         if (text == null) {
-            text = "Shape, size, placement and rules \u2014 the fields the reader's card does not show.";
+            text = "tasked.dev.quest.help.default";
         }
-        r.text(Measure.truncate(text, help.width(), Measure.of(r::textWidth, r.lineHeight())),
+        r.text(Measure.truncate(Labels.of(text), help.width(),
+                        Measure.of(r::textWidth, r.lineHeight())),
                 help.x(), help.y() + (help.height() - 8) / 2, ArmatureTheme.faint());
     }
 
@@ -547,13 +562,6 @@ public final class QuestSettingsPanel {
             shown = shown.substring(0, shown.length() - 1);
         }
         return shown;
-    }
-
-    /** Whether a quest's boolean field is on. */
-    private static boolean flag(JsonObject quest, String key) {
-        JsonElement value = quest == null ? null : QuestPanelLayout.get(quest, key);
-        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
-                && value.getAsBoolean();
     }
 
     private static int intValue(JsonObject quest, String key, int fallback) {

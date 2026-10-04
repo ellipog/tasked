@@ -1,0 +1,47 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_nameplate",
+  "title": "The Nameplate",
+  "subtitle": "components, and match: fuzzy",
+  "description": [
+    "A sword with a name on it. `components` names a",
+    "`minecraft:custom_name` component -- the value is a string holding",
+    "the JSON the codec writes -- and `match: fuzzy` asks a carried stack",
+    "to have the data the task names rather than to be identical to it in",
+    "every other respect. A plain iron sword does not count; one named",
+    "The Keystone does, whatever its durability says.",
+    "",
+    "`match: none` would ignore the data entirely, and `match: strict`",
+    "(the default, shown on the warrant beside this) would need the whole",
+    "stack to agree. This task also declines the chapter's consume",
+    "default, because a nameplate is not something the house gets to",
+    "keep."
+  ],
+  "icon": {
+    "item": "minecraft:iron_sword"
+  },
+  "x": 0,
+  "y": -480,
+  "dependsOn": [
+    "the_counting_house"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:iron_sword",
+      "count": 1,
+      "components": {
+        "minecraft:custom_name": "\"The Keystone\""
+      },
+      "match": "fuzzy",
+      "consumeItems": false
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:experience_bottle",
+      "count": 4
+    }
+  ]
+}

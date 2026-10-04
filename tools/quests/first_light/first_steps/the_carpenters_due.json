@@ -1,0 +1,45 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_carpenters_due",
+  "title": "The Carpenter's Due",
+  "subtitle": "A consuming task, said on the task",
+  "description": [
+    "Sixty-four planks, handed over and gone. The `consumeItems: true`",
+    "here is written on the task rather than inherited -- the explicit",
+    "form of the chapter default, and the one to copy when a chapter's",
+    "default is off.",
+    "",
+    "The line into this node is `form: chamfered`, the circuit-trace",
+    "step: the same route as the chapter's orthogonal default with its",
+    "corners cut at forty-five degrees."
+  ],
+  "icon": {
+    "item": "minecraft:oak_planks"
+  },
+  "x": 96,
+  "y": -480,
+  "shape": "square",
+  "dependsOn": [
+    "the_counting_house"
+  ],
+  "dependencyLines": {
+    "the_counting_house": {
+      "form": "chamfered"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:oak_planks",
+      "count": 64,
+      "consumeItems": true,
+      "match": "none"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 15
+    }
+  ]
+}

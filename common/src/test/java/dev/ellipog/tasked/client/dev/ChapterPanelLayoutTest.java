@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("the chapter panel's rows")
 class ChapterPanelLayoutTest {
 
+
     /** A chapter with one of everything the panel edits. */
     private static JsonObject chapter() {
         return JsonParser.parseString("""
@@ -82,27 +83,27 @@ class ChapterPanelLayoutTest {
         // main fix; these names are the other half, and a name that grows back to a sentence undoes it.
         List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), Set.of());
 
-        assertEquals("Progression", row(rows, "progressionMode").label());
-        assertEquals("Prerequisite", row(rows, "defaultPrerequisiteMode").label());
-        assertEquals("Auto-claim", row(rows, "autoClaim").label());
-        assertEquals("Aliases", row(rows, "aliases").label());
-        assertEquals("Line form", row(rows, "dependencyStyle.form").label());
-        assertEquals("Line head", row(rows, "dependencyStyle.arrowHead").label());
-        assertEquals("Line place", row(rows, "dependencyStyle.arrowPlace").label());
-        assertEquals("Line density", row(rows, "dependencyStyle.arrowDensity").label());
-        assertEquals("Line pattern", row(rows, "dependencyStyle.dash").label());
-        assertEquals("Line weight", row(rows, "dependencyStyle.weight").label());
+        assertEquals("tasked.dev.chapter.progression", row(rows, "progressionMode").label());
+        assertEquals("tasked.dev.chapter.prerequisite", row(rows, "defaultPrerequisiteMode").label());
+        assertEquals("tasked.dev.chapter.auto_claim", row(rows, "autoClaim").label());
+        assertEquals("tasked.dev.chapter.aliases", row(rows, "aliases").label());
+        assertEquals("tasked.dev.chapter.line_form", row(rows, "dependencyStyle.form").label());
+        assertEquals("tasked.dev.chapter.line_head", row(rows, "dependencyStyle.arrowHead").label());
+        assertEquals("tasked.dev.chapter.line_place", row(rows, "dependencyStyle.arrowPlace").label());
+        assertEquals("tasked.dev.chapter.line_density", row(rows, "dependencyStyle.arrowDensity").label());
+        assertEquals("tasked.dev.chapter.line_pattern", row(rows, "dependencyStyle.dash").label());
+        assertEquals("tasked.dev.chapter.line_weight", row(rows, "dependencyStyle.weight").label());
     }
 
     @Test
     @DisplayName("the toggle's label carries the state, so the row says what the flag is")
     void theToggleSaysItsState() {
         List<InspectRow> on = ChapterPanelLayout.rows(chapter(), Set.of());
-        assertEquals("Consume items \u00b7 on", row(on, "defaultConsumeItems").label());
+        assertEquals("tasked.dev.chapter.consume_on", row(on, "defaultConsumeItems").label());
 
         JsonObject off = chapter();
         off.addProperty("defaultConsumeItems", false);
-        assertEquals("Consume items \u00b7 off",
+        assertEquals("tasked.dev.chapter.consume_off",
                 row(ChapterPanelLayout.rows(off, Set.of()), "defaultConsumeItems").label());
     }
 
@@ -162,9 +163,9 @@ class ChapterPanelLayoutTest {
                 "down from the unset state wraps to the last value");
         assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.PROGRESSION, "linear", 1),
                 "up from the last value wraps back to unset");
-        assertEquals("stepped",
+        assertEquals("curved",
                 ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_FORM, "straight", 1),
-                "the step past straight is the stepped route the vocabulary now has");
+                "the step past straight is the bow the vocabulary ends on");
         assertEquals("enabled", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.AUTO_CLAIM, "disabled", 1),
                 "the auto-claim ring follows the same order as the reward-level modes");
         assertEquals("Default (pack setting)",
@@ -181,7 +182,7 @@ class ChapterPanelLayoutTest {
     void theUnsetStateNamesItsFallback() {
         assertEquals("Default (all completed)",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.PREREQUISITE, ""));
-        assertEquals("Default (orthogonal)",
+        assertEquals("Default (chamfered)",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.LINE_FORM, ""));
         assertEquals("dashed",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.LINE_DASH, "dashed"));
@@ -237,6 +238,8 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("the description is counted in paragraphs, and says it is edited in the file")
     void theDescriptionIsCounted() {
+        // The count is substituted into the key at build time, so the test asserts the sentence the
+        // player reads -- `TestLanguage` installs the mod's own file, which is where the words live.
         assertEquals("3 paragraphs \u00b7 edited in the file",
                 row(ChapterPanelLayout.rows(chapter(), Set.of()),
                         ChapterPanelLayout.VALUE_PREFIX + "description").value());
@@ -298,11 +301,13 @@ class ChapterPanelLayoutTest {
         assertEquals(1, rows.size(), "one line, and nothing to press: " + rows);
         assertEquals(InspectRow.Kind.VALUE, rows.get(0).kind(),
                 "a value row, so the screen builds no widget that could look live and do nothing");
-        assertEquals("Chapter", rows.get(0).label());
-        assertEquals("Edit mode is off", rows.get(0).value());
-        assertTrue(ChapterPanelLayout.EDIT_MODE_HINT.contains("Edit"),
-                "the instruction has to name the button it tells the player to press: "
-                        + ChapterPanelLayout.EDIT_MODE_HINT);
+        assertEquals("tasked.dev.chapter.chapter", rows.get(0).label(),
+                "the row's label is a key; the screen resolves it");
+        assertEquals("Edit mode is off", rows.get(0).value(),
+                "the value is resolved where it is built, so the test reads the sentence");
+        assertEquals("tasked.dev.chapter.edit_hint", ChapterPanelLayout.EDIT_MODE_HINT,
+                "the instruction has to name the button it tells the player to press, and its key is "
+                        + "what the test reads: the sentence lives in en_us");
     }
 
     @Test
@@ -373,7 +378,7 @@ class ChapterPanelLayoutTest {
         assertEquals("Getting Started", row(rows, "group.title").value());
         assertEquals("minecraft:anvil", row(rows, "group.icon.item").value(),
                 "the authored icon, which is what tells the row apart from the sidebar's fallback");
-        assertEquals("Collapsed \u00b7 on", row(rows, "group.collapsedByDefault").label());
+        assertEquals("tasked.dev.chapter.collapsed_on", row(rows, "group.collapsedByDefault").label());
     }
 
     @Test
@@ -390,7 +395,8 @@ class ChapterPanelLayoutTest {
         assertEquals("", row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
                         "group.icon.item").value(),
                 "a group with no icon of its own says so with an empty value, not the chapter's");
-        assertEquals("Collapsed \u00b7 off", row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
+        assertEquals("tasked.dev.chapter.collapsed_off",
+                row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
                 "group.collapsedByDefault").label());
     }
 }

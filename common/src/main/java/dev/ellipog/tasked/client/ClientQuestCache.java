@@ -459,6 +459,17 @@ public final class ClientQuestCache {
     private static volatile boolean treeReceived;
 
     /**
+     * The pack's own name and icon for the book, from the tree root.
+     *
+     * <p>Empty for a pack that declares neither, and that reads as the client's translatable title and
+     * no icon. The id is kept beside the resolved stack for the same reason a chapter's is: an id that
+     * did not resolve is a <b>missing item</b> the header marks, while no id at all is simply no icon.
+     */
+    private static volatile String bookTitle = "";
+    private static volatile String bookIcon = "";
+    private static volatile ItemStack bookIconStack = ItemStack.EMPTY;
+
+    /**
      * Which tree this cache holds, as a number that only ever increases.
      *
      * <p>Bumped by every path that changes what the cache holds — a tree arriving, and a disconnect
@@ -602,6 +613,26 @@ public final class ClientQuestCache {
         return chapterCount;
     }
 
+    /** The pack's own name for the book, or empty for the client's translatable title. */
+    public static String bookTitle() {
+        return bookTitle;
+    }
+
+    /**
+     * The pack's icon id for the book, or empty when it declares none.
+     *
+     * <p>Kept beside the resolved stack so a missing item can be told from no icon at all: an id that
+     * did not resolve is a mark the header draws, while an empty id is simply nothing to draw.
+     */
+    public static String bookIconId() {
+        return bookIcon;
+    }
+
+    /** The pack's icon for the book, or {@link ItemStack#EMPTY}. */
+    public static ItemStack bookIcon() {
+        return bookIconStack;
+    }
+
     public static long syncedAt() {
         return syncedAt;
     }
@@ -689,21 +720,50 @@ public final class ClientQuestCache {
     /** The same count for an entry already in hand, so the aggregates are one walk and not O(n²). */
     private static int outstandingIn(UUID player, Entry entry) {
         Progress found = progress.get(entry.id());
-        if (found == null || found.state() != QuestState.COMPLETED || found.legacySettled()
-                || player == null) {
+        if (found == null || player == null) {
             return 0;
         }
         int outstanding = 0;
         for (int index = 0; index < entry.rewards().size(); index++) {
-            // A reward whose conditions this player does not meet is not claimable by them: counting
-            // it would show a badge the server refuses. The lock is this player's, so a teammate who
-            // meets the conditions still counts theirs.
-            if (found.rewardLock(index).isEmpty()
-                    && !found.claimed(player, index, entry.rewards().get(index).team())) {
+            if (claimable(player, entry, found, index)) {
                 outstanding++;
             }
         }
         return outstanding;
+    }
+
+    /**
+     * Whether <b>this player</b> could collect one reward of a quest right now.
+     *
+     * <p>The single-row form of {@link #canClaimFor}, and deliberately the same loop: the rewards
+     * panel's per-row Claim hangs on this, so a row cannot offer a press the quest-level badge would
+     * not count, and the panel's header cannot disagree with its own rows. The server recomputes the
+     * same answer when the press arrives — asking is not claiming, and a client that shows the button
+     * wrongly gets a refusal.
+     */
+    public static boolean canClaimReward(UUID player, String questId, int rewardIndex) {
+        Entry entry = entry(questId);
+        Progress found = progress.get(questId);
+        if (entry == null || found == null || player == null
+                || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
+            return false;
+        }
+        return claimable(player, entry, found, rewardIndex);
+    }
+
+    /**
+     * One reward's claimability against progress already in hand — the one predicate behind both forms.
+     *
+     * <p>A reward whose conditions this player does not meet is not claimable by them: counting it
+     * would show a badge the server refuses. The lock is this player's, so a teammate who meets the
+     * conditions still counts theirs.
+     */
+    private static boolean claimable(UUID player, Entry entry, Progress found, int index) {
+        if (found.state() != QuestState.COMPLETED || found.legacySettled()) {
+            return false;
+        }
+        return found.rewardLock(index).isEmpty()
+                && !found.claimed(player, index, entry.rewards().get(index).team());
     }
 
     /**
@@ -833,6 +893,9 @@ public final class ClientQuestCache {
             // Qualified, because this method's own `chapters` parameter is the count that came with the
             // payload and shadows the list.
             ClientQuestCache.chapters = List.of();
+            bookTitle = "";
+            bookIcon = "";
+            bookIconStack = ItemStack.EMPTY;
             treeReceived = false;
         }
     }
@@ -902,6 +965,11 @@ public final class ClientQuestCache {
             // left behind. Clearing it means the next message has to be a full sync to be accepted,
             // which is the correct resynchronisation.
             teamId = null;
+            // And the revision moves, for the same reason `clear()` moves it: an emptied cache is not
+            // the progress that was there a moment ago. Without this, a watcher that trusts "revision
+            // == what the cache holds" -- the completion notifier does -- would keep the discarded
+            // map's states and could announce against them.
+            progressRevision++;
         }
     }
 
@@ -921,6 +989,9 @@ public final class ClientQuestCache {
         questCount = 0;
         chapterCount = 0;
         syncedAt = 0;
+        bookTitle = "";
+        bookIcon = "";
+        bookIconStack = ItemStack.EMPTY;
         treeReceived = false;
         // The sampled outlines go with the trees that asked for them: they are keyed by shape and
         // angle, so they cannot go stale, but a world's worth of them is not this world's to keep.
@@ -994,6 +1065,13 @@ public final class ClientQuestCache {
         }
 
         JsonArray quests = root.getAsJsonArray("quests");
+
+        // The pack's own book identity, when the tree carries one. The header's values, read here so
+        // they travel with the tree; `acceptTree`'s catch and `clear()` both reset them with everything
+        // else, so a malformed tree or a disconnect cannot leave one pack's name on another's book.
+        bookTitle = str(root, "bookTitle");
+        bookIcon = str(root, "bookIcon");
+        bookIconStack = bookIcon.isEmpty() ? ItemStack.EMPTY : iconOf(bookIcon, null);
 
         List<Entry> parsed = new ArrayList<>(quests.size());
         for (JsonElement element : quests) {

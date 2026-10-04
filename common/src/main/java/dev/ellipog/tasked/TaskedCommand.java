@@ -7,6 +7,8 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.config.ArmatureConfig;
+import dev.ellipog.armature.api.config.TeamSettings;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestState;
@@ -18,6 +20,7 @@ import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
 import dev.ellipog.tasked.quest.QuestLoader;
 import dev.ellipog.tasked.quest.QuestReward;
+import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
@@ -72,6 +75,13 @@ public final class TaskedCommand {
                 .then(Commands.literal("reload")
                         .requires(QuestAuthority.mayEdit())
                         .executes(TaskedCommand::reload))
+
+                // Where the server's settings live and what is in force. Read-only, and still an
+                // operator's read-out rather than a player's: it names server file paths and the pack's
+                // own settings, which is the same permission the file-changing commands take.
+                .then(Commands.literal("config")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(TaskedCommand::config))
 
                 .then(Commands.literal("quests")
                         .executes(TaskedCommand::quests))
@@ -189,6 +199,47 @@ public final class TaskedCommand {
         return 1;
     }
 
+    /**
+     * Where the server's settings live, and what is in force.
+     *
+     * <p>The other half of the settings story: a player's own appearance is theirs and lives in the
+     * quest book's Settings card, while these are the server's -- a party's cap and a new party's
+     * policy, and the tree-wide quest defaults -- and they are files. This prints the values the
+     * running server actually resolved, not the defaults, so an operator can tell "I edited it" from
+     * "it took", and names the files to edit rather than describing them.
+     */
+    private static int config(CommandContext<CommandSourceStack> context) {
+        TeamSettings teams = ArmatureConfig.current().teams();
+        QuestSettings quests = TaskedQuests.settings();
+        var source = context.getSource();
+
+        source.sendSuccess(() -> Component.literal("Server settings in force:"), false);
+        source.sendSuccess(() -> Component.literal("  parties: maxMembers=" + teams.maxMembers()
+                + ", a new party: member invites=" + teams.newPartyMembersCanInvite()
+                + ", open join=" + teams.newPartyOpenJoin()), false);
+        source.sendSuccess(() -> Component.literal("  quests: defaultAutoClaim="
+                + quests.defaultAutoClaim().name().toLowerCase(java.util.Locale.ROOT)
+                + ", defaultTeamReward=" + quests.defaultTeamReward()
+                + ", suppressAllAutoclaiming=" + quests.suppressAllAutoclaiming()
+                + ", detectionDelay=" + quests.detectionDelay() + " ticks"), false);
+        source.sendSuccess(() -> Component.literal("Files: " + configPath("armature") + " and "
+                + configPath(Tasked.MOD_ID) + "/quests/index.json. Edit, then /tasked reload."), false);
+        source.sendSuccess(() -> Component.literal(
+                "A player's own theme, motion and radius are theirs: the quest book's Settings button."),
+                false);
+        return 1;
+    }
+
+    /** A mod's config directory, or a phrase saying it could not be resolved. */
+    private static String configPath(String modId) {
+        try {
+            return ArmatureApi.platform().configDir(modId).toString();
+        }
+        catch (RuntimeException e) {
+            return "<config directory unavailable>";
+        }
+    }
+
     private static int reload(CommandContext<CommandSourceStack> context) {
         // Before the load, and here rather than inside it: this is the command that means "the files may have
         // changed without me", so it is the only place the editor's open chapters are dropped. Doing it inside
@@ -280,7 +331,7 @@ public final class TaskedCommand {
                                 + " §7(" + mode + ", needs " + quest.requiredCount(mode) + ")"), false);
             }
             else {
-                context.getSource().sendSuccess(() -> Component.literal("  §7no dependencies"), false);
+                context.getSource().sendSuccess(() -> Component.translatable("tasked.command.text.7no_dependencies"), false);
             }
 
             // The flags that change behaviour, so a file with them set can be confirmed to have

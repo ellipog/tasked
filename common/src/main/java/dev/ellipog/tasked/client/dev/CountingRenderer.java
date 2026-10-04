@@ -6,6 +6,7 @@ import dev.ellipog.tasked.Constants;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -114,6 +115,35 @@ public final class CountingRenderer implements GuiRenderer {
     public void texture(ResourceLocation texture, int x, int y, int width, int height) {
         textures++;
         delegate.texture(texture, x, y, width, height);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Forwarded because the delegate is the only thing here that can read a file's header — the counter
+     * exists to watch a frame, not to answer for the textures in it — and a missing delegate has no answer,
+     * which is the empty the seam promises for an asset it cannot read.
+     */
+    @Override
+    public Optional<TextureSize> textureSize(ResourceLocation texture) {
+        return delegate == null ? Optional.empty() : delegate.textureSize(texture);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Counted with {@link #texture}, because a scaled blit is a texture draw like any other and the
+     * image canvas background is exactly what this counter was extended for. See {@link #textureSize}.
+     */
+    @Override
+    public void scaled(ResourceLocation texture, int x, int y, int width, int height,
+                       float u, float v, int sourceWidth, int sourceHeight,
+                       int textureWidth, int textureHeight, int argb) {
+        textures++;
+        if (delegate != null) {
+            delegate.scaled(texture, x, y, width, height, u, v, sourceWidth, sourceHeight,
+                    textureWidth, textureHeight, argb);
+        }
     }
 
     @Override

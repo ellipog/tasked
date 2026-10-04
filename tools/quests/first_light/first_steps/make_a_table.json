@@ -1,5 +1,5 @@
 {
-  "$schema": "../../../_schema/quest.schema.json",
+  "$schema": "../../_schema/quest.schema.json",
   "id": "make_a_table",
   "title": "Make a Table",
   "subtitle": "Three boards up, three boards across",
@@ -8,22 +8,34 @@
     "which is the closest thing a crafting recipe has to a thesis",
     "statement.",
     "",
-    "The task counts one crafting table carried. It does not consume, so",
-    "the table stays on you -- put it down somewhere you will find again,",
-    "because every chapter after this one assumes you did."
+    "The task counts one crafting table carried and declines the",
+    "chapter's consume default, so the table stays on you -- put it down",
+    "somewhere you will find again, because every arm of the orrery",
+    "assumes you did."
   ],
-  "icon": { "item": "minecraft:crafting_table" },
-  "x": 192,
-  "y": 32,
+  "icon": {
+    "item": "minecraft:crafting_table"
+  },
+  "x": -1024,
+  "y": 64,
   "shape": "square",
-  "size": 48,
   "dependsOn": [
     "punch_a_tree"
   ],
+  "autoClaim": "disabled",
   "tasks": [
-    { "type": "tasked:item", "item": "minecraft:crafting_table", "count": 1 }
+    {
+      "type": "tasked:item",
+      "item": "minecraft:crafting_table",
+      "count": 1,
+      "consumeItems": false
+    }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:stick", "count": 8 }
+    {
+      "type": "tasked:item",
+      "item": "minecraft:stick",
+      "count": 8
+    }
   ]
 }

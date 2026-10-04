@@ -256,7 +256,7 @@ class LineArtTest {
     }
 
     @Test
-    @DisplayName("and it is each segment's own direction on a stepped route, and the arc's on a curve")
+    @DisplayName("and it is each segment's own direction on a stepped route, and the curve's along a bow")
     void theTangentFollowsTheRoute() {
         List<LineArt.Point> stepped = LineArt.path(DependencyStyle.Form.ORTHOGONAL,
                 new LineArt.Point(0, 0), new LineArt.Point(80, 40));
@@ -484,7 +484,7 @@ class LineArtTest {
     }
 
     // ------------------------------------------------------------------
-    // The added forms: a circuit trace, the stepped Z, and a circular arc
+    // The added form: a circuit trace
     // ------------------------------------------------------------------
 
     @Test
@@ -518,67 +518,6 @@ class LineArtTest {
 
         assertEquals(List.of(new LineArt.Point(0, 0), new LineArt.Point(0, 1),
                 new LineArt.Point(4, 1), new LineArt.Point(4, 3)), path);
-    }
-
-    @Test
-    @DisplayName("a stepped route is H, V, H, with the single break at the chord's midpoint")
-    void theSteppedRouteBreaksAtTheMiddle() {
-        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STEPPED,
-                new LineArt.Point(0, 0), new LineArt.Point(100, 50));
-
-        assertEquals(List.of(new LineArt.Point(0, 0), new LineArt.Point(50, 0),
-                new LineArt.Point(50, 50), new LineArt.Point(100, 50)), path);
-        // Same row and same column are both a single segment, not a zero-length jog.
-        assertEquals(List.of(new LineArt.Point(0, 7), new LineArt.Point(40, 7)),
-                LineArt.path(DependencyStyle.Form.STEPPED, new LineArt.Point(0, 7),
-                        new LineArt.Point(40, 7)));
-        assertEquals(List.of(new LineArt.Point(5, 0), new LineArt.Point(5, 30)),
-                LineArt.path(DependencyStyle.Form.STEPPED, new LineArt.Point(5, 0),
-                        new LineArt.Point(5, 30)));
-    }
-
-    @Test
-    @DisplayName("a radial arc bows by the same half-bend a curve does")
-    void theRadialArcBowsLikeTheCurve() {
-        LineArt.Point from = new LineArt.Point(0, 0);
-        LineArt.Point to = new LineArt.Point(40, 40);
-        List<LineArt.Point> arc = LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.2);
-        List<LineArt.Point> curve = LineArt.path(DependencyStyle.Form.CURVED, from, to, 0.2);
-
-        assertEquals(from, arc.get(0), "an arc starts at its source");
-        assertEquals(to, arc.get(arc.size() - 1), "and ends at its target");
-        LineArt.Point middle = LineArt.pointAt(arc, LineArt.length(arc) / 2);
-        LineArt.Point curveMiddle = LineArt.pointAt(curve, LineArt.length(curve) / 2);
-        assertTrue(Math.hypot(middle.x() - curveMiddle.x(), middle.y() - curveMiddle.y()) < 2.5,
-                "the arc's middle must land where the curve's does: " + middle + " vs " + curveMiddle);
-        // The same value the bend drag reads: bendAt is the exact inverse of both shapes.
-        assertEquals(0.2, LineArt.bendAt(from, to, middle.x(), middle.y()), 0.05);
-    }
-
-    @Test
-    @DisplayName("a radial arc is a real arc: no bend is a straight line, and the sign picks the side")
-    void theRadialArcIsCircular() {
-        LineArt.Point from = new LineArt.Point(0, 0);
-        LineArt.Point to = new LineArt.Point(100, 0);
-
-        assertEquals(List.of(from, to),
-                LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.0), "no bow, no arc");
-
-        List<LineArt.Point> below = LineArt.path(DependencyStyle.Form.RADIAL, from, to, 0.3);
-        List<LineArt.Point> above = LineArt.path(DependencyStyle.Form.RADIAL, from, to, -0.3);
-        assertTrue(LineArt.pointAt(below, LineArt.length(below) / 2).y() > 5,
-                "a positive bend bows towards +y, the way a curve does");
-        assertTrue(LineArt.pointAt(above, LineArt.length(above) / 2).y() < -5,
-                "and the negative one to the other side");
-
-        // Every sample sits on one circle: the centre is the arc's own, on the far side of the bow.
-        double sagitta = 0.3 * 100 / 2;
-        double radius = (50 * 50 + sagitta * sagitta) / (2 * sagitta);
-        double centreY = -(radius - sagitta);
-        for (LineArt.Point point : below) {
-            assertEquals(radius, Math.hypot(point.x() - 50, point.y() - centreY), 1.5,
-                    "off the circle at " + point);
-        }
     }
 
     // ------------------------------------------------------------------

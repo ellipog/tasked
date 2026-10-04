@@ -1,0 +1,38 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_glazier",
+  "title": "The Glazier",
+  "subtitle": "A dependency written against an alias",
+  "description": [
+    "The dependency here is written as `the_nameless_stall`, which is not",
+    "any quest's id -- it is the stall's alias. A second name resolves",
+    "everywhere a first one does, which is what makes a rename safe.",
+    "",
+    "`hideDetailsUntilStartable` withholds the task and reward details",
+    "until the quest can be started. The prerequisites stay: they are",
+    "what tells the reader how to unlock it."
+  ],
+  "icon": {
+    "item": "minecraft:glass_pane"
+  },
+  "x": -448,
+  "y": -448,
+  "dependsOn": [
+    "the_nameless_stall"
+  ],
+  "hideDetailsUntilStartable": true,
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:glass",
+      "count": 8
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:glass_pane",
+      "count": 16
+    }
+  ]
+}

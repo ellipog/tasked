@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.client.dev;
 
+import dev.ellipog.armature.client.ui.CanvasBackground;
 import dev.ellipog.armature.client.ui.ThemeToken;
 import dev.ellipog.armature.client.ui.kit.Insets;
 import dev.ellipog.armature.client.ui.kit.Layout;
@@ -16,8 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * The tools panel's composition: a preview, two switches, a theme list, the colours, and the band that
- * edits one of them.
+ * The tools panel's composition: a preview, the mode switches, the palette list, the shape and colour
+ * sections, and the band that edits one colour.
  *
  * <h2>Docked beside the canvas, not a modal in the middle</h2>
  *
@@ -39,10 +40,11 @@ import java.util.Objects;
  *
  * <ul>
  *   <li><b>A live preview</b> ({@link #PREVIEW} pixels of the panel's top, fixed so it never scrolls
- *       away): a node in the current shape, a panel strip, three lines of text and a button, all drawn in
- *       the theme as it stands. It is what turns "Raised strip" into <i>that bit</i>.</li>
- *   <li><b>Sections that fold</b>: the theme list and the colours are headings you can collapse, because
- *       forty-one rows and sixteen themes in one column is a wall.</li>
+ *       away): a sample of the surfaces the open tab edits — the book's own chrome on the book tab, the
+ *       graph's nodes and card on the chapter tab, see {@link Sample} — drawn in the theme as it stands.
+ *       It is what turns "Raised strip" into <i>that bit</i>.</li>
+ *   <li><b>Sections that fold</b>: the palette list and the colours are headings you can collapse,
+ *       because forty-one rows and sixteen palettes in one column is a wall.</li>
  *   <li><b>A band that shows values</b>: the selected colour's name and hex, four channels with their
  *       numbers beside two-step buttons, Revert for that colour alone, and one save that names its
  *       file.</li>
@@ -65,9 +67,16 @@ public final class ToolsLayout {
     /** The narrowest panel worth drawing. Below this the canvas keeps its room and the panel clamps. */
     public static final int MIN_WIDTH = 180;
 
-    public static final int TAB_HEIGHT = 16;
+    /**
+     * The drawer's title band: its name at the left, the panel menu at the right.
+     *
+     * <p>It replaced the tab strip the redesign retired -- two equal buttons reading "Theme"/"Quest",
+     * which said what the panel *was* rather than what it was showing. A title with a menu beside it says
+     * the open panel's name and keeps the other one a press away, which is the same information with one
+     * fewer permanent control.
+     */
+    public static final int TITLE_HEIGHT = 16;
     public static final int FEEDBACK_HEIGHT = 12;
-    public static final int PREVIEW_HEIGHT = 96;
 
     /**
      * The Chapter tab's header band: the chapter's icon, its title and its subtitle.
@@ -88,31 +97,28 @@ public final class ToolsLayout {
     /** A switch row is taller: it has a control in it rather than being one. */
     public static final int SWITCH_HEIGHT = 20;
 
-    /** The band's own rows: the swatch line, two channel lines, the actions. */
-    public static final int SWATCH_ROW = 26;
-    public static final int CHANNEL_ROW = 18;
+    /** The actions row's height: Revert and Save, side by side at the book tab's foot. */
     public static final int ACTION_ROW = 20;
 
     // ------------------------------------------------------------------
     // Keys
     // ------------------------------------------------------------------
 
-    /** The tab strip, which replaced the panel's title row: two panels in the one dock. */
-    public static final String TAB_THEME = "tab:theme";
-    public static final String TAB_CHAPTER = "tab:chapter";
-
     /**
      * Which panel the dock is showing.
      *
      * <p>An enum rather than a boolean, because "which tab" is a name with a label and a reason, and a
-     * boolean would have the call sites reading {@code true} as Theme until someone decides otherwise.
-     * The Quest panel shows the selected quest's own fields; the Theme panel is the tools this panel
-     * started as. Neither keeps private state the other could make stale: both draw from the same
-     * selection the canvas holds.
+     * boolean would have the call sites reading {@code true} as one of them until someone decides which.
+     *
+     * <p>Each tab is about one target and nothing else. <b>Quest Book</b> is the book's own look: the
+     * switches, the palette, the colours, the radius and the canvas — all the player's. <b>Chapter</b> is
+     * the open chapter: its content and, above it, its own appearance, the same controls writing the
+     * chapter's {@code theme} and {@code themePatch}. The target follows from the tab; there is no
+     * switch that moves one tab's edits onto the other's file.
      */
     public enum Tab {
-        THEME("Theme"),
-        CHAPTER("Chapter");
+        BOOK("tasked.dev.tab.book"),
+        CHAPTER("tasked.dev.tab.chapter");
 
         private final String label;
 
@@ -120,28 +126,57 @@ public final class ToolsLayout {
             this.label = label;
         }
 
-        /** The name the tab strip shows. */
+        /** The key the tab strip shows. See {@code Labels.of} for where it is resolved. */
         public String label() {
             return label;
         }
     }
 
     /** The switches. Their labels are the state; the button is the change. */
-    public static final String EDIT = "edit";
     public static final String MOTION = "motion";
     public static final String SNAP = "snap";
 
     /**
-     * The switch that points the panel at the open chapter's palette instead of the player's theme.
+     * Whether the sidebar's chapter rows draw a completion bar.
      *
-     * <p>Only offered while there is a chapter to edit and the author may edit it: the chapter target
-     * writes the chapter file, which is an author's tool, and a reader's Theme tab stays about their own
-     * theme.
+     * <p>Beside the other general switches rather than among the theme's rows: it is a reading
+     * preference about the book, not a colour, and it persists in the client's own file the way Snap
+     * does.
      */
-    public static final String CHAPTER_THEME = "theme:chapter";
+    public static final String PROGRESS = "progress";
 
-    /** The one foldable section. Pressing its heading folds it. */
-    /** The shape section: one row, the corner radius, and it is selected through the band like a colour. */
+    /**
+     * The two switch values, as keys.
+     *
+     * <p>The player-facing screen's own pair, not a second copy: the chapter panel's toggles already draw
+     * these two words, and a "On"/"Off" of the editor's own would be the same word translated twice --
+     * which is how one of them ends up stale.
+     */
+    public static final String ON = "tasked.screen.on";
+    public static final String OFF = "tasked.screen.off";
+
+    /**
+     * The book's identity: the pack's name and icon for the book itself, from {@code index.json}.
+     *
+     * <p>Not appearance: these write the pack's own file rather than any theme, which is why they sit
+     * in their own fold at the top of the book tab and say "the pack's book" rather than "your look".
+     */
+    public static final String BOOK_SECTION = "section:book";
+    public static final String BOOK_TITLE = "book:title";
+    public static final String BOOK_ICON = "book:icon";
+
+    /**
+     * The chapter tab's appearance fold: everything under it writes the chapter's own theme patch.
+     *
+     * <p>A fold rather than a second mode: the chapter tab already carries the chapter's content, and
+     * the appearance sections are the same ones the book tab shows — see
+     * {@link #appearanceRows}.
+     */
+    public static final String APPEARANCE_SECTION = "section:appearance";
+
+    /**
+     * The shape section: one row, the corner radius, and it is selected through the band like a colour.
+     */
     public static final String SHAPE_SECTION = "section:shape";
 
     /**
@@ -154,19 +189,147 @@ public final class ToolsLayout {
     public static final String RADIUS = "shape:radius";
 
     /**
-     * A palette list used to sit above the colours, and it is gone.
+     * The canvas surface's controls: the pattern, whatever that pattern's own numbers are, and the two
+     * rows that act on the lot.
      *
-     * <p>A theme <b>is</b> a set of colours, so a list of themes beside a list of colours offered the same
-     * decision twice -- and one that would load sixteen palettes over whatever an author had already
-     * changed. Starting from another palette is a hand-edit of {@code config/armature/themes}, which is
-     * where a palette belongs; the panel edits the colours in front of it.
+     * <p>Their own section under Shape, and steppers for the same reason the radius is one: the
+     * arrows belong in the row, beside the value they move. The space row is the exception -- two
+     * values, so the whole row toggles and no arrows are drawn.
+     *
+     * <p>The section folds like the others, and it is the longest one when an image is in it: pattern,
+     * texture, fit, tile, opacity, the live strip and the copy are a wall on a panel that already
+     * carries the palette and the colours. See {@link #canvasRows} for which rows a given background
+     * gets.
      */
-    private static final String UNUSED_THEME_SECTION = "section:theme";
+    public static final String CANVAS_SECTION = "section:canvas";
+    public static final String CANVAS_PATTERN = "canvas:pattern";
+    public static final String CANVAS_SPACING = "canvas:spacing";
+    public static final String CANVAS_SPACE = "canvas:space";
+    public static final String CANVAS_SIZE = "canvas:size";
+    public static final String CANVAS_DENSITY = "canvas:density";
+    public static final String CANVAS_DIRECTION = "canvas:direction";
+    public static final String CANVAS_TILE = "canvas:tile";
+    public static final String CANVAS_FIT = "canvas:fit";
+    public static final String CANVAS_TEXTURE = "canvas:texture";
+    public static final String CANVAS_OPACITY = "canvas:opacity";
+    public static final String CANVAS_COPY = "canvas:copy";
+
+    /**
+     * The palette list: the one place a theme is chosen, and it is the author's.
+     *
+     * <p>A list of this kind sat here once and was removed — <i>"a theme is a set of colours, and the
+     * colours are the section"</i> — and it is back because the reason it was redundant is gone: a row
+     * carries swatches now, so the list shows what each palette <b>looks like</b> rather than repeating
+     * bare names. It is also the only selector there is: choosing a theme can undo a pack's whole planned
+     * look, which is the pack author's decision and not a player's, so it lives behind the edit
+     * permission with the rest of this panel and the player-facing card does not carry it.
+     */
+    public static final String PALETTE_SECTION = "section:palette";
     public static final String COLOUR_SECTION = "section:colours";
 
-    /** The band's actions. */
-    public static final String REVERT = "revert";
-    public static final String SAVE = "save";
+    /**
+     * Whether a heading is one that folds — the predicate both the panel and the screen must read.
+     *
+     * <h2>Why this is a predicate and not a comment</h2>
+     *
+     * <p>"Pressable heading" was decided twice: the panel drew a {@code ▼} marker from the section's
+     * open flag, and the screen gave a heading a widget from a hand-written list of three keys. The two
+     * disagreed — the Canvas heading was drawn promising a fold and had no widget behind it, so no press
+     * could fold it, and the Quest Book heading was the same. One predicate, used by the drawing and by
+     * the widget pass and asserted to cover every section, is what makes the next heading unable to
+     * repeat it.
+     */
+    public static boolean folds(String key) {
+        return APPEARANCE_SECTION.equals(key) || BOOK_SECTION.equals(key)
+                || CANVAS_SECTION.equals(key) || COLOUR_SECTION.equals(key)
+                || PALETTE_SECTION.equals(key);
+    }
+
+    /**
+     * The help a row offers on hover, or null for a row that says it itself.
+     *
+     * <h2>Why a table and not a field on the row</h2>
+     *
+     * <p>The same shape {@code QuestSettingsPanel.HELP} uses, and for the same reason: a row is
+     * key, label and kind, and help is a property of the key. A table keeps it out of the record — the
+     * rows are built in a dozen places and none of them should have to remember a sentence — and makes
+     * "every control has help" a thing a test can assert rather than a thing a reader hopes.
+     *
+     * <p>Colour rows and group names are deliberately absent: a token's row is a swatch that shows the
+     * colour it edits and the preview rings the part it paints, so a sentence would be a third
+     * description of the same thing. Palette rows share one, because the list is one decision.
+     */
+    private static final Map<String, String> HELP = Map.ofEntries(
+            Map.entry(MOTION, "tasked.dev.tools.help.motion"),
+            Map.entry(SNAP, "tasked.dev.tools.help.snap"),
+            Map.entry(PROGRESS, "tasked.dev.tools.help.progress"),
+            Map.entry(PALETTE_SECTION, "tasked.dev.tools.help.palette"),
+            Map.entry(SHAPE_SECTION, "tasked.dev.tools.help.shape"),
+            Map.entry(RADIUS, "tasked.dev.tools.help.radius"),
+            Map.entry(CANVAS_SECTION, "tasked.dev.tools.help.canvas"),
+            Map.entry(CANVAS_PATTERN, "tasked.dev.tools.help.canvas_pattern"),
+            Map.entry(CANVAS_TEXTURE, "tasked.dev.tools.help.canvas_texture"),
+            Map.entry(CANVAS_FIT, "tasked.dev.tools.help.canvas_fit"),
+            Map.entry(CANVAS_TILE, "tasked.dev.tools.help.canvas_tile"),
+            Map.entry(CANVAS_SIZE, "tasked.dev.tools.help.canvas_size"),
+            Map.entry(CANVAS_DENSITY, "tasked.dev.tools.help.canvas_density"),
+            Map.entry(CANVAS_DIRECTION, "tasked.dev.tools.help.canvas_direction"),
+            Map.entry(CANVAS_SPACING, "tasked.dev.tools.help.canvas_spacing"),
+            Map.entry(CANVAS_SPACE, "tasked.dev.tools.help.canvas_space"),
+            Map.entry(CANVAS_OPACITY, "tasked.dev.tools.help.canvas_opacity"),
+            Map.entry(CANVAS_COPY, "tasked.dev.tools.help.canvas_copy"),
+            Map.entry(COLOUR_SECTION, "tasked.dev.tools.help.colours"),
+            Map.entry(BOOK_SECTION, "tasked.dev.tools.help.book"),
+            Map.entry(BOOK_TITLE, "tasked.dev.tools.help.book_title"),
+            Map.entry(BOOK_ICON, "tasked.dev.tools.help.book_icon"),
+            Map.entry(APPEARANCE_SECTION, "tasked.dev.tools.help.appearance"));
+
+    /** The help a row key offers, or null. Palette rows share one; colour rows have none. */
+    public static String help(String key) {
+        if (key == null) {
+            return null;
+        }
+        if (paletteId(key) != null) {
+            return "tasked.dev.tools.help.palette_row";
+        }
+        if (tokenKey("canvasPattern").equals(key)) {
+            return "tasked.dev.tools.help.canvas_ink";
+        }
+        return HELP.get(key);
+    }
+
+    /**
+     * A row under a point: its key, and the help it offers.
+     *
+     * <p>The key travels with the help because the caller needs both — the help to draw and the row to
+     * hang it on — and finding the row twice is how the two would come to disagree.
+     */
+    public record Hovered(String key, String help) {
+    }
+
+    /**
+     * Which row is under a point, or null.
+     *
+     * <p>Through {@link #onScreen}, the same mapping the drawing uses, so the row a tooltip describes is
+     * the row the pointer is over and not the one at the same offset in a list that has scrolled.
+     */
+    public static Hovered helpAt(List<Action> rows, Layout layout, Viewport view,
+                                 int mouseX, int mouseY) {
+        if (rows == null || layout == null || view == null) {
+            return null;
+        }
+        for (Action row : rows) {
+            Slot slot = layout.slot(row.key());
+            if (slot == null) {
+                continue;
+            }
+            String help = help(row.key());
+            if (help != null && onScreen(view, slot).contains(mouseX, mouseY)) {
+                return new Hovered(row.key(), help);
+            }
+        }
+        return null;
+    }
 
     /** A colour's row key. */
     public static String tokenKey(String tokenId) {
@@ -178,6 +341,31 @@ public final class ToolsLayout {
         return key != null && key.startsWith("token:") ? key.substring("token:".length()) : null;
     }
 
+    /** A palette row's key. */
+    public static String paletteKey(String paletteId) {
+        return "palette:" + paletteId;
+    }
+
+    /** The palette a row key names, or null for a key that is not one. */
+    public static String paletteId(String key) {
+        return key != null && key.startsWith("palette:") ? key.substring("palette:".length()) : null;
+    }
+
+    /**
+     * One palette a picker offers: the id that names it, and the label a row shows.
+     *
+     * <p>A pair rather than a bare name because the two differ — {@code high_contrast} is shown as "High
+     * Contrast" — and because a record keeps this class game-free: the screen builds the list from
+     * {@code Themes.everything()}, and a test builds one by hand.
+     */
+    public record Palette(String id, String label) {
+
+        public Palette {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(label, "label");
+        }
+    }
+
     private ToolsLayout() {
     }
 
@@ -186,56 +374,53 @@ public final class ToolsLayout {
     // ------------------------------------------------------------------
 
     /**
-     * The panel, and the fixed bands inside it.
+     * The drawer, and the fixed bands inside it.
      *
      * @param panel    the whole floating column
-     * @param tabs     the tab strip, which replaced the title row: two tabs, Theme and Quest
-     * @param feedback the one-line status under the strip
-     * @param preview  the live preview (theme tab only)
+     * @param title    the drawer's own row: its name at the left, the panel menu at the right
+     * @param feedback the one-line status under the title
+     * @param header   the open chapter's identity band (chapter tab only)
      * @param list     where the scrolling sections live
-     * @param swatch   the selected colour's name, hex and swatch (theme tab only)
-     * @param channels the two channel lines, as one band (theme tab only)
-     * @param actions  Revert and Save (theme tab only)
+     * @param actions  Revert and Save (book tab only: a chapter's edits are the chapter file's own)
      */
-    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect tabs, BookGeometry.Rect feedback,
-                        BookGeometry.Rect preview, BookGeometry.Rect list, BookGeometry.Rect swatch,
-                        BookGeometry.Rect channels, BookGeometry.Rect actions) {
+    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect title, BookGeometry.Rect feedback,
+                        BookGeometry.Rect header, BookGeometry.Rect list, BookGeometry.Rect actions) {
     }
 
-    /** The frame for the theme tab: the tab strip, the preview, the sections and the band. */
-    public static Frame frame(BookGeometry.Rect canvas) {
-        return frame(canvas, Tab.THEME);
+    /** The frame for the book tab. */
+    public static Frame frame(BookGeometry.Rect rail) {
+        return frame(rail, Tab.BOOK);
     }
 
     /**
-     * The frame, from the canvas the panel floats over, shaped by the tab it is for.
+     * The frame, from the rail the panel floats in, shaped by the tab it is for.
      *
-     * <p>Everything is placed from the panel's own rectangle, and the list's height is what is left over
-     * after the fixed bands -- one subtraction, so a band added here cannot be forgotten by a caller and
-     * cannot overlap the list.
+     * <h2>Four bands, and the list is what is left</h2>
      *
-     * <p>The <b>quest tab</b> takes the bands away that are about a colour -- the preview, the swatch,
-     * the channels and the actions -- and gives their room to the list, because its sections are a wall
-     * by design: identity, placement, rules, dependencies, tasks and rewards. The bands that remain are
-     * {@link #EMPTY}, so a caller that asks for one of them gets a rectangle that is inside the panel
-     * and contains nothing, rather than a null to test for at every use.
+     * <p>Every band is placed from the panel's own rectangle, top to bottom, and the list takes the
+     * remainder — one subtraction, so a band added here cannot overlap it. It used to be nine: the sample
+     * card and the colour band with its swatch and channel steppers left for the redesign, and what
+     * replaced them is not only "fewer rows" but "the controls live on the rows". The one asymmetry left
+     * is the actions row, which is the book tab's alone: Revert and Save write the player's own theme
+     * file, and a chapter's edits are the chapter file's own, undone with the editor's undo.
+     *
+     * <p>The rail, not the canvas: the drawer starts below the author's pills (see
+     * {@code BookGeometry.authorRail}), so the pills never move when it opens and the drawer's first row
+     * is not under a control floating over it.
      */
-    public static Frame frame(BookGeometry.Rect canvas, Tab tab) {
-        // Wide as designed, narrow rather than absent on a canvas with no room for it, and never wider
-        // than the canvas it is docked to -- a panel hanging off the left edge of a small window is what
-        // the first version of this did, and its own test said so. `MIN_WIDTH` is what the panel wants;
-        // the canvas is what it has.
-        int width = Math.min(Math.min(WIDTH, Math.max(MIN_WIDTH, canvas.width() - 40)),
-                Math.max(0, canvas.width()));
-        int height = Math.max(0, canvas.height() - GAP * 2);
-        // The x is clamped too, because the gap kept from the canvas' right edge can push the panel out
-        // on a canvas narrower than the gap.
+    public static Frame frame(BookGeometry.Rect rail, Tab tab) {
+        // Wide as designed, narrow rather than absent on a rail with no room for it, and never wider
+        // than the rail it is docked to -- a panel hanging off the left edge of a small window is what
+        // the first version of this did, and its own test said so.
+        int width = Math.min(Math.min(WIDTH, Math.max(MIN_WIDTH, rail.width() - 40)),
+                Math.max(0, rail.width()));
+        int height = Math.max(0, rail.height() - GAP * 2);
         BookGeometry.Rect panel = BookGeometry.Rect.at(
-                Math.max(canvas.x(), canvas.right() - width - GAP), canvas.y() + GAP, width, height);
+                Math.max(rail.x(), rail.right() - width - GAP), rail.y() + GAP, width, height);
 
         // **One pass, top to bottom, each band taking what is left.** It was two stacks -- the header
         // downward and the band upward -- which is fine on a tall panel and wrong on a short one: the two
-        // met in the middle and overlapped, and a canvas too small for the panel's own chrome is a
+        // met in the middle and overlapped, and a rail too small for the panel's own chrome is a
         // perfectly ordinary thing to open (a small window, a resized game). Here every band is placed
         // after the one above it and clamped to the panel, so the order is a property of the code rather
         // than of the numbers -- and a band with no room left collapses to nothing instead of landing on
@@ -245,39 +430,28 @@ public final class ToolsLayout {
         int cursor = panel.y() + GAP;
         int floor = panel.bottom() - GAP;
 
-        BookGeometry.Rect tabs = take(x, cursor, inner, TAB_HEIGHT, floor);
-        cursor = tabs.bottom();
+        BookGeometry.Rect title = take(x, cursor, inner, TITLE_HEIGHT, floor);
+        cursor = title.bottom();
         BookGeometry.Rect feedback = take(x, cursor, inner, FEEDBACK_HEIGHT, floor);
         cursor = feedback.bottom();
 
+        BookGeometry.Rect header = empty(x, cursor);
         if (tab == Tab.CHAPTER) {
-            // The header band takes the room the theme tab spends on its preview, and the list gets
-            // everything below it: this tab has no swatch, no channels and no actions to reserve.
-            BookGeometry.Rect header = take(x, cursor, inner, CHAPTER_HEADER_HEIGHT, floor);
-            int listTop = header.bottom() + (header.height() > 0 ? SECTION_GAP : 0);
-            BookGeometry.Rect list = take(x, listTop, inner, Math.max(0, floor - listTop), floor);
-            return new Frame(panel, tabs, feedback, header, list, empty(x, cursor), empty(x, cursor),
-                    empty(x, cursor));
+            // The chapter's identity: its icon and two lines, above the rows that edit it. Read from the
+            // chapter file, so it says what is open rather than what the panel is doing.
+            header = take(x, cursor, inner, CHAPTER_HEADER_HEIGHT, floor);
+            cursor = header.bottom();
         }
 
-        // What the band will need, so the list can take everything else and the band lands at the bottom
-        // of a panel with room to spare.
-        int channelsHeight = CHANNEL_ROW * 2 + ROW_GAP;
-        int band = SWATCH_ROW + GAP + channelsHeight + GAP + ACTION_ROW;
-        int middle = Math.max(0, floor - band - (cursor + SECTION_GAP));
-        BookGeometry.Rect preview = take(x, cursor, inner, Math.min(PREVIEW_HEIGHT, middle), floor);
-        cursor = preview.bottom();
-        BookGeometry.Rect list = take(x, cursor + (preview.height() > 0 ? SECTION_GAP : 0), inner,
-                Math.max(0, middle - preview.height() - (preview.height() > 0 ? SECTION_GAP : 0)), floor);
-        cursor = list.bottom() + SECTION_GAP;
-
-        BookGeometry.Rect swatch = take(x, cursor, inner, SWATCH_ROW, floor);
-        cursor = swatch.bottom() + GAP;
-        BookGeometry.Rect channels = take(x, cursor, inner, channelsHeight, floor);
-        cursor = channels.bottom() + GAP;
-        BookGeometry.Rect actions = take(x, cursor, inner, ACTION_ROW, floor);
-
-        return new Frame(panel, tabs, feedback, preview, list, swatch, channels, actions);
+        int listTop = cursor + SECTION_GAP;
+        BookGeometry.Rect actions = empty(x, cursor);
+        int listFloor = floor;
+        if (tab == Tab.BOOK) {
+            actions = take(x, floor - ACTION_ROW, inner, ACTION_ROW, floor);
+            listFloor = Math.max(listTop, actions.y() - GAP);
+        }
+        BookGeometry.Rect list = take(x, listTop, inner, Math.max(0, listFloor - listTop), floor);
+        return new Frame(panel, title, feedback, header, list, actions);
     }
 
     /** An empty band: inside whatever rectangle it is asked for, and holding nothing. */
@@ -333,33 +507,43 @@ public final class ToolsLayout {
     // ------------------------------------------------------------------
 
     /**
-     * The tab strip's two buttons, side by side in the band the title used to occupy.
+     * The panel menu's button: the triangle at the title band's right.
      *
-     * <p>Equal halves with the panel's own gap between them, because two tabs of one dock are peers --
-     * neither is "the panel" and the other is "the other thing". The strip is the band's whole width, so
-     * a wider panel widens both tabs and the strip never stops reading as the panel's top row.
+     * <p>A menu rather than two tab buttons, because the band is the drawer's title row now and a title
+     * with two equal halves under it is what the redesign retired. The menu lists the same two panels the
+     * tabs did, so nothing became unreachable -- it became a menu.
      */
-    public static BookGeometry.Rect tabTheme(BookGeometry.Rect tabs) {
-        return BookGeometry.Rect.at(tabs.x(), tabs.y(),
-                Math.max(0, (tabs.width() - GAP) / 2), tabs.height());
+    public static BookGeometry.Rect titleMenu(BookGeometry.Rect title) {
+        int width = Math.min(84, Math.max(0, title.width() - 40));
+        return BookGeometry.Rect.at(title.right() - width, title.y(), width, title.height());
     }
 
-    public static BookGeometry.Rect tabQuest(BookGeometry.Rect tabs) {
-        BookGeometry.Rect theme = tabTheme(tabs);
-        return BookGeometry.Rect.at(theme.right() + GAP, tabs.y(),
-                Math.max(0, tabs.right() - theme.right() - GAP), tabs.height());
+    /** The room the title itself keeps: what is left of the band after the menu and its gap. */
+    public static BookGeometry.Rect titleLabel(BookGeometry.Rect title) {
+        BookGeometry.Rect menu = titleMenu(title);
+        return BookGeometry.Rect.at(title.x(), title.y(),
+                Math.max(0, menu.x() - GAP - title.x()), title.height());
     }
 
     /**
      * One row of the list.
      *
-     * <p>Three kinds, and the difference is where the control is: a {@code switch} is a label with a small
-     * button in a strip at its right; a {@code row} is itself the control, which is what sixteen themes
-     * and forty-one colours want, because a strip button per row would be sixteen buttons all saying the
-     * same word; a {@code heading} is drawn, and in this panel it is also pressable -- it folds its
-     * section.
+     * <h2>The kinds, and what each one says about where the control is</h2>
+     *
+     * <p>A {@code switch} is a label with a small button in a strip at its right; a {@code row} is itself
+     * the control, which is what sixteen themes and forty-one colours want, because a strip button per row
+     * would be sixteen buttons all saying the same word; a {@code heading} is drawn, and in this panel it is
+     * also pressable -- it folds its section.
+     *
+     * <p>The four numbered kinds are the redesign's: a {@code field} is a label and a value you can drag
+     * or type ({@code ScrubField}); a {@code pair} is two of those sharing one line, with the second half
+     * in {@link #right()} -- a field or a choice, whichever the pair needs; a {@code choice} is a label and
+     * a word chosen from a list, opened by the triangle in its box ({@code ChoiceField}); and a {@code chip}
+     * is a colour as an inline swatch whose press opens the picker. None of them is pressed by being
+     * selected, which is what the old {@code ROW} meant for colours -- the redesign's whole point is that
+     * the control is at the row rather than in a footer under it.
      */
-    public record Action(String key, String label, String buttonLabel, Kind kind) {
+    public record Action(String key, String label, String buttonLabel, Kind kind, Action right) {
 
         public enum Kind {
             /** A label with a button in the strip at its right. */
@@ -368,25 +552,55 @@ public final class ToolsLayout {
             ROW,
             /** A section's name, which folds it. */
             HEADING,
-            /** A label whose own controls sit inside the row. */
-            STEPPER
+            /** A label and a scrubbable number. */
+            FIELD,
+            /** Two halves on one line: this row, and {@link Action#right()}. */
+            PAIR,
+            /** A label and a value chosen from a short list. */
+            CHOICE,
+            /** A label and an inline colour chip. */
+            CHIP
         }
 
         public static Action toggle(String key, String label, String buttonLabel) {
-            return new Action(key, label, buttonLabel, Kind.SWITCH);
+            return new Action(key, label, buttonLabel, Kind.SWITCH, null);
         }
 
         public static Action row(String key, String label) {
-            return new Action(key, label, null, Kind.ROW);
+            return new Action(key, label, null, Kind.ROW, null);
         }
 
         public static Action heading(String key, String label) {
-            return new Action(key, label, null, Kind.HEADING);
+            return new Action(key, label, null, Kind.HEADING, null);
         }
 
-        /** A label with its own controls in the row -- placed from {@link ToolsLayout#stepper}. */
-        public static Action stepper(String key, String label) {
-            return new Action(key, label, null, Kind.STEPPER);
+        /** A numeric row: its label, and a field across the row's own width. */
+        public static Action field(String key, String label) {
+            return new Action(key, label, null, Kind.FIELD, null);
+        }
+
+        /**
+         * Two halves on one line, left first.
+         *
+         * <p>The left half carries the pair's own key, because a stack row is found by one key and the
+         * widget placed there is one widget (see {@code ScrubPairField}); the second half is reached
+         * through {@link #right()}. Both halves are ordinary single-row actions, so a pair of a field and
+         * a choice is written from the same two factories a full-width row would use.
+         */
+        public static Action pair(Action left, Action right) {
+            Objects.requireNonNull(left, "left");
+            Objects.requireNonNull(right, "right");
+            return new Action(left.key(), left.label(), null, Kind.PAIR, right);
+        }
+
+        /** A label and a value chosen from a list. The screen supplies the options. */
+        public static Action choice(String key, String label) {
+            return new Action(key, label, null, Kind.CHOICE, null);
+        }
+
+        /** A label and an inline colour chip. */
+        public static Action chip(String key, String label) {
+            return new Action(key, label, null, Kind.CHIP, null);
         }
 
         public boolean hasButton() {
@@ -401,65 +615,348 @@ public final class ToolsLayout {
             return kind == Kind.HEADING;
         }
 
-        /** Whether this row places its own controls rather than being one. */
-        public boolean isStepper() {
-            return kind == Kind.STEPPER;
+        /** Whether the row is edited through a widget rather than by being pressed. */
+        public boolean isField() {
+            return kind == Kind.FIELD || kind == Kind.PAIR;
+        }
+
+        public boolean isChoice() {
+            return kind == Kind.CHOICE;
+        }
+
+        public boolean isChip() {
+            return kind == Kind.CHIP;
         }
     }
 
+    /** How much of a field row's width its label keeps. */
+    public static final int LABEL_ROOM = 44;
+
     /**
-     * The list's rows: the three switches, then the colours.
+     * A colour chip's box: swatch, hex and alpha, against the row's right edge.
      *
-     * @param editOn      what the Edit switch says
+     * <p>Here rather than in the drawing because the press that opens the picker is tested with it too: a
+     * chip drawn in one place and hit-tested from another is the pair of descriptions this class exists to
+     * prevent. The width is what the three texts need; on a narrow row the hex gives up its room rather
+     * than the chip giving up its right edge, so a column of chips stays a column.
+     */
+    public static BookGeometry.Rect chip(Slot row) {
+        Objects.requireNonNull(row, "row");
+        int width = Math.min(132, Math.max(0, row.width() - LABEL_ROOM));
+        return BookGeometry.Rect.at(row.right() - width, row.y(), width, row.height());
+    }
+
+    /** Between the two halves of a pair row, so their boxes do not touch. */
+    public static final int PAIR_GAP = 6;
+
+    /** The left half of a pair row. See {@link #pairRight}. */
+    public static Slot pairLeft(Slot row) {
+        Objects.requireNonNull(row, "row");
+        int half = Math.max(0, (row.width() - PAIR_GAP) / 2);
+        return new Slot(row.key(), row.x(), row.y(), half, row.height());
+    }
+
+    /** The right half, under the second action's key. The split the pair widget itself uses. */
+    public static Slot pairRight(Slot row, Object key) {
+        Slot left = pairLeft(row);
+        int x = left.right() + PAIR_GAP;
+        return new Slot(key, x, row.y(), Math.max(0, row.right() - x), row.height());
+    }
+
+    /**
+     * The book's own rows: the fold's heading, then the pack's name and icon while it is open.
+     *
+     * <p>Their own entry point rather than part of {@link #appearanceRows}: the appearance sections
+     * write a theme, and these write the pack's {@code index.json} — the one place this panel edits a
+     * file that is not the player's own look. Kept together here so the tab that shows them has one
+     * list to build from, and so a reader of this class can see the whole of what a book row is.
+     */
+    public static List<Action> bookRows(boolean open) {
+        List<Action> rows = new ArrayList<>();
+        rows.add(Action.heading(BOOK_SECTION,
+                (open ? "\u25bc " : "\u203a ") + "tasked.dev.tools.book"));
+        if (open) {
+            rows.add(Action.row(BOOK_TITLE, "tasked.dev.tools.book_title"));
+            rows.add(Action.row(BOOK_ICON, "tasked.dev.tools.book_icon"));
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * Where a field's own control goes: the row's right-hand side, after the label's room.
+     *
+     * <p>The counterpart of {@link #strip} for a row that is a text field rather than a button: the
+     * label is drawn by the panel in the room this keeps, and the field is placed in what is left.
+     */
+    public static Slot valueField(Slot row, int labelRoom) {
+        Objects.requireNonNull(row, "row");
+        int room = Math.min(labelRoom, row.width());
+        return new Slot(row.key(), row.x() + room, row.y(), Math.max(0, row.width() - room), row.height());
+    }
+
+    // ------------------------------------------------------------------
+    // The texture row's three controls
+    // ------------------------------------------------------------------
+
+    /**
+     * The texture row is a field and two boxes: the file's own picture, the id, and a browse button.
+     *
+     * <h2>Why the row carries three controls where the book's field carries one</h2>
+     *
+     * <p>The book's name and icon are typed or picked with one control each, because one of them is a
+     * name and the other a thing you can see in the button. A texture is both at once -- a long id that
+     * is only readable when typed or pasted, and a picture that is only judgeable when seen -- so the
+     * field keeps its place for the paste and the boxes carry what the id cannot say. The three are
+     * derived here together, so the drawing and the hit test cannot disagree about which is where.
+     */
+    public static final int TEXTURE_THUMB = 14;
+
+    /** The browse button's width, matching a stepper's arrows so the row's right edge stays a column. */
+    public static final int TEXTURE_BROWSE = 16;
+
+    /** The picture box, between the label and the field. */
+    public static Slot textureThumb(Slot row) {
+        Objects.requireNonNull(row, "row");
+        int size = Math.min(TEXTURE_THUMB, Math.max(0, row.height()));
+        return new Slot("thumb", row.x() + LABEL_ROOM, row.y() + (row.height() - size) / 2,
+                size, size);
+    }
+
+    /** The browse button, against the row's right edge. */
+    public static Slot textureBrowse(Slot row) {
+        Objects.requireNonNull(row, "row");
+        int right = row.right() - STRIP_INSET;
+        int left = Math.max(row.x(), right - TEXTURE_BROWSE);
+        return new Slot("browse", left, row.y(), Math.max(0, right - left), row.height());
+    }
+
+    /** The id's field, between the picture and the browse button. */
+    public static Slot textureField(Slot row) {
+        Slot thumb = textureThumb(row);
+        Slot browse = textureBrowse(row);
+        int x = thumb.right() + 3;
+        return new Slot(row.key(), x, row.y(), Math.max(0, browse.x() - 3 - x), row.height());
+    }
+
+    /** Whether a press at a point is on the texture row's browse button. */
+    public static boolean textureBrowseAt(Viewport view, Slot row, double mouseX, double mouseY) {
+        return row != null && textureBrowse(onScreen(view, row)).contains((int) mouseX, (int) mouseY);
+    }
+
+    /**
+     * The book tab's list: the three switches, then the appearance sections.
+     *
      * @param motionOn    what the Motion switch says
      * @param snapOn      what the Snap switch says
+     * @param progressOn  what the Progress switch says
      * @param coloursOpen whether the colour section is unfolded
      */
-    public static List<Action> rows(boolean editOn, boolean motionOn, boolean snapOn,
+    public static List<Action> rows(boolean motionOn, boolean snapOn, boolean progressOn,
                                     boolean coloursOpen) {
-        return rows(editOn, motionOn, snapOn, coloursOpen, false, false);
+        return rows(motionOn, snapOn, progressOn, coloursOpen, List.of(), true,
+                CanvasBackground.NONE, true, null);
     }
 
     /**
-     * The same, with the chapter-palette switch where it applies.
+     * The same, with the palette list where it belongs.
      *
-     * @param chapterTarget whether the panel is editing the open chapter's palette
-     * @param chapterTargetAvailable whether there is a chapter to edit and the author may edit it
+     * <p>The list sits after the mode switches and before Shape: the switches are about how the panel
+     * works, and the palette is the first decision about the content the sections below edit. A caller
+     * with no themes to offer passes an empty list and gets no section at all, rather than a heading
+     * over nothing.
+     *
+     * @param palette     the palettes a picker offers, in catalogue order
+     * @param paletteOpen whether the palette section is unfolded
      */
-    public static List<Action> rows(boolean editOn, boolean motionOn, boolean snapOn,
-                                    boolean coloursOpen, boolean chapterTarget,
-                                    boolean chapterTargetAvailable) {
+    public static List<Action> rows(boolean motionOn, boolean snapOn, boolean progressOn,
+                                    boolean coloursOpen, List<Palette> palette, boolean paletteOpen) {
+        return rows(motionOn, snapOn, progressOn, coloursOpen, palette, paletteOpen,
+                CanvasBackground.NONE, true, null);
+    }
+
+    /**
+     * The same, with the panel's actual target behind the appearance rows.
+     *
+     * <p>The background and the copy label are the screen's to supply because they are the target's:
+     * a chapter and the player's own look can carry different patterns, and the copy row's label says
+     * whether it is waiting for a confirmation. See {@link #canvasRows}.
+     */
+    public static List<Action> rows(boolean motionOn, boolean snapOn, boolean progressOn,
+                                    boolean coloursOpen, List<Palette> palette, boolean paletteOpen,
+                                    CanvasBackground background, boolean canvasOpen, String copyLabel) {
         List<Action> rows = new ArrayList<>();
-        rows.add(Action.toggle(EDIT, "Edit mode", editOn ? "On" : "Off"));
-        rows.add(Action.toggle(MOTION, "Motion", motionOn ? "On" : "Off"));
-        rows.add(Action.toggle(SNAP, "Snap", snapOn ? "On" : "Off"));
-        if (chapterTargetAvailable) {
-            // After the three global switches and before Shape, because it changes what the rest of the
-            // panel is about: everything under it edits the chapter's palette rather than your own.
-            rows.add(Action.toggle(CHAPTER_THEME, "Chapter palette", chapterTarget ? "On" : "Off"));
+        rows.add(Action.toggle(MOTION, "tasked.dev.tools.motion", motionOn ? ON : OFF));
+        rows.add(Action.toggle(SNAP, "tasked.dev.tools.snap", snapOn ? ON : OFF));
+        // The book's own switch, beside the rest: a reading preference like motion rather than an edit.
+        rows.add(Action.toggle(PROGRESS, "tasked.dev.tools.progress", progressOn ? ON : OFF));
+        rows.addAll(appearanceRows(palette, paletteOpen, coloursOpen, background, canvasOpen, copyLabel));
+        return List.copyOf(rows);
+    }
+
+    /**
+     * The appearance sections, shared by both tabs.
+     *
+     * <p>Palette, Shape, Canvas and Colours, in the order they have always been: what look this is,
+     * the one knob that is not a colour, the surface, and then the colours themselves. Both tabs show
+     * exactly this; the difference between them is which theme the values are read from and written to,
+     * which the screen decides, not the layout.
+     */
+    public static List<Action> appearanceRows(List<Palette> palette, boolean paletteOpen,
+                                              boolean coloursOpen, CanvasBackground background,
+                                              boolean canvasOpen, String copyLabel) {
+        Objects.requireNonNull(palette, "palette");
+        List<Action> rows = new ArrayList<>();
+
+        if (!palette.isEmpty()) {
+            rows.add(Action.heading(PALETTE_SECTION,
+                    (paletteOpen ? "\u25bc " : "\u203a ") + "tasked.dev.tools.palette"));
+            if (paletteOpen) {
+                for (Palette option : palette) {
+                    rows.add(Action.row(paletteKey(option.id()), option.label()));
+                }
+            }
         }
 
-        // Shape before colours: the two knobs that are not a colour, then the palette.
-        rows.add(Action.heading(SHAPE_SECTION, "Shape"));
-        // A stepper row rather than a selectable one: its controls are placed from `stepper(row)` and it
-        // takes no selection, so the band stays about colours.
-        rows.add(Action.stepper(RADIUS, "Border radius"));
+        // Shape before colours: the one knob that is not a colour, then the palette.
+        rows.add(Action.heading(SHAPE_SECTION, "tasked.dev.tools.shape"));
+        // A field row: the number is dragged or typed at the row, rather than stepped by arrows and
+        // selected for a band. See `ScrubField`.
+        rows.add(Action.field(RADIUS, "tasked.dev.tools.radius"));
+
+        // The canvas's surface: what is drawn over the canvas colour. Under Shape because it is the
+        // same kind of decision -- the look of the surface rather than one of its colours -- and the
+        // colours section below can then stay a list of swatches.
+        rows.addAll(canvasRows(background, canvasOpen, copyLabel));
 
         // The marker is a filled triangle and a single angle: the disclosure pair this font carries. The
         // empty triangles it started as (`\u25be`/`\u25b8`) are not in it and drew as boxes -- see
-        // `BookGeometry.TOOLS_BUTTON_WIDTH` for how the set of available glyphs was measured.
-        rows.add(Action.heading(COLOUR_SECTION, (coloursOpen ? "\u25bc " : "\u203a ") + "Colours"));
+        // `BookGeometry.TOOLS_PILL_WIDTH` for how the set of available glyphs was measured.
+        rows.add(Action.heading(COLOUR_SECTION,
+                (coloursOpen ? "\u25bc " : "\u203a ") + "tasked.dev.tools.colours"));
         if (coloursOpen) {
             ThemeToken.Group last = null;
             for (ThemeToken token : ThemeToken.ALL) {
+                if (token.id().equals("canvasPattern")
+                        && background.kind() != CanvasBackground.Kind.IMAGE) {
+                    // The canvas section's Ink row is this token's row whenever the canvas draws in
+                    // ink; listing it again here would be one token with two rows -- and a layout
+                    // cannot hold two rows under one key. An image uses the token only for the tint's
+                    // alpha, which the Opacity row owns, so the colours list keeps the row for it --
+                    // every token has exactly one row either way.
+                    continue;
+                }
                 if (token.group() != last) {
                     // A heading, not a row: a group's name is drawn and does nothing, and a pressable row
                     // that selects nothing is worse than plain text.
                     rows.add(Action.heading("group:" + token.group().name(), token.group().label()));
                     last = token.group();
                 }
-                rows.add(Action.row(tokenKey(token.id()), token.label()));
+                rows.add(Action.chip(tokenKey(token.id()), token.label()));
             }
+        }
+        return List.copyOf(rows);
+    }
+
+    /**
+     * The canvas section's rows: the pattern, whatever numbers that pattern's own kind carries, the
+     * anchoring and ink every flat pattern shares, and the two rows that act on the lot -- the live
+     * strip and the copy.
+     *
+     * <h2>One table, and it is exact</h2>
+     *
+     * <p>Which rows a background gets is a property of the background, not of the drawing: a dot grid
+     * has no direction to flip, an image has no spacing to anchor, and a covered image has no tile to
+     * size. The table is written once, here, so the panel that draws the rows and the screen that
+     * presses them cannot disagree about which exist -- a row shown but not handled is a control that
+     * lies, and one handled but not shown is a control nobody can reach.
+     *
+     * <p>The strip and the copy are always there, whatever the kind: the first is how the pattern is
+     * judged and the second is how the chapters are made to match, and neither is about a number the
+     * kind above it owns. The ink is a colour row, not a new key -- it is {@code canvasPattern}, and
+     * the selection machinery already knows what to do with one.
+     *
+     * @param background the background in force for the panel's target
+     * @param canvasOpen whether the section is unfolded; folded, it is the heading and nothing else
+     * @param copyLabel  the label the copy row carries -- the caller passes the armed variant while
+     *     the copy is armed, and null for the plain one
+     */
+    public static List<Action> canvasRows(CanvasBackground background, boolean canvasOpen,
+                                          String copyLabel) {
+        Objects.requireNonNull(background, "background");
+        List<Action> rows = new ArrayList<>();
+        rows.add(Action.heading(CANVAS_SECTION,
+                (canvasOpen ? "\u25bc " : "\u203a ") + "tasked.dev.tools.canvas_section"));
+        if (!canvasOpen) {
+            return List.copyOf(rows);
+        }
+
+        rows.add(Action.choice(CANVAS_PATTERN, "tasked.dev.tools.canvas_pattern"));
+
+        CanvasBackground.Kind kind = background.kind();
+        if (kind == CanvasBackground.Kind.IMAGE) {
+            // An image is the one kind whose look is a file: what to draw, how it meets the rectangle,
+            // and -- only when it repeats -- the width one repeat is drawn at.
+            rows.add(Action.row(CANVAS_TEXTURE, "tasked.dev.canvas.texture"));
+            rows.add(Action.choice(CANVAS_FIT, "tasked.dev.canvas.fit"));
+            if (background.image().fit() == CanvasBackground.Fit.TILE) {
+                rows.add(Action.field(CANVAS_TILE, "tasked.dev.canvas.tile"));
+            }
+            // No ink row and no anchor: an image's strength is the file's own alpha, and it is pinned to
+            // the screen. Opacity is still offered -- it scales that alpha -- and it takes the full row
+            // because there is no anchor to pair it with.
+            rows.add(Action.field(CANVAS_OPACITY, "tasked.dev.canvas.opacity"));
+        }
+        else {
+            // The four procedural kinds share a mark size; the hatch has a direction and the speckle a
+            // density, and `none` has nothing to size because it draws nothing. The anchoring and the
+            // ink are the procedural half's own.
+            if (kind == CanvasBackground.Kind.HATCH) {
+                rows.add(Action.choice(CANVAS_DIRECTION, "tasked.dev.canvas.direction"));
+            }
+            if (kind == CanvasBackground.Kind.SPECKLE) {
+                rows.add(Action.field(CANVAS_DENSITY, "tasked.dev.canvas.density"));
+            }
+
+            // The compact scalar lines the redesign asks for: one pair each. A half takes the whole row
+            // when its partner is absent -- a size with nothing to space, an opacity with no anchor --
+            // and a `none` background keeps spacing and opacity, which still apply to whatever pattern
+            // is chosen next.
+            Action size = kind == CanvasBackground.Kind.NONE
+                    ? null : Action.field(CANVAS_SIZE, "tasked.dev.canvas.size");
+            Action spacing = Action.field(CANVAS_SPACING, "tasked.dev.tools.canvas_spacing");
+            rows.add(size == null ? spacing : Action.pair(size, spacing));
+
+            rows.add(Action.pair(Action.field(CANVAS_OPACITY, "tasked.dev.canvas.opacity"),
+                    Action.choice(CANVAS_SPACE, "tasked.dev.tools.canvas_space")));
+            rows.add(Action.chip(tokenKey("canvasPattern"), "tasked.dev.canvas.ink"));
+        }
+
+        // The live strip is gone: the canvas itself is the preview now, and it follows the drag before
+        // anything is written -- see the screen's preview draft. A second, smaller sample beside it was
+        // a picture of the thing the author was already looking at.
+        rows.add(Action.row(CANVAS_COPY, copyLabel == null || copyLabel.isEmpty()
+                ? "tasked.dev.canvas.copy" : copyLabel));
+        return List.copyOf(rows);
+    }
+
+    /**
+     * The chapter tab's appearance part: the fold's heading, then the sections while it is open.
+     *
+     * <p>The heading is the whole part's fold, so an author who came for the chapter's content can put
+     * the appearance away with one press -- and the sections under it are the same list the book tab
+     * uses, so the two tabs cannot drift apart.
+     */
+    public static List<Action> chapterAppearanceRows(List<Palette> palette, boolean appearanceOpen,
+                                                     boolean paletteOpen, boolean coloursOpen,
+                                                     CanvasBackground background, boolean canvasOpen,
+                                                     String copyLabel) {
+        Objects.requireNonNull(palette, "palette");
+        List<Action> rows = new ArrayList<>();
+        rows.add(Action.heading(APPEARANCE_SECTION,
+                (appearanceOpen ? "\u25bc " : "\u203a ") + "tasked.dev.tools.appearance"));
+        if (appearanceOpen) {
+            rows.addAll(appearanceRows(palette, paletteOpen, coloursOpen, background, canvasOpen,
+                    copyLabel));
         }
         return List.copyOf(rows);
     }
@@ -477,7 +974,9 @@ public final class ToolsLayout {
             switch (row.kind()) {
                 case HEADING -> stack.row(row.key(), HEADING_HEIGHT);
                 case SWITCH -> stack.row(row.key(), SWITCH_HEIGHT, stripRoom());
-                case ROW, STEPPER -> stack.row(row.key(), ROW_HEIGHT);
+                // Every other kind is one row tall: a field (or a pair of them sharing the line), a
+                // choice, a chip.
+                case ROW, FIELD, PAIR, CHOICE, CHIP -> stack.row(row.key(), ROW_HEIGHT);
             }
         }
         return stack;
@@ -509,273 +1008,6 @@ public final class ToolsLayout {
         return new Slot(row.key(), row.right() + STRIP_INSET, row.y(), width, row.height());
     }
 
-    // ------------------------------------------------------------------
-    // The sample in the preview
-    // ------------------------------------------------------------------
-
-    /**
-     * The parts of the preview's sample: a node pair on a canvas and a quest popover under them.
-     *
-     * <h2>Why this is here and not in the drawing</h2>
-     *
-     * <p>Because the first version put the arithmetic in {@code ToolsPanel} and the parts overflowed
-     * their own rectangle -- a button standing on the card's border, a reward row running past it -- and no
-     * test could see it, because a drawing method cannot be called without a client. Geometry this class's,
-     * colour the panel's: the same split as every other rectangle in either mod, and the parts are asserted
-     * to be inside the preview and inside one another's containers.
-     */
-    public record Preview(BookGeometry.Rect canvas, BookGeometry.Rect nodeA, BookGeometry.Rect nodeB,
-                          BookGeometry.Rect line, BookGeometry.Rect card, BookGeometry.Rect raised,
-                          BookGeometry.Rect text, BookGeometry.Rect track, BookGeometry.Rect thumb,
-                          BookGeometry.Rect row, BookGeometry.Rect item, BookGeometry.Rect button,
-                          BookGeometry.Rect tooltip) {
-    }
-
-    /** How much of the sample's card is left as margin. Nothing may touch a border. */
-    public static final int SAMPLE_INSET = 4;
-
-    /**
-     * The sample's line height: the title sits at the top of the text block, the body one pitch below.
-     *
-     * <p>One number rather than a 10 written at the three places that need it -- the height of the text
-     * block, the baseline the body is drawn on, and which of the two a click landed on. The three were 22,
-     * 20 and 10 before, and the disagreement was a part two pixels taller than its own ink.
-     */
-    public static final int LINE_PITCH = 10;
-
-    /**
-     * A part of the sample, kept inside the card it belongs to.
-     *
-     * <p>The same rule the panel's own bands learned: a part is clamped in <b>both</b> dimensions and in
-     * its <b>position</b>, not only in its size. A zero-height reward row placed below the card's bottom is
-     * a part outside its container -- which the sample's test found twice, at 288x96 and at 200x70, and
-     * which no amount of reading the arithmetic had caught.
-     */
-    private static BookGeometry.Rect part(int x, int y, int width, int height,
-                                          BookGeometry.Rect inside) {
-        return part(x, y, width, height, inside, SAMPLE_INSET);
-    }
-
-    /**
-     * The same, with the inset named.
-     *
-     * <p>Because the inset is the *container's* margin and not a constant of the sample: an item sits one
-     * pixel inside its reward row, and a row sits four inside the card. A single inset made the item's
-     * clamp land three pixels below a one-pixel-tall row -- which the test found, again.
-     */
-    private static BookGeometry.Rect part(int x, int y, int width, int height,
-                                          BookGeometry.Rect inside, int inset) {
-        // The *position* is clamped to the container's own edges and the *size* to the inset, and the two
-        // clamps are deliberately different. Clamping the position to the inset as well is what kept a
-        // zero-height reward row's item one pixel outside it: a part with no size still has to be
-        // somewhere inside, and `inside.bottom()` is somewhere inside.
-        int left = Math.max(inside.x(), Math.min(x, inside.right()));
-        int top = Math.max(inside.y(), Math.min(y, inside.bottom()));
-        int w = Math.max(0, Math.min(width, inside.right() - inset - left));
-        int h = Math.max(0, Math.min(height, inside.bottom() - inset - top));
-        return BookGeometry.Rect.at(left, top, w, h);
-    }
-
-    /** The sample, placed inside the rectangle it is given. */
-    public static Preview previewParts(BookGeometry.Rect preview) {
-        int x = preview.x();
-        int y = preview.y();
-        int w = preview.width();
-        int h = preview.height();
-
-        int node = Math.max(10, Math.min(24, h / 4));
-        int nodeY = y + h / 5 - node / 2;
-        int firstX = x + Math.max(4, w / 10);
-        int secondX = x + w / 2;
-        BookGeometry.Rect nodeA = BookGeometry.Rect.at(firstX, nodeY, node, node);
-        BookGeometry.Rect nodeB = BookGeometry.Rect.at(secondX, nodeY, node, node);
-        BookGeometry.Rect line = BookGeometry.Rect.at(nodeA.right(), nodeY + node / 2 - 1,
-                Math.max(2, secondX - nodeA.right()), 2);
-
-        BookGeometry.Rect card = BookGeometry.Rect.at(x + Math.max(2, w / 12), y + h / 2,
-                Math.max(0, w - Math.max(4, w / 6)), Math.max(0, h / 2 - 8));
-        BookGeometry.Rect raised = BookGeometry.Rect.at(card.x() + 1, card.y() + 1,
-                Math.max(0, card.width() - 2), Math.min(11, Math.max(0, card.height() - 2)));
-        // Clamped like everything else here: a sample eight pixels tall cannot hold three lines of text
-        // and a reward row, and an unclamped height is a part outside its own card.
-        //
-        // Exactly two line pitches tall, and that is a fix rather than tidiness: at 22 the rectangle was two
-        // pixels taller than the ink it holds, which put the reward row's top two pixels *inside the text* --
-        // so a click on the row's first pixel answered "body", and the parts' own overlap test could not see
-        // it because both were inside the card.
-        int textTop = raised.bottom() + 2;
-        BookGeometry.Rect text = part(card.x() + SAMPLE_INSET, textTop,
-                card.width() - SAMPLE_INSET * 2, LINE_PITCH * 2, card);
-
-        int line2 = text.y() + LINE_PITCH * 2;
-        BookGeometry.Rect row = part(text.x(), line2, card.width() - SAMPLE_INSET * 2 - 50, 12, card);
-        // The item is inside the row whatever the row's height is, which on a short sample is two pixels.
-        // A fixed ten-pixel square is a thing that only fits the sample it was written for.
-        int itemSize = Math.max(0, Math.min(10, Math.min(row.width(), row.height()) - 2));
-        BookGeometry.Rect item = part(row.x() + 1, row.y() + 1, itemSize, itemSize, row, 1);
-        // Height-clamped like the text: the button shares the reward row's line, and on a short sample
-        // that line is a couple of pixels from the card's bottom -- which is exactly where the first
-        // version put a fourteen-pixel button, eight pixels of it below the card.
-        BookGeometry.Rect button = part(card.right() - SAMPLE_INSET - 44, row.y(), 44, 14, card);
-        // Three pixels wide, ending *at* the inset rather than two pixels short of it: the arithmetic that
-        // matters is `right <= card.right - SAMPLE_INSET`, and writing it as the x is how the first
-        // version was one pixel out.
-        BookGeometry.Rect track = part(card.right() - SAMPLE_INSET - 3, card.y() + 4, 3,
-                card.height() - 8, card);
-        // The grip, the top third of the track. Here rather than only in the drawing because the drawing is
-        // not the only thing that needs it: the grip and the track are two different colours, and a click
-        // has to be able to tell which one it landed on.
-        BookGeometry.Rect thumb = BookGeometry.Rect.at(track.x(), track.y(), track.width(),
-                Math.max(3, track.height() / 3));
-        BookGeometry.Rect tooltip = BookGeometry.Rect.at(card.x() + SAMPLE_INSET + 4, card.y() - 14, 56, 12);
-
-        return new Preview(preview, nodeA, nodeB, line, card, raised, text, track, thumb, row, item, button,
-                tooltip);
-    }
-
-    /** A part of the sample, and the colour that paints it. */
-    public record Hotspot(String token, BookGeometry.Rect rect) {
-    }
-
-    /**
-     * Which colour the sample is offering at a point, or null when it is offering none.
-     *
-     * <h2>The sample is a map, so it can be read with the pointer</h2>
-     *
-     * <p>It was a picture: fifteen colours on a card, and the only way to find out which one painted the
-     * button was to guess from the list below it. Pointing at a part now says which part it is, and pressing
-     * it selects that colour and scrolls the list to its row — *"allow me to click the things in the preview
-     * thing at the top to instantly kinda get me to it in the colours menu"*.
-     *
-     * <p><b>The most specific part wins</b>, and the order below is the whole of that rule: the item sits
-     * inside the reward row inside the card, and the tooltip sits over the card's top edge, so a search that
-     * took the card first would leave three parts unreachable. The canvas is last because it is what is left
-     * when nothing else is under the pointer.
-     *
-     * <h2>One colour per part, and which one</h2>
-     *
-     * <p>Every part is painted by more than one token — a button has a face and an edge, a card a fill and
-     * a border — and a click can only mean one of them. The choice is the token the part is <i>about</i>, and
-     * it agrees with the ring the panel draws for a selected colour's group ({@code ToolsPanel.regionOf}),
-     * so the two ways of pointing at the same part cannot disagree. The sample's two nodes carry the two
-     * state colours deliberately, which is why both are reachable.
-     *
-     * <p>The others are one scroll away in the list rather than clickable here: a node's fill, the card's
-     * border, the row's hover tint, the tooltip's border, and {@code faint}, which shares the body's line
-     * and cannot be told apart from it without measuring a font.
-     */
-    public static Hotspot hotspotAt(BookGeometry.Rect preview, double mouseX, double mouseY) {
-        Preview sample = previewParts(preview);
-        int pitch = Math.min(LINE_PITCH, sample.text().height());
-        List<Hotspot> parts = List.of(
-                new Hotspot("title", BookGeometry.Rect.at(sample.text().x(), sample.text().y(),
-                        sample.text().width(), pitch)),
-                new Hotspot("body", BookGeometry.Rect.at(sample.text().x(), sample.text().y() + pitch,
-                        sample.text().width(), Math.max(0, sample.text().height() - pitch))),
-                new Hotspot("scrollThumb", sample.thumb()),
-                new Hotspot("scrollTrack", sample.track()),
-                new Hotspot("recessed", sample.item()),
-                new Hotspot("edge", sample.button()),
-                new Hotspot("raised", sample.raised()),
-                new Hotspot("rowHover", sample.row()),
-                new Hotspot("tooltipFill", sample.tooltip()),
-                new Hotspot("available", sample.nodeA()),
-                new Hotspot("complete", sample.nodeB()),
-                new Hotspot("lineDone", sample.line()),
-                new Hotspot("panel", sample.card()),
-                new Hotspot("canvas", sample.canvas()));
-        for (Hotspot part : parts) {
-            if (part.rect().contains(mouseX, mouseY)) {
-                return part;
-            }
-        }
-        return null;
-    }
-
-    // ------------------------------------------------------------------
-    // The band's controls
-    // ------------------------------------------------------------------
-
-    /**
-     * The eight channel buttons, two channels to a line, and the four values that sit between them.
-     *
-     * <p>Two channels per line rather than eight buttons abreast, because the number is the point: the
-     * first version had buttons that showed nothing, so a press changed a hex code you had to read
-     * afterwards. Here each channel is {@code ◂ 46 ▸} in its own half of the line.
-     *
-     * @return one slot per channel stepper and one per value, keyed {@code "beat:<id>"} -- the value's
-     *     rectangle is what the screen draws the number into
-     */
-    public static Map<String, Slot> beats(BookGeometry.Rect channels) {
-        Map<String, Slot> out = new LinkedHashMap<>();
-        int lineHeight = CHANNEL_ROW;
-        int half = Math.max(0, (channels.width() - GAP) / 2);
-        for (int i = 0; i < 4; i++) {
-            int line = i / 2;
-            int column = i % 2;
-            int x = channels.x() + column * (half + GAP);
-            int y = channels.y() + line * (lineHeight + ROW_GAP);
-            String channel = CHANNELS.get(i);
-
-            // The line reads `R  ◂ 46 ▸`: a letter band, then the two buttons with the number between
-            // them. The letter is drawn by the panel rather than being a button's label, because a
-            // fourteen-pixel button cannot hold one.
-            int letter = 12;
-            int button = 16;
-            out.put("down:" + channel,
-                    new Slot("down:" + channel, x + letter, y, button, lineHeight));
-            out.put("beat:" + channel, new Slot("beat:" + channel, x + letter + button, y,
-                    Math.max(0, half - letter - button * 2), lineHeight));
-            out.put("up:" + channel,
-                    new Slot("up:" + channel, x + half - button, y, button, lineHeight));
-        }
-        return out;
-    }
-
-    /** The channels, in the order the band draws them. */
-    public static final List<String> CHANNELS = List.of("R", "G", "B", "A");
-
-    /**
-     * The box the selected colour's hex code is typed into, or null when nothing is selected.
-     *
-     * <p>On the swatch's own line, at its right, where the hex value used to be *drawn*: it was a display
-     * of the answer, and the report was that the answer should be editable in place -- *"hex code direct
-     * injection, like text field editing on hex"*.
-     */
-    public static BookGeometry.Rect hexField(BookGeometry.Rect swatch, boolean anySelection) {
-        if (!anySelection) {
-            return null;
-        }
-        int width = Math.min(96, Math.max(0, swatch.width() - 60));
-        return BookGeometry.Rect.at(swatch.right() - width, swatch.y() + 3, width, 18);
-    }
-
-    /**
-     * A row's own stepper: `- value +`, inside the row, at its right.
-     *
-     * <p>The shape's row is edited in place rather than by selecting it and using the band, which was the
-     * report: *"instead of selecting then adding, just have the number in middle of 2 arrows that make it
-     * go up or down"*. Two arrows and a number is a control that needs no explanation and no second step.
-     */
-    public static Map<String, Slot> stepper(Slot row) {
-        int button = 16;
-        int number = 22;
-        int right = row.right() - STRIP_INSET;
-        int left = Math.max(row.x(), right - (button * 2 + number));
-        Map<String, Slot> out = new LinkedHashMap<>();
-        out.put("down", new Slot("down", left, row.y(), button, row.height()));
-        out.put("up", new Slot("up", right - button, row.y(), button, row.height()));
-        return out;
-    }
-
-    /** Where a stepper's number is drawn: between its two buttons. */
-    public static Slot stepperValue(Slot row) {
-        Map<String, Slot> buttons = stepper(row);
-        Slot down = buttons.get("down");
-        Slot up = buttons.get("up");
-        return new Slot("value", down.right(), row.y(), Math.max(0, up.x() - down.right()), row.height());
-    }
-
     /**
      * A slot where it will be drawn: the list's own coordinates put through the viewport it is drawn in.
      *
@@ -788,28 +1020,6 @@ public final class ToolsLayout {
      */
     public static Slot onScreen(Viewport view, Slot slot) {
         return dev.ellipog.armature.client.ui.inspect.InspectLayout.onScreen(view, slot);
-    }
-
-    /**
-     * Which way a press at a screen point steps the radius: {@code -1}, {@code +1}, or null for a miss.
-     *
-     * <p>Here rather than in the screen, and there is one description of where the arrows are: they are
-     * {@link #stepper}'s, which derives them from the row's own rectangle — so whichever space the row is
-     * in, the arrows are in it too. The caller maps the row and hands it over; the panel calls the same
-     * method with the row rectangle it is drawing. A second description is how the first version managed to
-     * place them out of sight while the hit test still found them.
-     */
-    public static Integer radiusStepAt(Viewport view, Slot radiusRow, double mouseX, double mouseY) {
-        if (radiusRow == null) {
-            return null;
-        }
-        Map<String, Slot> arrows = stepper(onScreen(view, radiusRow));
-        for (String way : List.of("down", "up")) {
-            if (arrows.get(way).contains((int) mouseX, (int) mouseY)) {
-                return way.equals("down") ? -1 : 1;
-            }
-        }
-        return null;
     }
 
     /** Revert and Save, side by side in the actions row. */

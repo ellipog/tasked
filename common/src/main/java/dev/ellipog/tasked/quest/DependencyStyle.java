@@ -56,20 +56,18 @@ public record DependencyStyle(Optional<Form> form, Optional<Arrows> arrows, Opti
         /** The three-segment step: out vertically, across, in vertically. What the canvas always drew. */
         ORTHOGONAL("orthogonal"),
 
-        /** The orthogonal step with every 90-degree corner cut at a 45-degree chamfer: a circuit trace. */
+        /**
+         * The orthogonal step with every 90-degree corner cut at a 45-degree chamfer: a circuit trace.
+         *
+         * <p>The built-in default, so a line that says nothing about its form gets this one.
+         */
         CHAMFERED("chamfered"),
 
         /** A direct line from one node to the other. */
         STRAIGHT("straight"),
 
-        /** Out horizontally, one vertical step at the chord's midpoint, in horizontally: a tidy Z. */
-        STEPPED("stepped"),
-
         /** A smooth bow, so parallel routes through a crowded graph can be told apart. */
-        CURVED("curved"),
-
-        /** A true circular arc, bowed by the same bend a curve reads. */
-        RADIAL("radial");
+        CURVED("curved");
 
         private final String wire;
 
@@ -311,7 +309,7 @@ public record DependencyStyle(Optional<Form> form, Optional<Arrows> arrows, Opti
 
     /** What an axis is when nothing, anywhere, says otherwise. */
     public static final DependencyStyle BUILT_IN = new DependencyStyle(
-            Optional.of(Form.ORTHOGONAL), Optional.empty(), Optional.of(Dash.SOLID),
+            Optional.of(Form.CHAMFERED), Optional.empty(), Optional.of(Dash.SOLID),
             Optional.of(Weight.THIN), Optional.of(0.2), Optional.empty(), Optional.empty(),
             Optional.empty(), Optional.empty(),
             Optional.of(ArrowHead.CHEVRON), Optional.of(ArrowPlace.TARGET),

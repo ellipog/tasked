@@ -112,7 +112,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class QuestPlaythroughTest {
 
-    /** The questline shipped in the jar, in the order it becomes available. */
+    /** The example chapter's onboarding five, in the order they become available. */
     private static final List<String> THE_QUESTLINE = List.of(
             "punch_a_tree", "make_a_table", "stone_tools", "read_the_sign", "the_underground");
 
@@ -190,6 +190,7 @@ class QuestPlaythroughTest {
         List<String> seeded = new ArrayList<>(examples);
         seeded.addAll(seedAutoClaimChapter(configDir));
         seeded.addAll(seedEngineChapter(configDir));
+        seeded.addAll(seedRewardInboxChapter(configDir));
         Collections.sort(seeded);
         examples = List.copyOf(seeded);
 
@@ -2119,10 +2120,63 @@ class QuestPlaythroughTest {
         note("auto-claim paid the item at completion and left the choice outstanding");
     }
 
+    // ------------------------------------------------------------------
+    // The rewards inbox: one row's press takes one reward
+    // ------------------------------------------------------------------
+
+    @Test
+    @Order(91)
+    @DisplayName("claiming one reward of a quest leaves its siblings outstanding")
+    void claimingOneRewardLeavesItsSiblingsOutstanding() {
+        // The fixture's two rewards are both `auto: disabled`, so completing it hands over nothing --
+        // this is the rewards panel's per-row press, and its whole point is that taking the emeralds
+        // does not take the diamonds with them.
+        HeadlessServer.Outcome completed = asOperator("/tasked complete two_gifts");
+        assertEquals(1, completed.result(),
+                () -> "/tasked complete should have worked. It said:\n" + completed.text());
+
+        int diamondsBefore = countInInventory(Items.DIAMOND);
+        int emeraldsBefore = countInInventory(Items.EMERALD);
+        assertEquals(diamondsBefore, countInInventory(Items.DIAMOND),
+                "a disabled auto-claim hands over nothing at completion");
+
+        QuestIndex.QuestEntry entry = TaskedQuests.index().quest("two_gifts").orElseThrow();
+
+        assertTrue(server.callOnServerThread(() ->
+                        ProgressService.claimReward(server.server(), player, entry, 1)),
+                "the emeralds' row should have paid");
+        assertEquals(emeraldsBefore + 5, countInInventory(Items.EMERALD),
+                "five emeralds, one row's worth");
+        assertEquals(diamondsBefore, countInInventory(Items.DIAMOND),
+                "and the diamonds' row is untouched -- a per-row claim takes one reward, not the list");
+        assertTrue(rewardClaimed("two_gifts", 1), "the claimed row is recorded");
+        assertFalse(rewardClaimed("two_gifts", 0), "and its sibling is still owed");
+
+        assertTrue(server.callOnServerThread(() ->
+                        ProgressService.claimReward(server.server(), player, entry, 0)),
+                "the diamonds' row pays next");
+        assertEquals(diamondsBefore + 3, countInInventory(Items.DIAMOND),
+                "three diamonds, the other row's worth");
+
+        assertFalse(server.callOnServerThread(() ->
+                        ProgressService.claimReward(server.server(), player, entry, 0)),
+                "a second press on a paid row changes nothing, the same guard the quest claim has");
+        assertEquals(diamondsBefore + 3, countInInventory(Items.DIAMOND),
+                "which is the assertion that it gave no more");
+
+        // An index no reward holds is refused rather than clamped: a forged packet buys nothing.
+        assertFalse(server.callOnServerThread(() ->
+                        ProgressService.claimReward(server.server(), player, entry, 7)),
+                "an index no reward holds is refused");
+
+        note("a per-row claim took one reward and left the other; a second press and a forged index "
+                + "both changed nothing");
+    }
+
     /**
-     * The auto-claim chapter, seeded beside the shipped examples.
+     * The auto-claim chapter, seeded beside the examples.
      *
-     * <p>Written by the test rather than added to the shipped pack on purpose: the examples are a
+     * <p>Written by the test rather than added to the example content on purpose: the examples are a
      * demonstration for authors — and {@code QuestIndexTest} reads them — so a test that needs an
      * auto-claim quest should not decide what the demonstration contains. The chapter states the mode,
      * which is the point: neither quest says anything about auto-claim, so this exercises the middle
@@ -2162,10 +2216,10 @@ class QuestPlaythroughTest {
 
     /**
      * The engine chapter: one of each mechanic the stage, condition and table orders below play,
-     * seeded beside the shipped examples.
+     * seeded beside the examples.
      *
-     * <p>Written by the test for the same reason {@link #seedAutoClaimChapter} is: the shipped
-     * examples are an exhibition for authors, and what it contains is the exhibition's call. These
+     * <p>Written by the test for the same reason {@link #seedAutoClaimChapter} is: the examples are
+     * an exhibition for authors, and what it contains is the exhibition's call. These
      * orders, though, need quests shaped exactly for the assertion -- a gate with no dependency edge,
      * a reward behind a scoreboard that starts at zero, a table whose weight-zero entry makes the
      * experience delta exact -- and an exhibition that moved content around to hold the tests' hands
@@ -2317,6 +2371,41 @@ class QuestPlaythroughTest {
                 "engine_gallery/the_galleries/the_false_criterion.json",
                 "engine_gallery/the_galleries/ameth_start.json",
                 "reward_tables/loot.json");
+    }
+
+    /**
+     * The rewards-inbox fixture: one quest with two rewards, both waiting.
+     *
+     * <p>Written by the test for the reason {@link #seedAutoClaimChapter} is: the order below asks a
+     * per-row claim to take one reward and proves it did not take the other, and no example quest is
+     * shaped for that question. Both rewards are {@code auto: disabled}, so completing the quest hands
+     * over nothing and the only way either arrives is the operation under test.
+     */
+    private static List<String> seedRewardInboxChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tasked/quests/reward_inbox");
+        Path chapter = quests.resolve("reward_inbox");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "reward_inbox", "title": "Reward Inbox", "chapters": ["reward_inbox"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "reward_inbox", "title": "Reward Inbox", "quests": ["two_gifts.json"] }
+                """);
+        Files.writeString(chapter.resolve("two_gifts.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "two_gifts",
+                  "title": "Two Gifts",
+                  "icon": { "item": "minecraft:diamond" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Take them one at a time" }],
+                  "rewards": [
+                    { "type": "tasked:item", "item": "minecraft:diamond", "count": 3,
+                      "auto": "disabled" },
+                    { "type": "tasked:item", "item": "minecraft:emerald", "count": 5,
+                      "auto": "disabled" }] }
+                """);
+        // The relative names the load check counts, in the same shape `seedExamples` produces.
+        return List.of("reward_inbox/group.json", "reward_inbox/reward_inbox/chapter.json",
+                "reward_inbox/reward_inbox/two_gifts.json");
     }
 
     /** Whether one of a quest's rewards is already claimed for the test player, from stored progress. */
@@ -2659,7 +2748,7 @@ class QuestPlaythroughTest {
      * <p>It was a single {@code Files.list} over the quest directory, copying each {@code .json} whose
      * name did not begin with an underscore. That is exactly right for the flat format, where a file
      * <i>is</i> a whole tree, and it silently copies nothing at all under the folder format — where the
-     * quests are four levels down inside {@code getting_started/first_steps/} and no file at the top
+     * quests are four levels down inside {@code first_light/first_steps/} and no file at the top
      * level is a quest.
      *
      * <p>The failure that produces is worth naming because of how it reads. The seeding step succeeds,

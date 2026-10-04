@@ -1,8 +1,10 @@
 # Commands
 
-Everything Tasked can be asked from the command line is under `/tasked`. The commands that change
-anything ask for permission level 2 — a command block's level — and the rest are for whoever is
-playing.
+Everything Tasked can be asked from the command line is under `/tasked`. Player actions — submitting,
+claiming, and everything under `party` — are for whoever is playing. The commands that change the
+quest files or operator state (`reload`, `complete`, `reset`, `rewards block|unblock`, `stage
+add|remove`, and naming another player in `stage list`) ask for permission level 2, a command
+block's level.
 
 ## For players
 
@@ -11,9 +13,9 @@ playing.
 | `/tasked quests` | The tree at a glance: how many quests, chapters and chapter groups, then the groups by title. |
 | `/tasked quest <id>` | One quest as the engine sees it: location, dependencies, and the flags set on it. |
 | `/tasked progress` | The tree from your point of view: each quest's state, and every task's count against what it needs. |
-| `/tasked submit <quest> [task <n>]` | Hand a task in by hand — the same call the Submit button makes. `task` is the task's index, counted from 0; omitted, it is the first task. |
+| `/tasked submit <quest> [<index>]` | Hand a task in by hand — the same call the Submit button makes. The optional second argument is the task's index, a bare integer counted from 0; omitted, it is the first task. |
 | `/tasked claim <quest>` | Collect the quest's outstanding rewards. The same call the Claim button makes. |
-| `/tasked stage list [player]` | The stages a player carries. Without an argument, your own. |
+| `/tasked stage list [player]` | The stages a player carries. Without an argument, your own; naming another player asks for permission level 2. |
 | `/tasked party` | Who is in your party, how it counts, and **which mod the parties come from** — Tasked's answer to "are these the parties I think they are". |
 | `/tasked version` | The Tasked and Armature versions this server is running. |
 
@@ -22,12 +24,13 @@ playing.
 | Command | What it does |
 |---|---|
 | `/tasked reload` | Re-read the quest folder without a restart, and re-sync every connected player. Reports how many files loaded, and how many had errors. |
-| `/tasked complete <quest>` | Complete a quest for the team, exactly as the engine would. |
+| `/tasked complete <quest>` | Mark a quest complete for the team. It checks that the quest is playable and its stage gate is met, but it does not evaluate the tasks — that is what it is for. Rewards are left waiting to be claimed. |
 | `/tasked reset [quest]` | Clear progress — one quest, or the whole tree when no quest is named. Run it as a player: progress belongs to a team, and the console is not in one. |
 | `/tasked rewards block` / `unblock` | Hold or release the team's automatic payouts. |
 | `/tasked stage add <player> <stage>` | Grant a stage. |
 | `/tasked stage remove <player> <stage>` | Take one away. |
 | `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |
+| `/tasked config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tasked reload`. A player's own theme, motion and radius are theirs, in the quest book's Settings card. |
 
 ## Parties
 
@@ -61,6 +64,9 @@ party still imports nothing.
 **A party holds eight by default**, and both the invitation and the answer are refused past the cap —
 a party can fill between the two. A server may set `teams.maxMembers` between 2 and 64 in
 `config/armature/config.json`; see Armature's teams page for the file and what else is in it.
+
+**On a singleplayer world whose LAN is closed**, the commands that change a party refuse: there is
+nobody to party with, and the refusal says so rather than failing silently.
 
 **On servers whose parties come from another mod**, the commands refuse with the source's name where
 their API cannot do the operation: Open Parties and Claims has no rename, transfer or policy, and FTB

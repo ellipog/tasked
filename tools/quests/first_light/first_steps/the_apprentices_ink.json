@@ -1,0 +1,44 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_apprentices_ink",
+  "title": "The Apprentice's Ink",
+  "subtitle": "onlyFromCrafting",
+  "description": [
+    "Paper you made yourself. `onlyFromCrafting: true` counts only items",
+    "the player crafted, so paper found in a chest is not the",
+    "apprentice's ink -- the field exists for the quest that wants the",
+    "work rather than the item.",
+    "",
+    "Its line runs `dash: dash_dot`, the long-short pattern, so the route",
+    "to the workshop reads as a different kind of road."
+  ],
+  "icon": {
+    "item": "minecraft:paper"
+  },
+  "x": 128,
+  "y": -640,
+  "shape": "pentagon",
+  "dependsOn": [
+    "the_carpenters_due"
+  ],
+  "dependencyLines": {
+    "the_carpenters_due": {
+      "dash": "dash_dot"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:paper",
+      "count": 8,
+      "onlyFromCrafting": true
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:ink_sac",
+      "count": 2
+    }
+  ]
+}

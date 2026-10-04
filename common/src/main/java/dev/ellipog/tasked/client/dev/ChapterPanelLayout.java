@@ -146,23 +146,25 @@ public final class ChapterPanelLayout {
         List<InspectRow> rows = new ArrayList<>();
         if (chapter == null || chapter.isEmpty()) {
             String why = missingNote == null || missingNote.isBlank()
-                    ? "The chapter's copy has not arrived yet"
-                    : "The chapter's copy has not arrived yet - the server said: " + missingNote;
-            rows.add(InspectRow.value(VALUE_PREFIX + "none", "Chapter", why));
+                    ? Labels.of("tasked.dev.chapter.missing_copy")
+                    : Labels.of("tasked.dev.chapter.missing_copy_said", missingNote);
+            rows.add(InspectRow.value(VALUE_PREFIX + "none", "tasked.dev.chapter.chapter", why));
             return List.copyOf(rows);
         }
 
-        rows.add(InspectRow.heading(IDENTITY, "Identity"));
+        rows.add(InspectRow.heading(IDENTITY, "tasked.dev.chapter.identity"));
         if (!folded.contains(IDENTITY)) {
-            rows.add(InspectRow.field("title", "Title", text(chapter, "title", "")));
-            rows.add(InspectRow.field("subtitle", "Subtitle", text(chapter, "subtitle", "")));
-            rows.add(InspectRow.field(ICON, "Icon Item", iconId(chapter)));
-            rows.add(InspectRow.value(VALUE_PREFIX + "description", "Description", description(chapter)));
-            rows.add(InspectRow.field("aliases", "Aliases",
+            rows.add(InspectRow.field("title", "tasked.dev.chapter.title", text(chapter, "title", "")));
+            rows.add(InspectRow.field("subtitle", "tasked.dev.chapter.subtitle",
+                    text(chapter, "subtitle", "")));
+            rows.add(InspectRow.field(ICON, "tasked.dev.chapter.icon", iconId(chapter)));
+            rows.add(InspectRow.value(VALUE_PREFIX + "description", "tasked.dev.chapter.description",
+                    description(chapter)));
+            rows.add(InspectRow.field("aliases", "tasked.dev.chapter.aliases",
                     String.join(", ", QuestPanelLayout.strings(chapter, "aliases"))));
         }
 
-        rows.add(InspectRow.heading(RULES, "Rules"));
+        rows.add(InspectRow.heading(RULES, "tasked.dev.chapter.rules"));
         if (!folded.contains(RULES)) {
             rows.add(choiceRow(chapter, PROGRESSION));
             rows.add(toggle(chapter, "defaultConsumeItems"));
@@ -180,16 +182,19 @@ public final class ChapterPanelLayout {
             // Before the quest list, not after it: a chapter with twenty quests would push the group's
             // own fields below a scroll nobody makes, and the group is the thing this section exists to
             // make reachable.
-            rows.add(InspectRow.heading(GROUP, "Chapter Group"));
+            rows.add(InspectRow.heading(GROUP, "tasked.dev.chapter.group"));
             if (!folded.contains(GROUP)) {
-                rows.add(InspectRow.field(GROUP_PREFIX + "title", "Title", group.title()));
-                rows.add(InspectRow.field(GROUP_PREFIX + ICON, "Icon Item", group.iconId()));
+                rows.add(InspectRow.field(GROUP_PREFIX + "title", "tasked.dev.chapter.title",
+                        group.title()));
+                rows.add(InspectRow.field(GROUP_PREFIX + ICON, "tasked.dev.chapter.icon",
+                        group.iconId()));
                 rows.add(InspectRow.toggle(GROUP_PREFIX + "collapsedByDefault",
-                        "Collapsed \u00b7 " + (group.collapsedByDefault() ? "on" : "off")));
+                        group.collapsedByDefault() ? "tasked.dev.chapter.collapsed_on"
+                                : "tasked.dev.chapter.collapsed_off"));
             }
         }
 
-        rows.add(InspectRow.heading(QUESTS, "Quests, in order"));
+        rows.add(InspectRow.heading(QUESTS, "tasked.dev.chapter.quests"));
         if (!folded.contains(QUESTS)) {
             List<String> quests = QuestPanelLayout.strings(chapter, "quests");
             for (int i = 0; i < quests.size(); i++) {
@@ -208,7 +213,7 @@ public final class ChapterPanelLayout {
      * <p>A constant rather than a literal at the drawing site because the test that says the sentence
      * still names the button it tells you to press reads this, not a copy of it.
      */
-    public static final String EDIT_MODE_HINT = "Press Edit to work on chapters";
+    public static final String EDIT_MODE_HINT = "tasked.dev.chapter.edit_hint";
 
     /**
      * The tab for a player who is not in edit mode: one line naming the state, and nothing to press.
@@ -225,7 +230,8 @@ public final class ChapterPanelLayout {
      * cannot show a field, a toggle or an arrow that looks pressable and silently does nothing.
      */
     public static List<InspectRow> notEditing() {
-        return List.of(InspectRow.value(VALUE_PREFIX + "notEditing", "Chapter", "Edit mode is off"));
+        return List.of(InspectRow.value(VALUE_PREFIX + "notEditing", "tasked.dev.chapter.chapter",
+                Labels.of("tasked.dev.chapter.not_editing")));
     }
 
     // ------------------------------------------------------------------
@@ -271,9 +277,11 @@ public final class ChapterPanelLayout {
     }
 
     public static final Choice PROGRESSION =
-            new Choice("progressionMode", "Progression", List.of("flexible", "linear"), "flexible");
+            new Choice("progressionMode", "tasked.dev.chapter.progression",
+                    List.of("flexible", "linear"), "flexible");
 
-    public static final Choice PREREQUISITE = new Choice("defaultPrerequisiteMode", "Prerequisite",
+    public static final Choice PREREQUISITE = new Choice("defaultPrerequisiteMode",
+            "tasked.dev.chapter.prerequisite",
             List.of("all_completed", "one_completed", "all_started", "one_started"), "all_completed");
 
     /**
@@ -283,22 +291,26 @@ public final class ChapterPanelLayout {
      * rather than fifty per-reward settings: the unset state defers to the pack setting in
      * {@code index.json}, and a quest can still override this for itself.
      */
-    public static final Choice AUTO_CLAIM = new Choice("autoClaim", "Auto-claim",
+    public static final Choice AUTO_CLAIM = new Choice("autoClaim", "tasked.dev.chapter.auto_claim",
             List.of("disabled", "enabled", "no_toast", "invisible"), "pack setting");
 
     /** The chapter's line-style default, one axis per row: what a line's "Use chapter default" resets to. */
-    public static final Choice LINE_FORM = new Choice(DEPENDENCY_STYLE + ".form", "Line form",
-            List.of("orthogonal", "chamfered", "straight", "stepped", "curved", "radial"), "orthogonal");
-    public static final Choice LINE_ARROW_HEAD = new Choice(DEPENDENCY_STYLE + ".arrowHead", "Line head",
+    public static final Choice LINE_FORM = new Choice(DEPENDENCY_STYLE + ".form",
+            "tasked.dev.chapter.line_form",
+            List.of("orthogonal", "chamfered", "straight", "curved"), "chamfered");
+    public static final Choice LINE_ARROW_HEAD = new Choice(DEPENDENCY_STYLE + ".arrowHead",
+            "tasked.dev.chapter.line_head",
             List.of("chevron", "triangle", "dot", "diamond", "none"), "chevron");
-    public static final Choice LINE_ARROW_PLACE = new Choice(DEPENDENCY_STYLE + ".arrowPlace", "Line place",
+    public static final Choice LINE_ARROW_PLACE = new Choice(DEPENDENCY_STYLE + ".arrowPlace",
+            "tasked.dev.chapter.line_place",
             List.of("target", "both", "mid", "stream"), "target");
-    public static final Choice LINE_ARROW_DENSITY =
-            new Choice(DEPENDENCY_STYLE + ".arrowDensity", "Line density", List.of("low", "medium", "high"),
-                    "medium");
-    public static final Choice LINE_DASH = new Choice(DEPENDENCY_STYLE + ".dash", "Line pattern",
+    public static final Choice LINE_ARROW_DENSITY = new Choice(DEPENDENCY_STYLE + ".arrowDensity",
+            "tasked.dev.chapter.line_density", List.of("low", "medium", "high"), "medium");
+    public static final Choice LINE_DASH = new Choice(DEPENDENCY_STYLE + ".dash",
+            "tasked.dev.chapter.line_pattern",
             List.of("solid", "dashed", "dotted", "dash_dot", "double", "hazard"), "solid");
-    public static final Choice LINE_WEIGHT = new Choice(DEPENDENCY_STYLE + ".weight", "Line weight",
+    public static final Choice LINE_WEIGHT = new Choice(DEPENDENCY_STYLE + ".weight",
+            "tasked.dev.chapter.line_weight",
             List.of("thin", "thick", "bold", "conduit"), "thin");
 
     /** The cycling rows, in the order the Rules section carries them. */
@@ -380,7 +392,8 @@ public final class ChapterPanelLayout {
     /** A value as a person reads it; the unset state names the fallback it falls back to. */
     public static String choiceLabel(Choice choice, String value) {
         if (value == null || value.isEmpty()) {
-            return "Default (" + choice.fallback().replace('_', ' ') + ")";
+            return Labels.of("tasked.dev.chapter.default_value",
+                    choice.fallback().replace('_', ' '));
         }
         return value.replace('_', ' ');
     }
@@ -483,7 +496,8 @@ public final class ChapterPanelLayout {
     private static InspectRow toggle(JsonObject chapter, String path) {
         boolean on = chapter.has(path) && chapter.get(path).isJsonPrimitive()
                 && chapter.get(path).getAsJsonPrimitive().isBoolean() && chapter.get(path).getAsBoolean();
-        return InspectRow.toggle(path, "Consume items \u00b7 " + (on ? "on" : "off"));
+        return InspectRow.toggle(path, on ? "tasked.dev.chapter.consume_on"
+                : "tasked.dev.chapter.consume_off");
     }
 
     private static String text(JsonObject object, String member, String fallback) {
@@ -509,8 +523,11 @@ public final class ChapterPanelLayout {
         int paragraphs = description == null ? 0
                 : description.isJsonArray() ? description.getAsJsonArray().size() : 1;
         if (paragraphs == 0) {
-            return "None \u00b7 edited in the file";
+            return Labels.of("tasked.dev.chapter.none_in_file");
         }
-        return paragraphs + (paragraphs == 1 ? " paragraph" : " paragraphs") + " \u00b7 edited in the file";
+        // One paragraph and several are two keys rather than one "paragraph(s)": the plural form is the
+        // language's business, and a language may not have the same rule English does.
+        return Labels.of(paragraphs == 1 ? "tasked.dev.chapter.paragraph_in_file"
+                : "tasked.dev.chapter.paragraphs_in_file", paragraphs);
     }
 }

@@ -111,15 +111,13 @@ public final class LineArt {
         return path(form, from, to, 0.2);
     }
 
-    /** The same, with the curve's bow as a fraction of its chord. Only {@code CURVED} and {@code RADIAL} read it. */
+    /** The same, with the curve's bow as a fraction of its chord. Only {@code CURVED} reads it. */
     public static List<Point> path(DependencyStyle.Form form, Point from, Point to, double bend) {
         return switch (form) {
             case ORTHOGONAL -> orthogonal(from, to);
             case CHAMFERED -> bevel(orthogonal(from, to));
             case STRAIGHT -> steps(from, to);
-            case STEPPED -> stepped(from, to);
             case CURVED -> curve(from, to, bend);
-            case RADIAL -> radial(from, to, bend);
         };
     }
 
@@ -136,28 +134,6 @@ public final class LineArt {
             int midY = from.y() + (to.y() - from.y()) / 2;
             points.add(new Point(from.x(), midY));
             points.add(new Point(to.x(), midY));
-        }
-        points.add(to);
-        return points;
-    }
-
-    /**
-     * Out horizontally, one vertical step, in horizontally — the Z broken at the chord's midpoint.
-     *
-     * <p>What "Stepped" means here: the vertical jog happens at the midpoint of the span rather than at
-     * each end, so a column-to-column flow reads as one clean break. {@link #orthogonal} is the same
-     * shape transposed — vertical stubs at the ends, the long run between them — and which one looks
-     * tidier is a fact about the chapter's own layout.
-     */
-    private static List<Point> stepped(Point from, Point to) {
-        List<Point> points = new ArrayList<>();
-        points.add(from);
-        // Both offsets have to exist or there is no Z at all: a line already on the target's row or
-        // column would otherwise grow a zero-length jog and two duplicate points.
-        if (from.x() != to.x() && from.y() != to.y()) {
-            int midX = from.x() + (to.x() - from.x()) / 2;
-            points.add(new Point(midX, from.y()));
-            points.add(new Point(midX, to.y()));
         }
         points.add(to);
         return points;
@@ -264,54 +240,6 @@ public final class LineArt {
             points.add(new Point(
                     (int) Math.round(u * u * from.x() + 2 * u * t * cx + t * t * to.x()),
                     (int) Math.round(u * u * from.y() + 2 * u * t * cy + t * t * to.y())));
-        }
-        points.set(0, from);
-        points.set(points.size() - 1, to);
-        return dedupe(points);
-    }
-
-    /**
-     * A true circular arc, bowed by the same bend fraction a curve reads.
-     *
-     * <p>The arc's middle lands where the quadratic's does — {@code bend * chord / 2} off the chord — so
-     * switching a line between curved and radial does not jump, and {@link #bendAt} stays the exact
-     * inverse of both. The centre sits on the chord's perpendicular bisector on the far side of the bow,
-     * at the radius that passes through both ends and that middle point. At the bend limit the arc is
-     * still under half a circle, which is why the minor arc is always the one drawn.
-     */
-    public static List<Point> radial(Point from, Point to, double bend) {
-        double dx = to.x() - from.x();
-        double dy = to.y() - from.y();
-        double length = Math.hypot(dx, dy);
-        if (length < 1 || Math.abs(bend) < 1e-6) {
-            return List.of(from, to);
-        }
-        double sagitta = bend * length / 2;
-        double half = length / 2;
-        double radius = (half * half + sagitta * sagitta) / (2 * Math.abs(sagitta));
-        double offset = radius - Math.abs(sagitta);
-        double nx = -dy / length;
-        double ny = dx / length;
-        double side = Math.signum(sagitta);
-        double centreX = (from.x() + to.x()) / 2.0 - nx * side * offset;
-        double centreY = (from.y() + to.y()) / 2.0 - ny * side * offset;
-        double startAngle = Math.atan2(from.y() - centreY, from.x() - centreX);
-        double endAngle = Math.atan2(to.y() - centreY, to.x() - centreX);
-        double sweep = endAngle - startAngle;
-        while (sweep > Math.PI) {
-            sweep -= 2 * Math.PI;
-        }
-        while (sweep < -Math.PI) {
-            sweep += 2 * Math.PI;
-        }
-        double arc = radius * Math.abs(sweep);
-        int samples = Math.max(2, (int) Math.ceil(arc / 2.0));
-        List<Point> points = new ArrayList<>(samples + 1);
-        for (int i = 0; i <= samples; i++) {
-            double angle = startAngle + sweep * i / samples;
-            points.add(new Point(
-                    (int) Math.round(centreX + Math.cos(angle) * radius),
-                    (int) Math.round(centreY + Math.sin(angle) * radius)));
         }
         points.set(0, from);
         points.set(points.size() - 1, to);

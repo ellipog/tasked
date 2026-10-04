@@ -11,36 +11,6 @@
       "type": "string",
       "description": "Ignored by Tasked. For your editor. Depth-counted: three levels up from a chapter folder is the quest root."
     },
-    "themePatch": {
-      "description": "Token-level overrides for a chapter's theme: individual palette colours and a corner radius, applied over the named theme (or over the player's own when the chapter names none). A client concept, like `theme` itself - the server carries it and the client composes it. The validator checks every token id and value with the toolkit's own reader.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "A name for the resulting palette. Usually omitted - the Theme tab writes none, and the name only matters for a file that also wants a display name."
-        },
-        "colours": {
-          "type": "object",
-          "description": "Token id to colour, e.g. { \"raised\": \"#FF24242E\" }. A colour is #RRGGBB, #AARRGGBB, or a bare 0xAARRGGBB number. An unknown token id is reported by the validator, and the client ignores it.",
-          "additionalProperties": { "type": ["string", "integer"] }
-        },
-        "cornerRadius": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Corner radius in pixels for the chapter's surfaces. Zero is square."
-        },
-        "motion": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Transition duration in milliseconds. Zero disables transitions."
-        },
-        "easing": {
-          "enum": ["LINEAR", "QUAD_IN", "QUAD_OUT", "QUAD_IN_OUT", "CUBIC_OUT", "SINE_IN_OUT", "BACK_OUT"],
-          "description": "The easing curve transitions use."
-        }
-      }
-    },
     "id": {
       "$ref": "#/definitions/id",
       "description": "Must equal the name of the folder this file is in. Tasked reports the mismatch naming both sides, and uses the folder name."
@@ -79,7 +49,7 @@
     },
     "dependencyStyle": {
       "$ref": "#/definitions/dependencyStyle",
-      "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (orthogonal, one, solid, thin), and a line that names the same axis overrides just that one."
+      "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (chamfered, one, solid, thin), and a line that names the same axis overrides just that one."
     },
     "theme": {
       "type": "string",
@@ -87,7 +57,7 @@
     },
     "themePatch": {
       "$ref": "#/definitions/themePatch",
-      "description": "Token-level overrides for `theme`: individual colours and a corner radius applied over the named theme (or over the player's own when no theme is named). This is how a chapter sets \"raised #24242E and radius 4\" without shipping a whole theme file, and the Theme tab's chapter target writes it."
+      "description": "Token-level overrides for `theme`: individual colours, a corner radius and a canvas background applied over the named theme (or over the player's own when no theme is named). This is how a chapter sets \"raised #24242E and radius 4\" without shipping a whole theme file, and the Chapter tab's appearance section writes it."
     },
 
     "quests": {
@@ -98,6 +68,88 @@
   },
 
   "definitions": {
+    "themePatch": {
+      "description": "Token-level overrides for a chapter's theme: individual palette colours, a corner radius and a canvas background, applied over the named theme (or over the player's own when the chapter names none). A client concept, like `theme` itself - the server carries it and the client composes it. The validator checks every token id and value with the toolkit's own reader.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A name for the resulting palette. Usually omitted - the Chapter tab writes none, and the name only matters for a file that also wants a display name."
+        },
+        "colours": {
+          "type": "object",
+          "description": "Token id to colour, e.g. { \"raised\": \"#FF24242E\" }. A colour is #RRGGBB, #AARRGGBB, or a bare 0xAARRGGBB number. An unknown token id is reported by the validator, and the client ignores it.",
+          "additionalProperties": { "type": ["string", "integer"] }
+        },
+        "canvasBackground": {
+          "type": "object",
+          "description": "A pattern over the canvas's colour - the same object a theme file carries. `spacing` is content units under `graph` and screen pixels under `screen`; an image is screen-fixed and ignores it. The ink is the `canvasPattern` colour token, whose alpha is a pattern's strength - an image uses only its alpha and draws in white.",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "enum": ["none", "dot_grid", "grid_lines", "speckle", "hatch", "image"],
+              "description": "The pattern to draw."
+            },
+            "space": {
+              "enum": ["graph", "screen"],
+              "description": "What the pattern is anchored to: the content, or the screen. Ignored by `image`, which is always screen-fixed."
+            },
+            "spacing": {
+              "type": "integer",
+              "minimum": 6,
+              "maximum": 256,
+              "description": "Distance between repeats. Clamped to this range by the reader."
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4,
+              "description": "The edge of a dot or speck and the thickness of a line or hatch step, in pixels. Clamped to this range by the reader."
+            },
+            "density": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 16,
+              "description": "Speckle only: one cell in this many carries a mark. Clamped to this range by the reader."
+            },
+            "direction": {
+              "enum": ["slash", "backslash"],
+              "description": "Hatch only: which way the diagonal leans."
+            },
+            "fit": {
+              "enum": ["tile", "cover"],
+              "description": "Image only: repeat the texture at `tile` size, or draw it once scaled to cover and centred."
+            },
+            "texture": {
+              "type": "string",
+              "description": "Image only: the texture id, canonicalised to `ns:textures/path.png`. An unresolvable texture draws nothing."
+            },
+            "tile": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 256,
+              "description": "Image only, under `tile` fit: the width one repeat is drawn at, in pixels. Clamped to this range by the reader."
+            }
+          }
+        },
+        "cornerRadius": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Corner radius in pixels for the chapter's surfaces. Zero is square."
+        },
+        "motion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Transition duration in milliseconds. Zero disables transitions."
+        },
+        "easing": {
+          "enum": ["LINEAR", "QUAD_IN", "QUAD_OUT", "QUAD_IN_OUT", "CUBIC_OUT", "SINE_IN_OUT", "BACK_OUT"],
+          "description": "The easing curve transitions use."
+        }
+      }
+    },
+
     "text": {
       "description": "Either a plain string, or a translation key with an English fallback.",
       "oneOf": [
@@ -138,13 +190,13 @@
     },
 
     "dependencyStyle": {
-      "description": "A chapter's default line style. Only the axes it names are chosen; omitted axes fall back to the built-ins (orthogonal, chevron at the target, solid, thin). Anchors and split control points are deliberately not settable here - which rim a line meets is a fact about that line's two ends, so they are per-line settings, declared in the quest schema's `dependencyLines`.",
+      "description": "A chapter's default line style. Only the axes it names are chosen; omitted axes fall back to the built-ins (chamfered, chevron at the target, solid, thin). Anchors and split control points are deliberately not settable here - which rim a line meets is a fact about that line's two ends, so they are per-line settings, declared in the quest schema's `dependencyLines`.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "form": {
-          "enum": ["orthogonal", "chamfered", "straight", "stepped", "curved", "radial"],
-          "description": "The route's shape. Orthogonal is the three-segment step, chamfered the same step with 45-degree corner cuts, straight a direct line, stepped a Z broken at the chord's midpoint, curved a smooth bow, and radial a circular arc. Curved and radial read `bend`."
+          "enum": ["orthogonal", "chamfered", "straight", "curved"],
+          "description": "The route's shape. Chamfered is the built-in default: the three-segment step with every 90-degree corner cut at 45 degrees, a circuit trace. Orthogonal is the same step left square, straight a direct line, and curved a smooth bow, which reads `bend`."
         },
         "arrowHead": {
           "enum": ["chevron", "triangle", "dot", "diamond", "none"],
@@ -187,8 +239,8 @@
 
     "name": {
       "type": "string",
-      "pattern": "^[^/\\\\.]{1,128}$",
-      "description": "A single path segment: the name of something in the same folder as the file that declares it. No separator, no `..`, and not beginning with `_` (every `_`-prefixed name is skipped, everywhere, so a reference to one could never resolve)."
+      "pattern": "^(?!\\.{1,2}$)(?!_)[^/\\\\]{1,128}$",
+      "description": "A single path segment: the name of something in the same folder as the file that declares it. No separator, not `.` or `..`, and not beginning with `_` (every `_`-prefixed name is skipped, everywhere, so a reference to one could never resolve). A dot inside the name is fine - this is how a chapter lists `punch_a_tree.json`."
     }
   }
 }

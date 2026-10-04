@@ -1,0 +1,39 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_crowns_due",
+  "title": "The Crowns Due",
+  "subtitle": "permissionLevel 4, past a payout block",
+  "description": [
+    "`permissionLevel: 4` runs the command at the server's own level, for",
+    "the rewards that must not depend on the player's rights. Level 2 is",
+    "the default because most commands should be a command block's; this",
+    "one is the exception.",
+    "",
+    "`ignoreRewardBlocking: true` pays even while an operator has held",
+    "the team's automatic payouts with `/tasked rewards block` -- the",
+    "hold's one sanctioned exception, for the reward that is a debt",
+    "rather than a gift."
+  ],
+  "icon": {
+    "item": "minecraft:golden_helmet"
+  },
+  "x": -192,
+  "y": 928,
+  "dependsOn": [
+    "the_bells_rung"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Pay the crowns due"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:command",
+      "command": "give {p} minecraft:gold_block 1",
+      "permissionLevel": 4,
+      "ignoreRewardBlocking": true
+    }
+  ]
+}

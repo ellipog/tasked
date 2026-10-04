@@ -1,0 +1,40 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_dust_draw",
+  "title": "The Dust Draw",
+  "subtitle": "loot with an empty band, and all_table",
+  "description": [
+    "The same table, rolled two ways. `tasked:loot` includes the empty",
+    "band: `toll` carries `emptyWeight: 4`, so a throw can come up with",
+    "nothing at all -- the one table mode where 'no prize' is a possible",
+    "answer.",
+    "",
+    "`tasked:all_table` is the other extreme: no dice, every entry",
+    "granted, weight-zero entries and all. Between them the two rewards",
+    "show the mode field deciding what a table means."
+  ],
+  "icon": {
+    "item": "minecraft:glowstone_dust"
+  },
+  "x": -96,
+  "y": 480,
+  "dependsOn": [
+    "the_house_always_wins"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Draw the dust"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:loot",
+      "table": "toll"
+    },
+    {
+      "type": "tasked:all_table",
+      "table": "toll"
+    }
+  ]
+}

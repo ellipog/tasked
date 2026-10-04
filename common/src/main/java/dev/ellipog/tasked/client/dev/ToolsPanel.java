@@ -4,7 +4,10 @@ import dev.ellipog.armature.client.Look;
 import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
+import dev.ellipog.armature.client.ui.Theme;
 import dev.ellipog.armature.client.ui.ThemeToken;
+import dev.ellipog.armature.client.ui.Themes;
+import dev.ellipog.armature.client.ui.art.CanvasBackgroundArt;
 import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
@@ -12,9 +15,11 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 import dev.ellipog.tasked.quest.QuestShape;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * What the tools panel looks like: the preview, the list, and the band that edits one colour.
@@ -28,10 +33,11 @@ import java.util.Map;
  *
  * <h2>The preview, and what it is honest about</h2>
  *
- * <p>It draws a small quest: a panel, a node in a shape, three lines of text, a button, a tooltip and a
- * scrollbar mark, all in the theme as it stands. Selecting a colour rings the region its <b>group</b>
- * paints — eight regions for eight groups — because that is the question the list raises: not "what is
- * {@code rowHover}" but "which part of this screen does it change".
+ * <p>It draws one sample per tab: the graph's surfaces (a canvas, nodes, a card, a button, a tooltip, a
+ * scrollbar mark) on the chapter tab, and the book's own chrome (panel, header, sidebar row, control,
+ * scrollbar) on the book tab — see {@link ToolsLayout.Sample}. Selecting a colour rings the region its
+ * <b>group</b> paints — eight regions for eight groups — because that is the question the list raises:
+ * not "what is {@code rowHover}" but "which part of this screen does it change".
  *
  * <p>It is a <b>sample, not the book</b>: the proportions are its own, the text is literal, and the node is
  * always the rounded shape. A preview that claimed to be the real screen would be a second description of
@@ -39,8 +45,14 @@ import java.util.Map;
  */
 public final class ToolsPanel {
 
-    /** The preview's own swatch sizes, so the sample reads as a screen rather than as icons. */
-    private static final int NODE = 26;
+    /**
+     * The four colours a palette row shows: the surface it paints, the strip above it, its text and its
+     * accent. Enough to tell two palettes apart at a glance, and few enough to fit beside a name.
+     */
+    private static final List<String> PALETTE_TOKENS = List.of("panel", "raised", "title", "accent");
+
+    /** Between two of a palette row's swatches. Their size is the row's height less its inset. */
+    private static final int PALETTE_GAP = 3;
 
     private ToolsPanel() {
     }
@@ -60,34 +72,76 @@ public final class ToolsPanel {
      *     target is a choice made by the screen rather than a branch in every drawing method.
      * @param radius the corner radius in force for that target
      * @param radiusChosen whether the target itself pins the radius, rather than inheriting the theme's
+     * @param background the canvas background in force for that target
+     * @param backgroundChosen whether the target itself pins one, rather than inheriting the theme's
+     * @param patternOpacity the alpha of that target's {@code canvasPattern} token, 0..255. Carried
+     *     beside the theme rather than read from it here for the same reason {@code radius} is: the
+     *     panel draws what it was handed, so a chapter's override and the player's own theme cannot be
+     *     two different answers in one frame
      */
     public record State(String selected, String feedback, boolean feedbackIsError, boolean hexEditable,
-                        dev.ellipog.armature.client.ui.Theme theme, int radius, boolean radiusChosen) {
+                        dev.ellipog.armature.client.ui.Theme theme, int radius, boolean radiusChosen,
+                        dev.ellipog.armature.client.ui.CanvasBackground background,
+                        boolean backgroundChosen, int patternOpacity) {
     }
 
     /**
      * Draws everything that is not a widget.
      *
-     * <p>The tabs, the switches' buttons, the colour rows, the channel steppers and Revert/Save are
-     * widgets and are drawn by the widget pass — this draws the panel they sit on, their labels, and the
-     * colour that a widget cannot draw. The tab strip replaced the title row, so the panel's own name is
-     * nowhere: the tabs <i>are</i> the top row, and two of them name the two panels the dock holds.
+     * <p>The drawer's title, the rows' labels, the palette strips and the colour chips — the panel they
+     * sit on, and the ink a widget cannot draw. Every field, choice and menu button is a widget drawn by
+     * the widget pass; what is left here is what has no widget to belong to.
      */
     public static void draw(GuiRenderer r, ToolsLayout.Frame frame, Viewport list, Layout layout,
-                            List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY) {
+                            List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY,
+                            ToolsLayout.Tab tab) {
+        drawChrome(r, frame, state);
+        drawTitle(r, frame, tab);
+        drawRows(r, frame.list(), list, layout, rows, state, mouseX, mouseY);
+    }
+
+    /**
+     * The drawer's name, at the left of its title band.
+     *
+     * <p>The menu button at the band's right is a widget; the name is not, because a label the player
+     * cannot press has no reason to be one. "Chapter Properties" rather than the panel's old tab word:
+     * the band is a title now, and a title says what the rows below it are.
+     */
+    private static void drawTitle(GuiRenderer r, ToolsLayout.Frame frame, ToolsLayout.Tab tab) {
+        BookGeometry.Rect label = ToolsLayout.titleLabel(frame.title());
+        String text = Labels.of(tab == ToolsLayout.Tab.CHAPTER
+                ? "tasked.dev.tools.chapter_properties" : "tasked.dev.tools.book_properties");
+        r.text(Measure.truncate(text, label.width(), textMeasure(r)), label.x(),
+                label.y() + (label.height() - r.lineHeight()) / 2, ArmatureTheme.title());
+    }
+
+    /**
+     * The panel's own surface and its one-line status: the two things every tab draws the same way.
+     *
+     * <p>One method because both tabs paint them, and the chapter tab's copy had already drifted — it
+     * fell back to the edit-mode hint where the book tab draws nothing. A caller that wants the hint
+     * draws it after this, in the band this leaves empty when there is no feedback.
+     */
+    public static void drawChrome(GuiRenderer r, ToolsLayout.Frame frame, State state) {
         ArmatureTheme.panel(r, frame.panel().x(), frame.panel().y(), frame.panel().width(),
                 frame.panel().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-
         if (state.feedback() != null && !state.feedback().isEmpty()) {
             r.text(Measure.truncate(state.feedback(), frame.feedback().width(), textMeasure(r)),
                     frame.feedback().x(), frame.feedback().y(),
                     state.feedbackIsError() ? ArmatureTheme.blocked() : ArmatureTheme.faint());
         }
+    }
 
-        drawPreview(r, frame.preview(), state.selected(), mouseX, mouseY);
-
+    /**
+     * The list's rows, drawn from any layout that carries them.
+     *
+     * <p>Public because the chapter tab shows the same appearance rows under a different layout: it
+     * composes the book tab's sections above the chapter's content, and this is the one place those
+     * sections are drawn, so the two tabs cannot disagree about what a row looks like.
+     */
+    public static void drawRows(GuiRenderer r, BookGeometry.Rect listRect, Viewport list, Layout layout,
+                                List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY) {
         Measure measure = textMeasure(r);
-        BookGeometry.Rect listRect = frame.list();
         try (GuiRenderer.Scoped clip = r.clip(listRect.x(), listRect.y(), listRect.right(),
                 listRect.bottom())) {
             for (ToolsLayout.Action row : rows) {
@@ -96,6 +150,20 @@ public final class ToolsPanel {
                     continue;
                 }
                 Slot onScreen = ToolsLayout.onScreen(list, slot);
+                if (ToolsLayout.CANVAS_TEXTURE.equals(row.key())) {
+                    // Three controls in one row: the label, the file's own picture, and the browse
+                    // button. The id's field between them is a widget, placed by the layout's own
+                    // `textureField` -- so what is drawn here is exactly what a widget cannot say.
+                    drawTextureRow(r, row, slot, onScreen, measure, state);
+                    continue;
+                }
+                if (ToolsLayout.BOOK_TITLE.equals(row.key()) || ToolsLayout.BOOK_ICON.equals(row.key())) {
+                    // A field row: the label is the panel's, the control is a widget placed by the
+                    // layout's own `valueField`, and neither may draw over the other.
+                    r.text(Measure.truncate(Labels.of(row.label()), ToolsLayout.LABEL_ROOM - 4, measure),
+                            onScreen.x() + 2, textY(slot, onScreen, r), ArmatureTheme.body());
+                    continue;
+                }
                 // A switch on the kind rather than a chain of `isControl()` tests, and exhaustive on purpose:
                 // the radius row used to fall through this to the *switch label* branch below, because its
                 // kind is STEPPER and the middle test asked `kind == ROW`. The row then drew its label and
@@ -105,8 +173,19 @@ public final class ToolsPanel {
                 switch (row.kind()) {
                     case HEADING -> drawHeading(r, row, slot, onScreen, measure);
                     case ROW -> drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
-                    case STEPPER -> drawStepper(r, row, slot, onScreen, measure, state, mouseX, mouseY);
                     case SWITCH -> drawSwitchLabel(r, row, slot, onScreen, measure);
+                    // A field's label, and a choice's: the control beside it is a widget, so this is
+                    // the label and nothing else.
+                    case FIELD, CHOICE -> drawRowLabel(r, row, slot, onScreen, measure);
+                    case PAIR -> {
+                        // Two labels, one per half, from the same split the pair widget uses -- see
+                        // `ToolsLayout.pairLeft`.
+                        drawRowLabel(r, row, ToolsLayout.pairLeft(slot),
+                                ToolsLayout.pairLeft(onScreen), measure);
+                        drawRowLabel(r, row.right(), ToolsLayout.pairRight(slot, row.right().key()),
+                                ToolsLayout.pairRight(onScreen, row.right().key()), measure);
+                    }
+                    case CHIP -> drawChip(r, row, slot, onScreen, measure, state, mouseX, mouseY);
                     // Loud rather than quiet, because quiet is what happened: the radius row fell through
                     // this dispatch into the label branch and drew as a label with no controls, and nothing
                     // anywhere said so. A new kind now fails the first time it is drawn instead.
@@ -114,8 +193,6 @@ public final class ToolsPanel {
                 }
             }
         }
-
-        drawBand(r, frame, state, measure);
     }
 
     // ------------------------------------------------------------------
@@ -125,8 +202,11 @@ public final class ToolsPanel {
     /** A section's name, a rule under it, and a marker for a group inside a section. */
     private static void drawHeading(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                     Measure measure) {
-        boolean section = row.key().equals(ToolsLayout.COLOUR_SECTION);
-        r.text(Measure.truncate(row.label(), slot.width(), measure), onScreen.x(),
+        // Every foldable heading draws as a section, not just the colours: the rule is what says "this
+        // is a section and its name is a control", and the marker alone was too quiet to read as one --
+        // which is how the Canvas heading came to look like plain text that did nothing, and did.
+        boolean section = ToolsLayout.folds(row.key());
+        r.text(Measure.truncate(Labels.of(row.label()), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - r.lineHeight()) / 2,
                 section ? ArmatureTheme.title() : ArmatureTheme.heading());
         if (section) {
@@ -147,27 +227,35 @@ public final class ToolsPanel {
      */
     private static void drawRow(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                 Measure measure, State state, int mouseX, int mouseY) {
-        String token = ToolsLayout.tokenId(row.key());
+        String palette = ToolsLayout.paletteId(row.key());
         boolean hovered = onScreen.contains(mouseX, mouseY);
 
-
-        if (token != null) {
-            int argb = state.theme().colour(token);
-            boolean isSelected = token.equals(state.selected());
-            if (isSelected || hovered) {
+        if (palette != null) {
+            // A palette row: the row is the widget and the name is its label, so what this adds is what
+            // the name cannot say -- what the palette looks like. Four boxes and no hex: the hex is the
+            // colour rows' business, and four strings would not fit beside a name.
+            //
+            // Resolved by name from the catalogue rather than read from the state's theme: the state is
+            // what is *in force* (the player's, or the chapter's while the chapter target is on), and a
+            // row that previewed the current theme under every name would show sixteen identical strips.
+            Theme theme = Themes.any(palette);
+            if (hovered) {
                 r.fill(onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom(),
-                        Colour.translucent(ArmatureTheme.rowHover(), isSelected ? 0.5F : 0.22F));
+                        Colour.translucent(ArmatureTheme.rowHover(), 0.22F));
             }
-            String hex = String.format("#%06X", argb & 0xFFFFFF);
-            int hexWidth = r.textWidth(hex);
-            int swatch = slot.height() - 4;
-            int swatchX = onScreen.right() - 4 - hexWidth - 5 - swatch;
-            int swatchY = onScreen.y() + 2;
-            r.fill(swatchX - 1, swatchY - 1, swatchX + swatch + 1, swatchY + swatch + 1,
-                    ArmatureTheme.panelEdge());
-            r.fill(swatchX, swatchY, swatchX + swatch, swatchY + swatch, argb);
-            r.text(hex, onScreen.right() - 4 - hexWidth, textY(slot, onScreen, r),
-                    isSelected ? ArmatureTheme.title() : ArmatureTheme.faint());
+            if (theme == null) {
+                return;   // a name this build does not have: the label still says which one
+            }
+            int size = slot.height() - 4;
+            int x = onScreen.right() - 4 - (size * PALETTE_TOKENS.size() + PALETTE_GAP * 3);
+            int y = onScreen.y() + 2;
+            for (String id : PALETTE_TOKENS) {
+                int argb = theme.colour(id);
+                r.fill(x - 1, y - 1, x + size + 1, y + size + 1, ArmatureTheme.panelEdge());
+                r.fill(x, y, x + size, y + size, argb);
+                x += size + PALETTE_GAP;
+            }
+            return;
         }
     }
 
@@ -175,134 +263,173 @@ public final class ToolsPanel {
     // The band
     // ------------------------------------------------------------------
 
-    /**
-     * One of the radius row's two arrows: a raised box with a minus or a plus in it.
-     *
-     * <p>Drawn rather than a widget, because the list places one widget per row and this row already has
-     * one — see the note at the call site. Brighter under the pointer, because a control nobody can see is a
-     * control not pressed, and this pair has already been invisible once. Drawn through
-     * {@code ArmatureTheme.panel} so it rounds with the theme like every other surface, which matters more
-     * here than anywhere: this is the control that sets that radius.
-     */
-    private static void arrow(GuiRenderer r, Slot slot, String way, int mouseX, int mouseY) {
-        boolean hovered = slot.contains(mouseX, mouseY);
-        int face = hovered ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)
-                : ArmatureTheme.raised();
-        ArmatureTheme.panel(r, slot.x(), slot.y(), slot.width(), slot.height(), face,
-                ArmatureTheme.panelEdge());
-        String glyph = way.equals("down") ? "\u2212" : "+";
-        r.text(glyph, slot.x() + (slot.width() - r.textWidth(glyph)) / 2 + GLYPH_NUDGE_X,
-                slot.y() + (slot.height() - r.lineHeight()) / 2 + GLYPH_NUDGE_Y,
-                hovered ? ArmatureTheme.title() : ArmatureTheme.body());
-    }
-
-    /**
-     * Where a glyph actually sits inside a small box, as opposed to where centring it puts it.
-     *
-     * <p>Measured from a screenshot rather than derived, and stated as the report gave it: *"plus and minus
-     * not centered inside buttons, move one pixel to right and 2 down"*. Centring a glyph means centring its
-     * <i>box</i>, and a font's box carries its descender space — so `+` and `−`, which have neither a
-     * descender nor much of an ascent, land high and left of the eye's centre. The two offsets are here
-     * rather than inline so the next control that draws its own glyph can start from this answer instead of
-     * measuring it again.
-     */
-    private static final int GLYPH_NUDGE_X = 1;
-    private static final int GLYPH_NUDGE_Y = 2;
 
     /** A switch's label. Its button is a widget, in the strip the row reserved. */
     private static void drawSwitchLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                         Measure measure) {
-        r.text(Measure.truncate(row.label(),
+        r.text(Measure.truncate(Labels.of(row.label()),
                         Math.max(0, slot.width() - ToolsLayout.STRIP_WIDTH - 8), measure),
                 onScreen.x() + 2, textY(slot, onScreen, r), ArmatureTheme.body());
     }
 
     /**
-     * The shape's row: its name, two arrows, and the number between them.
+     * A row's label, cut to the room its control leaves.
      *
-     * <h2>Why the whole row is drawn here, label included</h2>
-     *
-     * <p>Because a widget for the label would sit over the arrows and take their presses — the widget pass
-     * runs before the screen's own click handling — so the row has no widget at all and every pixel of it
-     * comes from this method and the one test that reads the kind.
-     *
-     * <p>The arrows come from {@link ToolsLayout#stepper} of the row as placed on screen, which is the same
-     * call the press is tested with ({@code ToolsLayout.radiusStepAt}): one derivation, so what is drawn is
-     * what is pressed. An override is said with the number's colour rather than a marker — bright when it is
-     * the player's, faint when it is still the theme's — so nothing has to explain an asterisk.
+     * <p>One rule for three kinds, because the control's room is the same question in each: a field's box
+     * is right-aligned inside its row ({@code ScrubField.BOX_WIDTH}), a choice's is the row's right side
+     * after {@link ToolsLayout#LABEL_ROOM}, and a pair half is half a row with the same right-aligned box.
+     * The label keeps what is left, less a small gap, so a long name is truncated rather than drawn
+     * under the control beside it.
      */
-    private static void drawStepper(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
-                                    Measure measure, State state, int mouseX, int mouseY) {
-        Slot joined = new Slot(row.key(), onScreen.x(), onScreen.y(), slot.width(), slot.height());
-        Map<String, Slot> arrows = ToolsLayout.stepper(joined);
-        Slot between = ToolsLayout.stepperValue(joined);
-
-        // The label gets the room left of the first arrow, so it can never run under one.
-        int room = Math.max(0, arrows.get("down").x() - onScreen.x() - 6);
-        r.text(Measure.truncate(row.label(), room, measure), onScreen.x() + 2, textY(slot, onScreen, r),
-                ArmatureTheme.body());
-
-        for (String way : List.of("down", "up")) {
-            arrow(r, arrows.get(way), way, mouseX, mouseY);
-        }
-        String number = String.valueOf(state.radius());
-        r.text(number, between.x() + (between.width() - r.textWidth(number)) / 2,
-                textY(slot, onScreen, r) + GLYPH_NUDGE_Y,
-                state.radiusChosen() ? ArmatureTheme.title() : ArmatureTheme.faint());
+    private static void drawRowLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                     Measure measure) {
+        int room = row.kind() == ToolsLayout.Action.Kind.CHOICE
+                ? ToolsLayout.LABEL_ROOM
+                : Math.min(ScrubField.BOX_WIDTH, Math.max(0, slot.width() / 2));
+        int width = Math.max(0, slot.width() - room - 6);
+        r.text(Measure.truncate(Labels.of(row.label()), width, measure), onScreen.x() + 2,
+                textY(slot, onScreen, r), ArmatureTheme.body());
     }
 
-    /** The selected colour, its channels with their numbers, and the two actions. */
-    private static void drawBand(GuiRenderer r, ToolsLayout.Frame frame, State state, Measure measure) {
-        String token = state.selected();
-        boolean radius = ToolsLayout.RADIUS.equals(token);
-        int argb = token == null || radius ? 0 : state.theme().colour(token);
-
-        BookGeometry.Rect swatch = frame.swatch();
-        int box = swatch.height() - 4;
-        int boxY = swatch.y() + 2;
-        r.fill(swatch.x(), boxY - 1, swatch.x() + box + 2, boxY + box + 1, ArmatureTheme.panelEdge());
-        if (token != null) {
-            r.fill(swatch.x() + 1, boxY, swatch.x() + 1 + box, boxY + box, argb);
-        }
-
-        // One line, and the value is in the field when there is a field: a name and a hex code *and* a box
-        // holding the same hex code is the same fact twice.
-        BookGeometry.Rect hexBox = ToolsLayout.hexField(frame.swatch(), state.hexEditable());
-        int nameRoom = hexBox == null ? swatch.width() - box - 10 : hexBox.x() - swatch.x() - box - 12;
-        String name;
-        if (radius) {
-            name = "Border radius";
-        }
-        else {
-            name = token == null ? "Press a colour to edit it"
-                    : labelOf(token) + (state.hexEditable() ? "" : "  " + String.format("#%08X", argb));
-        }
-        r.text(Measure.truncate(name, Math.max(0, nameRoom), measure),
-                swatch.x() + box + 8, swatch.y() + (swatch.height() - r.lineHeight()) / 2,
-                token == null && !radius ? ArmatureTheme.faint() : ArmatureTheme.body());
-
-        // The channels: the letter, the value, and two buttons that are widgets. A radius selection uses
-        // the first line and nothing else -- and draws no letter, because its name is in the line above.
-        Map<String, Slot> beats = ToolsLayout.beats(frame.channels());
-        if (radius) {
-            Slot value = beats.get("beat:R");
-            String number = String.valueOf(state.radius());
-            r.text(number, value.x() + (value.width() - r.textWidth(number)) / 2,
-                    value.y() + (value.height() - r.lineHeight()) / 2, ArmatureTheme.title());
+    /**
+     * A colour row: the chip at the row's right -- swatch, hex, alpha -- which is the whole control.
+     *
+     * <p>The redesign's replacement for the docked band: a colour is edited where it is named, and the
+     * chip's press opens the picker (the screen hit-tests the same rectangle this draws, from
+     * {@link ToolsLayout#chip}). The alpha travels in the chip because a pattern's strength is the ink's
+     * alpha, and leaving it out would make the chip a two-thirds description of its value.
+     */
+    private static void drawChip(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                 Measure measure, State state, int mouseX, int mouseY) {
+        String token = ToolsLayout.tokenId(row.key());
+        if (token == null) {
             return;
         }
-        for (int i = 0; i < ToolsLayout.CHANNELS.size(); i++) {
-            String channel = ToolsLayout.CHANNELS.get(i);
-            Slot value = beats.get("beat:" + channel);
-            Slot down = beats.get("down:" + channel);
-            r.text(channel, down.x() - 10, down.y() + (down.height() - r.lineHeight()) / 2,
-                    ArmatureTheme.faint());
-            String number = token == null ? "--" : String.valueOf(channelValue(argb, channel));
-            r.text(number, value.x() + (value.width() - r.textWidth(number)) / 2,
-                    value.y() + (value.height() - r.lineHeight()) / 2,
-                    token == null ? ArmatureTheme.faint() : ArmatureTheme.title());
+        BookGeometry.Rect chip = ToolsLayout.chip(onScreen);
+        int argb = state.theme().colour(token);
+        boolean hovered = chip.contains(mouseX, mouseY);
+        if (hovered) {
+            r.fill(chip.x(), chip.y(), chip.right(), chip.bottom(), ArmatureTheme.rowHover());
         }
+        int size = Math.max(8, chip.height() - 4);
+        int swatchY = chip.y() + (chip.height() - size) / 2;
+        r.fill(chip.x() + 2, swatchY, chip.x() + 2 + size, swatchY + size, argb);
+        String hex = String.format("#%06X", argb & 0xFFFFFF);
+        String alpha = Math.round((argb >>> 24) / 255F * 100F) + "%";
+        int line = chip.y() + (chip.height() - r.lineHeight()) / 2;
+        r.text(hex, chip.x() + size + 6, line, ArmatureTheme.body());
+        r.text(alpha, chip.right() - 2 - r.textWidth(alpha), line, ArmatureTheme.faint());
+
+        int room = Math.max(0, chip.x() - onScreen.x() - 6);
+        r.text(Measure.truncate(Labels.of(row.label()), room, measure), onScreen.x() + 2,
+                textY(slot, onScreen, r), ArmatureTheme.body());
     }
+
+
+
+    /**
+     * The texture row: the label, the file's own picture, and the browse button.
+     *
+     * <p>Three controls because an id is two things at once — a string only readable when typed, and a
+     * picture only judgeable when seen — so the row carries the paste and the picture both. The field
+     * between them is a widget, placed by {@link ToolsLayout#textureField}; everything here is what a
+     * widget cannot draw.
+     */
+    private static void drawTextureRow(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                       Measure measure, State state) {
+        r.text(Measure.truncate(Labels.of(row.label()), ToolsLayout.LABEL_ROOM - 4, measure),
+                onScreen.x() + 2, textY(slot, onScreen, r), ArmatureTheme.body());
+        drawTextureThumb(r, onScreen, state);
+        Slot browse = ToolsLayout.textureBrowse(onScreen);
+        r.text("\u2026", browse.x() + (browse.width() - r.textWidth("\u2026")) / 2,
+                textY(browse, browse, r), ArmatureTheme.body());
+    }
+
+    /** The row's own picture box: the panel asks the renderer directly, once a frame. */
+    private static void drawTextureThumb(GuiRenderer r, Slot onScreen, State state) {
+        drawTextureThumb(r, ToolsLayout.textureThumb(onScreen),
+                state.background().image().texture(), null);
+    }
+
+    /**
+     * A texture drawn at its own aspect inside a box, shared by the row and the picker's list.
+     *
+     * <p>The cache is the caller's and may be null: the row asks once a frame and the picker asks once
+     * per visible row, and both would rather not read a file header per frame -- but a cache the
+     * drawing owned would be a second place the screen's state lives, which is the split this codebase
+     * keeps making. Null means "ask the renderer every time", which is correct and merely slower.
+     */
+    public static void drawTextureThumb(GuiRenderer r, Slot box, String texture,
+                                        Map<ResourceLocation, Optional<GuiRenderer.TextureSize>> cache) {
+        r.fill(box.x(), box.y(), box.right(), box.bottom(), ArmatureTheme.recessed());
+        if (texture == null || texture.isEmpty()) {
+            return;
+        }
+        ResourceLocation id = ResourceLocation.tryParse(texture);
+        if (id == null) {
+            return;
+        }
+        Optional<GuiRenderer.TextureSize> size =
+                cache == null ? r.textureSize(id) : cache.computeIfAbsent(id, r::textureSize);
+        if (size.isEmpty()) {
+            r.text("?", box.x() + (box.width() - r.textWidth("?")) / 2,
+                    box.y() + (box.height() - r.lineHeight()) / 2, ArmatureTheme.faint());
+            return;
+        }
+        GuiRenderer.TextureSize dims = size.get();
+        float scale = Math.min(box.width() / (float) Math.max(1, dims.width()),
+                box.height() / (float) Math.max(1, dims.height()));
+        int width = Math.max(1, Math.round(dims.width() * scale));
+        int height = Math.max(1, Math.round(dims.height() * scale));
+        r.scaled(id, box.x() + (box.width() - width) / 2, box.y() + (box.height() - height) / 2,
+                width, height, 0F, 0F, dims.width(), dims.height(), dims.width(), dims.height(),
+                0xFFFFFFFF);
+    }
+
+
+    /**
+     * The word an image fit is shown as.
+     *
+     * <p>Here beside {@link #patternLabel} because it is the same kind of answer: a value the panel
+     * draws, resolved from a key so a language is free to say it differently.
+     */
+    public static String fitLabel(dev.ellipog.armature.client.ui.CanvasBackground.Fit fit) {
+        return Labels.of(switch (fit) {
+            case TILE -> "tasked.dev.canvas.fit_tile";
+            case COVER -> "tasked.dev.canvas.fit_cover";
+        });
+    }
+
+    /**
+     * The word a pattern kind is shown as, and the one a space is.
+     *
+     * <p>Switches over literal keys rather than string concatenation, and that is a test's shape as
+     * much as a style: {@code LangSweepTest} reads keys whole, so a key built by adding an id to a
+     * prefix is invisible to it and reads as an orphan. Every key here is also referenced by the
+     * status line the press writes.
+     */
+    public static String patternLabel(dev.ellipog.armature.client.ui.CanvasBackground.Kind kind) {
+        return Labels.of(switch (kind) {
+            case NONE -> "tasked.dev.canvas.pattern_none";
+            case DOTS -> "tasked.dev.canvas.pattern_dot_grid";
+            case GRID_LINES -> "tasked.dev.canvas.pattern_grid_lines";
+            case SPECKLE -> "tasked.dev.canvas.pattern_speckle";
+            case HATCH -> "tasked.dev.canvas.pattern_hatch";
+            // "Image", not "Texture": the row below this one is the Texture row and names the file, and
+            // two rows saying the same word left a reader looking for the difference between them. This
+            // value is the kind; that row is the file.
+            case IMAGE -> "tasked.dev.canvas.pattern_image";
+        });
+    }
+
+    public static String spaceLabel(dev.ellipog.armature.client.ui.CanvasBackground.Space space) {
+        return Labels.of(switch (space) {
+            case GRAPH -> "tasked.dev.canvas.space_graph";
+            case SCREEN -> "tasked.dev.canvas.space_screen";
+        });
+    }
+
+
 
     /** One channel's value out of a packed colour. */
     public static int channelValue(int argb, String channel) {
@@ -325,76 +452,29 @@ public final class ToolsPanel {
     // The preview
     // ------------------------------------------------------------------
 
-    /** The sample, drawn from the parts the layout computed. */
-    private static void drawPreview(GuiRenderer r, BookGeometry.Rect preview, String selected, int mouseX,
-                                    int mouseY) {
-        ToolsLayout.Preview sample = ToolsLayout.previewParts(preview);
-        int w = preview.width();
-        int h = preview.height();
-        r.fill(sample.canvas().x(), sample.canvas().y(), sample.canvas().right(), sample.canvas().bottom(),
-                ArmatureTheme.canvas());
-        if (w < 60 || h < 60) {
-            return;
-        }
 
-        r.fill(sample.line().x(), sample.line().y(), sample.line().right(), sample.line().bottom(),
-                ArmatureTheme.lineDone());
-        node(r, sample.nodeA(), ArmatureTheme.nodeEdgeAvailable(), ArmatureTheme.hoverRing());
-        node(r, sample.nodeB(), ArmatureTheme.nodeEdgeComplete(), 0);
 
-        // The card is square and its contents are round, exactly as the book draws them: the outer panel
-        // has no radius and every surface inside it follows the theme's. The first version drew all of
-        // them with flat fills, so a theme with a radius of six showed a sample of square corners -- the
-        // report was "some corners staying square under bent corners".
-        ArmatureTheme.panel(r, sample.card().x(), sample.card().y(), sample.card().width(),
-                sample.card().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        ArmatureTheme.fillSurface(r, sample.raised().x(), sample.raised().y(), sample.raised().width(),
-                sample.raised().height(), ArmatureTheme.raised(), ArmatureTheme.CORNERS_TOP);
-        r.fill(sample.track().x(), sample.track().y(), sample.track().right(), sample.track().bottom(),
-                ArmatureTheme.scrollTrack());
-        r.fill(sample.thumb().x(), sample.thumb().y(), sample.thumb().right(), sample.thumb().bottom(),
-                ArmatureTheme.scrollThumb());
 
-        int textX = sample.text().x();
-        int textY = sample.text().y();
-        r.text("Title", textX, textY, ArmatureTheme.title());
-        r.text("Body", textX, textY + ToolsLayout.LINE_PITCH, ArmatureTheme.body());
-        r.text("faint", textX + r.textWidth("Body") + 5, textY + ToolsLayout.LINE_PITCH,
-                ArmatureTheme.faint());
+    /** A row's icon slot: a recessed square with a brighter top edge, as the chapter sample draws one. */
+    private static void itemSlot(GuiRenderer r, BookGeometry.Rect item) {
+        r.fill(item.x(), item.y(), item.right(), item.bottom(), ArmatureTheme.recessed());
+        r.fill(item.x(), item.y(), item.right(), item.y() + 1, ArmatureTheme.panelEdge());
+    }
 
-        ArmatureTheme.fillSurface(r, sample.row().x(), sample.row().y(), sample.row().width(),
-                sample.row().height(), Colour.translucent(ArmatureTheme.rowHover(), 0.5F),
-                ArmatureTheme.CORNERS_ALL);
-        r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().bottom(),
-                ArmatureTheme.recessed());
-        r.fill(sample.item().x(), sample.item().y(), sample.item().right(), sample.item().y() + 1,
-                ArmatureTheme.panelEdge());
+    /** A rounded control: its edge colour fills the whole shape, the face sits one pixel inside it. */
+    private static void control(GuiRenderer r, BookGeometry.Rect button) {
+        ArmatureTheme.fillSurface(r, button.x(), button.y(), button.width(), button.height(),
+                ArmatureTheme.controlEdge(), ArmatureTheme.CORNERS_ALL);
+        ArmatureTheme.fillSurface(r, button.x() + 1, button.y() + 1, Math.max(0, button.width() - 2),
+                Math.max(0, button.height() - 2), ArmatureTheme.raised(), ArmatureTheme.CORNERS_ALL);
+    }
 
-        // A rounded surface with a border, drawn as the toolkit draws one: the edge colour fills the whole
-        // shape and the face sits one pixel inside it.
-        ArmatureTheme.fillSurface(r, sample.button().x(), sample.button().y(), sample.button().width(),
-                sample.button().height(), ArmatureTheme.controlEdge(), ArmatureTheme.CORNERS_ALL);
-        ArmatureTheme.fillSurface(r, sample.button().x() + 1, sample.button().y() + 1,
-                Math.max(0, sample.button().width() - 2), Math.max(0, sample.button().height() - 2),
-                ArmatureTheme.raised(), ArmatureTheme.CORNERS_ALL);
-        ArmatureTheme.fillSurface(r, sample.tooltip().x(), sample.tooltip().y(), sample.tooltip().width(),
-                sample.tooltip().height(), ArmatureTheme.tooltipEdge(), ArmatureTheme.CORNERS_ALL);
-        ArmatureTheme.fillSurface(r, sample.tooltip().x() + 1, sample.tooltip().y() + 1,
-                Math.max(0, sample.tooltip().width() - 2), Math.max(0, sample.tooltip().height() - 2),
-                ArmatureTheme.tooltipFill(), ArmatureTheme.CORNERS_ALL);
-
-        BookGeometry.Rect region = regionOf(selected, sample);
-        if (region != null) {
-            ring(r, region, ArmatureTheme.selectedRing());
-        }
-
-        // And what the pointer would choose, before it is pressed: the same test the click makes, so the
-        // sample says which part is under the cursor by pointing back. Drawn under the selection's ring so a
-        // part that is both hovered and selected reads as selected.
-        ToolsLayout.Hotspot hot = ToolsLayout.hotspotAt(preview, mouseX, mouseY);
-        if (hot != null) {
-            ring(r, hot.rect(), Colour.alphaOf(ArmatureTheme.title(), 0.35F));
-        }
+    /** A floating panel: its border colour fills the shape, its fill one pixel inside. */
+    private static void tooltip(GuiRenderer r, BookGeometry.Rect tooltip) {
+        ArmatureTheme.fillSurface(r, tooltip.x(), tooltip.y(), tooltip.width(), tooltip.height(),
+                ArmatureTheme.tooltipEdge(), ArmatureTheme.CORNERS_ALL);
+        ArmatureTheme.fillSurface(r, tooltip.x() + 1, tooltip.y() + 1, Math.max(0, tooltip.width() - 2),
+                Math.max(0, tooltip.height() - 2), ArmatureTheme.tooltipFill(), ArmatureTheme.CORNERS_ALL);
     }
 
     /** One node: fill, an edge in the state's colour, and a ring when it is the hovered one. */
@@ -407,32 +487,6 @@ public final class ToolsPanel {
                 QuestShape.ROUNDED::spans);
     }
 
-    /**
-     * Which part of the sample a group's colours paint.
-     *
-     * <p>Eight groups, eight parts, one entry each -- a colour's group is a fact about this table rather
-     * than about where the sample happens to put things. No selection, and a token this build does not
-     * know, give no ring: a ring around the wrong thing is worse than none.
-     */
-    private static BookGeometry.Rect regionOf(String tokenId, ToolsLayout.Preview sample) {
-        ThemeToken token = ThemeToken.byId(tokenId);
-        if (token == null) {
-            return null;
-        }
-        int pad = 2;
-        return switch (token.group()) {
-            case SURFACE -> expand(sample.card(), pad);
-            case TEXT -> expand(sample.text(), 1);
-            case STATE, GRAPH -> BookGeometry.Rect.at(sample.nodeA().x() - pad, sample.nodeA().y() - pad,
-                    Math.max(0, sample.line().right() - sample.nodeA().x() + pad),
-                    sample.nodeA().height() + pad * 2);
-            case ROW -> expand(sample.row(), pad);
-            case SCROLL -> BookGeometry.Rect.at(sample.card().right() - ToolsLayout.SAMPLE_INSET - 3,
-                    sample.card().y() + 2, 5, Math.max(0, sample.card().height() - 4));
-            case OVERLAY -> expand(sample.tooltip(), pad);
-            case CONTROL -> expand(sample.button(), pad);
-        };
-    }
 
     private static BookGeometry.Rect expand(BookGeometry.Rect rect, int by) {
         return BookGeometry.Rect.at(rect.x() - by, rect.y() - by, rect.width() + by * 2,

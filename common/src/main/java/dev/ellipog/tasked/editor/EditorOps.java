@@ -97,6 +97,11 @@ public final class EditorOps {
                 json.addProperty("path", set.path());
                 json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
             }
+            case EditorOp.SetIndex set -> {
+                json.addProperty("kind", "index");
+                json.addProperty("key", set.key());
+                json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
+            }
             case EditorOp.MoveEntry move -> {
                 json.addProperty("kind", "moveEntry");
                 json.addProperty("quest", move.id());
@@ -202,6 +207,8 @@ public final class EditorOps {
                 case "chapter" -> new EditorOp.SetChapter(text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
                 case "group" -> new EditorOp.SetGroup(text(json, "path"),
+                        json.has("value") ? json.get("value") : JsonNull.INSTANCE);
+                case "index" -> new EditorOp.SetIndex(text(json, "key"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
                 case "delete" -> new EditorOp.Delete(text(json, "quest"));
                 case "moveChapter" -> new EditorOp.MoveChapter(text(json, "chapter"),
@@ -323,6 +330,9 @@ public final class EditorOps {
                     finish(editor, op, editor.setChapter(set.path(), value(set.value())), null);
             case EditorOp.SetGroup set ->
                     finish(editor, op, editor.setGroup(set.path(), value(set.value())), null);
+            // A root-level settings write: the file itself is what changes, like the structural kinds,
+            // so it takes their path -- there is no chapter model to save and no meta to report.
+            case EditorOp.SetIndex ignored -> structural(editor, op);
             case EditorOp.Delete delete -> finish(editor, op, editor.delete(delete.id()), null);
             // The structural kinds, in one line each: what they do depends only on the tree's root, not
             // on the chapter this op arrived at -- see `structureAt` and `applyWithoutSession`.
@@ -385,6 +395,14 @@ public final class EditorOps {
         if (op == null) {
             return Applied.refused("that is not an edit this version knows");
         }
+        if (op instanceof EditorOp.SetIndex set) {
+            // A root-level settings write needs no session at all: there is no chapter model behind it,
+            // which is exactly the case this path exists for -- a pack whose book has no chapters yet
+            // can still be named.
+            return QuestStructure.setIndexSetting(root, set.key(), value(set.value()))
+                    ? Applied.changed(null, null, List.of())
+                    : Applied.refused("the book's settings could not be written");
+        }
         QuestStructure.Outcome outcome = structureAt(root, op);
         if (outcome == null) {
             return Applied.refused("this edit belongs to a chapter, and there is none yet");
@@ -404,6 +422,14 @@ public final class EditorOps {
      * session, enough to reverse a drag.
      */
     private static Applied structural(QuestEditor editor, EditorOp op) {
+        if (op instanceof EditorOp.SetIndex set) {
+            // The book's own settings live in index.json, which no editor model holds: the write goes
+            // straight to the file, and there is no structure to record. Undo does not cover it -- the
+            // history is chapter- and group-shaped -- which is why the Book section says so.
+            return QuestStructure.setIndexSetting(editor.treeRoot(), set.key(), value(set.value()))
+                    ? Applied.changed(null, null, List.of())
+                    : Applied.refused("the book's settings could not be written");
+        }
         QuestStructure.Outcome outcome = structureAt(editor.treeRoot(), op);
         if (!outcome.ok()) {
             return Applied.refused(outcome.refusal());

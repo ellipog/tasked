@@ -1,0 +1,42 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_warrant",
+  "title": "The Warrant",
+  "subtitle": "match: strict, and the whole stack",
+  "description": [
+    "A stick with a title carved into it, and `match: strict`: the",
+    "carried stack must be the stack the task names, component for",
+    "component. This is the default reading of an item task, written out",
+    "so the difference from fuzzy is visible side by side.",
+    "",
+    "The warrant does not consume -- the court keeps its paper -- so",
+    "`consumeItems: false` is here too, one more exception for the",
+    "default to lean against."
+  ],
+  "icon": {
+    "item": "minecraft:stick"
+  },
+  "x": -96,
+  "y": -480,
+  "dependsOn": [
+    "the_counting_house"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:stick",
+      "count": 1,
+      "components": {
+        "minecraft:custom_name": "\"The Warrant\""
+      },
+      "match": "strict",
+      "consumeItems": false
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

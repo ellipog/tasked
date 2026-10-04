@@ -56,7 +56,18 @@ class SchemaCoverageTest {
     /** The folder format's chapter schema, whose line style deliberately has no per-line axes. */
     private static final Path CHAPTER_KIND = Path.of("..", "tools", "quests", "_schema", "chapter.schema.json");
 
-    /** The one-file format's published schema, which is the reference until the authoring guide lands. */
+    /** The folder format's group and root manifests. */
+    private static final Path GROUP_KIND = Path.of("..", "tools", "quests", "_schema", "group.schema.json");
+    private static final Path INDEX_KIND = Path.of("..", "tools", "quests", "_schema", "index.schema.json");
+
+    /** The standalone reward-table schema: a table file's own root, not a definition under the quest one. */
+    private static final Path TABLE_KIND = Path.of("..", "tools", "quests", "_schema", "reward_table.schema.json");
+
+    /**
+     * The one-file format's schema. Kept in the repository because it is still maintained and still
+     * read, and published under {@code _legacy/}: the folder format's {@code _schema/} set is the
+     * reference now, and this file says so in its own title.
+     */
     private static final Path PUBLISHED = Path.of("..", "docs", "tasked-quests.schema.json");
 
     @Test
@@ -141,6 +152,56 @@ class SchemaCoverageTest {
             assertTrue(invented.isEmpty(), () -> schema + " documents condition fields no registered "
                     + "type has: " + invented);
         }
+    }
+
+    @Test
+    @DisplayName("the chapter, group and root manifests document every field the code reads, in both directions")
+    void theManifestsAreDocumented() throws IOException {
+        // The same contract the quest block gets, one level up: a chapter, a group and the root
+        // settings are records whose field sets the validator already holds as constants, so the
+        // schema can be compared against them rather than read by eye. Both directions, because a
+        // field deleted from a record and left in a schema is autocomplete for something the loader
+        // would refuse.
+        assertSameFields(CHAPTER_KIND.toString(), read(CHAPTER_KIND).getAsJsonObject("properties").keySet(),
+                Chapter.FIELDS);
+        assertSameFields(GROUP_KIND.toString(), read(GROUP_KIND).getAsJsonObject("properties").keySet(),
+                ChapterGroup.FIELDS);
+
+        JsonObject settings = read(INDEX_KIND).getAsJsonObject("properties").getAsJsonObject("settings")
+                .getAsJsonObject("properties");
+        assertSameFields(INDEX_KIND + " settings", settings.keySet(), QuestSettings.FIELDS);
+
+        JsonObject table = read(TABLE_KIND);
+        assertSameFields(TABLE_KIND.toString(), table.getAsJsonObject("properties").keySet(),
+                withSchema(RewardTable.FIELDS));
+        JsonObject entry = table.getAsJsonObject("properties").getAsJsonObject("entries")
+                .getAsJsonObject("items").getAsJsonObject("properties");
+        assertSameFields(TABLE_KIND + " entry", entry.keySet(), RewardTable.Entry.FIELDS);
+    }
+
+    /**
+     * A field set against a schema's properties, both ways.
+     *
+     * <p>{@code $schema} is the one field allowed to be in a schema and not in the code: it is the
+     * editor's, every per-kind file documents it, and the validator's own {@code withSchema} says so.
+     */
+    private static void assertSameFields(String where, Set<String> documented, Set<String> fields) {
+        Set<String> missing = new TreeSet<>(fields);
+        missing.removeAll(documented);
+        assertTrue(missing.isEmpty(), () -> where + " does not document these fields, which the code "
+                + "reads: " + missing);
+
+        Set<String> invented = new TreeSet<>(documented);
+        invented.removeAll(fields);
+        invented.remove("$schema");
+        assertTrue(invented.isEmpty(), () -> where + " documents fields the code does not read: " + invented);
+    }
+
+    /** A field set plus the editor's own key, for schemas whose properties carry it. */
+    private static Set<String> withSchema(Set<String> fields) {
+        Set<String> with = new TreeSet<>(fields);
+        with.add("$schema");
+        return with;
     }
 
     @Test

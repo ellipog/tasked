@@ -1,0 +1,48 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_floodgate",
+  "title": "The Floodgate",
+  "subtitle": "Two fluids, one valve",
+  "description": [
+    "A fluid task measures fluid carried in buckets: `amount` is",
+    "millibuckets, and a bucket is a thousand. The first task asks for a",
+    "bucket of water, the second for a bucket of lava, and both are",
+    "manual because handing over a bucket is the consent.",
+    "",
+    "The line into the floodgate ends in a `triangle` rather than the",
+    "default chevron -- one of the five glyphs an arrowhead can be."
+  ],
+  "icon": {
+    "item": "minecraft:water_bucket"
+  },
+  "x": 416,
+  "y": -256,
+  "shape": "hexagon",
+  "dependsOn": [
+    "the_tithe_of_experience"
+  ],
+  "dependencyLines": {
+    "the_tithe_of_experience": {
+      "arrowHead": "triangle"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:fluid",
+      "fluid": "minecraft:water",
+      "amount": 1000
+    },
+    {
+      "type": "tasked:fluid",
+      "fluid": "minecraft:lava",
+      "amount": 1000
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:bucket",
+      "count": 2
+    }
+  ]
+}

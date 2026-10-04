@@ -59,7 +59,7 @@ public final class MenuFlyoutArt {
             // `\u2190`, not the `\u21ba` this started as: the font has no circled arrow, and a reset
             // chip that draws as the missing-glyph box reads as a rendering fault rather than as a
             // control. `←` is the closest thing the font carries to "back to the chapter default",
-            // which is what this chip does -- see BookGeometry.TOOLS_BUTTON_WIDTH for the measured list.
+            // which is what this chip does -- see BookGeometry.TOOLS_PILL_WIDTH for the measured list.
             r.centredText("\u2190", reset.x() + reset.width() / 2, reset.y() + 1, labelInk);
         }
         for (int i = 0; i < cells.cells().size(); i++) {

@@ -1,0 +1,38 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_breeder",
+  "title": "The Breeder",
+  "subtitle": "An advancement by one criterion",
+  "description": [
+    "`criterion` narrows an advancement task to one of the advancement's",
+    "own criteria rather than the whole thing.",
+    "`minecraft:husbandry/breed_an_animal` is earned by breeding a pair;",
+    "the criterion named here is the one that fires when you do.",
+    "",
+    "The advancement condition on the shepherd's tally in the clockwork",
+    "arm asks the same question the other way round -- as a gate on a",
+    "reward rather than a task."
+  ],
+  "icon": {
+    "item": "minecraft:wheat"
+  },
+  "x": 416,
+  "y": 256,
+  "dependsOn": [
+    "the_first_iron"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:advancement",
+      "advancement": "minecraft:husbandry/breed_an_animal",
+      "criterion": "bred_an_animal"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:hay_block",
+      "count": 4
+    }
+  ]
+}

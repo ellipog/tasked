@@ -1,0 +1,47 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_sun",
+  "title": "The Sun",
+  "subtitle": "The largest node, and the smallest icon",
+  "description": [
+    "Two hundred and fifty-six pixels across: the top of the size range",
+    "the canvas draws, and the node that shows what `iconScale` is for.",
+    "At `0.35` the icon sits small inside a large node -- the other end",
+    "of the range from the speck beside it, which fills its node corner",
+    "to corner.",
+    "",
+    "Its line is an arrow `stream` at `arrowDensity: low`, the sparsest",
+    "of the three spacings: heads every sixty-four pixels rather than",
+    "every sixteen."
+  ],
+  "icon": {
+    "item": "minecraft:sunflower"
+  },
+  "x": 960,
+  "y": 128,
+  "shape": "star",
+  "size": 256,
+  "iconScale": 0.35,
+  "showTitle": true,
+  "dependsOn": [
+    "the_ancient_city"
+  ],
+  "dependencyLines": {
+    "the_ancient_city": {
+      "arrowPlace": "stream",
+      "arrowDensity": "low"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Face the sun"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 50
+    }
+  ]
+}

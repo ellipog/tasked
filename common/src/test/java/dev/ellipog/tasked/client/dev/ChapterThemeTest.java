@@ -77,6 +77,24 @@ class ChapterThemeTest {
     }
 
     @Test
+    @DisplayName("the chapter's patch wins over the book's own edits, not the other way round")
+    void theChaptersPatchIsFinal() {
+        // The rule this pins: the book's look is the *default* a chapter speaks over. A chapter that
+        // patches a token has decided that surface for its own content, so the book's edit underneath
+        // it does not come back on top -- where the chapter says nothing, the book's value shows.
+        JsonObject chapterPatch = patch("""
+                {"colours": {"line": "#FF6FA8DC"}}""");
+        // What `Look.main()` looks like for an operator who edited the line colour in the book tab.
+        Theme bookLook = Themes.PAPER.with("line", 0xFFA2967C);
+
+        Theme composed = ChapterTheme.compose(null, chapterPatch, bookLook);
+
+        assertEquals(0xFF6FA8DC, composed.line(), "the chapter's value is the one the content draws");
+        assertEquals(Themes.PAPER.panel(), composed.panel(),
+                "and a token neither names keeps the book's own");
+    }
+
+    @Test
     @DisplayName("a patch that names nothing this build knows changes nothing")
     void unreadablePatchesAreLenient() {
         // Read leniently on purpose: the validator is the side that refuses a file, and this side must

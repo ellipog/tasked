@@ -19,6 +19,7 @@ import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
+import dev.ellipog.tasked.client.QuestNotifier;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -76,6 +77,9 @@ public final class TaskedNeoForgeClient {
             ArmatureClient.tick();
             // The viewer's half: the content's revision check, then the one chosen adapter's tick.
             Integrations.tick();
+            // The notice half: the one detector of completions and claims, which speaks whether or not
+            // the book is open. See QuestNotifier.
+            QuestNotifier.tick();
         });
 
         // Both, for the same reason as on Fabric: the cache's contents and the half-received chunks
@@ -93,6 +97,9 @@ public final class TaskedNeoForgeClient {
             ClientEditReplies.clear();
             // The half-counted observations go with the tree they were counted against.
             ObservationWatcher.reset();
+            // And the completion diff, or the next server's progress would be read against this one's
+            // states. See the Fabric side's comment.
+            QuestNotifier.reset();
             TaskedNetworking.forgetTransfers();
         });
 

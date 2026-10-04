@@ -1,0 +1,40 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_beacon_lit",
+  "title": "The Beacon Lit",
+  "subtitle": "A custom task, and the warning it carries",
+  "description": [
+    "A `tasked:custom` task measures whatever a registered handler",
+    "answers. Nothing outside a handler can advance it, so this quest",
+    "will not complete in a build without one -- and that is not an",
+    "error: the validator warns that nothing provides the id, which is",
+    "exactly what a pack shipping an optional handler mod wants to see.",
+    "The KubeJS page in the manual has a worked script that registers",
+    "`first_light:beacon_lit` and lights this node.",
+    "",
+    "This is the one warning the shipped examples are expected to",
+    "produce, and the playthrough test asserts the load is clean of",
+    "*errors* rather than of warnings for exactly this reason."
+  ],
+  "icon": {
+    "item": "minecraft:beacon"
+  },
+  "x": 672,
+  "y": -448,
+  "dependsOn": [
+    "the_long_walk"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:custom",
+      "id": "first_light:beacon_lit",
+      "value": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 25
+    }
+  ]
+}

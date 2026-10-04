@@ -1,0 +1,39 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_crossroads",
+  "title": "The Crossroads",
+  "subtitle": "maxCompletableDependents: 1",
+  "description": [
+    "`maxCompletableDependents: 1` caps how many of this quest's",
+    "dependents may ever complete: the first road walked closes the other",
+    "for good. Where an exclusive group is a pact between siblings, this",
+    "is a branch point that closes its own roads -- the same choice, said",
+    "from the other end.",
+    "",
+    "The two roads below are identical in every other respect, because",
+    "the cap is the only thing this exhibit is about."
+  ],
+  "icon": {
+    "item": "minecraft:compass"
+  },
+  "x": -352,
+  "y": 352,
+  "shape": "octagon",
+  "showTitle": true,
+  "dependsOn": [
+    "the_engine"
+  ],
+  "maxCompletableDependents": 1,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Stand at the crossroads"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

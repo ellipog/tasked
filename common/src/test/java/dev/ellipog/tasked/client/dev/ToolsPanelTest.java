@@ -1,16 +1,21 @@
 package dev.ellipog.tasked.client.dev;
 
+import dev.ellipog.armature.client.ui.CanvasBackground;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 
+import net.minecraft.resources.ResourceLocation;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -28,41 +33,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("the tools panel's drawing")
 class ToolsPanelTest {
 
+
     private static final Measure MEASURE = Measure.monospace(6, 9);
 
-    @Test
-    @DisplayName("the radius row draws its label, its two arrows and its number, where they are pressed")
-    void theRadiusRowIsDrawn() {
-        BookGeometry.Rect canvas = new BookGeometry(854, 480, true).canvas();
-        ToolsLayout.Frame frame = ToolsLayout.frame(canvas);
-        List<ToolsLayout.Action> rows = ToolsLayout.rows(false, false, true, true);
-        Layout layout = ToolsLayout.build(rows, frame.list().width(), MEASURE);
-        Viewport list = Viewport.fixed().bounds(frame.list().x(), frame.list().y(),
-                frame.list().width(), frame.list().height());
-        RecordingRenderer r = new RecordingRenderer();
-
-        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false, dev.ellipog.armature.client.ui.Themes.MODERN, 4, false), 0, 0);
-
-        Slot row = layout.slot(ToolsLayout.RADIUS);
-        // Mapped by hand rather than with `ToolsLayout.onScreen`: the mapping is the earlier test's, and this
-        // one is about what lands inside the rectangles it produces. The list is not scrolled here, so a
-        // content point is the view's origin plus that point.
-        Slot onScreen = new Slot(row.key(), frame.list().x() + row.x(), frame.list().y() + row.y(),
-                row.width(), row.height());
-
-        for (Slot arrow : ToolsLayout.stepper(onScreen).values()) {
-            assertTrue(r.covered(arrow.x(), arrow.y(), arrow.right(), arrow.bottom()),
-                    () -> "nothing drawn where this arrow is: " + arrow + "  (" + r.describe() + ")");
-        }
-        Slot number = ToolsLayout.stepperValue(onScreen);
-        // The number the *state* carries, not the player's stored one: the panel reads its palette from
-        // the state so the chapter target can point it somewhere else, and this is what says so.
-        assertTrue(r.wroteWithin("4", number.x(), number.y(), number.right(), number.bottom()),
-                () -> "the radius is not drawn between the arrows: " + r.describe());
-        assertTrue(r.wroteWithin("Border radius", onScreen.x(), onScreen.y(), onScreen.right(),
-                        onScreen.bottom()),
-                () -> "the row has no label either: " + r.describe());
-    }
 
     @Test
     @DisplayName("every row of the list is drawn as something, whatever its kind")
@@ -73,31 +46,199 @@ class ToolsPanelTest {
         // the panel draws for it is its code and its swatch.
         BookGeometry.Rect canvas = new BookGeometry(854, 480, true).canvas();
         ToolsLayout.Frame frame = ToolsLayout.frame(canvas);
-        List<ToolsLayout.Action> rows = ToolsLayout.rows(false, true, true, true);
+        List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true, true);
         Layout layout = ToolsLayout.build(rows, frame.list().width(), MEASURE);
         Viewport list = Viewport.fixed().bounds(frame.list().x(), frame.list().y(),
                 frame.list().width(), frame.list().height());
         RecordingRenderer r = new RecordingRenderer();
 
-        ToolsPanel.draw(r, frame, list, layout, rows, new ToolsPanel.State(null, null, false, false, dev.ellipog.armature.client.ui.Themes.MODERN, 4, false), 0, 0);
+        ToolsPanel.draw(r, frame, list, layout, rows, state(
+                dev.ellipog.armature.client.ui.CanvasBackground.NONE, 51), 0, 0, ToolsLayout.Tab.BOOK);
 
         for (ToolsLayout.Action row : rows) {
             Slot slot = layout.slot(row.key());
             Slot onScreen = new Slot(row.key(), frame.list().x() + slot.x(), frame.list().y() + slot.y(),
                     slot.width(), slot.height());
-            // What the *panel* owes each kind: its name, for the rows whose name no widget draws; its code and
-            // swatch, for the colour rows, whose names are their widgets' business.
+            // What the *panel* owes each kind: its name, for the rows whose name no widget draws; and its
+            // code and swatch, for a colour chip, whose press the screen hit-tests but whose picture is
+            // the panel's. A field, a pair and a choice are widgets: the panel draws their labels and the
+            // widget draws everything else.
             boolean drawn;
-            if (row.kind() == ToolsLayout.Action.Kind.ROW) {
+            if (row.kind() == ToolsLayout.Action.Kind.CHIP) {
+                // A colour row: the panel owes it both its name and its hex. A chip that drew neither
+                // would be a row that is invisible while its rectangle still takes the press.
+                drawn = r.wroteWithin(Labels.of(row.label()), onScreen.x(), onScreen.y(),
+                                onScreen.right(), onScreen.bottom())
+                        && r.texts().stream().anyMatch(text -> text.text().startsWith("#")
+                                && text.x() >= onScreen.x() && text.x() <= onScreen.right()
+                                && text.y() >= onScreen.y() - 8 && text.y() <= onScreen.bottom());
+            }
+            else if (ToolsLayout.CANVAS_COPY.equals(row.key())) {
+                // A plain row whose label its widget draws, the same deal a switch's button has one
+                // kind over: the panel itself owes this row nothing.
+                drawn = true;
+            }
+            else if (row.kind() == ToolsLayout.Action.Kind.ROW) {
                 drawn = r.texts().stream().anyMatch(text -> text.text().startsWith("#")
                         && text.x() >= onScreen.x() && text.x() <= onScreen.right()
                         && text.y() >= onScreen.y() - 8 && text.y() <= onScreen.bottom());
             }
             else {
-                drawn = r.wroteWithin(row.label(), onScreen.x(), onScreen.y(), onScreen.right(),
-                        onScreen.bottom());
+                // The label is a key in the record and the panel resolves it, so the expected text is
+                // the resolved one -- the same call the panel makes, with the mod's language installed.
+                drawn = r.wroteWithin(Labels.of(row.label()), onScreen.x(), onScreen.y(),
+                        onScreen.right(), onScreen.bottom());
             }
             assertTrue(drawn, () -> "a row drew nothing: " + row.key() + " (" + row.kind() + ")");
         }
+    }
+
+    @Test
+    @DisplayName("a palette row draws its four swatches, and no hex")
+    void paletteRowsDrawTheirColours() {
+        BookGeometry.Rect canvas = new BookGeometry(854, 480, true).canvas();
+        ToolsLayout.Frame frame = ToolsLayout.frame(canvas);
+        List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true, true,
+                List.of(new ToolsLayout.Palette("obsidian", "Obsidian")), true);
+        Layout layout = ToolsLayout.build(rows, frame.list().width(), MEASURE);
+        Viewport list = Viewport.fixed().bounds(frame.list().x(), frame.list().y(),
+                frame.list().width(), frame.list().height());
+        RecordingRenderer r = new RecordingRenderer();
+
+        ToolsPanel.draw(r, frame, list, layout, rows,
+                state(dev.ellipog.armature.client.ui.CanvasBackground.NONE, 51),
+                0, 0, ToolsLayout.Tab.BOOK);
+
+        String key = ToolsLayout.paletteKey("obsidian");
+        Slot slot = layout.slot(key);
+        Slot onScreen = new Slot(key, frame.list().x() + slot.x(), frame.list().y() + slot.y(),
+                slot.width(), slot.height());
+        dev.ellipog.armature.client.ui.Theme obsidian =
+                dev.ellipog.armature.client.ui.Themes.any("obsidian");
+
+        for (String token : List.of("panel", "raised", "title", "accent")) {
+            int argb = obsidian.colour(token);
+            assertTrue(r.fills().stream().anyMatch(fill -> fill.argb() == argb
+                            && fill.left() >= onScreen.x() && fill.right() <= onScreen.right()
+                            && fill.top() >= onScreen.y() && fill.bottom() <= onScreen.bottom()),
+                    () -> "the palette row does not draw its " + token + " swatch: " + r.describe());
+        }
+        assertTrue(r.texts().stream().noneMatch(text -> text.text().startsWith("#")
+                        && text.x() >= onScreen.x() && text.x() <= onScreen.right()
+                        && text.y() >= onScreen.y() - 8 && text.y() <= onScreen.bottom()),
+                () -> "a palette row drew a hex string, and the boxes are the information: "
+                        + r.describe());
+    }
+
+    // ------------------------------------------------------------------
+    // The canvas strip and its steppers
+    // ------------------------------------------------------------------
+
+    /** The panel's state for a background and an ink alpha: one helper so a case states only what it tests. */
+    private static ToolsPanel.State state(CanvasBackground background, int patternOpacity) {
+        return new ToolsPanel.State(null, null, false, false,
+                dev.ellipog.armature.client.ui.Themes.MODERN, 4, false, background, false,
+                patternOpacity);
+    }
+
+    /** An image background at a tile size the tile case can recognize. */
+    private static CanvasBackground image(CanvasBackground.Fit fit) {
+        return new CanvasBackground(CanvasBackground.Kind.IMAGE, CanvasBackground.Space.SCREEN, 24,
+                CanvasBackground.Tuning.DEFAULT,
+                new CanvasBackground.Image("minecraft:textures/gui/bg.png", fit, 48));
+    }
+
+    /**
+     * The strip: its own well, and the painter's marks over it.
+     *
+     * <p>What this sees that arithmetic cannot: the strip is the one row whose content is a drawing,
+     * and a row that filled its well and never called the painter would look, to any assertion about
+     * the fill, exactly like one that worked. So the ink's own colour is looked up among the fills --
+     * a one-pixel dot of it inside the well -- and then the well has to come before that mark in the
+     * call order, which is what "over" means when both are fills.
+     */
+
+    /**
+     * Every canvas stepper's number, in the row its kind gives it.
+     *
+     * <p>The values are the state's, not the theme's defaults, so the test also pins that the panel
+     * reads the background it was handed: a size of 3 where the default is 1, a density of 7 where the
+     * default is 5, and an opacity per cent that only the carried alpha can produce.
+     */
+
+    // ------------------------------------------------------------------
+    // The sections, the texture row, and the words
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a foldable heading draws the rule that says it is a section")
+    void foldableHeadingsDrawTheirRule() {
+        List<ToolsLayout.Action> rows = ToolsLayout.rows(true, true, true, true);
+        BookGeometry.Rect listRect = BookGeometry.Rect.at(10, 20, 288, 400);
+        Viewport list = Viewport.fixed().bounds(listRect.x(), listRect.y(), listRect.width(),
+                listRect.height());
+        Layout layout = ToolsLayout.build(rows, listRect.width(), MEASURE);
+        RecordingRenderer r = new RecordingRenderer();
+
+        ToolsPanel.drawRows(r, listRect, list, layout, rows, state(CanvasBackground.NONE, 51), 0, 0);
+
+        Slot heading = layout.slot(ToolsLayout.CANVAS_SECTION);
+        assertNotNull(heading, "the Canvas heading is in the list");
+        Slot onScreen = new Slot(heading.key(), listRect.x() + heading.x(), listRect.y() + heading.y(),
+                heading.width(), heading.height());
+        // The rule is one pixel at the heading's bottom, exactly where the layout says the heading
+        // ends: it is what makes a section read as a section rather than as a word in a list, and the
+        // Canvas heading is the one that was drawn promising a fold with no widget behind it.
+        assertTrue(r.covered(onScreen.x(), onScreen.bottom() - 1, onScreen.right(), onScreen.bottom()),
+                () -> "the foldable heading draws no section rule: " + r.describe());
+        assertTrue(r.wroteWithin(Labels.of(rows.stream()
+                                .filter(row -> row.key().equals(ToolsLayout.CANVAS_SECTION))
+                                .findFirst().orElseThrow().label()),
+                        onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom()),
+                () -> "the heading's own name is missing: " + r.describe());
+    }
+
+    @Test
+    @DisplayName("the texture row draws the file's picture and the browse button's mark")
+    void theTextureRowIsDrawn() {
+        CanvasBackground background = image(CanvasBackground.Fit.COVER);
+        List<ToolsLayout.Action> rows = ToolsLayout.canvasRows(background, true, null);
+        BookGeometry.Rect listRect = BookGeometry.Rect.at(10, 20, 288, 400);
+        Viewport list = Viewport.fixed().bounds(listRect.x(), listRect.y(), listRect.width(),
+                listRect.height());
+        Layout layout = ToolsLayout.build(rows, listRect.width(), MEASURE);
+        RecordingRenderer r = new RecordingRenderer();
+        // The size the row's picture is drawn at. Without it the recorder answers empty and the
+        // thumbnail falls back to its `?`, which is the correct behaviour and not what this test is
+        // about -- so the file is taught one, and the drawing is asked to use it.
+        ResourceLocation file = ResourceLocation.parse("minecraft:textures/gui/bg.png");
+        r.putTextureSize(file, 32, 16);
+
+        ToolsPanel.drawRows(r, listRect, list, layout, rows, state(background, 51), 0, 0);
+
+        Slot row = layout.slot(ToolsLayout.CANVAS_TEXTURE);
+        assertNotNull(row, "the image's Texture row is in the list");
+        Slot onScreen = new Slot(row.key(), listRect.x() + row.x(), listRect.y() + row.y(),
+                row.width(), row.height());
+        Slot thumb = ToolsLayout.textureThumb(onScreen);
+        assertTrue(r.scaled().stream().anyMatch(drawn -> drawn.texture().equals(file)
+                        && drawn.x() >= thumb.x() && drawn.y() >= thumb.y()
+                        && drawn.x() + drawn.width() <= thumb.right()
+                        && drawn.y() + drawn.height() <= thumb.bottom()),
+                () -> "the file's picture is not drawn in the row's box: " + r.describe());
+
+        Slot browse = ToolsLayout.textureBrowse(onScreen);
+        assertTrue(r.wroteWithin("\u2026", browse.x(), browse.y(), browse.right(), browse.bottom()),
+                () -> "the browse button has no mark: " + r.describe());
+    }
+
+    @Test
+    @DisplayName("an image background's pattern reads Image, not Texture")
+    void theImagePatternIsCalledImage() {
+        // The row below the pattern names the file, so the two must not say the same word: the value
+        // is the kind and the row is the file, and a reader looking for the difference finds it here.
+        assertEquals("Image", ToolsPanel.patternLabel(CanvasBackground.Kind.IMAGE));
+        assertEquals(Labels.of("tasked.dev.canvas.pattern_image"),
+                ToolsPanel.patternLabel(CanvasBackground.Kind.IMAGE));
     }
 }

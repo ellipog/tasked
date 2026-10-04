@@ -103,6 +103,10 @@ public final class QuestSettingsLayout {
     /** The row that adds every selected canvas node as a prerequisite. */
     public static final String DEPENDENCY_SELECTED = "dep:selected";
 
+    /** The "Add selected" row's two labels: with a count, and without. Keys; see {@code Labels.of}. */
+    public static final String ADD_SELECTED = "tasked.dev.quest.add_selected";
+    public static final String ADD_SELECTED_COUNT = "tasked.dev.quest.add_selected_count";
+
     /** The prefix of a prerequisite's own row, matching the inspector's own key scheme. */
     public static final String DEPENDENCY_PREFIX = QuestPanelLayout.DEPENDENCY_PREFIX;
 
@@ -136,7 +140,7 @@ public final class QuestSettingsLayout {
     /** A requirement value as a person reads it, with the chapter's default named where it applies. */
     public static String requirementLabel(String value, String chapterDefault) {
         if (value == null || value.isEmpty()) {
-            return "Chapter default (" + chapterDefault.replace('_', ' ') + ")";
+            return Labels.of("tasked.dev.quest.chapter_default", chapterDefault.replace('_', ' '));
         }
         return value.replace('_', ' ');
     }
@@ -247,18 +251,20 @@ public final class QuestSettingsLayout {
             quest = new JsonObject();
         }
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row("h:shape", Row.Kind.HEADING, "Shape"));
-        rows.add(new Row("shape", Row.Kind.SHAPE_GRID, "Shape"));
-        rows.add(new Row("rotation", Row.Kind.SLIDER, "Rotation"));
-        rows.add(new Row("h:size", Row.Kind.HEADING, "Size and icon"));
-        rows.add(new Row("size", Row.Kind.SLIDER, "Size"));
-        rows.add(new Row("iconScale", Row.Kind.SLIDER, "Icon scale"));
-        rows.add(new Row("icon", Row.Kind.ICON, "Icon"));
-        rows.add(new Row("showTitle", Row.Kind.SWITCH, "Show title"));
-        rows.add(new Row("h:placement", Row.Kind.HEADING, "Placement"));
+        rows.add(new Row("h:shape", Row.Kind.HEADING, "tasked.dev.quest.shape"));
+        rows.add(new Row("shape", Row.Kind.SHAPE_GRID, "tasked.dev.quest.shape"));
+        rows.add(new Row("rotation", Row.Kind.SLIDER, "tasked.dev.quest.rotation"));
+        rows.add(new Row("h:size", Row.Kind.HEADING, "tasked.dev.quest.size_and_icon"));
+        rows.add(new Row("size", Row.Kind.SLIDER, "tasked.dev.quest.size"));
+        rows.add(new Row("iconScale", Row.Kind.SLIDER, "tasked.dev.quest.icon_scale"));
+        rows.add(new Row("icon", Row.Kind.ICON, "tasked.dev.quest.icon"));
+        rows.add(switchRow("showTitle", "tasked.dev.quest.show_title"));
+        rows.add(new Row("h:placement", Row.Kind.HEADING, "tasked.dev.quest.placement"));
+        // X and Y are axis letters, not prose: every language names a coordinate the same way, and the
+        // sweep's boundary is the same one that leaves ids and enum values alone.
         rows.add(new Row("x", Row.Kind.STEPPER, "X"));
         rows.add(new Row("y", Row.Kind.STEPPER, "Y"));
-        rows.add(new Row("h:dependencies", Row.Kind.HEADING, "Dependencies"));
+        rows.add(new Row("h:dependencies", Row.Kind.HEADING, "tasked.dev.quest.dependencies"));
         // One row per prerequisite, then the three ways to add one. The list is the point of the
         // section: an author reads what a quest needs before changing what it needs.
         for (String dependency : QuestPanelLayout.strings(quest, "dependsOn")) {
@@ -267,35 +273,51 @@ public final class QuestSettingsLayout {
             rows.add(new Row(DEPENDENCY_PREFIX + dependency, Row.Kind.DEPENDENCY,
                     titles.apply(dependency)));
         }
-        rows.add(new Row(QuestPanelLayout.DEPENDENCY_ADD, Row.Kind.FIELD, "Add by id"));
-        rows.add(new Row(QuestPanelLayout.DEPENDENCY_PICK, Row.Kind.ACTION, "Pick on the canvas"));
+        rows.add(new Row(QuestPanelLayout.DEPENDENCY_ADD, Row.Kind.FIELD, "tasked.dev.quest.add_by_id"));
+        rows.add(new Row(QuestPanelLayout.DEPENDENCY_PICK, Row.Kind.ACTION,
+                "tasked.dev.quest.pick_on_canvas"));
         rows.add(new Row(DEPENDENCY_SELECTED, Row.Kind.ACTION,
-                selected > 0 ? "Add selected (" + selected + ")" : "Add selected"));
+                // Resolved here rather than at the draw site, because the count is this method's
+                // argument and nowhere else's -- the label is what the row carries, as it always was.
+                // Both branches resolve: a label that were a key in one state and a sentence in the
+                // other is the kind of asymmetry that makes the next reader check which one they hold.
+                selected > 0 ? Labels.of(ADD_SELECTED_COUNT, selected) : Labels.of(ADD_SELECTED)));
         // The rule the list is judged by, then the two counts that qualify it. FTB Quests' three
         // controls, in its order: the requirement, the minimum, and the cap on dependents.
-        rows.add(new Row("prerequisiteMode", Row.Kind.CHOICE, "Requirement"));
-        rows.add(new Row("minRequired", Row.Kind.STEPPER, "Min required"));
-        rows.add(new Row("maxCompletableDependents", Row.Kind.STEPPER, "Max dependents"));
-        rows.add(new Row("exclusiveGroup", Row.Kind.FIELD, "Exclusive group"));
-        rows.add(new Row("h:visibility", Row.Kind.HEADING, "Visibility"));
-        rows.add(new Row("invisible", Row.Kind.SWITCH, "Invisible"));
-        rows.add(new Row("invisibleUntilTasks", Row.Kind.STEPPER, "Visible after tasks"));
-        rows.add(new Row("hideUntilDependenciesComplete", Row.Kind.SWITCH, "Hide until deps done"));
-        rows.add(new Row("hideUntilDependenciesVisible", Row.Kind.SWITCH, "Hide until deps shown"));
-        rows.add(new Row("hideDependencyLines", Row.Kind.SWITCH, "Hide dependency lines"));
-        rows.add(new Row("hideTextUntilComplete", Row.Kind.SWITCH, "Hide text until done"));
-        rows.add(new Row("hideDetailsUntilStartable", Row.Kind.SWITCH, "Hide details until startable"));
-        rows.add(new Row("h:rules", Row.Kind.HEADING, "Rules"));
-        rows.add(new Row("repeatable", Row.Kind.SWITCH, "Repeatable"));
-        rows.add(new Row("repeatCooldownTicks", Row.Kind.STEPPER, "Repeat cooldown"));
-        rows.add(new Row("sequentialTasks", Row.Kind.SWITCH, "Sequential tasks"));
+        rows.add(new Row("prerequisiteMode", Row.Kind.CHOICE, "tasked.dev.quest.requirement"));
+        rows.add(new Row("minRequired", Row.Kind.STEPPER, "tasked.dev.quest.min_required"));
+        rows.add(new Row("maxCompletableDependents", Row.Kind.STEPPER, "tasked.dev.quest.max_dependents"));
+        rows.add(new Row("exclusiveGroup", Row.Kind.FIELD, "tasked.dev.quest.exclusive_group"));
+        rows.add(new Row("h:visibility", Row.Kind.HEADING, "tasked.dev.quest.visibility"));
+        rows.add(switchRow("invisible", "tasked.dev.quest.invisible"));
+        rows.add(new Row("invisibleUntilTasks", Row.Kind.STEPPER, "tasked.dev.quest.visible_after_tasks"));
+        rows.add(switchRow("hideUntilDependenciesComplete", "tasked.dev.quest.hide_until_deps_done"));
+        rows.add(switchRow("hideUntilDependenciesVisible", "tasked.dev.quest.hide_until_deps_shown"));
+        rows.add(switchRow("hideDependencyLines", "tasked.dev.quest.hide_dependency_lines"));
+        rows.add(switchRow("hideTextUntilComplete", "tasked.dev.quest.hide_text_until_done"));
+        rows.add(switchRow("hideDetailsUntilStartable", "tasked.dev.quest.hide_details_until_startable"));
+        rows.add(new Row("h:rules", Row.Kind.HEADING, "tasked.dev.quest.rules"));
+        rows.add(switchRow("repeatable", "tasked.dev.quest.repeatable"));
+        rows.add(new Row("repeatCooldownTicks", Row.Kind.STEPPER, "tasked.dev.quest.repeat_cooldown"));
+        rows.add(switchRow("sequentialTasks", "tasked.dev.quest.sequential_tasks"));
         // The quest rung of the auto-claim ladder, as a closed set the picker cycles: the unset state
         // means "the chapter decides", which is why it is first and labelled with what it defers to.
-        rows.add(new Row("autoClaim", Row.Kind.CHOICE, "Auto-claim"));
-        rows.add(new Row("h:identity", Row.Kind.HEADING, "Identity extras"));
-        rows.add(new Row("id", Row.Kind.VALUE, "Id"));
-        rows.add(new Row("aliases", Row.Kind.FIELD, "Aliases"));
+        rows.add(new Row("autoClaim", Row.Kind.CHOICE, "tasked.dev.quest.auto_claim"));
+        rows.add(new Row("h:identity", Row.Kind.HEADING, "tasked.dev.quest.identity_extras"));
+        rows.add(new Row("id", Row.Kind.VALUE, "tasked.dev.quest.id"));
+        rows.add(new Row("aliases", Row.Kind.FIELD, "tasked.dev.quest.aliases"));
         return List.copyOf(rows);
+    }
+
+    /**
+     * A switch row. The state is <b>not</b> part of the label: the row is built once and the tree can
+     * change under it -- a press writes a draft the server has not answered -- so the panel composes the
+     * state from the live flag when it draws ({@code QuestSettingsPanel.drawSwitch}). A label that
+     * cached the state would be a switch whose word and knob disagree, which is the fault this row's
+     * own test exists for.
+     */
+    private static Row switchRow(String key, String label) {
+        return new Row(key, Row.Kind.SWITCH, label);
     }
 
     /** The swatch grid's block height: as many rows of swatches as the shapes need. */

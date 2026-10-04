@@ -1,0 +1,47 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_graduation",
+  "title": "The Graduation",
+  "subtitle": "A stage reward that takes the stage away",
+  "description": [
+    "`remove: true` turns a stage reward into its inverse: this one takes",
+    "`first_light:sworn` away instead of granting it, so the gate that",
+    "opened the oath reads shut again. A stage is a flag, and both",
+    "directions are one field.",
+    "",
+    "Its line ends in `arrowHead: none`, a blunt end rather than a glyph",
+    "-- the fifth and last arrowhead, and the right one for a route that",
+    "is an ending."
+  ],
+  "icon": {
+    "item": "minecraft:enchanting_table"
+  },
+  "x": -864,
+  "y": 448,
+  "dependsOn": [
+    "the_oath"
+  ],
+  "dependencyLines": {
+    "the_oath": {
+      "arrowHead": "none"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Graduate"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:stage",
+      "stage": "first_light:sworn",
+      "remove": true
+    },
+    {
+      "type": "tasked:xp",
+      "amount": 30,
+      "levels": true
+    }
+  ]
+}

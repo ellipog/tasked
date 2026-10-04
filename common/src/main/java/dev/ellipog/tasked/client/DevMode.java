@@ -37,8 +37,9 @@ import java.nio.file.Path;
  * {@code appearance.json}, and the same tolerance in the same places: a missing file is a first run and
  * is worth no words at all, and a file that exists and cannot be read is worth one that says where it
  * is. The mode flag defaults to off, because a mode that changes what a screen shows should never be on
- * because a file was unreadable. Beside it rides the editor's snap switch, which defaults to on: it
- * changes where a dragged node lands, not what the screen is, and the tidy direction is the safe one.
+ * because a file was unreadable. Beside it ride two on-by-default switches: the editor's snap, which
+ * changes where a dragged node lands, and the sidebar's chapter progress bars, which change what a
+ * chapter row shows. Both are the tidy direction, so a file that does not name them leaves them on.
  */
 public final class DevMode {
 
@@ -47,6 +48,7 @@ public final class DevMode {
 
     private static boolean on;
     private static boolean snap = true;
+    private static boolean progress = true;
     private static Path file;
 
     /**
@@ -57,8 +59,9 @@ public final class DevMode {
      *
      * @param dev  whether tools may be drawn
      * @param snap whether a dragged node lands on the grid; a file that does not say says yes
+     * @param progress whether chapter rows draw their completion bar; likewise yes by default
      */
-    public record Parsed(boolean dev, boolean snap) {
+    public record Parsed(boolean dev, boolean snap, boolean progress) {
     }
 
     private DevMode() {
@@ -101,6 +104,25 @@ public final class DevMode {
     }
 
     // ------------------------------------------------------------------
+    // The sidebar's progress bars
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether chapter rows draw their completion bar. On by default: the bar is the sidebar's quiet
+     * answer to "how far through is this chapter", and a preference that defaulted off would hide a
+     * feature behind a switch nobody knows to look for.
+     */
+    public static boolean progress() {
+        return progress;
+    }
+
+    /** Turns the bars on or off and writes the choice. */
+    public static void setProgress(boolean next) {
+        progress = next;
+        save();
+    }
+
+    // ------------------------------------------------------------------
     // Persistence
     // ------------------------------------------------------------------
 
@@ -133,12 +155,14 @@ public final class DevMode {
         file = path;
         on = false;
         snap = true;
+        progress = true;
 
         if (Files.isRegularFile(path)) {
             try {
                 Parsed read = parse(Files.readString(path, StandardCharsets.UTF_8));
                 on = read.dev();
                 snap = read.snap();
+                progress = read.progress();
             }
             catch (IOException | RuntimeException e) {
                 Constants.LOG.warn("tasked: {} could not be read, so developer mode is off. Deleting the"
@@ -153,8 +177,8 @@ public final class DevMode {
      * <p>Tolerant rather than strict, and for a stronger reason than Appearance's: this file is a
      * developer's, so it will be hand-edited, and a typo in it should cost a mode that stays off rather
      * than a client that will not start. An unknown field is ignored; a missing one takes its default —
-     * which for {@code snap} is on, so a file written before the grid existed reads as the tidy
-     * behaviour it was already getting from the whole-unit rounding.
+     * which for {@code snap} and {@code progress} is on, so a file written before either existed reads
+     * as the behaviour it was already getting.
      *
      * @throws com.google.gson.JsonSyntaxException if the text is not JSON at all; {@link #load} catches it
      */
@@ -162,7 +186,8 @@ public final class DevMode {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         return new Parsed(
                 root.has("dev") && root.get("dev").getAsBoolean(),
-                !root.has("snap") || root.get("snap").getAsBoolean());
+                !root.has("snap") || root.get("snap").getAsBoolean(),
+                !root.has("progress") || root.get("progress").getAsBoolean());
     }
 
     /** Whether the mode flag alone is set. See {@link #parse} for both. */
@@ -171,10 +196,11 @@ public final class DevMode {
     }
 
     /** Writes the file. Answer given rather than the default so a test can assert the format. */
-    public static String write(boolean dev, boolean snap) {
+    public static String write(boolean dev, boolean snap, boolean progress) {
         JsonObject root = new JsonObject();
         root.addProperty("dev", dev);
         root.addProperty("snap", snap);
+        root.addProperty("progress", progress);
         return root.toString();
     }
 
@@ -192,6 +218,7 @@ public final class DevMode {
     public static void reset() {
         on = false;
         snap = true;
+        progress = true;
         file = null;
     }
 
@@ -205,7 +232,7 @@ public final class DevMode {
             if (file.getParent() != null) {
                 Files.createDirectories(file.getParent());
             }
-            Files.writeString(file, write(on, snap), StandardCharsets.UTF_8);
+            Files.writeString(file, write(on, snap, progress), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: developer mode could not be written to {}", file, e);

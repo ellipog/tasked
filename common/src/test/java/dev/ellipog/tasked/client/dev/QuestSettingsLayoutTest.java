@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("The quest settings page's arithmetic")
 class QuestSettingsLayoutTest {
 
+
     /** A card at a comfortable size: 520x340 is the modal's maximum. */
     private static final BookGeometry.Rect BODY = BookGeometry.Rect.at(0, 0, 496, 284);
 

@@ -1,0 +1,42 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_villages",
+  "title": "The Villages",
+  "subtitle": "A structure by tag",
+  "description": [
+    "A structure task completes while the player is inside the named",
+    "structure, and the field takes a tag the same way a biome does:",
+    "`#minecraft:village` counts any village, in any biome.",
+    "",
+    "The line into the villages is `dash: double`, two hairlines either",
+    "side of the route. Double ignores `weight`, which is why it is the",
+    "one pattern that looks the same however the rest of the line is",
+    "styled."
+  ],
+  "icon": {
+    "item": "minecraft:bell"
+  },
+  "x": 640,
+  "y": 128,
+  "dependsOn": [
+    "the_greenwood"
+  ],
+  "dependencyLines": {
+    "the_greenwood": {
+      "dash": "double"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:structure",
+      "structure": "#minecraft:village"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:emerald",
+      "count": 3
+    }
+  ]
+}

@@ -43,6 +43,18 @@ class ToastStackTest {
     }
 
     @Test
+    @DisplayName("with motion off the sentence does not fade: it is there, then it is gone")
+    void motionOffDoesNotFade() {
+        ToastStack stack = new ToastStack();
+        stack.add("Moved to position 2", false, 0L);
+        ToastStack.Toast toast = stack.visible(0L).get(0);
+
+        assertEquals(1F, toast.alpha((long) (LIFETIME * 0.85), false),
+                "a fade is movement, and the switch exists for people who cannot comfortably use it");
+        assertEquals(0F, toast.alpha(LIFETIME, false), "and it still ends on time");
+    }
+
+    @Test
     @DisplayName("the expired are dropped, so the stack cannot grow for the life of the book")
     void expiredAreDropped() {
         ToastStack stack = new ToastStack();

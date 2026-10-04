@@ -6,7 +6,10 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -37,8 +40,14 @@ final class RecordingRenderer implements GuiRenderer {
     record Drawn(String text, int x, int y, int argb) {
     }
 
+    /** One drawn region of a file, as {@link #scaled} was told to draw it. */
+    record Scaled(ResourceLocation texture, int x, int y, int width, int height) {
+    }
+
     private final List<Fill> fills = new ArrayList<>();
     private final List<Drawn> texts = new ArrayList<>();
+    private final Map<ResourceLocation, TextureSize> sizes = new LinkedHashMap<>();
+    private final List<Scaled> scaled = new ArrayList<>();
     private int batches;
 
     @Override
@@ -107,6 +116,30 @@ final class RecordingRenderer implements GuiRenderer {
         // face answer false: a test may draw a panel that happens to contain one.
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Empty by default, because a PNG's header is not a thing a recorder can read. A test that wants
+     * the image branch of the texture row supplies a size through {@link #putTextureSize} rather than
+     * pretending the resource manager answered -- and the row's own test does exactly that.
+     */
+    @Override
+    public Optional<TextureSize> textureSize(ResourceLocation texture) {
+        return Optional.ofNullable(sizes.get(texture));
+    }
+
+    @Override
+    public void scaled(ResourceLocation texture, int x, int y, int width, int height,
+                       float u, float v, int sourceWidth, int sourceHeight,
+                       int textureWidth, int textureHeight, int argb) {
+        scaled.add(new Scaled(texture, x, y, width, height));
+    }
+
+    /** Teaches the recorder one file's size, so a thumbnail has something to draw at its aspect. */
+    void putTextureSize(ResourceLocation texture, int width, int height) {
+        sizes.put(texture, new TextureSize(width, height));
+    }
+
     @Override
     public boolean blur(float partialTick) {
         return false;
@@ -148,6 +181,11 @@ final class RecordingRenderer implements GuiRenderer {
         return List.copyOf(fills);
     }
 
+    /** The regions of files drawn through {@link #scaled}, in order. */
+    List<Scaled> scaled() {
+        return List.copyOf(scaled);
+    }
+
     List<Drawn> texts() {
         return List.copyOf(texts);
     }
@@ -159,6 +197,6 @@ final class RecordingRenderer implements GuiRenderer {
 
     /** Everything drawn, for an assertion's message: a missing control is not visible in a false. */
     String describe() {
-        return "fills=" + fills + " texts=" + texts;
+        return "fills=" + fills + " texts=" + texts + " scaled=" + scaled;
     }
 }

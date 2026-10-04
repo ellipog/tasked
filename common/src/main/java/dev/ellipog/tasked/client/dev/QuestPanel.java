@@ -101,7 +101,7 @@ public final class QuestPanel {
 
     private static void drawHeading(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
                                     Measure measure) {
-        r.text(Measure.truncate(row.label(), slot.width(), measure), onScreen.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.title());
     }
 
@@ -112,13 +112,13 @@ public final class QuestPanel {
         Slot strip = InspectLayout.strip(slot);
         Slot stripOnScreen = InspectLayout.onScreen(list, strip);
         int room = Math.max(0, stripOnScreen.x() - onScreen.x() - 6);
-        r.text(Measure.truncate(row.label(), room, measure), onScreen.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), room, measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.title());
 
         // The two controls, drawn like every small button in this UI: a rounded face and a glyph.
         // Copy first, remove second -- the destructive one at the row's edge, where a mis-aimed press
         // has to travel past the harmless one to reach it.
-        String[] labels = {"Copy", "\u00d7"};
+        String[] labels = {Labels.of("tasked.dev.copy"), "\u00d7"};
         for (int i = 0; i < halves.size(); i++) {
             Slot at = InspectLayout.onScreen(list, halves.get(i));
             ArmatureTheme.panel(r, at.x(), at.y(), at.width(), at.height(), ArmatureTheme.raised(),
@@ -131,7 +131,7 @@ public final class QuestPanel {
     /** The fallback's heading: bad news, in the colour that says so. */
     private static void drawWarning(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
                                     Measure measure) {
-        r.text(Measure.truncate(row.label(), slot.width(), measure), onScreen.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.blocked());
     }
 
@@ -143,7 +143,7 @@ public final class QuestPanel {
         // mapped to the screen is where the widget actually is.
         Slot stripOnScreen = InspectLayout.onScreen(list, strip);
         int room = Math.max(0, stripOnScreen.x() - onScreen.x() - 6);
-        r.text(Measure.truncate(row.label(), room, measure), onScreen.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), room, measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.body());
 
         if (row.kind() == InspectRow.Kind.RAW && !row.value().isEmpty()) {
@@ -157,7 +157,7 @@ public final class QuestPanel {
     /** A read-only row: label, then the value after it. */
     private static void drawValue(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
                                   Measure measure) {
-        r.text(Measure.truncate(row.label(), slot.width() / 2, measure), onScreen.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), slot.width() / 2, measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.body());
         int valueX = onScreen.x() + slot.width() / 2;
         r.text(Measure.truncate(row.value(), onScreen.right() - valueX, measure), valueX,
@@ -175,7 +175,7 @@ public final class QuestPanel {
     private static void drawStacked(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
                                     Viewport list, Measure measure) {
         Slot label = InspectLayout.onScreen(list, InspectLayout.labelBand(slot));
-        r.text(Measure.truncate(row.label(), label.width(), measure), label.x(),
+        r.text(Measure.truncate(Labels.of(row.label()), label.width(), measure), label.x(),
                 label.y() + (label.height() - 8) / 2, ArmatureTheme.body());
 
         if (row.kind() == InspectRow.Kind.RAW && !row.value().isEmpty()) {

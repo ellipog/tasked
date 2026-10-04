@@ -94,7 +94,8 @@ class DependencyStyleTest {
     void theBuiltInDefault() {
         DependencyStyle resolved = DependencyStyle.UNSET.resolved();
 
-        assertEquals(DependencyStyle.Form.ORTHOGONAL, resolved.formOr(null));
+        assertEquals(DependencyStyle.Form.CHAMFERED, resolved.formOr(null),
+                "the built-in form is the circuit trace");
         assertEquals(DependencyStyle.ArrowHead.CHEVRON, resolved.headOr(null),
                 "an arrow, because a dependency has a direction");
         assertEquals(DependencyStyle.ArrowPlace.TARGET, resolved.placeOr(null));

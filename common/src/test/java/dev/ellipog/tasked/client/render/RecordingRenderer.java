@@ -10,6 +10,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -239,6 +240,31 @@ public final class RecordingRenderer implements GuiRenderer {
      */
     @Override
     public void texture(ResourceLocation texture, int x, int y, int width, int height) {
+        calls.add(new Call(Op.TEXTURE, x, y, x + width, y + height, 0, texture.toString()));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Empty, because there is no resource manager behind this recorder: the game reads a PNG's header,
+     * and a test that needs a size stands in for the answer itself.
+     */
+    @Override
+    public Optional<TextureSize> textureSize(ResourceLocation texture) {
+        return Optional.empty();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Recorded as a texture call, because that is what it is: the destination box and the file's path
+     * are the parts a caller chose, and a test asking "was the background image drawn there" reads them
+     * exactly as it reads a plain {@link #texture}.
+     */
+    @Override
+    public void scaled(ResourceLocation texture, int x, int y, int width, int height,
+                       float u, float v, int sourceWidth, int sourceHeight,
+                       int textureWidth, int textureHeight, int argb) {
         calls.add(new Call(Op.TEXTURE, x, y, x + width, y + height, 0, texture.toString()));
     }
 

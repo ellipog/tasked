@@ -15,18 +15,23 @@ import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.condition.ConditionContext;
 import dev.ellipog.tasked.quest.condition.Conditions;
 import dev.ellipog.tasked.quest.condition.QuestCondition;
+import dev.ellipog.tasked.net.RewardOverflowPayload;
 import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardContext;
+import dev.ellipog.tasked.quest.reward.RewardFeedback;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.KillTask;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
+import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.api.teams.Team;
 import dev.ellipog.armature.api.teams.Teams;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
@@ -792,17 +797,24 @@ public final class ProgressService {
         TeamProgress saved = progress.put(quest, recorded);
         ProgressStore.of(server).put(owner, saved);
 
+        // One tally per recipient, because the drops are per inventory: a party member whose own
+        // backpack was full is told about their own floor, not the completer's. The completer is the
+        // usual case and gets one sentence covering every automatic reward they were handed.
+        Map<ServerPlayer, RewardFeedback> feedbackByTarget = new LinkedHashMap<>();
         for (Grant grant : automatic) {
-            grantRewards(server, owner, grant.target(), entry, List.of(grant.index()), settings);
+            RewardFeedback feedback = feedbackByTarget.computeIfAbsent(grant.target(),
+                    target -> new RewardFeedback());
+            grantRewards(server, owner, grant.target(), entry, List.of(grant.index()), settings, feedback);
         }
+        feedbackByTarget.forEach(ProgressService::announceOverflow);
 
         TaskedEvents.QUEST_COMPLETED.invoker().onQuestCompleted(player, quest);
 
         Constants.LOG.info("tasked: {} completed '{}' for team {}{}",
                 player.getScoreboardName(), quest.id(), owner, outstanding ? " -- rewards waiting" : "");
-        player.displayClientMessage(Component.translatable(
-                outstanding ? "tasked.quest.completed.claim" : "tasked.quest.completed",
-                quest.title().component()), false);
+        // No chat line: the completion notice is the client's job now -- the book's own stack when it is
+        // open, a real toast when it is not, and one sound either way. A line here was the third copy of
+        // the same sentence, and the one a player could not read while the book was up.
 
         return saved;
     }
@@ -908,7 +920,32 @@ public final class ProgressService {
      *     asking after a reload all change nothing at all.
      */
     public static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry) {
-        return claim(server, player, entry, false);
+        RewardFeedback feedback = new RewardFeedback();
+        boolean collected = claim(server, player, entry, false, -1, feedback);
+        announceOverflow(player, feedback);
+        return collected;
+    }
+
+    /**
+     * Hands over one of a finished quest's rewards, by index.
+     *
+     * <p>The rewards panel's per-row press. It exists rather than a client-side loop over
+     * {@link #claim} because a player with a full inventory wants the diamonds now and the planks
+     * later: each row is one reward, and collecting it must leave its siblings outstanding. Every
+     * check the whole-quest claim makes is the same code here — the private claim is one method with
+     * one index filter — so the two presses cannot disagree about what may be taken, and a forged
+     * index buys a modified client nothing.
+     *
+     * @return whether anything was collected. False for an index that is out of range, already
+     *     collected, gated by an unmet condition, or held by the team's block — each with the same
+     *     message the whole-quest claim would give.
+     */
+    public static boolean claimReward(MinecraftServer server, ServerPlayer player,
+                                      QuestIndex.QuestEntry entry, int rewardIndex) {
+        RewardFeedback feedback = new RewardFeedback();
+        boolean collected = claim(server, player, entry, false, rewardIndex, feedback);
+        announceOverflow(player, feedback);
+        return collected;
     }
 
     /** Whether this player passes a quest's stage gate. True when the quest has none. */
@@ -1040,9 +1077,15 @@ public final class ProgressService {
      * {@code excludeFromClaimAll} waits for its own button, exactly as in FTB Quests. Blocked rewards
      * are skipped in both modes and named when nothing at all could be taken, because a press that
      * silently does nothing is the thing a blocked team would report as broken.
+     *
+     * <p>{@code onlyIndex} narrows the press to one reward — the rewards panel's per-row Claim — and
+     * {@code -1} means the whole list. It filters the same loop rather than duplicating it, so a row's
+     * press and a quest's press cannot disagree about conditions, blocking or choice handling. The
+     * {@code feedback} tally is the caller's, because only the outermost operation knows whether one
+     * press produced several grants and should therefore say one sentence about all of them.
      */
     private static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry,
-                                 boolean claimAllMode) {
+                                 boolean claimAllMode, int onlyIndex, RewardFeedback feedback) {
         Quest quest = entry.quest();
         if (!stageGateOpen(server, quest, player.getUUID())) {
             // Gated: the claim is refused where every claim arrives -- the button, Claim all and the command
@@ -1072,6 +1115,11 @@ public final class ProgressService {
         boolean sawBlocked = false;
         boolean sawLocked = false;
         for (int index = 0; index < quest.rewards().size(); index++) {
+            if (onlyIndex >= 0 && index != onlyIndex) {
+                // Somebody else's row. Skipped before every check, so a reward this press is not about
+                // cannot be reported as locked or blocked by it.
+                continue;
+            }
             QuestReward reward = quest.rewards().get(index);
             boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
             // This player's own claim, or the team's for a team-mode reward. What a teammate has
@@ -1134,18 +1182,19 @@ public final class ProgressService {
                     !outstandingFor(quest, updated, player.getUUID(), settings));
             store.put(owner, team.put(quest, updated));
 
-            grantRewards(server, owner, player, entry, payable, settings);
+            grantRewards(server, owner, player, entry, payable, settings, feedback);
 
             Constants.LOG.info("tasked: {} collected {} reward(s) for '{}' (team {})",
                     player.getScoreboardName(), payable.size(), quest.id(), owner);
-            player.displayClientMessage(
-                    Component.translatable("tasked.quest.claimed", quest.title().component()), false);
+            // The claim is confirmed by the UI it changes and by the pickup sound the client plays when
+            // the sync shows what was owed is not any more -- not by a chat line, which the player
+            // cannot see behind the book they are claiming from.
         }
 
         for (int index : offers) {
             sendChoiceOffer(player, quest, index,
                     (dev.ellipog.tasked.quest.reward.TableReward) quest.rewards().get(index));
-            player.displayClientMessage(Component.translatable("tasked.quest.choose"), false);
+            // And no "choose" line either: the choice card opens itself from the offer.
         }
         return true;
     }
@@ -1235,13 +1284,13 @@ public final class ProgressService {
                 !outstandingFor(quest, updated, player.getUUID(), settings));
         store.put(owner, team.put(quest, updated));
 
+        RewardFeedback feedback = new RewardFeedback();
         RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
-                onlineMembersOf(server, teamFor(server, owner)));
+                onlineMembersOf(server, teamFor(server, owner)), feedback);
         dev.ellipog.tasked.quest.reward.TableReward.grantAll(List.of(chosen.get()), context, 1);
         TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
-
-        player.displayClientMessage(
-                Component.translatable("tasked.quest.claimed", quest.title().component()), false);
+        announceOverflow(player, feedback);
+        // No chat line; see the claim path above.
         return true;
     }
 
@@ -1257,12 +1306,16 @@ public final class ProgressService {
     public static int claimAll(MinecraftServer server, ServerPlayer player) {
         int claimed = 0;
         UUID playerId = player.getUUID();
+        // One tally for the whole sweep: twenty quests' overflow is one fact about one press, and a
+        // sentence per quest would be a wall the player cannot read behind the book.
+        RewardFeedback feedback = new RewardFeedback();
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
             TeamProgress team = ProgressStore.of(server).progressOf(progressOwner(server, player));
-            if (canClaimFor(team, entry.quest(), playerId) && claim(server, player, entry, true)) {
+            if (canClaimFor(team, entry.quest(), playerId) && claim(server, player, entry, true, -1, feedback)) {
                 claimed++;
             }
         }
+        announceOverflow(player, feedback);
         return claimed;
     }
 
@@ -1283,6 +1336,9 @@ public final class ProgressService {
         UUID owner = progressOwner(server, player);
         ProgressStore store = ProgressStore.of(server);
         TeamProgress team = store.progressOf(owner);
+        // One tally for the whole login sweep, announced once at the end: a player who was away for
+        // three quests' worth of rewards is owed one sentence, not one per quest.
+        RewardFeedback feedback = new RewardFeedback();
 
         boolean grantedAny = false;
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
@@ -1324,9 +1380,10 @@ public final class ProgressService {
                     !outstandingFor(quest, updated, player.getUUID(), settings));
             team = team.put(quest, updated);
             store.put(owner, team);
-            grantRewards(server, owner, player, entry, owed, settings);
+            grantRewards(server, owner, player, entry, owed, settings, feedback);
             grantedAny = true;
         }
+        announceOverflow(player, feedback);
         return grantedAny;
     }
 
@@ -1416,16 +1473,18 @@ public final class ProgressService {
      */
     private static void grantRewards(MinecraftServer server, UUID owner, ServerPlayer player,
                                      QuestIndex.QuestEntry entry, List<Integer> indexes,
-                                     QuestSettings settings) {
+                                     QuestSettings settings, RewardFeedback feedback) {
         Quest quest = entry.quest();
         if (indexes.isEmpty()) {
             return;
         }
         // The context carries what a reward may legitimately need to name -- the team, the ids for a
         // command's placeholders, the online members for a count. None of it is progress; see
-        // RewardContext for where that line is drawn.
+        // RewardContext for where that line is drawn. The feedback tally is the caller's, so every
+        // reward this operation grants -- including items rolled from a nested table -- reports into
+        // the one sentence the operation will say.
         RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
-                onlineMembersOf(server, teamFor(server, owner)));
+                onlineMembersOf(server, teamFor(server, owner)), feedback);
         for (int index : indexes) {
             QuestReward reward = quest.rewards().get(index);
             Optional<dev.ellipog.tasked.quest.reward.RewardBehaviour<QuestReward>> behaviour =
@@ -1445,6 +1504,30 @@ public final class ProgressService {
             }
             TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
         }
+    }
+
+    /**
+     * Says the one sentence an overflowing operation owes the player: how much hit the ground, in the
+     * action bar, with a click that is not the claim chime.
+     *
+     * <p>The client payload is not decoration. The action bar belongs to the HUD, and the HUD is not
+     * drawn behind an open screen — so a player claiming from the rewards panel, which is the common
+     * case, would hear the sound and read nothing. The book draws the same sentence on its own toast
+     * stack; see {@code QuestNotifier} for the same routing decision made for completions.
+     *
+     * <p>The sound is deliberately <b>not</b> the {@code ITEM_PICKUP} the client plays when a claim
+     * succeeds: "something did not fit" has to sound different from "collected", or the one moment the
+     * player needs to look down sounds like everything is fine.
+     */
+    private static void announceOverflow(ServerPlayer player, RewardFeedback feedback) {
+        if (!feedback.anythingDropped()) {
+            return;
+        }
+        player.displayClientMessage(
+                Component.translatable("tasked.reward.inventory_full_count", feedback.droppedStacks()), true);
+        player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.7F, 1.4F);
+        ArmatureNetwork.sendToPlayer(player,
+                new RewardOverflowPayload(feedback.droppedStacks(), feedback.droppedItems()));
     }
 
     // ------------------------------------------------------------------

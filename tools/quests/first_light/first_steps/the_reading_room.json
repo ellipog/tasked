@@ -1,0 +1,56 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_reading_room",
+  "title": "The Reading Room",
+  "subtitle": "Observation: a block entity type and an entity type, plus an optional task",
+  "description": [
+    "`block_entity_type` names the kind of block entity rather than the",
+    "block -- a lectern is `minecraft:lectern` -- and `entity_type` names",
+    "a mob to look at, here a villager for two seconds.",
+    "",
+    "The third task is `optional: true`, so it does not have to be done",
+    "for the quest to complete. An optional task is how a quest says 'and",
+    "also, if you like'; if every task were optional, any one of them",
+    "would finish the quest.",
+    "",
+    "Its line places its arrowhead `mid`, in the middle of the route",
+    "rather than at either end."
+  ],
+  "icon": {
+    "item": "minecraft:lectern"
+  },
+  "x": 672,
+  "y": 416,
+  "dependsOn": [
+    "the_lantern_watch"
+  ],
+  "dependencyLines": {
+    "the_lantern_watch": {
+      "arrowPlace": "mid"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:observation",
+      "observeType": "block_entity_type",
+      "toObserve": "minecraft:lectern"
+    },
+    {
+      "type": "tasked:observation",
+      "observeType": "entity_type",
+      "toObserve": "minecraft:villager",
+      "timer": 40
+    },
+    {
+      "type": "tasked:checkmark",
+      "title": "Close the book",
+      "optional": true
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

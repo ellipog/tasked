@@ -28,6 +28,19 @@ So there are two ways to get a pristine copy, and neither is silent: delete the 
 again, or pass `--force`. `--force` names each file it replaces, so a replace is never something that
 happened while you were not looking.
 
+`--reset` is the third way, and the loudest: it deletes everything in each target's quest directory
+-- every file and folder, not only the ones this script wrote -- and then copies the examples in
+fresh. That is the flag for a wholesale replacement like the one that collapsed twelve example
+questlines into one chapter: without it the old groups sit beside the new one and load as extra
+content, and with `--force` alone they would survive as stale folders. It is never implied by any
+other flag, it names every entry it removes, and `--dry-run` reports exactly the same removals while
+touching nothing. `--force` is still the flag for replacing files; `--reset` is for starting over.
+
+`--reset` keeps `_`-prefixed entries, because the `_` prefix means the same thing here as
+everywhere else in this project: deliberately out of the loader's way. A test combo's
+`_example_typos.json` and friends are fixtures a person renames to run, not stale content, and a
+reset that deleted them would be the one place the convention did not hold.
+
 `--workspace` seeds every test combo and both Modrinth profiles, and is the mode this project uses.
 It is also why this script is here rather than in `.utils/`: it belongs to the Tasked repository, so
 it travels with the examples it copies, and a separate checkout of Tasked gets both.
@@ -147,16 +160,42 @@ def display(path: pathlib.Path) -> str:
         return str(path)
 
 
-def seed(target: pathlib.Path, files, force: bool, dry_run: bool):
+def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = False):
     """
     Copy the examples into one target, then clear away the flat files they replaced.
 
-    Returns `(created, replaced, kept, removed, survivors)`. `survivors` is the list of root-level
-    JSON files that were left alone — see `sweep_legacy_flat_files`, which is where the interesting
-    decision lives.
+    With `reset`, everything already in the target's quest directory is removed first — files and
+    folders alike, named one by one — because that is what "replace the exhibition" means when the
+    old exhibition was a different set of folders. See the module docstring on why this is a flag
+    of its own rather than something `--force` grew into.
+
+    Returns `(created, replaced, kept, removed, reset_entries, survivors)`. `survivors` is the list
+    of root-level JSON files that were left alone — see `sweep_legacy_flat_files`, which is where
+    the interesting decision lives.
     """
-    created = replaced = kept = 0
+    created = replaced = kept = reset_entries = 0
     print(f"\n{display(target)}")
+
+    reset_names: set[str] = set()
+    if reset and target.is_dir():
+        existing = sorted(target.iterdir())
+        removable = [entry for entry in existing if not entry.name.startswith("_")]
+        reset_names = {entry.name for entry in removable}
+        if removable:
+            print("  --reset: removing everything here except `_`-prefixed fixtures")
+        for entry in existing:
+            if entry.name.startswith("_"):
+                print(f"  ! {entry.name}  kept by --reset: the `_` prefix is how a fixture is"
+                      " deliberately kept out of the loader's way")
+                continue
+            kind = "folder" if entry.is_dir() else "file"
+            if not dry_run:
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+            print(f"  x {entry.name}  removed by --reset ({kind})")
+            reset_entries += 1
 
     if not dry_run:
         target.mkdir(parents=True, exist_ok=True)
@@ -168,7 +207,11 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool):
         # `punch_a_tree.json` written to the quest root is a version-1 file the loader would try to read
         # as a whole tree — and report a typo about, at a line that does not exist.
         destination = target / relative
-        existed = destination.exists()
+        # A `--dry-run` does not perform the reset's deletions, so the copy step has to know what
+        # they would have taken: without this the dry run reports 375 files "kept" for a run that
+        # would create 375. Predicting differently from the run it predicts is the one thing a dry
+        # run must never do.
+        existed = destination.exists() and relative.parts[0] not in reset_names
 
         if existed and not force:
             print(f"  = {relative.as_posix()}  kept, already there")
@@ -189,7 +232,7 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool):
             created += 1
 
     removed, survivors = sweep_legacy_flat_files(target, files, dry_run)
-    return created, replaced, kept, removed, survivors
+    return created, replaced, kept, removed, reset_entries, survivors
 
 
 def sweep_legacy_flat_files(target: pathlib.Path, files, dry_run: bool):
@@ -306,6 +349,10 @@ def main() -> int:
                         help="seed this repo's test combos and both Modrinth profiles")
     parser.add_argument("--force", action="store_true",
                         help="overwrite files that are already there, naming each one")
+    parser.add_argument("--reset", action="store_true",
+                        help="delete each target's quest directory first (except `_`-prefixed"
+                             " fixtures), then copy the examples in fresh. For replacing one"
+                             " exhibition with another; never implied by another flag")
     parser.add_argument("--dry-run", action="store_true",
                         help="say what would happen and change nothing")
     args = parser.parse_args()
@@ -331,14 +378,15 @@ def main() -> int:
     for relative in files:
         print(f"  {relative.as_posix()}  ({(QUESTS / relative).stat().st_size} bytes)")
 
-    created = replaced = kept = removed = 0
+    created = replaced = kept = removed = reset_entries = 0
     survivors = []
     for target in targets:
-        a, b, c, d, s = seed(target, files, args.force, args.dry_run)
+        a, b, c, d, e, s = seed(target, files, args.force, args.dry_run, args.reset)
         created += a
         replaced += b
         kept += c
         removed += d
+        reset_entries += e
         survivors.extend(s)
 
     print()
@@ -346,6 +394,10 @@ def main() -> int:
         print("dry run: nothing was written")
     print(f"created {created}, replaced {replaced}, kept {kept}, removed {removed} file(s) across "
           f"{len(targets)} director{'y' if len(targets) == 1 else 'ies'}")
+    if args.reset:
+        print(f"--reset removed {reset_entries} pre-existing entr"
+              f"{'y' if reset_entries == 1 else 'ies'} before copying. If that was not what you"
+              " wanted, the removed files are not recoverable from here.")
 
     if survivors:
         print(f"{len(survivors)} file(s) were kept and named above. Each is a version-1 file sitting"

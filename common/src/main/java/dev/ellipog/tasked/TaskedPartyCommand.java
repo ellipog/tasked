@@ -207,10 +207,12 @@ public final class TaskedPartyCommand {
                             .thenComparing(entry -> entry.getKey().toString()))
                     .forEach(entry -> {
                         String who = nameOf(server, entry.getKey());
-                        String role = entry.getValue().name().toLowerCase(java.util.Locale.ROOT);
                         boolean self = entry.getKey().equals(player.getUUID());
-                        context.getSource().sendSuccess(() -> Component.literal(
-                                "  §7" + role + "§r " + who + (self ? " §8(you)" : "")), false);
+                        // The role word comes from the one mapping the panel uses too, so a translator
+                        // changes it once and the command cannot drift from the panel.
+                        context.getSource().sendSuccess(() -> Component.translatable(
+                                self ? "tasked.command.party.member_you" : "tasked.command.party.member",
+                                PartyWords.role(entry.getValue()), who), false);
                     });
         }
 

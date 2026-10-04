@@ -17,6 +17,7 @@ import net.minecraft.resources.ResourceLocation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
@@ -90,25 +91,28 @@ public final class QuestPanelLayout {
         Objects.requireNonNull(folded, "folded");
         List<InspectRow> rows = new ArrayList<>();
         if (quest == null) {
-            rows.add(InspectRow.value(VALUE_PREFIX + "none", "Quest",
-                    questId == null ? "Select a quest on the canvas" : questId + " is not in this chapter"));
+            rows.add(InspectRow.value(VALUE_PREFIX + "none", "tasked.dev.panel.quest",
+                    questId == null ? Labels.of("tasked.dev.panel.select_quest")
+                            : Labels.of("tasked.dev.panel.not_in_chapter", questId)));
             return List.copyOf(rows);
         }
 
-        rows.add(InspectRow.heading(IDENTITY, "Identity"));
+        rows.add(InspectRow.heading(IDENTITY, "tasked.dev.panel.identity"));
         if (!folded.contains(IDENTITY)) {
-            rows.add(InspectRow.value(VALUE_PREFIX + "id", "Id", text(quest, "id", questId)));
+            rows.add(InspectRow.value(VALUE_PREFIX + "id", "tasked.dev.panel.id",
+                    text(quest, "id", questId)));
             rows.add(field(quest, "title"));
             rows.add(field(quest, "subtitle"));
             rows.add(field(quest, "icon.item"));
             int descriptionLines = lines(quest);
-            rows.add(InspectRow.value(VALUE_PREFIX + "description", "Description",
-                    descriptionLines + (descriptionLines == 1 ? " line" : " lines") + " -- edited in the file"));
-            rows.add(InspectRow.field("aliases", "Aliases, comma-separated",
+            rows.add(InspectRow.value(VALUE_PREFIX + "description", "tasked.dev.panel.description",
+                    Labels.of(descriptionLines == 1 ? "tasked.dev.panel.description_line"
+                            : "tasked.dev.panel.description_lines", descriptionLines)));
+            rows.add(InspectRow.field("aliases", "tasked.dev.panel.aliases",
                     String.join(", ", strings(quest, "aliases"))));
         }
 
-        rows.add(InspectRow.heading(PLACEMENT, "Placement"));
+        rows.add(InspectRow.heading(PLACEMENT, "tasked.dev.panel.placement"));
         if (!folded.contains(PLACEMENT)) {
             rows.add(field(quest, "x"));
             rows.add(field(quest, "y"));
@@ -118,7 +122,7 @@ public final class QuestPanelLayout {
             rows.add(field(quest, "iconScale"));
         }
 
-        rows.add(InspectRow.heading(RULES, "Rules"));
+        rows.add(InspectRow.heading(RULES, "tasked.dev.panel.rules"));
         if (!folded.contains(RULES)) {
             rows.add(toggle(quest, "repeatable"));
             rows.add(field(quest, "repeatCooldownTicks"));
@@ -132,21 +136,21 @@ public final class QuestPanelLayout {
             rows.add(field(quest, "requiresStage"));
         }
 
-        rows.add(InspectRow.heading(DEPENDENCIES, "Dependencies"));
+        rows.add(InspectRow.heading(DEPENDENCIES, "tasked.dev.panel.dependencies"));
         if (!folded.contains(DEPENDENCIES)) {
             for (String dependency : strings(quest, "dependsOn")) {
                 rows.add(InspectRow.toggle(DEPENDENCY_PREFIX + dependency, dependency));
             }
-            rows.add(InspectRow.field(DEPENDENCY_ADD, "Add by id", ""));
+            rows.add(InspectRow.field(DEPENDENCY_ADD, "tasked.dev.panel.add_by_id", ""));
             // The second way to say the same thing: the next canvas click names the quest. The third
             // -- dragging an edge between the nodes -- is the canvas's, and needs no row.
-            rows.add(InspectRow.action(DEPENDENCY_PICK, "Add from canvas"));
+            rows.add(InspectRow.action(DEPENDENCY_PICK, "tasked.dev.panel.add_from_canvas"));
         }
 
-        list(quest, "tasks", "Task", folded, rows);
-        rows.add(InspectRow.action(ADD_TASKS, "Add task"));
-        list(quest, "rewards", "Reward", folded, rows);
-        rows.add(InspectRow.action(ADD_REWARDS, "Add reward"));
+        list(quest, "tasks", "tasked.dev.panel.task", folded, rows);
+        rows.add(InspectRow.action(ADD_TASKS, "tasked.dev.panel.add_task"));
+        list(quest, "rewards", "tasked.dev.panel.reward", folded, rows);
+        rows.add(InspectRow.action(ADD_REWARDS, "tasked.dev.panel.add_reward"));
         return List.copyOf(rows);
     }
 
@@ -183,7 +187,7 @@ public final class QuestPanelLayout {
     }
 
     /** The heading every registered type the table does not name is listed under. */
-    public static final String MORE = "More";
+    public static final String MORE = "tasked.dev.panel.more";
 
     /** The key prefix of a group's heading; the index follows, so two groups cannot share a key. */
     public static final String TYPE_GROUP_PREFIX = "h:type:";
@@ -197,90 +201,86 @@ public final class QuestPanelLayout {
      * own id.
      */
     private static final List<TypeGroup> TASK_GROUPS = List.of(
-            new TypeGroup("Hand in", List.of(
-                    new TypeChoice("tasked:item", "Item", "Hand in a count of one item.",
-                            "Have this many in your inventory."),
-                    new TypeChoice("tasked:item_tag", "Item tag", "Hand in a count of any item in a tag.",
-                            "Have this many items from this tag.", true),
-                    new TypeChoice("tasked:xp", "Experience", "Hand in experience points or levels.",
-                            "Have this much experience."),
-                    new TypeChoice("tasked:fluid", "Fluid", "Hand in fluid, carried in buckets.",
-                            "Have this much fluid, carried in buckets.", true))),
-            new TypeGroup("Go", List.of(
-                    new TypeChoice("tasked:dimension", "Dimension", "Be in a dimension.",
-                            "Travel to this dimension.", true),
-                    new TypeChoice("tasked:biome", "Biome", "Be in a biome, or any biome of a tag.",
-                            "Be in this biome.", true),
-                    new TypeChoice("tasked:structure", "Structure", "Be inside a structure.",
-                            "Find this structure.", true),
-                    new TypeChoice("tasked:location", "Location", "Stand inside a box of coordinates.",
-                            "Stand inside this area."))),
-            new TypeGroup("Progress", List.of(
-                    new TypeChoice("tasked:advancement", "Advancement",
-                            "Earn an advancement, or one of its criteria.",
-                            "Earn this advancement.", true),
-                    new TypeChoice("tasked:stat", "Statistic", "Reach a vanilla statistic value.",
-                            "Raise this statistic to the amount shown.", true),
-                    new TypeChoice("tasked:stage", "Stage", "The player has a stage.",
-                            "Story progress - another quest or a command sets this."),
-                    new TypeChoice("tasked:kill", "Kill", "Kill entities, by type or tag.",
-                            "Defeat this many.", true),
-                    new TypeChoice("tasked:observation", "Observe",
-                            "Look at a block or entity for long enough.",
-                            "Look at it and keep looking for the time shown.", true))),
-            new TypeGroup("Manual", List.of(
-                    new TypeChoice("tasked:checkmark", "Checkmark", "The player says they did it.",
-                            "You decide when this one is done."))),
+            new TypeGroup("tasked.dev.type.group.hand_in", List.of(
+                    new TypeChoice("tasked:item", "tasked.dev.type.task.item.name",
+                            "tasked.dev.type.task.item.hint", "tasked.dev.type.task.item.player"),
+                    new TypeChoice("tasked:item_tag", "tasked.dev.type.task.item_tag.name",
+                            "tasked.dev.type.task.item_tag.hint", "tasked.dev.type.task.item_tag.player", true),
+                    new TypeChoice("tasked:xp", "tasked.dev.type.task.xp.name",
+                            "tasked.dev.type.task.xp.hint", "tasked.dev.type.task.xp.player"),
+                    new TypeChoice("tasked:fluid", "tasked.dev.type.task.fluid.name",
+                            "tasked.dev.type.task.fluid.hint", "tasked.dev.type.task.fluid.player", true))),
+            new TypeGroup("tasked.dev.type.group.go", List.of(
+                    new TypeChoice("tasked:dimension", "tasked.dev.type.task.dimension.name",
+                            "tasked.dev.type.task.dimension.hint", "tasked.dev.type.task.dimension.player", true),
+                    new TypeChoice("tasked:biome", "tasked.dev.type.task.biome.name",
+                            "tasked.dev.type.task.biome.hint", "tasked.dev.type.task.biome.player", true),
+                    new TypeChoice("tasked:structure", "tasked.dev.type.task.structure.name",
+                            "tasked.dev.type.task.structure.hint", "tasked.dev.type.task.structure.player", true),
+                    new TypeChoice("tasked:location", "tasked.dev.type.task.location.name",
+                            "tasked.dev.type.task.location.hint", "tasked.dev.type.task.location.player"))),
+            new TypeGroup("tasked.dev.type.group.progress", List.of(
+                    new TypeChoice("tasked:advancement", "tasked.dev.type.task.advancement.name",
+                            "tasked.dev.type.task.advancement.hint", "tasked.dev.type.task.advancement.player", true),
+                    new TypeChoice("tasked:stat", "tasked.dev.type.task.stat.name",
+                            "tasked.dev.type.task.stat.hint", "tasked.dev.type.task.stat.player", true),
+                    new TypeChoice("tasked:stage", "tasked.dev.type.task.stage.name",
+                            "tasked.dev.type.task.stage.hint", "tasked.dev.type.task.stage.player"),
+                    new TypeChoice("tasked:kill", "tasked.dev.type.task.kill.name",
+                            "tasked.dev.type.task.kill.hint", "tasked.dev.type.task.kill.player", true),
+                    new TypeChoice("tasked:observation", "tasked.dev.type.task.observation.name",
+                            "tasked.dev.type.task.observation.hint", "tasked.dev.type.task.observation.player", true))),
+            new TypeGroup("tasked.dev.type.group.manual", List.of(
+                    new TypeChoice("tasked:checkmark", "tasked.dev.type.task.checkmark.name",
+                            "tasked.dev.type.task.checkmark.hint", "tasked.dev.type.task.checkmark.player"))),
             // Last, and its own group: this one is not a kind of thing to ask for but a way of asking for
             // anything -- the handler a mod or a script registered decides what it means.
-            new TypeGroup("Other", List.of(
-                    new TypeChoice("tasked:custom", "Custom",
-                            "Progress measured by a mod or a script, by an id.",
-                            "Tracked by the pack's own code."))));
+            new TypeGroup("tasked.dev.type.group.other", List.of(
+                    new TypeChoice("tasked:custom", "tasked.dev.type.task.custom.name",
+                            "tasked.dev.type.task.custom.hint", "tasked.dev.type.task.custom.player"))));
 
     private static final List<TypeGroup> REWARD_GROUPS = List.of(
-            new TypeGroup("Items", List.of(
-                    new TypeChoice("tasked:item", "Item", "Give one item.",
-                            "You get this item when you claim the quest."),
-                    new TypeChoice("tasked:random", "Random roll", "One guaranteed roll from a loot table.",
-                            "Rolls a loot table when you claim it."),
-                    new TypeChoice("tasked:loot", "Loot roll", "A roll that can come up empty.",
-                            "Rolls a loot table when you claim it - it can come up empty."),
-                    new TypeChoice("tasked:all_table", "Whole table",
-                            "Every table entry once, weights ignored.",
-                            "Gives every entry of a loot table, once."))),
-            new TypeGroup("Choice", List.of(
-                    new TypeChoice("tasked:choice", "Choice", "The player picks one entry of a table.",
-                            "You pick one entry when you claim it."))),
-            new TypeGroup("Server", List.of(
-                    new TypeChoice("tasked:command", "Command", "Run a command as the player.",
-                            "Runs a command when you claim it."),
-                    new TypeChoice("tasked:advancement", "Advancement", "Award an advancement.",
-                            "Awards an advancement when you claim it.", true),
-                    new TypeChoice("tasked:custom", "Custom", "Somebody else's code, by id.",
-                            "Granted by the pack's own code."))),
-            new TypeGroup("Progress", List.of(
-                    new TypeChoice("tasked:xp", "Experience", "Give experience points or levels.",
-                            "Gives experience when you claim it."),
-                    new TypeChoice("tasked:stage", "Stage", "Set a stage, or take one away.",
-                            "Sets story progress when you claim it."))));
+            new TypeGroup("tasked.dev.type.group.items", List.of(
+                    new TypeChoice("tasked:item", "tasked.dev.type.reward.item.name",
+                            "tasked.dev.type.reward.item.hint", "tasked.dev.type.reward.item.player"),
+                    new TypeChoice("tasked:random", "tasked.dev.type.reward.random.name",
+                            "tasked.dev.type.reward.random.hint", "tasked.dev.type.reward.random.player"),
+                    new TypeChoice("tasked:loot", "tasked.dev.type.reward.loot.name",
+                            "tasked.dev.type.reward.loot.hint", "tasked.dev.type.reward.loot.player"),
+                    new TypeChoice("tasked:all_table", "tasked.dev.type.reward.all_table.name",
+                            "tasked.dev.type.reward.all_table.hint", "tasked.dev.type.reward.all_table.player"))),
+            new TypeGroup("tasked.dev.type.group.choice", List.of(
+                    new TypeChoice("tasked:choice", "tasked.dev.type.reward.choice.name",
+                            "tasked.dev.type.reward.choice.hint", "tasked.dev.type.reward.choice.player"))),
+            new TypeGroup("tasked.dev.type.group.server", List.of(
+                    new TypeChoice("tasked:command", "tasked.dev.type.reward.command.name",
+                            "tasked.dev.type.reward.command.hint", "tasked.dev.type.reward.command.player"),
+                    new TypeChoice("tasked:advancement", "tasked.dev.type.reward.advancement.name",
+                            "tasked.dev.type.reward.advancement.hint", "tasked.dev.type.reward.advancement.player", true),
+                    new TypeChoice("tasked:custom", "tasked.dev.type.reward.custom.name",
+                            "tasked.dev.type.reward.custom.hint", "tasked.dev.type.reward.custom.player"))),
+            new TypeGroup("tasked.dev.type.group.progress", List.of(
+                    new TypeChoice("tasked:xp", "tasked.dev.type.reward.xp.name",
+                            "tasked.dev.type.reward.xp.hint", "tasked.dev.type.reward.xp.player"),
+                    new TypeChoice("tasked:stage", "tasked.dev.type.reward.stage.name",
+                            "tasked.dev.type.reward.stage.hint", "tasked.dev.type.reward.stage.player"))));
 
     private static final List<TypeGroup> CONDITION_GROUPS = List.of(
-            new TypeGroup("Items", List.of(
-                    new TypeChoice("tasked:item", "Item", "Have a count of one item.",
-                            "Have this many in your inventory."),
-                    new TypeChoice("tasked:item_tag", "Item tag", "Have a count of any item in a tag.",
-                            "Have this many items from this tag."))),
-            new TypeGroup("Progress", List.of(
-                    new TypeChoice("tasked:advancement", "Advancement", "Have earned an advancement.",
-                            "Earn this advancement."),
-                    new TypeChoice("tasked:score", "Scoreboard", "Have a score on an objective.",
-                            "Reach this score on the scoreboard."),
-                    new TypeChoice("tasked:stage", "Stage", "Have a stage.",
-                            "Story progress - another quest or a command sets this."))),
-            new TypeGroup("Party", List.of(
-                    new TypeChoice("tasked:party_size", "Party size", "Have this many members online.",
-                            "Be in a party of this many."))));
+            new TypeGroup("tasked.dev.type.group.items", List.of(
+                    new TypeChoice("tasked:item", "tasked.dev.type.condition.item.name",
+                            "tasked.dev.type.condition.item.hint", "tasked.dev.type.condition.item.player"),
+                    new TypeChoice("tasked:item_tag", "tasked.dev.type.condition.item_tag.name",
+                            "tasked.dev.type.condition.item_tag.hint", "tasked.dev.type.condition.item_tag.player"))),
+            new TypeGroup("tasked.dev.type.group.progress", List.of(
+                    new TypeChoice("tasked:advancement", "tasked.dev.type.condition.advancement.name",
+                            "tasked.dev.type.condition.advancement.hint", "tasked.dev.type.condition.advancement.player"),
+                    new TypeChoice("tasked:score", "tasked.dev.type.condition.score.name",
+                            "tasked.dev.type.condition.score.hint", "tasked.dev.type.condition.score.player"),
+                    new TypeChoice("tasked:stage", "tasked.dev.type.condition.stage.name",
+                            "tasked.dev.type.condition.stage.hint", "tasked.dev.type.condition.stage.player"))),
+            new TypeGroup("tasked.dev.type.group.party", List.of(
+                    new TypeChoice("tasked:party_size", "tasked.dev.type.condition.party_size.name",
+                            "tasked.dev.type.condition.party_size.hint", "tasked.dev.type.condition.party_size.player"))));
 
     /**
      * The type picker's rows: the page's own heading, then one group heading per table group with the
@@ -309,7 +309,10 @@ public final class QuestPanelLayout {
     static List<InspectRow> typeRows(String member, Set<String> registered) {
         boolean tasks = !"rewards".equals(member);
         List<TypeGroup> groups = tasks ? TASK_GROUPS : REWARD_GROUPS;
-        return rowsFor(tasks ? "Add a task" : "Add a reward", groups, registered);
+        // The picker's own heading, which is a sentence about adding -- "Add a task" -- rather than the
+        // dock's button label ("Add task"): two surfaces, two keys, and the words differ.
+        return rowsFor(tasks ? "tasked.dev.panel.add_a_task" : "tasked.dev.panel.add_a_reward",
+                groups, registered);
     }
 
     /**
@@ -324,7 +327,7 @@ public final class QuestPanelLayout {
         for (ResourceLocation id : ConditionTypes.ids()) {
             registered.add(id.toString());
         }
-        return rowsFor("Add a condition", CONDITION_GROUPS, registered);
+        return rowsFor("tasked.dev.panel.add_condition", CONDITION_GROUPS, registered);
     }
 
     /**
@@ -337,7 +340,7 @@ public final class QuestPanelLayout {
      */
     private static List<InspectRow> rowsFor(String heading, List<TypeGroup> groups, Set<String> registered) {
         List<InspectRow> rows = new ArrayList<>();
-        rows.add(InspectRow.heading("h:type", heading));
+        rows.add(InspectRow.heading("h:type", Labels.of(heading)));
         Set<String> named = new TreeSet<>();
         int group = 0;
         for (TypeGroup each : groups) {
@@ -346,16 +349,16 @@ public final class QuestPanelLayout {
             if (shown.isEmpty()) {
                 continue;
             }
-            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group++, each.title()));
+            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group++, Labels.of(each.title())));
             for (TypeChoice choice : shown) {
-                rows.add(InspectRow.action(TYPE_PREFIX + choice.id(), choice.name()));
+                rows.add(InspectRow.action(TYPE_PREFIX + choice.id(), Labels.of(choice.name())));
                 named.add(choice.id());
             }
         }
         Set<String> unnamed = new TreeSet<>(registered);
         unnamed.removeAll(named);
         if (!unnamed.isEmpty()) {
-            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group, MORE));
+            rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group, Labels.of(MORE)));
             for (String id : unnamed) {
                 rows.add(InspectRow.action(TYPE_PREFIX + id, id));
             }
@@ -371,7 +374,7 @@ public final class QuestPanelLayout {
         for (TypeGroup group : CONDITION_GROUPS) {
             for (TypeChoice choice : group.types()) {
                 if (choice.id().equals(typeId)) {
-                    return choice.name();
+                    return Labels.of(choice.name());
                 }
             }
         }
@@ -398,13 +401,14 @@ public final class QuestPanelLayout {
         for (TypeGroup group : CONDITION_GROUPS) {
             for (TypeChoice choice : group.types()) {
                 if (choice.id().equals(typeId)) {
-                    lines.add(choice.hint());
+                    lines.add(Labels.of(choice.hint()));
                 }
             }
         }
         ResourceLocation id = ResourceLocation.tryParse(typeId);
         if (id != null && ConditionTypes.ids().contains(id)) {
-            lines.add("Fields: " + new TreeSet<>(ConditionTypes.fieldsOf(id)));
+            lines.add(Labels.of("tasked.dev.tip.fields",
+                    new TreeSet<>(ConditionTypes.fieldsOf(id)).toString()));
         }
         lines.add(typeId);
         return List.copyOf(lines);
@@ -504,13 +508,13 @@ public final class QuestPanelLayout {
         TypeChoice choice = choiceFor(member, typeId);
         List<String> lines = new ArrayList<>();
         if (choice != null) {
-            lines.add(choice.hint());
+            lines.add(Labels.of(choice.hint()));
         }
         ResourceLocation id = ResourceLocation.tryParse(typeId);
         if (id != null) {
             Set<String> fields = "rewards".equals(member) ? RewardTypes.fieldsOf(id) : TaskTypes.fieldsOf(id);
             if (!fields.isEmpty()) {
-                lines.add("Fields: " + String.join(", ", new TreeSet<>(fields)));
+                lines.add(Labels.of("tasked.dev.tip.fields", String.join(", ", new TreeSet<>(fields))));
             }
         }
         lines.add(typeId);
@@ -518,13 +522,13 @@ public final class QuestPanelLayout {
     }
 
     /** The player line for a type the table does not name: true of every one of them, and nothing else. */
-    private static final String UNKNOWN_TASK = "Tracked by the pack's own code.";
-    private static final String UNKNOWN_REWARD = "Granted by the pack's own code.";
+    private static final String UNKNOWN_TASK = "tasked.dev.tip.unknown_task";
+    private static final String UNKNOWN_REWARD = "tasked.dev.tip.unknown_reward";
 
     /** The type's player-facing line, or null for one the table does not name. */
     public static String playerHint(String member, String typeId) {
         TypeChoice choice = choiceFor(member, typeId);
-        return choice == null ? null : choice.playerHint();
+        return choice == null ? null : Labels.of(choice.playerHint());
     }
 
     /**
@@ -549,21 +553,21 @@ public final class QuestPanelLayout {
         boolean rewards = "rewards".equals(member);
         String line = playerHint(member, typeId);
         List<String> lines = new ArrayList<>();
-        lines.add(line == null ? (rewards ? UNKNOWN_REWARD : UNKNOWN_TASK) : line);
+        lines.add(Labels.of(line == null ? (rewards ? UNKNOWN_REWARD : UNKNOWN_TASK) : line));
         if (!byHand) {
             if (!rewards && carriesItems(typeId)) {
-                lines.add("Nothing is taken - the quest only checks that you have them.");
+                lines.add(Labels.of("tasked.dev.tip.not_taken"));
             }
             return List.copyOf(lines);
         }
         if ("tasked:checkmark".equals(typeId)) {
-            lines.add("Press the Submit button when you have done it.");
+            lines.add(Labels.of("tasked.dev.tip.submit_checkmark"));
         }
         else if (!rewards && takesResources(typeId)) {
-            lines.add("Hand it in with the Submit button - what you hand over is taken.");
+            lines.add(Labels.of("tasked.dev.tip.submit_takes"));
         }
         else {
-            lines.add("Hand it in with the Submit button.");
+            lines.add(Labels.of("tasked.dev.tip.submit"));
         }
         return List.copyOf(lines);
     }
@@ -593,7 +597,7 @@ public final class QuestPanelLayout {
      */
     public static String typeName(String member, String typeId) {
         TypeChoice choice = choiceFor(member, typeId);
-        return choice == null ? typeId : choice.name();
+        return choice == null ? typeId : Labels.of(choice.name());
     }
 
     private static TypeChoice choiceFor(String member, String typeId) {
@@ -651,11 +655,14 @@ public final class QuestPanelLayout {
      * is stable across rebuilds -- a set's order is not, and a panel whose rows shuffle between frames
      * is a panel an author cannot aim at.
      */
-    private static void list(JsonObject quest, String member, String what, Set<String> folded,
+    private static void list(JsonObject quest, String member, String whatKey, Set<String> folded,
                              List<InspectRow> rows) {
         if (!quest.has(member) || !quest.get(member).isJsonArray()) {
             return;
         }
+        // Resolved here rather than carried as a key: the entry heading is composed from it, and a key
+        // concatenated with a number and a type id is a string no language file could translate whole.
+        String what = Labels.of(whatKey);
         var array = quest.getAsJsonArray(member);
         for (int i = 0; i < array.size(); i++) {
             JsonElement element = array.get(i);
@@ -670,11 +677,12 @@ public final class QuestPanelLayout {
             if (known) {
                 // An entry row rather than a plain heading: its controls -- duplicate, remove -- go on
                 // the line that names what they act on.
-                rows.add(InspectRow.entry(headingKey, what + " " + (i + 1) + " \u00b7 " + type));
+                rows.add(InspectRow.entry(headingKey,
+                        Labels.of("tasked.dev.panel.entry", what, i + 1, type)));
             }
             else {
                 rows.add(InspectRow.warning(headingKey,
-                        what + " " + (i + 1) + " \u00b7 " + type + " -- not known to this build"));
+                        Labels.of("tasked.dev.panel.entry_unknown", what, i + 1, type)));
             }
             if (folded.contains(headingKey)) {
                 continue;
@@ -689,7 +697,7 @@ public final class QuestPanelLayout {
             }
             else {
                 rows.add(InspectRow.raw(RAW_PREFIX + member + "." + i,
-                        "as stored", entry.toString()));
+                        Labels.of("tasked.dev.panel.as_stored"), entry.toString()));
             }
         }
     }
@@ -795,21 +803,103 @@ public final class QuestPanelLayout {
     }
 
     /**
-     * A row's label, from its path: the field's own name, with the container that names it, said like a
-     * field.
+     * The field labels this build names, by the path shape the panel asks with.
      *
-     * <p>{@code "icon.item"} says "Icon Item", because "Item" alone in a panel of rows is ambiguous. The
-     * parts that do not name a field are dropped: an index is where the field lives -- which the
-     * section's heading already says -- and the tasks/rewards member is there, for the same reason. So
-     * {@code "tasks.0.count"} says "Count", and {@code "title"} says "Title".
+     * <p>Keyed by the path with its indices and list members dropped -- {@code "tasks.0.icon.item"} and
+     * {@code "icon.item"} are the same row -- and the value is a key, so the English lives in en_us like
+     * every other label. A path the table does not name is still labelled, by {@link #derivedLabel}: an
+     * addon's field must not draw as a bare path, and the derived words are the honest fallback for a
+     * field this build has never heard of -- the same answer the picker gives an unknown type.
+     */
+    private static final Map<String, String> FIELD_LABELS = Map.ofEntries(
+            Map.entry("advancement", "tasked.dev.field.advancement"),
+            Map.entry("aliases", "tasked.dev.field.aliases"),
+            Map.entry("amount", "tasked.dev.field.amount"),
+            Map.entry("auto", "tasked.dev.field.auto"),
+            Map.entry("autoSubmitTicks", "tasked.dev.field.auto_submit_ticks"),
+            Map.entry("biome", "tasked.dev.field.biome"),
+            Map.entry("command", "tasked.dev.field.command"),
+            Map.entry("consumeItems", "tasked.dev.field.consume_items"),
+            Map.entry("count", "tasked.dev.field.count"),
+            Map.entry("criterion", "tasked.dev.field.criterion"),
+            Map.entry("customName", "tasked.dev.field.custom_name"),
+            Map.entry("description", "tasked.dev.field.description"),
+            Map.entry("dimension", "tasked.dev.field.dimension"),
+            Map.entry("entity", "tasked.dev.field.entity"),
+            Map.entry("entityTypeTag", "tasked.dev.field.entity_type_tag"),
+            Map.entry("excludeFromClaimAll", "tasked.dev.field.exclude_from_claim_all"),
+            Map.entry("exclusiveGroup", "tasked.dev.field.exclusive_group"),
+            Map.entry("fluid", "tasked.dev.field.fluid"),
+            Map.entry("icon.item", "tasked.dev.field.icon_item"),
+            Map.entry("iconScale", "tasked.dev.field.icon_scale"),
+            Map.entry("id", "tasked.dev.field.id"),
+            Map.entry("ignoreDimension", "tasked.dev.field.ignore_dimension"),
+            Map.entry("ignoreRewardBlocking", "tasked.dev.field.ignore_reward_blocking"),
+            Map.entry("inline", "tasked.dev.field.inline"),
+            Map.entry("invisible", "tasked.dev.field.invisible"),
+            Map.entry("item", "tasked.dev.field.item"),
+            Map.entry("levels", "tasked.dev.field.levels"),
+            Map.entry("match", "tasked.dev.field.match"),
+            Map.entry("min", "tasked.dev.field.min"),
+            Map.entry("minRequired", "tasked.dev.field.min_required"),
+            Map.entry("nbtFilter", "tasked.dev.field.nbt_filter"),
+            Map.entry("objective", "tasked.dev.field.objective"),
+            Map.entry("observeType", "tasked.dev.field.observe_type"),
+            Map.entry("onlyFromCrafting", "tasked.dev.field.only_from_crafting"),
+            Map.entry("onlyOne", "tasked.dev.field.only_one"),
+            Map.entry("optional", "tasked.dev.field.optional"),
+            Map.entry("permissionLevel", "tasked.dev.field.permission_level"),
+            Map.entry("points", "tasked.dev.field.points"),
+            Map.entry("position", "tasked.dev.field.position"),
+            Map.entry("prerequisiteMode", "tasked.dev.field.prerequisite_mode"),
+            Map.entry("randomBonus", "tasked.dev.field.random_bonus"),
+            Map.entry("remove", "tasked.dev.field.remove"),
+            Map.entry("repeatCooldownTicks", "tasked.dev.field.repeat_cooldown_ticks"),
+            Map.entry("repeatable", "tasked.dev.field.repeatable"),
+            Map.entry("requiresStage", "tasked.dev.field.requires_stage"),
+            Map.entry("sequentialTasks", "tasked.dev.field.sequential_tasks"),
+            Map.entry("shape", "tasked.dev.field.shape"),
+            Map.entry("showTitle", "tasked.dev.field.show_title"),
+            Map.entry("silent", "tasked.dev.field.silent"),
+            Map.entry("size", "tasked.dev.field.size"),
+            Map.entry("stage", "tasked.dev.field.stage"),
+            Map.entry("stat", "tasked.dev.field.stat"),
+            Map.entry("structure", "tasked.dev.field.structure"),
+            Map.entry("subtitle", "tasked.dev.field.subtitle"),
+            Map.entry("table", "tasked.dev.field.table"),
+            Map.entry("tag", "tasked.dev.field.tag"),
+            Map.entry("timer", "tasked.dev.field.timer"),
+            Map.entry("title", "tasked.dev.field.title"),
+            Map.entry("toObserve", "tasked.dev.field.to_observe"),
+            Map.entry("value", "tasked.dev.field.value"),
+            Map.entry("x", "tasked.dev.field.x"),
+            Map.entry("y", "tasked.dev.field.y"));
+
+    /**
+     * A row's label, from its path: the table's key for a field this build names, and the derived words
+     * otherwise.
      */
     public static String labelFor(String path) {
+        String shape = shapeOf(path);
+        String key = FIELD_LABELS.get(shape);
+        return key != null ? Labels.of(key) : derivedLabel(shape);
+    }
+
+    /** The path without its indices or list members: {@code "tasks.0.icon.item"} -> {@code "icon.item"}. */
+    private static String shapeOf(String path) {
         List<String> parts = new ArrayList<>();
         for (String step : path.split("\\.")) {
             if (!step.matches("\\d+") && !step.equals("tasks") && !step.equals("rewards")) {
                 parts.add(step);
             }
         }
+        return String.join(".", parts);
+    }
+
+    /** The words a field's own name makes, for a field this build's table does not name. */
+    private static String derivedLabel(String path) {
+        List<String> parts = new ArrayList<>(List.of(path.split("\\.")));
+        parts.removeIf(String::isEmpty);
         if (parts.isEmpty()) {
             return path;
         }
@@ -943,5 +1033,18 @@ public final class QuestPanelLayout {
             }
         }
         return at;
+    }
+
+    /**
+     * A boolean field, false for anything else — absent, null, or the wrong type.
+     *
+     * <p>Shared by the quest page's panel and its layout, and that is the point: the layout picks the
+     * label a switch row carries from the same read the panel draws the knob with, so the word and the
+     * knob cannot disagree about the state.
+     */
+    public static boolean flag(JsonObject root, String path) {
+        JsonElement value = root == null ? null : get(root, path);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
+                && value.getAsBoolean();
     }
 }

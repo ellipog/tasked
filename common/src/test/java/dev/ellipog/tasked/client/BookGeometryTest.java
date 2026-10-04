@@ -366,12 +366,21 @@ class BookGeometryTest {
         /** The sidebar's fixed chrome: controls in the column that are not chapter rows. */
         private static final Set<String> SIDEBAR_CONTROLS = Set.of("addChapter", "addGroup");
 
-        /** The header's controls: Close, Rewards, the party button, and the author's [Edit] [gear] pair. */
+        /**
+         * The header's controls: Close, Rewards, the party button and the settings button. The author's
+         * pills are not here even though they are built by the header's own method -- they float over the
+         * canvas, and a control's surface is where it is drawn rather than where it is constructed.
+         */
         private static final Set<String> HEADER_CONTROLS =
-                Set.of("close", "rewards", "party", "edit", "tools");
+                Set.of("close", "rewards", "party", "settings");
 
-        /** The view cluster, top-left on the graph. The only things that sit on the canvas. */
-        private static final Set<String> CANVAS_CONTROLS = Set.of("zoomIn", "zoomOut", "centre");
+        /**
+         * The view cluster and the author's pills: everything that sits on the canvas. Two clusters, in
+         * the two top corners, which is why {@link BookGeometry#MIN_CANVAS_WIDTH} is an arithmetic term
+         * rather than a judgement.
+         */
+        private static final Set<String> CANVAS_CONTROLS =
+                Set.of("zoomIn", "zoomOut", "centre", "editPill", "toolsPill");
 
         @Test
         @DisplayName("every control is inside the surface it belongs to")
@@ -811,6 +820,19 @@ class BookGeometryTest {
         assertTrue(geometry.viewControls().width() > BookGeometry.VIEW_BUTTON,
                 "the mat is the whole reason the cluster reads as one group, so it must be bigger "
                         + "than a single button: " + geometry.viewControls());
+
+        // The author's pills, the same two rules mirrored: the mat is the helper the screen paints from,
+        // so it has to be inside the surface it is painted on and bigger than the pill it backs.
+        assertTrue(geometry.pillMat(true).isInside(geometry.canvas()),
+                "the pills' mat is painted outside the canvas it sits on");
+        assertTrue(geometry.pillMat(true).height() > geometry.pillMat(false).height(),
+                "a mat that does not grow with the Tools pill would back a lone pill with a strip sized "
+                        + "for a neighbour that is not there: " + geometry.pillMat(false));
+        // And the drawer's rail starts below the pills: the editor writes chapter appearance into this
+        // panel, and a rail running up through the band would put its first row under a floating control.
+        assertTrue(geometry.authorRail().y() >= geometry.pillMat(true).bottom(),
+                "the inspector's rail starts through the pill band rather than under it: "
+                        + geometry.authorRail() + " vs " + geometry.pillMat(true));
     }
 
     @Test
@@ -824,8 +846,8 @@ class BookGeometryTest {
                     () -> "the full-bleed panel is not the window" + at);
 
             for (BookGeometry.Rect part : List.of(window.header(), window.sidebar(), window.canvas(),
-                    window.controls().get("close"), window.controls().get("edit"),
-                    window.controls().get("tools"))) {
+                    window.controls().get("close"), window.controls().get("editPill"),
+                    window.controls().get("toolsPill"))) {
                 assertTrue(part.x() >= 0 && part.y() >= 0 && part.right() <= size[0]
                                 && part.bottom() <= size[1],
                         () -> "a part left the window" + at + ": " + part);
@@ -838,11 +860,16 @@ class BookGeometryTest {
         }
     }
 
+    @Test
     @DisplayName("the same size always gives the same rectangles")
     void geometryIsDeterministic() {
         // The screen rebuilds its geometry whenever the size changes and asks for the control map on
         // every init. A map built in iteration order that varied would move controls between rebuilds,
         // which shows up as a button that occasionally cannot be clicked.
+        //
+        // This method had no `@Test` for a while -- it was written and never ran, which is why its key
+        // list could go stale without anything failing. The annotation is the fix, and the list below is
+        // the corrected one.
         Map<String, Rect> first = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT));
         Map<String, Rect> second = new LinkedHashMap<>(controlsAt(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT));
 
@@ -861,12 +888,15 @@ class BookGeometryTest {
         // to place controls would draw them in a different order between two inits of the same size --
         // which shows up as a control that is occasionally somewhere else.
         //
-        // The source order in `controls()` is: close, then the rewards button, then the party button,
-        // then the view cluster. The chapter rows were ahead
-        // of close and are gone; the two appearance rows were between close and the cluster and are gone
-        // -- see the note in that method for why each went, and `BookGeometry.MIN_PANEL_HEIGHT` for what
-        // their absence did to the sidebar's term.
-        assertEquals(List.of("close", "rewards", "party", "edit", "tools", "zoomIn", "zoomOut", "centre"),
+        // The source order in `controls()` is: close, the rewards button, the party button, the settings
+        // button, the author's pills, the sidebar's two add buttons, then the view cluster. The chapter
+        // rows were ahead of close and are gone; the two appearance rows were between close and the
+        // cluster and are gone -- see the note in that method for why each went. The author's pair keeps
+        // the slot it had in this list (after settings), even though it is drawn on a different surface
+        // now; a reader comparing orders across the change should know that was deliberate.
+        assertEquals(
+                List.of("close", "rewards", "party", "settings", "editPill", "toolsPill",
+                        "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }
 }

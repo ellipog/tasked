@@ -3,21 +3,29 @@
   "id": "first_light",
   "title": "First Light",
   "description": [
-    "The first questline to read, and the shortest: one chain of five quests,",
-    "which is what a quest is before any other chapter gets to show what a",
-    "quest can do.",
+    "One group, one chapter, every feature. The worked examples used to",
+    "be twelve questlines, one per family of mechanisms; they are one",
+    "orrery now, because a reader learns more from a single canvas that",
+    "uses everything than from twelve that each use a part.",
     "",
-    "The five quests here are also the five the engine's own playthrough",
-    "test walks, which is why their ids and their mechanics never change:",
-    "eight logs that count themselves, a table, a set of stone tools, a sign",
-    "you read on purpose, and a place rather than a task list. Everything",
-    "else in this collection is a longer sentence written with the same",
-    "vocabulary.",
+    "The five quests at its western edge are the engine's own playthrough",
+    "fixture. `punch_a_tree`, `read_the_sign`, `make_a_table`,",
+    "`stone_tools` and `the_underground` keep their ids and their",
+    "mechanics, because `QuestPlaythroughTest` walks them by name -- and",
+    "they end at the hub, so the five first steps are also the key to the",
+    "whole sky.",
     "",
-    "First light is what every descent starts by carrying. Read this one",
-    "first, then go and see what the rest of the book does with it."
+    "The group starts collapsed in the sidebar. `collapsedByDefault` is",
+    "one field the format has, and with one group it is either",
+    "demonstrated here or not at all."
   ],
-  "icon": { "item": "minecraft:torch" },
+  "aliases": [
+    "the_first_light"
+  ],
+  "icon": {
+    "item": "minecraft:torch"
+  },
+  "collapsedByDefault": true,
   "chapters": [
     "first_steps"
   ]

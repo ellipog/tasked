@@ -1,0 +1,51 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_lantern_watch",
+  "title": "The Lantern Watch",
+  "subtitle": "Observation: a block, and a block tag",
+  "description": [
+    "An observation task completes when the player looks at the named",
+    "thing for `timer` ticks. The first task names one block,",
+    "`minecraft:lantern`, and looks at it for forty ticks -- two seconds,",
+    "where the default is one.",
+    "",
+    "The second names a block *tag*, and a tag here is the tag's own id",
+    "with no `#`: `minecraft:logs`. Any log answers it.",
+    "",
+    "Its line ends in a `dot`, one of the five arrowhead glyphs."
+  ],
+  "icon": {
+    "item": "minecraft:lantern"
+  },
+  "x": 416,
+  "y": 672,
+  "dependsOn": [
+    "the_undead_cull"
+  ],
+  "dependencyLines": {
+    "the_undead_cull": {
+      "form": "curved",
+      "bend": -0.8,
+      "arrowHead": "dot"
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:observation",
+      "observeType": "block",
+      "toObserve": "minecraft:lantern",
+      "timer": 40
+    },
+    {
+      "type": "tasked:observation",
+      "observeType": "block_tag",
+      "toObserve": "minecraft:logs"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "patron_gold",
+  "title": "The Gold Patron",
+  "subtitle": "One half of an exclusive pair",
+  "description": [
+    "Two patrons share an `exclusiveGroup`, which is a pact between",
+    "siblings: completing one locks the other for good. Take the gold",
+    "patron's coin and the silver patron's door closes; the pair is a",
+    "choice of paths, not a checklist.",
+    "",
+    "Exclusivity is scoped to the chapter, and the ledger below is",
+    "written to survive it -- its prerequisite mode asks for one",
+    "completed dependency, so either coin closes the book."
+  ],
+  "icon": {
+    "item": "minecraft:gold_ingot"
+  },
+  "x": -416,
+  "y": 224,
+  "dependsOn": [
+    "the_engine"
+  ],
+  "exclusiveGroup": "the_patrons",
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Take the gold patron's coin"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:gold_block",
+      "count": 2
+    }
+  ]
+}

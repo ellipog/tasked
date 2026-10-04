@@ -171,6 +171,15 @@ public final class TaskedNetworking {
                 null,
                 (payload, sender) -> handleClaimAll(sender)));
 
+        // --- and one reward on its own, for the rewards panel's rows ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimRewardEntryPayload.TYPE,
+                ClaimRewardEntryPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleClaimRewardEntry));
+
         // --- a choice reward's entries, and the player's answer ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -186,6 +195,15 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_SERVER,
                 null,
                 TaskedNetworking::handleClaimChoice));
+
+        // --- what a grant had to drop, so the book can say it while it is open ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                RewardOverflowPayload.TYPE,
+                RewardOverflowPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleRewardOverflow,
+                null));
 
         // --- the world's dimensions, server to client ---
 
@@ -407,6 +425,32 @@ public final class TaskedNetworking {
         }
 
         ProgressService.claim(server, sender, entry.get());
+        sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
+    }
+
+    /**
+     * A player pressed Claim on one row of the rewards panel.
+     *
+     * <p>The same contract as {@link #handleClaim}: all this does is ask, and
+     * {@link ProgressService#claimReward} decides whether that row is owed. The sync is sent whether
+     * or not it paid, for the reason the whole-quest handler documents — a client showing a Claim
+     * button the server disagrees with is corrected by the progress it already knows how to read.
+     */
+    private static void handleClaimRewardEntry(ClaimRewardEntryPayload payload, ServerPlayer sender) {
+        MinecraftServer server = sender.getServer();
+        if (server == null || TaskedQuests.index().isEmpty()) {
+            return;
+        }
+
+        // The index resolves aliases, so a client holding a stale id after a rename still works.
+        var entry = TaskedQuests.index().quest(payload.questId());
+        if (entry.isEmpty()) {
+            Constants.LOG.warn("tasked: {} asked to claim reward {} of unknown quest '{}'",
+                    sender.getScoreboardName(), payload.rewardIndex(), payload.questId());
+            return;
+        }
+
+        ProgressService.claimReward(server, sender, entry.get(), payload.rewardIndex());
         sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
     }
 
@@ -656,6 +700,18 @@ public final class TaskedNetworking {
     private static void handleChoiceOffer(ChoiceRewardPayload payload) {
         dev.ellipog.tasked.client.ClientChoiceOffers.accept(payload.questId(), payload.rewardIndex(),
                 payload.entries());
+    }
+
+    /**
+     * A grant overflowed and dropped stacks at the player's feet.
+     *
+     * <p>Routed rather than held: {@code QuestNotifier} owns the client-side notice sinks, and the
+     * sentence has to reach the book's own stack while the book is open — the action bar the server
+     * also sends is part of the HUD, which is not drawn behind a screen. Outside the book there is
+     * nothing to do here, because the HUD is exactly where that sentence belongs.
+     */
+    private static void handleRewardOverflow(RewardOverflowPayload payload) {
+        dev.ellipog.tasked.client.QuestNotifier.rewardOverflow(payload.stacks());
     }
 
     /**

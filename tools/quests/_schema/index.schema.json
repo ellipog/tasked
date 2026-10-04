@@ -10,7 +10,7 @@
     "$schema": { "type": "string" },
     "settings": {
       "type": "object",
-      "description": "The tree's own defaults, as opposed to any chapter's: how rewards are handed over unless a reward says otherwise, and how long after joining the first task check waits. A missing block, or a missing key in one, means the default written here.",
+      "description": "The tree's own defaults, as opposed to any chapter's: how rewards are handed over unless a reward says otherwise, how long after joining the first task check waits, and what the book calls itself. A missing block, or a missing key in one, means the default written here.",
       "additionalProperties": false,
       "properties": {
         "defaultAutoClaim": {
@@ -34,6 +34,16 @@
           "maximum": 72000,
           "default": 20,
           "description": "Ticks after a player joins before their first task evaluation, so a login does not run every check in the book on one tick."
+        },
+        "bookTitle": {
+          "type": "string",
+          "default": "",
+          "description": "What the book calls itself, drawn top-left in its header. Empty or absent means the client's own title. Every client is told this when it syncs, so the name is the pack's rather than each player's."
+        },
+        "bookIcon": {
+          "type": "string",
+          "default": "",
+          "description": "The item id the book wears in its header, e.g. \"minecraft:spyglass\". Resolved on the client; an id it cannot resolve is drawn as the header's missing-item mark rather than refusing the pack."
         }
       }
     },
@@ -65,10 +75,8 @@
   "definitions": {
     "name": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "^[^/\\\\]+$",
-      "description": "A single name in the quest folder, resolved against the quest root."
+      "pattern": "^(?!\\.{1,2}$)(?!_)[^/\\\\]{1,128}$",
+      "description": "A single name in the quest folder, resolved against the quest root: a group or chapter folder's name, or a flat one-file questline's full file name. No separator, not `.` or `..`, and not beginning with `_`."
     }
   }
 }

@@ -2,7 +2,8 @@
 
 Rewards are what a quest gives when it completes. They are separate from [[task]]s, evaluated once,
 and by default they wait for the player to claim them — the claim button on a finished quest's card,
-or **Claim all** for everything outstanding.
+the **Rewards** inbox, where each waiting quest folds open into its own rewards and every row has its
+own **Claim**, or **Claim all** for everything outstanding.
 
 ```json
 { "type": "tasked:item", "item": "minecraft:diamond", "count": 4 }

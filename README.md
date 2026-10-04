@@ -3,10 +3,10 @@
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
 
-> **Status: 0.1.0, and well past the skeleton.** The quest format and its validator, the
+> **Status: 1.0.0 — the first release.** The quest format and its validator, the
 > progression engine, server-authoritative sync, the quest book and the in-game editor all work on
-> both loaders. Tasked ships no quests of its own: it is an engine, and the worked questlines in
-> `tools/quests/` are what an author reads to learn the format.
+> both loaders. Tasked ships no quests of its own: it is an engine, and the worked questline in
+> `tools/quests/` is what an author reads to learn the format.
 
 ## What it does
 
@@ -69,7 +69,7 @@ their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked al
 | Java | 21 |
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
-| Armature | 0.1.0+, required on both loaders |
+| Armature | 1.0.0+, required on both loaders |
 | KubeJS | optional, NeoForge only, 2101.7.2+ |
 
 Tasked is built on **Armature**, a standalone library and UI toolkit. Both metadata files declare
@@ -90,7 +90,7 @@ gradlew build
 ```
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-0.1.0.jar`) — the `-sources` and `-javadoc` jars are not mods. The test
+(`tasked-fabric-1.21.1-1.0.0.jar`) — the `-sources` and `-javadoc` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile
@@ -134,10 +134,12 @@ by convention.
 
 `docs/index.md` is the front door, and the pages under `docs/authoring/` are the manual: the quest
 folder format, every field on a quest, the fifteen task and ten reward types, what the validator
-checks, and the KubeJS binding. `docs/tasked-quests.schema.json` plus the per-file schemas under
-`tools/quests/_schema/` are the machine-readable field reference. `tools/README.md` describes the
-worked questlines — eleven of them, each a different design rather than a different difficulty — and
-how to seed them.
+checks, and the KubeJS binding. The five per-kind schemas under `tools/quests/_schema/` — group,
+chapter, quest, index and reward table — are the machine-readable field reference, published at
+`https://ellipog.dev/tasked/_schema/`; `docs/tasked-quests.schema.json` is the older one-file
+format's, published under `_legacy/`. `tools/README.md` describes the worked questline — one
+chapter, `first_light/first_steps`, laid out as an orrery and carrying every field the format has —
+and the two scripts that regenerate and seed it.
 
 Based on the [MultiLoader Template](https://github.com/Jaredlll08/MultiLoader-Template), with the
 Forge subproject removed.

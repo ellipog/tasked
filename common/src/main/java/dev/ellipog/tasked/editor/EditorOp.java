@@ -130,6 +130,21 @@ public sealed interface EditorOp {
     record SetGroup(String path, JsonElement value) implements EditorOp {
     }
 
+    /**
+     * Writes one key of the tree's own settings block in {@code index.json}: the pack's book name and
+     * icon, today.
+     *
+     * <p>A key and a value rather than a whole settings object, so the edit writes exactly what it
+     * changed and every other declaration in the block — and every unknown root key beside it — is
+     * carried over untouched. A null value removes the key. The chapter context the op arrives with is
+     * ignored: the block belongs to the root, not to any chapter.
+     *
+     * @param key   the settings field name, e.g. {@code bookTitle}
+     * @param value the new value, or null to remove the key
+     */
+    record SetIndex(String key, JsonElement value) implements EditorOp {
+    }
+
     /** Moves one entry within its array: the drag-to-reorder, as one edit. */
     record MoveEntry(String id, String member, int from, int to) implements EditorOp {
 

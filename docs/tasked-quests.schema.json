@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ellipog.dev/tasked/tasked-quests.schema.json",
-  "title": "Tasked quest file",
-  "description": "One file under config/tasked/quests/. A questline may be split across any number of these; the loader treats them as one tree and dependencies resolve across files.",
+  "$id": "https://ellipog.dev/tasked/_legacy/tasked-quests.schema.json",
+  "title": "Tasked quest file (the legacy one-file format)",
+  "description": "The one-file format, still read: one file under config/tasked/quests/ holding a whole questline. New packs should use the folder format instead - one group.json, one chapter.json and one quest per file - whose schemas are the `_schema/` set beside this one. A questline may be split across any number of these; the loader treats them as one tree and dependencies resolve across files.",
   "type": "object",
   "required": ["chapterGroups"],
   "additionalProperties": false,
@@ -76,13 +76,13 @@
     },
 
     "dependencyStyle": {
-      "description": "One line's style. Only the axes it names override anything; the axes it omits fall back to the chapter's default, and then to the built-ins (orthogonal, chevron at the target, solid, thin).",
+      "description": "One line's style. Only the axes it names override anything; the axes it omits fall back to the chapter's default, and then to the built-ins (chamfered, chevron at the target, solid, thin).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "form": {
-          "enum": ["orthogonal", "chamfered", "straight", "stepped", "curved", "radial"],
-          "description": "The route's shape. Orthogonal is the three-segment step, chamfered the same step with 45-degree corner cuts, straight a direct line, stepped a Z broken at the chord's midpoint, curved a smooth bow, and radial a circular arc. Curved and radial read `bend`."
+          "enum": ["orthogonal", "chamfered", "straight", "curved"],
+          "description": "The route's shape. Chamfered is the built-in default: the three-segment step with every 90-degree corner cut at 45 degrees, a circuit trace. Orthogonal is the same step left square, straight a direct line, and curved a smooth bow, which reads `bend`."
         },
         "arrowHead": {
           "enum": ["chevron", "triangle", "dot", "diamond", "none"],
@@ -146,18 +146,69 @@
     },
 
     "themePatch": {
-      "description": "Token-level overrides for a chapter's theme: individual palette colours and a corner radius, applied over the named theme (or over the player's own when the chapter names none). A client concept, like `theme` itself - the server carries it and the client composes it. The validator checks every token id and value with the toolkit's own reader.",
+      "description": "Token-level overrides for a chapter's theme: individual palette colours, a corner radius and a canvas background, applied over the named theme (or over the player's own when the chapter names none). A client concept, like `theme` itself - the server carries it and the client composes it. The validator checks every token id and value with the toolkit's own reader.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string",
-          "description": "A name for the resulting palette. Usually omitted - the Theme tab writes none, and the name only matters for a file that also wants a display name."
+          "description": "A name for the resulting palette. Usually omitted - the Chapter tab writes none, and the name only matters for a file that also wants a display name."
         },
         "colours": {
           "type": "object",
           "description": "Token id to colour, e.g. { \"raised\": \"#FF24242E\" }. A colour is #RRGGBB, #AARRGGBB, or a bare 0xAARRGGBB number. An unknown token id is reported by the validator, and the client ignores it.",
           "additionalProperties": { "type": ["string", "integer"] }
+        },
+        "canvasBackground": {
+          "type": "object",
+          "description": "A pattern over the canvas's colour - the same object a theme file carries. `spacing` is content units under `graph` and screen pixels under `screen`; an image is screen-fixed and ignores it. The ink is the `canvasPattern` colour token, whose alpha is a pattern's strength - an image uses only its alpha and draws in white.",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "enum": ["none", "dot_grid", "grid_lines", "speckle", "hatch", "image"],
+              "description": "The pattern to draw."
+            },
+            "space": {
+              "enum": ["graph", "screen"],
+              "description": "What the pattern is anchored to: the content, or the screen. Ignored by `image`, which is always screen-fixed."
+            },
+            "spacing": {
+              "type": "integer",
+              "minimum": 6,
+              "maximum": 256,
+              "description": "Distance between repeats. Clamped to this range by the reader."
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4,
+              "description": "The edge of a dot or speck and the thickness of a line or hatch step, in pixels. Clamped to this range by the reader."
+            },
+            "density": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 16,
+              "description": "Speckle only: one cell in this many carries a mark. Clamped to this range by the reader."
+            },
+            "direction": {
+              "enum": ["slash", "backslash"],
+              "description": "Hatch only: which way the diagonal leans."
+            },
+            "fit": {
+              "enum": ["tile", "cover"],
+              "description": "Image only: repeat the texture at `tile` size, or draw it once scaled to cover and centred."
+            },
+            "texture": {
+              "type": "string",
+              "description": "Image only: the texture id, canonicalised to `ns:textures/path.png`. An unresolvable texture draws nothing."
+            },
+            "tile": {
+              "type": "integer",
+              "minimum": 4,
+              "maximum": 256,
+              "description": "Image only, under `tile` fit: the width one repeat is drawn at, in pixels. Clamped to this range by the reader."
+            }
+          }
         },
         "cornerRadius": {
           "type": "integer",
@@ -348,7 +399,7 @@
         },
         "dependencyStyle": {
           "$ref": "#/definitions/dependencyStyle",
-          "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (orthogonal, one, solid, thin), and a line that names the same axis overrides just that one."
+          "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (chamfered, one, solid, thin), and a line that names the same axis overrides just that one."
         },
         "theme": {
           "type": "string",
@@ -356,7 +407,7 @@
         },
         "themePatch": {
           "$ref": "#/definitions/themePatch",
-          "description": "Token-level overrides for `theme`: individual colours and a corner radius applied over the named theme (or over the player's own when no theme is named). This is how a chapter sets \"raised #24242E and radius 4\" without shipping a whole theme file, and the Theme tab's chapter target writes it."
+          "description": "Token-level overrides for `theme`: individual colours and a corner radius applied over the named theme (or over the player's own when no theme is named). This is how a chapter sets \"raised #24242E and radius 4\" without shipping a whole theme file, and the Chapter tab's appearance section writes it."
         },
 
         "quests": { "type": "array", "items": { "$ref": "#/definitions/quest" } }

@@ -1,0 +1,27 @@
+{
+  "entries": [
+    {
+      "weight": 0,
+      "reward": {
+        "type": "tasked:xp",
+        "amount": 5
+      }
+    },
+    {
+      "weight": 4,
+      "reward": {
+        "type": "tasked:item",
+        "item": "minecraft:glowstone_dust",
+        "count": 4
+      }
+    },
+    {
+      "weight": 2,
+      "reward": {
+        "type": "tasked:item",
+        "item": "minecraft:amethyst_shard",
+        "count": 2
+      }
+    }
+  ]
+}

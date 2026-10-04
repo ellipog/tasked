@@ -69,7 +69,9 @@ holds the tree's own settings.
     "defaultAutoClaim": "disabled",
     "defaultTeamReward": false,
     "suppressAllAutoclaiming": false,
-    "detectionDelay": 20
+    "detectionDelay": 20,
+    "bookTitle": "The Orrery Ledger",
+    "bookIcon": "minecraft:spyglass"
   },
   "entries": [
     { "group": "first_light" },
@@ -89,6 +91,13 @@ thing it affects:
 | `defaultTeamReward` | `false` | Whether a reward that does not say otherwise is one claim for the team |
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
 | `detectionDelay` | `20` | Ticks after a player joins before their first task check, so a login does not run the whole book on one tick |
+| `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title |
+| `bookIcon` | `""` | The item id the book wears in its header; an id a client cannot resolve is drawn as a missing-item mark |
+
+The last two are the book's identity, synced to every client with the tree. They can be set by hand
+here or in game from the **Book** section of the tools panel — an operator's tool. Unlike every other
+edit there, a Book edit is not covered by Ctrl+Z: the settings block is not modelled by the editor's
+history, and the write goes straight to this file.
 
 An absent `index.json` is not an error: the tree is ordered the old way, folders by name, and that is
 how every pack written before the file existed still loads.
@@ -121,6 +130,24 @@ schema folder, a note, or a draft sit beside the content without being loaded. I
 [[declared-path]]: the mod reads its directories by name rather than scanning them, so a stray file
 cannot be mistaken for content. `tools/quests/_schema/` in the repository is the worked example.
 
+## Editor schemas
+
+Each kind has a published JSON Schema, and a file that names it gets autocomplete and
+error-underlining in any editor that speaks JSON Schema. Tasked ignores the key entirely; it is
+there for the editor.
+
+| File | `$schema` |
+|---|---|
+| `group.json` | `https://ellipog.dev/tasked/_schema/group.schema.json` |
+| `chapter.json` | `https://ellipog.dev/tasked/_schema/chapter.schema.json` |
+| a quest file | `https://ellipog.dev/tasked/_schema/quest.schema.json` |
+| `index.json` | `https://ellipog.dev/tasked/_schema/index.schema.json` |
+| `reward_tables/<name>.json` | `https://ellipog.dev/tasked/_schema/reward_table.schema.json` |
+
+The same five files are checked into the repository under `tools/quests/_schema/`, so a copy works
+offline. [[tasked:authoring/validation]] is what Tasked itself checks; the schema is what your
+editor checks before a file ever reaches the game, and the two are held in step by a test.
+
 ## The older, single-file format
 
 <details>
@@ -132,7 +159,8 @@ is recognised by *position*, not by a `version` field, so an old file needs no e
 
 The two formats describe the same objects, so a flat file may carry the same fields a `group.json`
 does. New packs should use the folder format; the flat one is kept so old ones do not have to be
-rewritten.
+rewritten. Its schema is published at
+`https://ellipog.dev/tasked/_legacy/tasked-quests.schema.json`.
 
 </details>
 

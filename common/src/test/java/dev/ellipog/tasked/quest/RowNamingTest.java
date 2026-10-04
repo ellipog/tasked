@@ -63,16 +63,19 @@ class RowNamingTest {
      * <p>A message is a whole sentence with no per-type argument -- the inventory-full notice -- so
      * there is no display it belongs to, and the reverse check below must not ask for one.
      */
-    private static final Set<String> MESSAGE_KEYS = Set.of("tasked.reward.inventory_full");
+    private static final Set<String> MESSAGE_KEYS = Set.of("tasked.reward.inventory_full_count");
 
     /**
      * The keys whose sentence counts something, so the count is the argument and there is no subject.
      *
      * <p>Every other key is written for a subject -- a stage, a table, a mob -- and a type that sends
      * none would have its row formatted with the count, which is the reported "1" from the other side.
+     *
+     * <p>The singular level key is here as well as the plural one: the count decides which of the two
+     * the row carries, and both are formatted with it.
      */
     private static final Set<String> COUNT_KEYS = Set.of("tasked.reward.xp.points",
-            "tasked.reward.xp.levels");
+            "tasked.reward.xp.levels", "tasked.reward.xp.level");
 
     @Test
     @DisplayName("every registered type's English row names its subject instead of showing a bare value")
@@ -114,7 +117,10 @@ class RowNamingTest {
                 trees.add(with(trees.get(0), "remove", true));
             }
             if (id.getPath().equals("xp")) {
-                trees.add(with(trees.get(0), "levels", true));
+                // Both level keys, and the count is what chooses between them: a sweep that built only
+                // one of the two would leave the other looking unused by the reverse check below.
+                trees.add(with(with(trees.get(0), "levels", true), "amount", 3));
+                trees.add(with(with(trees.get(0), "levels", true), "amount", 1));
             }
             for (JsonObject tree : trees) {
                 QuestReward reward = RewardTypes.dispatchCodec().parse(JsonOps.INSTANCE, tree)
@@ -213,6 +219,12 @@ class RowNamingTest {
     }
 
     private static JsonObject with(JsonObject tree, String field, boolean value) {
+        JsonObject copy = tree.deepCopy();
+        copy.addProperty(field, value);
+        return copy;
+    }
+
+    private static JsonObject with(JsonObject tree, String field, int value) {
         JsonObject copy = tree.deepCopy();
         copy.addProperty(field, value);
         return copy;

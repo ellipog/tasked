@@ -631,16 +631,17 @@ class QuestIndexTest {
     }
 
     @Test
-    @DisplayName("the examples are seven different designs, not one design seven times")
+    @DisplayName("the example chapter is one canvas, and it exercises everything")
     void theExampleQuestlinesExerciseDifferentThings() throws java.io.IOException {
         // A test that says what the example content is *for*, so a future tidy-up cannot quietly turn
-        // an exhibition into seven copies of the first file. The descriptions in the files already
-        // claim all of this; this is the version a compiler reads.
+        // an exhibition into a chapter that has lost half its mechanisms. The descriptions in the
+        // files already claim all of this; this is the version a compiler reads.
         //
         // It grew with the exhibition, and the pattern is worth naming: every time a mechanism had no
         // example, the mechanism was the thing nobody could see how to write. So the assertions below
         // are not a checklist of the engine -- they are the list of things a reader is entitled to
-        // find a worked example of.
+        // find a worked example of. They survived the collapse from twelve questlines to one chapter;
+        // the three that could not are noted where they used to sit.
         QuestLoader.Result loaded = loadExamples(temp.resolve("varied"));
 
         assertTrue(loaded.ok(), "fixture sanity -- the examples should be clean first:"
@@ -714,14 +715,14 @@ class QuestIndexTest {
                 "no example chapter group declares an alias");
 
         // The two sides of the folder-tree format that are otherwise invisible: a group collapsed by
-        // default, and a chapter dressed in a theme of its own outside the gallery.
+        // default, and a chapter dressed in a theme of its own. With one chapter the theme is the
+        // default palette plus a themePatch -- the chapter still names its palette rather than
+        // leaving it to the player's, which is the field being read.
         assertTrue(index.groups().stream().anyMatch(entry -> entry.group().collapsedByDefault()),
                 "no example group is collapsed by default, so the field that decides what a sidebar"
                         + " looks like on first sight is only ever read by its own test");
-        assertTrue(index.chapters().stream().anyMatch(entry -> entry.chapter().theme().isPresent()
-                        && !entry.groupId().equals("theme_gallery")),
-                "the only chapters that name a theme are the gallery's, which makes a chapter's theme"
-                        + " look like a feature of the gallery rather than of the format");
+        assertTrue(index.chapters().stream().anyMatch(entry -> entry.chapter().theme().isPresent()),
+                "no example chapter names a theme, so the field is only ever read by its own test");
 
         // Text written as a translation key with a fallback -- the other spelling a text field takes,
         // and the one a pack that wants its questline translated needs.
@@ -765,8 +766,8 @@ class QuestIndexTest {
 
         // The visibility family, flag by flag. Each of these changes what a player can see, and a flag
         // with no example is a flag nobody can look up how to write -- which for this family is
-        // especially expensive, because the behaviour it changes is invisible by definition. `the_veil`
-        // is the chapter written to hold one of each.
+        // especially expensive, because the behaviour it changes is invisible by definition. The veils
+        // arm of the orrery is the part of the chapter written to hold one of each.
         assertTrue(all.stream().anyMatch(quest -> quest.rules().maxCompletableDependents() > 0),
                 "no example caps its dependents, so the branch point that closes roads has no file");
         assertTrue(all.stream().anyMatch(quest -> quest.rules().invisible()
@@ -785,43 +786,22 @@ class QuestIndexTest {
         assertTrue(all.stream().anyMatch(quest -> quest.rules().hideDetailsUntilStartable()),
                 "no example withholds its details until it can be started");
 
-        // A LINEAR chapter, and not a small one: the list order being the progression is a mechanism
-        // that is otherwise never read by anything outside a test fixture, and the mosaic is the
-        // chapter that makes it visible -- forty-odd nodes whose *positions* are the picture the
-        // order fills in.
-        var mosaic = index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
-                .filter(chapter -> chapter.progressionMode() == ProgressionMode.LINEAR)
-                .max(java.util.Comparator.comparingInt(chapter -> chapter.quests().size()));
-        assertTrue(mosaic.isPresent() && mosaic.get().quests().size() >= 40,
-                "no example is a large LINEAR chapter, so nothing shows the list order being used as"
-                        + " more than a chain of six");
-
-        // And a dependency that leaves its own chapter group, because the format allows one and a
-        // reader should be able to find out what that looks like before writing one.
-        boolean crossesGroups = false;
-        for (QuestIndex.QuestEntry entry : index.quests()) {
-            for (QuestRef dependency : entry.quest().dependencies()) {
-                var target = index.quest(dependency.id());
-                if (target.isPresent() && !target.get().groupId().equals(entry.groupId())) {
-                    crossesGroups = true;
-                }
-            }
-        }
-        assertTrue(crossesGroups, "no example dependency leaves its own chapter group, so a"
-                + " cross-group edge is only ever described and never shown");
-
-        // The examples come in sizes, so that 'what does a real questline look like' has more than one
-        // answer: something you can read in a minute, and something you scroll.
-        List<Integer> sizes = index.groups().stream()
-                .map(entry -> entry.group().chapters().stream()
-                        .mapToInt(chapter -> chapter.quests().size()).sum())
-                .toList();
-        assertTrue(sizes.stream().anyMatch(size -> size <= 8),
-                "no small example questline, so the smallest answer to 'how much is a questline' is"
-                        + " missing: " + sizes);
-        assertTrue(sizes.stream().anyMatch(size -> size >= 40),
-                "no large example questline, so nothing shows what a chapter of many quests is like: "
-                        + sizes);
+        // Three assertions used to live here, and they are gone because one chapter cannot make them
+        // true -- which is the price of the collapse, stated rather than hidden:
+        //
+        //   - a large LINEAR chapter, whose list order is the progression. A chapter is linear or
+        //     flexible and not both, and linear would deadlock the exclusive pairs and OR-gates this
+        //     same test insists on, so the worked examples are flexible. LINEAR remains a documented
+        //     mode with its own engine tests; it is no longer part of the exhibition.
+        //   - a dependency that leaves its own chapter group. That needs a second group, and the
+        //     whole point of this round was one.
+        //   - examples in two sizes, one small and one large. One chapter is one size.
+        //
+        // The line that replaces them is the one claim that is still checkable: the single chapter is
+        // large enough to scroll.
+        assertTrue(all.size() >= 40,
+                "the example chapter is no longer the large end of what a chapter can be: "
+                        + all.size() + " quest(s)");
 
         // And the two defaults, by their absence: most quests draw no name and take no items, which is
         // what makes the exceptions in the files mean something.
@@ -1020,152 +1000,6 @@ class QuestIndexTest {
     }
 
     @Test
-    @DisplayName("the theme gallery's fifteen chapters are the same layout with different content")
-    void theThemeGalleryIsComparable() throws java.io.IOException {
-        // The gallery has exactly one job: let someone switch theme and see what changed. That only
-        // works if its chapters differ in **nothing but their palette** -- otherwise a
-        // difference on screen could be the theme or the content, and an exhibit that varies two things
-        // at once demonstrates neither.
-        //
-        // So this asserts the two halves of that, and they pull in opposite directions on purpose:
-        //
-        //   - **Geometry identical**, quest for quest, position and shape and size and icon scale. That
-        //     is what makes flipping between chapters a comparison rather than a new screen.
-        //   - **Titles all different**, because fifteen chapters with identical tiles would be one
-        //     chapter written fifteen times, which is the thing the test above this one exists to prevent.
-        //
-        // The interesting failure this catches is not a typo. It is somebody later "tidying" one
-        // chapter's positions because they looked arbitrary, which would silently turn the one piece of
-        // content whose whole design is comparability into fifteen unrelated chapters.
-        QuestIndex index = loadExamples(temp.resolve("gallery")).index();
-
-        // Found by group id rather than by file name, because there is no file that *is* the
-        // gallery: its fifteen chapters are fifteen folders, and the group's own manifest is what
-        // says which ones they are. The group is `the_descent` -- one descent in fifteen palettes,
-        // which is what replaced the old theme gallery and kept the comparability contract: same
-        // six stations, same geometry, in every shipped theme.
-        //
-        // `orElseThrow` rather than an index into a list, so a renamed group fails with the id it looked
-        // for and the groups that exist, rather than with an IndexOutOfBounds on somebody's refactor.
-        List<Chapter> chapters = index.group("the_descent")
-                .orElseThrow(() -> new AssertionError("no chapter group called the_descent in the"
-                        + " examples, so this test is looking at the wrong content. Groups present: "
-                        + index.groups().stream().map(entry -> entry.group().id()).toList()))
-                .group().chapters();
-        // One chapter per shipped theme, asserted as a number rather than as "at least one". The
-        // gallery is the only thing that demonstrates a theme by being clicked, so a chapter quietly
-        // dropped makes a theme unreachable from the UI -- and nothing else in the build would notice,
-        // because a theme nobody can select is still a perfectly valid theme.
-        assertEquals(15, chapters.size(),
-                "the theme gallery should be one chapter per shipped theme: " + chapters.stream()
-                        .map(Chapter::id).toList());
-
-        // Geometry, as strings, so a mismatch names the field it is in rather than printing two records
-        // that differ somewhere the reader has to find.
-        //
-        // The quest's **id is deliberately absent** from this string, and that is the whole trick: the
-        // three chapters have different content, so their ids differ by design. Including the id would
-        // make the comparison fail for every chapter and the assertion would look like it was testing
-        // something when it was testing "these are three different files".
-        List<List<String>> geometries = new ArrayList<>();
-        for (Chapter chapter : chapters) {
-            List<String> geometry = new ArrayList<>();
-            for (Quest quest : chapter.quests()) {
-                QuestLayout layout = quest.layout();
-                geometry.add(layout.x() + "," + layout.y() + " as " + layout.shape() + " " + layout.size()
-                        + " icon " + layout.iconScale());
-            }
-            geometries.add(geometry);
-        }
-        assertEquals(6, geometries.get(0).size(),
-                "each gallery chapter is six quests, so one of them lost or gained one: "
-                        + geometries.get(0));
-
-        // Every chapter against the first, named, so a failure says *which* chapter drifted rather
-        // than printing fifteen identical-looking lists. Writing this out as a loop rather than fifteen
-        // assertions is the same choice as the token registry: the invariant is "all of them agree",
-        // and a hand-written list is one that the sixteenth theme is left out of.
-        for (int i = 1; i < geometries.size(); i++) {
-            assertEquals(geometries.get(0), geometries.get(i),
-                    "chapter " + i + " ('" + chapters.get(i).id() + "') has different geometry from"
-                            + " chapter 0 ('" + chapters.get(0).id() + "'), so a difference seen while"
-                            + " flipping between them is not attributable to the theme");
-        }
-
-        // And the content is genuinely different, which is the other half. Without this the three
-        // chapters would be one chapter written three times, which is the failure the test above this
-        // one exists to prevent.
-        Set<String> titles = new LinkedHashSet<>();
-        Set<String> icons = new LinkedHashSet<>();
-        for (Chapter chapter : chapters) {
-            for (Quest quest : chapter.quests()) {
-                // Resolved rather than read, because a title is a `QuestText` -- either a literal or a
-                // translation key. Comparing the keys would pass for three chapters whose titles all
-                // read the same to a player, which is the opposite of what this asserts.
-                titles.add(quest.title().component().getString());
-                icons.add(quest.icon().toString());
-            }
-        }
-        assertEquals(90, titles.size(),
-                "two gallery quests share a title, so two chapters are partly the same chapter");
-        assertTrue(icons.size() >= 30,
-                "the chapters reuse icons heavily, which makes them harder to tell apart than the"
-                        + " theme already makes them: " + icons.size() + " distinct icons across"
-                        + " 90 quests");
-
-        // And the half that makes the whole file work: every chapter names a theme, and they are all
-        // different.
-        //
-        // This is not a formality, and the first version of this file is why. It predated the theme
-        // field and relied on a command instead, so clicking between its chapters changed nothing --
-        // which is the reported bug, and it was reported as "they all look identical, just clicking
-        // through them". A chapter with no `theme` is not a broken chapter; it is a chapter making no
-        // claim. Several of them in a row is a gallery that demonstrates nothing, and only a test of
-        // the *set* can see that, because every individual chapter is well-formed.
-        List<String> themes = chapters.stream().map(chapter -> chapter.theme().orElse("")).toList();
-        assertFalse(themes.contains(""),
-                "a gallery chapter names no theme, so it looks identical to whichever chapter came"
-                        + " before it: " + themes);
-        assertEquals(chapters.size(), new LinkedHashSet<>(themes).size(),
-                "two gallery chapters name the same theme, so one of the fifteen is demonstrated twice"
-                        + " and a theme is missing from the gallery: " + themes);
-
-        // And every name it uses is one this build has, which is the assertion that makes the count
-        // above mean something. A gallery of fifteen chapters naming fifteen names, one of which is a
-        // typo, passes the distinctness check and shows the player fourteen themes -- so the two
-        // together are the property, not either on its own. `exampleThemesExist` below covers the same
-        // ground for every shipped file; this narrows it to the one where a missing theme is
-        // invisible rather than merely wrong.
-        for (String theme : themes) {
-            assertNotNull(dev.ellipog.armature.client.ui.Themes.byName(theme),
-                    "the gallery asks for a theme called '" + theme + "', which this build does not"
-                            + " have. It has: " + dev.ellipog.armature.client.ui.Themes.names());
-        }
-
-        // And it covers every theme except one -- <b>and the exception is the point</b>.
-        //
-        // `default` is deliberately not a chapter, because the default theme *is* the frame these
-        // chapters are read inside: a chapter asking for it would show a canvas identical to the
-        // sidebar beside it, which demonstrates nothing and would read as the chapter having failed to
-        // load. So the gallery is every theme apart from the one a player is already looking at.
-        //
-        // Written as a set difference against the catalogue rather than as a count, because the property
-        // worth protecting is "a new theme cannot be added without a chapter" -- and a count of fifteen
-        // passes just as happily when a sixteenth theme is added and a chapter is mistakenly pointed at
-        // an older name. This fails, and names the theme that has nowhere to be seen.
-        Set<String> shipped = dev.ellipog.armature.client.ui.Themes.ALL.stream()
-                .map(dev.ellipog.armature.client.ui.Theme::name)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        shipped.remove("default");
-
-        assertEquals(shipped, new LinkedHashSet<>(themes),
-                "the gallery's chapters and the shipped themes have drifted apart. A theme in the left"
-                        + " set has no chapter, so nothing lets a player see it; a name in the right set"
-                        + " is a chapter asking for a theme that is not shipped. The only sanctioned"
-                        + " difference is `default`, which is the frame rather than a chapter.");
-    }
-
-    @Test
     @DisplayName("every theme a shipped example names is one this build actually has")
     void exampleThemesExist() throws java.io.IOException {
         // The failure this catches is the quietest one in the whole theme feature, and it is worth
@@ -1177,7 +1011,7 @@ class QuestIndexTest {
         // side, and the shipped examples are the one place where a typo would reach the player before
         // it reached anyone who could fix it.
         //
-        // So the gallery's `theme` field is checked against the built-ins here rather than discovered
+        // So every chapter's `theme` field is checked against the built-ins here rather than discovered
         // in a log. It is the same reasoning as the shape field that was parsed, validated and printed
         // by a command while nothing drew it: a value that only ever produces a warning at runtime is
         // a value that is wrong for a while before anyone notices.
@@ -1190,14 +1024,14 @@ class QuestIndexTest {
 
         QuestIndex index = loadExamples(temp.resolve("themes")).index();
 
-        // Every chapter in every example, rather than a hand-written list of four file names. That list
-        // was a thing that stops matching the content — and it did, the moment the examples became
-        // folders: there is no `04_theme_gallery.json` to name any more. Reading the index means a fifth
-        // example is covered the day it is added.
+        // Every chapter in every example, rather than a hand-written list of file names. That list was
+        // a thing that stops matching the content — and it did, the moment the examples became
+        // folders: there was no `04_theme_gallery.json` to name any more. Reading the index means a
+        // new example is covered the day it is added.
         //
         // `entry.file()` rather than the old flat name, so the message names the file that actually
-        // holds the mistake — `theme_gallery/gallery_tome/chapter.json` rather than a file that contains
-        // fifteen chapters and no longer exists.
+        // holds the mistake — a `chapter.json` inside its chapter folder rather than a flat file that
+        // contains fifteen chapters and no longer exists.
         for (QuestIndex.ChapterEntry entry : index.chapters()) {
             Chapter chapter = entry.chapter();
             if (chapter.theme().isEmpty()) {

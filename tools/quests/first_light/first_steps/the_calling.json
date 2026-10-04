@@ -1,0 +1,44 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_calling",
+  "title": {
+    "translate": "tasked.example.first_light.the_calling",
+    "fallback": "The Calling"
+  },
+  "subtitle": "A stage granted, and a title in the other spelling",
+  "description": [
+    "A stage reward is the write half of the stage feature: completing",
+    "this quest grants `first_light:sworn`, and the oath below is gated",
+    "on it.",
+    "",
+    "The title is written in the other spelling a text field takes -- a",
+    "translation key with an English fallback -- which is what a pack",
+    "that wants its questline translated writes instead of a plain",
+    "string. Without the fallback a player whose language has no",
+    "translation sees the raw key."
+  ],
+  "icon": {
+    "item": "minecraft:name_tag"
+  },
+  "x": -704,
+  "y": 352,
+  "dependsOn": [
+    "the_ledger_closes"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Answer the calling"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:stage",
+      "stage": "first_light:sworn"
+    },
+    {
+      "type": "tasked:xp",
+      "amount": 20
+    }
+  ]
+}

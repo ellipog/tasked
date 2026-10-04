@@ -190,13 +190,13 @@
     },
 
     "dependencyStyle": {
-      "description": "One line's style. Only the axes it names override anything; the axes it omits fall back to the chapter's default, and then to the built-ins (orthogonal, chevron at the target, solid, thin).",
+      "description": "One line's style. Only the axes it names override anything; the axes it omits fall back to the chapter's default, and then to the built-ins (chamfered, chevron at the target, solid, thin).",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "form": {
-          "enum": ["orthogonal", "chamfered", "straight", "stepped", "curved", "radial"],
-          "description": "The route's shape. Orthogonal is the three-segment step, chamfered the same step with 45-degree corner cuts, straight a direct line, stepped a Z broken at the chord's midpoint, curved a smooth bow, and radial a circular arc. Curved and radial read `bend`."
+          "enum": ["orthogonal", "chamfered", "straight", "curved"],
+          "description": "The route's shape. Chamfered is the built-in default: the three-segment step with every 90-degree corner cut at 45 degrees, a circuit trace. Orthogonal is the same step left square, straight a direct line, and curved a smooth bow, which reads `bend`."
         },
         "arrowHead": {
           "enum": ["chevron", "triangle", "dot", "diamond", "none"],
@@ -305,7 +305,7 @@
               },
               "reward": {
                 "allOf": [ { "$ref": "#/definitions/anyType" } ],
-                "not": { "required": ["conditions"] },
+                "not": { "type": "object", "required": ["conditions"] },
                 "description": "The reward this entry grants. All of anyType except `conditions`, which cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. Put conditions on the table reward itself."
               }
             }

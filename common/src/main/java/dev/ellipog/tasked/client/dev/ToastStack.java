@@ -32,14 +32,29 @@ public final class ToastStack {
     /** One sentence, and when it was said. */
     public record Toast(String text, boolean error, long bornAt) {
 
-        /** How visible it is now: full until {@link #FADE_FROM} of its life, then down to nothing. */
-        public float alpha(long now) {
+        /**
+         * How visible it is now: full until {@link #FADE_FROM} of its life, then down to nothing.
+         *
+         * <p>The motion-aware form is the one the book draws with: with Motion off the sentence is
+         * simply there and then gone, because a fade is movement and the switch exists for people who
+         * cannot comfortably use it. The one-argument form keeps the old behaviour for callers with no
+         * opinion -- tests, and the book's own future ones.
+         */
+        public float alpha(long now, boolean motion) {
             long age = Math.max(0L, now - bornAt);
             if (age >= LIFETIME_MILLIS) {
                 return 0F;
             }
+            if (!motion) {
+                return 1F;
+            }
             float elapsed = (float) age / LIFETIME_MILLIS;
             return elapsed <= FADE_FROM ? 1F : 1F - (elapsed - FADE_FROM) / (1F - FADE_FROM);
+        }
+
+        /** {@link #alpha(long, boolean)} with motion on. */
+        public float alpha(long now) {
+            return alpha(now, true);
         }
     }
 

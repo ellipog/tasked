@@ -41,32 +41,38 @@ class DevModeTest {
     void offByDefault() {
         assertFalse(DevMode.on());
         assertTrue(DevMode.snap(), "the grid is the default, and is not gated on the mode");
+        assertTrue(DevMode.progress(), "and so are the sidebar's chapter progress bars");
         assertNull(DevMode.file(), "and no file has been read yet");
     }
 
     @Test
-    @DisplayName("reading, writing and reading back both flags")
+    @DisplayName("reading, writing and reading back all three flags")
     void roundTrip(@TempDir Path dir) throws IOException {
         Path file = dir.resolve(DevMode.FILE_NAME);
 
-        assertEquals("{\"dev\":true,\"snap\":true}", DevMode.write(true, true), "the format, stated once");
-        assertEquals("{\"dev\":false,\"snap\":false}", DevMode.write(false, false));
+        assertEquals("{\"dev\":true,\"snap\":true,\"progress\":true}", DevMode.write(true, true, true),
+                "the format, stated once");
+        assertEquals("{\"dev\":false,\"snap\":false,\"progress\":false}", DevMode.write(false, false, false));
 
-        Files.writeString(file, DevMode.write(true, true), StandardCharsets.UTF_8);
+        Files.writeString(file, DevMode.write(true, true, true), StandardCharsets.UTF_8);
         DevMode.load(file);
         assertEquals(file, DevMode.file(), "the file it read is the file it will write");
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap());
+        assertTrue(DevMode.progress());
 
         // And the other direction, which is the one a toggle takes.
         DevMode.setOn(false);
         DevMode.setSnap(false);
+        DevMode.setProgress(false);
         assertFalse(DevMode.on());
         assertFalse(DevMode.snap());
+        assertFalse(DevMode.progress());
         String written = Files.readString(file, StandardCharsets.UTF_8);
         assertFalse(DevMode.read(written), "what was written is what is read");
         DevMode.load(file);
         assertFalse(DevMode.snap(), "and the snap flag round-trips through the same file");
+        assertFalse(DevMode.progress(), "and so does the bars' switch");
     }
 
     @Test
@@ -77,6 +83,7 @@ class DevModeTest {
         DevMode.load(old);
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap(), "a missing field takes its default, which is on for the grid");
+        assertTrue(DevMode.progress(), "and for the progress bars");
     }
 
     @Test

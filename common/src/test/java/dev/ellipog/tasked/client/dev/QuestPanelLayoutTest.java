@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("the quest panel's rows")
 class QuestPanelLayoutTest {
 
+
     /** A quest with one of everything the panel edits. */
     private static JsonObject quest() {
         return JsonParser.parseString("""
@@ -218,7 +219,9 @@ class QuestPanelLayoutTest {
         List<InspectRow> rows = QuestPanelLayout.typeRows("tasks",
                 new TreeSet<>(Set.of("tasked:item", "tasked:checkmark", "addon:mystery")));
 
-        assertEquals(List.of("Add a task", "Hand in", "Manual", QuestPanelLayout.MORE),
+        // The heading is resolved where the row is built, so the expectation is the word rather than the
+        // key: `Labels.of` is the same call the layout makes, with the language installed.
+        assertEquals(List.of("Add a task", "Hand in", "Manual", Labels.of(QuestPanelLayout.MORE)),
                 rows.stream().filter(InspectRow::isHeading).map(InspectRow::label).toList(),
                 "an empty group is left out, and the unknown type gets one of its own");
         assertEquals("addon:mystery", row(rows, QuestPanelLayout.TYPE_PREFIX + "addon:mystery").label(),

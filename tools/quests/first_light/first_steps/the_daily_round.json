@@ -1,0 +1,39 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_daily_round",
+  "title": "The Daily Round",
+  "subtitle": "repeatable, on a cooldown",
+  "description": [
+    "`repeatable: true` makes a quest completable more than once, and",
+    "`repeatCooldownTicks: 2400` makes the player wait two minutes",
+    "between rounds. `timesCompleted` survives each completion, and",
+    "anything depending on a repeatable quest stays satisfied once it has",
+    "been completed at least once.",
+    "",
+    "The shepherd's tally hangs off this round, so the arm also shows the",
+    "other half: a dependency on a repeatable quest is a dependency on",
+    "its first completion."
+  ],
+  "icon": {
+    "item": "minecraft:clock"
+  },
+  "x": -576,
+  "y": 576,
+  "dependsOn": [
+    "the_crossroads"
+  ],
+  "repeatable": true,
+  "repeatCooldownTicks": 2400,
+  "tasks": [
+    {
+      "type": "tasked:checkmark",
+      "title": "Make the round"
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 10
+    }
+  ]
+}

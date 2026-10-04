@@ -179,7 +179,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 9;
+    public static final int TREE_VERSION = 10;
 
     /**
      * The quest tree, as JSON.
@@ -279,6 +279,17 @@ public final class QuestSync {
         String theme = packTheme(index);
         if (theme != null) {
             root.addProperty("theme", theme);
+        }
+        // The pack's own name and icon for the book, when its index declares them. Absent keys mean the
+        // client's own translatable title and no icon -- the same reading every optional field here
+        // gets. The icon is an id the client resolves, so a missing item is drawn as the header's own
+        // mark rather than refused on this side.
+        QuestSettings settings = TaskedQuests.settings();
+        if (!settings.bookTitle().isEmpty()) {
+            root.addProperty("bookTitle", settings.bookTitle());
+        }
+        if (!settings.bookIcon().isEmpty()) {
+            root.addProperty("bookIcon", settings.bookIcon());
         }
         root.add("groups", groups);
         root.add("chapters", chapters);

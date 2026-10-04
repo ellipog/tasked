@@ -1,0 +1,40 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_speck",
+  "title": "The Speck",
+  "subtitle": "The smallest node, and shape: none",
+  "description": [
+    "Sixteen pixels, the floor of the size range, and `shape: none`: no",
+    "panel at all, just the icon, with the whole square still clickable.",
+    "`iconScale: 1.0` fills that square corner to corner -- the opposite",
+    "end of the scale from the sun, and the pair that shows a reader what",
+    "the two fields actually do.",
+    "",
+    "A speck is still a quest: it counts an amethyst shard and pays",
+    "experience like any other node."
+  ],
+  "icon": {
+    "item": "minecraft:amethyst_shard"
+  },
+  "x": 960,
+  "y": -128,
+  "shape": "none",
+  "size": 16,
+  "iconScale": 1.0,
+  "dependsOn": [
+    "the_mirror"
+  ],
+  "tasks": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:amethyst_shard",
+      "count": 1
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:xp",
+      "amount": 5
+    }
+  ]
+}

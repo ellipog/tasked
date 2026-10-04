@@ -55,10 +55,17 @@ public record XpReward(RewardCommon common, int amount, boolean levels) implemen
      * rewards with different wording, and a single key with a plural would need the client to decide
      * which noun to use — which is the server's question to answer, since the server is the one that
      * knows whether {@code levels} was set.
+     *
+     * <p>And three keys, because the singular is the server's answer too: the key is what a client with
+     * a language renders, so a key written "%s level(s)" is what a player would read while the fallback
+     * beside it — the same reward on a client with no language — read "1 level". Two spellings of one
+     * reward is the drift this file's fallbacks exist to prevent, and the count that decides between
+     * them is already in the server's hand.
      */
     public static final java.util.function.Function<XpReward, RewardDisplay> DISPLAY = reward ->
             reward.levels()
-                    ? RewardDisplay.ofTranslatableText("tasked.reward.xp.levels",
+                    ? RewardDisplay.ofTranslatableText(
+                            reward.amount() == 1 ? "tasked.reward.xp.level" : "tasked.reward.xp.levels",
                             reward.amount() + (reward.amount() == 1 ? " level" : " levels"), reward.amount())
                     : RewardDisplay.ofTranslatableText("tasked.reward.xp.points",
                             reward.amount() + " XP", reward.amount());

@@ -42,6 +42,12 @@ public final class ChapterTheme {
      * <p>A malformed patch is read leniently by the toolkit's own parser — bad tokens and unreadable
      * values are dropped, and the rest still applies. The validator reports them on the side that can
      * refuse the file; this side must never throw while a player waits for a screen.
+     * <h2>The chapter's choice is final</h2>
+     *
+     * <p>Whatever this returns is what the chapter's content draws: nothing re-applies the book's own
+     * edits over it. A chapter that names a theme or patches a token has spoken about that surface,
+     * and the book's look is the default it speaks over — not a layer on top. Where the chapter says
+     * nothing, the fallback (the book's look, the player's own edits included) shows through unchanged.
      */
     public static Theme compose(String named, JsonObject patch, Theme fallback) {
         Theme base = named == null || named.isBlank() ? fallback : Themes.any(named);

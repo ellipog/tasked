@@ -92,8 +92,8 @@
 
     "name": {
       "type": "string",
-      "pattern": "^[^/\\\\.]{1,128}$",
-      "description": "A single path segment: the name of something in the same folder as the file that declares it. No separator, no `..`, and not beginning with `_` (every `_`-prefixed name is skipped, everywhere, so a reference to one could never resolve)."
+      "pattern": "^(?!\\.{1,2}$)(?!_)[^/\\\\]{1,128}$",
+      "description": "A single path segment: the name of something in the same folder as the file that declares it. No separator, not `.` or `..`, and not beginning with `_` (every `_`-prefixed name is skipped, everywhere, so a reference to one could never resolve). A dot inside the name is fine - a flat one-file questline at the root is listed by its full file name."
     }
   }
 }

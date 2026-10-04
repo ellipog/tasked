@@ -1,0 +1,43 @@
+{
+  "$schema": "../../_schema/quest.schema.json",
+  "id": "the_undead_cull",
+  "title": "The Undead Cull",
+  "subtitle": "A kill by entity tag",
+  "description": [
+    "`entityTypeTag` counts any mob in a tag, so twelve of the undead is",
+    "twelve of whatever the tag holds -- zombie, skeleton, drowned,",
+    "phantom. It is its own field rather than a `#` in `entity`, so a tag",
+    "where an id is expected is an error here as it is everywhere else.",
+    "",
+    "Its line is `form: curved` with a half-strength bend: a broad",
+    "bow, the route the orrery's outer arms are drawn with."
+  ],
+  "icon": {
+    "item": "minecraft:rotten_flesh"
+  },
+  "x": 544,
+  "y": 320,
+  "dependsOn": [
+    "the_hunt"
+  ],
+  "dependencyLines": {
+    "the_hunt": {
+      "form": "curved",
+      "bend": 0.5
+    }
+  },
+  "tasks": [
+    {
+      "type": "tasked:kill",
+      "entityTypeTag": "minecraft:undead",
+      "value": 12
+    }
+  ],
+  "rewards": [
+    {
+      "type": "tasked:item",
+      "item": "minecraft:gold_ingot",
+      "count": 3
+    }
+  ]
+}

@@ -143,6 +143,8 @@ class EditorOpsTest {
         roundTrip(editor, new EditorOp.MoveEntry("one", "tasks", 0, 1));
         roundTrip(editor, new EditorOp.SetChapter("icon", icon));
         roundTrip(editor, new EditorOp.SetGroup("icon", icon));
+        roundTrip(editor, new EditorOp.SetIndex("bookTitle", new JsonPrimitive("The Orrery Ledger")));
+        roundTrip(editor, new EditorOp.SetIndex("bookIcon", JsonNull.INSTANCE));
         roundTrip(editor, new EditorOp.Delete("two"));
         roundTrip(editor, new EditorOp.Undo());
         roundTrip(editor, new EditorOp.Redo());

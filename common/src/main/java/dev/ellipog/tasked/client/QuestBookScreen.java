@@ -3,16 +3,20 @@ package dev.ellipog.tasked.client;
 import dev.ellipog.armature.api.client.ArmatureClient;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.armature.client.ArmatureButton;
+import dev.ellipog.armature.client.ArmatureSlider;
 import dev.ellipog.armature.client.ArmatureTextArea;
 import dev.ellipog.armature.client.ArmatureSwitch;
 import dev.ellipog.armature.client.ArmatureTextField;
 import dev.ellipog.armature.client.Look;
+import dev.ellipog.armature.client.TextScale;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.Tooltips;
 import dev.ellipog.armature.client.ui.ArmatureLive;
 import dev.ellipog.armature.client.ui.ArmatureScreen;
 import dev.ellipog.armature.client.ui.Theme;
 import dev.ellipog.armature.client.ui.Themes;
+import dev.ellipog.armature.client.ui.CanvasBackground;
+import dev.ellipog.armature.client.ui.art.CanvasBackgroundArt;
 import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.inspect.InspectField;
@@ -25,6 +29,7 @@ import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.RichText;
 import dev.ellipog.armature.client.ui.kit.ScrollView;
 import dev.ellipog.armature.client.ui.kit.Slot;
+import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.armature.client.ui.party.PartyRoster;
@@ -50,11 +55,13 @@ import dev.ellipog.tasked.quest.EditorSpecs;
 import dev.ellipog.tasked.client.dev.InlineEdit;
 import dev.ellipog.tasked.client.dev.ItemPicker;
 import dev.ellipog.tasked.client.dev.ItemPickerLayout;
+import dev.ellipog.tasked.client.dev.Labels;
 import dev.ellipog.tasked.client.dev.Alignment;
 import dev.ellipog.tasked.client.dev.LineArt;
 import dev.ellipog.tasked.client.dev.MenuFlyout;
 import dev.ellipog.tasked.client.dev.MenuFlyoutArt;
 import dev.ellipog.tasked.client.dev.MenuPlacement;
+import dev.ellipog.tasked.client.dev.ChapterBar;
 import dev.ellipog.tasked.client.dev.QuestPanel;
 import dev.ellipog.tasked.client.dev.QuestSettingsLayout;
 import dev.ellipog.tasked.client.dev.RewardBadge;
@@ -66,6 +73,7 @@ import dev.ellipog.tasked.client.dev.QuestPanelLayout;
 import dev.ellipog.tasked.client.dev.RowDrag;
 import dev.ellipog.tasked.client.dev.SearchCatalogue;
 import dev.ellipog.tasked.client.dev.SidebarDrag;
+import dev.ellipog.tasked.client.dev.TexturePicker;
 import dev.ellipog.tasked.client.dev.ToolsLayout;
 import dev.ellipog.tasked.client.dev.ToolsPanel;
 import dev.ellipog.tasked.client.dev.ToastStack;
@@ -75,6 +83,7 @@ import dev.ellipog.tasked.net.PartySnapshot;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.net.ClaimRewardPayload;
+import dev.ellipog.tasked.net.ClaimRewardEntryPayload;
 import dev.ellipog.tasked.net.ClaimAllPayload;
 import dev.ellipog.tasked.net.ChoiceRewardPayload;
 import dev.ellipog.tasked.net.ClaimChoicePayload;
@@ -90,6 +99,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.Util;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
@@ -103,6 +113,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -183,9 +194,9 @@ import java.util.UUID;
  * Done: panelLeft() + panelWidth() - 68,  panelTop() + panelHeight() - 24
  * </pre>
  *
- * <p>{@code canvasRight() == panelLeft() + panelWidth()}, so the two x values are 10px apart, and the
- * two y values are ~15px apart — a collision. So every position that the drawing and the controls both
- * need now comes from a helper method: {@link #footerRow1Y()}, {@link #footerRow2Y()},
+ * <p>The two x values were 10px apart and the two y values ~15px apart — a collision, and the reason
+ * every position that the drawing and the controls both need now comes from a helper method:
+ * {@link #footerRow1Y()}, {@link #footerRow2Y()},
  * {@link #stripButtonX()}, {@link #stripButtonY()}, {@link #sidebarViewport()}. One expression, used twice,
  * rather than two expressions that happen to agree until someone changes one.
  *
@@ -295,6 +306,9 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private static final int BODY_INSET = 18;
     private static final int BODY_TOP = 54;
+
+    /** The settings card's width. Narrower than the modal: two rows do not want a wide card. */
+    private static final int SETTINGS_CARD_WIDTH = 340;
     private static final int BODY_BOTTOM = 46;
 
     /**
@@ -326,7 +340,15 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The gap kept between a label and the node beside it. */
     private static final int LABEL_GAP = BookGeometry.LABEL_GAP;
 
-    private static final float MIN_ZOOM = 0.35F;
+    /**
+     * The zoom range: how far the view may be pulled back, and how far pushed in.
+     *
+     * <p>The floor is 0.2 rather than the 0.35 it was first, so a sprawling chapter can be taken in at
+     * once. Nothing else has to agree with it: labels are dropped by measured room rather than by a zoom
+     * threshold -- see the note above {@link #MAX_LABEL_WIDTH} -- so a further-out view reads as fewer
+     * names, not as a broken one.
+     */
+    private static final float MIN_ZOOM = 0.2F;
     private static final float MAX_ZOOM = 2.2F;
 
     /** How far the pointer must move before a press counts as a drag rather than a click. */
@@ -346,6 +368,17 @@ public final class QuestBookScreen extends ArmatureScreen {
          * its own, drawn with the same card and the same list. See {@link #pickTarget}.
          */
         PICKER,
+        /**
+         * The texture picker: the pack's own PNG files, for the canvas image's Texture row.
+         *
+         * <p>Its own overlay rather than a page of the picker's, because the two choose different
+         * things from different lists: an item is a registry entry with a stack to draw, a texture is a
+         * file with a picture to probe, and the item picker's catalogue, "current" row and commit all
+         * belong to a field of a quest or a chapter's identity. Sharing the card's shape while sharing
+         * none of that state is what keeps each picker's rules testable on its own -- see
+         * {@code TexturePicker} for the rules and {@link #drawTexturePicker} for the drawing.
+         */
+        TEXTURE,
         /**
          * A choice reward's entries, waiting for the player's answer.
          *
@@ -372,7 +405,15 @@ public final class QuestBookScreen extends ArmatureScreen {
          * the one overlay opened from the sidebar rather than from a quest, and the one whose fields are
          * read without an editor session: the ops it sends are structural.
          */
-        NAMING
+        NAMING,
+        /**
+         * The player's own settings: the theme list, the corner radius and the Motion switch.
+         *
+         * <p>A card of its own rather than a page of the tools panel, which is the author's -- the
+         * settings it holds are every player's, and they were behind the edit permission until this
+         * existed. See {@code SettingsLayout} for the rows and {@code Look} for what they change.
+         */
+        SETTINGS
     }
 
     // --- view state, kept between openings -----------------------------------
@@ -790,7 +831,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private static final String CHOICE_PREFIX = "choice:";
 
     /**
-     * The rewards panel's own list: one row per quest whose rewards are waiting.
+     * The rewards panel's own list: an accordion of quests whose rewards are waiting.
      *
      * <p>Its own view for the reason {@link #choiceView} is: the two cards are never open at once, and a
      * shared scroll would carry one list's position into the other.
@@ -798,17 +839,58 @@ public final class QuestBookScreen extends ArmatureScreen {
     private final ScrollView rewardView = ScrollView.of(Viewport.fixed());
 
     /** The rewards panel's rows and layout, for the card that is open. */
-    private List<InspectRow> rewardRows = List.of();
+    private List<RewardInboxLayout.Row> rewardRows = List.of();
     private Layout rewardLayout;
 
-    /** The key prefix of a rewards row; the quest's id follows. */
-    private static final String REWARD_PREFIX = "reward:";
+    /**
+     * The quests whose reward rows the inbox is showing open.
+     *
+     * <p>Collapsed by default, and remembered for as long as this screen lives. Nothing is hidden that
+     * a press cannot get at -- the header carries its own count and its own Claim Quest -- and a pack
+     * with twenty waiting quests opens as twenty lines rather than as a wall of rewards.
+     */
+    private final Set<String> expandedRewards = new HashSet<>();
+
+    /**
+     * The rows a press has already asked the server for, by {@link RewardInboxLayout} key.
+     *
+     * <p>The optimistic half of a claim: the row reads collected the moment it is pressed. Every claim
+     * handler sends a progress sync whether or not it paid, and that sync clears this set and rebuilds
+     * -- so a refusal puts the row back rather than leaving a claim on screen that never happened.
+     */
+    private final Set<String> pendingClaims = new HashSet<>();
 
     /** The header's way into the panel, kept so its tooltip can say whether anything is waiting. */
     private ArmatureButton rewardsButton;
 
+    /** The header's way into the player's settings; for every player, unlike the author's pair. */
+    private ArmatureButton settingsHeaderButton;
+
     /** The progress revision the rewards panel's rows were built at; see {@link #tick}. */
     private long rewardsRevision = -1;
+
+    /**
+     * The settings card's own list, rows and view; see {@link SettingsLayout}.
+     *
+     * <p>Named for the appearance rather than for the card, because the card's own Settings *page* --
+     * the quest editor's property inspector -- already owns {@code settingsView} and its siblings. Two
+     * surfaces called settings in one screen is one too many; this one is the player's.
+     */
+    private final ScrollView appearanceView = ScrollView.of(Viewport.fixed());
+    private List<SettingsLayout.Entry> appearanceEntries = List.of();
+    private List<InspectRow> appearanceRows = List.of();
+    private Layout appearanceLayout;
+
+    /** The card's own rect, sized to its rows; null until the card is built. */
+    private BookGeometry.Rect appearanceCard;
+
+    /**
+     * The canvas's keyboard focus: which node the arrow keys are standing on.
+     *
+     * <p>The nodes are custom-drawn and hit-tested, so they are invisible to focus, tab order and the
+     * narrator — this is the screen's half of the answer. See {@link CanvasFocus} for the rule.
+     */
+    private final CanvasFocus canvasFocus = new CanvasFocus();
 
     /**
      * The chapter list, as a scroll view over {@link BookGeometry#sidebarViewport()}.
@@ -899,9 +981,6 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** Positions asked for and not yet answered. Built once: it holds no chapter, so nothing to reset. */
     private final EditorSession editors = new EditorSession();
 
-    /** Whether the tools panel is open. See {@link #buildToolsWidgets} and {@link #drawTools}. */
-    private boolean toolsOpen;
-
     /**
      * Which panel the dock is showing: the tools this panel started as, or the quest the canvas has
      * selected. The strip that replaced the title row switches it.
@@ -910,7 +989,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      * tab switch never touches, so going to the Quest tab and back is exactly where you left it. That
      * permanence is the reason the dock grew tabs rather than swapping its contents.
      */
-    private ToolsLayout.Tab toolsTab = ToolsLayout.Tab.THEME;
+    private ToolsLayout.Tab toolsTab = ToolsLayout.Tab.BOOK;
 
     /** The colour the band is editing, or null. */
     private String toolsSelected;
@@ -924,13 +1003,65 @@ public final class QuestBookScreen extends ArmatureScreen {
     private boolean toolsColoursOpen = true;
 
     /**
-     * Whether the Theme tab is editing the open chapter's palette rather than the player's own theme.
+     * Whether the palette section is unfolded. Open by default, unlike the colours: it is the selector
+     * the tab exists for, and the wall it would make is the reason the colours fold instead.
+     */
+    private boolean toolsPaletteOpen = true;
+
+    /**
+     * Whether the chapter tab's appearance section is unfolded. Open by default: the fold exists so an
+     * author can put it away, not so the palette hides until found.
+     */
+    private boolean toolsAppearanceOpen = true;
+
+    /**
+     * Whether the book tab's Book section is unfolded — the pack's own name and icon for the book.
+     * Open by default, like the other sections: the fold exists so an operator theming the book can put
+     * the pack's fields away.
+     */
+    private boolean toolsBookOpen = true;
+
+    /**
+     * Whether the canvas section is unfolded. Open by default, like the rest: the fold exists so an
+     * author who came for the colours can put the surface away, not so it hides until found.
+     */
+    private boolean toolsCanvasOpen = true;
+
+    /**
+     * Whether the copy row is waiting for its second press, and the button its label is changed on.
      *
-     * <p>Off by default: the panel's day-to-day job is the player's theme, and the chapter target is the
-     * author's switch. It writes the chapter file through the same field op every other chapter edit
-     * uses, so an undo takes it back like any other change.
+     * <h2>Why the label is changed on the button rather than by a rebuild</h2>
+     *
+     * <p>The same reason the party's Disband does it (see {@code disarmDisband}): a rebuild goes through
+     * {@code init}, which disarms -- so arming and rebuilding cannot be the same press. The label the
+     * row model carries is still the armed one while armed (see {@code ToolsLayout.canvasRows}), which is
+     * what the arming press's own rebuild draws; any later rebuild builds the plain one.
+     */
+    private boolean canvasCopyArmed;
+    private ArmatureButton canvasCopyButton;
+
+    /**
+     * Whether the rebuild in flight is the arming press's own.
+     *
+     * <p>One flag for the one rebuild that must not disarm: {@code init} clears {@link #canvasCopyArmed}
+     * because a rebuild is a fresh panel, and the arming press deliberately rebuilds the rows so the
+     * armed label is the row's own. Without the guard the arm would be cleared by the rebuild that shows
+     * it, and the second press could never confirm anything.
+     */
+    private boolean canvasCopyArming;
+
+    /**
+     * Whether the panel is editing the open chapter's theme rather than the player's own.
+     *
+     * <p>Derived from the tab in {@link #buildToolsWidgets}, never toggled: the chapter tab edits the
+     * chapter and the book tab edits the player, so there is no switch that can leave one tab's edits
+     * pointed at the other's file. The chapter's writes go through the same field op every other
+     * chapter edit uses, so an undo takes them back like any other change.
      */
     private boolean themeTargetsChapter;
+
+    /** The chapter tab's appearance rows, built with the rest of the chapter's list. */
+    private List<ToolsLayout.Action> chapterAppearanceRows = List.of();
 
     /** The panel's list: its rows are widgets, so they move when it scrolls. */
     private final dev.ellipog.armature.client.ui.kit.ScrollView toolsView =
@@ -938,6 +1069,19 @@ public final class QuestBookScreen extends ArmatureScreen {
                     dev.ellipog.armature.client.ui.kit.Viewport.fixed());
 
     private ToolsLayout.Frame toolsFrame;
+
+    /** The colour picker overlay: one colour at a time, opened from a row's chip. */
+    private final dev.ellipog.tasked.client.dev.ColourPopover colourPopover =
+            new dev.ellipog.tasked.client.dev.ColourPopover();
+
+    /** The fields the drawer built, for the label half of their gesture. See {@link #armLabelScrub}. */
+    private final List<dev.ellipog.tasked.client.dev.ScrubField> rowFields = new ArrayList<>();
+
+    /** The field a label press claimed, between its press and its release. */
+    private dev.ellipog.tasked.client.dev.ScrubField labelScrub;
+
+    /** The chapter the picker was opened for, so a chapter switch under it closes it. */
+    private String popoverChapter;
     private Layout toolsLayout;
     private List<ToolsLayout.Action> toolsRows = List.of();
 
@@ -1012,9 +1156,6 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The book's own transient messages; see {@link ToastStack} for why chat is not enough. */
     private final ToastStack toasts = new ToastStack();
 
-    /** The progress revision the last completion notice was read at; see {@link #announceCompletions}. */
-    private long announcedProgress = -1;
-
     /**
      * The reward counts the badges read, rebuilt only when the progress or the tree moves.
      *
@@ -1043,46 +1184,84 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * What each quest was in the last progress sync that was read.
+     * The chapter completion counts the header and the sidebar ring read, rebuilt only when the
+     * progress or the tree moves.
      *
-     * <p>Kept so a quest that <i>becomes</i> collectable can be told from one that was already: a sync
-     * carries a state, not a change. Empty at a join, which is what stops the first sync from announcing
-     * the whole finished half of the book.
+     * <p>One walk over the entries per revision rather than one per chapter per frame, and the same
+     * shape as {@link #rewardCounts} deliberately — but kept a separate cache because it answers a
+     * different question. A "count" on a chapter row already means "quests with rewards waiting"
+     * ({@code claimableByChapter}); this one means "quests finished", and two maps that both looked
+     * like chapter counts would eventually be read for one another.
+     *
+     * <p>The walk applies the canvas's own visibility rule ({@link #questsIn}): an author counts
+     * every quest, hidden flags or not, and a reader counts only what the canvas would draw. The
+     * header saying 12/20 beside a canvas showing twelve finished nodes is the point; a denominator
+     * nobody can see would make the two disagree by design.
      */
-    private final Map<String, QuestState> lastStates = new LinkedHashMap<>();
+    private record ChapterCounts(long progress, long tree, java.util.UUID player, boolean authoring,
+                                 Map<String, ChapterProgress> byChapter) {
+    }
 
-    /**
-     * Says which quests have just become collectable.
-     *
-     * <p>Derived rather than sent, because it is the only signal the book has: the server's own line about a
-     * completion goes to chat, and chat is behind this screen. A progress sync moves the state, and the
-     * comparison with the last sync is the difference between "this quest is finished" and "this quest just
-     * finished".
-     *
-     * <p>Capped at the stack's own size: a claim-all or a party's shared progress can move a dozen quests at
-     * once, and twelve notices stacked on the card is a column nobody reads -- the canvas behind shows the
-     * rest turning their colour.
-     */
-    private void announceCompletions() {
-        List<String> fresh = new ArrayList<>();
+    private ChapterCounts chapterCounts;
+
+    /** The cache the sidebar tooltips were last built from; its identity is the revision check. */
+    private ChapterCounts tooltippedCounts;
+
+    /** The per-chapter completion in force, recomputed when the progress, the tree or the viewer moves. */
+    private ChapterCounts chapterCounts() {
+        long progress = ClientQuestCache.progressRevision();
+        long tree = ClientQuestCache.treeRevision();
+        java.util.UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+        boolean authoring = mayEditNow();
+        ChapterCounts current = chapterCounts;
+        if (current != null && current.progress() == progress && current.tree() == tree
+                && java.util.Objects.equals(current.player(), self) && current.authoring() == authoring) {
+            return current;
+        }
+
+        // Tallied as a mutable pair while walking, because the walk sees one entry at a time and a
+        // `ChapterProgress` is immutable by design; the pairs become records in one pass after.
+        Map<String, int[]> tally = new LinkedHashMap<>();
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
-            QuestState state = ClientQuestCache.stateOf(entry.id());
-            QuestState was = lastStates.put(entry.id(), state);
-            if (was != null && was != QuestState.COMPLETED && state == QuestState.COMPLETED) {
-                // A quest whose rewards are handed over silently says nothing: the author asked for the
-                // mode, and fifty starter quests announcing themselves is the noise auto-claim exists to
-                // remove. See RewardAutoClaim.notifies -- this is the half that made `no_toast` and
-                // `invisible` mean something.
-                dev.ellipog.tasked.quest.reward.RewardAutoClaim mode = entry.effectiveAutoClaim();
-                if (mode.automatic() && !mode.notifies()) {
-                    continue;
-                }
-                fresh.add(titleOf(entry));
+            if (!authoring && !questVisible(entry.id())) {
+                continue;
+            }
+            int[] pair = tally.computeIfAbsent(entry.chapterId(), id -> new int[2]);
+            pair[1]++;
+            if (ClientQuestCache.stateOf(entry.id()) == QuestState.COMPLETED) {
+                pair[0]++;
             }
         }
-        for (int i = 0; i < Math.min(fresh.size(), ToastStack.MAX); i++) {
-            toast(Component.translatable("tasked.quest.completed", fresh.get(i)).getString(), false);
+
+        Map<String, ChapterProgress> counts = new LinkedHashMap<>();
+        for (Map.Entry<String, int[]> entry : tally.entrySet()) {
+            counts.put(entry.getKey(), new ChapterProgress(entry.getValue()[0], entry.getValue()[1]));
         }
+        chapterCounts = new ChapterCounts(progress, tree, self, authoring, counts);
+        return chapterCounts;
+    }
+
+    /**
+     * Says a quest just completed, in the book's own stack.
+     *
+     * <p>Called by {@code QuestNotifier} -- the one detector -- when this screen is the one on screen.
+     * The screen used to diff the cache itself; it is a sink now, which is what lets a completion
+     * while the book is closed be announced by the notifier's toast, and keeps the two from both
+     * speaking for one event.
+     */
+    void notifyQuestCompleted(Component message) {
+        toast(message.getString(), false);
+    }
+
+    /**
+     * Says a grant overflowed: what the player's inventory could not hold is on the floor.
+     *
+     * <p>Called by {@code QuestNotifier} when the server's overflow payload arrives, and only while
+     * this screen is the one being read — the action bar carries the same sentence to a player who is
+     * not looking at the book, and the HUD is not drawn behind a screen. See {@link ToastStack}.
+     */
+    void notifyRewardOverflow(int stacks) {
+        toast(Component.translatable("tasked.screen.rewards.overflow", stacks).getString(), true);
     }
 
     /**
@@ -1243,7 +1422,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      * has one answer and a pick from the dock can never be written to whatever quest happens to be
      * selected. Cleared with the picker's other state.
      */
-    private enum PickTarget { QUEST, CHAPTER, GROUP }
+    private enum PickTarget { QUEST, CHAPTER, GROUP, BOOK }
 
     /** The open picker's target, or null when it is closed. */
     private PickTarget pickTarget;
@@ -1290,6 +1469,39 @@ public final class QuestBookScreen extends ArmatureScreen {
     private String pickerQuery = "";
     private int pickerSelected = -1;
     private int pickerScroll;
+
+    /**
+     * The texture picker's own state -- catalogue, query, list and scroll -- beside the item picker's
+     * and sharing none of it.
+     *
+     * <h2>Why a second set of fields rather than reuse</h2>
+     *
+     * <p>The item picker's state describes a field of a quest, a chapter's identity or the book's icon;
+     * the texture picker's describes a file choice over the pack's own resources. Folding them together
+     * would make opening one picker depend on the other's target and leave a stale "current" id naming a
+     * field the open list is not about -- the same reasoning that gave the picker an overlay of its own
+     * rather than a page of the quest card. The card's <i>shape</i> is shared (see
+     * {@code ItemPickerLayout.Frame}); the state is not.
+     */
+    private List<ItemPicker.Entry> textureCatalogue;
+    private List<ItemPicker.Entry> textureMatches = List.of();
+    private List<ItemPickerLayout.Row> textureRows = List.of();
+    private ItemPickerLayout.Frame textureFrame;
+    private ArmatureTextField textureSearch;
+    private String textureQuery = "";
+    private int textureSelected = -1;
+    private int textureScroll;
+
+    /**
+     * The sizes the texture rows' pictures read, keyed by file.
+     *
+     * <p>Their own map because the row and the picker both draw {@code ToolsPanel.drawTextureThumb} and
+     * each asks the PNG's header for its dimensions; a keep per file turns a per-frame read into one per
+     * file per session. It lives with the screen rather than the drawing for the reason every other
+     * piece of state does -- the drawing is a pure function of what it is handed.
+     */
+    private final Map<ResourceLocation, Optional<GuiRenderer.TextureSize>> textureSizes =
+            new LinkedHashMap<>();
 
     /**
      * The row drag: which list, which row, and the y the line is drawn at.
@@ -1443,9 +1655,16 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private dev.ellipog.armature.client.ArmatureTextField hexField;
 
-    /** The panel's own controls, so the chrome layer can draw them: the header's pair. */
-    private ArmatureButton editButton;
-    private ArmatureButton toolsButton;
+    /**
+     * The author's pills, over the canvas's top-right corner.
+     *
+     * <p>Built only for a player who may edit, like the header pair they replace -- but no longer *in*
+     * the header, so every player's header is the same four controls. They are ordinary widgets drawn by
+     * the widget pass (the canvas is inside its clip), which is why they need no line in the hand-drawn
+     * chrome list the header's controls do.
+     */
+    private ArmatureButton editPill;
+    private ArmatureButton toolsPill;
 
     /**
      * The node the drag is carrying, once the drag is one: past the threshold, following the pointer.
@@ -1653,27 +1872,39 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * The canvas' right edge, less whatever the tools panel is holding.
+     * The canvas' right edge — the whole of it, under the tools panel and all.
      *
-     * <h2>Docked, and this is the whole of it</h2>
+     * <h2>The panel floats, and this is the whole of it</h2>
      *
-     * <p>The panel does not float over the canvas; the canvas gives up the strip it sits in, and the
-     * graph re-clamps into what is left. That is what the first version got wrong: it drew the panel on
-     * top of the nodes, so the thing an author was looking at disappeared behind the tool for looking at
-     * it. The cost is that opening the panel moves the graph -- which is what docking means, and it is
-     * the half that does not surprise anybody.
+     * <p>The canvas is drawn across its full rectangle and the tools panel sits over the right of it,
+     * so the surface shows through the panel's margins and the panel reads as hovering over the graph
+     * rather than glued to a differently-coloured strip. That is what {@code ToolsLayout} has always
+     * said the panel does; this method used to say the opposite and the code agreed with the method —
+     * the canvas was shrunk by the panel's width, the margins around the panel were the book's
+     * background, and setting a chapter palette made the seam visible as a band.
      *
-     * <p>Everything that reads the canvas reads this: the viewport (so panning and zooming clamp to the
-     * narrow canvas), the hit test and the node drawing. One expression, so a node cannot be drawn in the
-     * strip the panel occupies.
+     * <p>Everything that reads the canvas reads this: the backdrop and its clip, the node and edge
+     * culls, and the viewport, so the graph may pan under the panel — where nodes are hidden by it and
+     * a press is intercepted by {@code inTools} before {@code inCanvas} is asked. One expression, so
+     * the drawn canvas and the interactive canvas cannot be two rectangles.
      */
     private int canvasRight() {
-        return geometry().canvas().right() - toolsWidth();
+        return geometry().canvas().right();
     }
 
-    /** How much of the canvas the tools panel takes, or nothing when it is shut. */
-    private int toolsWidth() {
-        return toolsOpen ? ToolsLayout.frame(geometry().canvas()).panel().width() + ToolsLayout.GAP : 0;
+    /**
+     * Where the canvas' content should stay <b>visible</b>: left of the tools panel, when it is open.
+     *
+     * <p>For the furniture that is no use under a panel — the zoom hint, a node's caption and label
+     * clamps, and where a new quest is born. Everything else draws and hit-tests to
+     * {@link #canvasRight()}; these four ask where the graph is still <i>seen</i>.
+     */
+    private int visibleCanvasRight() {
+        if (!drawerOpen()) {
+            return canvasRight();
+        }
+        return canvasRight() - ToolsLayout.frame(geometry().authorRail()).panel().width()
+                - ToolsLayout.GAP;
     }
 
     private int canvasTop() {
@@ -1698,15 +1929,137 @@ public final class QuestBookScreen extends ArmatureScreen {
      * {@link BookGeometry}'s class comment for why each moved, and what each replaced.
      */
     private int headerRightLimit() {
-        // The author's pair is built only for an operator, and the count has to stop where the controls
-        // that are actually drawn begin. `mayEdit` rather than `mayEditNow`: the pair exists as soon as
-        // the permission does, whether or not its gear has been pressed.
-        return geometry().headerRightLimit(mayEdit());
+        // One expression for every player now. It used to ask whether the author's pair would be built,
+        // because that pair sat in the header and the count had to stop short of it; the pair is a pill
+        // over the canvas now, and the header is the same four controls whoever is looking at it.
+        return geometry().headerRightLimit();
+    }
+
+    /**
+     * The header's right-hand summary: the book's total quests, the open chapter's own count, and how
+     * much of that chapter is done.
+     *
+     * <h2>Three draws rather than one string</h2>
+     *
+     * <p>The total is deliberately the faintest of the three. The numbers a player can act on are the
+     * open chapter's own, and the pack-wide count is context for them rather than a figure in its own
+     * right — so it recedes, and the chapter's pair stays the ink the summary always was. One
+     * {@code text} call cannot carry two colours, so the string is drawn in segments, right-aligned to
+     * the same edge the old summary used.
+     *
+     * <h2>Dropped from the left</h2>
+     *
+     * <p>Too narrow for all three drops the total first, then — still too narrow — the whole summary:
+     * a missing count is a smaller fault than a title with a number drawn through it, and the
+     * chapter's own pair is the part worth keeping. The zoom percentage this replaced is simply gone;
+     * the view cluster already answers what the zoom is by what it does, and the slot says something
+     * about the chapter instead.
+     */
+    private void drawHeaderSummary(GuiRenderer r, int left, int top) {
+        String chapter = effectiveChapter();
+        ChapterProgress progress = chapter == null ? null : chapterCounts().byChapter().get(chapter);
+        int done = progress == null ? 0 : progress.done();
+        int quests = progress == null ? 0 : progress.total();
+        int percent = progress == null ? -1 : progress.percent();
+
+        String sep = " \u00b7 ";
+        String totalText = Integer.toString(ClientQuestCache.questCount());
+        String countText = Integer.toString(quests);
+        String percentText = percent < 0 ? null : percent + "%";
+
+        int titleLimit = headerTitleX(left) + r.textWidth(bookTitle().getString()) + 12;
+        int width = r.textWidth(totalText) + r.textWidth(sep) + r.textWidth(countText)
+                + (percentText == null ? 0 : r.textWidth(sep) + r.textWidth(percentText));
+        int x = headerRightLimit() - width;
+        boolean withTotal = true;
+        if (x <= titleLimit) {
+            withTotal = false;
+            width = r.textWidth(countText)
+                    + (percentText == null ? 0 : r.textWidth(sep) + r.textWidth(percentText));
+            x = headerRightLimit() - width;
+            if (x <= titleLimit) {
+                return;
+            }
+        }
+
+        if (withTotal) {
+            r.text(totalText, x, top + 9, Colour.shade(ArmatureTheme.faint(), -0.4F));
+            x += r.textWidth(totalText);
+            r.text(sep, x, top + 9, ArmatureTheme.faint());
+            x += r.textWidth(sep);
+        }
+        r.text(countText, x, top + 9, ArmatureTheme.faint());
+        x += r.textWidth(countText);
+        if (percentText != null) {
+            r.text(sep, x, top + 9, ArmatureTheme.faint());
+            x += r.textWidth(sep);
+            r.text(percentText, x, top + 9, ArmatureTheme.faint());
+        }
     }
 
     /** The backing panel behind the three view buttons, drawn so they read as one cluster. */
     private BookGeometry.Rect viewControls() {
         return geometry().viewControls();
+    }
+
+    /**
+     * The book's identity in the header: the pack's icon when it declares one, then its name.
+     *
+     * <p>Both come from the tree, so a pack that names its book is announced as that book rather than
+     * as the generic one; a pack that declares nothing gets the translatable title and no icon, which
+     * is exactly what every pack predating the fields gets. An icon id that did not resolve draws the
+     * same "missing item" mark the chapter header draws — a "?" in the blocked colour — so a typo in
+     * the file reads as a missing item rather than as an empty space.
+     */
+    private void drawHeaderIdentity(GuiRenderer r, int left, int top) {
+        int icon = headerIconSize();
+        if (icon > 0) {
+            int iconY = top + 9 - (icon - 8) / 2;
+            ItemStack stack = ClientQuestCache.bookIcon();
+            if (!stack.isEmpty()) {
+                r.icon(stack, left + BookGeometry.HEADER_INSET, iconY, icon);
+            }
+            else {
+                int x = left + BookGeometry.HEADER_INSET;
+                r.fill(x, iconY, x + icon, iconY + icon, ArmatureTheme.blocked());
+                r.centredText("?", x + icon / 2, iconY + (icon - 8) / 2, ArmatureTheme.title());
+            }
+        }
+        // Truncated to the room the header has, because the name is a pack's string now: an overlong one
+        // must not run under the close button or the summary beside it.
+        String name = Measure.truncate(bookTitle().getString(),
+                Math.max(0, headerRightLimit() - headerTitleX(left) - 12),
+                Measure.of(r::textWidth, r.lineHeight()));
+        r.text(name, headerTitleX(left), top + 9, ArmatureTheme.title());
+    }
+
+    /** The header's icon box, or zero when the pack declares no icon at all. */
+    private static int headerIconSize() {
+        return ClientQuestCache.bookIconId().isEmpty() ? 0 : 12;
+    }
+
+    /** Where the header's title starts: after the inset, and after the icon when there is one. */
+    private static int headerTitleX(int left) {
+        int icon = headerIconSize();
+        return left + BookGeometry.HEADER_INSET + (icon > 0 ? icon + 4 : 0);
+    }
+
+    /** The book's title: the pack's own when it declares one, else the translatable default. */
+    private Component bookTitle() {
+        String pack = ClientQuestCache.bookTitle();
+        return pack.isEmpty() ? title : Component.literal(pack);
+    }
+
+    /**
+     * What this screen is called — the pack's name when it declares one.
+     *
+     * <p>Overridden rather than left as the field so narration and accessibility read the same name
+     * the header draws; a screen whose spoken title disagreed with its written one is the kind of
+     * mismatch nobody reports and everybody notices.
+     */
+    @Override
+    public Component getTitle() {
+        return bookTitle();
     }
 
     /** Where a chapter row starts, and so the top of the list. */
@@ -1963,6 +2316,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         selectedQuest = null;
         multiSelection.clear();
         centred = false;
+        // A drag's preview belongs to the chapter being left: it is not keyed, and a stale patch would be
+        // composed over the next chapter's theme until that chapter's own first edit replaced it.
+        pendingChapterTheme = null;
     }
 
     /**
@@ -2333,6 +2689,19 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * Whether the inspector drawer is showing.
+     *
+     * <p>Derived rather than toggled: the drawer <i>is</i> edit mode. It opens when the Edit pill latches
+     * and closes with it, so there is no second flag that can disagree with the pill's own state. The
+     * control that used to be a separate Tools button in the header is the menu on the pill now -- a
+     * batch of maintenance actions -- and the panel itself follows Edit, which is the arrangement the
+     * redesign asked for ("the inspector only renders when Edit is toggled on").
+     */
+    private boolean drawerOpen() {
+        return mayEditNow();
+    }
+
+    /**
      * Centres the content the first time a chapter is shown, and on a reset.
      *
      * <p>Computed from the content's own bounding box rather than from zero, so a questline authored
@@ -2513,18 +2882,37 @@ public final class QuestBookScreen extends ArmatureScreen {
         PartyRoster roster = partyRoster();
 
         if (!roster.isReal()) {
-            return List.of(Component.literal("No party"),
-                    Component.literal("Click to see how to make one"));
+            return List.of(Component.translatable("tasked.screen.party.none"),
+                    Component.translatable("tasked.screen.party.hint"));
         }
 
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.literal(roster.memberCount() == 1
-                ? "Your party (just you)"
-                : "Your party (" + roster.memberCount() + ")"));
+        lines.add(roster.memberCount() == 1
+                ? Component.translatable("tasked.screen.party.solo")
+                : Component.translatable("tasked.screen.party.count", roster.memberCount()));
         for (PartyRoster.Member member : roster.members()) {
-            lines.add(Component.literal("  " + member.label() + " - " + member.roleLabel()));
+            lines.add(Component.translatable("tasked.screen.party.member", memberLabel(member),
+                    roleName(member)));
         }
         return List.copyOf(lines);
+    }
+
+    /**
+     * A member's name, marked when it is the reader.
+     *
+     * <p>Composed here rather than taken from Armature's {@code Member.label()}, which returns English
+     * — "you" in parentheses — from a library that deliberately ships no language file. The library
+     * owns the facts (a name, a role, whether this is you); the words are this mod's.
+     */
+    private static Component memberLabel(PartyRoster.Member member) {
+        return member.self()
+                ? Component.translatable("tasked.screen.party.you", member.name())
+                : Component.literal(member.name());
+    }
+
+    /** The role word, from the same facts the roster carries. */
+    static Component roleName(PartyRoster.Member member) {
+        return dev.ellipog.tasked.PartyWords.role(member.role());
     }
 
     /**
@@ -2726,8 +3114,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                         () -> runPartyCommand("/tasked party kick " + member.name()));
                 if (remove != null) {
                     remove.tooltip(List.of(
-                            Component.literal("Remove " + member.name() + " from the party"),
-                            Component.literal("They keep the progress they earned here")));
+                            Component.translatable("tasked.screen.party.remove_hint", member.name()),
+                            Component.translatable("tasked.screen.party.keep_progress")));
                     partyRemoveButtons.put(member.id(), remove);
                 }
             }
@@ -2737,8 +3125,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                         () -> openPartyPhase(PartyPhase.CONFIRM_TRANSFER, member.id()));
                 if (transfer != null) {
                     transfer.tooltip(List.of(
-                            Component.literal("Make " + member.name() + " the owner"),
-                            Component.literal("You stay in the party as a member")));
+                            Component.translatable("tasked.screen.party.transfer_hint", member.name()),
+                            Component.translatable("tasked.screen.party.stay_member")));
                     partyTransferButtons.put(member.id(), transfer);
                 }
             }
@@ -2883,8 +3271,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                     }
                 });
         if (leave != null) {
-            leave.tooltip(List.of(Component.literal("Leave the party"),
-                    Component.literal("You keep the progress you earned here")));
+            leave.tooltip(List.of(Component.translatable("tasked.screen.leave_the_party"),
+                    Component.translatable("tasked.screen.you_keep_the_progress_you_earned_here")));
         }
 
         ArmatureButton disband = control(footer.get("disband"),
@@ -2894,8 +3282,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             // Warning amber, not the blocked grey: the button is destructive, and a grey label was
             // read as "this one is unavailable to me". See ArmatureButton.Ink.DANGER.
             disband.ink(ArmatureButton.Ink.DANGER);
-            disband.tooltip(List.of(Component.literal("Dissolve the party"),
-                    Component.literal("Press again within three seconds to confirm")));
+            disband.tooltip(List.of(Component.translatable("tasked.screen.dissolve_the_party"),
+                    Component.translatable("tasked.screen.press_again_within_three_seconds_to_confirm")));
             disbandButton = disband;
         }
 
@@ -3045,15 +3433,24 @@ public final class QuestBookScreen extends ArmatureScreen {
      * scroll view -- so a row added there appears here, and the two cannot disagree about where a row is.
      */
     private void buildToolsWidgets() {
-        toolsFrame = ToolsLayout.frame(geometry().canvas(), toolsTab);
+        // The target follows from the tab: the chapter tab edits the chapter, the book tab edits the
+        // player's own look. Derived here, once a build, so every helper that asks `themeTargetsChapter`
+        // answers the same thing the panel is showing.
+        themeTargetsChapter = toolsTab == ToolsLayout.Tab.CHAPTER;
+        toolsFrame = ToolsLayout.frame(geometry().authorRail(), toolsTab);
 
-        // The tab strip, in the band the title used to occupy. Two buttons, the active one selected --
-        // the same appearance rule as every other pressed-look control in this screen. The panel's own
-        // name is gone: two tabs name the two panels the dock holds, and neither of them is "Tools".
-        control(ToolsLayout.tabTheme(toolsFrame.tabs()), Component.literal(ToolsLayout.Tab.THEME.label()),
-                () -> setTab(ToolsLayout.Tab.THEME)).selected(toolsTab == ToolsLayout.Tab.THEME);
-        control(ToolsLayout.tabQuest(toolsFrame.tabs()), Component.literal(ToolsLayout.Tab.CHAPTER.label()),
-                () -> setTab(ToolsLayout.Tab.CHAPTER)).selected(toolsTab == ToolsLayout.Tab.CHAPTER);
+        // The title row: the panel's name at the left is drawn by the panel, and the menu button beside
+        // it is a widget -- a `ChoiceField`, because it is a word and a triangle, and the menu it opens
+        // is the shared one the author's pill uses.
+        dev.ellipog.tasked.client.dev.ChoiceField panelMenu =
+                new dev.ellipog.tasked.client.dev.ChoiceField(Labels.of(toolsTab.label()));
+        panelMenu.onPress(this::openPanelMenu);
+        BookGeometry.Rect menuRect = ToolsLayout.titleMenu(toolsFrame.title());
+        panelMenu.setX(menuRect.x());
+        panelMenu.setY(menuRect.y());
+        panelMenu.setWidth(menuRect.width());
+        panelMenu.setHeight(menuRect.height());
+        addRenderableWidget(panelMenu);
 
         if (toolsTab == ToolsLayout.Tab.CHAPTER) {
             // The chapter's own file, from the replica, as the rows' source. The quests are edited in
@@ -3077,10 +3474,26 @@ public final class QuestBookScreen extends ArmatureScreen {
                     ? ChapterPanelLayout.rows(chapter, group, questFolded,
                             ClientChapterReplica.refusal(effectiveChapter()))
                     : ChapterPanelLayout.notEditing();
+            // The appearance section: the same rows the book tab shows, under one fold, writing the
+            // chapter's own theme and patch. Absent for a reader -- there are no controls for a file
+            // the server would refuse -- and the content keeps the layout it has always had.
+            chapterAppearanceRows = editing
+                    ? ToolsLayout.chapterAppearanceRows(paletteOptions(), toolsAppearanceOpen,
+                            toolsPaletteOpen, toolsColoursOpen, editedBackground(), toolsCanvasOpen,
+                            canvasCopyLabel())
+                    : List.of();
+            // One list, two row models: the appearance actions on top, the chapter's own content below.
+            // `Stack.append` moves elements between stacks, so each side keeps the heights and gaps its
+            // own model computed, and a section gap joins the two.
+            Stack combined = Stack.stack();
+            if (!chapterAppearanceRows.isEmpty()) {
+                combined.append(ToolsLayout.stack(chapterAppearanceRows));
+                combined.gap(ToolsLayout.SECTION_GAP);
+            }
             // Stacked, not side by side: the dock is a narrow column, and a 96-pixel control strip
             // leaves too little for labels like "Default Prerequisite Mode" -- see InspectLayout.Mode.
-            chapterLayout = InspectLayout.build(chapterRows, toolsFrame.list().width(),
-                    Measure.monospace(6, 9), InspectLayout.Mode.STACKED);
+            combined.append(InspectLayout.stack(chapterRows, InspectLayout.Mode.STACKED));
+            chapterLayout = combined.build(toolsFrame.list().width(), Measure.monospace(6, 9));
             toolsView.clear();
             toolsView.whole(true);
             toolsView.viewport().bounds(toolsFrame.list().x(), toolsFrame.list().y(),
@@ -3101,7 +3514,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                             // opens the same picker the card's icon does. The id stays the value a commit
                             // writes; the button's label is only how it is read.
                             ArmatureButton pick = control(0, 0, 0, 0,
-                                    Component.literal(row.value().isEmpty() ? "Pick an item\u2026" : row.value()),
+                                    Component.literal(row.value().isEmpty()
+                                            ? Labels.of("tasked.dev.chapter.pick_item") : row.value()),
                                     this::openChapterItemPicker);
                             pick.ink(ArmatureButton.Ink.BODY).icon(chapterIcon).alignLeft(true);
                             toolsView.put(row.key(), pick, InspectLayout::controlBand);
@@ -3114,7 +3528,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                             // drawing in the meantime. See `chapterGroupInfo`.
                             boolean own = group != null && !group.iconId().isEmpty();
                             ArmatureButton pick = control(0, 0, 0, 0,
-                                    Component.literal(own ? row.value() : "First chapter's \u2014 pick to set"),
+                                    Component.literal(own ? row.value()
+                                            : Labels.of("tasked.dev.chapter.group_icon_unset")),
                                     this::openGroupItemPicker);
                             pick.textColour(own ? ArmatureTheme.body() : ArmatureTheme.faint())
                                     .icon(groupIconStack(group)).alignLeft(true);
@@ -3138,7 +3553,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                                 ? group != null && group.collapsedByDefault()
                                 : flagOn(chapter, row.key());
                         ArmatureButton button = control(0, 0, 0, 0,
-                                Component.literal(on ? "On" : "Off"),
+                                Component.translatable(on ? "tasked.screen.on" : "tasked.screen.off"),
                                 () -> pressChapterToggle(row.key()));
                         button.ink(ArmatureButton.Ink.BODY);
                         toolsView.put(row.key(), button, InspectLayout::controlBand);
@@ -3155,15 +3570,21 @@ public final class QuestBookScreen extends ArmatureScreen {
                 }
             }
 
+            if (!chapterAppearanceRows.isEmpty()) {
+                buildAppearanceWidgets(chapterAppearanceRows);
+            }
             toolsView.apply(chapterLayout, toolsFrame.list().width());
             return;
         }
 
-        toolsRows = ToolsLayout.rows(DevMode.on(), ClientAppearance.LOOK.motion(), DevMode.snap(),
-                toolsColoursOpen, themeTargetsChapter,
-                // The chapter target writes a file, so it is offered only where there is a chapter and an
-                // author: a reader's Theme tab stays about their own theme.
-                mayEditNow() && effectiveChapter() != null);
+        // The Book section first: the pack's own name and icon, which are the book's rather than any
+        // theme's -- see `ToolsLayout.bookRows`. Its own fold, so an operator theming the book can put
+        // the pack's fields away.
+        List<ToolsLayout.Action> bookRows = new ArrayList<>(ToolsLayout.bookRows(toolsBookOpen));
+        bookRows.addAll(ToolsLayout.rows(ClientAppearance.LOOK.motion(), DevMode.snap(),
+                DevMode.progress(), toolsColoursOpen, paletteOptions(), toolsPaletteOpen,
+                editedBackground(), toolsCanvasOpen, canvasCopyLabel()));
+        toolsRows = List.copyOf(bookRows);
         toolsLayout = ToolsLayout.build(toolsRows, toolsFrame.list().width(), Measure.monospace(6, 9));
 
         toolsView.clear();
@@ -3176,97 +3597,638 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         for (ToolsLayout.Action row : toolsRows) {
             if (row.hasButton()) {
-                ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.buttonLabel()),
+                // The switch's value, resolved: it is a key (`tasked.screen.on`/`off`), and the widget
+                // wants the word.
+                ArmatureButton button = control(0, 0, 0, 0,
+                        Component.literal(Labels.of(row.buttonLabel())),
                         () -> pressToolsSwitch(row.key()));
                 toolsView.put(row.key(), button, ToolsLayout::strip);
             }
-            else if (row.isControl()) {
-                ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
+        }
+        buildAppearanceWidgets(toolsRows);
+
+        // Revert and Save are the book tab's alone: they write the player's own theme file, which is
+        // not what a chapter is. The chapter's edits are the chapter file's, taken back with the
+        // editor's own undo.
+        control(ToolsLayout.revert(toolsFrame.actions()),
+                Component.translatable("tasked.dev.reset"), this::revertSelected);
+        control(ToolsLayout.save(toolsFrame.actions()),
+                Component.translatable("tasked.dev.save"), this::saveTheme);
+
+        toolsView.apply(toolsLayout, toolsFrame.list().width());
+    }
+
+    /**
+     * The appearance widgets both tabs build: the section folds, the palette and colour rows, the
+     * channel steppers and the hex field.
+     *
+     * <p>One builder for the two tabs, against whichever layout is showing -- the rows are placed by
+     * key, so the same control lands on the book tab's list or on the chapter tab's combined one
+     * without knowing which. The radius and canvas steppers keep no widgets at all, and that is the
+     * design rather than an omission: their arrows are drawn by the panel from `ToolsLayout.stepper`
+     * and pressed through `stepperStepAt`, which reads the same rectangles; a widget over them would
+     * swallow every press. Building the arrows as widgets was the first version, at the slot's own
+     * coordinates -- which are the *list's*, not the screen's -- so they were placed outside the panel
+     * and the row read as a number with nothing to press.
+     */
+    private void buildAppearanceWidgets(List<ToolsLayout.Action> rows) {
+        for (ToolsLayout.Action row : rows) {
+            if (row.isControl()) {
+                if (ToolsLayout.BOOK_TITLE.equals(row.key())) {
+                    // The book's name: a field in the row's right-hand side, its label in the room
+                    // `valueField` keeps. The value is the pending edit first, then the tree's own.
+                    ArmatureTextField field = new ArmatureTextField(0, 0, 0, 0, bookTitleValue());
+                    field.onSubmit(this::commitBookTitle);
+                    field.colours(ArmatureTheme.title(), ArmatureTheme.recessed(),
+                            ArmatureTheme.panelEdge());
+                    toolsView.put(row.key(), field,
+                            slot -> ToolsLayout.valueField(slot, ToolsLayout.LABEL_ROOM));
+                    addRenderableWidget(field);
+                    continue;
+                }
+                if (ToolsLayout.BOOK_ICON.equals(row.key())) {
+                    // The book's icon: the picker's button in the field's place, beside its own label,
+                    // showing the item it names or the "None" word.
+                    String id = ClientQuestCache.bookIconId();
+                    ArmatureButton pick = control(0, 0, 0, 0,
+                            Component.literal(id.isEmpty()
+                                    ? Labels.of("tasked.dev.tools.book_icon_none") : id),
+                            this::openBookItemPicker);
+                    pick.ink(ArmatureButton.Ink.BODY).icon(ClientQuestCache.bookIcon()).alignLeft(true);
+                    toolsView.put(row.key(), pick,
+                            slot -> ToolsLayout.valueField(slot, ToolsLayout.LABEL_ROOM));
+                    continue;
+                }
+                if (ToolsLayout.CANVAS_TEXTURE.equals(row.key())) {
+                    // The canvas image's file: the id's field between the picture and the browse button,
+                    // placed by the row's own `textureField` -- the same shape as the book's name, with
+                    // the two boxes the row carries beside it. The value is canonical in the tree as well
+                    // -- `CanvasBackground.Image` canonicalises on construction -- so the field shows the
+                    // one spelling the renderer resolves.
+                    ArmatureTextField field = new ArmatureTextField(0, 0, 0, 0,
+                            editedBackground().image().texture());
+                    field.onSubmit(this::commitCanvasTexture);
+                    field.colours(ArmatureTheme.title(), ArmatureTheme.recessed(),
+                            ArmatureTheme.panelEdge());
+                    toolsView.put(row.key(), field, slot -> ToolsLayout.textureField(slot));
+                    addRenderableWidget(field);
+                    continue;
+                }
+                ArmatureButton button = control(0, 0, 0, 0,
+                        Component.literal(Labels.of(row.label())),
                         () -> pressToolsRow(row.key()));
                 button.alignLeft(true).flat(true);
+                if (ToolsLayout.CANVAS_COPY.equals(row.key())) {
+                    // Kept because its label is changed on it while the copy is armed -- see
+                    // `pressCanvasCopy`, which follows `disarmDisband`'s reason for doing it in place.
+                    canvasCopyButton = button;
+                }
+                String palette = ToolsLayout.paletteId(row.key());
+                if (palette != null) {
+                    // The palette in force is marked on the widget, like the card's list used to: the
+                    // draw pass adds what the name cannot say (the swatches), not the selection. Which
+                    // palette that is depends on the target -- see `currentPalette`.
+                    button.selected(palette.equals(currentPalette()));
+                }
                 toolsView.put(row.key(), button);
             }
-            else if (row.key().equals(ToolsLayout.COLOUR_SECTION)) {
-                // A section's heading is the only heading that is pressable: it folds. A group's name
-                // inside the colours is drawn and does nothing, because a row that selects nothing is a
-                // row that lies.
+            else if (ToolsLayout.folds(row.key())) {
+                // A section's heading is the only heading that is pressable: it folds. The predicate is
+                // the layout's own, not a list written here, because the two were hand-written once and
+                // drifted: the Canvas and Quest Book headings were drawn with a fold marker and given no
+                // widget, so no press could fold them. A group's name inside the colours is drawn and
+                // does nothing, because a row that selects nothing is a row that lies.
                 ArmatureButton button = control(0, 0, 0, 0, Component.literal(""), () -> fold(row.key()));
                 button.flat(true);
                 toolsView.put(row.key(), button);
             }
         }
 
-        Map<String, dev.ellipog.armature.client.ui.kit.Slot> beats = ToolsLayout.beats(toolsFrame.channels());
-        for (String channel : ToolsLayout.CHANNELS) {
-            for (String way : List.of("down", "up")) {
-                var slot = beats.get(way + ":" + channel);
-                int step = way.equals("down") ? -8 : 8;
-                ArmatureButton button = control(slot.x(), slot.y(), slot.width(), slot.height(),
-                        // `-` and `+`, which this UI already uses and the font certainly has: the
-                        // first version's triangles are not in Minecraft's default font and drew as
-                        // missing-glyph boxes.
-                        Component.literal(way.equals("down") ? "\u2212" : "+"),
-                        () -> nudgeChannel(channel, step));
-                button.ink(ArmatureButton.Ink.BODY);
+        // The row controls: a field per numeric row, a pair for the compact lines, a chooser per
+        // choice -- and nothing for a chip, which the panel draws and the screen hit-tests its press for.
+        buildRowControls(rows);
+    }
+
+    // ------------------------------------------------------------------
+    // The drawer's controls
+    // ------------------------------------------------------------------
+
+    /** The drawer's title menu: the triangle that swaps the Book and Chapter panels. */
+    private void openPanelMenu() {
+        BookGeometry.Rect menu = ToolsLayout.titleMenu(toolsFrame.title());
+        openMenuAt(List.of(
+                        MenuItem.of(Labels.of(ToolsLayout.Tab.BOOK.label()),
+                                () -> setTab(ToolsLayout.Tab.BOOK)),
+                        MenuItem.of(Labels.of(ToolsLayout.Tab.CHAPTER.label()),
+                                () -> setTab(ToolsLayout.Tab.CHAPTER))),
+                menu.x(), menu.bottom() + 2);
+    }
+
+    /** Opens the shared menu under a rectangle: the pill's menu, the drawer's and a chooser's, one path. */
+    private void openMenuAt(List<MenuItem> rows, int x, int y) {
+        menu = List.copyOf(rows);
+        menuX = x;
+        menuY = y;
+    }
+
+    /**
+     * One widget per row that carries one: a field, a pair of them, or a chooser.
+     *
+     * <h2>Why the rows are widgets now</h2>
+     *
+     * <p>The old panel drew its own arrows and hit-tested them by hand, because a widget over a drawn
+     * arrow swallowed the press. The redesign removes the arrows: a numeric row <i>is</i> a field, and the
+     * widget owns its box, its drag, its typing and its caret -- so there is nothing left for a hand-rolled
+     * hit test to disagree with. A chip is the exception: it has no keyboard and no drag beyond its own
+     * press, so the panel draws it and the screen tests its one rectangle.
+     *
+     * <p>The chapter tab's rows come through the same builder as the book's, against whichever list the
+     * tab put up, so the two cannot drift about which row holds which control.
+     */
+    private void buildRowControls(List<ToolsLayout.Action> rows) {
+        rowFields.clear();
+        for (ToolsLayout.Action row : rows) {
+            switch (row.kind()) {
+                case FIELD -> {
+                    dev.ellipog.tasked.client.dev.ScrubField field = scrubField(row.key());
+                    rowFields.add(field);
+                    toolsView.put(row.key(), field);
+                    addRenderableWidget(field);
+                }
+                case PAIR -> {
+                    // One widget for the row -- the scroll view places one widget per key -- with two
+                    // controls inside it. See `ScrubPairField` for why the halves are not two widgets.
+                    dev.ellipog.tasked.client.dev.ScrubPairField pair =
+                            new dev.ellipog.tasked.client.dev.ScrubPairField(rowWidget(row),
+                                    rowWidget(row.right()));
+                    toolsView.put(row.key(), pair);
+                    addRenderableWidget(pair);
+                }
+                case CHOICE -> {
+                    dev.ellipog.tasked.client.dev.ChoiceField choice = choiceFor(row);
+                    toolsView.put(row.key(), choice,
+                            slot -> ToolsLayout.valueField(slot, ToolsLayout.LABEL_ROOM));
+                    addRenderableWidget(choice);
+                }
+                default -> {
+                    // A chip is drawn by the panel; a switch and a row are built by the caller's own
+                    // loop; a heading folds. None of them is a field.
+                }
             }
         }
+        // The picker survives a rebuild -- a resize, a fold elsewhere -- by re-registering its fields;
+        // a rebuild that changes what the picker is *about* closes it first (see `setTab`, `fold`).
+        buildPopoverWidgets();
+    }
 
-        // The shape's stepper has no widgets at all, and that is the design rather than an omission. Its
-        // arrows are drawn by the panel from `ToolsLayout.stepper` and pressed through
-        // `ToolsLayout.radiusStepAt`, which reads the same rectangles; its *label* is drawn by the panel too,
-        // because a widget for it would cover the arrows and the widget pass takes presses before this
-        // screen's own click handling does. Building the arrows as widgets was the first version, at the
-        // slot's own coordinates -- which are the *list's*, not the screen's -- so they were placed outside
-        // the panel and the row read as a number with nothing to press.
-        //
-        // The kind is STEPPER and the panel dispatches on it; see `ToolsPanel.drawStepper`, which is the one
-        // place this row is drawn since the fall-through that used to draw only its label was removed.
-
-        // And the hex code, editable where it is shown: a field over the swatch's line, holding the
-        // selected colour's value. Creating it here rather than drawing it is the whole point of having a
-        // text widget -- the number is typed, not watched.
-        BookGeometry.Rect hex = ToolsLayout.hexField(toolsFrame.swatch(), toolsSelected != null);
-        hexField = null;
-        if (hex != null) {
-            hexField = new dev.ellipog.armature.client.ArmatureTextField(
-                    hex.x(), hex.y(), hex.width(), hex.height(), hexOf(toolsSelected));
-            hexField.onSubmit(this::applyHex);
-            hexField.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
-            addRenderableWidget(hexField);
+    /** One half of a pair, or a whole row: a numeric field or a chooser, by the action's kind. */
+    private net.minecraft.client.gui.components.AbstractWidget rowWidget(ToolsLayout.Action action) {
+        if (action.kind() == ToolsLayout.Action.Kind.CHOICE) {
+            return choiceFor(action);
         }
+        dev.ellipog.tasked.client.dev.ScrubField field = scrubField(action.key());
+        rowFields.add(field);
+        return field;
+    }
 
-        control(ToolsLayout.revert(toolsFrame.actions()),
-                Component.translatable("tasked.dev.reset"), this::revertSelected);
-        ArmatureButton save = control(ToolsLayout.save(toolsFrame.actions()),
-                Component.translatable("tasked.dev.save"), this::saveTheme);
-        if (save != null) {
-            // Saving writes a client theme file from the player's own theme, which is not what a chapter
-            // palette is: while the chapter target is on, the button stands down rather than writing the
-            // wrong thing.
-            save.active = !themeTargetsChapter;
-            if (themeTargetsChapter) {
-                save.tooltip(Component.literal("Saving writes your own themes - switch the chapter"
-                        + " palette off to save one"));
+    private dev.ellipog.tasked.client.dev.ChoiceField choiceFor(ToolsLayout.Action row) {
+        dev.ellipog.tasked.client.dev.ChoiceField choice =
+                new dev.ellipog.tasked.client.dev.ChoiceField(choiceLabel(row.key()));
+        choice.onPress(() -> openChoiceMenu(row));
+        return choice;
+    }
+
+    /**
+     * The numeric field a row's key stands for: its value, its range, its unit, and what a drag does.
+     *
+     * <p>One switch, so a row and its behaviour are written once. The units are the row's: a spacing is
+     * pixels, an opacity is a percentage of the ink's alpha, a density is a count. The previews stream into
+     * the pending chapter patch, so the canvas follows the drag; on the book tab they do nothing, because
+     * the player's own file has no draft path -- the release still writes once, which is the contract that
+     * matters.
+     */
+    private dev.ellipog.tasked.client.dev.ScrubField scrubField(String key) {
+        CanvasBackground background = editedBackground();
+        if (ToolsLayout.RADIUS.equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(editedRadius(), Look.MIN_RADIUS,
+                    Look.MAX_RADIUS, 1, " px")
+                    .onPreview(value -> previewRadius((int) Math.round(value)))
+                    .onCommit(value -> setRadius((int) Math.round(value)));
+        }
+        if (ToolsLayout.CANVAS_SPACING.equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(background.spacing(),
+                    CanvasBackground.MIN_SPACING, CanvasBackground.MAX_SPACING, 1, " px")
+                    .onPreview(value -> previewSpacing((int) Math.round(value)))
+                    .onCommit(value -> setCanvasSpacing((int) Math.round(value)));
+        }
+        if (ToolsLayout.CANVAS_SIZE.equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(background.tuning().size(),
+                    CanvasBackground.Tuning.MIN_SIZE, CanvasBackground.Tuning.MAX_SIZE, 1, " px")
+                    .onPreview(value -> previewSize((int) Math.round(value)))
+                    .onCommit(value -> setCanvasSize((int) Math.round(value)));
+        }
+        if (ToolsLayout.CANVAS_DENSITY.equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(background.tuning().density(),
+                    CanvasBackground.Tuning.MIN_DENSITY, CanvasBackground.Tuning.MAX_DENSITY, 1, "")
+                    .onPreview(value -> previewDensity((int) Math.round(value)))
+                    .onCommit(value -> setCanvasDensity((int) Math.round(value)));
+        }
+        if (ToolsLayout.CANVAS_TILE.equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(background.image().tileSize(),
+                    CanvasBackground.Image.MIN_TILE, CanvasBackground.Image.MAX_TILE, 1, " px")
+                    .onPreview(value -> previewTile((int) Math.round(value)))
+                    .onCommit(value -> setCanvasTile((int) Math.round(value)));
+        }
+        if (ToolsLayout.CANVAS_OPACITY.equals(key)) {
+            int percent = Math.round(Colour.alpha(editedTheme().colour("canvasPattern")) / 255F * 100F);
+            return new dev.ellipog.tasked.client.dev.ScrubField(percent, 0, 100, 1, "%")
+                    .onPreview(value -> previewOpacity((int) Math.round(value)))
+                    .onCommit(value -> setCanvasOpacity((int) Math.round(value)));
+        }
+        // A row key this switch does not know is a layout bug, not a runtime one: an empty field keeps the
+        // panel drawing rather than crashing a screen, and the row's label still says what it is.
+        return new dev.ellipog.tasked.client.dev.ScrubField(0, 0, 0, 1, "");
+    }
+
+    /** The word a chooser row is showing, from the background in force. */
+    private String choiceLabel(String key) {
+        CanvasBackground background = editedBackground();
+        if (ToolsLayout.CANVAS_PATTERN.equals(key)) {
+            return ToolsPanel.patternLabel(background.kind());
+        }
+        if (ToolsLayout.CANVAS_DIRECTION.equals(key)) {
+            return background.tuning().backslash() ? "\\" : "/";
+        }
+        if (ToolsLayout.CANVAS_SPACE.equals(key)) {
+            return ToolsPanel.spaceLabel(background.space());
+        }
+        if (ToolsLayout.CANVAS_FIT.equals(key)) {
+            return ToolsPanel.fitLabel(background.image().fit());
+        }
+        return Labels.of(key);
+    }
+
+    /** The chooser's menu: every value the row can take, anchored under the field it was opened from. */
+    private void openChoiceMenu(ToolsLayout.Action row) {
+        List<MenuItem> items = new ArrayList<>();
+        if (ToolsLayout.CANVAS_PATTERN.equals(row.key())) {
+            for (CanvasBackground.Kind kind : CanvasBackground.Kind.values()) {
+                items.add(MenuItem.of(ToolsPanel.patternLabel(kind), () -> setCanvasPattern(kind)));
             }
         }
+        else if (ToolsLayout.CANVAS_DIRECTION.equals(row.key())) {
+            items.add(MenuItem.of("/", () -> setCanvasDirection(false)));
+            items.add(MenuItem.of("\\", () -> setCanvasDirection(true)));
+        }
+        else if (ToolsLayout.CANVAS_SPACE.equals(row.key())) {
+            for (CanvasBackground.Space space : CanvasBackground.Space.values()) {
+                items.add(MenuItem.of(ToolsPanel.spaceLabel(space), () -> setCanvasSpace(space)));
+            }
+        }
+        else if (ToolsLayout.CANVAS_FIT.equals(row.key())) {
+            for (CanvasBackground.Fit fit : CanvasBackground.Fit.values()) {
+                items.add(MenuItem.of(ToolsPanel.fitLabel(fit), () -> setCanvasFit(fit)));
+            }
+        }
+        Layout active = activeLayout();
+        dev.ellipog.armature.client.ui.kit.Slot slot = active == null ? null : active.slot(row.key());
+        dev.ellipog.armature.client.ui.kit.Slot onScreen = slot == null ? null
+                : ToolsLayout.onScreen(toolsView.viewport(), slot);
+        if (onScreen == null) {
+            return;
+        }
+        openMenuAt(items, onScreen.right() - MENU_WIDTH, onScreen.bottom() + 2);
+    }
 
-        toolsView.apply(toolsLayout, toolsFrame.list().width());
+    // --- the absolute setters: the step handlers' arithmetic, with the value given rather than a delta.
+
+    private void setRadius(int value) {
+        int clamped = net.minecraft.util.Mth.clamp(value, Look.MIN_RADIUS, Look.MAX_RADIUS);
+        if (themeTargetsChapter) {
+            writeThemeRadius(clamped);
+        }
+        else {
+            ClientAppearance.LOOK.setRadius(clamped);
+        }
+        status("Border radius " + clamped, false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasPattern(CanvasBackground.Kind kind) {
+        CanvasBackground current = editedBackground();
+        writeThemeBackground(new CanvasBackground(kind, current.space(), current.spacing(),
+                current.tuning(), current.image()));
+        status("Canvas pattern: " + ToolsPanel.patternLabel(kind), false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasSpacing(int value) {
+        CanvasBackground current = editedBackground();
+        int spacing = net.minecraft.util.Mth.clamp(value, CanvasBackground.MIN_SPACING,
+                CanvasBackground.MAX_SPACING);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), spacing,
+                current.tuning(), current.image()));
+        status("Canvas spacing " + spacing, false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasSize(int value) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        int size = net.minecraft.util.Mth.clamp(value, CanvasBackground.Tuning.MIN_SIZE,
+                CanvasBackground.Tuning.MAX_SIZE);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(size, tuning.density(), tuning.backslash()),
+                current.image()));
+        status("Canvas mark size " + size, false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasDensity(int value) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        int density = net.minecraft.util.Mth.clamp(value, CanvasBackground.Tuning.MIN_DENSITY,
+                CanvasBackground.Tuning.MAX_DENSITY);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(tuning.size(), density, tuning.backslash()),
+                current.image()));
+        status("Canvas speckle density " + density, false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasDirection(boolean backslash) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(tuning.size(), tuning.density(), backslash),
+                current.image()));
+        status("Canvas hatch: " + (backslash ? "\\" : "/"), false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasSpace(CanvasBackground.Space space) {
+        CanvasBackground current = editedBackground();
+        writeThemeBackground(new CanvasBackground(current.kind(), space, current.spacing(),
+                current.tuning(), current.image()));
+        status("Canvas space: " + ToolsPanel.spaceLabel(space), false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasFit(CanvasBackground.Fit fit) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Image image = current.image();
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(),
+                new CanvasBackground.Image(image.texture(), fit, image.tileSize())));
+        status("Canvas image fit: " + ToolsPanel.fitLabel(fit), false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasTile(int value) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Image image = current.image();
+        // The image's own constructor clamps the tile, so the record in force is the clamped one.
+        CanvasBackground.Image next = new CanvasBackground.Image(image.texture(), image.fit(), value);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(), next));
+        status("Canvas tile " + next.tileSize() + " px", false);
+        rebuildWidgets();
+    }
+
+    private void setCanvasOpacity(int percent) {
+        int clamped = net.minecraft.util.Mth.clamp(percent, 0, 100);
+        int ink = editedTheme().colour("canvasPattern");
+        writeThemeToken("canvasPattern", (ink & 0x00FFFFFF) | ((clamped * 255 / 100) << 24));
+        status("Canvas pattern ink " + clamped + "%", false);
+        rebuildWidgets();
+    }
+
+    // --- the previews: the same patches the writers build, stamped as pending and not sent.
+
+    /**
+     * The pending chapter look: a patch a drag is showing but has not written.
+     *
+     * <p>Kept beside the {@code FieldDraft} rather than only in it because {@link #viewportTheme} is
+     * static -- the same convention {@code selectedQuest} uses for screen-level state -- and because the
+     * canvas needs the whole patch, not one path's value. It is what makes the canvas follow a drag before
+     * the round trip; the commit then writes the same patch, and the draft's own reconcile retires both
+     * when the tree carries the value.
+     */
+    private static JsonObject pendingChapterTheme;
+
+    private JsonObject previewBase() {
+        return themeTargetsChapter && effectiveChapter() != null
+                ? chapterThemePatchOf(effectiveChapter()).deepCopy() : null;
+    }
+
+    private void previewChapterPatch(JsonObject patch) {
+        String chapter = effectiveChapter();
+        if (chapter == null) {
+            return;
+        }
+        pendingChapterTheme = patch;
+        fieldDraft.set(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER, "themePatch",
+                patch, ClientQuestCache.treeRevision(), net.minecraft.Util.getMillis());
+    }
+
+    private void previewRadius(int radius) {
+        JsonObject patch = previewBase();
+        if (patch == null) {
+            return;
+        }
+        patch.addProperty("cornerRadius", radius);
+        previewChapterPatch(patch);
+    }
+
+    private void previewBackground(CanvasBackground background) {
+        JsonObject patch = previewBase();
+        if (patch == null) {
+            return;
+        }
+        patch.add("canvasBackground", background.toJson());
+        previewChapterPatch(patch);
+    }
+
+    private void previewSpacing(int spacing) {
+        CanvasBackground current = editedBackground();
+        previewBackground(new CanvasBackground(current.kind(), current.space(),
+                net.minecraft.util.Mth.clamp(spacing, CanvasBackground.MIN_SPACING,
+                        CanvasBackground.MAX_SPACING),
+                current.tuning(), current.image()));
+    }
+
+    private void previewSize(int size) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        previewBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(net.minecraft.util.Mth.clamp(size,
+                        CanvasBackground.Tuning.MIN_SIZE, CanvasBackground.Tuning.MAX_SIZE),
+                        tuning.density(), tuning.backslash()),
+                current.image()));
+    }
+
+    private void previewDensity(int density) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        previewBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(tuning.size(),
+                        net.minecraft.util.Mth.clamp(density, CanvasBackground.Tuning.MIN_DENSITY,
+                                CanvasBackground.Tuning.MAX_DENSITY),
+                        tuning.backslash()),
+                current.image()));
+    }
+
+    private void previewTile(int tile) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Image image = current.image();
+        previewBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(),
+                new CanvasBackground.Image(image.texture(), image.fit(), tile)));
+    }
+
+    private void previewOpacity(int percent) {
+        JsonObject patch = previewBase();
+        if (patch == null) {
+            return;
+        }
+        int ink = editedTheme().colour("canvasPattern");
+        JsonObject colours = patch.has("colours") && patch.get("colours").isJsonObject()
+                ? patch.getAsJsonObject("colours") : new JsonObject();
+        colours.addProperty("canvasPattern", String.format("#%08X",
+                (ink & 0x00FFFFFF)
+                        | net.minecraft.util.Mth.clamp(percent, 0, 100) * 255 / 100 << 24));
+        patch.add("colours", colours);
+        previewChapterPatch(patch);
+    }
+
+    /** A colour a picker is dragging: the same patch shape {@code writeThemeToken} writes. */
+    private void previewToken(String token, int argb) {
+        JsonObject patch = previewBase();
+        if (patch == null) {
+            return;
+        }
+        JsonObject colours = patch.has("colours") && patch.get("colours").isJsonObject()
+                ? patch.getAsJsonObject("colours") : new JsonObject();
+        colours.addProperty(token, String.format("#%08X", argb));
+        patch.add("colours", colours);
+        previewChapterPatch(patch);
+    }
+
+    // --- the chips and the picker
+
+    /** Whether a press landed on a colour chip: the one rectangle a chip owns. */
+    private boolean pressToolsChip(double mouseX, double mouseY) {
+        Layout active = activeLayout();
+        if (active == null) {
+            return false;
+        }
+        List<ToolsLayout.Action> rows = toolsTab == ToolsLayout.Tab.CHAPTER
+                ? chapterAppearanceRows : toolsRows;
+        for (ToolsLayout.Action row : rows) {
+            if (!row.isChip()) {
+                continue;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot slot = active.slot(row.key());
+            if (slot == null) {
+                continue;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot onScreen =
+                    ToolsLayout.onScreen(toolsView.viewport(), slot);
+            BookGeometry.Rect chip = ToolsLayout.chip(onScreen);
+            if (chip.contains(mouseX, mouseY)) {
+                openColourPopover(ToolsLayout.tokenId(row.key()), chip);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A field's label, armed for a scrub: the box is the widget's, the label is the screen's. */
+    private boolean armLabelScrub(double mouseX, double mouseY) {
+        for (dev.ellipog.tasked.client.dev.ScrubField field : rowFields) {
+            if (field.beginLabelScrub(mouseX, mouseY)) {
+                labelScrub = field;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Opens the picker at a chip.
+     *
+     * <p>The presets are the theme's own four surfaces, seeded once: a quick pick that is always available
+     * rather than a saved list that would need a file to live in. The preview and the commit are the same
+     * pair every other control uses -- a drag previews, a release writes once.
+     */
+    private void openColourPopover(String token, BookGeometry.Rect anchor) {
+        if (token == null || token.isEmpty()) {
+            return;
+        }
+        closeColourPopover();
+        int argb = editedTheme().colour(token);
+        popoverChapter = effectiveChapter();
+        dev.ellipog.tasked.client.dev.ColourPopover.seedPresets(List.of(
+                editedTheme().colour("panel"), editedTheme().colour("raised"),
+                editedTheme().colour("title"), editedTheme().colour("accent")));
+        colourPopover.open(anchor, geometry().canvas(), labelOfToken(token), argb,
+                List.of(), value -> previewToken(token, value), value -> writeThemeToken(token, value));
+        buildPopoverWidgets();
+    }
+
+    /** Registers the picker's four fields with the screen, at the positions it has just placed them. */
+    private void buildPopoverWidgets() {
+        if (!colourPopover.isOpen()) {
+            return;
+        }
+        for (net.minecraft.client.gui.components.AbstractWidget widget : colourPopover.widgets()) {
+            addRenderableWidget(widget);
+        }
+    }
+
+    /** Closes the picker, writing whatever its last gesture left unwritten. */
+    private void closeColourPopover() {
+        if (!colourPopover.isOpen()) {
+            return;
+        }
+        colourPopover.close();
+        for (net.minecraft.client.gui.components.AbstractWidget widget : colourPopover.widgets()) {
+            removeWidget(widget);
+        }
     }
 
     /** Switches the dock's tab. The other panel's state is not touched: see {@link #toolsTab}. */
     private void setTab(ToolsLayout.Tab tab) {
         if (toolsTab != tab) {
             toolsTab = tab;
+            // A picker belongs to the row it was opened from, and that row is about to be rebuilt away.
+            closeColourPopover();
+            // The selection names a token in one target's palette; carrying it across would leave the
+            // band showing one theme's value under the other tab's name.
+            toolsSelected = null;
             rebuildWidgets();
         }
     }
 
-    /** One of the three switches. */
+    /** The list layout the open tab is showing: the book's rows, or the chapter's combined list. */
+    private Layout activeLayout() {
+        return toolsTab == ToolsLayout.Tab.CHAPTER ? chapterLayout : toolsLayout;
+    }
+
+    /**
+     * Whether the open tab shows appearance controls at all.
+     *
+     * <p>The book tab always does. The chapter tab's section is the author's -- it writes the chapter
+     * file -- so it is offered only where there is a chapter and this client may edit it, and a reader's
+     * chapter tab keeps the content-only layout it has always had.
+     */
+    private boolean toolsAppearanceVisible() {
+        return toolsTab == ToolsLayout.Tab.BOOK || (mayEditNow() && effectiveChapter() != null);
+    }
+
+    /** One of the book tab's switches. */
     private void pressToolsSwitch(String key) {
-        if (key.equals(ToolsLayout.EDIT)) {
-            setEditing(!DevMode.on());
-        }
-        else if (key.equals(ToolsLayout.MOTION)) {
+        if (key.equals(ToolsLayout.MOTION)) {
             ClientAppearance.LOOK.setMotion(!ClientAppearance.LOOK.motion());
             status(ClientAppearance.LOOK.motion() ? "Motion on" : "Motion off", false);
             rebuildWidgets();
@@ -3276,14 +4238,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             status(DevMode.snap() ? "Snap on \u2014 Alt places freely" : "Snap off", false);
             rebuildWidgets();
         }
-        else if (key.equals(ToolsLayout.CHAPTER_THEME)) {
-            themeTargetsChapter = !themeTargetsChapter;
-            // The selection names a token either way; the value under it changes source, and a band still
-            // showing the last number would be showing the wrong palette's.
-            toolsSelected = null;
-            status(themeTargetsChapter
-                    ? "Editing this chapter's palette \u2014 changes are saved to the chapter file"
-                    : "Editing your own theme", false);
+        else if (key.equals(ToolsLayout.PROGRESS)) {
+            DevMode.setProgress(!DevMode.progress());
+            status(DevMode.progress() ? "Chapter progress bars on" : "Chapter progress bars off", false);
             rebuildWidgets();
         }
     }
@@ -3613,7 +4570,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         ChapterPanelLayout.GroupInfo group = chapterGroupInfo(effectiveChapter());
         if (group == null) {
-            status("This chapter's group is not editable from here", true);
+            status("tasked.status.this_chapter_s_group_is_not_editable_from_here", true);
             return;
         }
         pickTarget = PickTarget.GROUP;
@@ -3622,6 +4579,25 @@ public final class QuestBookScreen extends ArmatureScreen {
         pickingItemPath = ChapterPanelLayout.ICON;
         pickingItemCurrent = group.iconId();
         pickingItemClearPath = "icon";
+        openPickerOverlay();
+    }
+
+    /**
+     * The same, on the book's own icon: the pack's {@code index.json}, not any chapter's file.
+     *
+     * <p>No path and no current file to read — the value is the id the tree carried, which is what the
+     * header draws — so the picker's "current" line cannot name an item the book is not wearing.
+     */
+    private void openBookItemPicker() {
+        if (!mayEditNow()) {
+            return;
+        }
+        pickTarget = PickTarget.BOOK;
+        pickIcon = ClientQuestCache.bookIcon();
+        pickName = bookTitle().getString();
+        pickingItemPath = "bookIcon";
+        pickingItemCurrent = ClientQuestCache.bookIconId();
+        pickingItemClearPath = "bookIcon";
         openPickerOverlay();
     }
 
@@ -3792,7 +4768,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         // values; forgetting the leaves loses nothing the array draft that follows does not hold.
         fieldDraft.forgetList(effectiveChapter(), editTarget(), listPath);
         sendField(editTarget(), listPath, rebuilt);
-        status("Removed the condition", false);
+        status("tasked.status.removed_the_condition", false);
     }
 
     /**
@@ -3978,12 +4954,12 @@ public final class QuestBookScreen extends ArmatureScreen {
             uri = java.net.URI.create(url);
         }
         catch (IllegalArgumentException malformed) {
-            status("That link is not a valid address", true);
+            status("tasked.status.that_link_is_not_a_valid_address", true);
             return;
         }
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) {
-            status("Only http and https links open", true);
+            status("tasked.status.only_http_and_https_links_open", true);
             return;
         }
         net.minecraft.Util.getPlatform().openUri(uri);
@@ -4005,7 +4981,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void armDependencyPick() {
         String quest = editTarget();
         if (!mayEditNow() || quest == null) {
-            status("Open a quest to add a prerequisite to", true);
+            status("tasked.status.open_a_quest_to_add_a_prerequisite_to", true);
             return;
         }
         pendingPick = new dev.ellipog.tasked.client.dev.DependencyPick(quest, effectiveChapter(),
@@ -4034,7 +5010,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         // list as it was armed, refuse a self-dependency, refuse one that is already there.
         dev.ellipog.tasked.client.dev.DependencyPick.Result result = pick.with(id);
         if (result.outcome() == dev.ellipog.tasked.client.dev.DependencyPick.Outcome.ITSELF) {
-            status("A quest cannot depend on itself", true);
+            status("tasked.status.a_quest_cannot_depend_on_itself", true);
             returnToEditedQuest(pick);
             return;
         }
@@ -4078,12 +5054,12 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         if (typed.isEmpty()) {
-            status("Type the id of the quest to depend on, then Enter", true);
+            status("tasked.status.type_the_id_of_the_quest_to_depend_on_then_enter", true);
             rebuildWidgets();
             return;
         }
         if (typed.equals(target)) {
-            status("A quest cannot depend on itself", true);
+            status("tasked.status.a_quest_cannot_depend_on_itself", true);
             rebuildWidgets();
             return;
         }
@@ -4124,8 +5100,26 @@ public final class QuestBookScreen extends ArmatureScreen {
         return array;
     }
 
-    /** A theme row, or a colour row. */
+    /** A palette row, or a colour row. */
     private void pressToolsRow(String key) {
+        // The copy row before the token and palette tests: it is an action, not a selection, and it
+        // takes two presses. The canvas's numbers and words are widgets now -- see `buildRowControls`
+        // -- so this is what is left of the rows that are pressed rather than edited.
+        if (ToolsLayout.CANVAS_COPY.equals(key)) {
+            pressCanvasCopy();
+            return;
+        }
+        // The canvas space row is a chooser widget now, so this branch is only reached if a caller
+        // presses its key directly; kept because the write is the same one the menu row runs.
+        if (ToolsLayout.CANVAS_SPACE.equals(key)) {
+            toggleCanvasSpace();
+            return;
+        }
+        String palette = ToolsLayout.paletteId(key);
+        if (palette != null) {
+            choosePalette(palette);
+            return;
+        }
         String token = ToolsLayout.tokenId(key);
         if (token != null) {
             toolsSelected = token.equals(toolsSelected) ? null : token;
@@ -4135,10 +5129,92 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The section's heading: folds or unfolds it. */
     private void fold(String key) {
+        // The rows are about to be rebuilt: a picker anchored to one of them closes with it.
+        closeColourPopover();
         if (key.equals(ToolsLayout.COLOUR_SECTION)) {
             toolsColoursOpen = !toolsColoursOpen;
             rebuildWidgets();
         }
+        else if (key.equals(ToolsLayout.PALETTE_SECTION)) {
+            toolsPaletteOpen = !toolsPaletteOpen;
+            rebuildWidgets();
+        }
+        else if (key.equals(ToolsLayout.APPEARANCE_SECTION)) {
+            toolsAppearanceOpen = !toolsAppearanceOpen;
+            rebuildWidgets();
+        }
+        else if (key.equals(ToolsLayout.BOOK_SECTION)) {
+            toolsBookOpen = !toolsBookOpen;
+            rebuildWidgets();
+        }
+        else if (key.equals(ToolsLayout.CANVAS_SECTION)) {
+            toolsCanvasOpen = !toolsCanvasOpen;
+            rebuildWidgets();
+        }
+    }
+
+    /** The palettes the tools list offers: the catalogue, in its order, with display labels. */
+    private static List<ToolsLayout.Palette> paletteOptions() {
+        return Themes.everything().stream()
+                .map(theme -> new ToolsLayout.Palette(theme.name(), theme.displayName()))
+                .toList();
+    }
+
+    /**
+     * A palette press: the open chapter's on the Chapter tab, the operator's own on the book tab.
+     *
+     * <p>The target follows from the tab — there is no switch to move one tab's edits onto the other's
+     * file — so the chapter tab's press writes the chapter's {@code theme} field: the file every player
+     * sees, which the draft overlays immediately so the panel's preview follows. The book tab's press
+     * is the operator's own appearance.
+     *
+     * <p>And the press overrides what was there, on both targets — *"when i click a theme it must
+     * override everything that was there manually or already"*. On the author's own side that is
+     * {@code Look.setTheme}, which drops their colour edits and radius with the switch. On the chapter's
+     * side it is the patch below: a palette press means "this palette is the chapter's look", and a
+     * {@code themePatch} left behind would tint the new palette silently — the chapter's raised strip or
+     * dependency line staying the old colour is the same complaint one level down. Colours and corners
+     * only: a patch's {@code motion} and {@code easing} are chapter behaviour rather than palette, and
+     * the panel has no control for them, so clearing those would be a change the author never asked for.
+     * The write goes through the same chapter op as every other field, so Ctrl+Z takes it back.
+     */
+    private void choosePalette(String name) {
+        String chapter = effectiveChapter();
+        Theme theme = Themes.any(name);
+        String label = theme != null ? theme.displayName() : name;
+        if (themeTargetsChapter && chapter != null) {
+            sendChapterField("theme", new JsonPrimitive(name));
+            JsonObject patch = chapterThemePatchOf(chapter);
+            boolean hadOverrides = patch.has("colours") || patch.has("cornerRadius")
+                    || patch.has("canvasBackground");
+            patch.remove("colours");
+            patch.remove("cornerRadius");
+            patch.remove("canvasBackground");
+            sendChapterThemePatch(patch);
+            status(Component.translatable(hadOverrides
+                    ? "tasked.status.palette_chapter_reset"
+                    : "tasked.status.palette_chapter", label).getString(), false);
+        }
+        else {
+            chooseTheme(name);
+            status(Component.translatable("tasked.status.palette_chosen", label).getString(), false);
+        }
+    }
+
+    /**
+     * The palette in force for what the panel is editing.
+     *
+     * <p>The chapter's while it is the target — defaulting to {@code default} when the chapter names
+     * none, which is what a reader sees — and the author's own otherwise. What the list marks, so the
+     * tick answers "what am I looking at" rather than "what did I last click".
+     */
+    private String currentPalette() {
+        String chapter = effectiveChapter();
+        if (themeTargetsChapter && chapter != null) {
+            String theme = ClientQuestCache.chapterTheme(chapter);
+            return theme != null ? theme : Themes.DEFAULT.name();
+        }
+        return ClientAppearance.LOOK.currentName();
     }
 
     /**
@@ -4161,7 +5237,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         toolsSelected = token;
         toolsColoursOpen = true;
         rebuildWidgets();
-        var row = toolsLayout == null ? null : toolsLayout.slot(ToolsLayout.tokenKey(token));
+        var row = activeLayout() == null ? null : activeLayout().slot(ToolsLayout.tokenKey(token));
         if (row != null) {
             toolsView.scrollTo(row.y() - toolsFrame.list().height() / 3);
         }
@@ -4184,6 +5260,237 @@ public final class QuestBookScreen extends ArmatureScreen {
                 + (ClientAppearance.LOOK.radiusChosen() ? "  (theme's own: " + editedBaseRadius() + ")" : ""),
                 false);
         rebuildWidgets();
+    }
+
+    /** The pattern row's arrows: the next or previous kind, wrapping. Flat is one of the kinds. */
+    private void cycleCanvasPattern(int delta) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Kind[] kinds = CanvasBackground.Kind.values();
+        CanvasBackground.Kind next = kinds[Math.floorMod(current.kind().ordinal() + delta, kinds.length)];
+        writeThemeBackground(new CanvasBackground(next, current.space(), current.spacing(),
+                current.tuning(), current.image()));
+        status("Canvas pattern: " + ToolsPanel.patternLabel(next), false);
+        rebuildWidgets();
+    }
+
+    /** The strip's press: the same cycle the pattern row's up-arrow makes. */
+    private void pressCanvasPreview() {
+        cycleCanvasPattern(1);
+    }
+
+    /** The mark-size row's arrows: one pixel a step, inside the model's own range. */
+    private void stepCanvasSize(int delta) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        int size = Mth.clamp(tuning.size() + delta,
+                CanvasBackground.Tuning.MIN_SIZE, CanvasBackground.Tuning.MAX_SIZE);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(size, tuning.density(), tuning.backslash()),
+                current.image()));
+        status("Canvas mark size " + size, false);
+        rebuildWidgets();
+    }
+
+    /** The speckle density row's arrows: one cell a step, inside the model's own range. */
+    private void stepCanvasDensity(int delta) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        int density = Mth.clamp(tuning.density() + delta,
+                CanvasBackground.Tuning.MIN_DENSITY, CanvasBackground.Tuning.MAX_DENSITY);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(tuning.size(), density, tuning.backslash()),
+                current.image()));
+        status("Canvas speckle density " + density, false);
+        rebuildWidgets();
+    }
+
+    /** The hatch direction row's arrows: the two diagonals, toggled. */
+    private void toggleCanvasDirection() {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Tuning tuning = current.tuning();
+        boolean backslash = !tuning.backslash();
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                new CanvasBackground.Tuning(tuning.size(), tuning.density(), backslash),
+                current.image()));
+        status("Canvas hatch: " + (backslash ? "\\" : "/"), false);
+        rebuildWidgets();
+    }
+
+    /** The fit row's arrows: tiling and covering, the two ways an image meets its rectangle. */
+    private void cycleCanvasFit() {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Image image = current.image();
+        CanvasBackground.Fit next = image.fit() == CanvasBackground.Fit.TILE
+                ? CanvasBackground.Fit.COVER : CanvasBackground.Fit.TILE;
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(),
+                new CanvasBackground.Image(image.texture(), next, image.tileSize())));
+        status("Canvas image fit: " + ToolsPanel.fitLabel(next), false);
+        rebuildWidgets();
+    }
+
+    /** The tile row's arrows: four pixels a step, inside the model's own range. */
+    private void stepCanvasTile(int delta) {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Image image = current.image();
+        int tile = Mth.clamp(image.tileSize() + delta * 4,
+                CanvasBackground.Image.MIN_TILE, CanvasBackground.Image.MAX_TILE);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(), new CanvasBackground.Image(image.texture(), image.fit(), tile)));
+        status("Canvas tile " + tile + " px", false);
+        rebuildWidgets();
+    }
+
+    /**
+     * The opacity row's arrows: five percent a step of the {@code canvasPattern} token's alpha.
+     *
+     * <p>The step is taken in percent rather than in 0..255 so the number the row shows and the number
+     * the press moves are the same quantity; the token keeps its RGB, because the row is about how loud
+     * the ink is rather than about its hue -- the Ink row above is that question.
+     */
+    private void stepCanvasOpacity(int delta) {
+        int argb = editedTheme().colour("canvasPattern");
+        int percent = Mth.clamp(Math.round(((argb >>> 24) & 0xFF) / 255F * 100F) + delta * 5, 0, 100);
+        int alpha = Math.round(percent / 100F * 255F);
+        writeThemeToken("canvasPattern", (argb & 0x00FFFFFF) | (alpha << 24));
+        status("Canvas pattern ink " + percent + "%", false);
+        rebuildWidgets();
+    }
+
+    /** The spacing row's arrows: four units a step, inside the model's own range. */
+    private void stepCanvasSpacing(int delta) {
+        CanvasBackground current = editedBackground();
+        int spacing = Mth.clamp(current.spacing() + delta * 4,
+                CanvasBackground.MIN_SPACING, CanvasBackground.MAX_SPACING);
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), spacing,
+                current.tuning(), current.image()));
+        status("Canvas spacing " + spacing, false);
+        rebuildWidgets();
+    }
+
+    /** The space row: graph-anchored and screen-fixed, toggled. */
+    private void toggleCanvasSpace() {
+        CanvasBackground current = editedBackground();
+        CanvasBackground.Space next = current.space() == CanvasBackground.Space.GRAPH
+                ? CanvasBackground.Space.SCREEN : CanvasBackground.Space.GRAPH;
+        writeThemeBackground(new CanvasBackground(current.kind(), next, current.spacing(),
+                current.tuning(), current.image()));
+        status("Canvas space: " + ToolsPanel.spaceLabel(next), false);
+        rebuildWidgets();
+    }
+
+    /**
+     * The texture row's commit: the id canonicalised and looked up before anything is written.
+     *
+     * <h2>Why the file is checked here, and why the check can only be a courtesy</h2>
+     *
+     * <p>An id that resolves to nothing draws nothing -- the painter returns on an unresolvable
+     * texture -- so writing one would be an edit whose only visible effect is a canvas that quietly
+     * stopped being tiled. The resource manager is the client's own copy of the pack, so the check is
+     * exactly as current as the pack the author is looking at, and a path that passes it may still be
+     * absent on another player's client. What it catches is the typo, which is the common case; what it
+     * cannot catch is a pack that disagrees with itself.
+     *
+     * <p>The status names the <b>resolved</b> path rather than what was typed, because the two differ
+     * whenever the input was lowercase-folded, namespace-defaulted or carried a leading
+     * {@code textures/} -- and the author needs to see the id the file will actually carry.
+     *
+     * <p>The boolean answer exists for the picker: the field's own submit ignores it and shows the
+     * status line instead, while a pressed row has to know whether it may close -- a press that failed
+     * the file check keeps the list open with the refusal beside it, rather than closing over the
+     * reason.
+     *
+     * @return true when the texture was written, false when the id did not resolve to a file
+     */
+    private boolean commitCanvasTexture(String typed) {
+        String raw = typed == null ? "" : typed.trim();
+        String canonical = CanvasBackground.canonicalTexture(raw);
+        if (canonical.isEmpty()) {
+            status("\"" + raw + "\" is not a texture id - try mymod:textures/gui/bg.png", true);
+            return false;
+        }
+        ResourceLocation id = ResourceLocation.tryParse(canonical);
+        if (id == null || minecraft == null || minecraft.getResourceManager() == null
+                || minecraft.getResourceManager().getResource(id).isEmpty()) {
+            status("No texture at " + canonical, true);
+            return false;
+        }
+        CanvasBackground current = editedBackground();
+        writeThemeBackground(new CanvasBackground(current.kind(), current.space(), current.spacing(),
+                current.tuning(),
+                new CanvasBackground.Image(canonical, current.image().fit(),
+                        current.image().tileSize())));
+        status("Canvas texture " + canonical, false);
+        rebuildWidgets();
+        return true;
+    }
+
+    /**
+     * Copy to all chapters: two presses, with the label saying so in between.
+     *
+     * <h2>One op per chapter, through the chapter's own session</h2>
+     *
+     * <p>The current background is written into every chapter's own {@code themePatch}. The patch is
+     * read and written whole, so a chapter that already had one keeps every other key it carried --
+     * a palette press clears a patch, but this is an addition to each chapter's look rather than a
+     * replacement of it. Each write goes through the same chapter op a field commit uses, so Ctrl+Z
+     * takes the copy back one chapter at a time, which is the honest granularity for an edit that
+     * touched every file.
+     *
+     * <p>The arming press is what puts the count in the label, and it is read from the cache at that
+     * moment: the number of chapters a pack has is not a thing that changes under a reader's hands.
+     */
+    private void pressCanvasCopy() {
+        if (!canvasCopyArmed) {
+            // Arm, then rebuild with the guard up: the row model is what carries the armed label, and
+            // the guard is what keeps this rebuild from clearing the arm it is drawing. See
+            // `canvasCopyArming`.
+            canvasCopyArmed = true;
+            canvasCopyArming = true;
+            try {
+                rebuildWidgets();
+            }
+            finally {
+                canvasCopyArming = false;
+            }
+            return;
+        }
+        disarmCanvasCopy();
+        if (!mayEditNow()) {
+            status("Edit mode is off, so the copy was not written", true);
+            return;
+        }
+        CanvasBackground background = editedBackground();
+        int updated = 0;
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            String id = chapter.id();
+            if (id == null || id.isEmpty()) {
+                continue;
+            }
+            JsonObject patch = chapterThemePatchOf(id);
+            patch.add("canvasBackground", background.toJson());
+            sendChapterThemePatch(id, patch);
+            updated++;
+        }
+        status(updated + (updated == 1 ? " chapter updated" : " chapters updated"), false);
+    }
+
+    /** Undoes an armed copy: the flag, and the label a player is looking at. */
+    private void disarmCanvasCopy() {
+        if (!canvasCopyArmed) {
+            return;
+        }
+        canvasCopyArmed = false;
+        if (canvasCopyButton != null) {
+            canvasCopyButton.setMessage(Component.translatable("tasked.dev.canvas.copy"));
+        }
+    }
+
+    /** The copy row's label: the armed variant while armed, the plain key otherwise. */
+    private String canvasCopyLabel() {
+        return canvasCopyArmed
+                ? Labels.of("tasked.dev.canvas.copy_armed", ClientQuestCache.chapterCount())
+                : "tasked.dev.canvas.copy";
     }
 
     /**
@@ -4216,6 +5523,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The chapter's named theme without its patch: the radius the chapter's own override replaced.
         return ChapterTheme.compose(ClientQuestCache.chapterTheme(effectiveChapter()), null,
                 ClientAppearance.LOOK.main()).cornerRadius();
+    }
+
+    /** The canvas background in force for the panel's target. */
+    private CanvasBackground editedBackground() {
+        return themeTargetsChapter ? editedTheme().background() : ClientAppearance.LOOK.background();
+    }
+
+    /** Whether the target itself pins a canvas background, rather than inheriting the theme's. */
+    private boolean editedBackgroundChosen() {
+        return themeTargetsChapter ? chapterThemePatchOf(effectiveChapter()).has("canvasBackground")
+                : ClientAppearance.LOOK.backgroundChosen();
     }
 
     /**
@@ -4302,9 +5620,41 @@ public final class QuestBookScreen extends ArmatureScreen {
         sendChapterThemePatch(patch);
     }
 
+    /** Writes (or clears) the canvas background on the panel's target. */
+    private void writeThemeBackground(CanvasBackground background) {
+        if (!themeTargetsChapter) {
+            ClientAppearance.LOOK.setBackground(background);
+            return;
+        }
+        JsonObject patch = chapterThemePatchOf(effectiveChapter());
+        if (background == null) {
+            patch.remove("canvasBackground");
+        }
+        else {
+            patch.add("canvasBackground", background.toJson());
+        }
+        sendChapterThemePatch(patch);
+    }
+
     /** Sends a chapter's whole patch object; an empty patch is removed rather than written. */
     private void sendChapterThemePatch(JsonObject patch) {
-        sendChapterField("themePatch", patch.isEmpty() ? null : patch);
+        sendChapterThemePatch(effectiveChapter(), patch);
+    }
+
+    /**
+     * The same, aimed at a named chapter: what the copy-to-all writes each file through.
+     *
+     * <p>{@code EditorOp.SetChapter} carries no chapter id -- the session in the payload is what names
+     * the file (see the op's own note) -- so a per-chapter write is the same op sent through a
+     * different session, and the draft has to be filed under that chapter for the same reason. The
+     * shape mirrors {@code sendChapterField}, which is the single-chapter original of this pair.
+     */
+    private void sendChapterThemePatch(String chapter, JsonObject patch) {
+        JsonElement value = patch.isEmpty() ? null : patch;
+        fieldDraft.set(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
+                "themePatch", value, ClientQuestCache.treeRevision(), Util.getMillis());
+        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter,
+                new EditorOp.SetChapter("themePatch", value));
     }
 
     /** The selected colour's value, as the field should show it — from the palette being edited. */
@@ -4422,17 +5772,19 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The panel's status line, and the chat, because a panel can be covered by the inventory. */
     private void status(String message, boolean error) {
-        toolsFeedback = message;
+        // A key for everything the sweep has converted, and a plain sentence for the composed ones:
+        // `translatable` passes an unknown key through unchanged, so both kinds go through one door and
+        // a translator sees one namespace. Resolved here rather than at each of the three sinks, so the
+        // panel, the toast and the chat cannot disagree about what was said.
+        String text = Component.translatable(message).getString();
+        toolsFeedback = text;
         toolsFeedbackIsError = error;
-        toast(message, error);
-        if (error) {
-            say("\u00a7c" + message);
-        }
+        toast(text, error);
     }
 
     /** Where the pointer is, relative to the panel. Null when the panel is shut. */
     private boolean inTools(double mouseX, double mouseY) {
-        if (!toolsOpen || toolsFrame == null) {
+        if (!drawerOpen() || toolsFrame == null) {
             return false;
         }
         return toolsFrame.panel().contains(mouseX, mouseY);
@@ -4453,8 +5805,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         if (disbandButton != null) {
             disbandButton.setMessage(Component.translatable("tasked.screen.party.confirm_again"));
-            disbandButton.tooltip(List.of(Component.literal("Press again within three seconds"),
-                    Component.literal("Everybody keeps the progress they earned")));
+            disbandButton.tooltip(List.of(Component.translatable("tasked.screen.press_again_within_three_seconds"),
+                    Component.translatable("tasked.screen.everybody_keeps_the_progress_they_earned")));
         }
     }
 
@@ -4685,7 +6037,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 button.icon(icon.stack());
             }
             else if (icon != null && !icon.id().isEmpty()) {
-                button.tooltip(List.of(Component.literal("Missing item: " + icon.id())));
+                button.tooltip(List.of(Component.translatable("tasked.screen.missing_item", icon.id())));
             }
 
             // Left-aligned, every row. A column of centred labels has a ragged left edge, so nothing
@@ -4746,6 +6098,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // worse than one that forgot.
         disbandButton = null;
         disbandPress.disarm();
+        // And the armed canvas copy, for the same reason -- with one exception: the arming press's own
+        // rebuild sets `canvasCopyArming`, because a rebuild is what puts the armed label on the row.
+        if (!canvasCopyArming) {
+            canvasCopyArmed = false;
+        }
+        canvasCopyButton = null;
         partyNameField = null;
         partyCreateField = null;
         partySearchField = null;
@@ -4831,6 +6189,20 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
 
+        if (overlay == Overlay.TEXTURE) {
+            // The same chrome behind the card as every overlay above, then the picker's search box and
+            // Back. Built through `buildOverlayWidgets` like the item picker's, so the two cards' widget
+            // passes are one shape -- see `buildTextureWidgets` for the field itself.
+            buildSidebarWidgets();
+            buildHeaderChrome();
+            buildViewCluster();
+            beginModalControls();
+
+            buildOverlayWidgets();
+            setBookControlsActive(false);
+            return;
+        }
+
         if (overlay == Overlay.CHOICE) {
             // The same chrome behind the card as every other overlay, and then the entries. The card is
             // a question a player answers, so nothing here is gated on editing: `mayEditNow` guards the
@@ -4870,7 +6242,20 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
 
-        if (toolsOpen) {
+        if (overlay == Overlay.SETTINGS) {
+            // The same chrome behind the card as every other overlay, and then the player's rows. Not
+            // gated on editing: this card is the reader's, which is the point of it existing.
+            buildSidebarWidgets();
+            buildHeaderChrome();
+            buildViewCluster();
+            beginModalControls();
+
+            buildSettingsWidgets();
+            setBookControlsActive(false);
+            return;
+        }
+
+        if (drawerOpen()) {
             buildToolsWidgets();
         }
 
@@ -4947,13 +6332,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         Map<String, BookGeometry.Rect> controls = geometry().controls();
 
         control(controls.get("zoomIn"), Component.literal("+"), () -> zoomCentre(1.25F))
-                .tooltip(List.of(Component.literal("Zoom in"),
-                        Component.literal("Or scroll up over the canvas")))
+                .tooltip(List.of(Component.translatable("tasked.screen.zoom_in"),
+                        Component.translatable("tasked.screen.or_scroll_up_over_the_canvas")))
                 .ink(ArmatureButton.Ink.BODY);
 
         control(controls.get("zoomOut"), Component.literal("\u2212"), () -> zoomCentre(0.8F))
-                .tooltip(List.of(Component.literal("Zoom out"),
-                        Component.literal("Or scroll down over the canvas")))
+                .tooltip(List.of(Component.translatable("tasked.screen.zoom_out"),
+                        Component.translatable("tasked.screen.or_scroll_down_over_the_canvas")))
                 .ink(ArmatureButton.Ink.BODY);
 
         // A glyph rather than the word "Centre", because it is an 18-pixel square: "Centre" in that
@@ -4961,13 +6346,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         // fixed the chapter titles, so the fix here is to pass a label that fits rather than to widen
         // the control back out. The tooltip carries the word. The glyph is a house -- "back to where the
         // view started" -- which is one of the few symbols this font has; the fisheye it used to be was
-        // not, and drew as the missing-glyph box. See `BookGeometry.TOOLS_BUTTON_WIDTH`.
+        // not, and drew as the missing-glyph box. See `BookGeometry.TOOLS_PILL_WIDTH`.
         control(controls.get("centre"), Component.literal("\u2302"), () -> {
             centred = false;
             centreCanvas();
         })
-                .tooltip(List.of(Component.literal("Re-centre the view"),
-                        Component.literal("Drag with left or middle to pan")))
+                .tooltip(List.of(Component.translatable("tasked.screen.re_centre_the_view"),
+                        Component.translatable("tasked.screen.drag_with_left_or_middle_to_pan")))
                 .ink(ArmatureButton.Ink.BODY);
     }
 
@@ -5036,33 +6421,48 @@ public final class QuestBookScreen extends ArmatureScreen {
                     ? "tasked.screen.rewards.none" : "tasked.screen.rewards.waiting", waiting));
         }
 
-        // The author's split control, and it exists only for a player who may edit the questline -- the
-        // same permission `/tasked reload` asks for, which is what makes "who may edit" one rule rather
-        // than two. A player who is not an operator sees the book exactly as it was: two controls in the
-        // header and nothing else, which is the point of gating it here rather than greying it out.
-        editButton = null;
-        toolsButton = null;
+        // The settings button, for every player -- the whole point of the card it opens. The theme, the
+        // Motion switch and the corner radius were the author's tools panel's until this existed, and
+        // the player they are for could not reach them.
+        settingsHeaderButton = control(controls.get("settings"),
+                Component.translatable("tasked.screen.settings"), this::openSettingsOverlay);
+        if (settingsHeaderButton != null) {
+            settingsHeaderButton.ink(ArmatureButton.Ink.BODY)
+                    .tooltip(Component.translatable("tasked.screen.accessibility_settings"));
+        }
+
+        // The author's pills, and they exist only for a player who may edit the questline -- the same
+        // permission `/tasked reload` asks for, which is what makes "who may edit" one rule rather than
+        // two. A player who is not an operator never has them built at all, so their screen carries no
+        // trace of authoring: the same header as everyone, and a canvas with only the view cluster on it.
+        //
+        // Edit latches edit mode, and the inspector drawer follows it -- see `drawerOpen`, where that is
+        // derived rather than a second flag. Tools drops in beneath it and only while edit mode is on: it
+        // opens the maintenance menu, and a menu with nothing to act on is a control that should not be
+        // there.
+        editPill = null;
+        toolsPill = null;
         if (mayEdit()) {
-            editButton = control(controls.get("edit"),
-                    Component.literal("Edit"), () -> setEditing(!DevMode.on()));
-            if (editButton != null) {
-                editButton.ink(ArmatureButton.Ink.BODY)
+            editPill = control(controls.get("editPill"),
+                    Component.literal("\u270E ").append(Component.translatable("tasked.screen.edit")),
+                    () -> setEditing(!DevMode.on()));
+            if (editPill != null) {
+                editPill.ink(ArmatureButton.Ink.BODY)
                         .selected(DevMode.on())
-                        .tooltip(List.of(Component.literal("Edit this questline"),
-                                Component.literal("Drag nodes, create, duplicate, delete"),
-                                Component.literal("Ctrl+S saves, Ctrl+Z undoes")));
+                        .tooltip(List.of(Component.translatable("tasked.screen.edit_this_questline"),
+                                Component.translatable("tasked.screen.drag_nodes_create_duplicate_delete"),
+                                Component.translatable("tasked.screen.ctrl_s_saves_ctrl_z_undoes")));
             }
 
-            toolsButton = control(controls.get("tools"),
-                    Component.literal("Tools"), () -> {
-                        toolsOpen = !toolsOpen;
-                        rebuildWidgets();
-                    });
-            if (toolsButton != null) {
-                toolsButton.ink(ArmatureButton.Ink.BODY)
-                        .selected(toolsOpen)
-                        .tooltip(List.of(Component.literal("Tools"),
-                                Component.literal("Theme, colours and the preview")));
+            if (DevMode.on()) {
+                toolsPill = control(controls.get("toolsPill"),
+                        Component.translatable("tasked.screen.tools")
+                                .append(Component.literal(" \u25BC")),
+                        this::openToolsMenu);
+                if (toolsPill != null) {
+                    toolsPill.ink(ArmatureButton.Ink.BODY)
+                            .tooltip(Component.translatable("tasked.screen.tools_menu_hint"));
+                }
             }
         }
     }
@@ -5078,14 +6478,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         return minecraft != null && minecraft.player != null && minecraft.player.hasPermissions(QuestAuthority.EDIT_LEVEL);
     }
 
-    /** Edit mode on or off, with the header control and the panel following. */
+    /**
+     * Edit mode on or off, with the pill and the inspector drawer following.
+     *
+     * <p>Switching either way closes the Tools menu: a menu anchored to a pill that is about to vanish
+     * (turning edit off) would hang over the canvas with nothing to belong to, and leaving it open while
+     * the drawer slides in puts a menu over the panel it is about to describe.
+     */
     private void setEditing(boolean on) {
         DevMode.setOn(on);
-        // Leaving edit mode drops the chapter target with it: its switch is not drawn for a reader, and a
-        // panel still pointed at a chapter would offer colours the server would refuse to write.
-        if (!on) {
-            themeTargetsChapter = false;
-        }
+        closeMenu();
+        closeColourPopover();
         report(on ? "Edit mode on" : "Edit mode off");
         rebuildWidgets();
     }
@@ -5162,6 +6565,21 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     private void buildOverlayWidgets() {
+        // The texture picker's card, before the item picker's and for the same reason: it is an overlay
+        // that is not about a quest, so the entry lookup below would close it on the frame it opened.
+        if (overlay == Overlay.TEXTURE) {
+            buildTextureWidgets();
+            // The same single Back control the item picker's card carries: Escape and a press outside
+            // also leave, and the card's own footer rectangle keeps the two cards' controls in line.
+            ArmatureButton back = control(geometry().overlayControls(false).get("back"),
+                    Component.translatable("tasked.screen.back"), this::closeTexturePicker);
+            if (back != null) {
+                back.ink(ArmatureButton.Ink.BODY)
+                        .tooltip(Component.translatable("tasked.screen.escape_also_closes_this"));
+            }
+            return;
+        }
+
         // The picker's own overlay first: it is the one overlay that is not about a quest, so it must
         // not be asked for an entry -- the test below is what would otherwise close it on the frame it
         // opened, because a chapter icon pick has no quest behind it.
@@ -5188,15 +6606,22 @@ public final class QuestBookScreen extends ArmatureScreen {
                     pickingItemCurrent = group.iconId();
                 }
             }
+            else if (pickTarget == PickTarget.BOOK) {
+                // No file to re-read: the tree's own values are the current ones, and the rebuild this
+                // sits in is what keeps them from going stale.
+                pickIcon = ClientQuestCache.bookIcon();
+                pickName = bookTitle().getString();
+                pickingItemCurrent = ClientQuestCache.bookIconId();
+            }
             buildPickerWidgets();
             // One control, because the card has no other: Escape and a press outside also leave, and a
             // picker whose only way out is a key nobody was told about reads as a trap. The reader's
             // Back rectangle is the one the card's other footers use, so the three cards line up.
             ArmatureButton back = control(geometry().overlayControls(false).get("back"),
-                    Component.literal("Back"), this::closePickerOverlay);
+                    Component.translatable("tasked.screen.back"), this::closePickerOverlay);
             if (back != null) {
                 back.ink(ArmatureButton.Ink.BODY)
-                        .tooltip(Component.literal("Escape also closes this"));
+                        .tooltip(Component.translatable("tasked.screen.escape_also_closes_this"));
             }
             setBookControlsActive(false);
             return;
@@ -5222,7 +6647,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             // and disappears with the stack would move under the pointer that is using it.
             backArrow.active = !overlayHistory.isEmpty();
             backArrow.ink(ArmatureButton.Ink.BODY)
-                    .tooltip(Component.literal("Back to the quest you came from"));
+                    .tooltip(Component.translatable("tasked.screen.back_to_the_quest_you_came_from"));
         }
 
         // An author opening a quest gets the editor, not the reader: the same card, with the fields
@@ -5261,8 +6686,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                     () -> claim(entry.id()));
             if (claim != null) {
                 claim.accent(true)
-                        .tooltip(List.of(Component.literal("Collect this quest's rewards"),
-                                Component.literal("Nothing more is needed - it is already finished")));
+                        .tooltip(List.of(Component.translatable("tasked.screen.collect_this_quest_s_rewards"),
+                                Component.translatable("tasked.screen.nothing_more_is_needed_it_is_already_finished")));
                 // The first reward's own icon, when there is one to draw. A Claim button wearing the
                 // thing it is about says what it is for without a word of label.
                 if (!entry.rewards().isEmpty()) {
@@ -5281,14 +6706,14 @@ public final class QuestBookScreen extends ArmatureScreen {
                 submit.accent(true)
                         .icon(entry.tasks().get(index).icon())
                         .tooltip(List.of(Component.literal("Hand over task " + (index + 1)),
-                                Component.literal("The server checks the items are really there")));
+                                Component.translatable("tasked.screen.the_server_checks_the_items_are_really_there")));
             }
         }
 
-        ArmatureButton back = control(controls.get("back"), Component.literal("Back"), this::closeOverlay);
+        ArmatureButton back = control(controls.get("back"), Component.translatable("tasked.screen.back"), this::closeOverlay);
         if (back != null) {
             back.ink(ArmatureButton.Ink.BODY)
-                    .tooltip(Component.literal("Escape also closes this"));
+                    .tooltip(Component.translatable("tasked.screen.escape_also_closes_this"));
         }
     }
 
@@ -5384,19 +6809,19 @@ public final class QuestBookScreen extends ArmatureScreen {
                 questDeleteButton.ink(confirmingDelete ? ArmatureButton.Ink.BLOCKED
                         : ArmatureButton.Ink.BODY);
             }
-            control(duplicate, Component.literal("Duplicate"), this::duplicateQuest)
+            control(duplicate, Component.translatable("tasked.screen.duplicate"), this::duplicateQuest)
                     .ink(ArmatureButton.Ink.BODY);
-            control(copy, Component.literal("Copy"), this::copyQuest)
+            control(copy, Component.translatable("tasked.screen.copy"), this::copyQuest)
                     .ink(ArmatureButton.Ink.BODY);
-            settingsButton = control(settings, Component.literal("Settings"), this::toggleSettings);
+            settingsButton = control(settings, Component.translatable("tasked.screen.settings"), this::toggleSettings);
             if (settingsButton != null) {
                 settingsButton.ink(ArmatureButton.Ink.BODY).selected(settingsOpen)
-                        .tooltip(Component.literal("Shape, size, placement and rules"));
+                        .tooltip(Component.translatable("tasked.screen.shape_size_placement_and_rules"));
             }
         }
-        ArmatureButton done = control(controls.get("back"), Component.literal("Done"), this::closeOverlay);
+        ArmatureButton done = control(controls.get("back"), Component.translatable("tasked.screen.done"), this::closeOverlay);
         if (done != null) {
-            done.ink(ArmatureButton.Ink.BODY).tooltip(Component.literal("Escape also closes this"));
+            done.ink(ArmatureButton.Ink.BODY).tooltip(Component.translatable("tasked.screen.escape_also_closes_this"));
         }
 
         buildPickerWidgets();
@@ -6328,7 +7753,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         r.fill(chip.right() - 1, chip.y() + 1, chip.right(), chip.bottom() - 1, edge);
         if (on) {
             // A filled middle rather than a tick: the dot matrix has no check mark -- see the glyph list
-            // `BookGeometry.TOOLS_BUTTON_WIDTH` records, where `\u2713` is absent.
+            // `BookGeometry.TOOLS_PILL_WIDTH` records, where `\u2713` is absent.
             r.fill(chip.x() + 3, chip.y() + 3, chip.right() - 3, chip.bottom() - 3, ArmatureTheme.title());
         }
     }
@@ -7369,7 +8794,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         if (path.matches("(tasks|rewards)\\.\\d+(\\.conditions\\.\\d+)?")) {
             if (text == null || text.trim().isEmpty()) {
-                status("An entry cannot be empty", true);
+                status("tasked.status.an_entry_cannot_be_empty", true);
                 return;
             }
             try {
@@ -7599,12 +9024,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         if (id == null) {
             if (clearPath == null) {
-                status("That field cannot be cleared", true);
+                status("tasked.status.that_field_cannot_be_cleared", true);
                 rebuildWidgets();
                 return;
             }
             sendField(quest, clearPath, null);
-            status("Cleared", false);
+            status("tasked.status.cleared", false);
             rebuildWidgets();
             return;
         }
@@ -7670,6 +9095,19 @@ public final class QuestBookScreen extends ArmatureScreen {
      * is the default -- paper for a chapter, the first chapter's for a group -- not an empty item.
      */
     private void commitDockPicker(String id) {
+        if (pickTarget == PickTarget.BOOK) {
+            // The book's icon is a plain id, not an item reference: there is no components member to
+            // carry, so the id is the whole value and null clears it.
+            closeItemPicker();
+            if (!mayEditNow()) {
+                rebuildWidgets();
+                return;
+            }
+            sendBookField("bookIcon", id == null ? null : new JsonPrimitive(id));
+            status(id == null ? "tasked.status.cleared" : "Set to " + id, false);
+            rebuildWidgets();
+            return;
+        }
         boolean group = pickTarget == PickTarget.GROUP;
         String data = id == null ? "" : pickedDataOf(id);
         closeItemPicker();
@@ -7686,7 +9124,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             else {
                 sendChapterField("icon", null);
             }
-            status("Cleared", false);
+            status("tasked.status.cleared", false);
             rebuildWidgets();
             return;
         }
@@ -7926,6 +9364,285 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         }
         return "";
+    }
+
+    // ------------------------------------------------------------------
+    // The texture picker
+    // ------------------------------------------------------------------
+
+    /**
+     * The pack's own PNGs, gathered once and kept.
+     *
+     * <h2>Why the walk is done once and not per open</h2>
+     *
+     * <p>{@code listResources} walks every pack's index, and the answer is the client's file list --
+     * which changes when a pack is reloaded, not between two presses of a row's browse button. The
+     * catalogue is therefore gathered the first time a picker is opened and kept for the session; the
+     * one moment it could go stale is a resource reload, and a picker that paid the whole walk per open
+     * to be current for that is the worse trade. A manager that is not there yet answers an empty list
+     * without caching it, so the first real open still gathers.
+     */
+    private List<ItemPicker.Entry> textureCatalogue() {
+        if (textureCatalogue == null) {
+            if (minecraft == null || minecraft.getResourceManager() == null) {
+                return List.of();
+            }
+            textureCatalogue = TexturePicker.catalogue(minecraft.getResourceManager()
+                    .listResources("textures", path -> path.getPath().endsWith(".png")).keySet());
+        }
+        return textureCatalogue;
+    }
+
+    /**
+     * Opens the texture picker on the canvas image's Texture row.
+     *
+     * <p>A fresh list every time: the query, the scroll and the selection belong to the pick that opened
+     * the card, and a search left from the last texture choice would filter a list the author did not
+     * type into. The catalogue itself is the session's, see {@link #textureCatalogue}.
+     */
+    private void openTexturePicker() {
+        textureSearch = null;
+        textureQuery = "";
+        textureSelected = -1;
+        textureScroll = 0;
+        textureMatches = List.of();
+        textureRows = List.of();
+        textureFrame = null;
+        textureCatalogue();
+        rebuildTextureRows("");
+        overlay = Overlay.TEXTURE;
+        rebuildWidgets();
+    }
+
+    /**
+     * The list for a query: ranked once, when the box changes, rather than once a frame.
+     *
+     * <p>A pack's textures run to five figures and ranking is a walk over all of them, so ranking in the
+     * drawing was a walk over the catalogue twice every frame while a query was being typed -- a stutter
+     * in exactly the packs this picker exists for. The query is the only thing that can change the
+     * answer, so it is the only thing that pays for it.
+     */
+    private void rebuildTextureRows(String query) {
+        textureMatches = ItemPicker.rank(textureCatalogue(), query, ItemPicker.LIMIT);
+        textureRows = TexturePicker.rows(textureCatalogue(), editedBackground().image().texture(),
+                query);
+    }
+
+    /** Closes the texture picker without writing: the book comes back, the field keeps its value. */
+    private void closeTexturePicker() {
+        textureSearch = null;
+        textureQuery = "";
+        textureSelected = -1;
+        textureScroll = 0;
+        textureMatches = List.of();
+        textureRows = List.of();
+        textureFrame = null;
+        overlay = Overlay.NONE;
+        rebuildWidgets();
+    }
+
+    /**
+     * The picker's search box: the one widget the card has, on the item picker's own terms.
+     *
+     * <p>Rebuilt with the value it already held, so a rebuild that is not a keystroke -- the world
+     * behind the card ticking, a resize -- cannot clear what is being typed. Enter and Escape are the
+     * screen's while the card is open (see {@code keyPressed}), so a blur commits nothing.
+     */
+    private void buildTextureWidgets() {
+        BookGeometry.Rect bodyRect = overlayBodyRect();
+        ItemPickerLayout.Frame frame = ItemPickerLayout.Frame.of(bodyRect);
+        String kept = textureSearch == null ? "" : textureSearch.value();
+        textureSearch = new ArmatureTextField(frame.search().x(), frame.search().y(),
+                frame.search().width(), frame.search().height(), kept);
+        textureSearch.onSubmit(text -> { });
+        addRenderableWidget(textureSearch);
+        // Redrawn after the card, because the widget pass runs before it -- the same ordering every
+        // field on a card carries. The placeholder goes after the field in the same redraw, and only
+        // while the box is empty, which is the whole of what a placeholder is.
+        modalRedraws.add(r -> {
+            try (GuiRenderer.Scoped clip = r.clip(bodyRect.x(), bodyRect.y(), bodyRect.right(),
+                    bodyRect.bottom())) {
+                textureSearch.render(r);
+                if (textureSearch.value().isEmpty()) {
+                    r.text(Labels.of("tasked.dev.texture.search"), frame.search().x() + 4,
+                            frame.search().y() + (frame.search().height() - 8) / 2,
+                            ArmatureTheme.faint());
+                }
+            }
+        });
+        setFocused(textureSearch);
+    }
+
+    /**
+     * The picker's card: the same panel, header strip and rule the item picker's overlay draws, with
+     * the list's own title instead of a subject's icon and name.
+     *
+     * <p>Chrome like the item picker's card -- it is about the client's files rather than about the
+     * chapter it was opened over -- so it is drawn outside every chapter scope by {@code drawModal}'s
+     * own position, exactly as the item picker's card is.
+     */
+    private void drawTextureOverlay(GuiRenderer r, int mouseX, int mouseY) {
+        int left = overlayLeft();
+        int top = overlayTop();
+        int w = overlayWidth();
+        int h = overlayHeight();
+
+        ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, 45, ArmatureTheme.raised(),
+                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
+        r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
+
+        r.text(Labels.of("tasked.dev.texture.title"), left + 14, top + 12, ArmatureTheme.title());
+        // The field's own value, under the title: the card is choosing a file, and the one it would
+        // replace is the context the list is read against.
+        String current = editedBackground().image().texture();
+        r.text(current.isEmpty() ? Labels.of("tasked.dev.canvas.pattern_none") : current,
+                left + 14, top + 26, ArmatureTheme.faint());
+
+        drawTexturePicker(r, overlayBody(), mouseX, mouseY);
+    }
+
+    /**
+     * The texture picker's body: the search box above (a widget, placed by
+     * {@link #buildTextureWidgets}), then the rows.
+     *
+     * <p>The item picker's drawing with one substitution: a texture row's picture is the file itself,
+     * probed and drawn at its aspect by {@code ToolsPanel.drawTextureThumb}, where an item row draws its
+     * stack's icon. Everything else -- the clip to the list, the skip of wholly-out rows, the heading's
+     * faint line, the recessed selection, the hover wash and the missing rows' placeholder -- is the
+     * same shape, so the two lists cannot disagree about what a row looks like.
+     */
+    private void drawTexturePicker(GuiRenderer r, Viewport body, int mouseX, int mouseY) {
+        BookGeometry.Rect bodyRect = BookGeometry.Rect.at(body.originX(), body.originY(),
+                body.viewWidth(), body.viewHeight());
+        textureFrame = ItemPickerLayout.Frame.of(bodyRect);
+        String query = textureSearch == null ? "" : textureSearch.value();
+        if (!query.equals(textureQuery)) {
+            // A keystroke is a new list: the selection goes back to its first row and the scroll to the
+            // top, because an index into the old list names nothing in this one. The list itself is
+            // rebuilt here and nowhere else -- see `rebuildTextureRows` for why the drawing must not.
+            textureQuery = query;
+            textureSelected = -1;
+            textureScroll = 0;
+            rebuildTextureRows(query);
+        }
+        textureScroll = Math.max(0,
+                Math.min(textureScroll, ItemPickerLayout.maxScroll(textureRows, textureFrame)));
+        if (textureSelected >= 0) {
+            textureSelected = ItemPickerLayout.clamp(textureRows, textureSelected);
+        }
+
+        // Clipped to the list, not the body: a row half scrolled under the search box belongs at the
+        // box's edge, which is where the list starts -- the item picker's own note says the same.
+        try (GuiRenderer.Scoped clip = r.clip(textureFrame.list().x(), textureFrame.list().y(),
+                textureFrame.list().right(), textureFrame.list().bottom())) {
+            if (textureRows.isEmpty()) {
+                r.text(Labels.of("tasked.dev.texture.hint"), textureFrame.list().x() + 4,
+                        textureFrame.list().y() + 4, ArmatureTheme.faint());
+                return;
+            }
+            Measure measure = textMeasure(r);
+            for (int i = 0; i < textureRows.size(); i++) {
+                BookGeometry.Rect rect =
+                        ItemPickerLayout.rowRect(textureRows, textureFrame, textureScroll, i);
+                // Off the list is not drawn -- the clip would cut a row the keyboard can still land on
+                // and the wheel can bring back, and a half row at the edge is exactly what the clip is
+                // for, so only the wholly-out ones are skipped.
+                if (rect.bottom() <= textureFrame.list().y()
+                        || rect.y() >= textureFrame.list().bottom()) {
+                    continue;
+                }
+                ItemPickerLayout.Row row = textureRows.get(i);
+                if (row.kind() == ItemPickerLayout.Kind.HEADING) {
+                    r.text(row.label(), rect.x() + 2, rect.y() + (rect.height() - 8) / 2,
+                            ArmatureTheme.faint());
+                    continue;
+                }
+                if (i == textureSelected) {
+                    r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.recessed());
+                }
+                else if (rect.contains(mouseX, mouseY)) {
+                    drawEditAffordance(r, rect, true);
+                }
+                int box = Math.max(8, rect.height() - 2);
+                int textX = rect.x() + 4;
+                boolean missing = row.kind() == ItemPickerLayout.Kind.MISSING;
+                if (row.kind() == ItemPickerLayout.Kind.TEXTURE) {
+                    // The picture in the row's own square, at its aspect: the one thing an id cannot
+                    // say and the whole reason this picker exists rather than a second text field.
+                    ToolsPanel.drawTextureThumb(r, new Slot(row.id(), rect.x() + 1, rect.y() + 1,
+                            box, box), row.id(), textureSizes);
+                    textX = rect.x() + 20;
+                }
+                else if (missing) {
+                    // No file behind the id: a placeholder where the picture would be, and the note
+                    // that says so. The id itself is the label, so it is kept and visible either way.
+                    drawItemPlaceholder(r, rect.x() + 1, rect.y() + 1, box);
+                    textX = rect.x() + 20;
+                }
+                r.text(Measure.truncate(row.label(), rect.width() - (textX - rect.x()) - 30, measure),
+                        textX, rect.y() + (rect.height() - 8) / 2,
+                        missing ? ArmatureTheme.blocked() : ArmatureTheme.body());
+                if (!row.secondary().isEmpty()) {
+                    // The namespace, faint at the right: two packs both holding `gui/button` are told
+                    // apart by this and by nothing else in the row.
+                    r.text(row.secondary(), rect.right() - 4 - r.textWidth(row.secondary()),
+                            rect.y() + (rect.height() - 8) / 2,
+                            missing ? ArmatureTheme.blocked() : ArmatureTheme.faint());
+                }
+            }
+        }
+    }
+
+    /**
+     * A press on a texture row: the file becomes the canvas image's texture, or the row is missing and
+     * already the field's value.
+     *
+     * <p>Mirrors {@code pressPickerRow}: a row whose id is the current value is "keep it", closing with
+     * no edit spent saying nothing. Every other row goes through the field's own commit, and the card
+     * closes only when it wrote -- a refusal keeps the list open with the reason on the panel, so the
+     * next press is a correction rather than a reopened picker.
+     */
+    private void pressTextureRow(int index) {
+        if (index < 0 || index >= textureRows.size()) {
+            return;
+        }
+        ItemPickerLayout.Row row = textureRows.get(index);
+        if (!ItemPickerLayout.pickable(row)) {
+            return;
+        }
+        String current = editedBackground().image().texture();
+        if (row.kind() == ItemPickerLayout.Kind.MISSING && row.id().equals(current)) {
+            closeTexturePicker();
+            return;
+        }
+        if (commitCanvasTexture(row.id())) {
+            closeTexturePicker();
+        }
+    }
+
+    /**
+     * Enter in the texture picker, on the item picker's two rules: a whole id typed into the box is the
+     * answer outright, otherwise the selected row commits, and when neither exists the screen says so
+     * rather than choosing whatever happened to sort first.
+     */
+    private void commitFromTexturePicker() {
+        String query = textureSearch == null ? "" : textureSearch.value();
+        String exact = ItemPicker.exactId(query, textureMatches);
+        if (exact != null) {
+            if (commitCanvasTexture(exact)) {
+                closeTexturePicker();
+            }
+            return;
+        }
+        ItemPickerLayout.Row row = textureSelected >= 0 && textureSelected < textureRows.size()
+                ? textureRows.get(textureSelected) : null;
+        if (row != null && ItemPickerLayout.pickable(row)) {
+            pressTextureRow(textureSelected);
+            return;
+        }
+        status(query.isBlank() ? "Type to search, or paste a texture id"
+                : "No texture matches \"" + query + "\"", true);
     }
 
     // ------------------------------------------------------------------
@@ -8183,44 +9900,123 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * The chapter rows' reward counts, right-aligned in each row: "(3)" where three quests have
-     * something waiting.
+     * The chapter rows' completion bars, along the bottom of each row, and the "(3)" rewards count at
+     * its right edge.
      *
-     * <p>Right-aligned rather than appended to the row's label, and that is a correctness point rather
-     * than taste: the label is truncated from its end, so on a long chapter name the count would be the
-     * first thing cut — and it is the one part that must never be lost.
+     * <p>The bar is a one-pixel hairline inside the row's own height, so the selection pill wraps it
+     * and nothing about the list's layout moves. It is inset a pixel from each end — just enough to
+     * stay inside a rounded pill's corners without reading as a floating chip — and it is drawn only
+     * when something is done, because a track along every untouched chapter is a groove nobody asked
+     * for.
      *
-     * <p>Only chapters with something waiting, and never groups: a group is a heading, and "(0)" is a
-     * number nobody needs.
+     * <p>Both marks are the chapter's own colours: the bar's fill is its {@code complete} and its
+     * track its {@code recessed} (the token a progress bar's track is for), and the count keeps the
+     * {@code inProgress} accent it has always worn. The row's states still speak — hover and
+     * selection brighten the marks rather than recolouring them, which is what a mark with a colour
+     * of its own can do. Groups get none of it: a heading is not a thing with a completion.
+     *
+     * <p>The bar answers to {@link DevMode#progress()}, which a reader can turn off from the Tools
+     * panel; the count does not, because "(3)" is a call to action rather than a decoration.
      */
-    private void drawSidebarRewardCounts(GuiRenderer r, int mouseX, int mouseY) {
-        Map<String, Integer> counts = rewardCounts().byChapter();
+    private void drawSidebarChapterProgress(GuiRenderer r, int mouseX, int mouseY) {
         SidebarLayout layout = sidebar();
-        if (counts.isEmpty() || layout == null) {
+        if (layout == null) {
             return;
         }
+        ChapterCounts counts = chapterCounts();
+        if (counts != tooltippedCounts) {
+            refreshSidebarChapterTooltips(layout, counts);
+            tooltippedCounts = counts;
+        }
+        Map<String, Integer> rewards = rewardCounts().byChapter();
+
+        // One batch for the whole list: a bar is two fills and a count is one, and thirty rows drawn
+        // without this would be ninety rounds of per-fill flushes for what is a decoration; see
+        // `GuiRenderer.batched` for the submission argument the canvas makes at length.
+        r.batched(() -> {
+            for (SidebarLayout.Row row : layout.rows()) {
+                if (row.group()) {
+                    continue;
+                }
+                BookGeometry.Rect rect = placedRect(row.key());
+                if (rect == null) {
+                    // Scrolled out of the list: its rect is not placed, and drawing at a remembered one
+                    // would paint a mark up through the header.
+                    continue;
+                }
+                Theme theme = themeFor(row.id());
+                boolean selected = row.id().equals(effectiveChapter());
+                boolean hovered = rect.contains(mouseX, mouseY);
+                if (DevMode.progress()) {
+                    ChapterProgress progress = counts.byChapter().get(row.id());
+                    float fraction = progress == null ? 0F : progress.fraction();
+                    if (fraction > 0F) {
+                        int fill = selected ? Colour.shade(theme.complete(), 0.35F)
+                                : hovered ? Colour.shade(theme.complete(), 0.15F)
+                                : theme.complete();
+                        int track = selected ? Colour.shade(theme.recessed(), 0.35F)
+                                : theme.recessed();
+                        // One pixel of breathing room below: flush against the pill's own edge the
+                        // hairline read as part of the row's border rather than as a gauge.
+                        ChapterBar.draw(r, rect.x() + 1, rect.bottom() - ChapterBar.HEIGHT - 1,
+                                rect.width() - 2, ChapterBar.HEIGHT, fraction, fill, track);
+                    }
+                }
+                Integer waiting = rewards.get(row.id());
+                if (waiting != null && waiting > 0) {
+                    String text = "(" + waiting + ")";
+                    int accent = theme.inProgress();
+                    int colour = selected ? Colour.shade(accent, 0.35F)
+                            : hovered ? Colour.shade(accent, 0.15F) : accent;
+                    r.text(text, rect.right() - 4 - r.textWidth(text),
+                            rect.y() + (rect.height() - 8) / 2, colour);
+                }
+            }
+            // The batch exists for its fills, not its value; `batched` takes a supplier, so this is
+            // the value it has to return.
+            return null;
+        });
+    }
+
+    /**
+     * The chapter rows' hover text: how far through the chapter is.
+     *
+     * <h2>Rebuilt on a revision, not on a frame</h2>
+     *
+     * <p>Tooltip lines are components, and building thirty rows' worth every frame is allocation for
+     * text that only changes when a quest does. The guard is the identity of the cache the lines are
+     * built from: it is replaced exactly when the tree, the progress or the viewer moves, which is
+     * exactly when the text can differ — so reference comparison is the revision check, and no second
+     * revision counter can drift from the first.
+     *
+     * <p>The lines are what a player would otherwise open the chapter to learn: the fraction
+     * ("14/20 quests complete") — the bar is two pixels, so the exact number stays one hover away —
+     * and the missing-item note the row's icon would carry when its item id does not resolve here.
+     * That last is repeated from {@code buildSidebarWidgets} deliberately — setting a tooltip replaces
+     * whatever was there, so a refresh that dropped the missing-item line would quietly answer a
+     * different question than the row does. The rewards waiting are not repeated: they are a "(3)" in
+     * the row's own corner again, and one fact does not need two places to be read from.
+     */
+    private void refreshSidebarChapterTooltips(SidebarLayout layout, ChapterCounts counts) {
+        Map<String, SidebarIcon> icons = sidebarIcons();
         for (SidebarLayout.Row row : layout.rows()) {
-            Integer count = counts.get(row.id());
-            if (row.group() || count == null) {
+            if (row.group() || !(sidebarView.get(row.key()) instanceof ArmatureButton button)) {
                 continue;
             }
-            BookGeometry.Rect rect = placedRect(row.key());
-            if (rect == null) {
-                continue;
+            List<Component> lines = new ArrayList<>(2);
+            SidebarIcon icon = icons.get(row.key());
+            if (icon != null && icon.stack().isEmpty() && !icon.id().isEmpty()) {
+                lines.add(Component.translatable("tasked.screen.missing_item", icon.id()));
             }
-            String text = "(" + count + ")";
-            // The chapter's own accent — the same token its node badges wear — rather than the row's
-            // chrome ink. The count is the chapter's mark, so it follows the chapter's palette even
-            // though the row it sits in is the book's own: a themed chapter's "(3)" is the colour of
-            // the coins on its canvas, and the two read as one feature. The row's states still speak:
-            // hover and selection brighten it rather than recolouring it, which is what a mark with a
-            // colour of its own can do.
-            int accent = themeFor(row.id()).inProgress();
-            boolean selected = row.id().equals(effectiveChapter());
-            int colour = selected ? Colour.shade(accent, 0.35F)
-                    : rect.contains(mouseX, mouseY) ? Colour.shade(accent, 0.15F) : accent;
-            r.text(text, rect.right() - 4 - r.textWidth(text),
-                    rect.y() + (rect.height() - 8) / 2, colour);
+            ChapterProgress progress = counts.byChapter().get(row.id());
+            if (progress == null || progress.isEmpty()) {
+                lines.add(Component.translatable("tasked.screen.chapter_empty"));
+            }
+            else {
+                lines.add(Component.translatable("tasked.screen.chapter_progress",
+                        progress.done(), progress.total()));
+            }
+            button.tooltip(lines);
         }
     }
 
@@ -8406,7 +10202,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         Map<String, BookGeometry.Rect> controls = geometry().overlayControls(true);
         BookGeometry.Rect back = controls.get("back");
         if (back != null) {
-            control(back, Component.literal("Cancel"), this::closeNaming)
+            control(back, Component.translatable("tasked.screen.cancel"), this::closeNaming)
                     .ink(ArmatureButton.Ink.BODY);
         }
         BookGeometry.Rect primary = controls.get("submit");
@@ -8491,18 +10287,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         Map<String, BookGeometry.Rect> toolbar = geometry().sidebarToolbar();
         BookGeometry.Rect addChapter = toolbar.get("addChapter");
         if (addChapter != null) {
-            ArmatureButton button = control(addChapter, Component.literal("+ Chapter"),
+            ArmatureButton button = control(addChapter, Component.translatable("tasked.screen.chapter"),
                     this::newChapterFromToolbar);
             button.ink(ArmatureButton.Ink.BODY).flat(true).tooltip(
-                    Component.literal("Add a chapter to the selected group"));
+                    Component.translatable("tasked.screen.add_a_chapter_to_the_selected_group"));
             button.visible = mayEditNow();
         }
         BookGeometry.Rect addGroup = toolbar.get("addGroup");
         if (addGroup != null) {
-            ArmatureButton button = control(addGroup, Component.literal("+ Group"),
+            ArmatureButton button = control(addGroup, Component.translatable("tasked.screen.group"),
                     this::newGroupFromToolbar);
             button.ink(ArmatureButton.Ink.BODY).flat(true).tooltip(
-                    Component.literal("Add a group at the end of the list"));
+                    Component.translatable("tasked.screen.add_a_group_at_the_end_of_the_list"));
             button.visible = mayEditNow();
         }
     }
@@ -8716,14 +10512,14 @@ public final class QuestBookScreen extends ArmatureScreen {
         List<MenuFlyout.Row> items = new ArrayList<>();
         String current = groupOfChapter(id);
         if (!current.isEmpty()) {
-            items.add(MenuFlyout.text("No group",
+            items.add(MenuFlyout.text(Labels.of("tasked.dev.menu.no_group"),
                     () -> send(new EditorOp.MoveChapter(id, "", Integer.MAX_VALUE))));
         }
         for (ClientQuestCache.GroupEntry entry : ClientQuestCache.groups()) {
             if (entry.id().equals(current)) {
                 continue;
             }
-            items.add(MenuFlyout.text("Move to " + entry.title(),
+            items.add(MenuFlyout.text(Labels.of("tasked.dev.menu.move_to", entry.title()),
                     () -> send(new EditorOp.MoveChapter(id, entry.id(), Integer.MAX_VALUE))));
         }
         int room = Math.max(0, (panelRect().height() - 16) / MENU_ROW_HEIGHT - 2);
@@ -8917,6 +10713,49 @@ public final class QuestBookScreen extends ArmatureScreen {
         r.text(fitLabel(r, item.label()), rect.x() + 4, rect.y() + (MENU_ROW_HEIGHT - 8) / 2, colour);
     }
 
+    /**
+     * The Tools pill's menu: the maintenance actions, anchored under the pill.
+     *
+     * <h2>Why it reuses the sidebar's menu rather than a flyout of its own</h2>
+     *
+     * <p>Because everything a menu needs already lives on {@link #menu}: one derivation of the rows for
+     * drawing, pressing and hover; the placement clamp; Escape; and the press-outside dismissal. A second
+     * flyout would be a second copy of all four, and the first thing to drift. The rows are
+     * {@link MenuItem}s with no children, which is the shape the sidebar's own leaf rows have.
+     *
+     * <h2>Which rows there are</h2>
+     *
+     * <p>Only actions that exist: Straighten (the Alt+click gesture, promoted, and only offered while a
+     * node is selected -- it acts on a node, and a row that could do nothing is not drawn), Undo and Redo
+     * (the same ops Ctrl+Z and Ctrl+Y send), and the Snap switch. Auto-layout, a validation report and
+     * import/export are deliberately absent: none of them is implemented, and a menu row that did nothing
+     * would be the dead control this whole redesign is removing.
+     */
+    private void openToolsMenu() {
+        if (!mayEditNow()) {
+            return;
+        }
+        List<MenuItem> rows = new ArrayList<>();
+        String selected = selectedQuest;
+        if (selected != null) {
+            rows.add(MenuItem.of("Straighten", () -> straightenNode(selected)));
+        }
+        rows.add(MenuItem.of("Undo", () -> send(new EditorOp.Undo())));
+        rows.add(MenuItem.of("Redo", () -> send(new EditorOp.Redo())));
+        rows.add(MenuItem.of(DevMode.snap() ? "Snapping: on" : "Snapping: off", () -> {
+            DevMode.setSnap(!DevMode.snap());
+            status(DevMode.snap() ? "Snap on \u2014 Alt places freely" : "Snap off", false);
+        }));
+        menu = List.copyOf(rows);
+
+        // Under the pill and right-aligned with it, so the menu reads as belonging to the control that
+        // opened it. `MenuPlacement` clamps it inside the panel; a right-aligned anchor means a window
+        // too narrow shifts it left rather than opening it off the edge.
+        BookGeometry.Rect pill = geometry().toolsPill();
+        menuX = pill.right() - MENU_WIDTH;
+        menuY = pill.bottom() + 2;
+    }
+
     // ------------------------------------------------------------------
     // The canvas's menus
     // ------------------------------------------------------------------
@@ -9073,18 +10912,21 @@ public final class QuestBookScreen extends ArmatureScreen {
         for (DependencyStyle.Form form : DependencyStyle.Form.values()) {
             cells.add(new MenuFlyout.Cell(formLabel(form),
                     () -> setLineAxis(from, to, "form", form.wire()),
-                    now.formOr(DependencyStyle.Form.ORTHOGONAL) == form,
+                    now.formOr(DependencyStyle.Form.CHAMFERED) == form,
                     new MenuFlyout.Preview.Form(form)));
         }
         List<MenuFlyout.Row> rows = new ArrayList<>();
-        rows.add(new MenuFlyout.Row.Cells("Form", cells, reset(from, to, "form"), true));
+        rows.add(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.form"), cells,
+                    reset(from, to, "form"), true));
         if (isSplit(now)) {
-            rows.add(MenuFlyout.text("Join handles", () -> joinHandles(from, to)));
+            rows.add(MenuFlyout.text(Labels.of("tasked.dev.line.join_handles"),
+                    () -> joinHandles(from, to)));
         }
-        else if (now.formOr(DependencyStyle.Form.ORTHOGONAL) == DependencyStyle.Form.CURVED) {
-            // Only a curve: its two control points reproduce the bow exactly, where a radial arc's cubic
-            // stand-in would jump — so the offer is made only where it keeps the shape.
-            rows.add(MenuFlyout.text("Split handles", () -> splitHandles(from, to, now)));
+        else if (now.formOr(DependencyStyle.Form.CHAMFERED) == DependencyStyle.Form.CURVED) {
+            // Only a curve: its two control points reproduce the bow exactly, so the offer is made only
+            // where it keeps the shape.
+            rows.add(MenuFlyout.text(Labels.of("tasked.dev.line.split_handles"),
+                    () -> splitHandles(from, to, now)));
         }
         return rows;
     }
@@ -9120,10 +10962,13 @@ public final class QuestBookScreen extends ArmatureScreen {
                     new MenuFlyout.Preview.Density(value)));
         }
         List<MenuFlyout.Row> rows = new ArrayList<>();
-        rows.add(new MenuFlyout.Row.Cells("Head", heads, reset(from, to, "arrowHead"), true));
-        rows.add(new MenuFlyout.Row.Cells("Place", places, reset(from, to, "arrowPlace"),
+        rows.add(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.head"), heads,
+                    reset(from, to, "arrowHead"), true));
+        rows.add(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.place"), places,
+                    reset(from, to, "arrowPlace"),
                 head != DependencyStyle.ArrowHead.NONE));
-        rows.add(new MenuFlyout.Row.Cells("Density", densities, reset(from, to, "arrowDensity"),
+        rows.add(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.density"), densities,
+                    reset(from, to, "arrowDensity"),
                 head != DependencyStyle.ArrowHead.NONE && place == DependencyStyle.ArrowPlace.STREAM));
         return rows;
     }
@@ -9137,7 +10982,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                     () -> setLineAxis(from, to, "dash", pattern.wire()), current == pattern,
                     new MenuFlyout.Preview.Pattern(pattern)));
         }
-        return List.of(new MenuFlyout.Row.Cells("Line", cells, reset(from, to, "dash"), true));
+        return List.of(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.pattern"), cells,
+                    reset(from, to, "dash"), true));
     }
 
     /** The Weight flyout: a preview per thickness, faint while the pattern ignores the weight axis. */
@@ -9149,7 +10995,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                     () -> setLineAxis(from, to, "weight", weight.wire()), current == weight,
                     new MenuFlyout.Preview.Weight(weight)));
         }
-        return List.of(new MenuFlyout.Row.Cells("Weight", cells, reset(from, to, "weight"),
+        return List.of(new MenuFlyout.Row.Cells(Labels.of("tasked.dev.line.weight"), cells,
+                    reset(from, to, "weight"),
                 now.dashOr(DependencyStyle.Dash.SOLID) != DependencyStyle.Dash.DOUBLE));
     }
 
@@ -9188,61 +11035,59 @@ public final class QuestBookScreen extends ArmatureScreen {
     // ------------------------------------------------------------------
 
     private static String formLabel(DependencyStyle.Form form) {
-        return switch (form) {
-            case ORTHOGONAL -> "Ortho";
-            case CHAMFERED -> "Circuit";
-            case STRAIGHT -> "Straight";
-            case STEPPED -> "Stepped";
-            case CURVED -> "Curved";
-            case RADIAL -> "Arc";
-        };
+        return Labels.of(switch (form) {
+            case ORTHOGONAL -> "tasked.dev.line.ortho";
+            case CHAMFERED -> "tasked.dev.line.circuit";
+            case STRAIGHT -> "tasked.dev.line.straight";
+            case CURVED -> "tasked.dev.line.curved";
+        });
     }
 
     private static String headLabel(DependencyStyle.ArrowHead head) {
-        return switch (head) {
-            case CHEVRON -> "Chevron";
-            case TRIANGLE -> "Tri";
-            case DOT -> "Dot";
-            case DIAMOND -> "Diamond";
-            case NONE -> "None";
-        };
+        return Labels.of(switch (head) {
+            case CHEVRON -> "tasked.dev.line.chevron";
+            case TRIANGLE -> "tasked.dev.line.tri";
+            case DOT -> "tasked.dev.line.dot";
+            case DIAMOND -> "tasked.dev.line.diamond";
+            case NONE -> "tasked.dev.line.none";
+        });
     }
 
     private static String placeLabel(DependencyStyle.ArrowPlace place) {
-        return switch (place) {
-            case TARGET -> "Target";
-            case BOTH -> "Both";
-            case MID -> "Mid";
-            case STREAM -> "Stream";
-        };
+        return Labels.of(switch (place) {
+            case TARGET -> "tasked.dev.line.target";
+            case BOTH -> "tasked.dev.line.both";
+            case MID -> "tasked.dev.line.mid";
+            case STREAM -> "tasked.dev.line.stream";
+        });
     }
 
     private static String densityLabel(DependencyStyle.ArrowDensity density) {
-        return switch (density) {
-            case LOW -> "Low";
-            case MEDIUM -> "Med";
-            case HIGH -> "High";
-        };
+        return Labels.of(switch (density) {
+            case LOW -> "tasked.dev.line.low";
+            case MEDIUM -> "tasked.dev.line.med";
+            case HIGH -> "tasked.dev.line.high";
+        });
     }
 
     private static String patternLabel(DependencyStyle.Dash pattern) {
-        return switch (pattern) {
-            case SOLID -> "Solid";
-            case DASHED -> "Dash";
-            case DOTTED -> "Dot";
-            case DASH_DOT -> "D.Dot";
-            case DOUBLE -> "Double";
-            case HAZARD -> "Hazard";
-        };
+        return Labels.of(switch (pattern) {
+            case SOLID -> "tasked.dev.line.solid";
+            case DASHED -> "tasked.dev.line.dash";
+            case DOTTED -> "tasked.dev.line.dot_pattern";
+            case DASH_DOT -> "tasked.dev.line.dash_dot";
+            case DOUBLE -> "tasked.dev.line.double";
+            case HAZARD -> "tasked.dev.line.hazard";
+        });
     }
 
     private static String weightLabel(DependencyStyle.Weight weight) {
-        return switch (weight) {
-            case THIN -> "Hair";
-            case THICK -> "Std";
-            case BOLD -> "Bold";
-            case CONDUIT -> "Pipe";
-        };
+        return Labels.of(switch (weight) {
+            case THIN -> "tasked.dev.line.hair";
+            case THICK -> "tasked.dev.line.std";
+            case BOLD -> "tasked.dev.line.bold";
+            case CONDUIT -> "tasked.dev.line.pipe";
+        });
     }
 
     /**
@@ -9522,7 +11367,7 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /**
      * The handle layer: a circle at each end of the line under the pointer, and a diamond at the middle
-     * of a curved or radial one.
+     * of a curved one.
      *
      * <p><b>Called after the nodes are drawn</b>, so a dot that overlaps a node — an anchor dragged round
      * to its far side — is on top of it. The first version ran before `drawNode`, and the dot you were
@@ -10503,6 +12348,34 @@ public final class QuestBookScreen extends ArmatureScreen {
         pose.pushPose();
         pose.translate(0F, 0F, CHROME_Z);
         try {
+            // The scrim, and it is the same fix as the two below: a full-screen fill at Z = 0 fails the
+            // depth test wherever a node's item icon wrote depth 150, so with a modal open the icons
+            // were the one thing the dim did not cover -- they stayed bright and the blur then smeared
+            // them over a darkened canvas. Drawn first in the band so it is under the panel, the
+            // cluster and the widget pass, exactly as it was under them at Z = 0.
+            //
+            // It must stay above this line's caller's `blur` in the frame, and it does: the blur runs
+            // further down this same band, once everything behind the card has been drawn.
+            if (overlay != Overlay.NONE) {
+                renderer.fill(0, 0, width, height, ArmatureTheme.dim());
+            }
+
+            // The tools panel, and it is drawn here rather than in `drawBook` for the same reason as
+            // the cluster panel below: it is docked over the canvas, and the canvas's node icons write
+            // depth at Z = 150, so a panel drawn at Z = 0 loses the depth test wherever an icon sits
+            // and the icon stands in the middle of the panel -- the report was "items from nodes render
+            // over the tools panel". No draw order can fix that; see the block above the pose push for
+            // the arithmetic.
+            //
+            // Before the widget pass (further down), so the panel's own switches sit on it, which is
+            // the relationship they had when both were at Z = 0. `drawTools` keeps its own guard: it
+            // returns early while a modal is open, so the panel never reaches a dialog.
+            //
+            // The chapter tab draws an item icon of its own, which now writes depth CHROME_Z + 150 --
+            // the same band the sidebar's rows already leave behind, and the reason MODAL_Z and
+            // TOOLTIP_Z are stepped above the chrome rather than beside it.
+            drawTools(renderer, mouseX, mouseY);
+
             // The view cluster's backing panel, and it is drawn here rather than in `drawBook` for
             // exactly this reason: it has to be inside the raised Z, and `drawBook` cannot raise it.
             //
@@ -10520,6 +12393,17 @@ public final class QuestBookScreen extends ArmatureScreen {
                 BookGeometry.Rect cluster = viewControls();
                 ArmatureTheme.panel(renderer, cluster.x(), cluster.y(), cluster.width(),
                         cluster.height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+            }
+
+            // And the author's pills' mat, the cluster's own rule mirrored on the far side. Its height
+            // follows whether the Tools pill is showing, so a lone Edit pill is not backed by a strip
+            // sized for a neighbour that is not there. Guarded on the field rather than on `mayEdit`
+            // because that is what is actually drawn: the pills are widgets and the widget pass below
+            // paints them, so the mat appears exactly when they do.
+            if (editPill != null) {
+                BookGeometry.Rect pills = geometry().pillMat(toolsPill != null);
+                ArmatureTheme.panel(renderer, pills.x(), pills.y(), pills.width(), pills.height(),
+                        ArmatureTheme.panel(), ArmatureTheme.panelEdge());
             }
 
             // The widget pass, clipped from the sidebar's list top downwards.
@@ -10562,9 +12446,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             try (GuiRenderer.Scoped clip = renderer.clip(book.x(), geometry().chapterListTop(),
                     book.right(), book.bottom())) {
                 super.render(graphics, mouseX, mouseY, partialTick);
-                // The chapter rows' reward counts, over the labels they belong to and inside the same
-                // clip: a count drawn outside the list would be a count over the header.
-                drawSidebarRewardCounts(renderer, mouseX, mouseY);
+                // The chapter rows' progress bars and reward counts, over the rows they belong to and
+                // inside the same clip: a mark drawn outside the list would be a mark over the header.
+                drawSidebarChapterProgress(renderer, mouseX, mouseY);
                 // The drag's own marks, above the rows it is about and inside the clip for the same
                 // reason the rows are: a seam line that escaped the list would draw into the header.
                 drawSidebarDrag(renderer);
@@ -10620,14 +12504,17 @@ public final class QuestBookScreen extends ArmatureScreen {
                 // it happened because the draw list is hand-written and the build site is somewhere else.
                 rewardsButton.hoverTold(rewardsButton.isMouseOver(mouseX, mouseY)).draw(renderer);
             }
-            if (editButton != null) {
-                // The author's split control. Drawn here for the same reason Close and Party are: the
-                // widget pass is clipped to the band below the header, so a control in the header that
-                // relied on it would never be drawn.
-                editButton.hoverTold(editButton.isMouseOver(mouseX, mouseY)).draw(renderer);
-            }
-            if (toolsButton != null) {
-                toolsButton.hoverTold(toolsButton.isMouseOver(mouseX, mouseY)).draw(renderer);
+            if (settingsHeaderButton != null) {
+                // And the second one this list forgot -- the rewards comment above is the first. The same
+                // fault, the same cause: built and added as a widget somewhere else, clickable from the
+                // day it landed, and never painted, because the widget pass is clipped to the band below
+                // the header and this hand-written list is the only thing that draws up here. Anything
+                // built in `buildHeaderChrome` **for the header** needs a line here; there are now four,
+                // and the pair of comments is the reason to count them when a fifth arrives. The author's
+                // pills are built in the same method and are not counted: they float over the canvas,
+                // which the widget pass does reach, so they draw themselves like any other control.
+                settingsHeaderButton.hoverTold(settingsHeaderButton.isMouseOver(mouseX, mouseY))
+                        .draw(renderer);
             }
             if (overlay != Overlay.NONE) {
                 // A modal softens what is behind it, and this is the moment that does it: everything
@@ -10690,6 +12577,29 @@ public final class QuestBookScreen extends ArmatureScreen {
                             redraw.accept(renderer);
                         }
                         drawOpenEditor(renderer);
+                    }
+                }
+                finally {
+                    pose.popPose();
+                }
+            }
+
+            // The colour picker, above the book and any card, below the tooltips. Its own fields were
+            // drawn by the widget pass underneath, so they are redrawn here on top of its surface -- the
+            // same arrangement `modalRedraws` uses for a card's controls.
+            if (colourPopover.isOpen()) {
+                pose.pushPose();
+                pose.translate(0F, 0F, MODAL_Z - CHROME_Z);
+                try {
+                    colourPopover.render(renderer, mouseX, mouseY);
+                    for (net.minecraft.client.gui.components.AbstractWidget widget
+                            : colourPopover.widgets()) {
+                        if (widget instanceof dev.ellipog.tasked.client.dev.ScrubField field) {
+                            field.render(renderer, mouseX, mouseY);
+                        }
+                        else if (widget instanceof dev.ellipog.armature.client.ArmatureTextField text) {
+                            text.render(renderer);
+                        }
                     }
                 }
                 finally {
@@ -10846,9 +12756,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         // every animation here testable, and `Motion.tween` for how the client's setting reaches it.
         long now = Util.getMillis();
 
-        // The book first, always, and then a scrim over it. It used to be drawn *only* when no
-        // overlay was open, so opening a modal replaced the whole book with a flat dim -- and the
-        // request was to keep it: "dont close whats behind them, just have it in the background".
+        // The book first, always, and a scrim over it when a modal is open. The scrim used to be drawn
+        // *only* when no overlay was open, so opening a modal replaced the whole book with a flat dim
+        // -- and the request was to keep it: "dont close whats behind them, just have it in the
+        // background". It is no longer drawn from here -- see below -- but the decision it records is
+        // the one the chrome layer still implements.
         //
         // A scrim under a blur, and the two are one decision made in two places: the scrim is what says
         // the book is inert, and the blur -- the call in `render`, once this method has drawn the book --
@@ -10859,13 +12771,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         // was that a post-process leaves the pipeline set for its own passes, so the one layer drawn
         // with no clip of its own had nothing to draw into. `GuiRenderer.blur` puts the pipeline back.
         drawBook(renderer, mouseX, mouseY, now);
-        if (overlay != Overlay.NONE) {
-            renderer.fill(0, 0, width, height, ArmatureTheme.dim());
-        }
 
-        // The tools panel: over the book, under its own controls, and shut while a modal is open --
-        // two things in front is one too many, and the panel keeps its state either way.
-        drawTools(renderer, mouseX, mouseY);
+        // The scrim and the tools panel used to be drawn here, and both moved into `render`'s raised-Z
+        // layer -- the same move, for the same reason, as the view cluster's backing panel: a fill at
+        // Z = 0 fails the depth test wherever a node's item icon wrote depth 150, so the panel's own
+        // pixels were missing under every icon ("items from nodes render over the tools panel") and the
+        // scrim dimmed everything except the icons. Neither can be raised from here: this method sees
+        // only a `GuiRenderer`, and the pose is a `GuiGraphics` thing. See the chrome layer.
 
         // The overlay is NOT drawn here any more. It is chrome, and chrome is drawn by
         // `render`, in the raised-Z layer, after the widget pass -- see `drawModal`. Two things
@@ -10873,9 +12785,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         // canvas's item icons (which write depth at Z = 150 and so beat a card at Z = 0 whatever
         // the draw order), and the sidebar's rows behind it are *under* it rather than over it.
         //
-        // What stays here is the scrim, because the scrim belongs to the book: it is the thing
-        // that says the book is inert, and it is drawn while the book's own pixels are still the
-        // most recent ones.
+        // The scrim went with it, in the same move and for the same arithmetic: at Z = 0 it dimmed
+        // everything except the icons, which then read as bright smudges under the blur. It is the
+        // first thing the raised layer draws, so it is still under the panel, the cluster and the
+        // widget pass -- and still before the blur, which is the one ordering it cannot break.
 
         // Tooltips are deliberately NOT drawn here, and that is a bug fix rather than a preference.
         //
@@ -11122,38 +13035,55 @@ public final class QuestBookScreen extends ArmatureScreen {
      * own fills and text are {@link ToolsPanel}'s, and its controls are widgets the base class draws
      * afterwards -- the same split every panel here has.
      *
+     * <p>Called from `render`'s raised-Z chrome band rather than from `renderBook`, and that is not a
+     * preference: the canvas's node icons write depth at Z = 150, so the panel's fills drawn at Z = 0
+     * were rejected wherever an icon sat and the icon showed through the panel. It is the same move the
+     * view cluster's backing panel made, and the whole of the arithmetic is at the chrome layer's pose
+     * push.
+     *
      * <p>Shut while a modal is open. The panel and a card are both "the thing in front", and two of them
      * at once is a stack nobody asked for; the panel keeps its state, so closing the card brings it back
      * exactly as it was.
      */
     private void drawTools(GuiRenderer r, int mouseX, int mouseY) {
-        if (!toolsOpen || overlay != Overlay.NONE || toolsFrame == null) {
+        if (!drawerOpen() || overlay != Overlay.NONE || toolsFrame == null) {
             return;
+        }
+        // A picker belongs to the chapter it was opened for: switching chapters under it would aim its
+        // commit at the wrong file, so it closes here rather than at each of the three switch paths.
+        if (colourPopover.isOpen()
+                && !java.util.Objects.equals(popoverChapter, effectiveChapter())) {
+            closeColourPopover();
         }
         if (toolsTab == ToolsLayout.Tab.CHAPTER) {
             if (chapterLayout == null) {
                 return;
             }
-            ArmatureTheme.panel(r, toolsFrame.panel().x(), toolsFrame.panel().y(),
-                    toolsFrame.panel().width(), toolsFrame.panel().height(), ArmatureTheme.panel(),
-                    ArmatureTheme.panelEdge());
-            // The one line the not-editing tab has to add, in the band the panel reserves for status:
-            // full width, above the list, and it does not scroll away with the row that names the state.
-            // The band is the theme tab's feedback line's, drawn by `ToolsPanel` there; this tab has no
-            // status of its own, so it is empty except for this.
-            if (!mayEditNow()) {
-                r.text(Measure.truncate(ChapterPanelLayout.EDIT_MODE_HINT, toolsFrame.feedback().width(),
+            // The panel's own surface and status line, drawn by the same method the book tab uses; a
+            // reader with nothing to report gets the edit-mode hint in the band it leaves empty.
+            ToolsPanel.State state = new ToolsPanel.State(toolsSelected, toolsFeedback,
+                    toolsFeedbackIsError, toolsSelected != null, editedTheme(), editedRadius(),
+                    editedRadiusChosen(), editedBackground(), editedBackgroundChosen(),
+                    Colour.alpha(editedTheme().colour("canvasPattern")));
+            ToolsPanel.drawChrome(r, toolsFrame, state);
+            if ((toolsFeedback == null || toolsFeedback.isEmpty()) && !mayEditNow()) {
+                r.text(Measure.truncate(Labels.of(ChapterPanelLayout.EDIT_MODE_HINT),
+                                toolsFrame.feedback().width(),
                                 Measure.of(r::textWidth, r.lineHeight())),
                         toolsFrame.feedback().x(), toolsFrame.feedback().y(), ArmatureTheme.faint());
             }
-            // The chapter's identity first, on the band the frame kept fixed above the list: it is what
-            // says whose fields these are, and it is where the icon is seen as an item rather than as
-            // the id the row's button carries.
-            ChapterPanel.drawHeader(r, toolsFrame.preview(),
-                    ToolsLayout.chapterHeader(toolsFrame.preview()), chapterHeader, chapterIcon,
+            // The chapter's identity under the title: it names the file the appearance and the fields
+            // below are about, and it is where the icon is seen as an item rather than as the id the
+            // row's button carries.
+            ChapterPanel.drawHeader(r, toolsFrame.header(),
+                    ToolsLayout.chapterHeader(toolsFrame.header()), chapterHeader, chapterIcon,
                     chapterIconId);
             QuestPanel.drawRows(r, toolsFrame.list(), toolsView.viewport(), chapterLayout, chapterRows,
                     mouseX, mouseY, InspectLayout.Mode.STACKED);
+            if (toolsAppearanceVisible()) {
+                ToolsPanel.drawRows(r, toolsFrame.list(), toolsView.viewport(), chapterLayout,
+                        chapterAppearanceRows, state, mouseX, mouseY);
+            }
             // The cycling rows' controls, drawn here because no widget may cover their arrows -- the
             // label band above each one is the panel's, the arrows and the value are ChapterPanel's, and
             // the press is the screen's from the layout's own boxes. See `ChapterPanel.drawChoice`.
@@ -11195,8 +13125,25 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
                     new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
-                            toolsSelected != null, editedTheme(), editedRadius(), editedRadiusChosen()),
-                    mouseX, mouseY);
+                            toolsSelected != null, editedTheme(), editedRadius(), editedRadiusChosen(),
+                            editedBackground(), editedBackgroundChosen(),
+                            Colour.alpha(editedTheme().colour("canvasPattern"))),
+                    mouseX, mouseY, ToolsLayout.Tab.BOOK);
+        }
+        // The row under the pointer, collected here and painted in the tooltip band after the panel:
+        // the list's own clip would cut a box that reaches past the row's edge, which is the contract
+        // `rowTooltips` already has for the card's rows. The list is the one the active tab actually
+        // drew -- the book tab's `toolsRows`, the chapter's appearance rows -- and `helpAt` reads the
+        // same layout and viewport the drawing just used, so the sentence belongs to the row the
+        // pointer is over, scrolled or not. A row with no help says itself, and `helpAt` answers null.
+        List<ToolsLayout.Action> activeRows =
+                toolsTab == ToolsLayout.Tab.CHAPTER ? chapterAppearanceRows : toolsRows;
+        ToolsLayout.Hovered hovered = ToolsLayout.helpAt(activeRows, activeLayout(),
+                toolsView.viewport(), mouseX, mouseY);
+        if (hovered != null && inTools(mouseX, mouseY)) {
+            rowTooltips.add(new RowTooltip(
+                    ToolsLayout.onScreen(toolsView.viewport(), activeLayout().slot(hovered.key())),
+                    List.of(Labels.of(hovered.help()))));
         }
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
         // call the sidebar and the party panel make. It was missing entirely, which left a list that
@@ -11223,6 +13170,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         fieldDraft.reconcile(effectiveChapter(),
                 copy == null ? null : copy.revision(),
                 (owner, path) -> {
+                    if (dev.ellipog.tasked.client.dev.FieldDraft.BOOK_OWNER.equals(owner)) {
+                        // The book's values are in no chapter copy: the tree is their only source, so
+                        // the tree's own value is what a book draft converges against. Empty means the
+                        // key is absent, which is the null a cleared draft is waiting for.
+                        String value = "bookTitle".equals(path) ? ClientQuestCache.bookTitle()
+                                : "bookIcon".equals(path) ? ClientQuestCache.bookIconId() : null;
+                        if (value == null) {
+                            return null;
+                        }
+                        return value.isEmpty() ? com.google.gson.JsonNull.INSTANCE
+                                : new JsonPrimitive(value);
+                    }
                     JsonObject tree = copy == null ? null
                             : dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER.equals(owner)
                                     ? copy.chapterTree()
@@ -11230,6 +13189,13 @@ public final class QuestBookScreen extends ArmatureScreen {
                     return tree == null ? null : QuestPanelLayout.get(tree, path);
                 },
                 Util.getMillis());
+        // A pending look is spent once the draft behind it is: the preview and the write carry the same
+        // patch, so a pending patch that outlived its draft would mask whatever changed the chapter next.
+        if (pendingChapterTheme != null
+                && fieldDraft.value(effectiveChapter(),
+                        dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER, "themePatch") == null) {
+            pendingChapterTheme = null;
+        }
         // And the selection, because an id this tree does not hold is a phantom the next gesture would
         // act on -- see `pruneSelection` for why the revision is the right moment and the only one.
         pruneSelection(revision);
@@ -11291,21 +13257,11 @@ public final class QuestBookScreen extends ArmatureScreen {
 
         // The header's own inset, shared with Close's rectangle -- see `BookGeometry.HEADER_INSET`,
         // where the two ends of the header are one number rather than a literal here and a margin there.
-        r.text(title.getString(), left + BookGeometry.HEADER_INSET, top + 9, ArmatureTheme.title());
+        // The pack's icon and name, when its index declares them; the translatable title and no icon
+        // otherwise. See `drawHeaderIdentity`.
+        drawHeaderIdentity(r, left, top);
         if (ClientQuestCache.hasData()) {
-            String summary = ClientQuestCache.questCount() + " quests  \u00b7  "
-                    + Math.round(viewport().scale() * 100) + "%";
-            // Right-aligned to the Close button, not to the panel's edge. The old version measured
-            // from `left + panelW - 12`, which is where the panel's own inset is — a position the
-            // button knew nothing about. That is the same class of mistake as the two controls that
-            // collided, one surface up, and it only needed the button to move.
-            //
-            // Dropped entirely when the header is too narrow to hold both, rather than overlapping the
-            // title. A missing count is a smaller fault than a title with a number drawn through it.
-            int summaryX = headerRightLimit() - r.textWidth(summary);
-            if (summaryX > left + 10 + r.textWidth(title.getString()) + 12) {
-                r.text(summary, summaryX, top + 9, ArmatureTheme.faint());
-            }
+            drawHeaderSummary(r, left, top);
         }
 
         if (!ClientQuestCache.hasData()) {
@@ -11511,6 +13467,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         // drawn while a card is up.
         advanceGlide(now);
         r.fill(canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), ArmatureTheme.canvas());
+        // The chapter's surface over its colour, inside the same batch and the same theme scope as
+        // everything else on the canvas -- so a chapter that names a patterned theme gets it here,
+        // and CanvasBackgroundArt's own bounds keep it decorative. See that class for the fades.
+        CanvasBackgroundArt.draw(r, viewport(), ArmatureTheme.background(), ArmatureTheme.canvasPattern());
 
         // The node under the pointer first, because a node owns the right-click and so owns the hover
         // cue too -- a line brightening under a node would promise a menu the press will not open. The
@@ -11620,12 +13580,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         // except by what it prevents.
         if (Math.abs(viewport().scale() - 1.0F) < 0.001F) {
             String hint = "scroll to zoom  \u00b7  drag to pan  \u00b7  click a quest";
-            int hintX = canvasRight() - 8 - r.textWidth(hint);
+            int hintX = visibleCanvasRight() - 8 - r.textWidth(hint);
             int hintY = canvasTop() + 8;
             // Only when it clears the cluster. On a small window these two would meet, and a hint
             // overlapping the buttons it is describing is worse than no hint at all.
             if (hintX > viewControls().right() + 6) {
-                r.fill(hintX - 3, hintY - 2, canvasRight() - 5, hintY + 10,
+                r.fill(hintX - 3, hintY - 2, visibleCanvasRight() - 5, hintY + 10,
                         ArmatureTheme.labelBackdrop());
                 r.text(hint, hintX, hintY, ArmatureTheme.faint());
             }
@@ -11652,7 +13612,7 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The hovered node's title, under the pointer. */
     private void drawNodeCaption(GuiRenderer r, ClientQuestCache.Entry entry) {
         QuestNodeArt.caption(r, nodeScreenX(entry), nodeScreenY(entry), nodeSize(entry),
-                titleOf(entry), canvasLeft(), canvasRight(), canvasBottom());
+                titleOf(entry), canvasLeft(), visibleCanvasRight(), canvasBottom());
     }
 
     // drawIcon(GuiGraphics, ...) used to be here, delegating to ArmatureTheme's copy. Both are gone:
@@ -11670,10 +13630,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         int x = nodeScreenX(entry);
         int y = nodeScreenY(entry);
 
+        // The border reads the node-edge tokens rather than the state inks, and that is the whole of
+        // what those four tokens are for -- `ThemeToken` describes them as "Node border, ...". The
+        // switch used to reach for `complete`/`inProgress`/`available` here, which left three of the
+        // four stating a colour that nothing drew with: every built-in happens to state each pair
+        // byte-identical, so nothing looked wrong and no test could see it. A pack theme that wants
+        // borders apart from its progress inks now has the knob the names promise.
         int edge = switch (state) {
-            case COMPLETED -> ArmatureTheme.complete();
-            case STARTED -> ArmatureTheme.inProgress();
-            case UNLOCKED -> ArmatureTheme.available();
+            case COMPLETED -> ArmatureTheme.nodeEdgeComplete();
+            case STARTED -> ArmatureTheme.nodeEdgeInProgress();
+            case UNLOCKED -> ArmatureTheme.nodeEdgeAvailable();
             case LOCKED -> ArmatureTheme.nodeEdgeBlocked();
         };
 
@@ -11686,12 +13652,15 @@ public final class QuestBookScreen extends ArmatureScreen {
         //
         // The locate flash outranks both while it lasts: it is the answer to "where did that quest
         // go", and the one moment the node must not blend in with its neighbours.
+        // The keyboard's focus rings like a selection, and that is deliberate: it is the pointer for
+        // somebody who has no pointer, so it has to be as loud as the mouse's own mark. See CanvasFocus.
+        boolean isFocused = canvasFocus.focused().map(entry.id()::equals).orElse(false);
         int ring = 0;
         if (flash > 0F) {
             ring = Colour.translucent(ArmatureTheme.selectedRing(), flash);
         }
-        else if (hover > 0F || isSelected) {
-            ring = isSelected
+        else if (hover > 0F || isSelected || isFocused) {
+            ring = isSelected || isFocused
                     ? ArmatureTheme.selectedRing()
                     : Colour.translucent(ArmatureTheme.hoverRing(), hover);
         }
@@ -11779,7 +13748,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             int width = r.textWidth(shown);
             // Clamped inward so a label on the edge node is not half off the canvas, but never so far
             // that it slides away from the node it belongs to.
-            int textX = Mth.clamp(x + size / 2 - width / 2, canvasLeft() + 2, canvasRight() - width - 2);
+            int textX = Mth.clamp(x + size / 2 - width / 2, canvasLeft() + 2,
+                    visibleCanvasRight() - width - 2);
             int textY = y + size + LABEL_GAP;
 
             // Checked against **every** node, not just the named ones, and the difference is real.
@@ -12145,7 +14115,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (style.fromHandle().isPresent() && style.toHandle().isPresent()) {
             return LineArt.cubic(from, to, style.fromHandle().get(), style.toHandle().get());
         }
-        return LineArt.path(style.formOr(DependencyStyle.Form.ORTHOGONAL), from, to,
+        return LineArt.path(style.formOr(DependencyStyle.Form.CHAMFERED), from, to,
                 style.bendOr(DEFAULT_BEND));
     }
 
@@ -12155,15 +14125,13 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
-     * Whether this line's shape is a bow the bend handle steers: a curve or a radial arc.
+     * Whether this line's shape is a bow the bend handle steers: a curve, and only a curve.
      *
-     * <p>Both put their middle where {@link LineArt#bendAt} reads it — the quadratic control offset and
-     * the arc's sagitta are the same fraction of the chord — so one diamond steers either, and switching
-     * between the two forms does not move the handle off the line.
+     * <p>The handle sits at the curve's midpoint, where {@link LineArt#bendAt} reads the bow — the exact
+     * inverse of {@link LineArt#curve}, which is what makes the drag land where the pointer is.
      */
     private static boolean bows(DependencyStyle style) {
-        DependencyStyle.Form form = style.formOr(DependencyStyle.Form.ORTHOGONAL);
-        return form == DependencyStyle.Form.CURVED || form == DependencyStyle.Form.RADIAL;
+        return style.formOr(DependencyStyle.Form.CHAMFERED) == DependencyStyle.Form.CURVED;
     }
 
     /** The bow a curve gets when nothing, anywhere, says otherwise. */
@@ -12249,8 +14217,9 @@ public final class QuestBookScreen extends ArmatureScreen {
      * the view cluster's backing panel had and the reason `CHROME_Z` exists.
      *
      * <p>So this is the one drawing call that belongs beside Close and the party button rather than
-     * beside the book, and the scrim stays in `renderWith` because the scrim is about the *book* being
-     * inert rather than about the card being present.
+     * beside the book. The scrim went to the same layer when it was found to have the identical
+     * depth fault -- it dimmed everything except the canvas's icons -- so the whole of what says "the
+     * book is inert" is now drawn just above the book, at the bottom of the raised band.
      */
     private void drawModal(GuiRenderer r, int mouseX, int mouseY, long now) {
         if (overlay == Overlay.PARTY) {
@@ -12270,6 +14239,11 @@ public final class QuestBookScreen extends ArmatureScreen {
             // panel's: it is about the item registry rather than about the chapter it was opened from.
             drawPickerOverlay(r, mouseX, mouseY);
         }
+        else if (overlay == Overlay.TEXTURE) {
+            // The same: a list of the client's own files is chrome rather than a chapter's content, so
+            // it is drawn outside every chapter scope, exactly as the item picker's card is.
+            drawTextureOverlay(r, mouseX, mouseY);
+        }
         else if (overlay == Overlay.CHOICE) {
             // A question about a reward, not a chapter's content: the card is chrome, like the picker's.
             drawChoiceOverlay(r, mouseX, mouseY);
@@ -12280,6 +14254,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         else if (overlay == Overlay.NAMING) {
             drawNamingOverlay(r);
+        }
+        else if (overlay == Overlay.SETTINGS) {
+            // A player's own card: chrome, like the rewards panel's, not a chapter's content.
+            drawSettingsOverlay(r, mouseX, mouseY);
         }
     }
 
@@ -12361,10 +14339,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         // refusal -- see `closeChoice` -- and saying so is the whole point of labelling it rather than
         // leaving Escape as the only way out.
         ArmatureButton later = control(geometry().overlayControls(false).get("back"),
-                Component.literal("Keep for later"), this::closeChoice);
+                Component.translatable("tasked.screen.keep_for_later"), this::closeChoice);
         if (later != null) {
             later.ink(ArmatureButton.Ink.BODY)
-                    .tooltip(Component.literal("The reward stays yours to collect, and Claim asks again"));
+                    .tooltip(Component.translatable("tasked.screen.the_reward_stays_yours_to_collect_and_claim_asks"));
         }
     }
 
@@ -12477,42 +14455,68 @@ public final class QuestBookScreen extends ArmatureScreen {
         closeOverlay();
         overlay = Overlay.REWARDS;
         rewardsRevision = ClientQuestCache.progressRevision();
+        // A press whose answer never arrived -- the card was closed over it, or the connection moved --
+        // leaves a key here that no sync will clear. The card opening is the one moment the set can be
+        // known stale, so it goes rather than marking a row collected the server has never heard of.
+        pendingClaims.clear();
         rewardView.scrollTo(0);
         rebuildWidgets();
     }
 
-    /** The card's controls: one row per waiting quest, Claim all, and Back. */
+    /**
+     * The card's controls: an accordion of waiting quests, Claim all, and Back.
+     *
+     * <h2>One button per row, in the strip the layout reserved</h2>
+     *
+     * <p>The shape the tools panel's switches use: the row itself is drawn by {@link #drawRewardsOverlay},
+     * and its button is placed in the strip outside the row's narrowed slot. A header's <b>body</b> is
+     * the accordion's handle and is hit-tested by {@link #toggleRewardHeader} — so the press a widget
+     * did not take is the press the row handles, and a click on Claim Quest can never also fold the row
+     * it belongs to.
+     *
+     * <h2>Status is the client's answer, not the client's decision</h2>
+     *
+     * <p>A row's button is live exactly when the cache says this player could take it, and the server
+     * recomputes the same answer when the press arrives. A row that is already collected or gated is
+     * drawn with a disabled button rather than no button: it is still part of what the quest gives, and
+     * hiding it would make the accordion change shape as the player collects.
+     */
     private void buildRewardWidgets() {
         rewardRows = List.of();
         rewardLayout = null;
-        List<ClientQuestCache.Entry> waiting = claimableQuests();
-        List<InspectRow> rows = new ArrayList<>();
-        for (ClientQuestCache.Entry entry : waiting) {
-            rows.add(InspectRow.action(REWARD_PREFIX + entry.id(), titleOf(entry)));
+        UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+
+        List<RewardInboxLayout.Row> rows = new ArrayList<>();
+        for (ClientQuestCache.Entry entry : claimableQuests()) {
+            int waiting = self == null ? 0 : ClientQuestCache.outstandingRewards(self, entry.id());
+            rows.add(RewardInboxLayout.Row.quest(entry.id(), titleOf(entry), waiting));
+            if (!expandedRewards.contains(entry.id())) {
+                continue;
+            }
+            for (int index = 0; index < entry.rewards().size(); index++) {
+                rows.add(rewardInboxRow(self, entry, index));
+            }
         }
         rewardRows = List.copyOf(rows);
 
         Viewport body = overlayBody();
-        rewardLayout = InspectLayout.build(rewardRows, body.viewWidth(), Measure.monospace(6, 9));
+        rewardLayout = RewardInboxLayout.build(rewardRows, body.viewWidth(), Measure.monospace(6, 9));
         rewardView.clear();
         rewardView.whole(true);
         rewardView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
                 body.viewHeight());
-        for (int i = 0; i < rewardRows.size(); i++) {
-            InspectRow row = rewardRows.get(i);
-            final String questId = waiting.get(i).id();
-            ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
-                    () -> claim(questId));
+        for (RewardInboxLayout.Row row : rewardRows) {
+            ArmatureButton button = control(0, 0, 0, 0, buttonLabel(row), row.isReward()
+                    ? () -> claimReward(row.questId(), row.rewardIndex())
+                    : () -> claimQuestFromInbox(row.questId()));
             button.alignLeft(true).flat(true);
-            ItemStack icon = waiting.get(i).icon();
-            if (!icon.isEmpty()) {
-                button.icon(icon);
+            if (!row.pressable()) {
+                // Nothing left to take: a disabled control draws in the blocked colour and ignores the
+                // press, which is the honest shape for a row whose claim the server would refuse.
+                button.active = false;
             }
-            // The id on hover, the same as the choice card's rows: a title can be renamed, and the id is
-            // what an author and a bug report both name.
-            button.tooltip(List.of(Component.translatable("tasked.screen.rewards.claim"),
-                    Component.literal(questId)));
-            rewardView.put(row.key(), button);
+            button.tooltip(buttonTooltip(row));
+            rewardView.put(row.key(), button, RewardInboxLayout::strip);
         }
         rewardView.apply(rewardLayout, body.viewWidth());
 
@@ -12523,7 +14527,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         ArmatureButton all = control(controls.get("submit"),
                 Component.translatable("tasked.screen.rewards.claim_all"), QuestBookScreen::claimAllRewards);
         if (all != null) {
-            all.accent(true).tooltip(Component.literal("Collects everything the server is holding"));
+            all.accent(true).tooltip(Component.translatable("tasked.screen.collects_everything_the_server_is_holding"));
         }
         ArmatureButton back = control(controls.get("back"),
                 Component.translatable("tasked.screen.rewards.back"), this::closeOverlay);
@@ -12556,6 +14560,131 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** Claim all: one press, and the server walks the book with the same test the single claim uses. */
     private static void claimAllRewards() {
         ArmatureNetwork.sendToServer(new ClaimAllPayload());
+    }
+
+    /** One reward's inbox row, with the status this player's copy of it is in. */
+    private RewardInboxLayout.Row rewardInboxRow(UUID self, ClientQuestCache.Entry entry, int index) {
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
+        String key = RewardInboxLayout.rewardKey(entry.id(), index);
+        RewardInboxLayout.Status status;
+        if (pendingClaims.contains(key)) {
+            status = RewardInboxLayout.Status.PENDING;
+        }
+        else if (self != null && ClientQuestCache.rewardClaimedBy(self, entry.id(), index)) {
+            status = RewardInboxLayout.Status.CLAIMED;
+        }
+        else if (!ClientQuestCache.canClaimReward(self, entry.id(), index)) {
+            // The same predicate the badge counts with: a row is gated exactly when the cache says
+            // this player could not take it, so the header's count and its rows cannot disagree.
+            status = RewardInboxLayout.Status.LOCKED;
+        }
+        else {
+            status = RewardInboxLayout.Status.READY;
+        }
+        // A missing item shows the id it names, the same rule the viewer's row uses: an id with no item
+        // is a fact worth telling apart from a row that simply has no icon.
+        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+        String label = missingItem ? reward.itemId() : rowText("rewards", reward);
+        // A count is drawn only when the row is a number of things: for an item that is "x16", and for
+        // the count-shaped types it is already inside the sentence ("5 XP").
+        int count = reward.hasItem() ? reward.count() : 0;
+        return RewardInboxLayout.Row.reward(entry.id(), index, label, count, status);
+    }
+
+    /** What a row's strip button says: its action while it has one, its state once it does not. */
+    private static Component buttonLabel(RewardInboxLayout.Row row) {
+        if (row.pressable()) {
+            return Component.translatable(row.isReward()
+                    ? "tasked.screen.rewards.claim_row" : "tasked.screen.rewards.claim_quest");
+        }
+        return Component.translatable(row.status() == RewardInboxLayout.Status.LOCKED
+                ? "tasked.viewer.locked" : "tasked.viewer.claimed");
+    }
+
+    /**
+     * Asks the server for one reward, and marks its row collected until the answer comes.
+     *
+     * <p>The optimistic half lives here and only here, and it is safe because an answer always comes:
+     * every claim handler sends a progress sync whether or not it paid, and the sync clears
+     * {@link #pendingClaims} and rebuilds. The worst a refusal produces is a row that reads collected
+     * for one round trip and then goes back — and the alternative, a row that shows nothing until the
+     * packet returns, reads as a press that did not register.
+     */
+    private void claimReward(String questId, int rewardIndex) {
+        markPending(questId, rewardIndex);
+        rebuildWidgets();
+        ArmatureNetwork.sendToServer(new ClaimRewardEntryPayload(questId, rewardIndex));
+        Constants.LOG.debug("tasked: asked the server for reward {} of {}", rewardIndex, questId);
+    }
+
+    /**
+     * Marks one reward's row collected until the server answers.
+     *
+     * <p>Except a choice: the press does not collect it — it opens the card that asks the player which
+     * entry they want — so a choice row that read collected while its card was open would be the card
+     * promising a payout that has not happened. The pick marks it, through the sync that follows the
+     * answer.
+     */
+    private void markPending(String questId, int rewardIndex) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        if (entry == null || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
+            return;
+        }
+        if (!"tasked:choice".equals(entry.rewards().get(rewardIndex).type())) {
+            pendingClaims.add(RewardInboxLayout.rewardKey(questId, rewardIndex));
+        }
+    }
+
+    /**
+     * The header's press: the whole quest's rewards, marked collected until the server answers.
+     *
+     * <p>Every row of the quest goes pending with the header, because that is what the press asked for:
+     * a header reading collected while its rows still offered their own buttons would be the card
+     * disagreeing with itself about one press.
+     */
+    private void claimQuestFromInbox(String questId) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        pendingClaims.add(RewardInboxLayout.questKey(questId));
+        if (entry != null) {
+            for (int index = 0; index < entry.rewards().size(); index++) {
+                markPending(questId, index);
+            }
+        }
+        rebuildWidgets();
+        claim(questId);
+    }
+
+    /**
+     * Folds or unfolds one quest's rewards, from a press on its header's body.
+     *
+     * <p>Asked of the layout rather than of a rectangle written here — the same contract as every other
+     * press in this screen, so what is hit-tested is what was drawn.
+     */
+    private boolean toggleRewardHeader(double mouseX, double mouseY) {
+        if (rewardLayout == null || !rewardView.viewport().containsScreen(mouseX, mouseY)) {
+            // Outside the list's own rectangle: a header scrolled under the card's header or footer is
+            // clipped away, and a press there is the card's, not a hidden row's.
+            return false;
+        }
+        for (RewardInboxLayout.Row row : rewardRows) {
+            if (row.isReward()) {
+                continue;
+            }
+            Slot slot = rewardLayout.slot(row.key());
+            if (slot == null) {
+                continue;
+            }
+            Slot onScreen = InspectLayout.onScreen(rewardView.viewport(), RewardInboxLayout.body(slot));
+            if (!onScreen.contains(mouseX, mouseY)) {
+                continue;
+            }
+            if (!expandedRewards.remove(row.questId())) {
+                expandedRewards.add(row.questId());
+            }
+            rebuildWidgets();
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -12595,12 +14724,342 @@ public final class QuestBookScreen extends ArmatureScreen {
                     body.originX() + 4, body.originY() + 4, ArmatureTheme.faint());
         }
         else {
-            QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
-                    body.viewWidth(), body.viewHeight()), rewardView.viewport(), rewardLayout, rewardRows,
-                    mouseX, mouseY);
+            drawRewardInboxRows(r, body, mouseX, mouseY);
         }
         rewardView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
     }
+
+    /**
+     * The inbox's rows: a header per quest and, under an expanded one, its rewards.
+     *
+     * <p>Drawn rather than hosted as widgets, the division the roster's rows already use: the strip
+     * buttons are the widgets, and everything the player reads is painted here — inside the body's clip,
+     * so a scrolled row is cut at the card's edge rather than drawn over its header.
+     */
+    private void drawRewardInboxRows(GuiRenderer r, Viewport body, int mouseX, int mouseY) {
+        long now = Util.getMillis();
+        Viewport view = rewardView.viewport();
+        try (GuiRenderer.Scoped clip = r.clip(body.originX(), body.originY(),
+                body.originX() + body.viewWidth(), body.originY() + body.viewHeight())) {
+            for (RewardInboxLayout.Row row : rewardRows) {
+                Slot slot = rewardLayout.slot(row.key());
+                if (slot == null) {
+                    continue;
+                }
+                Slot onScreen = InspectLayout.onScreen(view, slot);
+                if (onScreen.bottom() <= body.originY()
+                        || onScreen.y() >= body.originY() + body.viewHeight()) {
+                    continue;
+                }
+                rowHover.update(row.key(), now);
+                float hover = rowHover.amount(row.key(), now);
+                if (row.isReward()) {
+                    drawRewardInboxReward(r, row, onScreen, hover, mouseX, mouseY);
+                }
+                else {
+                    drawRewardInboxHeader(r, row, onScreen, hover, mouseX, mouseY);
+                }
+            }
+        }
+    }
+
+    /**
+     * A quest's header: the fold marker, its icon, its title, and how much waits inside.
+     *
+     * <p>The count is measured against the strip rather than printed after the title, so a long title
+     * is truncated instead of running under the Claim Quest button — the oldest fault in this
+     * codebase's panels.
+     */
+    private void drawRewardInboxHeader(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
+                                       int mouseX, int mouseY) {
+        boolean expanded = expandedRewards.contains(row.questId());
+        String marker = expanded ? "\u25bc" : "\u203a";
+        int textY = slot.y() + (slot.height() - 8) / 2;
+
+        Slot strip = RewardInboxLayout.strip(slot);
+        String count = Component.translatable("tasked.screen.rewards.header_count", row.count()).getString();
+        int countX = strip.x() - 6 - r.textWidth(count);
+
+        rowWash(r, slot, slot.right(), hover);
+
+        int x = slot.x();
+        r.text(marker, x, textY, ArmatureTheme.faint());
+        x += r.textWidth(marker) + 4;
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(row.questId());
+        ItemStack icon = entry == null ? ItemStack.EMPTY : entry.icon();
+        if (!icon.isEmpty() && r.icon(icon, x, slot.y() + (slot.height() - ROW_ICON) / 2, ROW_ICON)) {
+            x += ROW_ICON + 5;
+        }
+        int room = Math.max(0, countX - x - 6);
+        r.text(Measure.truncate(row.label(), room, textMeasure(r)), x, textY, ArmatureTheme.title());
+        r.text(count, countX, textY, ArmatureTheme.faint());
+
+        if (slot.contains(mouseX, mouseY)) {
+            rowTooltips.add(new RowTooltip(slot, List.of(
+                    Component.translatable(expanded
+                            ? "tasked.screen.rewards.collapse_hint"
+                            : "tasked.screen.rewards.expand_hint").getString(),
+                    row.questId())));
+        }
+    }
+
+    /**
+     * One reward under its header: icon, name, count, and the state tag for a row that is not ready.
+     *
+     * <p>The viewer's reward row, one list over — the icon, the sentence and the count are the same
+     * facts drawn the same way, so a reward reads the same wherever it appears. What is added is the
+     * status: a collected or gated row is drawn shut, because a row is only worth offering when the
+     * player has something to decide about it.
+     */
+    private void drawRewardInboxReward(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
+                                       int mouseX, int mouseY) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(row.questId());
+        if (entry == null || row.rewardIndex() < 0 || row.rewardIndex() >= entry.rewards().size()) {
+            return;
+        }
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(row.rewardIndex());
+        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+        String count = reward.hasItem() && row.count() > 1 ? "x" + row.count() : null;
+        String tag = switch (row.status()) {
+            case LOCKED -> Component.translatable("tasked.viewer.locked").getString();
+            case CLAIMED, PENDING -> Component.translatable("tasked.viewer.claimed").getString();
+            case READY -> null;
+        };
+
+        // Everything measured before anything is drawn: the wash goes behind the icon, so its width has
+        // to be known before the row exists -- the rule drawRewardRow documents at length. The label's
+        // room reserves the count as well as the tag, so a long name is truncated rather than printed
+        // under either of them.
+        Slot strip = RewardInboxLayout.strip(slot);
+        int tagX = tag == null ? 0 : strip.x() - 6 - r.textWidth(tag);
+        int textStart = slot.x() + ROW_ICON + 5;
+        int countWidth = count == null ? 0 : 5 + r.textWidth(count);
+        int labelRoom = Math.max(0, (tag == null ? strip.x() - 6 : tagX - 6) - textStart - countWidth);
+        String shown = Measure.truncate(row.label(), labelRoom, textMeasure(r));
+        int contentRight = textStart + r.textWidth(shown) + countWidth;
+        if (tag != null) {
+            contentRight = Math.max(contentRight, strip.x() - 6);
+        }
+
+        rowWash(r, slot, contentRight, hover);
+
+        int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
+        int textX = slot.x();
+        ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
+        if (missingItem) {
+            drawItemPlaceholder(r, slot.x(), iconY, ROW_ICON);
+            textX = slot.x() + ROW_ICON + 5;
+        }
+        else if (r.icon(toDraw, slot.x(), iconY, ROW_ICON)) {
+            textX = slot.x() + ROW_ICON + 5;
+        }
+        boolean shut = !row.pressable();
+        r.text(shown, textX, textY,
+                missingItem || shut ? ArmatureTheme.blocked() : ArmatureTheme.body());
+        if (count != null) {
+            r.text(count, textX + r.textWidth(shown) + 5, textY, ArmatureTheme.faint());
+        }
+        if (tag != null) {
+            r.text(tag, tagX, textY, ArmatureTheme.blocked());
+        }
+
+        if (slot.contains(mouseX, mouseY)) {
+            rowTooltips.add(new RowTooltip(slot, rewardTooltipLines(row.questId(), row.rewardIndex())));
+        }
+    }
+
+    /**
+     * A row's strip button hover: what the press does, then everything the row is about.
+     *
+     * <p>A live button says "Press to collect"; a disabled one says its state instead, because the
+     * sentence a player needs from a button they cannot press is why not. A header names its quest id —
+     * a title can be renamed, and the id is what an author and a bug report both name — and a reward
+     * carries its own lines, {@link #rewardTooltipLines}.
+     */
+    private List<Component> buttonTooltip(RewardInboxLayout.Row row) {
+        List<Component> lines = new ArrayList<>();
+        if (row.pressable()) {
+            lines.add(Component.translatable("tasked.screen.rewards.claim"));
+        }
+        else {
+            lines.add(Component.translatable(row.status() == RewardInboxLayout.Status.LOCKED
+                    ? "tasked.viewer.locked" : "tasked.viewer.claimed"));
+        }
+        if (row.isReward()) {
+            for (String line : rewardTooltipLines(row.questId(), row.rewardIndex())) {
+                lines.add(Component.literal(line));
+            }
+        }
+        else {
+            lines.add(Component.literal(row.questId()));
+        }
+        return lines;
+    }
+
+    /**
+     * One reward's hover, in full: the item's own tooltip and the reward's own explanation.
+     *
+     * <p>The item's lines are vanilla's — its name, its lore, its enchantments, its attributes — and
+     * they are what the player is deciding about, so they are not summarised. The reward's own lines
+     * name the type, and a locked row names what it waits for. The id is added for the case a tooltip
+     * cannot name: a component this client cannot read still has an id a bug report can.
+     */
+    private List<String> rewardTooltipLines(String questId, int rewardIndex) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        if (entry == null || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
+            return List.of();
+        }
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(rewardIndex);
+        List<String> lines = new ArrayList<>();
+        if (reward.hasItem()) {
+            for (Component line : getTooltipFromItem(minecraft, reward.item())) {
+                lines.add(line.getString());
+            }
+        }
+        else {
+            lines.add(rowText("rewards", reward));
+        }
+        lines.addAll(QuestPanelLayout.playerTooltip("rewards", reward.type(), false));
+        appendConditionLines(lines, reward.conditions(),
+                ClientQuestCache.rewardLockOf(questId, rewardIndex));
+        if (reward.hasItem() && !reward.itemId().isEmpty()) {
+            lines.add(reward.itemId());
+        }
+        return lines;
+    }
+
+    // ------------------------------------------------------------------
+    // The settings card
+    // ------------------------------------------------------------------
+
+    /** Opens the player's accessibility card: Motion and text size. */
+    private void openSettingsOverlay() {
+        closeOverlay();
+        overlay = Overlay.SETTINGS;
+        appearanceView.scrollTo(0);
+        rebuildWidgets();
+    }
+
+    /**
+     * The card's control: the text-size slider.
+     *
+     * <p>The row is composed once, on open, by {@link SettingsLayout}. The control calls into
+     * {@code ClientAppearance.LOOK}, which persists as it changes: there is no Save button because
+     * there is no unsaved state, and the header's second line says whether the file is even writable
+     * rather than pretending.
+     *
+     * <h2>The card is sized to its rows</h2>
+     *
+     * <p>It used the full-height modal and read as a mostly-empty panel; two rows want a small card.
+     * The width is asked for first — {@code modalFramed}'s width does not depend on its height, which
+     * is the invariant that makes this possible — then the rows are built at that width, and the card
+     * is sized to what they came to. The party panel sizes its faces the same way.
+     */
+    private void buildSettingsWidgets() {
+        appearanceEntries = SettingsLayout.entries(ClientAppearance.LOOK.textScale());
+        appearanceRows = appearanceEntries.stream()
+                .map(entry -> InspectRow.action(entry.key(), entry.label()))
+                .toList();
+
+        int cardWidth = geometry().modalFramed(0, SETTINGS_CARD_WIDTH).width();
+        int bodyWidth = Math.max(0, cardWidth - BookGeometry.MODAL_INSET * 2);
+        appearanceLayout = InspectLayout.build(appearanceRows, bodyWidth, TEXT_MEASURE);
+
+        // The card from the rows' height, then the body from the card: a short window clamps the card,
+        // and the body has to be what the card could actually hold rather than what was asked for.
+        appearanceCard = geometry().modalFramed(BODY_TOP + appearanceLayout.height(),
+                SETTINGS_CARD_WIDTH);
+        int bodyHeight = Math.max(0,
+                appearanceCard.height() - BODY_TOP - BookGeometry.MODAL_CHROME);
+
+        appearanceView.clear();
+        appearanceView.whole(true);
+        Viewport body = appearanceView.viewport().bounds(
+                appearanceCard.x() + BookGeometry.MODAL_INSET, appearanceCard.y() + BODY_TOP,
+                bodyWidth, bodyHeight);
+
+        // The one control: the slider, whose message carries the value so it can follow the thumb.
+        ArmatureSlider slider = new ArmatureSlider(0, 0, bodyWidth, TextScale.MIN, TextScale.MAX,
+                0.05D, ClientAppearance.LOOK.textScale());
+        slider.label(textSizeLabel(slider.value()));
+        slider.onChange(() -> {
+            // Live, and without a rebuild: the text resizes while the thumb moves, and a rebuild
+            // mid-drag would destroy the widget being dragged.
+            ClientAppearance.LOOK.setTextScale(slider.value());
+            slider.label(textSizeLabel(slider.value()));
+        });
+        modalRedraws.add(slider::draw);
+        addRenderableWidget(slider);
+        appearanceView.put(SettingsLayout.TEXT_KEY, slider);
+
+        appearanceView.apply(appearanceLayout, body.viewWidth());
+
+        ArmatureButton back = control(geometry().questFooter(appearanceCard, false).get("back"),
+                Component.translatable("tasked.screen.back"), this::closeOverlay);
+        if (back != null) {
+            back.ink(ArmatureButton.Ink.BODY);
+        }
+    }
+
+    /** The slider's message: the setting's name and its value, kept current as the thumb moves. */
+    private static Component textSizeLabel(double scale) {
+        return Component.translatable("tasked.screen.text_size", Math.round(scale * 100));
+    }
+
+    /** The settings card: the rows, the two lines of header, and the scrollbar when it is needed. */
+    private void drawSettingsOverlay(GuiRenderer r, int mouseX, int mouseY) {
+        if (appearanceCard == null) {
+            return;
+        }
+        int left = appearanceCard.x();
+        int top = appearanceCard.y();
+        int w = appearanceCard.width();
+        int h = appearanceCard.height();
+
+        ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, 45, ArmatureTheme.raised(),
+                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
+        r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
+
+        int textX = left + 14;
+        r.text("Settings", textX, top + 12, ArmatureTheme.title());
+        // Whether a choice can be remembered at all, from the accessor Look grew for exactly this: a
+        // client whose config directory never resolved saves nothing, and a card that said "saved" would
+        // be lying about it.
+        r.text(ClientAppearance.LOOK.file() == null
+                        ? "This session only - nothing can be saved here"
+                        : "Saved as you change them",
+                textX, top + 26, ArmatureTheme.faint());
+
+        if (appearanceLayout == null) {
+            return;
+        }
+        Viewport body = appearanceView.viewport();
+        appearanceView.apply(appearanceLayout, body.viewWidth());
+        QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
+                body.viewWidth(), body.viewHeight()), body, appearanceLayout,
+                appearanceRows, mouseX, mouseY);
+        // The bar only when there is something to scroll: the card is sized to its rows, so this is a
+        // window too short to hold them rather than the usual case.
+        if (appearanceLayout.height() > body.viewHeight()) {
+            appearanceView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        }
+    }
+
+    /**
+     * A palette press: the author's choice, which persists and beats the pack's from now on.
+     *
+     * <p>The tools panel's, now — the theme list lives there and only there, because choosing a theme
+     * can undo a pack's whole planned look and that is the pack author's decision rather than a
+     * player's. See {@code ToolsLayout.PALETTE_SECTION}.
+     */
+    private void chooseTheme(String name) {
+        if (ClientAppearance.LOOK.setTheme(name)) {
+            rebuildWidgets();
+        }
+    }
+
 
     /**
      * The picker's own card, for a pick that is not a quest's.
@@ -12630,7 +15089,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             r.icon(pickIcon, iconX, iconY, iconBox);
         }
         int textX = iconX + iconBox + 6;
-        r.text(pickTarget == PickTarget.GROUP ? "Choose the group's icon"
+        r.text(pickTarget == PickTarget.BOOK ? "Choose the book's icon"
+                        : pickTarget == PickTarget.GROUP ? "Choose the group's icon"
                         : "Choose the chapter's icon",
                 textX, top + 12, ArmatureTheme.title());
         if (!pickName.isEmpty()) {
@@ -13080,7 +15540,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
             BookGeometry.Rect locate = locateBox(slot);
             // A tick and a cross. The cross is U+00D7 rather than the heavier U+2716, which is one of the
-            // few symbols this font does not carry -- see `BookGeometry.TOOLS_BUTTON_WIDTH`. Cut to the
+            // few symbols this font does not carry -- see `BookGeometry.TOOLS_PILL_WIDTH`. Cut to the
             // room the locate icon leaves, so a long title cannot run under it, and centred on the row:
             // the label used to be drawn at the slot's top edge while the icon was centred, which read
             // as text sitting high in the wash.
@@ -13700,8 +16160,13 @@ public final class QuestBookScreen extends ArmatureScreen {
                 return true;
             }
             else if (overlay == Overlay.REWARDS && button == 0) {
-                // The bar, then the outside -- the same shape the choice card's press has, and for the
-                // same reason: the rows are widgets and answer on release.
+                // A header's body folds its rewards, and this is the press the strip's widget did not
+                // take -- so a click on Claim Quest can never also fold the row it belongs to.
+                if (toggleRewardHeader(mouseX, mouseY)) {
+                    return true;
+                }
+                // The bar, then the outside -- the same shape the choice card's press has, and for
+                // same reason: the rows' buttons are widgets and answer on release.
                 if (rewardView.scrollbarHit(mouseX, mouseY)) {
                     rewardView.beginThumbDrag(mouseY);
                     rewardView.dragThumbTo(mouseY);
@@ -13709,6 +16174,24 @@ public final class QuestBookScreen extends ArmatureScreen {
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
                     closeOverlay();
+                }
+                return true;
+            }
+            else if (overlay == Overlay.TEXTURE && button == 0) {
+                // The card's own list, from the last frame's drawing -- stored, not recomputed, so a
+                // press lands on the row it was drawn under. Outside the card closes, which is the
+                // shape every other card's outside press has; a press inside that hits no row does
+                // nothing, because the list is what is on screen and the page behind it is not a
+                // second thing to press while a file is being chosen.
+                if (clickedOutsideCard(mouseX, mouseY)) {
+                    closeTexturePicker();
+                    return true;
+                }
+                if (textureFrame != null) {
+                    int row = ItemPickerLayout.rowAt(textureRows, textureFrame, textureScroll, mouseY);
+                    if (row >= 0) {
+                        pressTextureRow(row);
+                    }
                 }
                 return true;
             }
@@ -13821,7 +16304,30 @@ public final class QuestBookScreen extends ArmatureScreen {
         rememberSidebarPress(mouseX, mouseY, button);
 
         // Widgets first. A control that was clicked must keep the event.
+        //
+        // An armed "copy to all chapters" is undone by a press on anything else, the same rule the
+        // party's Disband follows -- asked here, before the widget pass, because that pass may be the
+        // confirm: a press on the armed row itself must not disarm it on the way in.
+        boolean onCanvasCopy = canvasCopyButton != null
+                && canvasCopyButton.isMouseOver(mouseX, mouseY);
         if (super.mouseClicked(mouseX, mouseY, button)) {
+            if (!onCanvasCopy) {
+                disarmCanvasCopy();
+            }
+            return true;
+        }
+        if (!onCanvasCopy) {
+            disarmCanvasCopy();
+        }
+
+        // The colour picker next: its own fields are widgets and were just offered the press, so what is
+        // left is its tracks and swatches -- and a press outside, which closes it and is consumed, so the
+        // click that dismisses the picker never also acts on what was behind it.
+        if (colourPopover.isOpen()) {
+            if (colourPopover.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            closeColourPopover();
             return true;
         }
 
@@ -13836,31 +16342,27 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The panel first, and it swallows everything inside its own rectangle: a press on the panel is
         // never a press on the canvas, or choosing a colour would pan the graph underneath it.
         if (inTools(mouseX, mouseY)) {
-            // The sample first: it is a map of the theme, so pointing at a part is how an author says "that
-            // colour" without hunting through the list below. The test is the panel's own hover ring's, so
-            // what is outlined under the pointer is what the press chooses.
-            //
-            // Only on the Theme tab, and that guard is the fix rather than a formality: the Chapter tab's
-            // header now occupies the same band, and an unguarded hotspot test would read a press on the
-            // chapter's icon as "select the canvas colour" -- the sample is not on screen to point at.
-            if (toolsTab == ToolsLayout.Tab.THEME) {
-                ToolsLayout.Hotspot part = ToolsLayout.hotspotAt(toolsFrame.preview(), mouseX, mouseY);
-                if (part != null) {
-                    selectColour(part.token());
+            // The colour chips first: they are drawn by the panel and hit-tested here, from the same
+            // rectangle the chip is painted with (`ToolsLayout.chip`), so the chip that is seen is the
+            // chip that answers. A field's box is a widget and the widget pass already offered it the
+            // press; its *label* is not, which is why the label scrub is armed here too.
+            if (toolsAppearanceVisible()) {
+                if (armLabelScrub(mouseX, mouseY)) {
+                    return true;
+                }
+                if (pressToolsChip(mouseX, mouseY)) {
                     return true;
                 }
             }
-            // The radius row's two arrows before the scrollbar band, because a control beats chrome and the
-            // arrows sit at the row's right edge where that band is. They are drawn controls rather than
-            // widgets, and the hit test comes from the same two calls the panel draws them with -- so what
-            // is pressed is what is seen, scrolled or not. Theme tab only: `toolsLayout` belongs to that
-            // tab and is left standing while the Chapter tab is open, so an unguarded test would read a
-            // press on the chapter's own rows as a radius step.
-            if (toolsTab == ToolsLayout.Tab.THEME) {
-                Integer step = ToolsLayout.radiusStepAt(toolsView.viewport(),
-                        toolsLayout == null ? null : toolsLayout.slot(ToolsLayout.RADIUS), mouseX, mouseY);
-                if (step != null) {
-                    stepRadius(step);
+            // The texture row's browse button: the third of its controls, drawn by the panel and
+            // hit-tested from the layout's own box -- the same derivation the `...` is painted with,
+            // so the button that is seen is the button that answers. The row's id field is a widget,
+            // and this box is the one part of the row the widget pass does not own.
+            if (toolsAppearanceVisible()) {
+                Layout active = activeLayout();
+                if (ToolsLayout.textureBrowseAt(toolsView.viewport(),
+                        active == null ? null : active.slot(ToolsLayout.CANVAS_TEXTURE), mouseX, mouseY)) {
+                    openTexturePicker();
                     return true;
                 }
             }
@@ -14158,6 +16660,19 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        // A field's label drag is the screen's, because a label is not a widget: the press armed it and
+        // this keeps feeding the same field until the release commits it.
+        if (labelScrub != null && labelScrub.labelDragged(mouseX, mouseY,
+                net.minecraft.client.gui.screens.Screen.hasShiftDown(),
+                net.minecraft.client.gui.screens.Screen.hasControlDown()
+                        || net.minecraft.client.gui.screens.Screen.hasAltDown())) {
+            return true;
+        }
+        // The picker's tracks, before anything behind it: a drag on the hue strip is the picker's, and a
+        // drag in one of its fields falls through to the widget pass below.
+        if (colourPopover.mouseDragged(mouseX, mouseY, button)) {
+            return true;
+        }
         // The curve handle's follow. The bow is recomputed from the pointer rather than accumulated, so
         // letting the hand drift back over the chord straightens the line again.
         if (bendDragFrom != null) {
@@ -14394,6 +16909,17 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        // A field's label scrub ends here: one release, one commit, whatever the drag did in between.
+        if (labelScrub != null) {
+            labelScrub.endLabelScrub();
+            labelScrub = null;
+            return true;
+        }
+        // A picker track's release writes once, if the drag changed anything; a release in one of the
+        // picker's fields falls through to the widget pass.
+        if (colourPopover.mouseReleased(mouseX, mouseY, button)) {
+            return true;
+        }
         // A slider's release: the one commit for the whole drag. Read and cleared before anything else
         // looks at the gesture, because the drag is over the moment the button is up.
         if (draggingSlider != null) {
@@ -14669,6 +17195,16 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
 
+        if (overlay == Overlay.TEXTURE) {
+            // The same for the texture picker's list: the wheel is its own, clamped where it lands, and
+            // the dock behind the card does not move.
+            if (textureFrame != null) {
+                textureScroll = Math.max(0, Math.min(textureScroll - (int) (scrollY * 30),
+                        ItemPickerLayout.maxScroll(textureRows, textureFrame)));
+            }
+            return true;
+        }
+
         if (overlay == Overlay.CHOICE) {
             // The card is a list, so the wheel is the list's -- and absorbed whether or not there is
             // anywhere to go, the same as every other card's.
@@ -14829,6 +17365,29 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         }
 
+        // The texture picker's keys, read on the item picker's terms and before the generic overlay
+        // Escape below: Enter commits the typed id or the selected row, Escape leaves the field as it
+        // was, and the arrows walk the list. Handing Enter or Escape to the search box would blur or
+        // submit it, and neither is what a form's key means while a list is open.
+        if (overlay == Overlay.TEXTURE) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeTexturePicker();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                commitFromTexturePicker();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_UP) {
+                textureSelected = ItemPickerLayout.step(textureRows, textureSelected, -1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DOWN) {
+                textureSelected = ItemPickerLayout.step(textureRows, textureSelected, 1);
+                return true;
+            }
+        }
+
         // Any overlay, not just the quest one. This tested `overlay == Overlay.QUEST`, which was the
         // whole of the truth while there was one overlay and stopped being true the moment a second
         // existed: the party panel could then be left by clicking outside or pressing Back, and not by
@@ -14864,6 +17423,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             // because the old shape returned here without forwarding it anywhere at all.
         }
 
+        // The colour picker's Escape, after the focused field's: a field with the keyboard answers first
+        // (a scrub field puts its value back), and the next Escape closes the picker and writes whatever
+        // its last gesture left unwritten.
+        if (colourPopover.isOpen() && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            closeColourPopover();
+            rebuildWidgets();
+            return true;
+        }
+
         // A pick is armed on the canvas with the card closed, so its Escape is answered here rather than
         // inside the overlay branch below: the author who armed it has no overlay to close, and before
         // this was outside the guard Escape fell through to the screen's own handler and closed the whole
@@ -14872,7 +17440,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             pickingDependency = false;
             dev.ellipog.tasked.client.dev.DependencyPick pick = pendingPick;
             pendingPick = null;
-            status("Add cancelled", false);
+            status("tasked.status.add_cancelled", false);
             if (pick != null) {
                 returnToEditedQuest(pick);
             }
@@ -14997,7 +17565,70 @@ public final class QuestBookScreen extends ArmatureScreen {
             multiSelection.clear();
             return true;
         }
+
+        // The canvas's keyboard focus, read last so every meaning above wins first: arrows walk the
+        // nodes, Enter opens the focused one, Escape drops the focus. Gated on nothing else wanting
+        // the keys -- no overlay, no focused widget -- because an arrow key inside a text field is a
+        // caret move, and inside a card it belongs to the card. See CanvasFocus.
+        if (overlay == Overlay.NONE && getFocused() == null) {
+            CanvasFocus.Direction direction = switch (keyCode) {
+                case GLFW.GLFW_KEY_LEFT -> CanvasFocus.Direction.LEFT;
+                case GLFW.GLFW_KEY_RIGHT -> CanvasFocus.Direction.RIGHT;
+                case GLFW.GLFW_KEY_UP -> CanvasFocus.Direction.UP;
+                case GLFW.GLFW_KEY_DOWN -> CanvasFocus.Direction.DOWN;
+                default -> null;
+            };
+            if (direction != null) {
+                canvasFocus.step(canvasNodes(), direction).ifPresent(this::narrateFocus);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                canvasFocus.focused().ifPresent(this::openOverlay);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE && canvasFocus.focused().isPresent()) {
+                canvasFocus.clear();
+                return true;
+            }
+        }
         return false;
+    }
+
+    /**
+     * The nodes the arrow keys may stand on: the chapter in view, as it is drawn.
+     *
+     * <p>{@code questsIn} already answers what is drawn — every quest for an author, the reader's own
+     * visible set otherwise — and an {@code invisible} quest is excluded on top of that, because a
+     * focus ring around nothing is worse than no focus.
+     */
+    private List<CanvasFocus.Node> canvasNodes() {
+        String chapter = effectiveChapter();
+        if (chapter == null) {
+            return List.of();
+        }
+        List<CanvasFocus.Node> nodes = new ArrayList<>();
+        for (ClientQuestCache.Entry entry : questsIn(chapter)) {
+            if (!entry.invisible()) {
+                nodes.add(new CanvasFocus.Node(entry.id(), entry.x(), entry.y(), entry.size()));
+            }
+        }
+        return List.copyOf(nodes);
+    }
+
+    /**
+     * Says the focused node through the narrator, because a custom-drawn canvas is invisible to it.
+     *
+     * <p>Said on a step and not per frame: narration is a voice, and one that repeated the same
+     * sentence sixty times a second would be a stutter. Title and state are enough to know which node
+     * the keyboard is on and whether it is worth opening.
+     */
+    private void narrateFocus(String questId) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        if (entry == null || minecraft == null) {
+            return;
+        }
+        minecraft.getNarrator().say(Component.translatable("tasked.narrate.quest", titleOf(entry),
+                stateLabel(ClientQuestCache.stateOf(questId))));
     }
 
     /**
@@ -15008,7 +17639,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      * nothing to save afterwards.
      */
     private void createQuest() {
-        float x = viewport().contentX(canvasLeft() + (canvasRight() - canvasLeft()) / 2.0);
+        float x = viewport().contentX(canvasLeft() + (visibleCanvasRight() - canvasLeft()) / 2.0);
         float y = viewport().contentY(canvasTop() + (canvasBottom() - canvasTop()) / 2.0);
         // A new quest lands on the grid like a moved one: a position an author would have typed, by
         // the same rule, from the same switch — and free under Alt, like everywhere else.
@@ -15074,6 +17705,38 @@ public final class QuestBookScreen extends ArmatureScreen {
         fieldDraft.set(effectiveChapter(), dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
                 path, value, ClientQuestCache.treeRevision(), Util.getMillis());
         send(new EditorOp.SetChapter(path, value));
+    }
+
+    /** The book's name as its field should show it: the pending edit first, then the tree's own. */
+    private String bookTitleValue() {
+        return fieldDraft.text(effectiveChapter(),
+                dev.ellipog.tasked.client.dev.FieldDraft.BOOK_OWNER, "bookTitle",
+                ClientQuestCache.bookTitle());
+    }
+
+    /** Commits the book's name. Blank clears it, so the client's own title comes back. */
+    private void commitBookTitle(String text) {
+        sendBookField("bookTitle", text.isBlank() ? null : new JsonPrimitive(text));
+        status(text.isBlank() ? "Book name cleared" : "Book name: " + text, false);
+        rebuildWidgets();
+    }
+
+    /**
+     * Writes one key of the pack's own book settings, through the same editor op every other edit uses.
+     *
+     * <p>The draft is scoped to the open chapter, which is the only scope the draft has; the value it
+     * holds converges like any other, and expires if no copy confirms it. Unlike a chapter field, this
+     * edit is not on the undo stack — the history is chapter- and group-shaped and the settings block
+     * is not modelled — which the Book section's own docs say plainly.
+     */
+    private void sendBookField(String key, JsonElement value) {
+        if (!mayEditNow()) {
+            status("Edit mode is off, so the book's settings were not written", true);
+            return;
+        }
+        fieldDraft.set(effectiveChapter(), dev.ellipog.tasked.client.dev.FieldDraft.BOOK_OWNER,
+                key, value, ClientQuestCache.treeRevision(), Util.getMillis());
+        send(new EditorOp.SetIndex(key, value));
     }
 
     /**
@@ -15195,7 +17858,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             }
         }
         if (trees.isEmpty()) {
-            status("Nothing to copy yet -- the chapter's copy has not arrived", true);
+            status("tasked.status.nothing_to_copy_yet_the_chapter_s_copy_has_not_a", true);
             return;
         }
         ClientEditorClipboard.copy(trees);
@@ -15211,7 +17874,7 @@ public final class QuestBookScreen extends ArmatureScreen {
      * instead of one quest written over another.
      */
     private void pasteClipboard() {
-        pasteAt(viewport().contentX(canvasLeft() + (canvasRight() - canvasLeft()) / 2.0),
+        pasteAt(viewport().contentX(canvasLeft() + (visibleCanvasRight() - canvasLeft()) / 2.0),
                 viewport().contentY(canvasTop() + (canvasBottom() - canvasTop()) / 2.0));
     }
 
@@ -15260,14 +17923,14 @@ public final class QuestBookScreen extends ArmatureScreen {
      *
      * <p>Validating first is the model's job — {@link QuestEditor#save()} refuses the whole save if any
      * file would not load — so what is left here is telling the author what happened: the count on
-     * success, and the loader's own messages on refusal, in the chat because that is where this mod's
-     * commands answer and a list of problems does not fit on a panel.
+     * success, and the loader's own messages on refusal, as toasts over the book. They used to go to
+     * chat as well; they do not any more, because chat is unreadable behind the very screen the author
+     * is working in and the toast is the copy they can see.
      */
 
-    /** One line in the chat, for something the author did. */
+    /** One line for the author, over the book. */
     private void report(String message) {
         toast(message, false);
-        say("\u00a77" + message);
     }
 
     /**
@@ -15285,14 +17948,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         int line = 14;
         int gap = 3;
-        int width = Math.min(Math.max(90, geometry().modal().width() / 4), 240);
-        BookGeometry.Rect card = geometry().modal();
+        int boxWidth = Math.min(Math.max(90, geometry().modal().width() / 4), 240);
         for (int i = 0; i < visible.size(); i++) {
             ToastStack.Toast toast = visible.get(i);
             int fromBottom = visible.size() - 1 - i;
-            int y = card.bottom() - 10 - line - fromBottom * (line + gap);
-            BookGeometry.Rect box = BookGeometry.Rect.at(card.right() - 10 - width, y, width, line);
-            float alpha = toast.alpha(now);
+            // Centred on the screen and standing on its bottom edge, where the eye already is when the
+            // hand is on the canvas. Pinned to the card's corner it read as a system message rather
+            // than as feedback on what was just done -- which is what the author asked for.
+            int y = height - 10 - line - fromBottom * (line + gap);
+            BookGeometry.Rect box = BookGeometry.Rect.at((width - boxWidth) / 2, y, boxWidth, line);
+            float alpha = toast.alpha(now, ClientAppearance.LOOK.motion());
             int colour = toast.error() ? ArmatureTheme.blocked() : ArmatureTheme.body();
             ArmatureTheme.panel(r, box.x(), box.y(), box.width(), box.height(),
                     Colour.alphaOf(ArmatureTheme.raised(), alpha),
@@ -15311,12 +17976,6 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private void toast(String message, boolean error) {
         toasts.add(message, error, Util.getMillis());
-    }
-
-    private void say(String message) {
-        if (minecraft != null && minecraft.gui != null) {
-            minecraft.gui.getChat().addMessage(Component.literal(message));
-        }
     }
 
     /**
@@ -15343,9 +18002,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             openChoiceOffer();
         }
 
-        // The book's own notices: what has faded goes, and a quest that has just become collectable says so.
-        // Read here rather than in the drawing, because expiring is bookkeeping and the drawing is not the
-        // place for it.
+        // The book's own notices: what has faded goes. A quest that has just completed is not read here
+        // any more -- QuestNotifier owns that diff and calls `notifyQuestCompleted` -- and expiring is
+        // bookkeeping, which is why it lives in tick rather than in the drawing.
         long millis = Util.getMillis();
         toasts.expire(millis);
         // The locate flash's own expiry, for the same reason: the drawing asks `CanvasReveal.flash`
@@ -15353,11 +18012,6 @@ public final class QuestBookScreen extends ArmatureScreen {
         // the flash does rather than outliving it.
         if (flashQuest != null && millis - flashStart >= CanvasReveal.FLASH_MILLIS) {
             flashQuest = null;
-        }
-        long synced = ClientQuestCache.progressRevision();
-        if (synced != announcedProgress) {
-            announcedProgress = synced;
-            announceCompletions();
         }
 
         // The rewards panel is a list of what the server owes, so a progress sync changes it: a claim from
@@ -15368,6 +18022,11 @@ public final class QuestBookScreen extends ArmatureScreen {
             long progress = ClientQuestCache.progressRevision();
             if (progress != rewardsRevision) {
                 rewardsRevision = progress;
+                // The server has answered every press this card sent — the sync is sent whether or not
+                // a claim paid — so the optimistic marks go and the rows are rebuilt from what it
+                // actually recorded. A refusal therefore puts its row back rather than leaving a claim
+                // on screen that never happened.
+                pendingClaims.clear();
                 rebuildWidgets();
             }
         }
@@ -15378,7 +18037,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (revision != questPanelRevision || replicaRevision != questReplicaRevision) {
             questPanelRevision = revision;
             questReplicaRevision = replicaRevision;
-            boolean dockPanel = toolsOpen && toolsTab == ToolsLayout.Tab.CHAPTER
+            boolean dockPanel = drawerOpen() && toolsTab == ToolsLayout.Tab.CHAPTER
                     && overlay == Overlay.NONE;
             // The dock's picker counts as an editor for this purpose: a replica arriving while it is
             // open changes the chapter under the list, and the card's title and the "current" row are
@@ -15451,7 +18110,6 @@ public final class QuestBookScreen extends ArmatureScreen {
                     ClientChapterReplica.refuse(reply.chapter(), line);
                     Constants.LOG.info("tasked: replica for \"{}\" was refused: {}", reply.chapter(), line);
                     toast(line, true);
-                    say("\u00a7c" + line);
                 }
             }
             if (reply.ok() && !reply.questId().isEmpty()) {
@@ -15481,11 +18139,18 @@ public final class QuestBookScreen extends ArmatureScreen {
      * class -- is exactly how they would.
      */
     public static String stateLabel(QuestState state) {
+        // With a fallback, not a bare key: this is read by game-free tests and by the viewer content,
+        // and both can run where no language file has been loaded -- where `getString` on a bare key
+        // returns the key itself. The fallback is the English the key holds, so the two paths agree.
         return switch (state) {
-            case COMPLETED -> "Completed";
-            case STARTED -> "In progress";
-            case UNLOCKED -> "Available";
-            case LOCKED -> "Locked";
+            case COMPLETED -> Component.translatableWithFallback("tasked.state.completed",
+                    "Completed").getString();
+            case STARTED -> Component.translatableWithFallback("tasked.state.started",
+                    "In progress").getString();
+            case UNLOCKED -> Component.translatableWithFallback("tasked.state.unlocked",
+                    "Available").getString();
+            case LOCKED -> Component.translatableWithFallback("tasked.state.locked",
+                    "Locked").getString();
         };
     }
 
@@ -15625,7 +18290,16 @@ public final class QuestBookScreen extends ArmatureScreen {
      * {@link #warnAboutThemeOnce}.
      */
     private static Theme viewportTheme() {
-        return themeFor(effectiveChapter());
+        String chapter = effectiveChapter();
+        JsonObject pending = pendingChapterTheme;
+        if (chapter != null && pending != null) {
+            // A drag's own patch, drawn in place of the file's: the canvas follows the gesture before
+            // anything is written. The patch is whole -- the same one the release writes -- so the two
+            // cannot show different looks for a frame.
+            return ChapterTheme.compose(ClientQuestCache.chapterTheme(chapter), pending,
+                    ClientAppearance.LOOK.main());
+        }
+        return themeFor(chapter);
     }
 
     /**
@@ -15645,7 +18319,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             warnAboutThemeOnce(chapter, named);
         }
         // The chapter's token patch composes over whatever the name resolved to — including over the
-        // player's own theme, for a chapter that set colours without naming one. See ChapterTheme.
+        // book's own theme, for a chapter that set colours without naming one. What this returns is
+        // final for the chapter's content: the book's look (and any edits made in its tab) is the
+        // default a chapter speaks over, so nothing is re-applied on top. See `ChapterTheme.compose`.
         return ChapterTheme.compose(named, ClientQuestCache.chapterThemePatch(chapter),
                 ClientAppearance.LOOK.main());
     }

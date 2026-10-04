@@ -126,10 +126,8 @@ how many people are actually present, which is what a togetherness gate is about
 
 ## A worked example
 
-`tools/quests/the_harvest_home/` is a chapter written to be read: a village festival where every
-condition type gates something — a task gated by an item (`the_witness_list.json`), a task gated by a
-tag (`the_seed_cellar.json`), a task gated by a stage (`the_old_flags.json`), a reward gated by an
-advancement (`the_shepherds_tally.json`), a reward gated by a scoreboard objective
-(`the_dance_card.json`, with the objective created by `the_bells_rung.json`'s command reward), and a
-party gate that needs a second player (`the_festival.json`). The
-[[tasked:authoring/quest-files|quest files]] page says how the folder is laid out.
+`tools/quests/first_light/first_steps/` carries all six condition types in its clockwork arm: a task
+gated by an item, an item tag and a stage together (`the_witness_list.json`), a reward gated by an
+advancement (`the_shepherds_tally.json`), and a reward behind a scoreboard objective and a party gate
+at once (`the_festival.json`, with the objective created by `the_first_account.json`'s command
+reward). The [[tasked:authoring/quest-files|quest files]] page says how the folder is laid out.

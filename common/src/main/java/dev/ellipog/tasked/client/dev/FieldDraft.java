@@ -57,6 +57,17 @@ public final class FieldDraft {
     public static final String CHAPTER_OWNER = "#chapter";
 
     /**
+     * The book's own settings: the pack's {@code index.json} settings block, edited from the Book
+     * section.
+     *
+     * <p>A second owner rather than a second draft class, because a pending value is a pending value —
+     * the only difference is which file the server writes. The chapter a book draft is scoped to is the
+     * open one, the only scope this draft has; the value converges like any other and expires if no
+     * copy confirms it.
+     */
+    public static final String BOOK_OWNER = "#book";
+
+    /**
      * How long a draft may outlive its last write while the copy disagrees, before the copy wins.
      *
      * <p>Longer than any burst of presses (each write refreshes the clock) and longer than the

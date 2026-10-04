@@ -7,9 +7,12 @@
     "authors": [
         "${mod_author}"
     ],
-    "contact": {},
+    "contact": {
+        "homepage": "https://ellipog.dev",
+        "sources": "https://github.com/ellipog/tasked",
+        "issues": "https://github.com/ellipog/tasked/issues"
+    },
     "license": "${license}",
-    "icon": "assets/tasked/icon.png",
     "environment": "*",
     "entrypoints": {
         "main": [
