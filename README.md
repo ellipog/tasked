@@ -18,11 +18,11 @@ duplicate ids, dangling dependencies, cycles — and a file that fails is report
 its path and line number and skipped rather than killing the server. The earlier flat-file format
 is still read.
 
-**Fifteen task types.** `item` (count, consume, fuzzy or strict matching, crafted-only),
-`item_tag`, `checkmark`, `dimension`, `biome`, `structure`, `advancement`, `stat`, `location`,
-`xp`, `fluid`, `observation` (look at a block, block state, block entity, entity type, or a tag of
-them), `kill` (entity or tag, custom name, SNBT filter), `stage`, and `custom` for handlers a mod
-registers.
+**Fifteen task types.** `item` (count, consume, fuzzy or strict matching, crafted-only, component
+filter), `item_tag`, `checkmark`, `dimension`, `biome`, `structure`, `advancement`, `stat`,
+`location`, `xp`, `fluid`, `observation` (look at a block, a block tag, a block state, a block
+entity, a block entity type, an entity type, or an entity type tag), `kill` (entity or tag, custom
+name, SNBT filter), `stage`, and `custom` for handlers a mod registers.
 
 **Ten reward types.** `item`, `xp`, a weighted `random` table, a `loot` table that can come up
 empty, `all_table`, `choice` (the player picks), `command`, `advancement`, `stage`, and `custom`.
@@ -43,8 +43,10 @@ load without a restart.
 
 **Parties share progress.** Built on Armature's team API. A party chooses how its members' counts
 combine — `ONE_MEMBER` (the default), `POOLED`, or `OWNER_ONLY` — and progress, stages and claims
-are server-authoritative. `/tasked party` covers create, invite, accept, leave, kick, disband and
-mode.
+are server-authoritative. `/tasked party` covers create, invite, accept and decline, joining an open
+party, rename, transfer and hand-over, uninvite, the two membership settings (`open` and
+`member-invites`), leave, kick, disband and mode. Bare `/tasked party` also reports which source the
+parties are being read from, which is how an operator tells Tasked's own teams from another mod's.
 
 **The quest book** opens from the quest book item or the **B** key: a pannable, zoomable canvas of
 nodes with per-quest shape, size and icon scale, styled dependency lines, markdown quest
@@ -54,7 +56,11 @@ choice-reward picker, and the party roster.
 **The editor is in-game and server-owned.** A player with permission level 2 gets an Edit pill over the
 canvas's top-right corner, which latches edit mode and opens the tools panel inside the book, with an
 Assets pill beside it: forms for every task and reward type, a searchable item picker, drag to move a
-node with a snap grid, and undo/redo. Every edit is written as it is made, so Ctrl+S reports that rather
+node with a snap grid, and undo/redo. Nodes are selectable in bulk — shift-click collects, ctrl-click
+toggles one in or out, shift-drag on the empty canvas is a marquee, and Ctrl+A takes the chapter — and
+a drag, Ctrl+C/Ctrl+V, Ctrl+D or Delete then acts on the whole selection. A bulk edit goes out as one
+batch per chapter it spans, applied all-or-nothing, so it is one history step and one Ctrl+Z per
+chapter rather than one per quest. Every edit is written as it is made, so Ctrl+S reports that rather
 than saving. The server re-checks permission and validates before writing: no quest file is written by
 the client, and the player's own look and text size are the client's own files.
 
