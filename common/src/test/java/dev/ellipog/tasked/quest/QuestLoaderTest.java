@@ -431,6 +431,87 @@ class QuestLoaderTest {
                 "and where such a table would go: " + messages);
     }
 
+    @Test
+    @DisplayName("a reference inside an inline table is checked too, which nothing did before")
+    void danglingReferenceInsideAnInlineTableIsReported() throws IOException {
+        // The gap this closes: the check read a quest's top-level rewards and stopped, so a reward
+        // whose own table pointed at a table that does not exist loaded without a word.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("chapter"));
+        Files.writeString(quests.resolve("index.json"), """
+                { "entries": [ { "chapter": "chapter" } ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("chapter/chapter.json"), """
+                { "id": "chapter", "title": "Chapter", "quests": ["q.json"] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("chapter/q.json"), """
+                { "id": "q", "title": "Q",
+                  "tasks": [ { "type": "tasked:checkmark", "title": "done" } ],
+                  "rewards": [ { "type": "tasked:loot", "inline": { "entries": [
+                    { "weight": 1, "reward": { "type": "tasked:random", "table": "nowhere" } } ] } } ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "the inline table's reference dangles");
+        assertTrue(render(result.problems()).contains("nowhere"),
+                "and is reported by name:\n" + render(result.problems()));
+    }
+
+    @Test
+    @DisplayName("tables that reference each other in a loop are an error with the whole chain")
+    void tableCyclesAreReported() throws IOException {
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve(QuestFiles.REWARD_TABLES_DIRECTORY));
+        Files.writeString(quests.resolve("reward_tables/a.json"), """
+                { "entries": [ { "weight": 1,
+                    "reward": { "type": "tasked:random", "table": "b" } } ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("reward_tables/b.json"), """
+                { "entries": [ { "weight": 1,
+                    "reward": { "type": "tasked:random", "table": "a" } } ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "a loop is an error, like a circular dependsOn");
+        String messages = render(result.problems());
+        assertTrue(messages.contains("circular table reference"), messages);
+        assertTrue(messages.contains("a -> b -> a") || messages.contains("b -> a -> b"),
+                "the whole loop is printed, so the author can see which link to cut: " + messages);
+        assertTrue(result.rewardTables().containsKey("a"),
+                "and the tables still load: the error is the author's to fix, not a refusal to serve");
+    }
+
+    @Test
+    @DisplayName("a reference to a table that exists but did not load says which of the two it is")
+    void aReferenceToARefusedTableSaysSo() throws IOException {
+        // A choice entry is refused where it is written (an error, the same rule as an entry's
+        // `conditions`), so the file does not load -- and the table that rolls into it would otherwise
+        // be told "no reward table named inner", which reads as a lie about a file that is right there.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve(QuestFiles.REWARD_TABLES_DIRECTORY));
+        Files.writeString(quests.resolve("reward_tables/outer.json"), """
+                { "entries": [ { "weight": 1,
+                    "reward": { "type": "tasked:random", "table": "inner" } } ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("reward_tables/inner.json"), """
+                { "entries": [ { "weight": 1, "reward": { "type": "tasked:choice",
+                    "inline": { "entries": [ { "weight": 1,
+                      "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } } ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        String messages = render(result.problems());
+        assertTrue(result.problems().all().stream().anyMatch(problem ->
+                        problem.file().equals("inner.json")
+                                && problem.message().contains("cannot be an entry in a table")),
+                "the choice entry is an error where it is written: " + messages);
+        assertTrue(messages.contains("inner.json did not load"),
+                "and the table that points at it is told why its reference is dead: " + messages);
+    }
+
     /** The distinct file names carrying an error, in the order they were reported. */
     private static List<String> filesWithErrors(QuestLoader.Result result) {
         return result.problems().all().stream()

@@ -3,6 +3,7 @@ package dev.ellipog.tasked.neoforge;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.inventory.InventoryAccesses;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -24,6 +25,10 @@ public final class TaskedNeoForge {
         Tasked.init();
 
         ArmatureNetwork.install(new NeoForgeNetworking());
+
+        // The item-handler transfer, so a strict claim's "does this fit?" is answered by the same
+        // machinery that will perform the insert. See NeoForgeInventory for the range it clamps to.
+        InventoryAccesses.install(new NeoForgeInventory());
 
         // The event is on the mod bus, and fires on both sides -- so one registration serves both
         // directions. See NeoForgeNetworking.onRegisterPayloads.

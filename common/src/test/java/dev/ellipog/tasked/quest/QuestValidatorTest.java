@@ -3,6 +3,8 @@ package dev.ellipog.tasked.quest;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.quest.loot.RewardTable;
+import dev.ellipog.tasked.quest.reward.TableReward;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -634,8 +636,130 @@ class QuestValidatorTest {
     }
 
     @Test
-    @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")
-    void iconWithABrokenPatchIsRefused() {
+    @DisplayName("a choice entry is refused wherever it sits, and a table with no entries warns")
+    void choiceEntriesAndEmptyTables() {
+        // A roll hands entries out; a choice waits for a player to pick one. So a choice entry is an
+        // entry the engine would skip with a log line -- an error here instead, at its own line.
+        String table = """
+                {"entries": [
+                  { "weight": 1, "reward": { "type": "tasked:choice",
+                      "inline": { "entries": [ { "weight": 1,
+                        "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } }
+                ]}""";
+        Problems problems = new Problems();
+        QuestValidator.validateRewardTableDocument(Fixtures.document("loot.json", table), problems);
+
+        DataProblem problem = containing(problems, "cannot be an entry in a table");
+        assertTrue(problem.severity() == DataProblem.Severity.ERROR,
+                "an entry the roll skips must not load quietly");
+        assertPointsAtValue(problem, table, "\"tasked:choice\"");
+
+        // And the same inside an inline table, which is the same walk one level down.
+        Problems inline = validateQuest("""
+                {"id": "one", "title": "One",
+                 "rewards": [ { "type": "tasked:loot", "inline": { "entries": [
+                   { "weight": 1, "reward": { "type": "tasked:choice",
+                       "inline": { "entries": [ { "weight": 1,
+                         "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } } ] } } ]}""");
+        assertTrue(containing(inline, "cannot be an entry in a table").severity()
+                        == DataProblem.Severity.ERROR,
+                "the inline path refuses it too, got: " + messages(inline));
+
+        // An empty table is a placeholder, not a mistake -- a warning, the way a file with no quests
+        // is. Said out loud because a roll of it grants nothing and the file looks finished.
+        Problems empty = new Problems();
+        QuestValidator.validateRewardTableDocument(
+                Fixtures.document("empty.json", "{ \"entries\": [] }"), empty);
+        assertTrue(containing(empty, "has no entries").severity() == DataProblem.Severity.WARNING,
+                "an empty table warns rather than refusing to load, got: " + messages(empty));
+    }
+
+    @Test
+    @DisplayName("a weight that is not a number is refused, and a negative one only warns")
+    void emptyWeightHasTwoSeverities() {
+        // The split is on whether the arithmetic still means something, not on tidiness. Infinity breaks
+        // it: every weighted throw compares false, so the table silently grants only its guaranteed
+        // entries -- a table that looks weighted and pays like an unweighted one.
+        //
+        // Reached through a literal that overflows rather than through `NaN`: this project's own parser
+        // refuses `NaN` and `Infinity` as JSON, which is the right place for that refusal, so the value
+        // the codec can still be handed is the one that starts life as a finite-looking number.
+        Problems notANumber = validateTable("{ \"emptyWeight\": 1e400, \"entries\": [] }");
+        DataProblem broken = containing(notANumber, "not a number a roll can use");
+        assertTrue(broken.severity() == DataProblem.Severity.ERROR,
+                "a table whose dice cannot land must not load quietly, got: " + messages(notANumber));
+        assertTrue(broken.message().contains("guaranteed entries"),
+                "and it says what would happen: " + broken.message());
+
+        // A finite negative is a defined reading -- the roll clamps it to zero -- so refusing the file
+        // would turn a pack that loads today into one that does not, over a number the loader can read.
+        Problems negative = validateTable("{ \"emptyWeight\": -3, \"entries\": [] }");
+        assertTrue(containing(negative, "read as 0").severity() == DataProblem.Severity.WARNING,
+                "a negative weight is a warning, got: " + messages(negative));
+
+        // And the bounds either side of it: zero is fine, and a positive weight is fine. Asserted about
+        // the field rather than about the document, because an empty table warns about being empty --
+        // which is a different fact and would otherwise hide the one under test.
+        assertTrue(noProblemOf(validateTable("{ \"emptyWeight\": 0, \"entries\": [] }"), "emptyWeight"),
+                "no empty band is not a problem");
+        assertTrue(noProblemOf(validateTable("{ \"emptyWeight\": 2.5, \"entries\": [] }"),
+                        "emptyWeight"),
+                "and a positive one is what the field is for");
+    }
+
+    @Test
+    @DisplayName("lootSize is held to the codec's own bounds, and the message repeats them")
+    void lootSizeIsBounded() {
+        Problems tooMany = validateTable("{ \"lootSize\": 1001, \"entries\": [] }");
+        DataProblem over = containing(tooMany, "lootSize must be between");
+        assertTrue(over.severity() == DataProblem.Severity.ERROR, "one past the end is refused");
+        assertTrue(over.message().contains(String.valueOf(RewardTable.LOOT_SIZE_MAX)),
+                "and the bound it names is the codec's own: " + over.message());
+
+        assertTrue(validateTable("{ \"lootSize\": 0, \"entries\": [] }").all().stream()
+                        .anyMatch(problem -> problem.severity() == DataProblem.Severity.ERROR),
+                "zero throws is not a table that rolls");
+
+        // The value the stepper stops at is the value the loader accepts, which is the point of one
+        // constant: a panel that could reach past it would send a value that comes back refused.
+        assertTrue(noProblemOf(validateTable("{ \"lootSize\": " + RewardTable.LOOT_SIZE_MAX
+                        + ", \"entries\": [] }"), "lootSize"),
+                "the top of the range is inside it");
+    }
+
+    @Test
+    @DisplayName("the choice-entry refusal is the model's own sentence, not a second one")
+    void theChoiceRefusalComesFromTheModel() {
+        // The editor's type picker draws this type blocked with the same words, so the two cannot
+        // describe the rule differently -- and the picker is the one an author believes, because it is
+        // the one that looks like it knows.
+        String table = """
+                {"entries": [
+                  { "weight": 1, "reward": { "type": "tasked:choice",
+                      "inline": { "entries": [ { "weight": 1,
+                        "reward": { "type": "tasked:item", "item": "minecraft:gold_ingot" } } ] } } }
+                ]}""";
+        Problems problems = validateTable(table);
+
+        DataProblem problem = containing(problems, "cannot be an entry in a table");
+        assertEquals(TableReward.entryRefusal(TableReward.TYPE_CHOICE), problem.message(),
+                "the validator and the picker must refuse with one sentence");
+    }
+
+    /** A named-table document through the validator. */
+    private static Problems validateTable(String table) {
+        Problems problems = new Problems();
+        QuestValidator.validateRewardTableDocument(Fixtures.document("loot.json", table), problems);
+        return problems;
+    }
+
+    /** Whether no problem at all was reported about one field -- a warning counts as a problem here. */
+    private static boolean noProblemOf(Problems problems, String field) {
+        return problems.all().stream().noneMatch(problem -> problem.path().contains(field));
+    }
+
+    @Test
+    @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")    void iconWithABrokenPatchIsRefused() {
         // The icon's half of the per-type codec check: a component patch the codec cannot read would
         // otherwise pass every field-name rule and reach the loader, which skips the whole file.
         Problems problems = validateQuest("""

@@ -15,11 +15,16 @@ import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.condition.ConditionContext;
 import dev.ellipog.tasked.quest.condition.Conditions;
 import dev.ellipog.tasked.quest.condition.QuestCondition;
+import dev.ellipog.tasked.inventory.InventoryAccesses;
+import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
+import dev.ellipog.tasked.net.ClaimSummaryPayload;
 import dev.ellipog.tasked.net.RewardOverflowPayload;
+import dev.ellipog.tasked.quest.reward.ItemReward;
 import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardContext;
 import dev.ellipog.tasked.quest.reward.RewardFeedback;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
+import dev.ellipog.tasked.quest.reward.TableReward;
 import dev.ellipog.tasked.quest.task.KillTask;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -921,9 +926,14 @@ public final class ProgressService {
      */
     public static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry) {
         RewardFeedback feedback = new RewardFeedback();
-        boolean collected = claim(server, player, entry, false, -1, feedback);
+        // Strict: this press can take more than one reward, so nothing is dropped -- a reward that does
+        // not fit is left outstanding and the sweep stops. The row's own Claim is the lenient path.
+        Claimed result = claim(server, player, entry, false, -1, feedback, ClaimFilter.ALL, true);
         announceOverflow(player, feedback);
-        return collected;
+        if (result.halted()) {
+            announceSummary(player, result.taken(), result.total(), true);
+        }
+        return result.taken() > 0 || result.offered();
     }
 
     /**
@@ -943,9 +953,11 @@ public final class ProgressService {
     public static boolean claimReward(MinecraftServer server, ServerPlayer player,
                                       QuestIndex.QuestEntry entry, int rewardIndex) {
         RewardFeedback feedback = new RewardFeedback();
-        boolean collected = claim(server, player, entry, false, rewardIndex, feedback);
+        // Lenient: one reward, one deliberate press, so what does not fit is dropped at the player's
+        // feet rather than refused -- the lockout escape hatch the overflow notice exists for.
+        Claimed result = claim(server, player, entry, false, rewardIndex, feedback, ClaimFilter.ALL, false);
         announceOverflow(player, feedback);
-        return collected;
+        return result.taken() > 0;
     }
 
     /** Whether this player passes a quest's stage gate. True when the quest has none. */
@@ -1070,28 +1082,137 @@ public final class ProgressService {
         return false;
     }
 
+    /** What one claim press did: how much it took, out of how much it could, and why it stopped. */
+    private record Claimed(int taken, int total, boolean halted, boolean offered) {
+    }
+
+    /** One resolved reward: the leaf to hand over, and — for an item — the exact stacks it will insert. */
+    private record Leaf(QuestReward reward, List<ItemStack> stacks) {
+    }
+
+    /** The rewards a press may take, and the two reasons it may not. */
+    private record Payable(List<Integer> indexes, List<Integer> offers, boolean sawBlocked,
+                           boolean sawLocked) {
+    }
+
     /**
-     * Everything outstanding on one quest, or everything a claim-all is allowed to take.
+     * Everything outstanding on one quest, or everything a press is allowed to take.
      *
-     * <p>{@code claimAllMode} is the only difference between the two presses: a reward marked
-     * {@code excludeFromClaimAll} waits for its own button, exactly as in FTB Quests. Blocked rewards
-     * are skipped in both modes and named when nothing at all could be taken, because a press that
-     * silently does nothing is the thing a blocked team would report as broken.
+     * <p>{@code claimAllMode} separates the two presses: a reward marked {@code excludeFromClaimAll}
+     * waits for its own button, exactly as in FTB Quests. Blocked rewards are skipped in both modes and
+     * named when nothing at all could be taken, because a press that silently does nothing is the thing
+     * a blocked team would report as broken.
      *
      * <p>{@code onlyIndex} narrows the press to one reward — the rewards panel's per-row Claim — and
-     * {@code -1} means the whole list. It filters the same loop rather than duplicating it, so a row's
-     * press and a quest's press cannot disagree about conditions, blocking or choice handling. The
-     * {@code feedback} tally is the caller's, because only the outermost operation knows whether one
-     * press produced several grants and should therefore say one sentence about all of them.
+     * {@code -1} means the whole list. {@code filter} is the panel's active chip: it only ever narrows,
+     * and a reward it excludes is skipped before every other check, so it cannot be reported as locked
+     * or blocked by a press that was never about it.
+     *
+     * <p>One loop, used by the claim and by the sweep's own count, so what a press takes and what it
+     * says it could have taken cannot disagree.
      */
-    private static boolean claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry,
-                                 boolean claimAllMode, int onlyIndex, RewardFeedback feedback) {
+    private static Payable payable(MinecraftServer server, ServerPlayer player, UUID owner, TeamProgress team,
+                                   Quest quest, QuestProgress current, QuestSettings settings,
+                                   boolean claimAllMode, int onlyIndex, ClaimFilter filter) {
+        List<Integer> payable = new ArrayList<>();
+        List<Integer> offers = new ArrayList<>();
+        boolean sawBlocked = false;
+        boolean sawLocked = false;
+        for (int index = 0; index < quest.rewards().size(); index++) {
+            if (onlyIndex >= 0 && index != onlyIndex) {
+                // Somebody else's row. Skipped before every check, so a reward this press is not about
+                // cannot be reported as locked or blocked by it.
+                continue;
+            }
+            QuestReward reward = quest.rewards().get(index);
+            if (!matches(filter, reward)) {
+                continue;
+            }
+            boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
+            // This player's own claim, or the team's for a team-mode reward. What a teammate has
+            // collected is not this player's business -- each claim is their own copy.
+            if (current.legacySettled() || current.claimed(player.getUUID(), index, teamMode)) {
+                continue;
+            }
+            // The reward's own gate, checked here so that a claim and a claim-all cannot disagree:
+            // both build the same plan and both refuse a row whose conditions are unmet, and the refusal
+            // is a message rather than a silent no-op. Nothing is marked, so the reward stays outstanding
+            // and is paid the moment the conditions hold.
+            if (!Conditions.passes(reward.common().conditions(),
+                    new ConditionContext(player, server, owner))) {
+                sawLocked = true;
+                continue;
+            }
+            if (isBlocked(team, reward)) {
+                sawBlocked = true;
+                continue;
+            }
+            if (isChoice(reward)) {
+                // A choice is not paid on the press: the player picks first. It stays outstanding --
+                // unmarked -- until the answer arrives, so nothing is lost between the two messages
+                // and a re-press simply offers again.
+                offers.add(index);
+                continue;
+            }
+            if (claimAllMode && reward.common().excludeFromClaimAll()) {
+                continue;
+            }
+            payable.add(index);
+        }
+        return new Payable(List.copyOf(payable), List.copyOf(offers), sawBlocked, sawLocked);
+    }
+
+    /** Whether a reward is what a filter chip is about. */
+    private static boolean matches(ClaimFilter filter, QuestReward reward) {
+        return switch (filter) {
+            case ALL -> true;
+            // A table can roll items, so it counts as one; a choice is the picker's business.
+            case ITEMS -> reward instanceof ItemReward
+                    || (reward instanceof TableReward table && table.mode() != TableReward.Mode.CHOICE);
+            case CHOICES -> isChoice(reward);
+        };
+    }
+
+    /**
+     * Whether a reward is a choice table — offered to the client rather than granted on the press.
+     *
+     * <p>Delegates rather than repeating the test: the grant, the roll report and the export all have
+     * to answer this same question, and four copies of "is it a table reward whose mode is choice" is
+     * four chances for one of them to be a mode behind. See {@link TableReward#isChoice}.
+     */
+    private static boolean isChoice(QuestReward reward) {
+        return TableReward.isChoice(reward);
+    }
+
+    /**
+     * Hands over what this press may take.
+     *
+     * <h2>Strict and lenient</h2>
+     *
+     * <p>{@code strict} is the difference between a sweep and a single press. A sweep (Claim all, Claim
+     * Quest, a pick) asks whether each reward fits <b>before</b> handing it over, and stops at the first
+     * that does not — leaving it and everything after it outstanding. A single row's own Claim is
+     * lenient: it inserts what fits and drops the rest at the player's feet, which is the escape hatch
+     * from the inventory-full lockout that the drop notice exists for.
+     *
+     * <h2>Marked after granting, written once</h2>
+     *
+     * <p>Each reward is marked as it is actually handed over, and the store is written <b>once</b> after
+     * the loop — including when it stops early. That is deliberately not the usual mark-then-grant:
+     * {@code put} is an in-memory map write plus a dirty flag, so a crash loses the marks and the items
+     * together and the ordering buys nothing there. What it does change is a runtime exception
+     * mid-grant: this order leaves that reward unmarked and outstanding, where marking first would lose
+     * it for good.
+     */
+    private static Claimed claim(MinecraftServer server, ServerPlayer player, QuestIndex.QuestEntry entry,
+                                 boolean claimAllMode, int onlyIndex, RewardFeedback feedback,
+                                 ClaimFilter filter, boolean strict) {
         Quest quest = entry.quest();
         if (!stageGateOpen(server, quest, player.getUUID())) {
-            // Gated: the claim is refused where every claim arrives -- the button, Claim all and the command
-            // all reach this method -- and the sync the caller sends anyway corrects the button the client
-            // should not be showing.
-            return false;
+            // Gated: the claim is refused where every claim arrives -- the button, Claim all and the
+            // command all reach this method -- and the sync the caller sends anyway corrects the button
+            // the client should not be showing.
+            return new Claimed(0, 0, false, false);
         }
         UUID owner = progressOwner(server, player);
         ProgressStore store = ProgressStore.of(server);
@@ -1106,97 +1227,156 @@ public final class ProgressService {
         // resolves STARTED/UNLOCKED while its stored state stays COMPLETED, and that is exactly when an
         // uncollected reward of the last round is legitimately claimable.
         if (current.state() != QuestState.COMPLETED) {
-            return false;
+            return new Claimed(0, 0, false, false);
         }
         QuestSettings settings = TaskedQuests.settings();
+        Payable plan = payable(server, player, owner, team, quest, current, settings, claimAllMode,
+                onlyIndex, filter);
+        int total = plan.indexes().size();
 
-        List<Integer> payable = new ArrayList<>();
-        List<Integer> offers = new ArrayList<>();
-        boolean sawBlocked = false;
-        boolean sawLocked = false;
-        for (int index = 0; index < quest.rewards().size(); index++) {
-            if (onlyIndex >= 0 && index != onlyIndex) {
-                // Somebody else's row. Skipped before every check, so a reward this press is not about
-                // cannot be reported as locked or blocked by it.
-                continue;
-            }
-            QuestReward reward = quest.rewards().get(index);
-            boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
-            // This player's own claim, or the team's for a team-mode reward. What a teammate has
-            // collected is not this player's business -- each claim is their own copy.
-            if (current.legacySettled() || current.claimed(player.getUUID(), index, teamMode)) {
-                continue;
-            }
-            // The reward's own gate, checked here so that a claim and a claim-all cannot disagree:
-            // both build `payable` and both refuse a row whose conditions are unmet, and the refusal is
-            // a message rather than a silent no-op. Nothing is marked, so the reward stays outstanding
-            // and is paid the moment the conditions hold.
-            if (!Conditions.passes(reward.common().conditions(),
-                    new ConditionContext(player, server, owner))) {
-                sawLocked = true;
-                continue;
-            }
-            if (isBlocked(team, reward)) {
-                sawBlocked = true;
-                continue;
-            }
-            if (reward instanceof dev.ellipog.tasked.quest.reward.TableReward table
-                    && table.mode() == dev.ellipog.tasked.quest.reward.TableReward.Mode.CHOICE) {
-                // A choice is not paid on the press: the player picks first. It stays outstanding --
-                // unmarked -- until the answer arrives, so nothing is lost between the two messages
-                // and a re-press simply offers again.
-                offers.add(index);
-                continue;
-            }
-            if (claimAllMode && reward.common().excludeFromClaimAll()) {
-                continue;
-            }
-            payable.add(index);
-        }
-        if (payable.isEmpty() && offers.isEmpty()) {
-            if (sawBlocked) {
+        if (plan.indexes().isEmpty() && plan.offers().isEmpty()) {
+            if (plan.sawBlocked()) {
                 player.displayClientMessage(
                         Component.translatable("tasked.quest.rewards_blocked"), true);
             }
-            else if (sawLocked) {
+            else if (plan.sawLocked()) {
                 // Named separately from blocking: one is the team's switch, the other is something the
                 // player can go and do. The sync the caller sends anyway corrects the rows.
                 player.displayClientMessage(
                         Component.translatable("tasked.quest.conditions_unmet"), true);
             }
-            return false;
+            return new Claimed(0, total, false, false);
         }
 
-        if (!payable.isEmpty()) {
-            // Written before granting, deliberately. See the class comment on the direction, and note
-            // the per-claim shape: only what this press takes is marked, so a half-paid quest stays
-            // half-owed rather than being written off.
+        int taken = 0;
+        boolean halted = false;
+        if (!plan.indexes().isEmpty()) {
             QuestClaims marked = current.claims();
-            for (int index : payable) {
+            for (int index : plan.indexes()) {
+                QuestReward reward = quest.rewards().get(index);
+                List<Leaf> leaves = resolve(reward, player);
+                if (strict && !InventoryAccesses.current().fitsAll(player, itemStacks(leaves))) {
+                    // No room: nothing is granted, this reward and everything after it stay outstanding,
+                    // and the caller says how far the sweep got.
+                    halted = true;
+                    break;
+                }
+                RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
+                        onlineMembersOf(server, teamFor(server, owner)), feedback);
+                boolean whole = grantLeaves(leaves, context);
+                TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
                 marked = teamReward(quest, index, settings)
                         ? marked.withTeamClaim(index)
                         : marked.withPlayerClaim(player.getUUID(), index);
+                taken++;
+                if (!whole) {
+                    // A remainder on an insert the check said would fit: something ran between the two
+                    // (a command reward, a listener). The remainder is on the ground and reported; stop.
+                    halted = true;
+                    break;
+                }
             }
             QuestProgress updated = current.withClaims(marked);
             updated = updated.withRewardsClaimed(
                     !outstandingFor(quest, updated, player.getUUID(), settings));
             store.put(owner, team.put(quest, updated));
 
-            grantRewards(server, owner, player, entry, payable, settings, feedback);
-
-            Constants.LOG.info("tasked: {} collected {} reward(s) for '{}' (team {})",
-                    player.getScoreboardName(), payable.size(), quest.id(), owner);
+            Constants.LOG.info("tasked: {} collected {} of {} reward(s) for '{}' (team {}){}",
+                    player.getScoreboardName(), taken, total, quest.id(), owner,
+                    halted ? " -- stopped, inventory full" : "");
             // The claim is confirmed by the UI it changes and by the pickup sound the client plays when
             // the sync shows what was owed is not any more -- not by a chat line, which the player
             // cannot see behind the book they are claiming from.
         }
 
-        for (int index : offers) {
-            sendChoiceOffer(player, quest, index,
-                    (dev.ellipog.tasked.quest.reward.TableReward) quest.rewards().get(index));
+        for (int index : plan.offers()) {
+            sendChoiceOffer(player, quest, index, (TableReward) quest.rewards().get(index));
             // And no "choose" line either: the choice card opens itself from the offer.
         }
-        return true;
+        return new Claimed(taken, total, halted, !plan.offers().isEmpty());
+    }
+
+    /**
+     * One reward as the leaves it will hand over.
+     *
+     * <p>Resolved once, before anything is checked or granted: a table's roll has to exist before it
+     * can be asked about, and checking one roll while handing over another would be a check that means
+     * nothing. The item stacks are pinned the same way — the same list is what the fit check measures
+     * and what the insert places, so a {@code randomBonus} is rolled once.
+     */
+    private static List<Leaf> resolve(QuestReward reward, ServerPlayer player) {
+        List<QuestReward> leaves = reward instanceof TableReward table
+                ? TableReward.resolve(List.of(table), player.getRandom(), 0)
+                : List.of(reward);
+        List<Leaf> out = new ArrayList<>(leaves.size());
+        for (QuestReward leaf : leaves) {
+            out.add(new Leaf(leaf, leaf instanceof ItemReward item
+                    ? ItemReward.stacksToGive(item, player)
+                    : List.of()));
+        }
+        return out;
+    }
+
+    /** Every stack these leaves will insert, for the fit check. */
+    private static List<ItemStack> itemStacks(List<Leaf> leaves) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (Leaf leaf : leaves) {
+            stacks.addAll(leaf.stacks());
+        }
+        return stacks;
+    }
+
+    /**
+     * Grants one reward's leaves: the items first, then everything else.
+     *
+     * <p>That order is not cosmetic. A command or an advancement in the same reward can put items in
+     * the player's inventory or hand them to a script, so running one before the items would invalidate
+     * the fit check the items were just measured against.
+     *
+     * @return whether every insert took the whole stack. False means a remainder hit the ground: it is
+     *     dropped and reported rather than swallowed, and the caller stops the sweep.
+     */
+    private static boolean grantLeaves(List<Leaf> leaves, RewardContext context) {
+        boolean whole = true;
+        for (Leaf leaf : leaves) {
+            if (!(leaf.reward() instanceof ItemReward)) {
+                continue;
+            }
+            for (ItemStack stack : leaf.stacks()) {
+                ItemStack remainder = InventoryAccesses.current().insert(context.player(), stack);
+                if (!remainder.isEmpty()) {
+                    context.player().drop(remainder, false);
+                    context.feedback().dropped(remainder);
+                    whole = false;
+                }
+            }
+        }
+        for (Leaf leaf : leaves) {
+            if (leaf.reward() instanceof ItemReward) {
+                continue;
+            }
+            grantLeaf(leaf.reward(), context);
+        }
+        return whole;
+    }
+
+    /** One non-item leaf through its registered behaviour, isolated the way the engine's loop isolates. */
+    private static void grantLeaf(QuestReward reward, RewardContext context) {
+        Optional<dev.ellipog.tasked.quest.reward.RewardBehaviour<QuestReward>> behaviour =
+                RewardTypes.behaviourOf(reward);
+        if (behaviour.isEmpty()) {
+            Constants.LOG.warn("tasked: no behaviour registered for reward type {}; skipped", reward.type());
+            return;
+        }
+        try {
+            behaviour.get().grant(reward, context);
+        }
+        catch (RuntimeException e) {
+            // One bad reward must not abort the rest, and must not leave the quest unclaimed --
+            // which would re-grant everything on the next evaluation.
+            Constants.LOG.error("tasked: granting a {} reward failed; the rest were still given",
+                    reward.type(), e);
+        }
     }
 
     /**
@@ -1217,7 +1397,7 @@ public final class ProgressService {
                     RewardTypes.displayOf(tableEntry.reward());
             entries.add(new dev.ellipog.tasked.net.ChoiceRewardPayload.Entry(
                     display.item().map(ref -> ref.item().toString()).orElse(""),
-                    display.count(), display.label(), display.labelFallback()));
+                    display.count(), display.label(), display.labelFallback(), display.labelArg()));
         }
         dev.ellipog.armature.api.net.ArmatureNetwork.sendToPlayer(player,
                 new dev.ellipog.tasked.net.ChoiceRewardPayload(quest.id(), index, entries));
@@ -1227,26 +1407,34 @@ public final class ProgressService {
      * The player's answer to a choice offer: grant the chosen entry and record the claim.
      *
      * <p>Everything is re-resolved here — the quest, the reward, the entry index — so the payload
-     * cannot grant anything a table does not hold. The claim is marked and saved <b>before</b> the
-     * chosen reward is granted, the same direction as every other payout.
+     * cannot grant anything a table does not hold.
      *
-     * @return whether anything was granted
+     * <h2>A pick is strict, and the player is told why when it is refused</h2>
+     *
+     * <p>The player has just made a deliberate decision, so a full inventory must not discard it: the
+     * fit is checked before anything is marked, {@link ClaimChoiceResultPayload.Result#NO_SPACE} comes
+     * back, and the card stays open with its rows live — the player can make room, pick another entry,
+     * or leave. Only a granted pick is marked, and the store is written once, after the grant: the same
+     * order the sweep uses, for the same exception-safety reason.
+     *
+     * @return what became of the pick, which the caller echoes to the client
      */
-    public static boolean claimChoice(MinecraftServer server, ServerPlayer player,
-                                      QuestIndex.QuestEntry entry, int rewardIndex, int entryIndex) {
+    public static ClaimChoiceResultPayload.Result claimChoice(MinecraftServer server, ServerPlayer player,
+                                                              QuestIndex.QuestEntry entry, int rewardIndex,
+                                                              int entryIndex) {
         Quest quest = entry.quest();
         if (rewardIndex < 0 || rewardIndex >= quest.rewards().size()) {
-            return false;
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
         QuestReward reward = quest.rewards().get(rewardIndex);
-        if (!(reward instanceof dev.ellipog.tasked.quest.reward.TableReward table)
-                || table.mode() != dev.ellipog.tasked.quest.reward.TableReward.Mode.CHOICE) {
-            return false;
+        if (!isChoice(reward)) {
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
-        Optional<dev.ellipog.tasked.quest.loot.RewardTable> resolved = table.resolvedTable();
+        Optional<dev.ellipog.tasked.quest.loot.RewardTable> resolved =
+                ((TableReward) reward).resolvedTable();
         Optional<QuestReward> chosen = resolved.flatMap(value -> value.choice(entryIndex));
         if (chosen.isEmpty()) {
-            return false;
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
 
         UUID owner = progressOwner(server, player);
@@ -1262,19 +1450,41 @@ public final class ProgressService {
         // resolves STARTED/UNLOCKED while its stored state stays COMPLETED, and that is exactly when an
         // uncollected reward of the last round is legitimately claimable.
         if (current.state() != QuestState.COMPLETED) {
-            return false;
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
         QuestSettings settings = TaskedQuests.settings();
         boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
         if (current.legacySettled() || current.claimed(player.getUUID(), rewardIndex, teamMode)) {
-            return false;
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
         // Re-checked at the answer: the offer travelled, the conditions did not necessarily hold when
         // it arrived, and a choice is a payout path of its own.
         if (!Conditions.passes(reward.common().conditions(), new ConditionContext(player, server, owner))) {
             player.displayClientMessage(Component.translatable("tasked.quest.conditions_unmet"), true);
-            return false;
+            return ClaimChoiceResultPayload.Result.REFUSED;
         }
+
+        List<Leaf> leaves = resolve(chosen.get(), player);
+        if (!InventoryAccesses.current().fitsAll(player, itemStacks(leaves))) {
+            // Refused rather than dropped: the player chose this, so it waits for them.
+            return ClaimChoiceResultPayload.Result.NO_SPACE;
+        }
+        RewardFeedback feedback = new RewardFeedback();
+        RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
+                onlineMembersOf(server, teamFor(server, owner)), feedback);
+        try {
+            // The return value is not consulted: a remainder means the inventory changed under the
+            // check, and the remainder is on the ground and reported -- the pick itself still counts,
+            // so the player is not asked to choose again for a half-grant.
+            grantLeaves(leaves, context);
+        }
+        catch (RuntimeException e) {
+            Constants.LOG.error("tasked: granting the chosen reward of '{}' failed; nothing was claimed",
+                    quest.id(), e);
+            announceOverflow(player, feedback);
+            return ClaimChoiceResultPayload.Result.REFUSED;
+        }
+        announceOverflow(player, feedback);
 
         QuestClaims marked = teamMode
                 ? current.claims().withTeamClaim(rewardIndex)
@@ -1283,39 +1493,63 @@ public final class ProgressService {
         updated = updated.withRewardsClaimed(
                 !outstandingFor(quest, updated, player.getUUID(), settings));
         store.put(owner, team.put(quest, updated));
-
-        RewardFeedback feedback = new RewardFeedback();
-        RewardContext context = new RewardContext(player, server, owner, quest.id(), entry.chapterId(),
-                onlineMembersOf(server, teamFor(server, owner)), feedback);
-        dev.ellipog.tasked.quest.reward.TableReward.grantAll(List.of(chosen.get()), context, 1);
         TaskedEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
-        announceOverflow(player, feedback);
         // No chat line; see the claim path above.
-        return true;
+        return ClaimChoiceResultPayload.Result.OK;
     }
 
     /**
-     * Claims everything outstanding across the whole book, for the claim-all control.
+     * Claims everything outstanding across the whole book, for the footer control.
      *
      * <p>The quests are found here rather than named by the caller: a client sending a list of ids
      * would be a client deciding what it is owed. This asks the same {@link #canClaimFor} the single
-     * claim does, so the two cannot disagree about what a button may take.
+     * claim does, so the two cannot disagree about what a button may take. {@code filter} is the
+     * panel's active chip and only ever narrows — "Claim items" must not reach past what is on screen.
      *
-     * @return how many quests paid something
+     * <p>Strict, and it stops at the first reward that does not fit: a sweep never spills items on the
+     * floor, and the player is told how far it got. The count it reports against is taken before
+     * anything is claimed, from the same classification the claim itself uses.
+     *
+     * @return how many rewards were handed over
      */
-    public static int claimAll(MinecraftServer server, ServerPlayer player) {
-        int claimed = 0;
+    public static int claimAll(MinecraftServer server, ServerPlayer player, ClaimFilter filter) {
         UUID playerId = player.getUUID();
+        UUID owner = progressOwner(server, player);
+        QuestSettings settings = TaskedQuests.settings();
+
+        // What the sweep could take with infinite room, counted before it starts: this is the "of M"
+        // the summary needs, and it comes from the same loop that decides what to claim.
+        int total = 0;
+        for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
+            TeamProgress team = ProgressStore.of(server).progressOf(owner);
+            if (!canClaimFor(team, entry.quest(), playerId)) {
+                continue;
+            }
+            total += payable(server, player, owner, team, entry.quest(), team.progressOf(entry.quest()),
+                    settings, true, -1, filter).indexes().size();
+        }
+
+        int claimed = 0;
+        boolean halted = false;
         // One tally for the whole sweep: twenty quests' overflow is one fact about one press, and a
         // sentence per quest would be a wall the player cannot read behind the book.
         RewardFeedback feedback = new RewardFeedback();
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
-            TeamProgress team = ProgressStore.of(server).progressOf(progressOwner(server, player));
-            if (canClaimFor(team, entry.quest(), playerId) && claim(server, player, entry, true, -1, feedback)) {
-                claimed++;
+            TeamProgress team = ProgressStore.of(server).progressOf(owner);
+            if (!canClaimFor(team, entry.quest(), playerId)) {
+                continue;
+            }
+            Claimed result = claim(server, player, entry, true, -1, feedback, filter, true);
+            claimed += result.taken();
+            if (result.halted()) {
+                halted = true;
+                break;
             }
         }
         announceOverflow(player, feedback);
+        if (claimed > 0 || halted) {
+            announceSummary(player, claimed, total, halted);
+        }
         return claimed;
     }
 
@@ -1528,6 +1762,27 @@ public final class ProgressService {
         player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.7F, 1.4F);
         ArmatureNetwork.sendToPlayer(player,
                 new RewardOverflowPayload(feedback.droppedStacks(), feedback.droppedItems()));
+    }
+
+    /**
+     * Says how a sweep ended, in one sentence: how many rewards it took, out of how many it could.
+     *
+     * <p>A sweep that stops early and one that finishes look identical from the inbox — rows disappear
+     * either way — so the sentence is what tells the player whether to make room and come back, or that
+     * they are done. The action bar carries it, and the payload carries it into the book, where the HUD
+     * is not drawn; the same routing the overflow notice uses. See {@link ClaimSummaryPayload}.
+     *
+     * <p>A halt plays the "did not fit" click an overflow plays — it is the same fact — while a
+     * successful sweep stays silent: the claim notices already play the pickup chime as the rows go.
+     */
+    private static void announceSummary(ServerPlayer player, int claimed, int total, boolean halted) {
+        player.displayClientMessage(halted
+                ? Component.translatable("tasked.reward.claim_halted", claimed, total)
+                : Component.translatable("tasked.reward.claim_done", claimed, total), true);
+        if (halted) {
+            player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.7F, 1.4F);
+        }
+        ArmatureNetwork.sendToPlayer(player, new ClaimSummaryPayload(claimed, total, halted));
     }
 
     // ------------------------------------------------------------------

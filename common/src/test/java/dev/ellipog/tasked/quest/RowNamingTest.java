@@ -63,7 +63,8 @@ class RowNamingTest {
      * <p>A message is a whole sentence with no per-type argument -- the inventory-full notice -- so
      * there is no display it belongs to, and the reverse check below must not ask for one.
      */
-    private static final Set<String> MESSAGE_KEYS = Set.of("tasked.reward.inventory_full_count");
+    private static final Set<String> MESSAGE_KEYS = Set.of("tasked.reward.inventory_full_count",
+            "tasked.reward.claim_done", "tasked.reward.claim_halted");
 
     /**
      * The keys whose sentence counts something, so the count is the argument and there is no subject.

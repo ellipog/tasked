@@ -11,6 +11,7 @@ import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
+import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.progress.StageService;
@@ -2171,6 +2172,96 @@ class QuestPlaythroughTest {
 
         note("a per-row claim took one reward and left the other; a second press and a forged index "
                 + "both changed nothing");
+    }
+
+    // ------------------------------------------------------------------
+    // Strict sweeps: no room stops the claim rather than spilling it
+    // ------------------------------------------------------------------
+
+    @Test
+    @Order(92)
+    @DisplayName("a sweep with no room stops at the reward that does not fit, and leaves the rest owed")
+    void aFullInventoryStopsASweep() {
+        // The fixture quest has two item rewards, both `auto: disabled`. Reset and complete it again so
+        // both are outstanding, then leave the player exactly one free slot: the first reward fits and
+        // the second does not, which is the halt this exists to pin.
+        assertEquals(1, asOperator("/tasked reset two_gifts").result(),
+                "the reset should have cleared the quest");
+        assertEquals(1, asOperator("/tasked complete two_gifts").result());
+
+        server.onServerThread(() -> {
+            var inventory = player.getInventory();
+            inventory.clearContent();
+            for (int slot = 0; slot < 35; slot++) {
+                inventory.setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+            }
+            inventory.setChanged();
+        });
+        // The whole-quest press rather than the book-wide sweep, and for a reason that matters to the
+        // assertion: a sweep walks every outstanding quest in the pack, so a count of what it took is a
+        // fact about the whole book. This is the same strict path -- one press, one quest's rewards,
+        // halting where it must -- which is what the test is about.
+        QuestIndex.QuestEntry entry = TaskedQuests.index().quest("two_gifts").orElseThrow();
+        int diamondsBefore = countInInventory(Items.DIAMOND);
+        int emeraldsBefore = countInInventory(Items.EMERALD);
+
+        boolean collected = server.callOnServerThread(() ->
+                ProgressService.claim(server.server(), player, entry));
+
+        assertTrue(collected, "the diamonds fit the one free slot, so the press paid something");
+        assertEquals(diamondsBefore + 3, countInInventory(Items.DIAMOND),
+                "the reward that fit was handed over");
+        assertEquals(emeraldsBefore, countInInventory(Items.EMERALD),
+                "and the one that did not fit was not handed over");
+        assertTrue(rewardClaimed("two_gifts", 0), "the granted reward is marked");
+        assertFalse(rewardClaimed("two_gifts", 1), "the stopped one stays outstanding");
+        assertTrue(server.callOnServerThread(() -> server.server().overworld()
+                        .getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                                player.getBoundingBox().inflate(8)).isEmpty()),
+                "a strict claim never spills: nothing may be lying on the floor");
+
+        server.onServerThread(() -> {
+            player.getInventory().clearContent();
+            player.getInventory().setChanged();
+        });
+        note("a full inventory stopped the sweep after the first reward, with nothing on the floor");
+    }
+
+    @Test
+    @Order(93)
+    @DisplayName("a pick with no room is refused on the card's terms, and pays once there is room")
+    void aRefusedPickStaysOutstanding() {
+        // The auto-claim chapter's choice quest: reset and complete it so the choice is outstanding.
+        assertEquals(1, asOperator("/tasked reset auto_choice").result());
+        assertEquals(1, asOperator("/tasked complete auto_choice").result());
+        QuestIndex.QuestEntry entry = TaskedQuests.index().quest("auto_choice").orElseThrow();
+
+        server.onServerThread(() -> {
+            var inventory = player.getInventory();
+            inventory.clearContent();
+            for (int slot = 0; slot < 36; slot++) {
+                inventory.setItem(slot, new ItemStack(Items.COBBLESTONE, 64));
+            }
+            inventory.setChanged();
+        });
+
+        var refused = server.callOnServerThread(() ->
+                ProgressService.claimChoice(server.server(), player, entry, 0, 0));
+        assertEquals(ClaimChoiceResultPayload.Result.NO_SPACE, refused,
+                "a full inventory refuses the pick rather than dropping it on the floor");
+        assertFalse(rewardClaimed("auto_choice", 0),
+                "nothing is marked, so the reward is still owed and the pick can be made again");
+
+        server.onServerThread(() -> {
+            player.getInventory().clearContent();
+            player.getInventory().setChanged();
+        });
+        var granted = server.callOnServerThread(() ->
+                ProgressService.claimChoice(server.server(), player, entry, 0, 0));
+        assertEquals(ClaimChoiceResultPayload.Result.OK, granted, "with room, the same pick pays");
+        assertTrue(rewardClaimed("auto_choice", 0));
+        assertEquals(1, countInInventory(Items.DIAMOND), "entry 0 of the table is the diamond");
+        note("a pick was refused with no room, and paid once there was some");
     }
 
     /**

@@ -122,19 +122,6 @@ public final class BookGeometry {
     /**
      * The Edit pill's width: a pencil, a space and the word.
      *
-     * <p>The pencil is {@code \u270E}, which the font carries -- see {@link #TOOLS_PILL_WIDTH} for how
-     * that list was measured, and for why every glyph here is checked rather than guessed.
-     */
-    public static final int EDIT_PILL_WIDTH = 56;
-
-    /**
-     * The Tools pill's width: the word and the triangle that says a menu drops out of it.
-     *
-     * <p>A word rather than a glyph for the tool itself, and that is a fix rather than a preference: it
-     * was `\u2699`, which Minecraft's default font does not carry, so the button drew as the
-     * missing-glyph box -- a control that reads as a rendering fault. The triangle is {@code \u25BC},
-     * which the font does carry, and is what makes the pill read as a menu rather than a button.
-     *
      * <h2>Which glyphs this font has</h2>
      *
      * <p>Measured rather than assumed, by reading {@code assets/minecraft/font/include/default.json} out
@@ -148,8 +135,22 @@ public final class BookGeometry {
      * both drawing as boxes until this was measured. A control's glyph comes from the present list or it
      * does not get one, and {@code .utils/check_glyphs.py} holds the same list and fails the build on an
      * escape outside it.
+     *
+     * <p>The pencil is {@code \u270E}, which that list carries.
      */
-    public static final int TOOLS_PILL_WIDTH = 56;
+    public static final int EDIT_PILL_WIDTH = 56;
+
+    /** The Assets pill's width. Wider than Edit's by two characters: see {@link #assetsPill}. */
+    public static final int ASSETS_PILL_WIDTH = 72;
+
+    /**
+     * The gap between the two author pills.
+     *
+     * <p>Four pixels under the general {@link #EDGE}: at the full edge they read as two controls that happen
+     * to be near each other, and they are one row — the same cluster {@link #pillMat} draws one backing panel
+     * behind.
+     */
+    public static final int PILL_GAP = EDGE - 4;
 
     /**
      * The party button's width, in the header.
@@ -387,7 +388,8 @@ public final class BookGeometry {
      * width that used to be a judgement became something a test can sweep.
      */
     public static final int MIN_CANVAS_WIDTH =
-            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + EDIT_PILL_WIDTH + EDGE;
+            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + ASSETS_PILL_WIDTH + PILL_GAP
+                    + EDIT_PILL_WIDTH + EDGE;
 
     /**
      * The room the header's title needs, left of the controls: the inset it starts at and a word.
@@ -1030,52 +1032,57 @@ public final class BookGeometry {
     /**
      * The author's pills, in the canvas's top-right corner: a column, mirroring the view cluster.
      *
-     * <h2>Why the corner, and why a column</h2>
+     * <h2>Why the corner</h2>
      *
-     * <p>The header belongs to the book and every player reads it, so the author's controls left it for
-     * the corner that is already a control strip -- the view cluster's mirror on the far side. A column
-     * because the cluster on the left is one: Edit on top, and the Tools pill dropping in beneath it when
-     * edit mode is on, which is one of the two arrangements the design asks for ("or drops as a vertical
-     * stack beneath it") and the one that keeps Edit still while the second pill comes and goes.
+     * <p>The header belongs to the book and every player reads it, so the author's control left it for
+     * the corner that is already a control strip -- the view cluster's mirror on the far side. There is
+     * one pill, not a column: the Tools menu it used to open held only actions that are already keys
+     * (Undo, Redo, Snapping's switch, Alt+click's straighten), so it was retired rather than kept as a
+     * second floating control.
      *
-     * <p>Right-aligned on the canvas edge rather than centred as a pair: the inactive state is the single
-     * Edit pill, and a pill that hugged the middle to reserve a slot for an absent neighbour would be
-     * exactly the dead space the split header was retired to remove.
+     * <p>Right-aligned on the canvas edge: the pill is the only one, and a pill that hugged the middle
+     * to reserve a slot for an absent neighbour would be exactly the dead space the split header was
+     * retired to remove.
      */
     public Rect editPill() {
         return Rect.at(canvas.right() - EDGE - EDIT_PILL_WIDTH, canvas.y() + EDGE,
                 EDIT_PILL_WIDTH, ROW_HEIGHT);
     }
 
-    /** The Tools half, directly beneath the Edit pill with the cluster's own gap. */
-    public Rect toolsPill() {
-        return Rect.at(editPill().right() - TOOLS_PILL_WIDTH, editPill().y() + ROW_HEIGHT + VIEW_GAP,
-                TOOLS_PILL_WIDTH, ROW_HEIGHT);
+    /**
+     * The Assets pill, immediately left of Edit — the pairing the author's row now reads as.
+     *
+     * <p>Edit keeps the corner it has always had, so nothing that was true about that control's position
+     * stops being true; the new pill extends the row leftward. Wider than Edit's by a word rather than by
+     * taste: "Assets" is six characters to "Edit"'s four, and a pill that truncated its own label would be
+     * a control whose name depends on the font.
+     */
+    public Rect assetsPill() {
+        return Rect.at(editPill().x() - PILL_GAP - ASSETS_PILL_WIDTH, canvas.y() + EDGE,
+                ASSETS_PILL_WIDTH, ROW_HEIGHT);
     }
 
     /**
-     * The backing panel behind the pills, drawn so they read as one group.
+     * The backing panel behind the pills, drawn so they read as controls rather than as floating fragments
+     * of text.
      *
-     * <p>Takes whether the Tools pill is showing because the mat is what says "one unit": a mat sized
-     * for two pills under a single pill reads as a control that failed to draw.
+     * <p>Behind <b>both</b> pills and the gap between them, so the author's row reads as one cluster. The
+     * screen draws it only when it draws a pill, so a player who may not edit is shown neither.
      */
-    public Rect pillMat(boolean withTools) {
-        int height = withTools ? ROW_HEIGHT * 2 + VIEW_GAP : ROW_HEIGHT;
-        return Rect.at(editPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
-                EDIT_PILL_WIDTH + VIEW_MAT * 2, height + VIEW_MAT * 2);
+    public Rect pillMat() {
+        return Rect.at(assetsPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
+                editPill().right() - assetsPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
     }
 
     /**
-     * The band the author's pills occupy at the top of the canvas, from the canvas edge to the bottom
-     * of the pair's mat.
+     * The band the pill occupies at the top of the canvas, from the canvas edge to the bottom of its
+     * mat.
      *
-     * <p>{@code (EDGE - VIEW_MAT) + (ROW_HEIGHT * 2 + VIEW_GAP) + VIEW_MAT * 2}: the mat's overhang, two
-     * pills, the gap between them, and the mat again. Sized for the pair even when only Edit is showing,
-     * because the drawer beneath it must not move when the Tools pill comes and goes -- which is the
-     * whole reason this band is reserved rather than measured from what is currently drawn.
+     * <p>{@code (EDGE - VIEW_MAT) + ROW_HEIGHT + VIEW_MAT * 2}: the mat's overhang, the pill, and the mat
+     * again. The drawer beneath it is laid out from the rail this defines, so its first row is never
+     * under the control floating over it.
      */
-    public static final int AUTHOR_PILL_BAND =
-            (EDGE - VIEW_MAT) + (ROW_HEIGHT * 2 + VIEW_GAP) + VIEW_MAT * 2;
+    public static final int AUTHOR_PILL_BAND = (EDGE - VIEW_MAT) + ROW_HEIGHT + VIEW_MAT * 2;
 
     /**
      * The canvas minus the pill band, for the inspector drawer.
@@ -1158,14 +1165,15 @@ public final class BookGeometry {
         // the player's own settings.
         out.put("settings", settingsButton());
 
-        // The author's pills, over the canvas's top-right corner. Always in the map and drawn only for a
+        // The author's pill, over the canvas's top-right corner. Always in the map and drawn only for a
         // player who may edit: geometry is what the overlap sweep checks, and a control that appeared in
-        // the map only sometimes would be a control the sweep tests in one build and not the next. They
-        // are placed here rather than with the view cluster below so that the map's source order still
-        // reads as the header first, then the canvas furniture -- the same order the old header pair
-        // occupied.
+        // the map only sometimes would be a control the sweep tests in one build and not the next. It is
+        // placed here rather than with the view cluster below so that the map's source order still reads
+        // as the header first, then the canvas furniture -- the slot the old header pair occupied.
         out.put("editPill", editPill());
-        out.put("toolsPill", toolsPill());
+        // And the Assets pill beside it, by the same convention and for the same reason: always in the map
+        // (so the overlap sweep tests it in every build) and drawn only for a player who may edit.
+        out.put("assetsPill", assetsPill());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
         // only for an author -- the same convention as `edit` and `tools` above, and for the same

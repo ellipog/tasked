@@ -99,7 +99,18 @@ public final class QuestLoader {
     public record Result(QuestIndex index, Problems problems, int filesFound, int filesDecoded,
                          int filesWithErrors,
                          /** The reward tables, keyed by their file name without the suffix. */
-                         java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables) {
+                         java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables,
+                         /**
+                          * The ids of table files that are there and did not load, in name order.
+                          *
+                          * <p>Carried out of the load rather than recomputed, because a file that does not
+                          * decode never becomes a {@code RewardTable} and so cannot be found anywhere else:
+                          * without this, a broken table is invisible to every panel that lists tables, and
+                          * the author's only clue is a line in the log. The <i>reason</i> is not here — it
+                          * is the problems reported against {@code <id>.json}, which the caller already has
+                          * and which this would only duplicate.
+                          */
+                         java.util.Set<String> refusedTables) {
 
         /**
          * Whether every file that matched was usable.
@@ -130,7 +141,7 @@ public final class QuestLoader {
                     "no quest directory at " + directory + ", so there are no quests to load. Tasked"
                             + " ships no quests of its own; this directory is where they go.");
             return new Result(QuestIndex.build(List.of(), problems), problems, 0, 0, 0,
-                    java.util.Map.of());
+                    java.util.Map.of(), java.util.Set.of());
         }
 
         // Which files are quests, what each one declares, and what each one names underneath it — all
@@ -164,12 +175,14 @@ public final class QuestLoader {
         // because the checks run both ways: a table entry may point at another table, and a quest's
         // reward may point at any table. Both join the same problem list, so a bad table is counted
         // and reported like any other file.
-        java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables =
-                loadRewardTables(directory, problems);
+        Tables tables = loadRewardTables(directory, problems);
         for (QuestIndex.QuestEntry entry : index.quests()) {
-            List<QuestReward> rewards = entry.quest().rewards();
-            for (int i = 0; i < rewards.size(); i++) {
-                checkTableId(rewards.get(i), entry.document(), "$.rewards[" + i + "]", rewardTables, problems);
+            // Through the one reference walk, so a reward that points at a table from inside its own
+            // inline table is checked like any other. It used to be checked by nothing at all: the
+            // loop read a quest's top-level rewards and stopped there.
+            for (dev.ellipog.tasked.quest.loot.RewardTableRefs.Ref ref
+                    : dev.ellipog.tasked.quest.loot.RewardTableRefs.refsOf(entry.quest().rewards(), "$.rewards")) {
+                checkTableId(ref, entry.document(), tables.loaded(), tables.refused(), problems);
             }
         }
 
@@ -196,7 +209,35 @@ public final class QuestLoader {
                 .count();
 
         return new Result(index, problems, found.filesExamined(), filesDecoded, filesWithErrors,
-                rewardTables);
+                tables.loaded(), tables.refused());
+    }
+
+    /**
+     * The reward tables under a config directory, read and validated on their own.
+     *
+     * <p>For a refresh after a table edit, which cannot have changed a quest: re-reading and
+     * re-validating every quest file to learn that the tables moved is the work this exists to skip.
+     * The cross-checks between tables — dangling references, cycles — run as they always do; the check
+     * that a <i>quest</i> points at a table that exists is part of the full load, and is skipped here
+     * (the editor refuses to delete a referenced table, which is the case that would create one).
+     *
+     * <p>Returns both halves for the same reason {@link Result} carries them: a table that did not load
+     * is a table no other part of the program can mention.
+     */
+    public static Tables loadTables(Path configDir, Problems problems) {
+        return loadRewardTables(configDir.resolve(DIRECTORY), problems);
+    }
+
+    /**
+     * What the table folder produced: the tables that loaded, and the ids whose file was refused.
+     *
+     * <p>The second set is what lets a reference say which of the two problems it has — a name nothing
+     * answers to, or a file that is there and did not load — and it is only knowable here, where the
+     * files are read. The client's Assets panel lists exactly this set, for the same reason: a table an
+     * author cannot load is the one they most need to be told about.
+     */
+    public record Tables(java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> loaded,
+                         java.util.Set<String> refused) {
     }
 
     /**
@@ -204,59 +245,96 @@ public final class QuestLoader {
      *
      * <p>Two passes because a reference can point at any table in the folder, including one later in
      * name order. The second pass runs once every id is known, so "the table is not there" is a fact
-     * rather than an ordering accident.
+     * rather than an ordering accident — and it is also where the question only the whole folder can
+     * answer is asked: whether the references form a loop.
      */
-    private static java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> loadRewardTables(
-            Path questRoot, Problems problems) {
+    private static Tables loadRewardTables(Path questRoot, Problems problems) {
         List<Path> files = QuestFiles.rewardTableFiles(questRoot);
         if (files.isEmpty()) {
-            return java.util.Map.of();
+            return new Tables(java.util.Map.of(), java.util.Set.of());
         }
         java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> tables =
                 new java.util.LinkedHashMap<>();
         java.util.Map<String, JsonDocument> documents = new java.util.LinkedHashMap<>();
+        // The ids whose file is there and was refused, so a reference to one can say which of the two
+        // problems it is: a name nothing answers to, or a table that exists and did not load.
+        java.util.Set<String> refused = new java.util.LinkedHashSet<>();
         for (Path file : files) {
             String name = file.getFileName().toString();
             String id = name.substring(0, name.length() - ".json".length());
             Optional<JsonDocument> parsed = QuestFiles.parseFile(file, name, problems);
             if (parsed.isEmpty()) {
+                refused.add(id);
                 continue;
             }
             JsonDocument document = parsed.get();
             QuestValidator.validateRewardTableDocument(document, problems);
             if (problems.hasErrorsIn(name)) {
+                refused.add(id);
                 continue;
             }
             decode(dev.ellipog.tasked.quest.loot.RewardTable.CODEC, document, name, problems)
-                    .ifPresent(table -> {
+                    .ifPresentOrElse(table -> {
                         tables.put(id, table);
                         documents.put(id, document);
-                    });
+                    }, () -> refused.add(id));
         }
 
         for (java.util.Map.Entry<String, dev.ellipog.tasked.quest.loot.RewardTable> loaded
                 : tables.entrySet()) {
             JsonDocument document = documents.get(loaded.getKey());
-            List<dev.ellipog.tasked.quest.loot.RewardTable.Entry> entries =
-                    loaded.getValue().entries();
-            for (int i = 0; i < entries.size(); i++) {
-                checkTableId(entries.get(i).reward(), document, "$.entries[" + i + "].reward",
-                        tables, problems);
+            for (dev.ellipog.tasked.quest.loot.RewardTableRefs.Ref ref
+                    : dev.ellipog.tasked.quest.loot.RewardTableRefs.refsOf(loaded.getValue(), "$")) {
+                checkTableId(ref, document, tables, refused, problems);
             }
         }
-        return java.util.Map.copyOf(tables);
+        reportCycles(tables, documents, problems);
+        return new Tables(java.util.Map.copyOf(tables), java.util.Set.copyOf(refused));
     }
 
-    /** Reports a reward naming a table that is not loaded, at the reward's own path. */
-    private static void checkTableId(QuestReward reward, JsonDocument document, String path,
+    /**
+     * Reports a reward naming a table that is not loaded, at the reward's own path.
+     *
+     * <p>Two sentences, because they are two different mistakes: a name no file answers to, and a file
+     * that is there but was refused. The second is the one an author would otherwise chase — the file
+     * exists, so "no reward table named inner" reads as a lie until they find the errors inside it.
+     */
+    private static void checkTableId(dev.ellipog.tasked.quest.loot.RewardTableRefs.Ref ref,
+                                     JsonDocument document,
                                      java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> tables,
-                                     Problems problems) {
-        Optional<String> id = reward.tableId();
-        if (id.isEmpty() || tables.containsKey(id.get())) {
+                                     java.util.Set<String> refused, Problems problems) {
+        if (tables.containsKey(ref.id())) {
             return;
         }
-        problems.error(document, path + ".table", "no reward table named \"" + id.get() + "\" - add "
-                + QuestFiles.REWARD_TABLES_DIRECTORY + "/" + id.get() + ".json, or fix the reference");
+        if (refused.contains(ref.id())) {
+            problems.error(document, ref.path() + ".table", "reward_tables/" + ref.id() + ".json did not"
+                    + " load, so this reference has nothing to point at - fix the problems reported"
+                    + " against that file");
+            return;
+        }
+        problems.error(document, ref.path() + ".table", "no reward table named \"" + ref.id() + "\" - add "
+                + QuestFiles.REWARD_TABLES_DIRECTORY + "/" + ref.id() + ".json, or fix the reference");
+    }
+
+    /**
+     * Reports the first loop in the reference graph, on the file the loop starts in.
+     *
+     * <p>The same shape as a circular {@code dependsOn}: an error, with the whole chain printed and a
+     * sentence saying how to break it. The runtime already refuses to recurse past eight levels, so
+     * this is not what stops a server hanging — it is what tells an author what they did, which the
+     * log line it replaces did not.
+     */
+    private static void reportCycles(java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> tables,
+                                     java.util.Map<String, JsonDocument> documents, Problems problems) {
+        dev.ellipog.tasked.quest.loot.TableCycles.find(tables).ifPresent(chain -> {
+            JsonDocument document = documents.get(chain.get(0));
+            if (document == null) {
+                return;
+            }
+            problems.error(document, "$", "circular table reference: " + String.join(" -> ", chain)
+                    + "\n    a roll through these tables can never finish, so it is cut off and grants"
+                    + " nothing. Break it by pointing one of them at a different table.");
+        });
     }
 
     // ------------------------------------------------------------------

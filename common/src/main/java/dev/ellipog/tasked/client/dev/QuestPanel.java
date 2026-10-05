@@ -89,11 +89,13 @@ public final class QuestPanel {
                         }
                     }
                     case VALUE -> drawValue(r, row, slot, onScreen, measure);
-                    // An ACTION row is wholly its widget, which the screen builds; the panel owes it
-                    // nothing. Loud rather than quiet if a kind is ever added without a branch here:
-                    // a row that draws as nothing is the fault this panel's sibling had first.
-                    case ACTION -> {
-                    }
+                    // An ACTION row is its own widget, which the screen builds: the label belongs to that
+                    // button and the panel must not draw it twice. Its *value* is the exception, and this
+                    // is where the rule was wrong for two rounds: a right-aligned detail -- the id a file
+                    // spells, beside a type's name -- is text no widget draws, so a row that carried one
+                    // was carrying data nothing read. The button is flat and its label is left-aligned, so
+                    // the right end of the strip is free and the press still reaches the widget.
+                    case ACTION -> drawActionDetail(r, row, slot, onScreen, list, measure);
                 }
             }
         }
@@ -133,6 +135,25 @@ public final class QuestPanel {
                                     Measure measure) {
         r.text(Measure.truncate(Labels.of(row.label()), slot.width(), measure), onScreen.x(),
                 onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.blocked());
+    }
+
+    /**
+     * An action row's right-aligned detail: the id a type writes, in the faint ink a secondary fact takes.
+     *
+     * <p>The label is the button's, so this draws nothing else — and nothing at all for the rows that carry
+     * no detail, which is every action row but the type picker's. It is the item picker's arrangement
+     * ("Quest Book …… tasked:quest_book") applied to the list that opens instead of it, so the two read as
+     * one family and the spelling a file uses is on screen rather than only in a hover.
+     */
+    private static void drawActionDetail(GuiRenderer r, InspectRow row, Slot slot, Slot onScreen,
+                                         Viewport list, Measure measure) {
+        if (row.value().isEmpty()) {
+            return;
+        }
+        Slot strip = InspectLayout.onScreen(list, InspectLayout.strip(slot));
+        String value = Measure.truncate(row.value(), Math.max(0, strip.width() - 4), measure);
+        r.text(value, strip.right() - 2 - measure.width(value),
+                onScreen.y() + (slot.height() - 8) / 2, ArmatureTheme.faint());
     }
 
     /** A row with a control in its strip: the label owns what is left of the strip. */

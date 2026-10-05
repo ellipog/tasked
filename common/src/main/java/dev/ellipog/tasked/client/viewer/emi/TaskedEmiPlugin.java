@@ -88,6 +88,20 @@ public final class TaskedEmiPlugin implements dev.emi.emi.api.EmiPlugin, Integra
             return;
         }
 
+        // Dragging a stack out of EMI and onto a table's entry list: the gesture that turns "this item"
+        // into an entry without a search box. The screen decides whether it wants the drop -- see
+        // `ItemDropTarget` -- so this is only the translation.
+        registry.addDragDropHandler(dev.ellipog.tasked.client.QuestBookScreen.class,
+                (screen, dragged, mouseX, mouseY) -> {
+                    for (dev.emi.emi.api.stack.EmiStack emiStack : dragged.getEmiStacks()) {
+                        ItemStack stack = emiStack.getItemStack();
+                        if (!stack.isEmpty() && screen.acceptDrop(mouseX, mouseY, stack)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+
         ItemStack categoryIcon = content.categoryIcon();
         dev.emi.emi.api.recipe.EmiRecipeCategory category = new dev.emi.emi.api.recipe.EmiRecipeCategory(
                 content.categoryId(), dev.emi.emi.api.stack.EmiStack.of(categoryIcon));

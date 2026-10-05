@@ -53,6 +53,17 @@ public final class ClientChapterReplica {
     /** When each chapter was last asked for, so a frame cannot become a flood and a failure can retry. */
     private static final Map<String, Long> attempted = new ConcurrentHashMap<>();
 
+    /**
+     * The revision each chapter was last asked for.
+     *
+     * <p>The gate is per revision, not per clock: a <b>newer</b> revision is a new question and may be
+     * asked at once, while the retry window stays as the backstop for the <i>same</i> one — a refusal,
+     * or a chapter whose file has not arrived. Throttling by time alone meant a revision arriving inside
+     * the window could not be fetched at all, so a chapter's copy could sit stale while the tree moved
+     * under it.
+     */
+    private static final Map<String, Long> attemptedRevision = new ConcurrentHashMap<>();
+
     /** The last refusal the server sent about each chapter, for the panel to say instead of guessing. */
     private static final Map<String, String> refusals = new ConcurrentHashMap<>();
 
@@ -75,11 +86,17 @@ public final class ClientChapterReplica {
         if (copy != null && copy.revision() == revision && usable(copy)) {
             return false;
         }
-        Long last = attempted.get(chapter);
-        if (last != null && nowMillis - last < RETRY_MILLIS) {
-            return false;
+        // Asked for this revision already: the retry window is the backstop. A different revision is a
+        // different question and goes at once -- see `attemptedRevision`.
+        Long askedFor = attemptedRevision.get(chapter);
+        if (askedFor != null && askedFor == revision) {
+            Long last = attempted.get(chapter);
+            if (last != null && nowMillis - last < RETRY_MILLIS) {
+                return false;
+            }
         }
         attempted.put(chapter, nowMillis);
+        attemptedRevision.put(chapter, revision);
         return true;
     }
 
@@ -162,6 +179,7 @@ public final class ClientChapterReplica {
     public static void clear() {
         loaded.clear();
         attempted.clear();
+        attemptedRevision.clear();
         refusals.clear();
     }
 }

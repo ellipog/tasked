@@ -9,6 +9,7 @@ import dev.ellipog.tasked.quest.QuestReward;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -33,7 +34,11 @@ public record ItemReward(RewardCommon common, ItemRef item, int randomBonus, boo
     public static final MapCodec<ItemReward> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardCommon.MAP_CODEC.forGetter(ItemReward::common),
             ItemRef.MAP_CODEC.forGetter(ItemReward::item),
-            Codec.intRange(0, 6400).optionalFieldOf("randomBonus", 0).forGetter(ItemReward::randomBonus),
+            // The same bound as the count it adds to, and one constant for it: a bonus is "up to this
+            // many more of the same thing", so a bound of its own would be a second answer to "how
+            // many of an item may one entry hand over".
+            Codec.intRange(0, ItemRef.MAX_COUNT).optionalFieldOf("randomBonus", 0)
+                    .forGetter(ItemReward::randomBonus),
             Codec.BOOL.optionalFieldOf("onlyOne", false).forGetter(ItemReward::onlyOne)
     ).apply(instance, ItemReward::new));
 
@@ -42,7 +47,17 @@ public record ItemReward(RewardCommon common, ItemRef item, int randomBonus, boo
         return TYPE;
     }
 
-    public static final RewardBehaviour<ItemReward> BEHAVIOUR = (reward, context) -> {
+    /**
+     * The exact stacks this reward hands over, rolled now.
+     *
+     * <p>One call, used by both halves of a strict claim: the pre-check asks whether these fit, and the
+     * grant inserts these same stacks. Rolling once is what makes the two agree — a bonus rolled twice
+     * would be checked at one size and handed over at another.
+     *
+     * <p>Empty for a reward that gives nothing: an item this build cannot resolve, or an {@code onlyOne}
+     * the player already carries.
+     */
+    public static List<ItemStack> stacksToGive(ItemReward reward, net.minecraft.server.level.ServerPlayer player) {
         ItemStack template = reward.item().toStack();
         if (template.isEmpty()) {
             // The item does not exist. The validator reports this at load time, so reaching here
@@ -50,35 +65,49 @@ public record ItemReward(RewardCommon common, ItemRef item, int randomBonus, boo
             // and not worth throwing over.
             dev.ellipog.tasked.Constants.LOG.warn("tasked: reward {} resolved to nothing and was skipped",
                     reward.item().describe());
-            return;
+            return List.of();
         }
 
         // `onlyOne`: FTBQ's "don't give me a second one". Checked by item type, not components -- the
         // question is whether the player already has this thing, not this exact stack.
-        if (reward.onlyOne() && carries(context.player(), template)) {
-            return;
+        if (reward.onlyOne() && carries(player, template)) {
+            return List.of();
         }
 
         int bonus = reward.randomBonus() > 0
-                ? context.player().getRandom().nextInt(reward.randomBonus() + 1)
+                ? player.getRandom().nextInt(reward.randomBonus() + 1)
                 : 0;
         int remaining = reward.item().count() + bonus;
 
         // Split into legal stacks before handing them over: an ItemRef may ask for thousands, and one
         // over-full stack is a value vanilla items do not have.
+        List<ItemStack> stacks = new java.util.ArrayList<>();
         while (remaining > 0) {
             int size = Math.min(remaining, template.getMaxStackSize());
-            ItemStack give = template.copyWithCount(size);
-            // add() puts what it can into the inventory and returns false if some of it did not fit.
-            // What does not fit is dropped at the player's feet rather than discarded -- a quest
-            // reward that silently evaporates because the player was full is the kind of bug that
-            // gets a mod uninstalled. The drop is reported rather than announced: one press can
-            // overflow on many stacks, and the claim operation says the one sentence. See RewardFeedback.
-            if (!context.player().addItem(give)) {
-                context.player().drop(give, false);
-                context.feedback().dropped(give);
-            }
+            stacks.add(template.copyWithCount(size));
             remaining -= size;
+        }
+        return List.copyOf(stacks);
+    }
+
+    /**
+     * The lenient grant: insert what fits, drop the rest.
+     *
+     * <p>Used wherever a reward is handed over without a fit check — a single row's Claim, an
+     * auto-claim at completion, a table's leaves. The insert goes through {@link InventoryAccesses} —
+     * the loader's own transfer, and the same one a strict check simulates — and the remainder is
+     * dropped at the player's feet rather than discarded. The drop is reported rather than announced:
+     * one press can overflow on many stacks, and the claim operation says the one sentence. See
+     * {@link RewardFeedback}.
+     */
+    public static final RewardBehaviour<ItemReward> BEHAVIOUR = (reward, context) -> {
+        for (ItemStack give : stacksToGive(reward, context.player())) {
+            ItemStack remainder = dev.ellipog.tasked.inventory.InventoryAccesses.current()
+                    .insert(context.player(), give);
+            if (!remainder.isEmpty()) {
+                context.player().drop(remainder, false);
+                context.feedback().dropped(remainder);
+            }
         }
     };
 

@@ -179,7 +179,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 10;
+    public static final int TREE_VERSION = 11;
 
     /**
      * The quest tree, as JSON.
@@ -294,7 +294,67 @@ public final class QuestSync {
         root.add("groups", groups);
         root.add("chapters", chapters);
         root.add("quests", quests);
+        // And the reward tables, as summaries: what the editor's browser lists and what a reward's
+        // table badge draws. The tables themselves are files an editor asks for when it opens one --
+        // a summary is tens of bytes and belongs with the rest of what the book shows, while a table's
+        // entries are only wanted by the one panel that is editing it.
+        root.add("rewardTables", tableSummaries());
+        // And the tables that did NOT load, with the reason each one was refused. A separate list rather
+        // than a flag on the summaries above, because the two sets are disjoint by construction: a table
+        // that refused has no title, no icon and no entry count to summarise, and putting a half-empty
+        // summary in the list every other part of the client reads would make "a table" two shapes.
+        root.add("refusedTables", refusedTableSummaries());
         return root.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The reward table files that are there and did not load.
+     *
+     * <h2>Why the reason travels with the id</h2>
+     *
+     * <p>Because the whole point of listing them is that the author can act: "dice" is not a problem,
+     * "dice: unknown field \"tabl\"" is. The sentence is the one the load already reported into the log
+     * and into {@code /tasked reload}'s output — read from {@code TaskedQuests.refusedTables()}, which
+     * takes it from the same {@code Problems} — so the panel, the log and the command all say one thing.
+     */
+    private static JsonArray refusedTableSummaries() {
+        JsonArray refused = new JsonArray();
+        for (java.util.Map.Entry<String, String> entry : TaskedQuests.refusedTables().entrySet()) {
+            JsonObject one = new JsonObject();
+            one.addProperty("id", entry.getKey());
+            one.addProperty("why", entry.getValue());
+            refused.add(one);
+        }
+        return refused;
+    }
+
+    /**
+     * The reward tables, as the client's browser needs them.
+     *
+     * <p>Read from {@code TaskedQuests.rewardTables()} rather than passed in, the way the settings are:
+     * both are loaded state that a reload replaces, and the tree is written right after a reload, so
+     * there is one place that decides what is current.
+     *
+     * <p>The icon travels as an item id plus its components, exactly as a quest's own icon does, so the
+     * client resolves it with the helper it already has and a table with no icon of its own shows the
+     * item its first entry grants.
+     */
+    private static JsonArray tableSummaries() {
+        JsonArray tables = new JsonArray();
+        for (java.util.Map.Entry<String, dev.ellipog.tasked.quest.loot.RewardTable> entry
+                : new java.util.TreeMap<>(TaskedQuests.rewardTables()).entrySet()) {
+            String id = entry.getKey();
+            dev.ellipog.tasked.quest.loot.RewardTable table = entry.getValue();
+            JsonObject one = new JsonObject();
+            one.addProperty("id", id);
+            one.addProperty("title", table.displayTitle(id));
+            one.addProperty("entries", table.entryCount());
+            dev.ellipog.tasked.quest.ItemRef icon = table.displayIcon();
+            one.addProperty("icon", icon.item().toString());
+            componentsAsJson(icon, "iconComponents", one);
+            tables.add(one);
+        }
+        return tables;
     }
 
     /**

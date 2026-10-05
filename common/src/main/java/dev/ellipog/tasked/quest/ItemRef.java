@@ -45,13 +45,24 @@ public record ItemRef(ResourceLocation item, int count, DataComponentPatch compo
             new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1);
 
     /**
+     * The most one reference may carry, named once.
+     *
+     * <p>A reference is not a stack: a table entry asking for six thousand torches is a legitimate
+     * thing to write, and granting it already splits into legal stacks. The bound exists so a typo
+     * cannot ask for two billion of something, and it belongs here because {@code count} is this
+     * record's field — {@code TableImport} restated it as its own {@code MAX_COUNT}, so the number an
+     * import clipped at and the number the codec accepted were two claims about one rule.
+     */
+    public static final int MAX_COUNT = 6400;
+
+    /**
      * A {@link MapCodec}, so that an item's fields sit flat wherever it is embedded — a task
      * declares {@code "item"} and {@code "count"} directly, rather than nesting them under
      * {@code "item": { ... }}.
      */
     public static final MapCodec<ItemRef> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             ResourceLocation.CODEC.fieldOf("item").forGetter(ItemRef::item),
-            Codec.intRange(1, 6400).optionalFieldOf("count", 1).forGetter(ItemRef::count),
+            Codec.intRange(1, MAX_COUNT).optionalFieldOf("count", 1).forGetter(ItemRef::count),
             // The 1.21 data components, in the datapack's own spelling: a JSON object keyed by
             // component id. This is what makes a renamed or enchanted item possible in a quest file,
             // and what the picker copies when an author picks the sword they are actually holding

@@ -9,6 +9,9 @@ import dev.ellipog.tasked.client.viewer.Integrations;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
 import dev.ellipog.tasked.client.ClientChapterReplica;
+import dev.ellipog.tasked.client.ClientTableOpen;
+import dev.ellipog.tasked.client.ClientTableReplica;
+import dev.ellipog.tasked.client.ClientTableRoll;
 import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
@@ -16,6 +19,7 @@ import dev.ellipog.tasked.client.viewer.QuestViewerContent;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.ClientAppearance;
+import dev.ellipog.tasked.client.ClientWorking;
 import dev.ellipog.tasked.client.DevMode;
 import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
@@ -62,6 +66,10 @@ public final class TaskedNeoForgeClient {
         // No developer screen and no F9: the tools are a panel in the book, reached from its header.
         DevMode.loadFromConfig();
         ClientAppearance.loadFromConfig();
+        // Where the author was — the last table, the drawer's tab, the Assets section. Read here for the
+        // same reason the two above are: a panel opened in the first second of a session must not open on
+        // a default because the file had not been read yet.
+        ClientWorking.loadFromConfig();
 
         // The recipe-viewer seam: the content goes in as soon as the client exists, and whichever
         // viewer is installed reads it when it registers. No viewer is named here -- the seam is this
@@ -88,6 +96,9 @@ public final class TaskedNeoForgeClient {
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
             ClientQuestCache.clear();
             ClientChapterReplica.clear();
+            ClientTableReplica.clear();
+            ClientTableRoll.clear();
+            ClientTableOpen.clear();
             // The party roster too: it is written by the roster message and nothing else empties it, so
             // without this the next world's panel opens on the last server's party -- every row a real
             // player name, which is what makes it convincing. The join-time push corrects it a moment

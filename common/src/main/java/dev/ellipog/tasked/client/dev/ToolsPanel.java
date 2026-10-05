@@ -58,31 +58,20 @@ public final class ToolsPanel {
     }
 
     /**
-     * What the theme panel is showing: the selected colour, the last thing that happened, whether
-     * the hex field is on the band, and which palette the panel is editing.
+     * What the panel needs to draw: the palette in force, and the canvas background it samples.
      *
-     * @param selected the colour token being edited, or null
-     * @param feedback the panel's one-line status, or null for none
-     * @param feedbackIsError whether that status is bad news
-     * @param hexEditable true when a colour is selected, so the band leaves room for the field instead of
-     *     drawing the value as text -- one place showing the number, and it is the one you can type into
-     * @param theme the palette the swatches, the band and the sample's colours read from: the player's own
-     *     theme, or the open chapter's composed one while the chapter target is on. Passed in rather than
-     *     read from {@code ClientAppearance} here, so this panel has one source of truth and the chapter
-     *     target is a choice made by the screen rather than a branch in every drawing method.
-     * @param radius the corner radius in force for that target
-     * @param radiusChosen whether the target itself pins the radius, rather than inheriting the theme's
-     * @param background the canvas background in force for that target
-     * @param backgroundChosen whether the target itself pins one, rather than inheriting the theme's
-     * @param patternOpacity the alpha of that target's {@code canvasPattern} token, 0..255. Carried
-     *     beside the theme rather than read from it here for the same reason {@code radius} is: the
-     *     panel draws what it was handed, so a chapter's override and the player's own theme cannot be
-     *     two different answers in one frame
+     * <p>Two things, because two things are read. The record used to carry the selected token, the
+     * status line and the radius, all of which the drawing stopped asking for when the band and the
+     * steppers left -- a record that carries what nobody reads is a list of fields to keep passing.
+     *
+     * @param theme the palette the chips and the texture row read from: the player's own theme, or the
+     *     open chapter's composed one while the chapter target is on. Passed in rather than read from
+     *     {@code ClientAppearance} here, so this panel has one source of truth and the chapter target is
+     *     a choice made by the screen rather than a branch in every drawing method.
+     * @param background the canvas background in force for that target, for the texture row's thumbnail
      */
-    public record State(String selected, String feedback, boolean feedbackIsError, boolean hexEditable,
-                        dev.ellipog.armature.client.ui.Theme theme, int radius, boolean radiusChosen,
-                        dev.ellipog.armature.client.ui.CanvasBackground background,
-                        boolean backgroundChosen, int patternOpacity) {
+    public record State(dev.ellipog.armature.client.ui.Theme theme,
+                        dev.ellipog.armature.client.ui.CanvasBackground background) {
     }
 
     /**
@@ -93,43 +82,21 @@ public final class ToolsPanel {
      * the widget pass; what is left here is what has no widget to belong to.
      */
     public static void draw(GuiRenderer r, ToolsLayout.Frame frame, Viewport list, Layout layout,
-                            List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY,
-                            ToolsLayout.Tab tab) {
+                            List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY) {
         drawChrome(r, frame, state);
-        drawTitle(r, frame, tab);
         drawRows(r, frame.list(), list, layout, rows, state, mouseX, mouseY);
     }
 
     /**
-     * The drawer's name, at the left of its title band.
+     * The panel's own surface: the thing every tab draws the same way.
      *
-     * <p>The menu button at the band's right is a widget; the name is not, because a label the player
-     * cannot press has no reason to be one. "Chapter Properties" rather than the panel's old tab word:
-     * the band is a title now, and a title says what the rows below it are.
-     */
-    private static void drawTitle(GuiRenderer r, ToolsLayout.Frame frame, ToolsLayout.Tab tab) {
-        BookGeometry.Rect label = ToolsLayout.titleLabel(frame.title());
-        String text = Labels.of(tab == ToolsLayout.Tab.CHAPTER
-                ? "tasked.dev.tools.chapter_properties" : "tasked.dev.tools.book_properties");
-        r.text(Measure.truncate(text, label.width(), textMeasure(r)), label.x(),
-                label.y() + (label.height() - r.lineHeight()) / 2, ArmatureTheme.title());
-    }
-
-    /**
-     * The panel's own surface and its one-line status: the two things every tab draws the same way.
-     *
-     * <p>One method because both tabs paint them, and the chapter tab's copy had already drifted — it
-     * fell back to the edit-mode hint where the book tab draws nothing. A caller that wants the hint
-     * draws it after this, in the band this leaves empty when there is no feedback.
+     * <p>One method because both tabs paint it. It used to draw the one-line status too; that line is
+     * gone -- every message it carried is toasted as it happens, so it was a second copy in a band of
+     * its own.
      */
     public static void drawChrome(GuiRenderer r, ToolsLayout.Frame frame, State state) {
         ArmatureTheme.panel(r, frame.panel().x(), frame.panel().y(), frame.panel().width(),
                 frame.panel().height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        if (state.feedback() != null && !state.feedback().isEmpty()) {
-            r.text(Measure.truncate(state.feedback(), frame.feedback().width(), textMeasure(r)),
-                    frame.feedback().x(), frame.feedback().y(),
-                    state.feedbackIsError() ? ArmatureTheme.blocked() : ArmatureTheme.faint());
-        }
     }
 
     /**

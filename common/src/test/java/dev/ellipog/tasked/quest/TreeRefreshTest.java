@@ -36,6 +36,43 @@ class TreeRefreshTest {
     }
 
     @Test
+    @DisplayName("a table-only request runs the table refresh, and a quest edit's runs the full one")
+    void theTwoKindsOfRefreshAreDifferent() {
+        // The bug this pins: a weight press paid for the whole pack. A table edit re-read and
+        // re-validated every quest file and re-synced every player's progress -- work a reward table
+        // cannot have changed -- because the flag said only "something moved".
+        AtomicInteger full = new AtomicInteger();
+        AtomicInteger tables = new AtomicInteger();
+
+        TreeRefresh.requestTables();
+        assertEquals(TreeRefresh.Touch.TABLES, TreeRefresh.pendingTouch());
+        TreeRefresh.flush(full::incrementAndGet, tables::incrementAndGet);
+        assertEquals(1, tables.get(), "a table edit takes the table refresh");
+        assertEquals(0, full.get(), "and not the full one");
+
+        TreeRefresh.request();
+        assertEquals(TreeRefresh.Touch.ALL, TreeRefresh.pendingTouch());
+        TreeRefresh.flush(full::incrementAndGet, tables::incrementAndGet);
+        assertEquals(1, full.get(), "a quest edit takes the full refresh");
+        assertEquals(1, tables.get(), "and the table refresh is not run as well");
+    }
+
+    @Test
+    @DisplayName("a full refresh wins when both are asked for in one tick")
+    void theFullRefreshSubsumesTheTableOne() {
+        AtomicInteger full = new AtomicInteger();
+        AtomicInteger tables = new AtomicInteger();
+
+        TreeRefresh.requestTables();
+        TreeRefresh.request();
+
+        assertEquals(TreeRefresh.Touch.ALL, TreeRefresh.pendingTouch());
+        TreeRefresh.flush(full::incrementAndGet, tables::incrementAndGet);
+        assertEquals(1, full.get());
+        assertEquals(0, tables.get(), "one flush, and it is the one that covers both");
+    }
+
+    @Test
     @DisplayName("a request that arrives during the flush arms the next one")
     void aRequestDuringTheFlushIsNotLost() {
         AtomicInteger flushes = new AtomicInteger();

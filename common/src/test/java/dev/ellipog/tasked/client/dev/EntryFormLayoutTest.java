@@ -192,8 +192,11 @@ class EntryFormLayoutTest {
         // The badge's line, then one line per packed line of fields, then the row that opens the
         // condition picker -- and the card's own arithmetic turns that into pixels, so a form and the
         // rows below it cannot disagree.
-        assertEquals(5, 1 + distinctLineCount(form.cells()),
-                "badge, item, count+consume, match+crafted, optional+checked-every");
+        // The packer puts as many narrow controls on a line as fit, so the common settings -- the three
+        // short switches every reward carries -- share one line rather than stranding the third: that is
+        // what makes them read as a settings row instead of chips floating at the right.
+        assertEquals(4, 1 + distinctLineCount(form.cells()),
+                "badge, item, count+consume, the two matches, the three switches");
         assertEquals(1 + distinctLineCount(form.cells()) + 1, form.lines(),
                 "and the condition picker's row, which every open entry carries");
         assertEquals(EntryFormLayout.lines("tasks", itemTask(), 600), form.lines(),

@@ -33,23 +33,17 @@ import java.util.Objects;
  * few minutes at a time. The cost is that nodes under it are hidden while it is open, which closing it
  * restores.
  *
- * <h2>The four things that make it a tool rather than a word list</h2>
+ * <h2>The two things that make it a tool rather than a word list</h2>
  *
  * <p>Each answers a complaint from the first playtest, and each is a <i>rect</i> here rather than a
  * drawing: the panel is game-free and testable, and the drawing is {@code ToolsPanel}'s.
  *
  * <ul>
- *   <li><b>A live preview</b> ({@link #PREVIEW} pixels of the panel's top, fixed so it never scrolls
- *       away): a sample of the surfaces the open tab edits — the book's own chrome on the book tab, the
- *       graph's nodes and card on the chapter tab, see {@link Sample} — drawn in the theme as it stands.
- *       It is what turns "Raised strip" into <i>that bit</i>.</li>
  *   <li><b>Sections that fold</b>: the palette list and the colours are headings you can collapse,
  *       because forty-one rows and sixteen palettes in one column is a wall.</li>
- *   <li><b>A band that shows values</b>: the selected colour's name and hex, four channels with their
- *       numbers beside two-step buttons, Revert for that colour alone, and one save that names its
- *       file.</li>
- *   <li><b>A feedback line</b> under the title, so what just happened does not have to be found in the
- *       chat behind a panel.</li>
+ *   <li><b>Controls on the rows</b>: a number is dragged or typed where it is named, a colour is a chip
+ *       that opens the picker, and the two actions that write the player's own theme sit at the foot of
+ *       the book tab.</li>
  * </ul>
  */
 public final class ToolsLayout {
@@ -67,27 +61,8 @@ public final class ToolsLayout {
     /** The narrowest panel worth drawing. Below this the canvas keeps its room and the panel clamps. */
     public static final int MIN_WIDTH = 180;
 
-    /**
-     * The drawer's title band: its name at the left, the panel menu at the right.
-     *
-     * <p>It replaced the tab strip the redesign retired -- two equal buttons reading "Theme"/"Quest",
-     * which said what the panel *was* rather than what it was showing. A title with a menu beside it says
-     * the open panel's name and keeps the other one a press away, which is the same information with one
-     * fewer permanent control.
-     */
-    public static final int TITLE_HEIGHT = 16;
-    public static final int FEEDBACK_HEIGHT = 12;
-
-    /**
-     * The Chapter tab's header band: the chapter's icon, its title and its subtitle.
-     *
-     * <p>Fixed above the scrolling rows rather than drawn as the list's first row, because it says
-     * which chapter the fields below belong to -- a name that scrolls away is a column of unlabelled
-     * values. It is also where the icon lives, which is the one place the icon's item id can be seen
-     * as the item it names.
-     */
-    public static final int CHAPTER_HEADER_HEIGHT = 44;
-
+    /** The tab strip: the Book panel and the Chapter panel, side by side above the list. */
+    public static final int TAB_HEIGHT = 16;
     /** One row of a list: a theme, a colour, or a switch. */
     public static final int ROW_HEIGHT = 16;
     public static final int ROW_GAP = 1;
@@ -377,14 +352,12 @@ public final class ToolsLayout {
      * The drawer, and the fixed bands inside it.
      *
      * @param panel    the whole floating column
-     * @param title    the drawer's own row: its name at the left, the panel menu at the right
-     * @param feedback the one-line status under the title
-     * @param header   the open chapter's identity band (chapter tab only)
+     * @param tabs     the tab strip: the Book panel and the Chapter panel
      * @param list     where the scrolling sections live
      * @param actions  Revert and Save (book tab only: a chapter's edits are the chapter file's own)
      */
-    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect title, BookGeometry.Rect feedback,
-                        BookGeometry.Rect header, BookGeometry.Rect list, BookGeometry.Rect actions) {
+    public record Frame(BookGeometry.Rect panel, BookGeometry.Rect tabs, BookGeometry.Rect list,
+                        BookGeometry.Rect actions) {
     }
 
     /** The frame for the book tab. */
@@ -399,10 +372,11 @@ public final class ToolsLayout {
      *
      * <p>Every band is placed from the panel's own rectangle, top to bottom, and the list takes the
      * remainder — one subtraction, so a band added here cannot overlap it. It used to be nine: the sample
-     * card and the colour band with its swatch and channel steppers left for the redesign, and what
-     * replaced them is not only "fewer rows" but "the controls live on the rows". The one asymmetry left
-     * is the actions row, which is the book tab's alone: Revert and Save write the player's own theme
-     * file, and a chapter's edits are the chapter file's own, undone with the editor's undo.
+     * card, the colour band with its swatch and channel steppers, and the chapter's identity ribbon all
+     * left for the redesign, and what replaced them is not only "fewer rows" but "the controls live on the
+     * rows". The one asymmetry left is the actions row, which is the book tab's alone: Revert and Save
+     * write the player's own theme file, and a chapter's edits are the chapter file's own, undone with
+     * the editor's undo.
      *
      * <p>The rail, not the canvas: the drawer starts below the author's pills (see
      * {@code BookGeometry.authorRail}), so the pills never move when it opens and the drawer's first row
@@ -430,19 +404,12 @@ public final class ToolsLayout {
         int cursor = panel.y() + GAP;
         int floor = panel.bottom() - GAP;
 
-        BookGeometry.Rect title = take(x, cursor, inner, TITLE_HEIGHT, floor);
-        cursor = title.bottom();
-        BookGeometry.Rect feedback = take(x, cursor, inner, FEEDBACK_HEIGHT, floor);
-        cursor = feedback.bottom();
+        BookGeometry.Rect tabs = take(x, cursor, inner, TAB_HEIGHT, floor);
+        cursor = tabs.bottom();
 
-        BookGeometry.Rect header = empty(x, cursor);
-        if (tab == Tab.CHAPTER) {
-            // The chapter's identity: its icon and two lines, above the rows that edit it. Read from the
-            // chapter file, so it says what is open rather than what the panel is doing.
-            header = take(x, cursor, inner, CHAPTER_HEADER_HEIGHT, floor);
-            cursor = header.bottom();
-        }
-
+        // No status line under the strip: every message that used to land there also goes to a toast
+        // (see `QuestBookScreen.status`), so the band was a second copy of a thing the player had
+        // already been told.
         int listTop = cursor + SECTION_GAP;
         BookGeometry.Rect actions = empty(x, cursor);
         int listFloor = floor;
@@ -451,7 +418,7 @@ public final class ToolsLayout {
             listFloor = Math.max(listTop, actions.y() - GAP);
         }
         BookGeometry.Rect list = take(x, listTop, inner, Math.max(0, listFloor - listTop), floor);
-        return new Frame(panel, title, feedback, header, list, actions);
+        return new Frame(panel, tabs, list, actions);
     }
 
     /** An empty band: inside whatever rectangle it is asked for, and holding nothing. */
@@ -472,57 +439,29 @@ public final class ToolsLayout {
         return BookGeometry.Rect.at(x, at, width, Math.max(0, Math.min(wanted, floor - at)));
     }
 
-    /**
-     * The chapter header band's parts: the icon's box, and the two lines of text beside it.
-     *
-     * <p>Here rather than in the drawing for the same reason every other rectangle in this class is: the
-     * icon is also a thing a press could land on one day, and the box it is drawn in has to be the box
-     * it is hit-tested by. The parts are clamped into the band in both dimensions, so a panel too short
-     * for its own header yields zero-height parts rather than ink outside the panel.
-     */
-    public record ChapterHeader(BookGeometry.Rect icon, BookGeometry.Rect title,
-                                BookGeometry.Rect subtitle) {
-    }
-
-    /** The header band's parts, from the band the frame placed. */
-    public static ChapterHeader chapterHeader(BookGeometry.Rect band) {
-        int iconSize = Math.max(0, Math.min(24, band.height() - 8));
-        int iconY = Math.min(band.y() + (band.height() - iconSize) / 2, band.bottom() - iconSize);
-        BookGeometry.Rect icon = BookGeometry.Rect.at(band.x() + 2, iconY, iconSize, iconSize);
-
-        int textX = Math.min(icon.right() + 8, band.right());
-        int textWidth = Math.max(0, band.right() - textX);
-        int titleHeight = Math.max(0, Math.min(12, band.height() - 6));
-        int titleY = Math.min(band.y() + 6, band.bottom() - titleHeight);
-        BookGeometry.Rect title = BookGeometry.Rect.at(textX, titleY, textWidth, titleHeight);
-
-        int subtitleHeight = Math.max(0, Math.min(10, band.bottom() - title.bottom() - 2));
-        int subtitleY = Math.min(title.bottom() + 2, band.bottom() - subtitleHeight);
-        BookGeometry.Rect subtitle = BookGeometry.Rect.at(textX, subtitleY, textWidth, subtitleHeight);
-        return new ChapterHeader(icon, title, subtitle);
-    }
-
     // ------------------------------------------------------------------
     // The rows
     // ------------------------------------------------------------------
 
     /**
-     * The panel menu's button: the triangle at the title band's right.
+     * The tab strip's two buttons, side by side in the band above the status line.
      *
-     * <p>A menu rather than two tab buttons, because the band is the drawer's title row now and a title
-     * with two equal halves under it is what the redesign retired. The menu lists the same two panels the
-     * tabs did, so nothing became unreachable -- it became a menu.
+     * <p>Equal halves with the panel's own gap between them, because the two tabs are peers -- neither is
+     * "the panel" and the other is "the other thing" -- and the strip is the band's whole width, so a
+     * wider panel widens both tabs. It is the arrangement the drawer had before the redesign's short-lived
+     * title menu, restored because a dropdown that hides one of two options is a worse control than the
+     * two options themselves.
      */
-    public static BookGeometry.Rect titleMenu(BookGeometry.Rect title) {
-        int width = Math.min(84, Math.max(0, title.width() - 40));
-        return BookGeometry.Rect.at(title.right() - width, title.y(), width, title.height());
+    public static BookGeometry.Rect tabBook(BookGeometry.Rect tabs) {
+        return BookGeometry.Rect.at(tabs.x(), tabs.y(),
+                Math.max(0, (tabs.width() - GAP) / 2), tabs.height());
     }
 
-    /** The room the title itself keeps: what is left of the band after the menu and its gap. */
-    public static BookGeometry.Rect titleLabel(BookGeometry.Rect title) {
-        BookGeometry.Rect menu = titleMenu(title);
-        return BookGeometry.Rect.at(title.x(), title.y(),
-                Math.max(0, menu.x() - GAP - title.x()), title.height());
+    /** The Chapter half, in what the Book half leaves. */
+    public static BookGeometry.Rect tabChapter(BookGeometry.Rect tabs) {
+        BookGeometry.Rect book = tabBook(tabs);
+        return BookGeometry.Rect.at(book.right() + GAP, tabs.y(),
+                Math.max(0, tabs.right() - book.right() - GAP), tabs.height());
     }
 
     /**

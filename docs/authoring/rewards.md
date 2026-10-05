@@ -176,6 +176,18 @@ A table is a list of entries, each an ordinary reward with a weight:
 | `entries` | — | The table. Each entry is a `reward` and a `weight`. |
 | `emptyWeight` | `0` | The chance of nothing on a throw, against the positive weights. Only `tasked:loot` includes it. |
 | `lootSize` | `1` | How many times the dice are thrown. |
+| `title` | the id | What the in-game editor calls the table. Absent, the id is opened out: `tier_1_ores` reads as "Tier 1 ores". |
+| `icon` | see below | The item the editor's table browser draws for it: `{ "item": "minecraft:iron_ingot" }`, with an optional `count` and `components` — the same shape a quest's `icon` uses. |
+| `uid` | — | The editor's handle for a table written `inline`. A table in its own file does not need one, and the loader ignores it there. |
+
+An absent `icon` is not a blank row: the editor draws the first entry that has an item, so a table of
+ore drops shows an ore rather than the chest every table reward type carries. A table of experience or
+commands — entries with no item of their own — falls back to that entry's type icon, and an empty
+table to paper.
+
+> [!NOTE]
+> `title`, `icon` and `uid` are for the editor and change nothing about a roll. They are optional, so
+> every table written before them still reads, and a file never needs them to work.
 
 A `weight` is how much of the table's probability space an entry takes; its chance is its weight over
 the total. **A weight of zero means always granted** — once per roll call — which is how a table says
@@ -188,3 +200,38 @@ the total. **A weight of zero means always granted** — once per roll call — 
 
 A table that does not resolve — a typo in `table`, or a file that failed validation — logs a warning
 once and grants nothing. That is an author's mistake, not a crash.
+
+## Editing a table in game
+
+Nothing above has to be typed. A `tasked:random`, `tasked:loot`, `tasked:all_table` or `tasked:choice`
+reward's **Table** field is a card: it shows the table's icon, its name and its entry count, and it
+opens two panels.
+
+**The browser** (`Click to select or create a table`) lists every table the pack has, searchable by
+name or id, with `Edit`, `Copy` and `×` on each row and one button that makes one:
+
+- **New table** — a file under `reward_tables/`, with the name you give it.
+- **None** — clears the field, so the reward rolls no table.
+
+A table written *inside* a reward — the format's own inline shape — still reads and still rolls, but
+the panels no longer make one: a table lives in a file under `reward_tables/` and nowhere else, so
+there is one way to make one and one place to look. A reward holding an inline table shows it as what
+it is, without an edit path into it.
+
+**The editor** (the `Edit` chip) is the table itself:
+
+| | |
+|---|---|
+| **The header** | the title (type it — a blank title falls back to the id), the number of rolls, the entry count, the total weight, and the mode the chances are read as. |
+| **The rows** | one per entry: its icon and name, its weight with a stepper, and **the chance that weight means** — `Always` for a weight of zero, a percentage otherwise, `(per roll)` when the table rolls more than once, with the chance of seeing it *at least once* on hover. |
+| **The fold** | an entry's own fields, exactly as the card draws a reward's: the item (the picker, with the data of the stack you are holding), the count, and — for an entry that is itself a table — a button that opens it, with a breadcrumb back. |
+| **Add item** | the item picker, appending one entry at weight 1. You can also **drag a stack in from EMI or JEI**: it lands where you drop it, with its count and its data. |
+| **Add reward** | any registered reward type — experience, a command, another table — as an entry. |
+| **Import inventory** / **Import chest** | one entry per distinct item you carry, or per item in the container you are looking at. It appends and never touches what is there, and tells you what it did. |
+| **Undo** | the last edit to this table, and stops at the table you opened — a nested table's steps are not its parent's. |
+| **Test roll ×10** | rolls the table (nesting and all) and shows what came up, without granting anything. The server rolls, because only it can see every table the first one reaches. |
+| **Done** | one table back, or out of the panel. `Ctrl+Z` undoes your edits here — and stops at the table you opened. |
+
+Two things are commands rather than buttons, because they need the crosshair and a screen captures the
+mouse: `/tasked table import <id>` and `/tasked table export <id>` read and fill the container you are
+looking at. See [commands](../commands.md).

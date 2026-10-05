@@ -32,6 +32,25 @@ block's level.
 | `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |
 | `/tasked config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tasked reload`. A player's own theme, motion and radius are theirs, in the quest book's Settings card. |
 
+## Reward tables
+
+Tables live in `config/tasked/quests/reward_tables/<id>.json` and are pointed at by the four table
+reward types — see [rewards](authoring/rewards.md). These commands are for the two things an editor
+cannot do, because a screen captures the mouse: reading a chest into a table, and filling one from it.
+
+| Command | What it does |
+|---|---|
+| `/tasked table list` | Every loaded table: its id, its title, its entry count and how many times it rolls. |
+| `/tasked table roll <id> [rolls]` | Roll a table without granting anything, and print what came up — nesting included, and a nested loot table that paid nothing says so. Clamped to 500 rolls. |
+| `/tasked table import <id>` | Add an entry per distinct item in **the container you are looking at**. Appends: it never touches the entries already there, counts are summed per item (components included, so a named sword is its own entry), and anything clipped to the 6400 limit is named. |
+| `/tasked table export <id>` | Fill **the container you are looking at** with the table's items, one entry's configured count per stack, split into legal stacks. Empty slots only — nothing already in the chest is touched — then your inventory, then the ground, and all three counts are reported. |
+| `/tasked table export <id> here` | The same, skipping the chest: your inventory, then the ground. The way out of a room where every angle within reach hits a wall. |
+| `/tasked table export <id> nested` | The same, resolving nested tables as well — everything the table can produce. The chest is then a **flattened view**: do not import it back into the same table, or its sub-tables become a flat list of entries. |
+| `/tasked table edit <id>` | Open that table's editor in your quest book. Refuses an unknown id in chat rather than opening a modal that can only show a refusal. |
+
+`import` and `export` need a player: a console has no crosshair, no inventory and no feet to drop
+things at.
+
 ## Parties
 
 Party membership is stored and shared by Armature's team API ([[armature:api/teams]]), so the parties

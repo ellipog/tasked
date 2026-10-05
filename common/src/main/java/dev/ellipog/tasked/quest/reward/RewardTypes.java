@@ -59,16 +59,21 @@ public final class RewardTypes {
                     dev.ellipog.tasked.quest.EditorField.flag("ignoreRewardBlocking", "Ignore blocking")
                             .hint("give it even while the team's rewards are being held"));
 
-    /** The four table-backed rewards share one form: a table, or a table written inline. */
+    /**
+     * The four table-backed rewards share one form: <b>one</b> control.
+     *
+     * <p>It used to be two text boxes — an id to type and a JSON blob to paste — which is the state this
+     * whole feature exists to get out of: an author who did not know a table's file name could not set
+     * one, and an author who did had to write the table's body by hand. The control draws the table's
+     * icon and name, opens a browser to choose one, and opens an editor to change one; it owns both the
+     * {@code table} reference and the {@code inline} body beside it, because a reward rolls one table or
+     * the other, never both. See {@code EditorField.Kind.TABLE}.
+     */
     private static final java.util.List<dev.ellipog.tasked.quest.EditorField> TABLE_EDITOR =
             java.util.List.of(
-                    dev.ellipog.tasked.quest.EditorField.text("table", "Table",
-                                    "a loot table from the datapack, without the folder")
-                            .hint("a loot table from the datapack, by id; the client cannot list these, so "
-                                    + "it is typed"),
-                    dev.ellipog.tasked.quest.EditorField.text("inline", "Inline table",
-                                    "the table itself, as JSON, for a reward that is its own roll")
-                            .hint("the table itself as JSON, for a reward that is its own roll"));
+                    dev.ellipog.tasked.quest.EditorField.table("table", "Table")
+                            .hint("the table this reward rolls: press to choose one, or to edit the one "
+                                    + "it has. Tables live in files under reward_tables/."));
 
     /** {@code tasked:item} — some items. */
     public static final QuestRewardType<ItemReward> ITEM = register(

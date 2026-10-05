@@ -220,7 +220,7 @@ public final class QuestSettingsPanel {
                             onScreen.y() + (onScreen.height() - 8) / 2, ArmatureTheme.title());
                     case SHAPE_GRID -> drawShapeGrid(r, onScreen, view, measure);
                     case SLIDER -> drawSlider(r, onScreen, row, view, hovered, mouseX, mouseY);
-                    case STEPPER -> drawStepper(r, onScreen, row, quest, hovered);
+                    case NUMBER -> drawNumberLabel(r, onScreen, row, measure);
                     case SWITCH -> drawSwitch(r, onScreen, row, QuestPanelLayout.flag(quest, row.key()),
                             hovered);
                     case FIELD -> drawFieldLabel(r, onScreen, row, quest, measure);
@@ -325,23 +325,19 @@ public final class QuestSettingsPanel {
         String shown = size || rotation
                 ? (rotation ? ((int) value) + "\u00b0" : String.valueOf((int) value))
                 : trim(value);
-        r.text(shown, strip.right() - QuestSettingsLayout.STEPPER_WIDTH - r.textWidth(shown) - 3,
+        r.text(shown, strip.right() - QuestSettingsLayout.ARROW_WIDTH - r.textWidth(shown) - 3,
                 slot.y() + (slot.height() - 8) / 2, ArmatureTheme.title());
 
         drawStepperArrows(r, strip, hovered, mouseX, mouseY);
     }
 
-    /** A stepper row: label, two arrows and the value between them. */
-    private static void drawStepper(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
-                                    JsonObject quest, boolean hovered) {
-        Slot strip = QuestSettingsLayout.strip(slot);
-        drawRowLabel(r, slot, strip, row.label());
-        String value = displayValue(quest, row.key());
-        r.text(Measure.truncate(value, Math.max(0, strip.width() - 40),
-                        Measure.of(r::textWidth, r.lineHeight())),
-                strip.x() + QuestSettingsLayout.STEPPER_WIDTH + 4,
-                slot.y() + (slot.height() - 8) / 2, ArmatureTheme.title());
-        drawStepperArrows(r, strip, hovered, -1, -1);
+
+    /** A numeric row: the label only; the field beside it is a widget and draws its own box. */
+    private static void drawNumberLabel(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
+                                        Measure measure) {
+        int room = Math.max(0, slot.width() - ScrubField.BOX_WIDTH - 6);
+        r.text(Measure.truncate(Labels.of(row.label()), room, measure), slot.x() + 2,
+                slot.y() + (slot.height() - 8) / 2, ArmatureTheme.body());
     }
 
     /** A switch: the label, and a track whose knob is at one end or the other. */
@@ -411,7 +407,7 @@ public final class QuestSettingsPanel {
                 : QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
         r.text(Measure.truncate(shown, Math.max(0, strip.width() - 40),
                         Measure.of(r::textWidth, r.lineHeight())),
-                strip.x() + QuestSettingsLayout.STEPPER_WIDTH + 4,
+                strip.x() + QuestSettingsLayout.ARROW_WIDTH + 4,
                 slot.y() + (slot.height() - 8) / 2,
                 value.isEmpty() ? ArmatureTheme.faint() : ArmatureTheme.title());
         drawStepperArrows(r, strip, hovered, -1, -1);
@@ -509,7 +505,7 @@ public final class QuestSettingsPanel {
     private static void drawStepperArrows(GuiRenderer r, Slot strip, boolean rowHovered,
                                           double mouseX, double mouseY) {
         for (String way : List.of("down", "up")) {
-            BookGeometry.Rect box = QuestSettingsLayout.stepperBox(strip, way);
+            BookGeometry.Rect box = QuestSettingsLayout.arrowBox(strip, way);
             boolean hot = rowHovered && box.contains(mouseX, mouseY);
             ArmatureTheme.panel(r, box.x(), box.y(), box.width(), box.height(),
                     hot ? Colour.lerp(ArmatureTheme.raised(), ArmatureTheme.title(), 0.12F)

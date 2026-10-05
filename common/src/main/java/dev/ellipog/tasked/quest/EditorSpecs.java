@@ -83,6 +83,11 @@ public final class EditorSpecs {
         if (path.equals("item") || path.equals("icon")) {
             return EditorField.item(path, label);
         }
+        if (path.equals("table")) {
+            // An addon's reward that names a table: the browser and the editor, not a box an author
+            // has to know a file name for.
+            return EditorField.table(path, label);
+        }
         if (path.equals("position")) {
             return EditorField.position(path, label);
         }

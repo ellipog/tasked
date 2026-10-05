@@ -1,0 +1,274 @@
+package dev.ellipog.tasked.client.dev;
+
+import dev.ellipog.tasked.client.BookGeometry;
+
+import java.util.List;
+
+/**
+ * Where the Assets panel's pieces are: the title, the section column, the page, the footer.
+ *
+ * <h2>Why this is a class rather than the screen's own sums</h2>
+ *
+ * <p>For the reason {@link TableEditorLayout} and {@link ChapterPanelLayout} are: every question worth
+ * being wrong about here is arithmetic on integers — which section a press is on, where a list's rows
+ * start, how tall a page's content is, which row a scroll position shows — and arithmetic on integers is
+ * what this project's tests can hold without a client. The screen draws what this says and asks it what a
+ * press means, so the rectangle a row is <i>drawn</i> at and the rectangle it is <i>hit-tested</i> at are
+ * one derivation. That rule is written down because its absence is this panel's whole family of bugs.
+ *
+ * <h2>The shape</h2>
+ *
+ * <pre>
+ *   +------------------------------------------+
+ *   | Assets                                   |   title
+ *   +----------+-------------------------------+
+ *   | Tables   |  Items                        |   sections | page
+ *   | Quests   |  Glowstone Dust x4            |
+ *   | Types    |  ...                          |#
+ *   +----------+-------------------------------+
+ *   |                          New table  Done |   footer
+ *   +------------------------------------------+
+ * </pre>
+ *
+ * <p>The section column is a column rather than a row of tabs because it can grow: a fourth section is a
+ * fourth row here and nothing else moves. The page's scrollbar is inside the page's right edge, which is
+ * the one strip the rows may not be drawn in.
+ */
+public final class AssetsLayout {
+
+    /**
+     * The panel's own chrome, above everything: what this panel is.
+     *
+     * <p>The card chrome's own number rather than one of mine. I wrote twenty here, then read the chrome
+     * this has to line up with: {@code drawModalCardChrome} fills a strip of {@code CARD_HEADER} and draws
+     * the title in its middle, so a different number would have put this panel's content a few pixels into
+     * the strip it is not allowed to use — the sort of fault that reads as "the first row is slightly
+     * wrong" and gets blamed on the row.
+     */
+    public static final int TITLE_HEIGHT = TableEditorLayout.CARD_HEADER;
+
+    /** The air between the card's edge and everything inside it: the card's own inset, for its reason. */
+    public static final int PAD = BookGeometry.MODAL_INSET;
+
+    /** The band the footer's buttons sit in: the card's own footer, where the chrome draws its rule. */
+    public static final int FOOTER_HEIGHT = BookGeometry.MODAL_FOOTER_HEIGHT;
+
+    /** The section column's width. Wide enough for the longest section word and its air. */
+    public static final int SECTION_WIDTH = 76;
+
+    /** The gap between the section column and the page. */
+    public static final int COLUMN_GAP = 6;
+
+    /** One clickable section row. */
+    public static final int SECTION_HEIGHT = 16;
+
+    /** One row of a page: an entry, in both pages. */
+    public static final int ROW_HEIGHT = 18;
+
+    /**
+     * A row's icon, where it has one — a table's or a quest's own.
+     *
+     * <p>The size {@link TableEditorLayout#ICON} already uses for a row's icon, so the two panels' rows
+     * read as the same list. It fits inside {@link #ROW_HEIGHT} with a pixel either side, which is why
+     * adding icons moved no other number.
+     */
+    public static final int ICON = 16;
+
+    /** Where a row's text starts when it has an icon: the icon, its gap, and the row's own inset. */
+    public static final int ICON_TEXT_INSET = ICON + 4;
+
+    /** One row control's width — the copy chip or the ×. */
+    public static final int CHIP = 13;
+
+    /** The air between the row's two controls, so "Copy" and "×" read as two things. */
+    public static final int CHIP_GAP = 4;
+
+    /**
+     * What a row's two controls take at its right end, and therefore what its detail must leave free.
+     *
+     * <p>Here rather than in the drawing because it is a number two places need: the chips are placed from it
+     * and the detail is shifted left by it. The first version had the chips at the row's right edge and the
+     * detail right-aligned under them, which drew "Copy" over "dice" — one number, two owners, and the fault
+     * that follows from that every time.
+     */
+    public static final int CHIPS = CHIP * 2 + CHIP_GAP;
+
+    /**
+     * The air between a row's detail and those controls.
+     *
+     * <p>The first version had four pixels of it, which at a row's own scale read as the id and the word
+     * "Copy" being one string — the screenshot said "diceCopy×". The detail is reference and the controls are
+     * controls; six pixels plus the chip gap is what says so.
+     */
+    public static final int DETAIL_GAP = 6;
+
+    /** A page's own group heading — a chapter on the Quests page, "not loaded" on the Tables page. */
+    public static final int HEADING_HEIGHT = 14;
+
+    /** The scrollbar's strip, inside the page's right edge. Rows are never drawn in it. */
+    public static final int SCROLLBAR = 5;
+
+    /** The panel's sections, in the order they are listed. */
+    public enum Section {
+        /** The pack's reward tables, and the files that did not load. */
+        TABLES,
+        /** Every quest file, grouped by chapter. */
+        QUESTS
+    }
+
+    /**
+     * What a press on a page is looking at.
+     *
+     * <p>A page is a flat list of two kinds of line, and the two are different heights, so "which line is
+     * at this y" is arithmetic rather than a division. Every page is built as this list, which is what lets
+     * one hit test serve all three.
+     */
+    public enum Kind {
+        /** A group's name: not pressable, and taller than nothing but shorter than a row. */
+        HEADING,
+        /** One pressable row. */
+        ROW
+    }
+
+    /** The frame's bands, all inside the card it was given. */
+    public record Frame(BookGeometry.Rect title, BookGeometry.Rect sections, BookGeometry.Rect page,
+                        BookGeometry.Rect footer) {
+
+        /**
+         * The bands, from the card's whole rectangle.
+         *
+         * <p>The card rather than a body inside it, unlike {@link TableEditorLayout}: that panel has a
+         * breadcrumb, a header and a toolbar above its list, and this one has a title and then content.
+         * Deriving a body here only to derive these from it would be an indirection with no reader.
+         */
+        public static Frame of(BookGeometry.Rect card) {
+            BookGeometry.Rect title = BookGeometry.Rect.at(card.x(), card.y(), card.width(),
+                    Math.min(TITLE_HEIGHT, card.height()));
+            int top = title.bottom() + PAD;
+            int bottom = Math.max(top, card.bottom() - FOOTER_HEIGHT);
+            int height = Math.max(0, bottom - top);
+            BookGeometry.Rect sections = BookGeometry.Rect.at(card.x() + PAD, top,
+                    Math.min(SECTION_WIDTH, Math.max(0, card.width() - 2 * PAD)), height);
+            int pageX = sections.right() + COLUMN_GAP;
+            BookGeometry.Rect page = BookGeometry.Rect.at(pageX, top,
+                    Math.max(0, card.right() - PAD - pageX), height);
+            BookGeometry.Rect footer = BookGeometry.Rect.at(card.x(), card.bottom() - FOOTER_HEIGHT,
+                    card.width(), Math.min(FOOTER_HEIGHT, card.height()));
+            return new Frame(title, sections, page, footer);
+        }
+
+        /** One section row, clamped to the column: the last one is never past its bottom. */
+        public BookGeometry.Rect section(int index) {
+            int y = sections.y() + index * SECTION_HEIGHT;
+            int height = Math.max(0, Math.min(SECTION_HEIGHT, sections.bottom() - y));
+            return BookGeometry.Rect.at(sections.x(), y, sections.width(), height);
+        }
+
+        /** The band a page's lines are drawn in and clipped to: the page, less the scrollbar's strip. */
+        public BookGeometry.Rect rows() {
+            return BookGeometry.Rect.at(page.x(), page.y(), Math.max(0, page.width() - SCROLLBAR),
+                    page.height());
+        }
+
+        /** The scrollbar's strip, inside the page's right edge. */
+        public BookGeometry.Rect scrollbar() {
+            return BookGeometry.Rect.at(page.right() - SCROLLBAR, page.y(), SCROLLBAR, page.height());
+        }
+    }
+
+    /**
+     * Which section a point is on, or null.
+     *
+     * <p>Null rather than a default, because the caller has to distinguish "a press on a section" from "a
+     * press on the page" — and a method that answered {@code TABLES} for a point over the page would make
+     * every row press change the section.
+     */
+    public static Section sectionAt(Frame frame, int mouseX, int mouseY) {
+        if (!frame.sections().contains(mouseX, mouseY)) {
+            return null;
+        }
+        Section[] all = Section.values();
+        for (int i = 0; i < all.length; i++) {
+            BookGeometry.Rect row = frame.section(i);
+            if (row.contains(mouseX, mouseY)) {
+                return all[i];
+            }
+        }
+        return null;
+    }
+
+    /** How tall one line is, by kind. */
+    public static int lineHeight(Kind kind) {
+        return kind == Kind.HEADING ? HEADING_HEIGHT : ROW_HEIGHT;
+    }
+
+    /** The y a line starts at, relative to the page's first line. */
+    public static int lineTop(List<Kind> lines, int index) {
+        int y = 0;
+        for (int i = 0; i < index && i < lines.size(); i++) {
+            y += lineHeight(lines.get(i));
+        }
+        return y;
+    }
+
+    /** How tall a page's content is: the sum of its lines. */
+    public static int contentHeight(List<Kind> lines) {
+        return lineTop(lines, lines.size());
+    }
+
+    /**
+     * The line at a page-relative y, or -1 for a y past the content.
+     *
+     * <p>Page-relative means the caller has already taken the scroll off, which is the same rule
+     * {@link TableEditorLayout#dropIndexAt} follows: one place decides what a coordinate means, and it is
+     * the place that knows the scroll.
+     */
+    public static int lineAt(List<Kind> lines, int y) {
+        if (y < 0) {
+            return -1;
+        }
+        int top = 0;
+        for (int i = 0; i < lines.size(); i++) {
+            int next = top + lineHeight(lines.get(i));
+            if (y < next) {
+                return i;
+            }
+            top = next;
+        }
+        return -1;
+    }
+
+    /**
+     * The furthest a page may be scrolled, given the band it is drawn in.
+     *
+     * <p>Zero when the content fits, which is what stops a short page honouring a wheel notch it cannot
+     * take — the same clamp the table panels do, in one place rather than at each wheel site.
+     */
+    public static int maxScroll(List<Kind> lines, int bandHeight) {
+        return Math.max(0, contentHeight(lines) - bandHeight);
+    }
+
+    /**
+     * The thumb of the page's scrollbar, or null when there is nothing to scroll.
+     *
+     * <p>Arithmetic rather than a viewport because the three pages scroll by lines of two heights and the
+     * bar has to say where in that they are; null rather than a full-height thumb for content that fits,
+     * because a bar that is always there is a bar that says nothing.
+     */
+    public static BookGeometry.Rect thumb(List<Kind> lines, BookGeometry.Rect band, int scroll) {
+        int content = contentHeight(lines);
+        if (content <= band.height() || band.height() <= 0) {
+            return null;
+        }
+        int height = Math.max(6, band.height() * band.height() / content);
+        int travel = band.height() - height;
+        int at = maxScroll(lines, band.height()) == 0
+                ? 0
+                : travel * Math.max(0, Math.min(scroll, maxScroll(lines, band.height())))
+                        / maxScroll(lines, band.height());
+        return BookGeometry.Rect.at(band.x(), band.y() + at, band.width(), height);
+    }
+
+    private AssetsLayout() {
+    }
+}

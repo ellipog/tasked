@@ -238,6 +238,19 @@ public final class ClientQuestCache {
     }
 
     /**
+     * One reward table, as the editor's browser lists it.
+     *
+     * <p>A summary rather than the table: the entries are wanted by the one panel that is editing a
+     * table, and that panel asks for the file. What every editor needs — a browser row, and the badge
+     * on a reward that points at one — is a name, an icon and a count.
+     *
+     * @param title   what to call it: the author's own title, or the id opened out
+     * @param iconId  the item id as written, kept beside the resolved stack so a missing item can say so
+     */
+    public record TableSummary(String id, String title, ItemStack icon, String iconId, int entries) {
+    }
+
+    /**
      * One quest, as the client needs it.
      *
      * <p>{@code shape} is held as the resolved enum rather than the string that arrived, for the same
@@ -450,6 +463,12 @@ public final class ClientQuestCache {
      * every client did before the list existed. So absence is a fallback rather than a special case.
      */
     private static volatile List<ChapterEntry> chapters = List.of();
+
+    /** The reward tables the server declared, for the editor's browser. Empty on an older server. */
+    private static volatile List<TableSummary> tables = List.of();
+
+    /** The table files the load refused, with their reasons. Beside {@link #tables}, never inside it. */
+    private static volatile List<RefusedTable> refusedTables = List.of();
 
     private static volatile Map<String, Progress> progress = Map.of();
     private static volatile UUID teamId;
@@ -743,8 +762,19 @@ public final class ClientQuestCache {
      */
     public static boolean canClaimReward(UUID player, String questId, int rewardIndex) {
         Entry entry = entry(questId);
-        Progress found = progress.get(questId);
-        if (entry == null || found == null || player == null
+        return entry != null && canClaimReward(player, entry, rewardIndex);
+    }
+
+    /**
+     * The same, for a caller that already holds the entry.
+     *
+     * <p>Because the id lookup is a walk of the whole tree, and the rewards panel's filter asks this
+     * per reward per frame: without this overload a five-hundred-quest pack would answer one frame's
+     * question with half a million comparisons.
+     */
+    public static boolean canClaimReward(UUID player, Entry entry, int rewardIndex) {
+        Progress found = progress.get(entry.id());
+        if (found == null || player == null
                 || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
             return false;
         }
@@ -984,6 +1014,8 @@ public final class ClientQuestCache {
         entries = List.of();
         groups = List.of();
         chapters = List.of();
+        tables = List.of();
+        refusedTables = List.of();
         progress = Map.of();
         teamId = null;
         questCount = 0;
@@ -1061,6 +1093,33 @@ public final class ClientQuestCache {
                         str(chapter, "title"),
                         stack(str(chapter, "icon"), 1, chapter.get("iconComponents")),
                         str(chapter, "icon")));
+            }
+        }
+
+        // The reward tables, when the server sent any. Absent means a server older than version 11:
+        // the editor's browser then lists nothing, which is the truth about that server rather than an
+        // error. The key's presence is the fact, as it is for groups and chapters above.
+        List<TableSummary> parsedTables = new ArrayList<>();
+        if (root.has("rewardTables")) {
+            for (JsonElement element : root.getAsJsonArray("rewardTables")) {
+                JsonObject table = element.getAsJsonObject();
+                parsedTables.add(new TableSummary(
+                        str(table, "id"),
+                        str(table, "title"),
+                        stack(str(table, "icon"), 1, table.get("iconComponents")),
+                        str(table, "icon"),
+                        table.has("entries") ? table.get("entries").getAsInt() : 0));
+            }
+        }
+
+        // The tables that did not load, when the server sent any. A server older than this version sends
+        // none, which reads as "every table loaded" — true of what it told us, and the panel says nothing
+        // rather than claiming a file is fine.
+        List<RefusedTable> parsedRefused = new ArrayList<>();
+        if (root.has("refusedTables")) {
+            for (JsonElement element : root.getAsJsonArray("refusedTables")) {
+                JsonObject refused = element.getAsJsonObject();
+                parsedRefused.add(new RefusedTable(str(refused, "id"), str(refused, "why")));
             }
         }
 
@@ -1203,6 +1262,42 @@ public final class ClientQuestCache {
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
         chapters = List.copyOf(parsedChapters);
+        tables = List.copyOf(parsedTables);
+        refusedTables = List.copyOf(parsedRefused);
+    }
+
+    /** The reward tables the server declared, in id order. Never null; empty before a tree arrives. */
+    public static List<TableSummary> tables() {
+        return tables;
+    }
+
+    /**
+     * The table files that are there and did not load, in id order, each with its reason.
+     *
+     * <p>The counterpart of {@link #tables()} rather than a flag on it: a refused file has no title, no
+     * icon and no entry count, so it is not a summary and cannot be one. It is what the Assets panel lists
+     * under the loaded tables, because a table an author cannot load is the one they most need told about
+     * — and until this existed, the only place it was said was the server's log.
+     */
+    public static List<RefusedTable> refusedTables() {
+        return refusedTables;
+    }
+
+    /** One refused table: its id, and why the load would not take it. */
+    public record RefusedTable(String id, String why) {
+    }
+
+    /** One table's summary, or null when this build has not been told about it. */
+    public static TableSummary table(String id) {
+        if (id == null) {
+            return null;
+        }
+        for (TableSummary summary : tables) {
+            if (summary.id().equals(id)) {
+                return summary;
+            }
+        }
+        return null;
     }
 
     /**

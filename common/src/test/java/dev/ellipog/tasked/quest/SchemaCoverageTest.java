@@ -115,9 +115,41 @@ class SchemaCoverageTest {
     }
 
     @Test
+    @DisplayName("the entry's reward refuses a choice in every schema, as the loader does")
+    void theSchemaRefusesAChoiceEntry() throws IOException {
+        // The schema is what an author's editor reads, so a rule the loader enforces and the schema does
+        // not describe is a rule they learn about from a red file. The other half -- that the validator
+        // really refuses it, with the model's own sentence -- is asserted in QuestValidatorTest; this is
+        // the documentation half, and it is checked rather than read because three copies of this
+        // definition exist and the one that drifts is always the one nobody opened.
+        for (Path schema : List.of(PER_KIND, PUBLISHED, TABLE_KIND)) {
+            JsonObject reward = entryReward(schema);
+            assertTrue(reward.has("not"), () -> schema + " no longer restricts what an entry may be");
+
+            String exclusion = reward.get("not").toString();
+            assertTrue(exclusion.contains("tasked:choice"),
+                    () -> schema + " does not say that a choice cannot be an entry: " + exclusion);
+            assertTrue(exclusion.contains("conditions"),
+                    () -> schema + " lost the conditions restriction on an entry: " + exclusion);
+        }
+    }
+
+    /**
+     * The entry's {@code reward} definition, which sits at a table file's root in its own schema and
+     * under {@code definitions.rewardTable} in the two quest schemas.
+     */
+    private static JsonObject entryReward(Path schema) throws IOException {
+        JsonObject root = read(schema);
+        JsonObject table = root.has("definitions")
+                ? root.getAsJsonObject("definitions").getAsJsonObject("rewardTable")
+                : root;
+        return table.getAsJsonObject("properties").getAsJsonObject("entries")
+                .getAsJsonObject("items").getAsJsonObject("properties").getAsJsonObject("reward");
+    }
+
+    @Test
     @DisplayName("every quest-level rule is documented, in both schemas")
-    void everyRuleIsDocumented() throws IOException {
-        for (Path schema : List.of(PER_KIND, PUBLISHED)) {
+    void everyRuleIsDocumented() throws IOException {        for (Path schema : List.of(PER_KIND, PUBLISHED)) {
             Set<String> documented = questFields(schema);
 
             Set<String> missing = new TreeSet<>(QuestRules.FIELDS);

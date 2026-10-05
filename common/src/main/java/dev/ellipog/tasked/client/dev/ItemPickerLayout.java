@@ -50,10 +50,26 @@ public final class ItemPickerLayout {
     /**
      * One row of the picker.
      *
-     * <p>{@code id} is empty for a heading; {@code secondary} is the count for a carried stack, or the
-     * note that says why a missing row is missing.
+     * <p>{@code id} is empty for a heading; {@code secondary} is the id a file spells, or the note that
+     * says why a missing row is missing.
+     *
+     * <p>{@code count} is the size of the stack this row stands for, and it is a field rather than part
+     * of the label because a caller has to be able to <i>use</i> it: the label says "x128 Iron Ore" for a
+     * person to read, and a table entry built from that row has to become 128 iron rather than one. It
+     * was formatted into the label and nowhere else, so the picker showed a number and then threw it
+     * away — while a recipe-viewer drop of the same stack carried it. One is the floor: everything that
+     * is not a stack (a heading, a clear, a miss) stands for one thing.
      */
-    public record Row(Kind kind, String id, String label, String secondary) {
+    public record Row(Kind kind, String id, String label, String secondary, int count) {
+
+        public Row {
+            count = Math.max(1, count);
+        }
+
+        /** A row that is not a stack: a heading, a clear row, a missing id, a texture. */
+        public static Row of(Kind kind, String id, String label, String secondary) {
+            return new Row(kind, id, label, secondary, 1);
+        }
     }
 
     /**
@@ -116,13 +132,13 @@ public final class ItemPickerLayout {
         if (current.clearable() && !current.id().isEmpty()) {
             // The row the caller has already decided is legal -- it is only ever offered for the
             // quest's icon, where "clear" means the optional field goes and the default applies.
-            rows.add(new Row(Kind.CLEAR, "", Labels.of("tasked.dev.picker.clear"),
+            rows.add(Row.of(Kind.CLEAR, "", Labels.of("tasked.dev.picker.clear"),
                     Labels.of("tasked.dev.picker.clear_detail")));
         }
         if (!current.id().isEmpty() && !current.known()) {
             // The field's own value when the build cannot resolve it: what a mod that went away looks
             // like. Shown so it is never silent, and pickable so pressing it keeps it.
-            rows.add(new Row(Kind.MISSING, current.id(), current.id(),
+            rows.add(Row.of(Kind.MISSING, current.id(), current.id(),
                     Labels.of("tasked.dev.picker.missing")));
         }
         boolean results = !matches.isEmpty() || typedCandidate != null;
@@ -133,7 +149,7 @@ public final class ItemPickerLayout {
         if (show) {
             rows.add(heading(heading == null ? Labels.of("tasked.dev.picker.all_items") : heading));
             if (typedCandidate != null) {
-                rows.add(new Row(Kind.MISSING, typedCandidate, typedCandidate,
+                rows.add(Row.of(Kind.MISSING, typedCandidate, typedCandidate,
                         Labels.of("tasked.dev.picker.not_installed")));
             }
             for (ItemPicker.Entry entry : matches) {
@@ -252,7 +268,7 @@ public final class ItemPickerLayout {
     }
 
     private static Row heading(String label) {
-        return new Row(Kind.HEADING, "", label, "");
+        return Row.of(Kind.HEADING, "", label, "");
     }
 
     private static Row item(ItemPicker.Entry entry) {
@@ -262,7 +278,9 @@ public final class ItemPickerLayout {
         // because it is the one thing about a carried stack that is not already in the id.
         String name = entry.label() == null || entry.label().isBlank() ? entry.id() : entry.label();
         String counted = entry.count() > 1 ? "x" + entry.count() + " " + name : name;
-        return new Row(Kind.ITEM, entry.id(), counted, entry.id());
+        // And the count travels as well as being printed: whatever this row is used to build takes the
+        // stack's size, so the number on screen is the number that lands in the file.
+        return new Row(Kind.ITEM, entry.id(), counted, entry.id(), entry.count());
     }
 
     private ItemPickerLayout() {

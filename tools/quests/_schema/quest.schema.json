@@ -290,7 +290,19 @@
           "default": 1,
           "description": "How many times the dice are thrown."
         },
-        "entries": {
+                "title": {
+          "type": "string",
+          "description": "What the table is called in the editor and on a reward's badge. Absent or blank falls back to the id, opened out: `tier_1_ores` reads as \"Tier 1 ores\"."
+        },
+        "icon": {
+          "$ref": "#/definitions/itemRef",
+          "description": "The item a browser row or a reward badge draws for this table. Absent means the first entry that has an item, then that entry's reward type's icon."
+        },
+        "uid": {
+          "type": "string",
+          "description": "The editor's handle for a table written `inline` in a quest or in another table: it is what the editor addresses when a reward sits above or below it in a list. A table in its own file under `reward_tables/` is addressed by its file name, does not use this, and the loader ignores it there."
+        },
+"entries": {
           "type": "array",
           "items": {
             "type": "object",
@@ -305,8 +317,17 @@
               },
               "reward": {
                 "allOf": [ { "$ref": "#/definitions/anyType" } ],
-                "not": { "type": "object", "required": ["conditions"] },
-                "description": "The reward this entry grants. All of anyType except `conditions`, which cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. Put conditions on the table reward itself."
+                "not": {
+                  "anyOf": [
+                    { "type": "object", "required": ["conditions"] },
+                    {
+                      "type": "object",
+                      "required": ["type"],
+                      "properties": { "type": { "const": "tasked:choice" } }
+                    }
+                  ]
+                },
+                "description": "The reward this entry grants. All of anyType except two things. `conditions` cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. And `tasked:choice` cannot be an entry at all: a roll hands its entries out rather than offering them, so a choice entry is skipped. Put conditions on the table reward itself, and a choice on a quest."
               }
             }
           }

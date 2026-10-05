@@ -158,9 +158,16 @@ public final class QuestValidator {
         }
         Checks.rejectUnknown(document, "$", withSchema(dev.ellipog.tasked.quest.loot.RewardTable.FIELDS),
                 problems);
+        checkTableBounds(document, problems);
         var entries = Checks.array(document, "$.entries", problems);
         if (entries == null) {
             return;
+        }
+        if (entries.isEmpty()) {
+            // A warning rather than an error: a table an author has made and not filled in yet is a
+            // placeholder, the same way a file with no chapterGroups is. It is still worth saying,
+            // because a roll of it grants nothing and the file looks finished.
+            problems.warn(document, "$.entries", "this table has no entries: a roll of it grants nothing");
         }
         for (int i = 0; i < entries.size(); i++) {
             String path = "$.entries[" + i + "]";
@@ -171,6 +178,52 @@ public final class QuestValidator {
                     dev.ellipog.tasked.quest.loot.RewardTable.Entry.FIELDS, problems);
             checkTableEntryReward(document, path + ".reward", problems);
         }
+    }
+
+    /**
+     * The two numbers a table carries, against the bounds the roll and the codec enforce.
+     *
+     * <h2>Why {@code emptyWeight} has two severities and not one</h2>
+     *
+     * <p>A weight that is not a finite number is an <b>error</b>, because it breaks the arithmetic rather
+     * than the author's intent: every comparison against an infinity or a NaN is false, so no weighted
+     * throw ever lands and the table silently grants only its guaranteed entries — a table that looks
+     * weighted and pays like an unweighted one. It arrives as a number that overflowed, not as the
+     * literal {@code Infinity}: this project's parser refuses that spelling, along with {@code NaN},
+     * before a validator ever sees the file, which is the right place for that refusal.
+     *
+     * <p>A finite negative is a <b>warning</b>: the roll reads it as zero ({@code RewardTable.rollIndices}
+     * clamps), which is a defined answer, and it is the behaviour every file with one already gets — so
+     * refusing the file would turn a working pack into one that does not load, over a number the loader
+     * can already read. The split is on "does the arithmetic still mean something", not on tidiness.
+     *
+     * <p>A value that is not a number at all is left to the codec, which reports it in its own words at
+     * the same path: one mistake, one message.
+     */
+    private static void checkTableBounds(JsonDocument document, Problems problems) {
+        var weight = document.get("$.emptyWeight").orElse(null);
+        if (weight != null && weight.isJsonPrimitive() && weight.getAsJsonPrimitive().isNumber()) {
+            double value = weight.getAsDouble();
+            if (!Double.isFinite(value)) {
+                problems.error(document, "$.emptyWeight",
+                        "emptyWeight is " + value + ", which is not a number a roll can use: every "
+                                + "weighted throw would compare false, so this table would grant its "
+                                + "guaranteed entries and nothing else. Set it to 0 for no empty band.");
+            }
+            else if (value < 0) {
+                problems.warn(document, "$.emptyWeight",
+                        "emptyWeight is negative, and a negative weight is read as 0 - so this table "
+                                + "has no empty band");
+            }
+        }
+        Checks.optionalInt(document, "$.lootSize", problems).ifPresent(size -> {
+            if (size < dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MIN
+                    || size > dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MAX) {
+                problems.error(document, "$.lootSize", "lootSize must be between "
+                        + dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MIN + " and "
+                        + dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MAX + ", found " + size);
+            }
+        });
     }
 
     public static void validateGroupDocument(JsonDocument document, Problems problems) {
@@ -859,6 +912,22 @@ public final class QuestValidator {
                             + "by the roll, not claimed, so a gate here would be validated and then "
                             + "ignored - put the conditions on the table reward itself, or move this "
                             + "reward out of the table");
+        }
+        // And the other thing a roll cannot do: offer a choice. The engine skips such an entry with a
+        // log line (see TableReward.grantAll), which is the runtime's last resort rather than a
+        // message an author reads -- so the file says it here, where the line number is. The sentence
+        // comes from the model, so the editor's picker -- which draws this type blocked with the same
+        // words -- cannot describe the rule differently from the loader that enforces it.
+        if (document.has(rewardPath + ".type")) {
+            Checks.optionalString(document, rewardPath + ".type", problems).ifPresent(type -> {
+                net.minecraft.resources.ResourceLocation id =
+                        net.minecraft.resources.ResourceLocation.tryParse(type);
+                String refusal = id == null ? ""
+                        : dev.ellipog.tasked.quest.reward.TableReward.entryRefusal(id);
+                if (!refusal.isEmpty()) {
+                    problems.error(document, rewardPath + ".type", refusal);
+                }
+            });
         }
     }
 

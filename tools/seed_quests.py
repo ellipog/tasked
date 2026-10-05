@@ -28,6 +28,13 @@ So there are two ways to get a pristine copy, and neither is silent: delete the 
 again, or pass `--force`. `--force` names each file it replaces, so a replace is never something that
 happened while you were not looking.
 
+**One file is merged rather than replaced, even under `--force`: a group manifest.** `group.json` is
+not only an example file -- the editor writes to it too, adding a folder to `chapters` when a chapter
+is created -- and the loader refuses the whole group when a folder is present and unlisted, which
+loads as an empty book with the reason one line up. Replacing the list would orphan the author's
+chapters, so a forced copy keeps the destination's own entries alongside the shipped ones. See
+`merge_group_chapters`.
+
 `--reset` is the third way, and the loudest: it deletes everything in each target's quest directory
 -- every file and folder, not only the ones this script wrote -- and then copies the examples in
 fresh. That is the flag for a wholesale replacement like the one that collapsed twelve example
@@ -218,12 +225,23 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = 
             kept += 1
             continue
 
+        # The group manifest is the one example file the editor also writes to. See the docstring and
+        # `merge_group_chapters`: replacing its `chapters` list with the shipped one would orphan the
+        # author's own chapters, and one unlisted folder makes the loader refuse the whole group.
+        merged = merge_group_chapters(source, destination) \
+            if relative.name == GROUP_MANIFEST else None
+
         if not dry_run:
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
+            if merged is None:
+                shutil.copy2(source, destination)
+            else:
+                destination.write_text(json.dumps(merged[0], indent=2) + "\n", encoding="utf-8")
 
         verb = "~" if existed else "+"
         note = "  [replaced]" if existed else ""
+        if merged is not None:
+            note += "  [kept the author's chapters: " + ", ".join(merged[1]) + "]"
         print(f"  {verb} {relative.as_posix()}  ({source.stat().st_size} bytes){note}")
 
         if existed:
@@ -233,6 +251,39 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = 
 
     removed, survivors = sweep_legacy_flat_files(target, files, dry_run)
     return created, replaced, kept, removed, reset_entries, survivors
+
+
+def merge_group_chapters(source: pathlib.Path, destination: pathlib.Path):
+    """
+    A group manifest with the destination's own chapter list folded into the source's.
+
+    ## Why this one file is merged rather than replaced
+
+    Every other file here is content: replacing it replaces the example. `group.json` is also a
+    *manifest* the editor writes -- creating a chapter adds its folder to `chapters` -- and the loader
+    refuses a whole group when a folder is present and unlisted. That refusal reads as "no quests
+    loaded", the reason one line further up, so a `--force` that clobbered the list would empty the
+    book the author was working in: the very failure this script's "nothing is overwritten unless you
+    say so" rule exists to prevent, arriving through the flag that was supposed to be the safe way to
+    refresh. The union is what the format's own rule asks for -- every chapter folder is listed, or
+    `_`-prefixed to be deliberately out of the way.
+
+    Returns `(manifest, kept)`, or None when the destination is absent, unreadable, or added nothing.
+    """
+    if not destination.exists():
+        return None
+    try:
+        theirs = json.loads(destination.read_text(encoding="utf-8"))
+        ours = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    listed = list(ours.get("chapters", []))
+    kept = [chapter for chapter in theirs.get("chapters", [])
+            if isinstance(chapter, str) and chapter not in listed]
+    if not kept:
+        return None
+    ours["chapters"] = listed + kept
+    return ours, kept
 
 
 def sweep_legacy_flat_files(target: pathlib.Path, files, dry_run: bool):

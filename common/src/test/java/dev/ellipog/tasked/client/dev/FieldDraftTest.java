@@ -33,6 +33,21 @@ class FieldDraftTest {
         return (quest, path) -> value;
     }
 
+    /**
+     * The reward-table panels' shape: a table root, paths relative to it, and an owner that is not a
+     * quest id. The table editor draws from {@code overlaid} with exactly these.
+     */
+    private static JsonObject tableRoot() {
+        JsonObject entry = new JsonObject();
+        entry.addProperty("weight", 4);
+        JsonArray entries = new JsonArray();
+        entries.add(entry);
+        JsonObject table = new JsonObject();
+        table.addProperty("lootSize", 1);
+        table.add("entries", entries);
+        return table;
+    }
+
     @Test
     @DisplayName("the draft answers until a newer copy holds the same value")
     void theDraftWinsUntilTheCopyAgrees() {
@@ -481,5 +496,68 @@ class FieldDraftTest {
             }
             return node;
         };
+    }
+
+    // ------------------------------------------------------------------
+    // The per-owner reconciler, which the table panels use
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a per-owner reconcile judges that owner's drafts and leaves the others alone")
+    void reconcileOwnerLeavesOtherOwnersAlone() {
+        // The bug this pins: `reconcile` walks every draft in a chapter and asks the chapter's copy
+        // about each. A table panel's values are not in that copy at all, so a table draft handed to it
+        // would be judged against the wrong file -- converged or dropped by a value that is not its own.
+        FieldDraft draft = new FieldDraft();
+        draft.set(CHAPTER, "#table:dice", "lootSize", new JsonPrimitive(2), 7L, 0L);
+        draft.set(CHAPTER, "a_quest", "title", new JsonPrimitive("Two"), 7L, 0L);
+
+        // The table's copy arrives holding what was asked for: the table draft goes.
+        draft.reconcileOwner(CHAPTER, "#table:dice", 8L, holding(new JsonPrimitive(2)), 100L);
+        assertNull(draft.value(CHAPTER, "#table:dice", "lootSize"));
+        assertEquals(new JsonPrimitive("Two"), draft.value(CHAPTER, "a_quest", "title"),
+                "and the quest's draft is untouched by a table's copy");
+
+        // And the other way round.
+        draft.set(CHAPTER, "#table:dice", "lootSize", new JsonPrimitive(3), 8L, 100L);
+        draft.reconcile(CHAPTER, 9L, holding(new JsonPrimitive("Two")), 200L);
+        assertEquals(new JsonPrimitive(3), draft.value(CHAPTER, "#table:dice", "lootSize"),
+                "the chapter's reconciler does not judge a table's draft");
+    }
+
+    @Test
+    @DisplayName("forgetOwner drops one owner's drafts, which is what an undo needs")
+    void forgetOwnerDropsOneOwnersDrafts() {
+        // The bug this pins: an undone value stayed masked by its own draft, so Ctrl+Z looked like it
+        // did nothing -- the panel went on drawing the number the server had just put back.
+        FieldDraft draft = new FieldDraft();
+        draft.set(CHAPTER, "#table:dice", "entries.0.weight", new JsonPrimitive(9), 7L, 0L);
+        draft.set(CHAPTER, "#table:dice", "lootSize", new JsonPrimitive(2), 7L, 0L);
+        draft.set(CHAPTER, "a_quest", "title", new JsonPrimitive("Two"), 7L, 0L);
+
+        draft.forgetOwner(CHAPTER, "#table:dice");
+
+        assertNull(draft.value(CHAPTER, "#table:dice", "entries.0.weight"));
+        assertNull(draft.value(CHAPTER, "#table:dice", "lootSize"));
+        assertEquals(new JsonPrimitive("Two"), draft.value(CHAPTER, "a_quest", "title"),
+                "and nothing else goes with it");
+    }
+
+    @Test
+    @DisplayName("an overlay applies a table's own paths, so the editor draws a drafted weight")
+    void anOverlayAppliesTablePaths() {
+        // The editor's paths are relative to the table root: `entries.0.weight`, not `rewards.0.weight`.
+        // The overlay is the one place every read in the panel sees the pending value, which is what
+        // makes the odds, the count and the total move on the press rather than on the replica.
+        FieldDraft draft = new FieldDraft();
+        JsonObject table = tableRoot();
+        draft.set(CHAPTER, "#table:dice", "entries.0.weight", new JsonPrimitive(9), 7L, 0L);
+
+        JsonObject drawn = draft.overlaid(CHAPTER, "#table:dice", table);
+
+        assertEquals(9, drawn.getAsJsonArray("entries").get(0).getAsJsonObject().get("weight").getAsInt());
+        assertEquals(4, table.getAsJsonArray("entries").get(0).getAsJsonObject().get("weight").getAsInt(),
+                "and the tree it was made from is untouched");
+        assertEquals(1, drawn.get("lootSize").getAsInt(), "the rest of the table is the file's");
     }
 }

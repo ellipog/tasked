@@ -81,8 +81,8 @@ public final class QuestSettingsLayout {
     public static final int KNOB_HEIGHT = 12;
 
     /** A stepper's arrow box, and the value's room beside it. */
-    public static final int STEPPER_WIDTH = 16;
-    public static final int STEPPER_HEIGHT = 14;
+    public static final int ARROW_WIDTH = 16;
+    public static final int ARROW_HEIGHT = 14;
     public static final int VALUE_WIDTH = 34;
 
     /** How much padding the node keeps inside the preview pane. */
@@ -195,8 +195,8 @@ public final class QuestSettingsLayout {
             SHAPE_GRID,
             /** A track with a knob, plus steppers for the exact value. */
             SLIDER,
-            /** Two arrows and a value, with a typed field between them. */
-            STEPPER,
+            /** A scrubbable number: dragged or typed at the row, not stepped by arrows. */
+            NUMBER,
             /** A two-state control. */
             SWITCH,
             /** A text field. */
@@ -262,8 +262,8 @@ public final class QuestSettingsLayout {
         rows.add(new Row("h:placement", Row.Kind.HEADING, "tasked.dev.quest.placement"));
         // X and Y are axis letters, not prose: every language names a coordinate the same way, and the
         // sweep's boundary is the same one that leaves ids and enum values alone.
-        rows.add(new Row("x", Row.Kind.STEPPER, "X"));
-        rows.add(new Row("y", Row.Kind.STEPPER, "Y"));
+        rows.add(new Row("x", Row.Kind.NUMBER, "X"));
+        rows.add(new Row("y", Row.Kind.NUMBER, "Y"));
         rows.add(new Row("h:dependencies", Row.Kind.HEADING, "tasked.dev.quest.dependencies"));
         // One row per prerequisite, then the three ways to add one. The list is the point of the
         // section: an author reads what a quest needs before changing what it needs.
@@ -285,12 +285,12 @@ public final class QuestSettingsLayout {
         // The rule the list is judged by, then the two counts that qualify it. FTB Quests' three
         // controls, in its order: the requirement, the minimum, and the cap on dependents.
         rows.add(new Row("prerequisiteMode", Row.Kind.CHOICE, "tasked.dev.quest.requirement"));
-        rows.add(new Row("minRequired", Row.Kind.STEPPER, "tasked.dev.quest.min_required"));
-        rows.add(new Row("maxCompletableDependents", Row.Kind.STEPPER, "tasked.dev.quest.max_dependents"));
+        rows.add(new Row("minRequired", Row.Kind.NUMBER, "tasked.dev.quest.min_required"));
+        rows.add(new Row("maxCompletableDependents", Row.Kind.NUMBER, "tasked.dev.quest.max_dependents"));
         rows.add(new Row("exclusiveGroup", Row.Kind.FIELD, "tasked.dev.quest.exclusive_group"));
         rows.add(new Row("h:visibility", Row.Kind.HEADING, "tasked.dev.quest.visibility"));
         rows.add(switchRow("invisible", "tasked.dev.quest.invisible"));
-        rows.add(new Row("invisibleUntilTasks", Row.Kind.STEPPER, "tasked.dev.quest.visible_after_tasks"));
+        rows.add(new Row("invisibleUntilTasks", Row.Kind.NUMBER, "tasked.dev.quest.visible_after_tasks"));
         rows.add(switchRow("hideUntilDependenciesComplete", "tasked.dev.quest.hide_until_deps_done"));
         rows.add(switchRow("hideUntilDependenciesVisible", "tasked.dev.quest.hide_until_deps_shown"));
         rows.add(switchRow("hideDependencyLines", "tasked.dev.quest.hide_dependency_lines"));
@@ -298,7 +298,7 @@ public final class QuestSettingsLayout {
         rows.add(switchRow("hideDetailsUntilStartable", "tasked.dev.quest.hide_details_until_startable"));
         rows.add(new Row("h:rules", Row.Kind.HEADING, "tasked.dev.quest.rules"));
         rows.add(switchRow("repeatable", "tasked.dev.quest.repeatable"));
-        rows.add(new Row("repeatCooldownTicks", Row.Kind.STEPPER, "tasked.dev.quest.repeat_cooldown"));
+        rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tasked.dev.quest.repeat_cooldown"));
         rows.add(switchRow("sequentialTasks", "tasked.dev.quest.sequential_tasks"));
         // The quest rung of the auto-claim ladder, as a closed set the picker cycles: the unset state
         // means "the chapter decides", which is why it is first and labelled with what it defers to.
@@ -374,7 +374,7 @@ public final class QuestSettingsLayout {
                 // does -- narrows the slot and then takes the strip out of the narrowed slot, so the
                 // controls land a whole strip's width short of the column's edge and the label is
                 // truncated into the space that was reserved for it. One reserve, not two.
-                case VALUE, SLIDER, STEPPER, SWITCH, FIELD, ICON, CHOICE, DEPENDENCY, ACTION ->
+                case VALUE, SLIDER, NUMBER, SWITCH, FIELD, ICON, CHOICE, DEPENDENCY, ACTION ->
                         stack.row(row.key(), ROW_HEIGHT);
             }
         }
@@ -439,8 +439,8 @@ public final class QuestSettingsLayout {
      * value the track cannot reach — a size of 17 on a logarithmic track — is still one press away.
      */
     public static BookGeometry.Rect track(Slot strip) {
-        int left = strip.x() + STEPPER_WIDTH + 4;
-        int right = strip.right() - STEPPER_WIDTH - VALUE_WIDTH - 4;
+        int left = strip.x() + ARROW_WIDTH + 4;
+        int right = strip.right() - ARROW_WIDTH - VALUE_WIDTH - 4;
         int y = strip.y() + (strip.height() - TRACK_HEIGHT) / 2;
         return BookGeometry.Rect.at(left, y, Math.max(0, right - left), TRACK_HEIGHT);
     }
@@ -510,32 +510,31 @@ public final class QuestSettingsLayout {
     }
 
     // ------------------------------------------------------------------
-    // The steppers
+    // The arrows
     // ------------------------------------------------------------------
 
-    /** One of a stepper's two arrows, in the strip's own coordinates: what is drawn and hit alike. */
-    public static BookGeometry.Rect stepperBox(Slot strip, String way) {
-        int x = way.equals("down") ? strip.x() : strip.right() - STEPPER_WIDTH;
-        int y = strip.y() + (strip.height() - STEPPER_HEIGHT) / 2;
-        return BookGeometry.Rect.at(x, y, STEPPER_WIDTH, STEPPER_HEIGHT);
+    /** One of a row's two arrows, in the strip's own coordinates: what is drawn and hit alike. */
+    public static BookGeometry.Rect arrowBox(Slot strip, String way) {
+        int x = way.equals("down") ? strip.x() : strip.right() - ARROW_WIDTH;
+        int y = strip.y() + (strip.height() - ARROW_HEIGHT) / 2;
+        return BookGeometry.Rect.at(x, y, ARROW_WIDTH, ARROW_HEIGHT);
     }
 
-    /** Which way a press at a point steps a row: -1, +1, or null. The drawing's own boxes. */
-    public static Integer stepperStepAt(Slot strip, double px, double py) {
-        if (stepperBox(strip, "down").contains(px, py)) {
+    /**
+     * Which way a press at a point steps a row: -1, +1, or null. The drawing's own boxes.
+     *
+     * <p>The rows that still have arrows are the slider's (a track with exact steps beside it) and a
+     * choice's (a cycle through a closed set); a numeric row is a {@code ScrubField} now and takes no
+     * part in this.
+     */
+    public static Integer arrowStepAt(Slot strip, double px, double py) {
+        if (arrowBox(strip, "down").contains(px, py)) {
             return -1;
         }
-        if (stepperBox(strip, "up").contains(px, py)) {
+        if (arrowBox(strip, "up").contains(px, py)) {
             return 1;
         }
         return null;
-    }
-
-    /** Where a stepper's typed value sits: between the arrows, clear of both. */
-    public static BookGeometry.Rect valueBox(Slot strip) {
-        int left = strip.x() + STEPPER_WIDTH + 2;
-        int width = Math.max(0, strip.right() - STEPPER_WIDTH - 2 - left);
-        return BookGeometry.Rect.at(left, strip.y() + 2, width, Math.max(0, strip.height() - 4));
     }
 
     /**

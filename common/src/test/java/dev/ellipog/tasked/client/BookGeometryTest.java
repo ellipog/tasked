@@ -380,7 +380,7 @@ class BookGeometryTest {
          * rather than a judgement.
          */
         private static final Set<String> CANVAS_CONTROLS =
-                Set.of("zoomIn", "zoomOut", "centre", "editPill", "toolsPill");
+                Set.of("zoomIn", "zoomOut", "centre", "editPill", "assetsPill");
 
         @Test
         @DisplayName("every control is inside the surface it belongs to")
@@ -821,18 +821,17 @@ class BookGeometryTest {
                 "the mat is the whole reason the cluster reads as one group, so it must be bigger "
                         + "than a single button: " + geometry.viewControls());
 
-        // The author's pills, the same two rules mirrored: the mat is the helper the screen paints from,
+        // The author's pill, the same two rules mirrored: the mat is the helper the screen paints from,
         // so it has to be inside the surface it is painted on and bigger than the pill it backs.
-        assertTrue(geometry.pillMat(true).isInside(geometry.canvas()),
-                "the pills' mat is painted outside the canvas it sits on");
-        assertTrue(geometry.pillMat(true).height() > geometry.pillMat(false).height(),
-                "a mat that does not grow with the Tools pill would back a lone pill with a strip sized "
-                        + "for a neighbour that is not there: " + geometry.pillMat(false));
-        // And the drawer's rail starts below the pills: the editor writes chapter appearance into this
+        assertTrue(geometry.pillMat().isInside(geometry.canvas()),
+                "the pill's mat is painted outside the canvas it sits on");
+        assertTrue(geometry.pillMat().height() > BookGeometry.ROW_HEIGHT,
+                "the mat exists to make the pill read as a control: " + geometry.pillMat());
+        // And the drawer's rail starts below the pill: the editor writes chapter appearance into this
         // panel, and a rail running up through the band would put its first row under a floating control.
-        assertTrue(geometry.authorRail().y() >= geometry.pillMat(true).bottom(),
+        assertTrue(geometry.authorRail().y() >= geometry.pillMat().bottom(),
                 "the inspector's rail starts through the pill band rather than under it: "
-                        + geometry.authorRail() + " vs " + geometry.pillMat(true));
+                        + geometry.authorRail() + " vs " + geometry.pillMat());
     }
 
     @Test
@@ -846,8 +845,7 @@ class BookGeometryTest {
                     () -> "the full-bleed panel is not the window" + at);
 
             for (BookGeometry.Rect part : List.of(window.header(), window.sidebar(), window.canvas(),
-                    window.controls().get("close"), window.controls().get("editPill"),
-                    window.controls().get("toolsPill"))) {
+                    window.controls().get("close"), window.controls().get("editPill"))) {
                 assertTrue(part.x() >= 0 && part.y() >= 0 && part.right() <= size[0]
                                 && part.bottom() <= size[1],
                         () -> "a part left the window" + at + ": " + part);
@@ -895,7 +893,7 @@ class BookGeometryTest {
         // the slot it had in this list (after settings), even though it is drawn on a different surface
         // now; a reader comparing orders across the change should know that was deliberate.
         assertEquals(
-                List.of("close", "rewards", "party", "settings", "editPill", "toolsPill",
+                List.of("close", "rewards", "party", "settings", "editPill", "assetsPill",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }

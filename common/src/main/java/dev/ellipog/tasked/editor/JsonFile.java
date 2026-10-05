@@ -316,27 +316,26 @@ public final class JsonFile {
     // ------------------------------------------------------------------
 
     /**
-     * Inserts one object into the array at a top-level member, creating the array if it is absent.
+     * Inserts one object into the array at a path, creating the array if it is absent.
      *
-     * <p>The editor's Add: a task or a reward enters the list at a position. The index is clamped to
-     * the array's own length, so "append" is {@code size()} and a stale index lands at the end rather
-     * than throwing -- the position of an add is a preference, not an invariant.
+     * <p>The editor's Add: a task, a reward, or a table's entry enters the list at a position. The
+     * index is clamped to the array's own length, so "append" is {@code size()} and a stale index lands
+     * at the end rather than throwing -- the position of an add is a preference, not an invariant.
      *
-     * @throws UnwritablePath when the member is there and is not an array
+     * <h2>Dotted paths, and the one thing that may be created</h2>
+     *
+     * <p>{@code "tasks"} is the common case; {@code "rewards.2.inline.entries"} is a table's entries
+     * inside a reward's own inline table, and {@code "entries"} is a table file's own list. A dotted
+     * path's <b>intermediates must already be there</b> -- creating them would let a mistyped path
+     * invent a {@code "rewards": {}} in a file that never had one, and a table grown that way has no
+     * handle and nothing that can address it. The <b>terminal array</b> is the exception: a table the
+     * author has just started has no {@code entries} yet, and refusing to create it would make the
+     * first entry impossible to add.
+     *
+     * @throws UnwritablePath when the path cannot be walked, or when what is at its end is not an array
      */
-    public void insert(String member, int index, JsonObject entry) {
-        JsonElement found = root.get(member);
-        JsonArray array;
-        if (found == null) {
-            array = new JsonArray();
-            root.add(member, array);
-        }
-        else if (found.isJsonArray()) {
-            array = found.getAsJsonArray();
-        }
-        else {
-            throw new UnwritablePath(member);
-        }
+    public void insert(String path, int index, JsonObject entry) {
+        JsonArray array = arrayAt(path, true);
         insertAt(array, Math.max(0, Math.min(index, array.size())), entry);
     }
 
@@ -354,14 +353,59 @@ public final class JsonFile {
         array.set(index, element);
     }
 
+    /**
+     * The array a list operation works on.
+     *
+     * <p>{@code create} decides what happens when the <b>terminal</b> member is absent: an insert makes
+     * an empty array there (see {@link #insert}), while a remove or a move simply finds nothing. Either
+     * way the walk to it never creates anything, and anything at the end that is not an array is a
+     * refusal rather than something to write through.
+     *
+     * @return the array, or null when {@code create} is false and there is none
+     * @throws UnwritablePath when the path cannot be walked, or ends at something that is not an array
+     */
+    private JsonArray arrayAt(String path, boolean create) {
+        JsonElement container = descend(path, false);
+        if (container == null) {
+            // A step above the terminal is not there. For a remove or a move that is simply "nothing
+            // to do"; for an insert it is a refusal, because the only thing an insert may create is
+            // the terminal array itself.
+            if (create) {
+                throw new UnwritablePath(path);
+            }
+            return null;
+        }
+        String leaf = leaf(path);
+        if (!container.isJsonObject()) {
+            // The last step names an index in an array, or a field of a primitive: neither is a list
+            // this can add to, and both are paths an author can write by mistake.
+            throw new UnwritablePath(path);
+        }
+        JsonElement found = container.getAsJsonObject().get(leaf);
+        if (found == null) {
+            if (!create) {
+                return null;
+            }
+            JsonArray created = new JsonArray();
+            container.getAsJsonObject().add(leaf, created);
+            return created;
+        }
+        if (!found.isJsonArray()) {
+            throw new UnwritablePath(path);
+        }
+        return found.getAsJsonArray();
+    }
+
     /** Removes the element at an index. False when there is nothing there to remove. */
-    public boolean removeIndex(String member, int index) {
-        JsonElement found = root.get(member);
-        if (found == null || !found.isJsonArray()) {
+    public boolean removeIndex(String path, int index) {
+        JsonArray array;
+        try {
+            array = arrayAt(path, false);
+        }
+        catch (UnwritablePath notAList) {
             return false;
         }
-        JsonArray array = found.getAsJsonArray();
-        if (index < 0 || index >= array.size()) {
+        if (array == null || index < 0 || index >= array.size()) {
             return false;
         }
         array.remove(index);
@@ -369,19 +413,23 @@ public final class JsonFile {
     }
 
     /**
-     * Moves one element of the array at a member to another position in it.
+     * Moves one element of the array at a path to another position in it.
      *
      * <p>Remove-then-insert, and the insert happens at {@code to} in the shortened list -- so the
      * element ends up at the index asked for whether it moved up or down. False when either end is
-     * not a position in the array.
+     * not a position in the array, and false for a path that is not there: a reorder of a list nothing
+     * has is not an edit.
      */
-    public boolean moveIndex(String member, int from, int to) {
-        JsonElement found = root.get(member);
-        if (found == null || !found.isJsonArray()) {
+    public boolean moveIndex(String path, int from, int to) {
+        JsonArray array;
+        try {
+            array = arrayAt(path, false);
+        }
+        catch (UnwritablePath notAList) {
             return false;
         }
-        JsonArray array = found.getAsJsonArray();
-        if (from < 0 || from >= array.size() || to < 0 || to >= array.size() || from == to) {
+        if (array == null || from < 0 || from >= array.size() || to < 0 || to >= array.size()
+                || from == to) {
             return false;
         }
         JsonElement moved = array.remove(from);

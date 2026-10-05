@@ -1,11 +1,9 @@
 package dev.ellipog.tasked.client.dev;
 
 import dev.ellipog.armature.client.ArmatureTheme;
-import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.tasked.client.BookGeometry;
 
-import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
 
 import java.util.ArrayList;
@@ -519,10 +517,5 @@ public final class ColourPopover {
         for (int colour : colours) {
             PRESETS.add(colour & 0xFFFFFF);
         }
-    }
-
-    /** Renders through the widget seam, for a caller that has a {@code GuiGraphics}. */
-    public void render(GuiGraphics graphics, int mouseX, int mouseY) {
-        render(new GuiGraphicsRenderer(graphics), mouseX, mouseY);
     }
 }

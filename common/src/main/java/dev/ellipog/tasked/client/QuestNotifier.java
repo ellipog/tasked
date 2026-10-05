@@ -159,6 +159,34 @@ public final class QuestNotifier {
     }
 
     /**
+     * How a sweep ended: claimed N of M, and whether it stopped for want of room.
+     *
+     * <p>Routed like the overflow notice, and for the same reason — the action bar the server also
+     * sends is part of the HUD, which is not drawn behind the book. A sweep that stopped and one that
+     * finished both make rows disappear, so the sentence is what tells them apart.
+     */
+    public static void claimSummary(int claimed, int total, boolean halted) {
+        if (Minecraft.getInstance().screen instanceof QuestBookScreen book) {
+            book.notifyClaimSummary(claimed, total, halted);
+        }
+    }
+
+    /**
+     * The server's verdict on a choice pick, routed to the card that asked.
+     *
+     * <p>Handed to the screen rather than acted on here: only the screen knows whether the offer the
+     * verdict names is still the one on display. Escape during the round trip is a legitimate way out,
+     * and a verdict for an offer nobody is showing must be dropped rather than matched to whatever
+     * slid into its place.
+     */
+    public static void choiceResult(String questId, int rewardIndex,
+                                    dev.ellipog.tasked.net.ClaimChoiceResultPayload.Result result) {
+        if (Minecraft.getInstance().screen instanceof QuestBookScreen book) {
+            book.notifyChoiceResult(questId, rewardIndex, result);
+        }
+    }
+
+    /**
      * Forgets everything.
      *
      * <p>Called from each loader's disconnect hook, beside {@code ClientQuestCache.clear()}: the
@@ -168,5 +196,8 @@ public final class QuestNotifier {
         DIFF.reset();
         lastRevision = -1L;
         lastTeam = null;
+        // Offers describe a connection's questions, so they go with it: a queue kept across a
+        // disconnect would greet the next server with a picker for a quest it has never heard of.
+        ClientChoiceOffers.clear();
     }
 }

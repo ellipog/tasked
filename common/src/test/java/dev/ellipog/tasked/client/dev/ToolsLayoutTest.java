@@ -257,73 +257,51 @@ class ToolsLayoutTest {
     // The panel
     // ------------------------------------------------------------------
 
-
     @Test
-    @DisplayName("the chapter keeps its identity band, the book its actions row, and both keep the list inside")
+    @DisplayName("the book keeps its actions row, and both tabs keep the list inside the panel")
     void theChapterFrameGivesTheListTheColumn() {
         BookGeometry.Rect rail = BookGeometry.Rect.at(10, 40, 800, 500);
         ToolsLayout.Frame quest = ToolsLayout.frame(rail, ToolsLayout.Tab.CHAPTER);
         ToolsLayout.Frame book = ToolsLayout.frame(rail, ToolsLayout.Tab.BOOK);
 
         assertEquals(book.panel(), quest.panel(), "one dock, whatever the tab");
-        assertEquals(book.title(), quest.title(), "and one title row in it");
+        assertEquals(book.tabs(), quest.tabs(), "and one tab strip in it");
 
-        // The one asymmetry left: the chapter tab names the file its rows edit, and the book tab reserves
-        // the actions row that writes the player's own theme. Each tab leaves the other's band empty.
-        assertTrue(quest.header().height() > 0, "the chapter's identity band is there");
-        assertEquals(0, book.header().height(), "the book tab has no chapter to name");
+        // The one asymmetry left: the book tab reserves the actions row that writes the player's own
+        // theme. The chapter tab leaves it empty.
         assertEquals(0, quest.actions().height(), "the chapter tab reserves no actions");
         assertTrue(book.actions().height() > 0, "the book's Revert and Save have their row");
 
         // The stack, in order, each band at or below the one before it, and every one inside the panel.
-        assertTrue(quest.title().bottom() <= quest.feedback().y(), "the title is above the status");
-        assertTrue(quest.feedback().bottom() <= quest.header().y(), "the status is above the identity");
-        assertTrue(quest.header().bottom() <= quest.list().y(), "the identity is above the list");
+        assertTrue(quest.tabs().bottom() <= quest.list().y(), "the tabs are above the list");
         assertTrue(book.list().bottom() <= book.actions().y(), "and the list stops at the actions row");
-        for (BookGeometry.Rect band : List.of(quest.title(), quest.feedback(), quest.header(),
-                quest.list(), book.list(), book.actions())) {
+        for (BookGeometry.Rect band : List.of(quest.tabs(), quest.list(),
+                book.list(), book.actions())) {
             assertTrue(band.x() >= quest.panel().x() && band.right() <= quest.panel().right()
                             && band.y() >= quest.panel().y() && band.bottom() <= quest.panel().bottom(),
                     () -> "a band left the panel: " + band + " in " + quest.panel());
         }
 
-        BookGeometry.Rect header = quest.header();
-        assertEquals(ToolsLayout.CHAPTER_HEADER_HEIGHT, header.height(),
-                "the header band is the height the layout reserves");
-        ToolsLayout.ChapterHeader parts = ToolsLayout.chapterHeader(header);
-        for (BookGeometry.Rect part : List.of(parts.icon(), parts.title(), parts.subtitle())) {
-            assertTrue(part.x() >= header.x() && part.right() <= header.right()
-                            && part.y() >= header.y() && part.bottom() <= header.bottom(),
-                    () -> "a header part left its band: " + part + " in " + header);
-        }
-        assertEquals(parts.icon().width(), parts.icon().height(), "the icon's box is square");
-
         // And the same on a rail too small for the chrome, where the clamp has to keep every band inside
-        // the panel rather than letting one go past the floor -- the header's parts clamped too, not
-        // merely its band: a degenerate header is zero-sized, not ink outside the panel.
+        // the panel rather than letting one go past the floor.
         ToolsLayout.Frame tiny = ToolsLayout.frame(BookGeometry.Rect.at(0, 0, 120, 60),
                 ToolsLayout.Tab.CHAPTER);
         assertTrue(tiny.list().y() >= tiny.panel().y() && tiny.list().bottom() <= tiny.panel().bottom(),
                 "a tiny rail still keeps the list inside the panel");
-        ToolsLayout.ChapterHeader tinyParts = ToolsLayout.chapterHeader(tiny.header());
-        for (BookGeometry.Rect part : List.of(tinyParts.icon(), tinyParts.title(), tinyParts.subtitle())) {
-            assertTrue(part.x() >= tiny.header().x() && part.right() <= tiny.header().right()
-                            && part.y() >= tiny.header().y() && part.bottom() <= tiny.header().bottom(),
-                    () -> "a header part left a clamped band: " + part + " in " + tiny.header());
-        }
     }
-
     @Test
-    @DisplayName("the drawer's new boxes sit inside their rows: the title menu, a chip, and a pair's halves")
+    @DisplayName("the drawer's new boxes sit inside their rows: the tabs, a chip, and a pair's halves")
     void theNewControlsSitInsideTheirRows() {
         ToolsLayout.Frame frame = ToolsLayout.frame(BookGeometry.Rect.at(10, 40, 300, 500),
                 ToolsLayout.Tab.CHAPTER);
-        BookGeometry.Rect title = frame.title();
-        BookGeometry.Rect menu = ToolsLayout.titleMenu(title);
-        BookGeometry.Rect label = ToolsLayout.titleLabel(title);
-        assertTrue(menu.isInside(title), "the panel menu is inside the title band: " + menu);
-        assertTrue(label.isInside(title), "the title's own room is inside the band: " + label);
-        assertTrue(label.right() <= menu.x(), "and the two do not meet: " + label + " vs " + menu);
+        BookGeometry.Rect tabs = frame.tabs();
+        BookGeometry.Rect bookTab = ToolsLayout.tabBook(tabs);
+        BookGeometry.Rect chapterTab = ToolsLayout.tabChapter(tabs);
+        assertTrue(bookTab.isInside(tabs), "the Book tab is inside the strip: " + bookTab);
+        assertTrue(chapterTab.isInside(tabs), "the Chapter tab is inside the strip: " + chapterTab);
+        assertTrue(bookTab.right() <= chapterTab.x(), "and the two do not meet: "
+                + bookTab + " vs " + chapterTab);
+        assertEquals(tabs.right(), chapterTab.right(), "the pair reaches the strip's right edge");
 
         Slot row = new Slot("row", 20, 60, 260, ToolsLayout.ROW_HEIGHT);
         BookGeometry.Rect chip = ToolsLayout.chip(row);

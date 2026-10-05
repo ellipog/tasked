@@ -3,6 +3,7 @@ package dev.ellipog.tasked.quest;
 import dev.ellipog.armature.api.ArmatureApi;
 import dev.ellipog.tasked.editor.QuestEditor;
 import dev.ellipog.tasked.editor.ServerEditors;
+import dev.ellipog.tasked.editor.ServerTables;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
@@ -53,6 +54,16 @@ public final class TaskedQuests {
      */
     private static volatile java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables =
             java.util.Map.of();
+
+    /**
+     * The table files that did not load, by id, each with its reason — the other half of the folder.
+     *
+     * <p>Held rather than derived because there is nothing to derive it from: a refused file has no
+     * {@code RewardTable} to look at, and the problems that explain it are thrown away with the load's
+     * result. The client's Assets panel is what reads this, so that a broken table is a row an author can
+     * see rather than a line in a log they have to go and find.
+     */
+    private static volatile java.util.Map<String, String> refusedTables = java.util.Map.of();
     /**
      * The chapters this server has open for editing.
      *
@@ -63,6 +74,18 @@ public final class TaskedQuests {
     private static final ServerEditors EDITORS =
             new ServerEditors(() -> QuestEditor.root(ArmatureApi.platform().configDir()));
 
+    /**
+     * The reward tables this server has open for editing.
+     *
+     * <p>Beside {@link #EDITORS} and for the same reason: it owns drafts over the same folder, so the
+     * two must be reading the same files. It reads the loaded tables and the index through suppliers
+     * rather than reaching for them, so a test can hand it its own — see {@link ServerTables}.
+     */
+    private static final ServerTables TABLES = new ServerTables(
+            EDITORS,
+            () -> QuestEditor.root(ArmatureApi.platform().configDir()),
+            TaskedQuests::rewardTables,
+            TaskedQuests::index);
 
     private TaskedQuests() {
     }
@@ -70,6 +93,11 @@ public final class TaskedQuests {
     /** The chapters open for editing on this server. */
     public static ServerEditors editors() {
         return EDITORS;
+    }
+
+    /** The reward tables open for editing on this server. */
+    public static ServerTables tables() {
+        return TABLES;
     }
 
     /** The current questline, or an empty index if nothing has loaded yet. Never null. */
@@ -90,9 +118,59 @@ public final class TaskedQuests {
         index = result.index();
         settings = QuestSettings.load(QuestEditor.root(ArmatureApi.platform().configDir()));
         rewardTables = result.rewardTables();
+        refusedTables = refusals(result.problems(), result.refusedTables());
 
         report(result);
         return result;
+    }
+
+    /**
+     * Re-reads the reward tables alone, keeping the index and the settings.
+     *
+     * <p>What a table edit needs: the quests did not move, and {@link #reload()} would re-read and
+     * re-validate all of them — plus rebuild the index — to learn that.
+     *
+     * @return the problems the table folder reported, for the caller to log
+     */
+    public static dev.ellipog.armature.api.data.Problems reloadTables() {
+        dev.ellipog.armature.api.data.Problems problems =
+                new dev.ellipog.armature.api.data.Problems();
+        QuestLoader.Tables tables = QuestLoader.loadTables(ArmatureApi.platform().configDir(), problems);
+        rewardTables = tables.loaded();
+        refusedTables = refusals(problems, tables.refused());
+        if (!problems.all().isEmpty()) {
+            Constants.LOG.warn("tasked: {} problem(s) in the reward tables:", problems.all().size());
+            for (var problem : problems.all()) {
+                Constants.LOG.warn("tasked:   {}", problem.render());
+            }
+        }
+        return problems;
+    }
+
+    /**
+     * The refused table files, each with the first thing wrong with it.
+     *
+     * <p>The loader names the ids; the reason is the error already reported against {@code <id>.json},
+     * taken from the same {@code Problems} the load filled — so the sentence the Assets panel shows an
+     * author is the sentence the log and the reload report show, and there is one description of what is
+     * wrong with a file rather than three that drift.
+     *
+     * <p>Keyed and ordered by id, so the panel's list does not reshuffle between reloads.
+     */
+    private static java.util.Map<String, String> refusals(
+            dev.ellipog.armature.api.data.Problems problems, java.util.Set<String> refused) {
+        java.util.Map<String, String> out = new java.util.TreeMap<>();
+        for (String id : refused) {
+            out.put(id, problems.forFile(id + ".json").stream()
+                    .filter(problem ->
+                            problem.severity() == dev.ellipog.armature.api.data.DataProblem.Severity.ERROR)
+                    .map(dev.ellipog.armature.api.data.DataProblem::message)
+                    .findFirst()
+                    // A refused file with no error against it is a contradiction the loader cannot
+                    // currently produce; saying so beats an empty row if that ever changes.
+                    .orElse("this file did not load, and the load reported no reason for it"));
+        }
+        return java.util.Map.copyOf(out);
     }
 
     /** The tree's own settings. Never null; the defaults until something declares otherwise. */
@@ -103,6 +181,16 @@ public final class TaskedQuests {
     /** The reward tables, by id. Never null; empty until a tree declares any. */
     public static java.util.Map<String, dev.ellipog.tasked.quest.loot.RewardTable> rewardTables() {
         return rewardTables;
+    }
+
+    /**
+     * The table files that are there and did not load, by id, each with its reason. Never null.
+     *
+     * <p>A subset of the folder rather than of {@link #rewardTables()}: the two are disjoint by
+     * construction, because a file that refuses is one that never became a table.
+     */
+    public static java.util.Map<String, String> refusedTables() {
+        return refusedTables;
     }
 
     /**

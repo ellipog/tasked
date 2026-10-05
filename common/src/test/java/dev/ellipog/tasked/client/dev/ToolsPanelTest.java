@@ -53,7 +53,7 @@ class ToolsPanelTest {
         RecordingRenderer r = new RecordingRenderer();
 
         ToolsPanel.draw(r, frame, list, layout, rows, state(
-                dev.ellipog.armature.client.ui.CanvasBackground.NONE, 51), 0, 0, ToolsLayout.Tab.BOOK);
+                dev.ellipog.armature.client.ui.CanvasBackground.NONE, 51), 0, 0);
 
         for (ToolsLayout.Action row : rows) {
             Slot slot = layout.slot(row.key());
@@ -107,7 +107,7 @@ class ToolsPanelTest {
 
         ToolsPanel.draw(r, frame, list, layout, rows,
                 state(dev.ellipog.armature.client.ui.CanvasBackground.NONE, 51),
-                0, 0, ToolsLayout.Tab.BOOK);
+                0, 0);
 
         String key = ToolsLayout.paletteKey("obsidian");
         Slot slot = layout.slot(key);
@@ -136,9 +136,9 @@ class ToolsPanelTest {
 
     /** The panel's state for a background and an ink alpha: one helper so a case states only what it tests. */
     private static ToolsPanel.State state(CanvasBackground background, int patternOpacity) {
-        return new ToolsPanel.State(null, null, false, false,
-                dev.ellipog.armature.client.ui.Themes.MODERN, 4, false, background, false,
-                patternOpacity);
+        // The record is (theme, background): the status line and the stepper values it used to carry
+        // are not read by the drawing any more, and the alpha parameter stays as the caller's shape.
+        return new ToolsPanel.State(dev.ellipog.armature.client.ui.Themes.MODERN, background);
     }
 
     /** An image background at a tile size the tile case can recognize. */

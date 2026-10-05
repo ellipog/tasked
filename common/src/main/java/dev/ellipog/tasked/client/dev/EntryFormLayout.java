@@ -205,9 +205,14 @@ public final class EntryFormLayout {
                 cells.add(cell(line.get(0), left, y, right - left, labelWidth));
             }
             else {
-                int half = (right - left - GAP) / 2;
-                cells.add(cell(line.get(0), left, y, half, labelWidth));
-                cells.add(cell(line.get(1), left + half + GAP, y, half, labelWidth));
+                // Equal columns, so every line's columns start at the same x and the form reads as a grid
+                // rather than as controls that happen to share a line. The fit test above is what
+                // guarantees a column is wide enough for the field it holds.
+                int columns = line.size();
+                int each = Math.max(0, (right - left - (columns - 1) * GAP) / columns);
+                for (int c = 0; c < columns; c++) {
+                    cells.add(cell(line.get(c), left + c * (each + GAP), y, each, labelWidth));
+                }
             }
         }
         int lines_ = lines.size() + 1;
@@ -324,22 +329,48 @@ public final class EntryFormLayout {
      * an author has to re-read every time they resize.
      */
     private static List<List<EditorField>> lines(List<EditorField> fields, int available, int labelWidth) {
-        boolean pair = available >= 2 * (labelWidth + MIN_VALUE_WIDTH) + GAP;
+        // A line takes as many narrow controls as fit, rather than a fixed one or two. The case this
+        // exists for is the reward's common settings: `Given`, `Claim separately` and `Ignore blocking`
+        // are three short switches, and packing them two-and-one made a column of loose chips with the
+        // third stranded on its own line -- which is what the screenshot showed as controls floating at
+        // the right. Widths are the field's own, not a shared minimum: a flag's control is twelve pixels
+        // and asking for a stepper's room on its behalf would keep the third switch off the line.
         List<List<EditorField>> out = new ArrayList<>();
         List<EditorField> line = new ArrayList<>();
+        int widest = 0;
         for (EditorField field : fields) {
             if (!narrow(field)) {
                 flush(out, line);
+                widest = 0;
                 out.add(List.of(field));
                 continue;
             }
-            line.add(field);
-            if (line.size() == (pair ? 2 : 1)) {
+            int need = labelWidth + GAP + minControl(field);
+            // Equal columns, so the test is the widest field on the line rather than the sum: adding a
+            // twelve-pixel flag to a line that holds a stepper must not shrink the stepper's boxes.
+            int widestNext = Math.max(widest, need);
+            int columns = line.size() + 1;
+            if (!line.isEmpty() && columns * widestNext + (columns - 1) * GAP > available) {
                 flush(out, line);
+                widest = 0;
+                widestNext = need;
+                columns = 1;
             }
+            widest = widestNext;
+            line.add(field);
         }
         flush(out, line);
         return out;
+    }
+
+    /** The narrowest a control may be drawn: what the fit test above measures a field by. */
+    private static int minControl(EditorField field) {
+        return switch (field.kind()) {
+            case FLAG -> BUTTON;
+            case CHOICE -> Math.min(CHOICE_WIDTH, MIN_VALUE_WIDTH + 40);
+            case NUMBER -> 2 * BUTTON + STEPPER_VALUE_WIDTH + 2 * GAP;
+            default -> MIN_VALUE_WIDTH;
+        };
     }
 
     private static void flush(List<List<EditorField>> out, List<EditorField> line) {

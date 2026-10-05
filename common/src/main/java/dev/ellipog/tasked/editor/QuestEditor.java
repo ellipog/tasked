@@ -419,15 +419,19 @@ public final class QuestEditor {
      * <p>The tree is the caller's, built from the type's own defaults or copied from a sibling, so the
      * model does not need to know what a task is: what lands in the file is what the loader will read
      * back, and validate-on-apply is what refuses a shape the format does not take.
+     *
+     * <p>{@code path} is a dotted path, so the same operation reaches an entry inside a reward's own
+     * inline table ({@code rewards.2.inline.entries}) -- see {@link JsonFile#insert} for the one thing
+     * such a path may create.
      */
-    public boolean insert(String id, String member, int index, JsonObject entry) {
+    public boolean insert(String id, String path, int index, JsonObject entry) {
         JsonFile quest = quests.get(id);
         if (quest == null || entry == null) {
             return false;
         }
         push();
         try {
-            quest.insert(member, index, entry);
+            quest.insert(path, index, entry);
         }
         catch (JsonFile.UnwritablePath unwritable) {
             undo.pop();
@@ -437,13 +441,13 @@ public final class QuestEditor {
     }
 
     /** Removes one entry from one of a quest's arrays, by position. */
-    public boolean removeEntry(String id, String member, int index) {
+    public boolean removeEntry(String id, String path, int index) {
         JsonFile quest = quests.get(id);
         if (quest == null) {
             return false;
         }
         push();
-        if (!quest.removeIndex(member, index)) {
+        if (!quest.removeIndex(path, index)) {
             undo.pop();
             return false;
         }
@@ -451,13 +455,13 @@ public final class QuestEditor {
     }
 
     /** Moves one entry within its array, by position. */
-    public boolean moveEntry(String id, String member, int from, int to) {
+    public boolean moveEntry(String id, String path, int from, int to) {
         JsonFile quest = quests.get(id);
         if (quest == null) {
             return false;
         }
         push();
-        if (!quest.moveIndex(member, from, to)) {
+        if (!quest.moveIndex(path, from, to)) {
             undo.pop();
             return false;
         }
@@ -690,6 +694,41 @@ public final class QuestEditor {
         undo.push(new Structural(structure));
         trim();
         redo.clear();
+    }
+
+    /**
+     * Records the chapter's files as they are, for a caller that is about to change one of them.
+     *
+     * <p>{@link #push} is private because every mutation in this class does its own; this is the door
+     * for {@code TableEditor}, whose inline drafts edit a quest file through this editor and must land
+     * in this history rather than a second one — an inline table <i>is</i> a quest field, so its undo
+     * is the chapter's, and Ctrl+Z after a weight edit is the same key as after a title edit.
+     */
+    void pushHistory() {
+        push();
+    }
+
+    /** Puts the last step back, for the same caller. */
+    boolean undoHistory() {
+        return undo();
+    }
+
+    /** The same, forward. */
+    boolean redoHistory() {
+        return redo();
+    }
+
+    /**
+     * Drops the last recorded step, for a change that did not happen.
+     *
+     * <p>The counterpart of the {@code undo.pop()} every mutation in this class does when a write is
+     * refused before it changed anything: a snapshot of a state that was never left is a lie, and an
+     * undo that restored it would look like it did something.
+     */
+    void dropHistory() {
+        if (!undo.isEmpty()) {
+            undo.pop();
+        }
     }
 
     /**

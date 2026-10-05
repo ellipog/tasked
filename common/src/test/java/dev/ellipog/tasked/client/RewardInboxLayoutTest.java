@@ -107,6 +107,23 @@ class RewardInboxLayoutTest {
     }
 
     @Test
+    @DisplayName("a single row is the header's shape, does not fold, and carries the reward's own index")
+    void singleRowsDoNotFold() {
+        RewardInboxLayout.Row single = RewardInboxLayout.Row.single("a", "A Quest", 0, 3,
+                RewardInboxLayout.Status.READY);
+        Layout layout = RewardInboxLayout.build(List.of(single), COLUMN, MEASURE);
+
+        assertEquals(RewardInboxLayout.HEADER_HEIGHT, layout.height(), "one line, like a header");
+        assertFalse(single.expands(), "nothing to fold: the definition holds one reward");
+        assertEquals(RewardInboxLayout.questKey("a"), single.key(),
+                "the row answers to the quest's key, which is what its strip button is placed by");
+        assertEquals(0, single.rewardIndex(), "and it carries the reward's own index, not an assumption");
+        assertTrue(RewardInboxLayout.Row.quest("a", "A Quest", 2).expands(), "while a header does fold");
+        assertFalse(RewardInboxLayout.Row.reward("a", 0, "x", 1,
+                RewardInboxLayout.Status.READY).expands(), "and a child does not");
+    }
+
+    @Test
     @DisplayName("a row's key names its quest and reward; its status decides whether it can be pressed")
     void keysAndStatuses() {
         assertEquals("quest:a", RewardInboxLayout.questKey("a"));

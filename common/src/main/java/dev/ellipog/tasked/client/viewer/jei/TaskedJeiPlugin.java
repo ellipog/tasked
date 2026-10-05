@@ -118,6 +118,53 @@ public final class TaskedJeiPlugin implements IModPlugin, RecipeLookups.Lookup {
                 registration.getJeiHelpers().getGuiHelper()));
     }
 
+    /**
+     * Dragging a stack out of JEI and onto a table's entry list.
+     *
+     * <p>One target — the list — because that is what the screen says it wants: {@code dropArea} is null
+     * when no table is open, and a viewer with no target draws no drop, which is the honest answer rather
+     * than a drop the screen would refuse. JEI's ghost protocol reports the target a drag finished over
+     * and not where inside it, so the entry lands at the end of the list; EMI's handler, which does have
+     * the point, inserts at the row under the pointer.
+     */
+    @Override
+    public void registerGuiHandlers(mezz.jei.api.registration.IGuiHandlerRegistration registration) {
+        if (!Viewers.mayInstall(Viewers.Viewer.JEI)) {
+            return;
+        }
+        registration.addGhostIngredientHandler(dev.ellipog.tasked.client.QuestBookScreen.class,
+                new mezz.jei.api.gui.handlers.IGhostIngredientHandler<>() {
+
+                    @Override
+                    public <I> java.util.List<Target<I>> getTargetsTyped(
+                            dev.ellipog.tasked.client.QuestBookScreen screen,
+                            mezz.jei.api.ingredients.ITypedIngredient<I> ingredient, boolean doStart) {
+                        net.minecraft.client.renderer.Rect2i area = screen.dropArea();
+                        if (area == null || ingredient.getType() != VanillaTypes.ITEM_STACK) {
+                            return java.util.List.of();
+                        }
+                        return java.util.List.of(new Target<>() {
+                            @Override
+                            public net.minecraft.client.renderer.Rect2i getArea() {
+                                return area;
+                            }
+
+                            @Override
+                            public void accept(I value) {
+                                if (value instanceof ItemStack stack) {
+                                    screen.acceptDrop(stack);
+                                }
+                            }
+                        });
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        // Nothing to undo: the drop was an edit, and the server's answer is the record.
+                    }
+                });
+    }
+
     @Override
     public void registerAdvanced(IAdvancedRegistration registration) {
         QuestContent content = eligible();

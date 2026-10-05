@@ -88,6 +88,10 @@ import dev.ellipog.tasked.net.ClaimAllPayload;
 import dev.ellipog.tasked.net.ChoiceRewardPayload;
 import dev.ellipog.tasked.net.ClaimChoicePayload;
 import dev.ellipog.tasked.net.SubmitTaskPayload;
+import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
+import dev.ellipog.tasked.progress.ClaimFilter;
+import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
+import dev.ellipog.tasked.progress.ClaimFilter;
 import dev.ellipog.tasked.progress.QuestState;
 
 import com.google.gson.JsonArray;
@@ -205,7 +209,8 @@ import java.util.UUID;
  * <p>{@code 0xAARRGGBB}, alpha included, and all of them live in {@link ArmatureTheme}. On 1.21.1 a
  * colour written without alpha happens to come out opaque; from 1.21.6 it does not.
  */
-public final class QuestBookScreen extends ArmatureScreen {
+public final class QuestBookScreen extends ArmatureScreen
+        implements dev.ellipog.tasked.client.viewer.ItemDropTarget {
 
     // ------------------------------------------------------------------
     // Layout constants. See the class comment for why these are shared.
@@ -413,7 +418,33 @@ public final class QuestBookScreen extends ArmatureScreen {
          * settings it holds are every player's, and they were behind the edit permission until this
          * existed. See {@code SettingsLayout} for the rows and {@code Look} for what they change.
          */
-        SETTINGS
+        SETTINGS,
+        /**
+         * The reward tables, for a reward's table field: a list of them to choose from, with the rows
+         * that make and manage one.
+         *
+         * <p>An overlay rather than a page of the card, because it is a list of the pack's assets rather
+         * than a field of the quest being edited — the same argument the item picker's overlay makes.
+         */
+        TABLE_BROWSER,
+        /**
+         * One table, open for editing: its entries, their weights, and the chances those weights mean.
+         *
+         * <p>The panel this whole feature exists for. It edits a named table's file or a table written
+         * inline in a reward, through the same controls, and it can walk into a table an entry points at
+         * and back out again.
+         */
+        TABLE_EDITOR,
+        /**
+         * The pack, listed: its reward tables, its quest files, and the types a file may name.
+         *
+         * <p>The author's way in without a quest. Every other road to a table runs through a reward's
+         * table field, so a table nobody has referenced yet — the one an author is about to write — could
+         * not be reached at all from inside the game. This panel is that road, and it is also the only
+         * place a table file the loader <i>refused</i> can be seen, because such a file is not a table and
+         * appears in no other list.
+         */
+        ASSETS
     }
 
     // --- view state, kept between openings -----------------------------------
@@ -609,6 +640,199 @@ public final class QuestBookScreen extends ArmatureScreen {
     // --- per-open state ------------------------------------------------------
 
     private Overlay overlay = Overlay.NONE;
+
+    // ------------------------------------------------------------------
+    // The reward-table panels
+    // ------------------------------------------------------------------
+
+    /** The table the editor is on, or null when no table panel is open. */
+    private dev.ellipog.tasked.editor.TableAddress tableAddress;
+
+    /**
+     * The tables the editor walked through to get here, most recent first.
+     *
+     * <p>A stack rather than a single address, because a table's entries can be tables: pressing one
+     * opens it, and `Done`/Escape must come back rather than close the panel on the author.
+     */
+    private final java.util.Deque<dev.ellipog.tasked.editor.TableAddress> tableStack =
+            new java.util.ArrayDeque<>();
+
+    /**
+     * What this client has had accepted in the current frame, and what it has taken back.
+     *
+     * <p>The frame's undo floor and redo ceiling. Undo is allowed only while {@code tableApplied} is
+     * positive, so Ctrl+Z cannot reach past the table the author opened into the file's earlier history
+     * — and redo only while {@code tableUndone} is, so it cannot replay a step this frame never undid.
+     * Both move on an <b>accepted</b> reply and on nothing else: a refused edit changes neither.
+     */
+    private int tableApplied;
+    private int tableUndone;
+
+    /** The mode the editor is reading the table as: what the chances are computed against. */
+    private dev.ellipog.tasked.quest.reward.TableReward.Mode tablePreview =
+            dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM;
+
+    /** The reward a table is being chosen for: the file that holds it and the reward's own path. */
+    private dev.ellipog.tasked.editor.TableAddress.Owner tableOwner;
+    private String tableOwningPath;
+
+    /** The browser's state: its query, its scroll, its selection, and its frame from the last frame. */
+    private String tableQuery = "";
+    private int tableScroll;
+
+    /** The roll pane's own scroll: a page of its own, so it does not move the entry list under it. */
+    private int rollScroll;
+
+    /** Whether the toolbar's Import popover is showing. See `drawTableImportPopover`. */
+    private boolean tableImportOpen;
+
+    /**
+     * The Import button's rectangle, recorded by the toolbar and read by the popover.
+     *
+     * <p>The popover hangs off that button, and the button is drawn by the toolbar while the popover is
+     * drawn by the panel after its rows — so the one fact that has to travel between them is where the
+     * button was.
+     */
+    private BookGeometry.Rect tableImportAnchor;
+
+    /** Where the popover drew itself last frame, which is what a press inside it is measured against. */
+    private BookGeometry.Rect tableImportBox;
+
+    /** The roll pane's line pitch. */
+    private static final int ROLL_PITCH = 12;
+
+    /**
+     * How many grants a test roll simulates.
+     *
+     * <p>Named because the button's own label says the number: the request sent {@code 10} while the
+     * button spelled "x10" in a string literal two methods away, so changing one would have made the
+     * control lie about what it was about to do.
+     */
+    private static final int TABLE_ROLL_COUNT = 10;
+
+    /** The toolbar's test-roll label, which is the only place the count above is spelled out. */
+    private static String tableRollLabel() {
+        return "Test roll x" + TABLE_ROLL_COUNT;
+    }
+
+    /**
+     * The sentence the footer band shows this frame, or null.
+     *
+     * <p>One slot rather than a list: the note is about whatever the pointer is over, and two pointers
+     * do not exist. Cleared at the top of the panel's draw and set by whichever control is hot, so a
+     * note cannot outlive the hover that made it -- which is what a queue of labels did.
+     */
+    private String tableHint;
+    private int tableSelected = -1;
+    private dev.ellipog.tasked.client.dev.TableBrowserLayout.Frame tableBrowserFrame;
+    private dev.ellipog.tasked.client.dev.TableEditorLayout.Frame tableEditorFrame;
+    private java.util.List<dev.ellipog.tasked.client.dev.TableBrowserLayout.Row> tableRows =
+            java.util.List.of();
+
+    /** The card's search box and the editor's title field. Widgets, so they are screen fields. */
+    private dev.ellipog.armature.client.ArmatureTextField tableSearch;
+    private dev.ellipog.armature.client.ArmatureTextField tableTitleField;
+
+    /** Where the title box was built, for the tooltip that says what it is for. */
+    private BookGeometry.Rect tableTitleBox;
+
+    /** The entries the editor has folded open, by position. */
+    private final java.util.Set<Integer> tableFolded = new java.util.LinkedHashSet<>();
+
+    /**
+     * A picker opened from the table editor, and what the pick is for.
+     *
+     * <p>Empty string means "a new entry from the picked item"; anything else is the path the item goes
+     * to — {@code icon.item}, or an entry's {@code entries.2.reward.item}. The picker itself is the
+     * book's own, so a table is edited with the same list an item reward is.
+     */
+    private String tablePickPath;
+
+    /** Whether the roll report is showing over the entry list. */
+    private boolean tableShowRoll;
+
+    /** Whether the next press on a table would throw away an inline table, so it asks first. */
+    private boolean tableConfirmReplace;
+
+    /**
+     * The table id a delete has been armed for, or null.
+     *
+     * <p>Keyed by id rather than a boolean, so the confirmation cannot be spent on a different row: the
+     * list re-sorts and re-filters under the pointer, and "press again" has to mean the table the author
+     * was told about.
+     */
+    private String tableConfirmDelete;
+
+
+    /**
+     * The table ops this client has sent and not yet heard about, oldest first.
+     *
+     * <p>A marker per op: a table op's own kind, and an empty string for a chapter's. The two families
+     * share one payload and answer in send order, so the reply that arrives is only attributable by
+     * remembering what was sent — and a chapter reply must not be mistaken for a table one, which is
+     * how a quest named after a table would otherwise be selected on the canvas.
+     */
+    /**
+     * The sentinel a request that is answered by something other than an edit reply records.
+     *
+     * <p>Not a table op's kind and not the empty string a quest op records: the reply loop needs to know
+     * this answer belongs to a <b>request</b> rather than to an edit, so it neither moves the undo
+     * budget nor forgets the panel's drafts.
+     *
+     * <p>The queue itself lives in {@code ClientEditReplies}, beside the replies it matches, because a
+     * request is not always answered by an edit reply: a replica fetch and a test roll answer with their
+     * own payloads when they succeed and with an edit reply when they are refused. Both doors consume
+     * one marker, and the marker has to be somewhere the payload handlers can reach -- they have no
+     * screen.
+     */
+    private static final String REPLICA_SENTINEL = "#replica";
+
+    /** Whether the picker on screen was opened by the table editor, so it closes back into it. */
+    private boolean tablePickReturn;
+
+    /**
+     * The table field the open inline editor is editing, and what kind of value it is, or null.
+     *
+     * <p>The card's inline editor commits a field of the <b>quest</b>; a weight is a field of a table.
+     * The two share the widget and the commit path, so the one that knows which file it writes to has to
+     * say so -- without this, typing a weight sent {@code entries.1.weight} to the quest file.
+     *
+     * <p>The kind travels with the path because the box hands back a <b>string</b> and the file does not
+     * hold one: this began as a path alone and the commit was written for the only field it had, so the
+     * branch parsed a double. That is right for a weight and wrong for everything else the fold now
+     * edits — a command is a string, {@code levels} is a boolean, an id is an id, and the raw row is
+     * whole JSON. One kind, read from the control that opened the box, is what keeps the commit from
+     * guessing.
+     */
+    private TableEdit tableEdit;
+
+    /** One field of a table, and how the text typed into a box becomes its value. */
+    private record TableEdit(String path, dev.ellipog.tasked.client.dev.TableRowFields.Kind kind) {
+    }
+
+    /**
+     * The overlay a table panel was opened over, and must give back when it closes.
+     *
+     * <p>{@code Overlay.QUEST} when the panel came from a reward's card — which is the usual way — so
+     * selecting a table, pressing Done or pressing Escape returns to the card the author was editing
+     * rather than dropping them onto the canvas. The first version always closed to {@code NONE}, which
+     * is what made picking a table feel like being thrown out of the quest.
+     *
+     * <p>Empty for a panel a command asked for: there is no card behind that one, and the book is where
+     * it should end up.
+     */
+    private Overlay tableReturn = Overlay.NONE;
+
+    /**
+     * The table a replica request is outstanding for, so a refusal can be filed against it.
+     *
+     * <p>A refused replica answers with an <b>empty chapter</b> — a table is a file, not a chapter's — so it
+     * arrived looking like news about some other chapter and was recorded against a chapter with no name.
+     * The panel's copy stayed missing, `ClientTableReplica.refusal` stayed null, and the panel said "Waiting
+     * for this table's file..." for as long as the author was willing to stare at it, while the server had
+     * already said why. One field is what connects the refusal back to the table it is about.
+     */
+    private String replicaAskedFor;
 
     /** The quest whose overlay is open, by id. */
     private String overlayQuest;
@@ -860,6 +1084,34 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     private final Set<String> pendingClaims = new HashSet<>();
 
+    /**
+     * The card's active filter chip: which quests it lists, and what the footer button may take.
+     *
+     * <p>Remembered for as long as the screen lives, like the folds. The footer follows it -- "Claim
+     * items" while the list shows items -- because a button that acted on rows the player cannot see
+     * would be acting on hidden elements.
+     */
+    private ClaimFilter rewardFilter = ClaimFilter.ALL;
+
+    /** Whether a pick is in flight: the choice card's rows and its Keep-it-for-later are locked. */
+    private boolean choicePending;
+
+    /**
+     * The offer rows' rectangles, from the last frame's drawing.
+     *
+     * <p>Stored rather than recomputed, because the rows are drawn by this screen and a press must land
+     * on the row it was drawn under -- the rule every drawn list in this book follows.
+     */
+    private final List<BookGeometry.Rect> choiceRowRects = new ArrayList<>();
+
+    
+
+    /** The entry the pending pick named, so a refusal can say which one there was no room for. */
+    private int pressedChoiceEntry = -1;
+
+    /** The refusal drawn on the choice card, or null. Cleared by the next press or the next offer. */
+    private String choiceError;
+
     /** The header's way into the panel, kept so its tooltip can say whether anything is waiting. */
     private ArmatureButton rewardsButton;
 
@@ -994,10 +1246,6 @@ public final class QuestBookScreen extends ArmatureScreen {
     /** The colour the band is editing, or null. */
     private String toolsSelected;
 
-    /** The panel's own one-line status, and whether it is bad news. */
-    private String toolsFeedback;
-    private boolean toolsFeedbackIsError;
-
     /** Whether the colour section is unfolded. Open by default: a folded section is one the author
      *  cannot see is there. */
     private boolean toolsColoursOpen = true;
@@ -1082,6 +1330,12 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The chapter the picker was opened for, so a chapter switch under it closes it. */
     private String popoverChapter;
+
+    /** The frame's pointer, for redraws that run outside the pass that receives it. */
+    private int renderMouseX;
+    private int renderMouseY;
+
+
     private Layout toolsLayout;
     private List<ToolsLayout.Action> toolsRows = List.of();
 
@@ -1137,7 +1391,73 @@ public final class QuestBookScreen extends ArmatureScreen {
         /** The row under an entry that opens the condition picker. */
         CONDITION_ADD,
         /** A condition's cross: the condition is removed from the entry's list. */
-        CONDITION_REMOVE
+        CONDITION_REMOVE,
+        /** The table control's card: the press opens the browser to choose or create a table. */
+        TABLE_OPEN,
+        /** The table control's chip: the press opens the editor on the table the reward has. */
+        TABLE_EDIT,
+        /** The table control's cross: the press clears the reference, asking first if a table would go. */
+        TABLE_CLEAR,
+        /** The browser: take a row, or act on one. */
+        TABLE_ROW,
+        TABLE_ROW_EDIT,
+        TABLE_ROW_COPY,
+        TABLE_ROW_DELETE,
+        /** The editor's header: the icon, the number of rolls, and the mode the chances are read as. */
+        TABLE_ICON,
+        TABLE_ROLLS_UP,
+        TABLE_ROLLS_DOWN,
+        TABLE_PREVIEW,
+        /** One entry: its weight, its fold, its own fields, and its cross. */
+        TABLE_WEIGHT,
+        TABLE_WEIGHT_UP,
+        TABLE_WEIGHT_DOWN,
+        TABLE_FOLD,
+        TABLE_REMOVE,
+        TABLE_ENTRY_ITEM,
+        TABLE_OPEN_CHILD,
+        /**
+         * A control inside a folded entry, which is where every reward type's own fields live.
+         *
+         * <p>Five actions rather than one, because what a press does depends on the control's kind and
+         * not on the field it names: a switch writes a boolean, a chip cycles a word, a stepper nudges a
+         * number, a box opens the inline editor, and an item opens the picker. The fold's control list is
+         * what says which of the five a given field is — see {@code TableRowFields.Kind}.
+         */
+        TABLE_FOLD_FLAG,
+        TABLE_FOLD_CHOICE,
+        TABLE_FOLD_STEP_UP,
+        TABLE_FOLD_STEP_DOWN,
+        TABLE_FOLD_TEXT,
+        TABLE_FOLD_RAW,
+        /** The editor's toolbar and footer. */
+        TABLE_ADD_ITEM,
+        TABLE_ADD_REWARD,
+        /** The toolbar's one Import button: the press opens the two sources under it. */
+        TABLE_IMPORT_MENU,
+        TABLE_IMPORT,
+        TABLE_IMPORT_CHEST,
+        TABLE_ROLL,
+        TABLE_UNDO,
+        /** The footer's way out: one table up, or out of the panel at the root. */
+        TABLE_DONE,
+        /**
+         * The same button off a page above the list: back to the list, panel and all.
+         *
+         * <p>One action for both pages, because it is one act — "leave whatever is on top" — and the page
+         * it leaves is read from the state. Two actions is how the roll report came to have no way out at
+         * all: the picker's had one and the report's press fell through to Done.
+         */
+        TABLE_PAGE_BACK,
+        /** The browser's footer: make a table, or leave the panel. */
+        TABLE_NEW,
+        TABLE_BACK,
+        /** The Assets panel: a row, a row's two controls, its footer's New table, and the way out. */
+        ASSETS_ROW,
+        ASSETS_COPY,
+        ASSETS_REMOVE,
+        ASSETS_NEW,
+        ASSETS_CLOSE
     }
 
     /**
@@ -1264,6 +1584,26 @@ public final class QuestBookScreen extends ArmatureScreen {
         toast(Component.translatable("tasked.screen.rewards.overflow", stacks).getString(), true);
     }
 
+    /**
+     * Says how a sweep ended, over the book.
+     *
+     * <p>Called by {@code QuestNotifier} when the server's summary arrives. A sweep that stopped for
+     * want of room and one that finished both make rows disappear, so the sentence is the only thing
+     * that tells them apart — and a silent fifteen-row change reads as a click that did nothing.
+     */
+    void notifyClaimSummary(int claimed, int total, boolean halted) {
+        toast(Component.translatable(halted
+                ? "tasked.screen.rewards.claim_halted"
+                : "tasked.screen.rewards.claim_done", claimed, total).getString(), halted);
+    }
+
+    /**
+     * Says a grant overflowed: what the player's inventory could not hold is on the floor.
+     *
+     * <p>Called by {@code QuestNotifier} when the server's overflow payload arrives, and only while
+     * this screen is the one being read — the action bar carries the same sentence to a player who is
+     * not looking at the book, and the HUD is not drawn behind a screen. See {@link ToastStack}.
+     */
     /**
      * Labels waiting to be drawn, after everything else.
      *
@@ -1423,6 +1763,15 @@ public final class QuestBookScreen extends ArmatureScreen {
      * selected. Cleared with the picker's other state.
      */
     private enum PickTarget { QUEST, CHAPTER, GROUP, BOOK }
+
+    /**
+     * What the open picker card says it is for, in the caller's own words.
+     *
+     * <p>Empty means "ask {@link PickTarget}" — which is right for the three icon picks, whose sentences
+     * name the subject they already carry in {@code pickName}. A pick that is not about a chapter, a
+     * group or the book has no sentence there, and used to get the chapter's.
+     */
+    private String pickTitle = "";
 
     /** The open picker's target, or null when it is closed. */
     private PickTarget pickTarget;
@@ -1664,7 +2013,8 @@ public final class QuestBookScreen extends ArmatureScreen {
      * chrome list the header's controls do.
      */
     private ArmatureButton editPill;
-    private ArmatureButton toolsPill;
+    /** The Assets pill, beside it. Built for the same readers and for no others. */
+    private ArmatureButton assetsPill;
 
     /**
      * The node the drag is carrying, once the drag is one: past the threshold, following the pointer.
@@ -2702,6 +3052,15 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * Whether the inspector drawer is showing.
+     *
+     * <p>Derived rather than toggled: the drawer <i>is</i> edit mode. It opens when the Edit pill latches
+     * and closes with it, so there is no second flag that can disagree with the pill's own state. The
+     * control that used to be a separate Tools button in the header is the menu on the pill now -- a
+     * batch of maintenance actions -- and the panel itself follows Edit, which is the arrangement the
+     * redesign asked for ("the inspector only renders when Edit is toggled on").
+     */
+    /**
      * Centres the content the first time a chapter is shown, and on a reset.
      *
      * <p>Computed from the content's own bounding box rather than from zero, so a questline authored
@@ -3439,18 +3798,16 @@ public final class QuestBookScreen extends ArmatureScreen {
         themeTargetsChapter = toolsTab == ToolsLayout.Tab.CHAPTER;
         toolsFrame = ToolsLayout.frame(geometry().authorRail(), toolsTab);
 
-        // The title row: the panel's name at the left is drawn by the panel, and the menu button beside
-        // it is a widget -- a `ChoiceField`, because it is a word and a triangle, and the menu it opens
-        // is the shared one the author's pill uses.
-        dev.ellipog.tasked.client.dev.ChoiceField panelMenu =
-                new dev.ellipog.tasked.client.dev.ChoiceField(Labels.of(toolsTab.label()));
-        panelMenu.onPress(this::openPanelMenu);
-        BookGeometry.Rect menuRect = ToolsLayout.titleMenu(toolsFrame.title());
-        panelMenu.setX(menuRect.x());
-        panelMenu.setY(menuRect.y());
-        panelMenu.setWidth(menuRect.width());
-        panelMenu.setHeight(menuRect.height());
-        addRenderableWidget(panelMenu);
+        // The tab strip: the Book panel and the Chapter panel, side by side above the status line -- the
+        // arrangement the drawer had before the short-lived title menu, restored because a dropdown that
+        // hides one of two options is a worse control than the two options themselves. The active one is
+        // selected, the same pressed-look rule every other control in this screen follows.
+        control(ToolsLayout.tabBook(toolsFrame.tabs()),
+                Component.translatable(ToolsLayout.Tab.BOOK.label()),
+                () -> setTab(ToolsLayout.Tab.BOOK)).selected(toolsTab == ToolsLayout.Tab.BOOK);
+        control(ToolsLayout.tabChapter(toolsFrame.tabs()),
+                Component.translatable(ToolsLayout.Tab.CHAPTER.label()),
+                () -> setTab(ToolsLayout.Tab.CHAPTER)).selected(toolsTab == ToolsLayout.Tab.CHAPTER);
 
         if (toolsTab == ToolsLayout.Tab.CHAPTER) {
             // The chapter's own file, from the replica, as the rows' source. The quests are edited in
@@ -3485,14 +3842,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             // One list, two row models: the appearance actions on top, the chapter's own content below.
             // `Stack.append` moves elements between stacks, so each side keeps the heights and gaps its
             // own model computed, and a section gap joins the two.
+            // The chapter's own rows first -- identity at the top -- and the shared appearance
+            // sections last, which is the Book tab's own order (the panel's rows, then the appearance
+            // fold) and therefore parity between the two tabs rather than two arrangements to learn.
             Stack combined = Stack.stack();
-            if (!chapterAppearanceRows.isEmpty()) {
-                combined.append(ToolsLayout.stack(chapterAppearanceRows));
-                combined.gap(ToolsLayout.SECTION_GAP);
-            }
-            // Stacked, not side by side: the dock is a narrow column, and a 96-pixel control strip
-            // leaves too little for labels like "Default Prerequisite Mode" -- see InspectLayout.Mode.
             combined.append(InspectLayout.stack(chapterRows, InspectLayout.Mode.STACKED));
+            if (!chapterAppearanceRows.isEmpty()) {
+                combined.gap(ToolsLayout.SECTION_GAP);
+                combined.append(ToolsLayout.stack(chapterAppearanceRows));
+            }
             chapterLayout = combined.build(toolsFrame.list().width(), Measure.monospace(6, 9));
             toolsView.clear();
             toolsView.whole(true);
@@ -3713,16 +4071,6 @@ public final class QuestBookScreen extends ArmatureScreen {
     // The drawer's controls
     // ------------------------------------------------------------------
 
-    /** The drawer's title menu: the triangle that swaps the Book and Chapter panels. */
-    private void openPanelMenu() {
-        BookGeometry.Rect menu = ToolsLayout.titleMenu(toolsFrame.title());
-        openMenuAt(List.of(
-                        MenuItem.of(Labels.of(ToolsLayout.Tab.BOOK.label()),
-                                () -> setTab(ToolsLayout.Tab.BOOK)),
-                        MenuItem.of(Labels.of(ToolsLayout.Tab.CHAPTER.label()),
-                                () -> setTab(ToolsLayout.Tab.CHAPTER))),
-                menu.x(), menu.bottom() + 2);
-    }
 
     /** Opens the shared menu under a rectangle: the pill's menu, the drawer's and a chooser's, one path. */
     private void openMenuAt(List<MenuItem> rows, int x, int y) {
@@ -4201,7 +4549,15 @@ public final class QuestBookScreen extends ArmatureScreen {
     private void setTab(ToolsLayout.Tab tab) {
         if (toolsTab != tab) {
             toolsTab = tab;
+            // Remembered, because "which tab was I reading" is a question that outlives the session: the
+            // file is read once at client start and written here, and nothing else decides it.
+            dev.ellipog.tasked.client.ClientWorking.rememberDrawerTab(
+                    tab == ToolsLayout.Tab.CHAPTER
+                            ? dev.ellipog.tasked.client.ClientWorking.CHAPTER_TAB
+                            : dev.ellipog.tasked.client.ClientWorking.BOOK_TAB);
             // A picker belongs to the row it was opened from, and that row is about to be rebuilt away.
+            // (This was called twice, with the same comment twice, which is what a copy and paste leaves
+            // behind: the second call was dead -- the first had already closed it.)
             closeColourPopover();
             // The selection names a token in one target's palette; carrying it across would leave the
             // band showing one theme's value under the other tab's name.
@@ -4783,11 +5139,33 @@ public final class QuestBookScreen extends ArmatureScreen {
             pressConditionTypeRow(typeId);
             return;
         }
+        // The type picker opened from the table editor adds an *entry*, not a reward on a quest. Read
+        // before the card's own path, which would otherwise insert the reward into the quest behind the
+        // panel -- a reward on a quest the author is not looking at, from a press they made in a table.
+        if (tableAddress != null && overlay == Overlay.TABLE_EDITOR && pickingEntryType != null) {
+            // `defaultElement` is a reward; a table's list holds `{weight, reward}`. This press used to
+            // pass the reward straight to the insert, so the file got a reward where an entry belongs --
+            // refused by the validator as `unknown field "type"` and `unknown field "table"`, every time,
+            // for every type. Which meant the one route to a non-item entry had never worked at all.
+            JsonObject reward = QuestPanelLayout.defaultElement(pickingEntryType, typeId);
+            if (reward == null) {
+                status("This build cannot add a " + typeId + " here", true);
+                return;
+            }
+            int at = tableModel().map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+            tableDraft.forgetList(effectiveChapter(), tableOwnerKey(), "entries");
+            sendTableOp(new dev.ellipog.tasked.editor.TableOp.Insert(tableAddress, at,
+                    QuestPanelLayout.tableEntry(reward)));
+            pickingEntryType = null;
+            status("Added " + typeId, false);
+            rebuildWidgets();
+            return;
+        }
         String member = pickingEntryType;
         if (member == null || editTarget() == null) {
             return;
         }
-        JsonObject entry = QuestPanelLayout.defaultEntry(member, typeId);
+        JsonObject entry = QuestPanelLayout.defaultElement(member, typeId);
         if (entry == null) {
             status("This build cannot add a " + typeId + " here", true);
             return;
@@ -5129,6 +5507,8 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** The section's heading: folds or unfolds it. */
     private void fold(String key) {
+        // The rows are about to be rebuilt: a picker anchored to one of them closes with it.
+        closeColourPopover();
         // The rows are about to be rebuilt: a picker anchored to one of them closes with it.
         closeColourPopover();
         if (key.equals(ToolsLayout.COLOUR_SECTION)) {
@@ -5653,6 +6033,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         JsonElement value = patch.isEmpty() ? null : patch;
         fieldDraft.set(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
                 "themePatch", value, ClientQuestCache.treeRevision(), Util.getMillis());
+        // A marker per request, like every other send: a refusal arrives as an edit reply and the reply
+        // loop matches answers to requests in order, so an unmasked send mis-aligns the ones after it.
+        ClientEditReplies.noteSent("");
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter,
                 new EditorOp.SetChapter("themePatch", value));
     }
@@ -5770,16 +6153,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         return found == null ? token : found.label();
     }
 
-    /** The panel's status line, and the chat, because a panel can be covered by the inventory. */
+    /**
+     * The toast, and the chat, because a toast can be missed and a panel can cover it.
+     *
+     * <p>This used to write the drawer's status line as well. That line is gone: it was a third copy of
+     * the same sentence, in a band that cost every author twelve pixels of list whether or not anything
+     * had happened.
+     */
     private void status(String message, boolean error) {
         // A key for everything the sweep has converted, and a plain sentence for the composed ones:
         // `translatable` passes an unknown key through unchanged, so both kinds go through one door and
-        // a translator sees one namespace. Resolved here rather than at each of the three sinks, so the
-        // panel, the toast and the chat cannot disagree about what was said.
-        String text = Component.translatable(message).getString();
-        toolsFeedback = text;
-        toolsFeedbackIsError = error;
-        toast(text, error);
+        // a translator sees one namespace.
+        toast(Component.translatable(message).getString(), error);
     }
 
     /** Where the pointer is, relative to the panel. Null when the panel is shut. */
@@ -6064,6 +6449,28 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     @Override
     protected void init() {
+        // A command can ask for a table's editor -- `/tasked table edit` -- and the request waits in
+        // `ClientTableOpen` until there is a screen to open it on. Taken here rather than in the payload
+        // handler because the handler cannot assume this screen exists, and read before the dispatch
+        // below because opening the editor changes which branch builds the widgets.
+        String requestedTable = dev.ellipog.tasked.client.ClientTableOpen.take();
+        if (requestedTable != null) {
+            tableAddress = dev.ellipog.tasked.editor.TableAddress.of(requestedTable);
+            tableStack.clear();
+            tableApplied = 0;
+            tableUndone = 0;
+            tableFolded.clear();
+            tableShowRoll = false;
+            tableImportOpen = false;
+            tablePreview = dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM;
+            overlay = Overlay.TABLE_EDITOR;
+        }
+        // Which dock tab the author was reading, from the file that remembers it. Seeded here rather than
+        // as a field initialiser because the file is read at client start, and a screen built before that
+        // read would otherwise decide the tab from a default it then keeps for the session.
+        toolsTab = dev.ellipog.tasked.client.ClientWorking.CHAPTER_TAB.equals(
+                dev.ellipog.tasked.client.ClientWorking.drawerTab())
+                ? ToolsLayout.Tab.CHAPTER : ToolsLayout.Tab.BOOK;
         // First, because everything below is built from the caches it names -- and the frame that
         // must notice them moving is the one after this returns. See `watchSources`.
         watchSources();
@@ -6238,6 +6645,43 @@ public final class QuestBookScreen extends ArmatureScreen {
             beginModalControls();
 
             buildNamingWidgets();
+            setBookControlsActive(false);
+            return;
+        }
+
+        if (overlay == Overlay.TABLE_BROWSER) {
+            // The book's own chrome behind the card, exactly as every other overlay builds it -- then
+            // the browser's one field, and the book made inert.
+            buildSidebarWidgets();
+            buildHeaderChrome();
+            buildViewCluster();
+            beginModalControls();
+
+            buildTableBrowserWidgets();
+            setBookControlsActive(false);
+            return;
+        }
+
+        if (overlay == Overlay.TABLE_EDITOR) {
+            // The same chrome behind the card, then the editor's title field.
+            buildSidebarWidgets();
+            buildHeaderChrome();
+            buildViewCluster();
+            beginModalControls();
+
+            buildTableEditorWidgets();
+            setBookControlsActive(false);
+            return;
+        }
+
+        if (overlay == Overlay.ASSETS) {
+            // The book's own chrome behind the card, and deliberately no widgets of its own: the panel is
+            // drawn and hit-tested from `AssetsLayout` the way the table panels are, so a row's rectangle
+            // is one derivation rather than a widget's and a drawing's that can disagree.
+            buildSidebarWidgets();
+            buildHeaderChrome();
+            buildViewCluster();
+            beginModalControls();
             setBookControlsActive(false);
             return;
         }
@@ -6437,11 +6881,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         // trace of authoring: the same header as everyone, and a canvas with only the view cluster on it.
         //
         // Edit latches edit mode, and the inspector drawer follows it -- see `drawerOpen`, where that is
-        // derived rather than a second flag. Tools drops in beneath it and only while edit mode is on: it
-        // opens the maintenance menu, and a menu with nothing to act on is a control that should not be
-        // there.
+        // derived rather than a second flag. It is the author's only floating control: the Tools menu it
+        // used to open held Straighten, Undo, Redo and Snapping, and every one of those is already a key
+        // or a switch in the Book tab, so the menu was a second way to do four things and nothing else.
         editPill = null;
-        toolsPill = null;
+        assetsPill = null;
         if (mayEdit()) {
             editPill = control(controls.get("editPill"),
                     Component.literal("\u270E ").append(Component.translatable("tasked.screen.edit")),
@@ -6453,16 +6897,15 @@ public final class QuestBookScreen extends ArmatureScreen {
                                 Component.translatable("tasked.screen.drag_nodes_create_duplicate_delete"),
                                 Component.translatable("tasked.screen.ctrl_s_saves_ctrl_z_undoes")));
             }
-
-            if (DevMode.on()) {
-                toolsPill = control(controls.get("toolsPill"),
-                        Component.translatable("tasked.screen.tools")
-                                .append(Component.literal(" \u25BC")),
-                        this::openToolsMenu);
-                if (toolsPill != null) {
-                    toolsPill.ink(ArmatureButton.Ink.BODY)
-                            .tooltip(Component.translatable("tasked.screen.tools_menu_hint"));
-                }
+            // Beside it, and for the same reader: the pack's own files, which no quest has to be open to
+            // reach. Not a latch -- it opens a panel, and the panel's own way out closes it.
+            assetsPill = control(controls.get("assetsPill"),
+                    Component.translatable("tasked.screen.assets"), this::openAssets);
+            if (assetsPill != null) {
+                assetsPill.ink(ArmatureButton.Ink.BODY)
+                        .tooltip(List.of(Component.translatable("tasked.screen.the_packs_own_files"),
+                                Component.translatable("tasked.screen.tables_quests_and_types"),
+                                Component.translatable("tasked.screen.ctrl_t_opens_this")));
             }
         }
     }
@@ -6782,7 +7225,9 @@ public final class QuestBookScreen extends ArmatureScreen {
         // The edit bar, in the footer the reader uses for Submit and Claim -- hidden while editing,
         // because an author's own progress is noise on the page they are writing. Delete asks once:
         // the first press arms it and says so, the second deletes, and anything else disarms it.
-        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(true);
+        // `false`: these panels build no Submit, and asking the footer for one makes it move Back up a
+        // row whenever the card is narrow -- a control drawn above the band the body reserves for it.
+        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(false);
         BookGeometry.Rect slot = controls.get("submit");
         if (slot != null) {
             // The footer's real width -- from the card's inset to the Done button -- not the reader's
@@ -6819,7 +7264,16 @@ public final class QuestBookScreen extends ArmatureScreen {
                         .tooltip(Component.translatable("tasked.screen.shape_size_placement_and_rules"));
             }
         }
-        ArmatureButton done = control(controls.get("back"), Component.translatable("tasked.screen.done"), this::closeOverlay);
+        // One step back, as everywhere else in this book. While a page is over the card -- a list of types,
+        // a list of items, the settings page -- this button leaves that page and the card stays open;
+        // "Done" is for the press that really does end the card, which is its last step. The tooltip needs
+        // no change: Escape leaves the same thing, so "Escape also closes this" is true of the page as
+        // well as of the card.
+        boolean pageOverCard = pickingEntryType != null || pickingConditionFor != null
+                || pickingItemPath != null || settingsOpen;
+        ArmatureButton done = control(controls.get("back"),
+                Component.translatable(pageOverCard ? "tasked.screen.back" : "tasked.screen.done"),
+                pageOverCard ? this::leaveCardPage : this::closeOverlay);
         if (done != null) {
             done.ink(ArmatureButton.Ink.BODY).tooltip(Component.translatable("tasked.screen.escape_also_closes_this"));
         }
@@ -6899,6 +7353,26 @@ public final class QuestBookScreen extends ArmatureScreen {
                     try (GuiRenderer.Scoped clip = r.clip(frame.controls().x(), frame.controls().y(),
                             frame.controls().right(), frame.controls().bottom())) {
                         field.render(r);
+                    }
+                });
+            }
+            for (dev.ellipog.tasked.client.dev.QuestSettingsLayout.Row row : settingsRows) {
+                if (row.kind() != dev.ellipog.tasked.client.dev.QuestSettingsLayout.Row.Kind.NUMBER) {
+                    continue;
+                }
+                dev.ellipog.tasked.client.dev.ScrubField field = settingField(row.key(), quest);
+                settingsView.put(row.key(), field);
+                addRenderableWidget(field);
+                // Redrawn above the card, the same arrangement the page's text fields use -- and with the
+                // pointer kept from the frame, so the field's hover and its scrub cue are drawn where the
+                // widget pass, underneath the card, cannot be seen.
+                modalRedraws.add(r -> {
+                    if (!field.visible) {
+                        return;
+                    }
+                    try (GuiRenderer.Scoped clip = r.clip(frame.controls().x(), frame.controls().y(),
+                            frame.controls().right(), frame.controls().bottom())) {
+                        field.render(r, renderMouseX, renderMouseY);
                     }
                 });
             }
@@ -7253,11 +7727,12 @@ public final class QuestBookScreen extends ArmatureScreen {
         boolean known = QuestPanelLayout.knownType(type);
         boolean folded = entryFolded.contains(member + "." + index);
 
-        // A rule between entries, so a stack of forms reads as a list of them rather than as one long
-        // column of boxes. Inside the entry's own air, so no height changes and nothing moves.
-        if (index > 0) {
-            r.fill(slot.x(), slot.y() + 1, slot.right(), slot.y() + 2, ArmatureTheme.panelEdge());
-        }
+        // Each entry is a card: a surface and a border behind its own slot. It was a hairline rule
+        // between entries, which made a stack of forms read as one long column of boxes -- and a reward
+        // is a thing, so it is drawn as one. Inside the entry's own air, so no height changes and
+        // nothing moves; the card is what the entry's rows are already laid out on.
+        ArmatureTheme.panel(r, slot.x(), slot.y(), slot.width(), Math.max(0, slot.height() - 2),
+                ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
 
         // One derivation for the whole entry: the badge, the fields, the grip and the corner controls.
         // Drawing and the hit test below both read it, so a control cannot be drawn on one line and
@@ -7615,7 +8090,8 @@ public final class QuestBookScreen extends ArmatureScreen {
                 int textX = drawItemValue(r, cell.value(), value, replaced, mouseX, mouseY);
                 target(r, EditAction.ITEM, path, cell.value(), textX, cell.value().y() + 3, value, member,
                         index, mouseX, mouseY);
-            }            case POSITION, SIZE -> {
+            }
+            case TABLE -> drawTableField(r, cell, entry, member, index, path, mouseX, mouseY);            case POSITION, SIZE -> {
                 String[] axes = {"X", "Y", "Z"};
                 for (int axis = 0; axis < 3; axis++) {
                     BookGeometry.Rect box = cell.axes().get(axis);
@@ -7739,6 +8215,19 @@ public final class QuestBookScreen extends ArmatureScreen {
         r.text(glyph, box.x() + (box.width() - r.textWidth(glyph)) / 2,
                 box.y() + (EntryFormLayout.LINE_HEIGHT - 8) / 2,
                 hot ? ArmatureTheme.title() : ArmatureTheme.body());
+    }
+
+    /**
+     * The same chip, drawn blocked: a control the reading on screen does not use.
+     *
+     * <p>Blocked rather than absent. A control that has vanished reads as a control that is missing, and
+     * the caller registers no target for this one, so it takes no press and the hover says why — the same
+     * treatment the toolbar's Undo gets when there is nothing to undo.
+     */
+    private void drawChipBlocked(GuiRenderer r, BookGeometry.Rect box, String glyph) {
+        drawEditAffordance(r, box, false);
+        r.text(glyph, box.x() + (box.width() - r.textWidth(glyph)) / 2,
+                box.y() + (EntryFormLayout.LINE_HEIGHT - 8) / 2, ArmatureTheme.blocked());
     }
 
     /** The switch a flag is drawn as: filled when on, empty when off. */
@@ -8335,10 +8824,34 @@ public final class QuestBookScreen extends ArmatureScreen {
         return List.copyOf(lines);
     }
 
+    /**
+     * Why a reward type cannot be an entry in a table, or empty when it can.
+     *
+     * <p>Empty for a picker that is not adding to a table: a quest's own reward list may hold a choice,
+     * and blocking it there would take away the one place a choice belongs. The sentence itself comes
+     * from the model, which is the same one the validator refuses the entry with.
+     */
+    private String tableTypeRefusal(String typeId) {
+        if (overlay != Overlay.TABLE_EDITOR) {
+            return "";
+        }
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.resources.ResourceLocation.tryParse(typeId);
+        return id == null ? "" : dev.ellipog.tasked.quest.reward.TableReward.entryRefusal(id);
+    }
+
     /** The rows the open type picker shows: the condition types when that is what is open, else the member's. */
     private List<InspectRow> pickerRows() {
-        return pickingConditionFor != null
-                ? QuestPanelLayout.conditionTypeRows()
+        if (pickingConditionFor != null) {
+            return QuestPanelLayout.conditionTypeRows();
+        }
+        // The table editor's strip says "Add a reward" while this page is open, so the page has no first
+        // line of its own: a heading row would either repeat that sentence or name the table, which the
+        // chrome has not asked for and the eye reads first. Its list begins at its first group heading. A
+        // quest's own card keeps the line, because its chrome is the quest's identity and a page cannot
+        // rename the quest it is a guest of.
+        return overlay == Overlay.TABLE_EDITOR
+                ? QuestPanelLayout.typeRowsNamedInChrome(pickingEntryType)
                 : QuestPanelLayout.typeRows(pickingEntryType);
     }
 
@@ -8354,8 +8867,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 : typeIcon(pickingEntryType, typeId);
     }
 
-    /** A picker row's hover: the author's description, from whichever registry the picker is over. */
-    private List<Component> pickerTooltip(String typeId) {
+    /** A picker row's hover: the author's description, from whichever registry the picker is over. */    private List<Component> pickerTooltip(String typeId) {
         List<String> lines = pickingConditionFor != null
                 ? QuestPanelLayout.conditionTypeTooltip(typeId)
                 : QuestPanelLayout.typeTooltip(pickingEntryType, typeId);
@@ -8396,6 +8908,12 @@ public final class QuestBookScreen extends ArmatureScreen {
             // An item is picked, not typed: the text field is still there (it is the picker's search
             // box, and a whole id in it commits), but it is no longer the whole of how a field is set.
             case ITEM -> openItemPicker(target, false);
+            // The table control's three presses: the card opens the browser, the chip opens the editor,
+            // and the cross clears the reference. All three are the card's, so they act on the reward
+            // the open quest has at that path.
+            case TABLE_OPEN -> openTableBrowser(target);
+            case TABLE_EDIT -> openTableEditorFor(target);
+            case TABLE_CLEAR -> clearTable(target);
             case ADD_TASK -> openTypePicker("tasks");
             case ADD_REWARD -> openTypePicker("rewards");
             case CONDITION_ADD -> openConditionTypePicker(target.path());
@@ -8641,8 +9159,45 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (InlineEdit.inHeader(path)) {
             return BookGeometry.Rect.at(overlayLeft(), overlayTop(), overlayWidth(), BODY_TOP);
         }
+        // A table editor's field belongs to its row, and that is the region it is clipped to: the field's
+        // box is a couple of pixels taller than the line it replaces, and those pixels are padding -- the
+        // ink is centred on the line, so clipping to the row keeps every drawn pixel and stops the box
+        // from reaching into the entry above it.
+        BookGeometry.Rect row = tableRowRegion(path);
+        if (row != null) {
+            return row;
+        }
         Viewport body = overlayBody();
         return BookGeometry.Rect.at(body.originX(), body.originY(), body.viewWidth(), body.viewHeight());
+    }
+
+    /**
+     * The band the field at a table path belongs to: its row on screen, or null when the path is not a
+     * table editor's.
+     *
+     * <p>Read from the same {@code rowRect} the drawing uses, so a field clipped to its row is clipped to
+     * where that row actually is -- folds, scroll and all.
+     */
+    private BookGeometry.Rect tableRowRegion(String path) {
+        if (overlay != Overlay.TABLE_EDITOR || tableEditorFrame == null || path == null
+                || !path.startsWith("entries.")) {
+            return null;
+        }
+        int dot = path.indexOf('.', "entries.".length());
+        String middle = path.substring("entries.".length(), dot < 0 ? path.length() : dot);
+        int index;
+        try {
+            index = Integer.parseInt(middle.trim());
+        }
+        catch (NumberFormatException notARow) {
+            return null;
+        }
+        int entries = tableModel().map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+        if (index < 0 || index >= entries) {
+            return null;
+        }
+        return dev.ellipog.tasked.client.dev.TableEditorLayout.rowRect(entries, tableEditorFrame,
+                tableScroll, index, tableFolds());
     }
 
     /**
@@ -8763,6 +9318,80 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * One typed value, as the table op that writes it.
+     *
+     * <p>The kind came from the control that opened the box, because the box hands back a string and the
+     * file does not hold one: a count is a whole number, a weight may have a fraction, a switch is a
+     * boolean, a command is a string and the raw row is whole JSON. Each branch is the format's own
+     * answer for its kind, and the refusals are spoken rather than swallowed — a value silently not
+     * written reads as a press that did nothing.
+     */
+    private void commitTableText(TableEdit edit, String text) {
+        String trimmed = text == null ? "" : text.trim();
+        switch (edit.kind()) {
+            case RAW -> {
+                if (trimmed.isEmpty()) {
+                    return;
+                }
+                try {
+                    JsonElement parsed = com.google.gson.JsonParser.parseString(trimmed);
+                    if (!parsed.isJsonObject()) {
+                        status("An entry's raw text has to be a JSON object", true);
+                        return;
+                    }
+                    sendTableValue(edit.path(), parsed);
+                }
+                catch (RuntimeException notJson) {
+                    status("That is not JSON", true);
+                }
+            }
+            case INT, DECIMAL -> {
+                if (trimmed.isEmpty()) {
+                    // An empty box removes the field, as everywhere else in this editor: for a number
+                    // that means the type's own default, which is exactly what an absent field is.
+                    sendTableValue(edit.path(), null);
+                    return;
+                }
+                double value;
+                try {
+                    value = Double.parseDouble(trimmed);
+                }
+                catch (NumberFormatException notANumber) {
+                    status("That is not a number", true);
+                    return;
+                }
+                if (!Double.isFinite(value)) {
+                    status("That is not a number", true);
+                    return;
+                }
+                if (edit.kind() == dev.ellipog.tasked.client.dev.TableRowFields.Kind.DECIMAL) {
+                    // A weight is the decimal field, and zero already means "always granted"
+                    // (RewardTable.rollIndices reads weight <= 0 as a guarantee), so a negative weight is
+                    // not a small weight -- it is a second spelling of zero. An author who typed one
+                    // meant something the format does not have, and the roll would not do it.
+                    if (value < 0) {
+                        status("A weight cannot be negative - zero already means always granted", true);
+                        return;
+                    }
+                    sendTableValue(edit.path(), new com.google.gson.JsonPrimitive(value));
+                }
+                else {
+                    sendTableValue(edit.path(), new com.google.gson.JsonPrimitive((int) value));
+                }
+            }
+            case FLAG -> sendTableValue(edit.path(),
+                    new com.google.gson.JsonPrimitive(Boolean.parseBoolean(trimmed)));
+            default -> {
+                if (trimmed.isEmpty()) {
+                    sendTableValue(edit.path(), null);
+                    return;
+                }
+                sendTableValue(edit.path(), new com.google.gson.JsonPrimitive(trimmed));
+            }
+        }
+    }
+
+    /**
      * Commits one inline edit, by the path the piece is about.
      *
      * <p>Three shapes share the door, because they share the rule that a field commits as a whole:
@@ -8771,6 +9400,16 @@ public final class QuestBookScreen extends ArmatureScreen {
      * tree declares. An empty value removes the field, as everywhere else.
      */
     private void commitInlineText(String path, String text) {
+        // A field the table editor opened: its value belongs to a table, and the quest op below would
+        // write the path into the quest instead. One branch, before anything else looks at the path.
+        if (tableEdit != null && tableEdit.path().equals(path)) {
+            TableEdit edit = tableEdit;
+            tableEdit = null;
+            closeInlineEditor();
+            commitTableText(edit, text);
+            rebuildWidgets();
+            return;
+        }
         String target = editTarget();
         closeInlineEditor();
         if (!mayEditNow() || target == null) {
@@ -8845,9 +9484,8 @@ public final class QuestBookScreen extends ArmatureScreen {
         pickingEntryType = null;
         settingsOpen = false;
         pickerFromSettings = false;
+        forgetPickSubject();
         pickTarget = PickTarget.QUEST;
-        pickIcon = ItemStack.EMPTY;
-        pickName = "";
         draggingSlider = null;
         settingsDraft.clear();
         pickingItemPath = target.path();
@@ -8883,10 +9521,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         settingsOpen = false;
         pickerFromSettings = returnToSettings;
         // The card's picker, named as such: the dock's two icons are the other targets, and a stale one
-        // left set would route this pick to a chapter's or a group's file.
+        // left set would route this pick to a chapter's or a group's file. The reset comes first, so the
+        // title can never be a sentence the last pick left behind.
+        forgetPickSubject();
         pickTarget = PickTarget.QUEST;
-        pickIcon = ItemStack.EMPTY;
-        pickName = "";
         draggingSlider = null;
         settingsDraft.clear();
         pickingItemPath = target.path();
@@ -8924,9 +9562,13 @@ public final class QuestBookScreen extends ArmatureScreen {
         // it puts the book back. Read before the target is cleared, because only a dock pick owns the
         // overlay -- a pick from the card closes back into the card.
         boolean ownOverlay = pickTarget != null && pickTarget != PickTarget.QUEST && overlay == Overlay.PICKER;
-        pickTarget = null;
-        pickIcon = ItemStack.EMPTY;
-        pickName = "";
+        // A pick made from the table editor closes back into the editor rather than into the card: the
+        // picker is a page of *that* panel while it is open, and the panel is where the author was.
+        if (tablePickReturn && overlay == Overlay.PICKER) {
+            tablePickReturn = false;
+            overlay = Overlay.TABLE_EDITOR;
+        }
+        forgetPickSubject();
         pickingItemPath = null;
         pickingItemCurrent = "";
         pickingItemClearPath = null;
@@ -8960,7 +9602,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             return;
         }
         if (row.kind() == ItemPickerLayout.Kind.CLEAR) {
-            commitPicker(null);
+            commitPicker(null, 1);
             return;
         }
         if (row.kind() == ItemPickerLayout.Kind.MISSING && row.id().equals(pickingItemCurrent)) {
@@ -8970,7 +9612,9 @@ public final class QuestBookScreen extends ArmatureScreen {
             rebuildWidgets();
             return;
         }
-        commitPicker(row.id());
+        // The row's own count, so a carried stack of 128 becomes 128 rather than one: this is the row
+        // the number was printed from, and a caller that had to count it again would be a second answer.
+        commitPicker(row.id(), row.count());
     }
 
     /**
@@ -8984,18 +9628,20 @@ public final class QuestBookScreen extends ArmatureScreen {
         String query = itemSearch == null ? "" : itemSearch.value();
         String exact = ItemPicker.exactId(query, pickerMatches);
         if (exact != null) {
-            commitPicker(exact);
+            // A whole id typed is one of the thing, the way a catalogue row is: there is no stack behind
+            // a name somebody typed.
+            commitPicker(exact, 1);
             return;
         }
         ItemPickerLayout.Row row = pickerSelected >= 0 && pickerSelected < pickerRows.size()
                 ? pickerRows.get(pickerSelected) : null;
         if (row != null && (row.kind() == ItemPickerLayout.Kind.ITEM
                 || row.kind() == ItemPickerLayout.Kind.MISSING)) {
-            commitPicker(row.id());
+            commitPicker(row.id(), row.count());
             return;
         }
         if (row != null && row.kind() == ItemPickerLayout.Kind.CLEAR) {
-            commitPicker(null);
+            commitPicker(null, 1);
             return;
         }
         status(query.isBlank() ? "Type to search, or pick something you carry"
@@ -9008,9 +9654,16 @@ public final class QuestBookScreen extends ArmatureScreen {
      * <p>A clear with nothing legal to clear is refused before it reaches the wire -- the row is not
      * drawn for such a field, and this is the second gate in case anything ever draws one anyway.
      */
-    private void commitPicker(String id) {
+    private void commitPicker(String id, int count) {
         if (pickTarget != null && pickTarget != PickTarget.QUEST) {
             commitDockPicker(id);
+            return;
+        }
+        // A pick made from the table editor: the item goes into the table rather than into a quest
+        // field, and the item's own data goes with it -- the same "the sword I am holding" rule the
+        // card's item fields have. The count too, when the entry being made is new: see `itemEntry`.
+        if (tablePickPath != null) {
+            commitTablePick(id, id == null ? "" : pickedDataOf(id), count);
             return;
         }
         String quest = editTarget();
@@ -10713,48 +11366,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         r.text(fitLabel(r, item.label()), rect.x() + 4, rect.y() + (MENU_ROW_HEIGHT - 8) / 2, colour);
     }
 
-    /**
-     * The Tools pill's menu: the maintenance actions, anchored under the pill.
-     *
-     * <h2>Why it reuses the sidebar's menu rather than a flyout of its own</h2>
-     *
-     * <p>Because everything a menu needs already lives on {@link #menu}: one derivation of the rows for
-     * drawing, pressing and hover; the placement clamp; Escape; and the press-outside dismissal. A second
-     * flyout would be a second copy of all four, and the first thing to drift. The rows are
-     * {@link MenuItem}s with no children, which is the shape the sidebar's own leaf rows have.
-     *
-     * <h2>Which rows there are</h2>
-     *
-     * <p>Only actions that exist: Straighten (the Alt+click gesture, promoted, and only offered while a
-     * node is selected -- it acts on a node, and a row that could do nothing is not drawn), Undo and Redo
-     * (the same ops Ctrl+Z and Ctrl+Y send), and the Snap switch. Auto-layout, a validation report and
-     * import/export are deliberately absent: none of them is implemented, and a menu row that did nothing
-     * would be the dead control this whole redesign is removing.
-     */
-    private void openToolsMenu() {
-        if (!mayEditNow()) {
-            return;
-        }
-        List<MenuItem> rows = new ArrayList<>();
-        String selected = selectedQuest;
-        if (selected != null) {
-            rows.add(MenuItem.of("Straighten", () -> straightenNode(selected)));
-        }
-        rows.add(MenuItem.of("Undo", () -> send(new EditorOp.Undo())));
-        rows.add(MenuItem.of("Redo", () -> send(new EditorOp.Redo())));
-        rows.add(MenuItem.of(DevMode.snap() ? "Snapping: on" : "Snapping: off", () -> {
-            DevMode.setSnap(!DevMode.snap());
-            status(DevMode.snap() ? "Snap on \u2014 Alt places freely" : "Snap off", false);
-        }));
-        menu = List.copyOf(rows);
 
-        // Under the pill and right-aligned with it, so the menu reads as belonging to the control that
-        // opened it. `MenuPlacement` clamps it inside the panel; a right-aligned anchor means a window
-        // too narrow shifts it left rather than opening it off the edge.
-        BookGeometry.Rect pill = geometry().toolsPill();
-        menuX = pill.right() - MENU_WIDTH;
-        menuY = pill.bottom() + 2;
-    }
 
     // ------------------------------------------------------------------
     // The canvas's menus
@@ -11724,7 +12336,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                     }
                 }
                 case SLIDER -> {
-                    Integer step = dev.ellipog.tasked.client.dev.QuestSettingsLayout.stepperStepAt(
+                    Integer step = dev.ellipog.tasked.client.dev.QuestSettingsLayout.arrowStepAt(
                             strip, mouseX, mouseY);
                     if (step != null) {
                         stepField(row.key(), step, quest);
@@ -11734,13 +12346,6 @@ public final class QuestBookScreen extends ArmatureScreen {
                         // which is one commit rather than one per frame.
                         draggingSlider = row.key();
                         dragSliderTo(mouseX);
-                    }
-                }
-                case STEPPER -> {
-                    Integer step = dev.ellipog.tasked.client.dev.QuestSettingsLayout.stepperStepAt(
-                            strip, mouseX, mouseY);
-                    if (step != null) {
-                        stepField(row.key(), step, quest);
                     }
                 }
                 case SWITCH -> {
@@ -11762,7 +12367,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                     }
                 }
                 case CHOICE -> {
-                    Integer step = dev.ellipog.tasked.client.dev.QuestSettingsLayout.stepperStepAt(
+                    Integer step = dev.ellipog.tasked.client.dev.QuestSettingsLayout.arrowStepAt(
                             strip, mouseX, mouseY);
                     if (step != null) {
                         JsonElement value = QuestPanelLayout.get(quest, row.key());
@@ -11911,6 +12516,58 @@ public final class QuestBookScreen extends ArmatureScreen {
         sendField(editTarget(), key, new JsonPrimitive((long) next));
     }
 
+    /**
+     * A settings page numeric row as a field: its value, its range, its unit, and what a drag does.
+     *
+     * <p>The page's steppers are scrubbable fields now, on the same contract as the drawer's: a drag
+     * previews through the draft -- the canvas node moves before anything is written -- and the release
+     * sends one op. The ranges are the ones {@code stepField} clamps to, so the two paths cannot disagree
+     * about what a value may be.
+     */
+    private dev.ellipog.tasked.client.dev.ScrubField settingField(String key, JsonObject quest) {
+        if ("x".equals(key) || "y".equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(intField(quest, key, 0),
+                    -100000, 100000, 1, " px")
+                    .onPreview(next -> previewQuestField(key, Math.round(next)))
+                    .onCommit(next -> commitNumberField(key, Math.round(next)));
+        }
+        if ("minRequired".equals(key)) {
+            int max = QuestPanelLayout.strings(quest, "dependsOn").size();
+            return new dev.ellipog.tasked.client.dev.ScrubField(intField(quest, key, 0), 0,
+                    Math.max(0, max), 1, "")
+                    .onPreview(next -> previewQuestField(key, Math.round(next)))
+                    .onCommit(next -> commitNumberField(key, Math.round(next)));
+        }
+        if ("maxCompletableDependents".equals(key) || "invisibleUntilTasks".equals(key)) {
+            return new dev.ellipog.tasked.client.dev.ScrubField(intField(quest, key, 0), 0,
+                    dev.ellipog.tasked.quest.QuestRules.MAX_COUNT, 1, "")
+                    .onPreview(next -> previewQuestField(key, Math.round(next)))
+                    .onCommit(next -> commitNumberField(key, Math.round(next)));
+        }
+        // The cooldown, in ticks: an hour is past any cooldown anyone writes, and the field is the only
+        // bound -- the model has none.
+        return new dev.ellipog.tasked.client.dev.ScrubField(intField(quest, key, 0), 0, 72000, 1,
+                " ticks")
+                .onPreview(next -> previewQuestField(key, Math.round(next)))
+                .onCommit(next -> commitNumberField(key, Math.round(next)));
+    }
+
+    /** A numeric row's commit: one op, the same write the arrows' step made. */
+    private void commitNumberField(String key, long value) {
+        sendField(editTarget(), key, new JsonPrimitive(value));
+    }
+
+    /** A drag's value, stamped for the canvas and the page without sending it: one op follows on release. */
+    private void previewQuestField(String path, long value) {
+        String chapter = effectiveChapter();
+        String target = editTarget();
+        if (chapter == null || target == null) {
+            return;
+        }
+        fieldDraft.set(chapter, target, path, new JsonPrimitive(value),
+                ClientQuestCache.treeRevision(), net.minecraft.Util.getMillis());
+    }
+
     /** A slider drag: the value under the pointer, remembered for the preview and not yet sent. */
     private void dragSliderTo(double mouseX) {
         if (draggingSlider == null || settingsLayout == null) {
@@ -12012,6 +12669,32 @@ public final class QuestBookScreen extends ArmatureScreen {
     }
 
     /**
+     * Leaves the innermost page over the card, and only that one.
+     *
+     * <p>The card's counterpart of the table panels' way-out rule: the button that leaves a page may not
+     * also close the card behind it, or a press from a list of types lands the author two steps away from
+     * where they were. Innermost first, the same order Escape already follows — the type and condition
+     * picker, then the item picker, then the settings page — and the item picker's own close is reused
+     * rather than reimplemented, because it knows it may have been opened *from* the settings page and
+     * puts that page back.
+     */
+    private void leaveCardPage() {
+        if (pickingEntryType != null || pickingConditionFor != null) {
+            pickingEntryType = null;
+            pickingConditionFor = null;
+        }
+        else if (pickingItemPath != null) {
+            closeItemPicker();
+        }
+        else if (settingsOpen) {
+            settingsOpen = false;
+            draggingSlider = null;
+            settingsDraft.clear();
+        }
+        rebuildWidgets();
+    }
+
+    /**
      * Opens or closes the settings page.
      *
      * <p>Opening it closes the pickers, because the page takes the body and a picker behind it would be
@@ -12069,6 +12752,3178 @@ public final class QuestBookScreen extends ArmatureScreen {
         rebuildWidgets();
     }
 
+    // ------------------------------------------------------------------
+    // The reward tables: the card's control, the browser, and the editor
+    // ------------------------------------------------------------------
+
+    /**
+     * The reward's own path from a table control's path.
+     *
+     * <p>The control's path is the reward's {@code table} field ({@code rewards.2.table}), and every
+     * operation about the reward — pointing it at a table, clearing it, starting an inline table in it —
+     * names the reward rather than the field.
+     */
+    private static String owningPathOf(String path) {
+        return path != null && path.endsWith(".table")
+                ? path.substring(0, path.length() - ".table".length())
+                : path;
+    }
+
+    /** Asks the server for one table edit. The client writes nothing: see {@code ServerTables}. */
+    private void sendTableOp(dev.ellipog.tasked.editor.TableOp op) {
+        // The payload's chapter is unused by a table op -- a table is a file, not a chapter's -- so it
+        // is sent empty rather than as a chapter that has nothing to do with the edit.
+        ClientEditReplies.noteSent(op.getClass().getSimpleName());
+        TaskedNetworking.sendEditorOp("", op);
+    }
+
+    /**
+     * The table panels' own header height.
+     *
+     * <p>Smaller than the quest card's forty-five, which carries an icon, a title and a state tag: these
+     * cards hold one word, and a band sized for the other card's contents left a strip of empty surface
+     * above the first row -- which is what the screenshot showed as a header with no room to breathe
+     * under it.
+     */
+    private static final int TABLE_HEADER = dev.ellipog.tasked.client.dev.TableEditorLayout.CARD_HEADER;
+
+    /** Air between the header's rule and the first thing in the body. */
+    private static final int TABLE_BODY_GAP = dev.ellipog.tasked.client.dev.TableEditorLayout.CARD_GAP;
+
+    /** Where the two table cards draw their bodies: the card's own arithmetic, in the tested layout. */
+    private BookGeometry.Rect tableBody() {
+        return dev.ellipog.tasked.client.dev.TableEditorLayout.body(geometry().modal());
+    }
+
+    /**
+     * Whether the pointer is over the band a table panel actually scrolls.
+     *
+     * <p>The two panels scroll different bands — the browser's list under its search box, the editor's
+     * rows under its headings, and the roll page's lines in that same band — and a frame that has not
+     * been built yet has nothing to scroll, so the answer is no rather than a rectangle of zeroes.
+     */
+    private boolean overTableList(double mouseX, double mouseY) {
+        if (overlay == Overlay.TABLE_BROWSER) {
+            return tableBrowserFrame != null && tableBrowserFrame.list().contains(mouseX, mouseY);
+        }
+        return tableEditorFrame != null && tableEditorFrame.rows().contains(mouseX, mouseY);
+    }
+
+    /**
+     * The card's chrome: the panel, the title strip, the two rules, and the way out.
+     *
+     * <p>Named for a modal card rather than for a table, which it was: it takes a title and a close action
+     * and knows nothing about tables, and a third caller that is not a table panel would have made the old
+     * name a lie. The strip's height is {@code TableEditorLayout.CARD_HEADER}, which
+     * {@code AssetsLayout.TITLE_HEIGHT} reads as well, so a panel's content starts below the strip by the
+     * same number the chrome fills.
+     *
+     * <p>The close chip is in the strip because that is where every other card's is, and because a panel
+     * whose only visible exit is a footer button at the far corner is a panel that hides its own way out.
+     * It is the same action the footer's button carries -- one press, one meaning, two places to find it.
+     */
+    private void drawModalCardChrome(GuiRenderer r, String title, int mouseX, int mouseY,
+                                     EditAction closeAction) {
+        int left = overlayLeft();
+        int top = overlayTop();
+        int w = overlayWidth();
+        int h = overlayHeight();
+        ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, TABLE_HEADER, ArmatureTheme.raised(),
+                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
+        r.fill(left + 1, top + TABLE_HEADER, left + w - 1, top + TABLE_HEADER + 2,
+                ArmatureTheme.panelEdge());
+        r.fill(left + 1, top + h - BookGeometry.MODAL_FOOTER_HEIGHT, left + w - 1,
+                top + h - BookGeometry.MODAL_FOOTER_HEIGHT + 1, ArmatureTheme.panelEdge());
+        r.text(title, left + 14, top + (TABLE_HEADER - 8) / 2, ArmatureTheme.title());
+        String cross = "×";
+        BookGeometry.Rect close = BookGeometry.Rect.at(left + w - 20, top + 8, 12, 12);
+        boolean hot = close.contains(mouseX, mouseY);
+        r.text(cross, close.x() + (close.width() - r.textWidth(cross)) / 2, close.y() + 2,
+                hot ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(closeAction, "", close, close.x(), close.y(), "", null, -1);
+    }
+
+    /**
+     * The two panels' footer, drawn where every other card in this book keeps its controls.
+     *
+     * <h2>Why these are drawn targets rather than buttons</h2>
+     *
+     * <p>They were widgets, and the editor's Done was then the one control in this panel that answered
+     * on <b>release</b> while every other control answered on press. That difference is what made it
+     * need a dozen clicks: an accepted edit is answered with a tree broadcast, a broadcast moves the
+     * revision the screen watches, and the screen rebuilds its widget list -- which replaces the button
+     * between its press and its release, so the release lands on an instance that was never held. A
+     * drawn target is read from this frame's own drawing, so no rebuild can take it away, whatever
+     * caused it (this panel's own edit, another player's, a progress sync).
+     *
+     * <p>The browser's footer is the same shape, which is the other half of the point: one convention
+     * for both panels rather than a widget footer here and a drawn one there.
+     *
+     * @param browser whether this is the browser's footer: it gets the submit slot's New table, and its
+     *                way out says Back rather than Done because it leaves the panel rather than a table.
+     */
+    private void drawTableFooter(GuiRenderer r, int mouseX, int mouseY, boolean browser) {
+        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(browser);
+        BookGeometry.Rect back = controls.get("back");
+        if (back == null) {
+            return;
+        }
+        // What this button does, decided once and then both named and pressed from that one answer. The
+        // rule is one step back: a page of types or the roll report is left before a table's own back
+        // step, and only the editor's root closes the panel. The roll report used to have no case here at
+        // all, so the footer said "Done" over it and closed the whole panel -- two steps from where the
+        // author was, which is what the general report was about.
+        var exit = dev.ellipog.tasked.client.dev.TableEditorLayout
+                .exit(browser, tablePage(), !tableStack.isEmpty());
+        String out = switch (exit) {
+            case LEAVE_BROWSER, TABLE_UP -> Labels.of("tasked.screen.back");
+            // "Back" as well, and for the same reason the nested case says it: the press leaves a page
+            // rather than the panel. "Done" is kept for the one press that really does end the session in
+            // this editor.
+            case LEAVE_PICKER, LEAVE_ROLL -> "Back";
+            case CLOSE -> Labels.of("tasked.screen.done");
+        };
+        EditAction action = switch (exit) {
+            case LEAVE_BROWSER -> EditAction.TABLE_BACK;
+            case LEAVE_PICKER, LEAVE_ROLL -> EditAction.TABLE_PAGE_BACK;
+            case TABLE_UP, CLOSE -> EditAction.TABLE_DONE;
+        };
+        drawTableButton(r, back, out, mouseX, mouseY, action);
+        if (!browser) {
+            return;
+        }
+        BookGeometry.Rect slot = controls.get("submit");
+        if (slot != null) {
+            // Dropped when there is no room at all, rather than registered at zero width: the width was
+            // `Math.max(0, ...)`, so on the narrowest card this drew nothing and still took a press aimed
+            // at whatever was under it. Any width above a chip is used, and the label truncates into it.
+            int width = back.x() - 8 - slot.x();
+            if (width >= MIN_TABLE_FOOTER_BUTTON) {
+                drawTableButton(r, BookGeometry.Rect.at(slot.x(), slot.y(), width, slot.height()),
+                        "New table", mouseX, mouseY, EditAction.TABLE_NEW);
+            }
+        }
+    }
+
+    /** The narrowest a footer button may be and still be a control rather than an invisible target. */
+    private static final int MIN_TABLE_FOOTER_BUTTON = 20;
+
+    /**
+     * What is open above the table editor's entry list, in one place.
+     *
+     * <p>Read by the footer to decide what its button leaves, and by nothing else — but read from the
+     * state rather than passed in as flags, because the flags were how the roll report came to be missed:
+     * a page that nothing names is a page whose way out nobody wrote.
+     */
+    private dev.ellipog.tasked.client.dev.TableEditorLayout.TablePage tablePage() {
+        if (pickingEntryType != null) {
+            return dev.ellipog.tasked.client.dev.TableEditorLayout.TablePage.PICKER;
+        }
+        if (tableShowRoll) {
+            return dev.ellipog.tasked.client.dev.TableEditorLayout.TablePage.ROLL;
+        }
+        return dev.ellipog.tasked.client.dev.TableEditorLayout.TablePage.LIST;
+    }
+
+    // ------------------------------------------------------------------
+    // The card's control
+    // ------------------------------------------------------------------
+
+    /**
+     * What the card's table control draws: the reference, the inline table, or nothing.
+     *
+     * @param inline whether this is a table written in the reward itself rather than a named reference.
+     *               Load-bearing rather than informative: an inline table with no handle is one the
+     *               editor cannot address and the control gives one to, while a <b>named</b> reference
+     *               has no handle to give -- and asking the server to mint one for it is a refusal, a
+     *               red toast and a wasted op, once per reward per session. Which is what the log showed.
+     */
+    private record TableBadge(String title, ItemStack icon, int entries, boolean hasTable, boolean inline,
+                              String inlineUid) {
+    }
+
+    /**
+     * The table a reward's field names, as the control draws it.
+     *
+     * <p>Read from the quest's own replica rather than from a cache: the reward is what the card is
+     * editing, so what it says is the truth about it. A named reference resolves through the synced
+     * summaries, which is where the title, the icon and the count of a table come from.
+     */
+    private TableBadge tableBadgeOf(JsonObject entry, String fieldPath) {
+        JsonObject quest = replicaQuest();
+        String path = fieldPath;
+        String prefix = path == null ? "" : path.substring(0, path.lastIndexOf('.') + 1);
+        String id = rawValue(quest, prefix + "table");
+        if (!id.isEmpty()) {
+            ClientQuestCache.TableSummary summary = ClientQuestCache.table(id);
+            if (summary != null) {
+                return new TableBadge(summary.title(), summary.icon(), summary.entries(), true, false, "");
+            }
+            // A reference this build has not been told about: the id is still the truth, and the file
+            // it names may exist -- a server older than the summaries, or a table that failed to load.
+            return new TableBadge(id, ItemStack.EMPTY, 0, true, false, "");
+        }
+        JsonObject inline = rawObject(quest, prefix + "inline");
+        if (inline != null) {
+            String uid = inline.has("uid") && inline.get("uid").isJsonPrimitive()
+                    ? inline.get("uid").getAsString() : "";
+            int entries = inline.has("entries") && inline.get("entries").isJsonArray()
+                    ? inline.getAsJsonArray("entries").size() : 0;
+            String title = inline.has("title") && inline.get("title").isJsonPrimitive()
+                    ? inline.get("title").getAsString() : "(inline table)";
+            String icon = inline.has("icon") && inline.getAsJsonObject("icon").has("item")
+                    ? inline.getAsJsonObject("icon").get("item").getAsString() : "";
+            if (icon.isEmpty()) {
+                // The first entry that has an item, exactly as the server's own fallback decides it --
+                // a table of ore drops shows an ore rather than a generic chest.
+                icon = firstItemId(inline);
+            }
+            return new TableBadge(title, tableIcon(icon), entries, true, true, uid);
+        }
+        return new TableBadge("", ItemStack.EMPTY, 0, false, false, "");
+    }
+
+    /** The first item id anywhere in a table's entries, or empty. */
+    private static String firstItemId(JsonObject table) {
+        if (!table.has("entries") || !table.get("entries").isJsonArray()) {
+            return "";
+        }
+        for (JsonElement element : table.getAsJsonArray("entries")) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            JsonObject reward = element.getAsJsonObject().getAsJsonObject("reward");
+            if (reward != null && reward.has("item") && reward.get("item").isJsonPrimitive()) {
+                return reward.get("item").getAsString();
+            }
+        }
+        return "";
+    }
+
+    /** An object at a path in a tree, or null. */
+    private static JsonObject rawObject(JsonObject root, String path) {
+        JsonElement found = root == null ? null : QuestPanelLayout.get(root, path);
+        return found != null && found.isJsonObject() ? found.getAsJsonObject() : null;
+    }
+
+    /** An item stack from an id, or empty: a table's icon is an id in a file, not a live stack. */
+    private static ItemStack tableIcon(String id) {
+        net.minecraft.resources.ResourceLocation at = net.minecraft.resources.ResourceLocation.tryParse(id);
+        if (at == null || !net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(at)) {
+            return ItemStack.EMPTY;
+        }
+        return new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(at));
+    }
+
+    /**
+     * The card's table control: a card that names the table, a chip that opens it, and a cross.
+     *
+     * <p>What it replaces is the point: two text boxes, one for an id an author had to know and one for
+     * a table's whole body as JSON. Neither is here any more — see {@code EditorField.Kind.TABLE}.
+     */
+    private void drawTableField(GuiRenderer r, EntryFormLayout.Cell cell, JsonObject entry, String member,
+                                int index, String path, int mouseX, int mouseY) {
+        BookGeometry.Rect whole = cell.value();
+        boolean hot = whole.contains(mouseX, mouseY);
+        TableBadge badge = tableBadgeOf(entry, path);
+
+        // An inline table is shown but not edited: the panels edit tables that live in files, and a
+        // table written inside a reward is a shape the format reads and the UI no longer makes. The card
+        // says so in its title, and a press opens the browser -- which is where a real table replaces it.
+        BookGeometry.Rect card = BookGeometry.Rect.at(whole.x(), whole.y(),
+                Math.max(0, whole.width() - 2 * (TABLE_CHIP + EntryFormLayout.GAP)), whole.height());
+        drawValue(r, card, "", "", false, false, mouseX, mouseY);
+        int textX = card.x() + 4;
+        if (badge.hasTable()) {
+            if (!badge.icon().isEmpty()) {
+                r.icon(badge.icon(), card.x() + 2, card.y() + (card.height() - 16) / 2, 16);
+                textX = card.x() + 20;
+            }
+            String label = badge.title().isEmpty() ? "(unnamed table)" : badge.title();
+            String counted = badge.entries() > 0 ? label + " (" + badge.entries() + ")" : label;
+            // Truncated to stop inside the card, not four pixels past it: `card.right() - textX - 4` let
+            // the last four pixels of a long name hang over the card's edge and onto whatever is behind.
+            r.text(Measure.truncate(counted, Math.max(0, card.right() - 2 - textX), textMeasure(r)), textX,
+                    card.y() + (card.height() - 8) / 2, ArmatureTheme.body());
+        }
+        else {
+            r.text(Measure.truncate("Click to select or create a table",
+                            Math.max(0, card.right() - 2 - textX), textMeasure(r)), textX,
+                    card.y() + (card.height() - 8) / 2, hot ? ArmatureTheme.title() : ArmatureTheme.faint());
+        }
+        registerTarget(EditAction.TABLE_OPEN, path, card, textX, card.y() + (card.height() - 8) / 2, "",
+                member, index);
+
+        BookGeometry.Rect edit = BookGeometry.Rect.at(card.right() + EntryFormLayout.GAP, whole.y(),
+                TABLE_CHIP, whole.height());
+        drawEditAffordance(r, edit, edit.contains(mouseX, mouseY));
+        String editLabel = "Edit";
+        r.text(editLabel, edit.x() + (edit.width() - r.textWidth(editLabel)) / 2,
+                edit.y() + (edit.height() - 8) / 2,
+                edit.contains(mouseX, mouseY) ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(EditAction.TABLE_EDIT, path, edit, edit.x(), edit.y() + (edit.height() - 8) / 2, "",
+                member, index);
+
+        if (badge.hasTable()) {
+            BookGeometry.Rect clear = BookGeometry.Rect.at(edit.right() + EntryFormLayout.GAP, whole.y(),
+                    TABLE_CHIP, whole.height());
+            boolean clearHot = clear.contains(mouseX, mouseY);
+            drawEditAffordance(r, clear, clearHot);
+            String cross = "\u00d7";
+            r.text(cross, clear.x() + (clear.width() - r.textWidth(cross)) / 2,
+                    clear.y() + (clear.height() - 8) / 2,
+                    clearHot ? ArmatureTheme.title() : ArmatureTheme.body());
+            registerTarget(EditAction.TABLE_CLEAR, path, clear, clear.x(),
+                    clear.y() + (clear.height() - 8) / 2, "", member, index);
+        }
+    }
+
+    /** The width of the two chips beside a table card. */
+    private static final int TABLE_CHIP = 34;
+
+    /** The sum of the weights the rows are drawn from, computed once per frame beside the odds. */
+    private double tableWeightTotal;
+
+    /** The odds the rows are drawn from, computed once per frame. See `drawTableEditor`. */
+    private dev.ellipog.tasked.quest.loot.RewardTable.Odds tableOdds =
+            new dev.ellipog.tasked.quest.loot.RewardTable.Odds(0, java.util.List.of());
+
+
+    // ------------------------------------------------------------------
+    // Opening and closing
+    // ------------------------------------------------------------------
+
+    /** The card's card-press: the browser, with this reward as what a choice applies to. */
+    private void openTableBrowser(EditTarget target) {
+        if (editTarget() == null || target.path() == null) {
+            return;
+        }
+        tableReturn = overlay == Overlay.QUEST || overlay == Overlay.ASSETS ? overlay : Overlay.NONE;
+        tableOwner = new dev.ellipog.tasked.editor.TableAddress.Owner.InQuest(effectiveChapter(),
+                editTarget());
+        tableOwningPath = owningPathOf(target.path());
+        tableQuery = "";
+        tableSelected = -1;
+        tableScroll = 0;
+        tableSearch = null;
+        tableConfirmReplace = false;
+        overlay = Overlay.TABLE_BROWSER;
+        rebuildWidgets();
+    }
+
+    /**
+     * The card's chip-press: the editor on the table this reward has.
+     *
+     * <p>A named reference opens that file. An inline table opens by its handle, and one that has none
+     * opens the browser instead — the control is already asking for a handle, and until it arrives there
+     * is nothing to address. No table at all opens the browser, which is where one comes from.
+     */
+    /**
+     * The card's chip-press: the editor on the table this reward has.
+     *
+     * <p>An inline table opens the browser instead, with a sentence saying why: the panels edit files,
+     * and a table written inside a reward is not one. Pressing a table there points the reward at a real
+     * one, which is also the way out of the shape.
+     */
+    private void openTableEditorFor(EditTarget target) {
+        TableBadge badge = tableBadgeOf(replicaQuest(), target.path());
+        if (!badge.hasTable() || badge.inline()) {
+            if (badge.inline()) {
+                status("This reward holds a table written inline - choose a table to replace it", true);
+            }
+            openTableBrowser(target);
+            return;
+        }
+        String id = rawValue(replicaQuest(), owningPathOf(target.path()) + ".table");
+        if (!id.isEmpty()) {
+            openTableEditor(dev.ellipog.tasked.editor.TableAddress.of(id), previewOf(target));
+            return;
+        }
+        openTableBrowser(target);
+    }
+
+    /** The preview a table should open with: the mode of the reward it was opened from. */
+    private dev.ellipog.tasked.quest.reward.TableReward.Mode previewOf(EditTarget target) {
+        JsonObject entry = rawObject(replicaQuest(), owningPathOf(target.path()));
+        String type = entry != null && entry.has("type") && entry.get("type").isJsonPrimitive()
+                ? entry.get("type").getAsString() : "";
+        if (type.endsWith(":loot")) {
+            return dev.ellipog.tasked.quest.reward.TableReward.Mode.LOOT;
+        }
+        if (type.endsWith(":all_table")) {
+            return dev.ellipog.tasked.quest.reward.TableReward.Mode.ALL_TABLE;
+        }
+        if (type.endsWith(":choice")) {
+            return dev.ellipog.tasked.quest.reward.TableReward.Mode.CHOICE;
+        }
+        return dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM;
+    }
+
+    /** The card's cross: the reward stops rolling a table. */
+    private void clearTable(EditTarget target) {
+        if (editTarget() == null || target.path() == null) {
+            return;
+        }
+        TableBadge badge = tableBadgeOf(replicaQuest(), target.path());
+        if (!badge.hasTable()) {
+            return;
+        }
+        // Destroying a hand-built inline table is one press away from a mis-click, so it asks first --
+        // the confirm-in-place idiom the quest delete uses. Clearing a *reference* does not: the table
+        // itself stays, and pointing the reward at it again is one press.
+        if (!badge.inlineUid().isEmpty() && !tableConfirmReplace) {
+            tableConfirmReplace = true;
+            status("Press again to remove this reward's inline table", true);
+            return;
+        }
+        tableConfirmReplace = false;
+        tableOwner = new dev.ellipog.tasked.editor.TableAddress.Owner.InQuest(effectiveChapter(),
+                editTarget());
+        tableOwningPath = owningPathOf(target.path());
+        draftSelection("");
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Select(tableOwner, tableOwningPath, ""));
+        status("tasked.status.cleared", false);
+    }
+
+    private void openTableEditor(dev.ellipog.tasked.editor.TableAddress address,
+                                 dev.ellipog.tasked.quest.reward.TableReward.Mode preview) {
+        // Where to go back to, decided once, when the panel is opened. A panel opened *from* another
+        // table panel keeps the overlay it already had, so walking into a nested table and pressing Done
+        // twice still ends at the card.
+        if (overlay != Overlay.TABLE_EDITOR && overlay != Overlay.TABLE_BROWSER) {
+            tableReturn = overlay == Overlay.QUEST || overlay == Overlay.ASSETS ? overlay : Overlay.NONE;
+        }
+        tableAddress = address;
+        tableStack.clear();
+        tableApplied = 0;
+        tableUndone = 0;
+        tableFolded.clear();
+        tableShowRoll = false;
+        tableImportOpen = false;
+        tableConfirmReplace = false;
+        tableScroll = 0;
+        tableTitleField = null;
+        tablePreview = preview;
+        overlay = Overlay.TABLE_EDITOR;
+        rebuildWidgets();
+    }
+
+    /**
+     * Closes both panels and forgets what they were about, giving back the overlay they were opened over.
+     *
+     * <p>The guard on the current overlay is load-bearing: {@code closeOverlay} calls this while closing
+     * the *card*, and a close that always restored {@code tableReturn} would resurrect the card it was
+     * in the middle of closing.
+     */
+    private void closeTablePanel() {
+        boolean open = overlay == Overlay.TABLE_BROWSER || overlay == Overlay.TABLE_EDITOR;
+        Overlay back = tableReturn;
+        tableReturn = Overlay.NONE;
+        // Read before the address is cleared: the drafts are keyed by it, and a panel that closed
+        // leaving its pending values behind would have them answer for the next table opened.
+        String draftedOwner = tableAddress == null ? null : tableOwnerKey();
+        tableAddress = null;
+        tableStack.clear();
+        tableOwner = null;
+        tableOwningPath = null;
+        tableSearch = null;
+        tableTitleField = null;
+        tableFolded.clear();
+        tableShowRoll = false;
+        tableImportOpen = false;
+        tableConfirmReplace = false;
+        // Every picker the panel could have left armed, from the one place that knows them all. Without
+        // this the type picker page survived the panel: the card behind it drew the list of reward types
+        // and the author's next press added a reward to the wrong thing.
+        clearPickers();
+        // And the state that names something outside the panel: a delete armed for a table the next open
+        // would not be showing, the popover's anchor and its drawn box, and the table field an open inline
+        // editor was writing to -- a box that outlived its panel would commit to whatever table came next.
+        tableConfirmDelete = null;
+        tableImportAnchor = null;
+        tableImportBox = null;
+        tableEdit = null;
+        dev.ellipog.tasked.client.ClientTableRoll.clear();
+        tableDraft.forgetOwner(effectiveChapter(), draftedOwner);
+        if (open) {
+            overlay = back;
+        }
+    }
+
+    /** Escape and `Done`: one table back, or the panel closed when there is nothing behind it. */
+    private void popTableEditor() {
+        if (!tableStack.isEmpty()) {
+            tableAddress = tableStack.pop();
+            // Back to the table that was left, with its own budget: the steps taken inside the nested
+            // table are not this one's to undo.
+            tableApplied = 0;
+            tableUndone = 0;
+            tableFolded.clear();
+            tableShowRoll = false;
+            tableImportOpen = false;
+            tableTitleField = null;
+            rebuildWidgets();
+            return;
+        }
+        closeTablePanel();
+        rebuildWidgets();
+    }
+
+    /** Opens a table an entry points at, remembering the one being left. */
+    private void pushTableEditor(dev.ellipog.tasked.editor.TableAddress address) {
+        if (tableAddress != null) {
+            tableStack.push(tableAddress);
+        }
+        tableAddress = address;
+        // The budget is the frame's: walking into a nested table starts a new one, so Ctrl+Z there
+        // cannot reach back into the table that was left -- which is the whole point of the floor.
+        tableApplied = 0;
+        tableUndone = 0;
+        tableFolded.clear();
+        tableShowRoll = false;
+        tableImportOpen = false;
+        tableTitleField = null;
+        rebuildWidgets();
+    }
+
+    // ------------------------------------------------------------------
+    // Reading the table
+    // ------------------------------------------------------------------
+
+    /**
+     * The table panels' own draft, and the key a table is filed under in it.
+     *
+     * <p>A <b>separate</b> {@code FieldDraft}, not a key convention inside the card's. The card's
+     * reconciler judges every draft it holds against the chapter's copy — that is what it is for — and a
+     * table's values are in a different file: with one shared draft, a table's pending weight was
+     * checked against a quest copy that has never heard of {@code entries}, read as "the list moved
+     * under it", and dropped. A separate instance is what makes "the copy this panel draws" the only
+     * thing its drafts are judged against; see {@code FieldDraft.reconcileOwner}.
+     */
+    private static final dev.ellipog.tasked.client.dev.FieldDraft tableDraft =
+            new dev.ellipog.tasked.client.dev.FieldDraft();
+
+    /** The key one table's drafts are filed under: the table's own name, unique within this draft. */
+    private String tableOwnerKey() {
+        return tableDescribe();
+    }
+
+    /**
+     * The table the editor is on, decoded, or empty when it cannot be read or has not arrived.
+     *
+     * <p><b>Through the draft</b>, which is what makes the panel optimistic: every read in the editor —
+     * the rows, the counts, the odds beside each weight, the total, the rolls — goes through this one
+     * model, so a press that drafted a value shows it immediately instead of waiting for the replica.
+     * Without it a stepper computed its next value from the copy the server had not answered about yet,
+     * and five fast presses sent the same {@code +1} five times: the number never moved, which is what
+     * "I have to press it loads of times" was.
+     */
+    private java.util.Optional<dev.ellipog.tasked.quest.loot.RewardTable> tableModel() {
+        JsonObject root = tableDraftedRoot();
+        if (root == null) {
+            decodedFrom = null;
+            decodedModel = java.util.Optional.empty();
+            return decodedModel;
+        }
+        if (root == decodedFrom) {
+            return decodedModel;
+        }
+        decodedFrom = root;
+        decodedModel = dev.ellipog.tasked.quest.loot.RewardTable.CODEC
+                .parse(com.mojang.serialization.JsonOps.INSTANCE, root)
+                .result();
+        return decodedModel;
+    }
+
+    /** The table's tree with this panel's pending values applied, or null when there is no copy yet. */
+    private JsonObject tableDraftedRoot() {
+        JsonObject root = tableRootMemo();
+        return root == null ? null
+                : tableDraft.overlaid(effectiveChapter(), tableOwnerKey(), root);
+    }
+
+    /**
+     * The decoded table, remembered against the tree it was decoded from.
+     *
+     * <p>Decoding runs the whole reward dispatch codec — every entry, every reward — and the panel asked
+     * for it several times a frame (once for the body, again for the title). Cached by the tree's own
+     * identity, which changes only when a replica arrives or a draft moves, so the decode happens when
+     * the table changes and not sixty times a second.
+     */
+    private JsonObject decodedFrom;
+    private java.util.Optional<dev.ellipog.tasked.quest.loot.RewardTable> decodedModel =
+            java.util.Optional.empty();
+
+    /**
+     * The table's tree, remembered against the copy it came from.
+     *
+     * <p>For an inline table the root is <b>found</b> — a walk of the quest's rewards, once per read,
+     * and the panel reads it per row when a row is folded — so it is resolved once per copy instead.
+     *
+     * <p>Keyed by the replica's <b>generation</b> rather than by its revision, and that is the fix for a
+     * panel that sat on "Waiting for this table's file..." forever: the revision a copy carries is the
+     * tree's, which is zero in a fresh world, so {@code dice@0} before the file arrived and {@code dice@0}
+     * after it did were the same key — the memo kept answering null and the copy was never read. A
+     * generation moves on every change, so an arrival cannot be mistaken for the state before it.
+     */
+    private String tableRootKey = "";
+    private JsonObject tableRootCache;
+
+    private JsonObject tableRootMemo() {
+        String key = tableDescribe() + "@"
+                + dev.ellipog.tasked.client.ClientTableReplica.generation()
+                + "/" + effectiveChapter();
+        if (key.equals(tableRootKey)) {
+            return tableRootCache;
+        }
+        tableRootKey = key;
+        tableRootCache = tableRoot();
+        return tableRootCache;
+    }
+
+    /**
+     * Asks for a value, optimistically: the draft first, then the op.
+     *
+     * <p>The order is the point. The draft is what the next frame draws and what the next press
+     * computes from; the op is the ask. A refusal forgets the draft, so the panel falls back to the
+     * file the server actually has.
+     */
+    private void sendTableValue(String path, com.google.gson.JsonElement value) {
+        if (tableAddress == null) {
+            return;
+        }
+        tableDraft.set(effectiveChapter(), tableOwnerKey(), path, value, tableCopyRevision(),
+                net.minecraft.Util.getMillis());
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Set(tableAddress, path, value));
+    }
+
+    /** The revision of the copy the editor is drawing: the table's file, or the chapter's for an inline. */
+    private long tableCopyRevision() {
+        if (tableAddress == null) {
+            return 0L;
+        }
+        return switch (tableAddress.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
+                var copy = dev.ellipog.tasked.client.ClientTableReplica.of(named.id());
+                yield copy == null ? 0L : copy.revision();
+            }
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> {
+                var copy = ClientChapterReplica.of(quest.chapter());
+                yield copy == null ? 0L : copy.revision();
+            }
+        };
+    }
+
+    /**
+     * Drops the drafts the copy has caught up with, and the ones it has disagreed with for too long.
+     *
+     * <p>Per owner, against the copy this panel draws: the table's own file for a named table, the
+     * chapter's for an inline one. {@code FieldDraft} carries the rule.
+     */
+    private void reconcileTableDrafts() {
+        if (tableAddress == null) {
+            return;
+        }
+        tableDraft.reconcileOwner(effectiveChapter(), tableOwnerKey(), tableCopyRevision(),
+                (owner, path) -> QuestPanelLayout.get(tableRoot(), path),
+                net.minecraft.Util.getMillis());
+    }
+
+    /**
+     * The table's own JSON: the file's replica for a named table, or the quest's copy of an inline one.
+     *
+     * <p>Null while the copy is still on its way, which the panels draw as a sentence rather than as an
+     * empty table — "the copy has not arrived" and "this table has no entries" are different facts, and
+     * a panel that showed the second for the first would have an author adding entries to a table that
+     * already has them.
+     */
+    private JsonObject tableRoot() {
+        return tableRootRaw();
+    }
+
+    /** The lookup itself: the memo above is what the panel calls. */
+    private JsonObject tableRootRaw() {
+        if (tableAddress == null) {
+            return null;
+        }
+        return switch (tableAddress.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
+                dev.ellipog.tasked.client.ClientTableReplica.Copy copy =
+                        dev.ellipog.tasked.client.ClientTableReplica.of(named.id());
+                yield copy == null ? null : copy.root();
+            }
+            // A quest's own table is a reward's field rather than a table the editor opens: the panels
+            // edit files, and an inline table is shown on the card and replaced from the browser.
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> null;
+        };
+    }
+
+    /**
+     * Asks for the copy the editor is showing, and for the chapter's when the table is inline.
+     *
+     * <p>Once per revision rather than once per frame: {@code claim} records the attempt, which is what
+     * keeps a screen that draws sixty times a second from asking sixty times a second. The tree's
+     * revision moves on every reload, so an edit anywhere — this client's or another's — re-fetches.
+     */
+    private void claimTableData() {
+        if (tableAddress == null) {
+            return;
+        }
+        long revision = ClientQuestCache.treeRevision();
+        long now = net.minecraft.Util.getMillis();
+        switch (tableAddress.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
+                if (dev.ellipog.tasked.client.ClientTableReplica.claim(named.id(), revision, now)) {
+                    // A sentinel, because a replica request can be refused and the refusal arrives as
+                    // the same EditorReplyPayload an edit's answer does. Without one, every refusal
+                    // consumed the next edit's sentinel: the reply that followed was matched to the
+                    // wrong op, the undo budget counted the wrong kind, and a refusal discarded the
+                    // optimistic values of an edit that was never refused.
+                    ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                    replicaAskedFor = named.id();
+                    ArmatureNetwork.sendToServer(
+                            new dev.ellipog.tasked.net.TableReplicaRequestPayload(named.id()));
+                }
+            }
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> {
+                if (ClientChapterReplica.claim(quest.chapter(), revision, now)) {
+                    ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                    ArmatureNetwork.sendToServer(
+                            new dev.ellipog.tasked.net.ReplicaRequestPayload(quest.chapter()));
+                }
+            }
+        }
+    }
+
+    /** What to call the table on screen, for a header. */
+    private String tableTitle() {
+        var model = tableModel();
+        if (tableAddress == null) {
+            return "";
+        }
+        return switch (tableAddress.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named ->
+                    model.map(table -> table.displayTitle(named.id())).orElse(named.id());
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest ->
+                    model.map(table -> table.displayTitle(quest.quest())).orElse("(inline table)");
+        };
+    }
+
+    /** What to call a table in a sentence: its id, or where an inline one lives. */
+    private String tableDescribe() {
+        return tableAddress == null ? "" : tableAddress.describe();
+    }
+
+    /**
+     * Whether the file itself carries a title, as opposed to the id {@link #tableTitle()} falls back to.
+     *
+     * <p>The difference is what the title box's two questions are: "does this table need a name typed"
+     * (no title in the file) and "would this write change anything" (a blank box over an absent title
+     * does not). Both read the model rather than the box, because the box is seeded with the display
+     * fallback and so is never empty for a named table.
+     */
+    private boolean tableTitled() {
+        return tableModel().map(table -> table.title().isPresent()).orElse(false);
+    }
+
+    // ------------------------------------------------------------------
+    // The browser
+    // ------------------------------------------------------------------
+
+    private void buildTableBrowserWidgets() {
+        tableBrowserFrame = dev.ellipog.tasked.client.dev.TableBrowserLayout.Frame.of(tableBody());
+        BookGeometry.Rect search = tableBrowserFrame.search();
+        String kept = tableSearch == null ? tableQuery : tableSearch.value();
+        tableSearch = new ArmatureTextField(search.x(), search.y(), search.width(), search.height(), kept);
+        tableSearch.onSubmit(text -> { });
+        tableSearch.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
+        addRenderableWidget(tableSearch);
+        setFocused(tableSearch);
+        // Drawn again over the card, clipped to it -- and added HERE, where the widget is built, rather
+        // than in the draw method. A redraw added per frame is never cleared (the list lives until the
+        // next rebuild), so the browser accumulated one per frame for as long as it stayed open and
+        // drew every one of them: the longer an author browsed, the slower every frame became. This is
+        // the shape `buildPickerWidgets` uses, and the reason it exists.
+        BookGeometry.Rect clipTo = tableBody();
+        modalRedraws.add(r -> {
+            // Guarded, because a redraw outlives the field it draws for as long as the panel is closing:
+            // the list is cleared by the next rebuild, and a rebuild is one call away from a frame. The
+            // guard is what makes that window a blank frame instead of a crash.
+            if (tableSearch == null) {
+                return;
+            }
+            try (GuiRenderer.Scoped clip = r.clip(clipTo.x(), clipTo.y(), clipTo.right(), clipTo.bottom())) {
+                tableSearch.render(r);
+                if (tableSearch.value().isEmpty()) {
+                    r.text("Search tables", tableSearch.getX() + 4, tableSearch.getY() + 5,
+                            ArmatureTheme.faint());
+                }
+            }
+        });
+
+        // The footer is drawn by `drawTableFooter`, not built here: New table in the submit slot and
+        // Back where Back always is. The first version drew two buttons inside the toolbar band, where
+        // the search box covered them.
+    }
+
+    /** Closes a table panel and rebuilds: what every one of its footer buttons does. */
+    private void closeTablePanelAndRebuild() {
+        closeTablePanel();
+        rebuildWidgets();
+    }
+
+    private void drawTableBrowser(GuiRenderer r, int mouseX, int mouseY) {
+        drawModalCardChrome(r, "Reward tables", mouseX, mouseY, EditAction.TABLE_BACK);
+        drawTableFooter(r, mouseX, mouseY, true);
+        if (tableBrowserFrame == null) {
+            return;
+        }
+        BookGeometry.Rect body = tableBody();
+
+        // The query is the box's own text: the field does not rebuild the screen on every character --
+        // the rows are read here, once a frame, which is the same reason the picker's list is composed
+        // at draw time. A query that changed means the list did, so the selection and the scroll go back
+        // to the top rather than pointing at a row that is no longer there.
+        String typed = tableSearch == null ? tableQuery : tableSearch.value();
+        if (!typed.equals(tableQuery)) {
+            tableQuery = typed;
+            tableSelected = -1;
+            tableScroll = 0;
+        }
+        tableRows = dev.ellipog.tasked.client.dev.TableBrowserLayout.rows(summaryRows(), tableQuery);
+        tableScroll = Math.max(0, Math.min(tableScroll,
+                dev.ellipog.tasked.client.dev.TableBrowserLayout.maxScroll(tableRows, tableBrowserFrame)));
+
+        try (GuiRenderer.Scoped clip = r.clip(tableBrowserFrame.list().x(), tableBrowserFrame.list().y(),
+                tableBrowserFrame.list().right(), tableBrowserFrame.list().bottom())) {
+            for (int i = 0; i < tableRows.size(); i++) {
+                BookGeometry.Rect rect = dev.ellipog.tasked.client.dev.TableBrowserLayout
+                        .rowRect(tableRows, tableBrowserFrame, tableScroll, i);
+                if (rect.bottom() < tableBrowserFrame.list().y()
+                        || rect.y() > tableBrowserFrame.list().bottom()) {
+                    continue;
+                }
+                drawTableBrowserRow(r, i, rect, mouseX, mouseY);
+            }
+        }
+        if (tableRows.size() <= 1) {
+            String empty = tableQuery.isBlank()
+                    ? "No reward tables yet - New table makes one."
+                    : "Nothing matches that.";
+            r.text(Measure.truncate(empty, body.width(), textMeasure(r)), body.x() + 4,
+                    tableBrowserFrame.list().y() + 6, ArmatureTheme.faint());
+        }
+    }
+
+    /**
+     * Moves the browser's keyboard row, and scrolls it into view.
+     *
+     * <p>The scroll is set from the row's own rectangle rather than nudged by a row, so a selection that
+     * moved further than one — Enter on a row from before a search re-listed the table, or the first
+     * arrow press landing on row one from nothing selected — arrives on screen instead of off it.
+     */
+    private void stepTableBrowser(int by) {
+        if (tableRows.isEmpty()) {
+            return;
+        }
+        int at = tableSelected < 0
+                ? (by > 0 ? 0 : tableRows.size() - 1)
+                : tableSelected + by;
+        tableSelected = Math.max(0, Math.min(tableRows.size() - 1, at));
+        if (tableBrowserFrame == null) {
+            return;
+        }
+        int pitch = dev.ellipog.tasked.client.dev.TableBrowserLayout.ROW_HEIGHT;
+        BookGeometry.Rect rect = dev.ellipog.tasked.client.dev.TableBrowserLayout
+                .rowRect(tableRows, tableBrowserFrame, tableScroll, tableSelected);
+        if (rect.y() < tableBrowserFrame.list().y()) {
+            tableScroll = tableSelected * pitch;
+        }
+        else if (rect.bottom() > tableBrowserFrame.list().bottom()) {
+            tableScroll = (tableSelected + 1) * pitch - tableBrowserFrame.list().height();
+        }
+        tableScroll = Math.max(0, Math.min(tableScroll,
+                dev.ellipog.tasked.client.dev.TableBrowserLayout.maxScroll(tableRows, tableBrowserFrame)));
+    }
+
+    private void drawTableBrowserRow(GuiRenderer r, int index, BookGeometry.Rect rect, int mouseX,
+                                     int mouseY) {
+        var layout = dev.ellipog.tasked.client.dev.TableBrowserLayout.class;
+        var row = tableRows.get(index);
+        boolean hot = rect.contains(mouseX, mouseY);
+        boolean selected = index == tableSelected;
+        if (hot || selected) {
+            r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(),
+                    selected ? ArmatureTheme.hoverRing() : ArmatureTheme.raised());
+        }
+        if (row.kind() == dev.ellipog.tasked.client.dev.TableBrowserLayout.Kind.NONE) {
+            r.text("None - this reward rolls no table", rect.x() + 4, rect.y() + (rect.height() - 8) / 2,
+                    ArmatureTheme.body());
+            registerTarget(EditAction.TABLE_ROW, "", rect, rect.x(), rect.y(), "", null, index);
+            return;
+        }
+        // The stack the tree sent, component patch and all -- not the bare id resolved again here, which
+        // threw away the components `QuestSync` carries precisely so a table whose icon is a renamed or
+        // enchanted item draws *that* item. `tableIcon` stays for a summary this client was not sent, or
+        // one whose icon id does not resolve.
+        ClientQuestCache.TableSummary summary = ClientQuestCache.table(row.id());
+        ItemStack icon = summary != null ? summary.icon() : tableIcon(row.iconId());
+        BookGeometry.Rect iconBox = dev.ellipog.tasked.client.dev.TableBrowserLayout.icon(rect);
+        if (!icon.isEmpty()) {
+            r.icon(icon, iconBox.x(), iconBox.y(), 16);
+        }
+        BookGeometry.Rect nameBox = dev.ellipog.tasked.client.dev.TableBrowserLayout.name(rect);
+        BookGeometry.Rect detailBox = dev.ellipog.tasked.client.dev.TableBrowserLayout.detail(rect);
+        r.text(Measure.truncate(row.title(), nameBox.width(), textMeasure(r)), nameBox.x(),
+                rect.y() + (rect.height() - 8) / 2, ArmatureTheme.title());
+        String detail = row.id() + "  (" + row.entries() + ")";
+        r.text(Measure.truncate(detail, detailBox.width(), textMeasure(r)), detailBox.x(),
+                rect.y() + (rect.height() - 8) / 2, ArmatureTheme.faint());
+        if (row.current()) {
+            // Which one this reward already rolls, said on the row rather than left to be remembered:
+            // the browser's first job is "what am I rolling now?".
+            BookGeometry.Rect tag = dev.ellipog.tasked.client.dev.TableBrowserLayout.currentTag(rect);
+            r.text("current", tag.x(), rect.y() + (rect.height() - 8) / 2, ArmatureTheme.title());
+        }
+        // No hover sentence: the row already says the id and the count, the tag says whether it is the
+        // one in force, and what a press does is what the panel behind it will show.
+
+        var buttons = dev.ellipog.tasked.client.dev.TableBrowserLayout.buttons(rect);
+        drawTableButton(r, buttons.edit(), "Edit", mouseX, mouseY, EditAction.TABLE_ROW_EDIT, index);
+        drawTableButton(r, buttons.copy(), "Copy", mouseX, mouseY, EditAction.TABLE_ROW_COPY, index);
+        drawTableButton(r, buttons.delete(), "\u00d7", mouseX, mouseY, EditAction.TABLE_ROW_DELETE, index);
+        registerTarget(EditAction.TABLE_ROW, "", dev.ellipog.tasked.client.dev.TableBrowserLayout.body(rect),
+                nameBox.x(), rect.y(), "", null, index);
+    }
+
+    /** The tables the server told this client about, as browser rows. */
+    private java.util.List<dev.ellipog.tasked.client.dev.TableBrowserLayout.Row> summaryRows() {
+        String current = currentTableId();
+        java.util.List<dev.ellipog.tasked.client.dev.TableBrowserLayout.Row> rows = new java.util.ArrayList<>();
+        for (ClientQuestCache.TableSummary summary : ClientQuestCache.tables()) {
+            rows.add(dev.ellipog.tasked.client.dev.TableBrowserLayout.Row.table(summary.id(),
+                    summary.title(), summary.iconId(), summary.entries(),
+                    summary.id().equals(current)));
+        }
+        return rows;
+    }
+
+    /**
+     * The table the reward the browser is open for rolls right now, or empty.
+     *
+     * <p>Read through the draft, like the card's own badge: a selection the author has just made is a
+     * pending value until the server's copy holds it, and a "current" tag that disagreed with the card
+     * behind it would be the panel arguing with itself.
+     */
+    private String currentTableId() {
+        if (tableOwner == null || tableOwningPath == null) {
+            return "";
+        }
+        JsonObject owner = tableOwnerRoot();
+        if (owner == null) {
+            return "";
+        }
+        if (tableOwner instanceof dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest) {
+            owner = fieldDraft.overlaid(quest.chapter(), quest.quest(), owner);
+        }
+        return rawValue(owner, tableOwningPath + ".table");
+    }
+
+    /**
+     * Drafts a reward's table reference before the op that changes it.
+     *
+     * <p>What makes a selection instant: the card's badge is drawn from `replicaQuest()`, which is the
+     * draft-overlaid tree, so writing the new reference here means the card behind the browser shows the
+     * table the author just pressed instead of the one the replica still holds. The draft converges the
+     * moment the chapter's copy agrees, and a refusal drops it — see `FieldDraft`.
+     *
+     * <p>Only for a reward in a quest: a table's own file has no card behind it, and an inline table's
+     * handle is the server's to mint, so there is nothing here to draft for that case.
+     */
+    private void draftSelection(String tableId) {
+        if (!(tableOwner instanceof dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest)
+                || tableOwningPath == null) {
+            return;
+        }
+        long revision = tableCopyRevision();
+        long now = net.minecraft.Util.getMillis();
+        fieldDraft.set(quest.chapter(), quest.quest(), tableOwningPath + ".table",
+                tableId == null || tableId.isBlank() ? null : new com.google.gson.JsonPrimitive(tableId),
+                revision, now);
+        fieldDraft.set(quest.chapter(), quest.quest(), tableOwningPath + ".inline", null, revision, now);
+    }
+
+    private void drawTableButton(GuiRenderer r, BookGeometry.Rect box, String label, int mouseX,
+                                 int mouseY, EditAction action) {
+        drawTableButton(r, box, label, mouseX, mouseY, action, -1);
+    }
+
+    private void drawTableButton(GuiRenderer r, BookGeometry.Rect box, String label, int mouseX,
+                                 int mouseY, EditAction action, int index) {
+        boolean hot = box.contains(mouseX, mouseY);
+        drawEditAffordance(r, box, hot);
+        // Truncated first, and the offset measured from what is drawn: centring the *untruncated* label
+        // is what threw a word off a narrow button -- the text on screen was shorter than the text
+        // measured, so the centring was computed for a word that is not there. The browser's 14-pixel
+        // cross and a "New table" on a narrow card are both that case.
+        String shown = Measure.truncate(label, Math.max(0, box.width() - 4), textMeasure(r));
+        r.text(shown, box.x() + (box.width() - r.textWidth(shown)) / 2, box.y() + (box.height() - 8) / 2,
+                hot ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(action, "", box, box.x(), box.y(), "", null, index);
+    }
+
+    private void pressTableBrowser(double mouseX, double mouseY) {
+        if (tableBrowserFrame == null) {
+            return;
+        }
+        // The keyboard's row: the arrows move it, Enter takes it. Read here rather than in `keyPressed`
+        // because the row list is rebuilt every frame, and this is the frame the press belongs to.
+        for (EditTarget target : editTargets) {
+            if (!target.box().contains(mouseX, mouseY)) {
+                continue;
+            }
+            switch (target.action()) {
+                case TABLE_ROW -> {
+                    tableSelected = target.index();
+                    pressTableBrowserRow(target.index());
+                }
+                case TABLE_ROW_EDIT -> {
+                    var row = tableRows.get(target.index());
+                    openTableEditor(dev.ellipog.tasked.editor.TableAddress.of(row.id()),
+                            dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM);
+                }
+                case TABLE_ROW_COPY -> duplicateTable(tableRows.get(target.index()).id());
+                case TABLE_ROW_DELETE -> {
+                    // One press, and the file is renamed out of the way. The server refuses while anything
+                    // still points at the table, so this is not a data-loss hole -- but a `×` is the
+                    // narrowest control on the row, one column from Copy, and the press that reloads the
+                    // browser is the same press, so it asks first: the confirm-in-place idiom this panel
+                    // already uses for an inline table and for removing an entry.
+                    String id = tableRows.get(target.index()).id();
+                    if (!id.equals(tableConfirmDelete)) {
+                        tableConfirmDelete = id;
+                        status("Press again to delete \"" + id + "\"", true);
+                        return;
+                    }
+                    tableConfirmDelete = null;
+                    deleteTable(id);
+                }
+                case TABLE_NEW -> createTable();
+                case TABLE_BACK -> closeTablePanelAndRebuild();
+                default -> {
+                }
+            }
+            return;
+        }
+    }
+
+    private void pressTableBrowserRow(int index) {
+        if (index < 0 || index >= tableRows.size()) {
+            return;
+        }        var row = tableRows.get(index);
+        if (tableOwner == null || tableOwningPath == null) {
+            return;
+        }
+        if (row.kind() == dev.ellipog.tasked.client.dev.TableBrowserLayout.Kind.NONE) {
+            if (tableConfirmReplace && inlinePresent()) {
+                // The author has now said it twice: the inline table goes.
+                tableConfirmReplace = false;
+                draftSelection("");
+                sendTableOp(new dev.ellipog.tasked.editor.TableOp.Select(tableOwner, tableOwningPath, ""));
+                closeTablePanel();
+                rebuildWidgets();
+                return;
+            }
+            if (inlinePresent()) {
+                tableConfirmReplace = true;
+                status("Press again to remove this reward's inline table", true);
+                return;
+            }
+            draftSelection("");
+            sendTableOp(new dev.ellipog.tasked.editor.TableOp.Select(tableOwner, tableOwningPath, ""));
+            closeTablePanel();
+            rebuildWidgets();
+            return;
+        }
+        // Choosing a table for a reward that holds an inline one would throw the inline away, so it
+        // asks first: one press must not destroy a table somebody built.
+        if (inlinePresent() && !tableConfirmReplace) {
+            tableConfirmReplace = true;
+            tableSelected = index;
+            status("This reward has an inline table - press again to replace it", true);
+            return;
+        }
+        tableConfirmReplace = false;
+        draftSelection(row.id());
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Select(tableOwner, tableOwningPath, row.id()));
+        closeTablePanel();
+        rebuildWidgets();
+    }
+
+    /** Whether the reward the browser is open for holds an inline table right now. */
+    private boolean inlinePresent() {
+        if (tableOwner == null || tableOwningPath == null) {
+            return false;
+        }
+        JsonObject owner = tableOwnerRoot();
+        return owner != null && rawObject(owner, tableOwningPath) != null
+                && rawObject(owner, tableOwningPath).has("inline");
+    }
+
+    /** The tree that holds the reward a table is being chosen for. */
+    private JsonObject tableOwnerRoot() {
+        return switch (tableOwner) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
+                var copy = dev.ellipog.tasked.client.ClientTableReplica.of(named.id());
+                yield copy == null ? null : copy.root();
+            }
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest ->
+                    ClientChapterReplica.quest(quest.chapter(), quest.quest());
+            case null -> null;
+        };
+    }
+
+    /** A table name the pack does not use yet, from a base. */
+    private String freeTableId(String base) {
+        java.util.Set<String> taken = new java.util.LinkedHashSet<>(ClientQuestCache.tables().stream()
+                .map(ClientQuestCache.TableSummary::id).toList());
+        if (!taken.contains(base)) {
+            return base;
+        }
+        for (int n = 2; n < 1000; n++) {
+            if (!taken.contains(base + "_" + n)) {
+                return base + "_" + n;
+            }
+        }
+        return base + "_" + System.currentTimeMillis();
+    }
+
+    private void createTable() {
+        String id = freeTableId("table");
+        JsonObject root = new JsonObject();
+        root.add("entries", new com.google.gson.JsonArray());
+        // Nothing is claimed here: the server answers with the sentence, and the reply path reports it.
+        // A line said before the answer is a line that can be a lie -- "Removed dice" over a table that
+        // is still there is what the first version did.
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Create(id, root));
+        openTableEditor(dev.ellipog.tasked.editor.TableAddress.of(id),
+                dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM);
+    }
+
+    // `startInlineTable` was here: it asked the server to write a table inside the reward. Inline
+    // tables are gone -- the format still reads one (files in the wild have them), but nothing in the
+    // UI makes one, and the browser's "New table" is the only way to a table now.
+
+    private void duplicateTable(String id) {
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Duplicate(id, freeTableId(id + "_copy")));
+    }
+
+    private void deleteTable(String id) {
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Delete(id));
+    }
+
+    // ------------------------------------------------------------------
+    // The editor
+    // ------------------------------------------------------------------
+
+    private void buildTableEditorWidgets() {
+        tableEditorFrame = dev.ellipog.tasked.client.dev.TableEditorLayout.Frame.of(tableBody());
+        // The footer is drawn, not built -- see `drawTableFooter` for why the way out of this panel is
+        // a target rather than a widget. No conversion in the submit slot: `Make inline` and
+        // `Save as preset` are gone with inline tables themselves. A table is a file, and the reward
+        // points at it.
+
+        // The title box is built first, and before the page branch below -- which returns. It belongs to
+        // the card rather than to whichever page is showing, and building it after that branch left the
+        // type-picker page with no box at all: the field was not rebuilt, so its redraw was not re-added
+        // either, and the header showed an icon and an id with a hole between them. (It also left the
+        // focus pointer on the previous rebuild's field, which is a widget no longer in the list.)
+        buildTableTitleField();
+
+        // The type picker, when the editor asked for one: the same rows the card builds, hosted the
+        // same way -- the rows are buttons rather than drawn targets, so they answer wherever they are
+        // built from, and only the layout differs.
+        if (pickingEntryType != null) {
+            questRows = pickerRows();
+            // The page band *inside this card*, and the same rectangle `drawTableEditor` draws the rows
+            // at. It used to be `overlayBody()` -- the quest card's body -- which is a different
+            // rectangle by design (its inset and its top offset are that card's), so the picker's heading
+            // landed on this card's title line, its group headings on the stepper line, and its first
+            // rows behind the toolbar. Two call sites, one rectangle: a page laid out at one place and
+            // drawn at another is a list nobody can press where they read it.
+            BookGeometry.Rect page = tableEditorFrame.list();
+            Viewport body = overlayView.viewport().bounds(page.x(), page.y(), page.width(),
+                    page.height());
+            questLayout = InspectLayout.build(questRows, body.viewWidth(), Measure.monospace(6, 9));
+            overlayView.clear();
+            overlayView.whole(true);
+            overlayView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
+                    body.viewHeight());
+            for (InspectRow row : questRows) {
+                if (row.kind() == InspectRow.Kind.ACTION
+                        && row.key().startsWith(QuestPanelLayout.TYPE_PREFIX)) {
+                    String typeId = row.key().substring(QuestPanelLayout.TYPE_PREFIX.length());
+                    ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
+                            () -> pressQuestAction(row.key()));
+                    button.alignLeft(true).flat(true);
+                    ItemStack icon = pickerIcon(typeId);
+                    if (!icon.isEmpty()) {
+                        button.icon(icon);
+                    }
+                    // A type a table cannot hold stays on the list, drawn blocked with its reason -- the
+                    // same treatment the toolbar's Undo gets when there is nothing to undo. Hiding it
+                    // would leave an author who expected it with no way to find out why it is absent;
+                    // offering it live and refusing the save is what this replaced, and it left them
+                    // with a row in the panel that never reached the file.
+                    String refusal = tableTypeRefusal(typeId);
+                    if (refusal.isEmpty()) {
+                        button.tooltip(pickerTooltip(typeId));
+                    }
+                    else {
+                        button.active = false;
+                        List<Component> lines = new ArrayList<>(pickerTooltip(typeId));
+                        lines.add(Component.literal(refusal));
+                        button.tooltip(List.copyOf(lines));
+                    }
+                    overlayView.put(row.key(), button);
+                }
+            }
+            overlayView.apply(questLayout, body.viewWidth());
+            return;
+        }
+    }
+
+    /**
+     * The card's title box: built once per rebuild, whatever page is showing.
+     *
+     * <p>Its own method because where it is <i>called</i> was the whole of a fault. It used to be the tail
+     * of the editor's widget pass, after the type-picker branch — which returns — so the picker page had
+     * no title box at all, and the focus pointer stayed on the previous rebuild's field.
+     */
+    private void buildTableTitleField() {
+        BookGeometry.Rect header = tableEditorFrame.header();
+        // The title field sits on the header's first line, right of the icon box.
+        BookGeometry.Rect title = BookGeometry.Rect.at(header.x() + 22, header.y() + 1,
+                Math.max(40, header.width() / 2), 12);
+        // Kept, so the drawing can say what the box is for without deriving the rectangle a second time.
+        tableTitleBox = title;
+        String kept = tableTitleField == null ? tableTitle() : tableTitleField.value();
+        tableTitleField = new ArmatureTextField(title.x(), title.y(), title.width(), title.height(), kept);
+        tableTitleField.onSubmit(text -> {
+            if (tableAddress == null) {
+                return;
+            }
+            // Only a real change. A press anywhere away from the box blurs it, and a blur submits -- so
+            // a press on Done arrives here first, and an unconditional send would be an edit the file
+            // does not need. That edit is not merely wasted: an accepted edit is answered with a tree
+            // broadcast the screen rebuilds its widgets on, which replaces the very button being
+            // pressed and loses the click between its press and its release. The box says what the
+            // table already is -- its title, or the id the display falls back to -- and neither is an
+            // edit; a blank box over a table with no title is the same absent value again.
+            String typed = text == null ? "" : text;
+            if (typed.equals(tableTitle()) || (typed.isBlank() && !tableTitled())) {
+                return;
+            }
+            sendTableOp(new dev.ellipog.tasked.editor.TableOp.Set(tableAddress, "title",
+                    new com.google.gson.JsonPrimitive(typed)));
+        });
+        tableTitleField.colours(ArmatureTheme.title(), ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
+        addRenderableWidget(tableTitleField);
+        // Drawn again over the card, clipped to it, for the reason every other card field is: `render`
+        // neither checks `visible` nor clips, and the widget pass happens *under* the card. Without this
+        // the title field is painted behind the panel and reads as a field that is not there -- which is
+        // exactly how the first version looked.
+        BookGeometry.Rect clipTo = tableBody();
+        modalRedraws.add(r -> {
+            // Guarded for the same reason the browser's search redraw is: a redraw lives until the next
+            // rebuild, and closing the panel nulls the field.
+            if (tableTitleField == null) {
+                return;
+            }
+            try (GuiRenderer.Scoped clip = r.clip(clipTo.x(), clipTo.y(), clipTo.right(), clipTo.bottom())) {
+                tableTitleField.render(r);
+                if (tableTitleField.value().isEmpty()) {
+                    r.text("Name this table", tableTitleField.getX() + 4, tableTitleField.getY() + 3,
+                            ArmatureTheme.faint());
+                }
+            }
+        });
+        // Focused only while the file has no title of its own: that is the one table whose box is
+        // asking for something. A table that has a title does not need the caret, and a focused field
+        // commits on blur -- which is what the first press on Done does -- so holding focus on every
+        // rebuild armed a write on every click.
+        if (!tableTitled()) {
+            setFocused(tableTitleField);
+        }
+    }
+
+
+    private void drawTableEditor(GuiRenderer r, int mouseX, int mouseY) {
+        claimTableData();
+        reconcileTableDrafts();
+        tableHint = null;
+        // The chrome names the page, which is what the item picker's card does and what this panel did
+        // not: it said "Edit table" over the entry list, over the roll report and over the page of types
+        // alike, so the one place a card says what it is said the same thing for three different pages.
+        // The item picker is the reference here -- its strip says "Add an item to the table".
+        String pageTitle = pickingEntryType != null
+                ? ("tasks".equals(pickingEntryType) ? "Add a task" : "Add a reward")
+                : tableShowRoll ? "Test roll" : "Edit table";
+        drawModalCardChrome(r, pageTitle, mouseX, mouseY, EditAction.TABLE_DONE);
+        // Drawn before the frame check: the footer is the way out, and a frame that has not been built
+        // yet is exactly when a panel most needs one.
+        drawTableFooter(r, mouseX, mouseY, false);
+        if (tableEditorFrame == null) {
+            return;
+        }
+        BookGeometry.Rect header = tableEditorFrame.header();
+        var model = tableModel();
+        JsonObject root = tableRoot();
+        JsonObject drafted = tableDraftedRoot();
+
+        // The table's own name: the file's, or the quest it is written inside. Declared here rather than
+        // beside its first use because the band above the header needs it too — see the referrers line.
+        String id = switch (tableAddress.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> named.id();
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest ->
+                    "(inline in " + quest.quest() + ")";
+        };
+
+        // --- the breadcrumb, and who else uses this table: one band, two ends ---
+        //
+        // The referrers line lives in this band rather than on the header's second line, and that is a
+        // correction rather than a preference: the second line's numbers text is truncated to leave room
+        // for the mode chip and nothing else, so a line added there would collide with the entry count on
+        // exactly the tables big enough for the collision to matter. This band is the line above the
+        // header, it is empty for a table at the root of the walk, and the breadcrumb is short enough that
+        // the two ends never meet.
+        String uses = "";
+        if (tableAddress.owner() instanceof dev.ellipog.tasked.editor.TableAddress.Owner.Named) {
+            List<String> referrers = dev.ellipog.tasked.client.ClientTableReplica.usedBy(id);
+            uses = referrers.isEmpty() ? "nothing uses this table yet"
+                    : "used by " + String.join(", ", referrers);
+        }
+        int usesRoom = uses.isEmpty() ? 0
+                : Math.min(header.width() / 2, textMeasure(r).width(uses) + 4);
+        if (!tableStack.isEmpty()) {
+            StringBuilder crumb = new StringBuilder();
+            for (dev.ellipog.tasked.editor.TableAddress above : tableStack) {
+                crumb.append(tableNameOf(above)).append(" > ");
+            }
+            crumb.append(tableTitle());
+            r.text(Measure.truncate(crumb.toString(), Math.max(0, header.width() - usesRoom),
+                            textMeasure(r)), header.x(),
+                    tableEditorFrame.crumb().y(), ArmatureTheme.faint());
+        }
+        if (!uses.isEmpty()) {
+            String shown = Measure.truncate(uses, usesRoom, textMeasure(r));
+            r.text(shown, header.right() - r.textWidth(shown), tableEditorFrame.crumb().y(),
+                    ArmatureTheme.faint());
+            if (tableEditorFrame.crumb().contains(mouseX, mouseY)) {
+                // The whole sentence, however long: the band holds what fits and the hover holds the rest.
+                tipAt(r, tableEditorFrame.crumb(), uses);
+            }
+        }
+
+        // --- the header: the icon, the title field, the id, the numbers and the preview ---
+        if (model.isPresent()) {
+            ItemStack icon = model.get().displayIcon().toStack();
+            if (!icon.isEmpty()) {
+                r.icon(icon, header.x() + 2, header.y() + 1, 16);
+                BookGeometry.Rect iconBox = BookGeometry.Rect.at(header.x(), header.y(), 20, 14);
+                registerTarget(EditAction.TABLE_ICON, "", iconBox, iconBox.x(), iconBox.y(), "", null, -1);
+                if (iconBox.contains(mouseX, mouseY)) {
+                    // The one control in this header with nothing said about it anywhere: a small stack
+                    // sprite that is also a button is not a thing a person guesses.
+                    tipAt(r, iconBox, "the icon this table draws in the browser and on a reward's badge");
+                }
+            }
+        }
+        // The id right-aligned on the title's line, rather than floating at half the card's width:
+        // it is the file's name, which is reference rather than a heading.
+        //
+        // And only when it says something the box does not. The box is seeded with the display title,
+        // which falls back to the id, so a table with no title of its own drew "dice" twice on one line --
+        // the box saying what it is and the right end repeating it. The id keeps its job either way: it is
+        // the name the file has.
+        String shownTitle = tableTitleField == null ? tableTitle() : tableTitleField.value();
+        if (!id.equals(shownTitle)) {
+            r.text(Measure.truncate(id, Math.max(0, header.width() / 3), textMeasure(r)),
+                    header.right() - r.textWidth(Measure.truncate(id, Math.max(0, header.width() / 3),
+                            textMeasure(r))), header.y() + 3, ArmatureTheme.faint());
+        }
+        if (tableTitleBox != null && tableTitleBox.contains(mouseX, mouseY)) {
+            // The box says what the table already is, so a blank one reads as a table with no name rather
+            // than as a field asking for one. Said here: the name is the browser row's heading, and the id
+            // at the right is the file's name.
+            tipAt(r, tableTitleBox, "what this table is called - the id at the right is its file name");
+        }
+
+        if (model.isEmpty()) {
+            String why = root == null
+                    ? "Waiting for this table's file..."
+                    : "This table could not be read here - the file has an error, and the card's raw "
+                            + "editor is where to fix it.";
+            r.text(Measure.truncate(why, header.width(), textMeasure(r)), header.x(), header.y() + 20,
+                    root == null ? ArmatureTheme.faint() : ArmatureTheme.blocked());
+            drawTableEditorToolbar(r, mouseX, mouseY, false);
+            if (root == null && dev.ellipog.tasked.client.ClientTableReplica.refusal(id) != null) {
+                r.text(Measure.truncate(dev.ellipog.tasked.client.ClientTableReplica.refusal(id),
+                        header.width(), textMeasure(r)), header.x(), header.y() + 30,
+                        ArmatureTheme.blocked());
+            }
+            drawTableHint(r, tableHint);
+            return;
+        }
+
+        dev.ellipog.tasked.quest.loot.RewardTable table = model.get();
+        // Once for the frame, not once per row: `odds` totals every weight and builds a Chance per
+        // entry, and the row method asked for it again for every row it drew.
+        tableOdds = table.odds(dev.ellipog.tasked.client.dev.TableEditorLayout
+                .includesEmpty(tablePreview));
+        // The same once-per-frame rule for the weight column's hover: the row's own hint says what its
+        // weight is out of, and walking the entries per row would be O(rows x entries) a frame.
+        tableWeightTotal = totalWeight(drafted);
+        // The second header line, left to right: how many times it rolls (a stepper, with its value --
+        // the first version drew the two chips and never the number between them), what it holds, and
+        // what the mode does to the chances.
+        //
+        // The stepper is drawn blocked in the two readings that throw no dice. `all()` and `choice()`
+        // never look at `lootSize`, so a live control here changed a number the file honours in two of
+        // its four readings and ignores in the other two -- with nothing on screen saying which.
+        var rolls = dev.ellipog.tasked.client.dev.TableEditorLayout.stepper(header.x(), header.y() + 22);
+        boolean diced = dev.ellipog.tasked.client.dev.TableEditorLayout.rolls(tablePreview);
+        // And each chip is blocked at the end of its range, where its press is clamped: a control that
+        // looks live and does nothing is what the Undo button already refuses to be.
+        boolean rollsDown = diced
+                && table.lootSize() > dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MIN;
+        boolean rollsUp = diced
+                && table.lootSize() < dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MAX;
+        if (rollsDown) {
+            drawChip(r, rolls.minus(), "-", rolls.minus().contains(mouseX, mouseY));
+        }
+        else {
+            drawChipBlocked(r, rolls.minus(), "-");
+        }
+        if (rollsUp) {
+            drawChip(r, rolls.plus(), "+", rolls.plus().contains(mouseX, mouseY));
+        }
+        else {
+            drawChipBlocked(r, rolls.plus(), "+");
+        }
+        String count = String.valueOf(table.lootSize());
+        r.text(count, rolls.value().x() + (rolls.value().width() - r.textWidth(count)) / 2,
+                rolls.value().y() + 2, diced ? ArmatureTheme.body() : ArmatureTheme.blocked());
+        if (rollsDown) {
+            registerTarget(EditAction.TABLE_ROLLS_DOWN, "", rolls.minus(), rolls.minus().x(),
+                    rolls.minus().y(), "", null, -1);
+        }
+        if (rollsUp) {
+            registerTarget(EditAction.TABLE_ROLLS_UP, "", rolls.plus(), rolls.plus().x(), rolls.plus().y(),
+                    "", null, -1);
+        }
+        if (!diced && (rolls.minus().contains(mouseX, mouseY) || rolls.plus().contains(mouseX, mouseY)
+                || rolls.value().contains(mouseX, mouseY))) {
+            tableHint = dev.ellipog.tasked.client.dev.TableEditorLayout.unusedByMode(tablePreview);
+        }
+        // The drafted root, not the replica's: the rows below draw pending weights, and a total that
+        // counted only what the file holds would contradict the column it sits above. And in a reading
+        // with no dice, the weights are not a quantity at all -- saying "total weight 12" over a table
+        // that grants everything is the number an author would tune against for nothing.
+        String holds = table.entryCount() + (table.entryCount() == 1 ? " entry" : " entries");
+        String numbers = diced
+                ? "roll" + (table.lootSize() == 1 ? "" : "s") + "   " + holds
+                        + "   total weight " + trimNumber(totalWeight(drafted))
+                : holds + "   (no dice in this reading)";
+        int numbersX = rolls.plus().right() + 6;
+        r.text(Measure.truncate(numbers, Math.max(0, header.right() - 110 - numbersX), textMeasure(r)),
+                numbersX, header.y() + 24, diced ? ArmatureTheme.body() : ArmatureTheme.faint());
+
+        BookGeometry.Rect mode = BookGeometry.Rect.at(header.right() - 96, header.y() + 22, 94, 14);
+        drawValue(r, mode, dev.ellipog.tasked.client.dev.TableEditorLayout.modeLabel(tablePreview), "",
+                false, false, mouseX, mouseY);
+        if (mode.contains(mouseX, mouseY)) {
+            // The sentence used to float under this chip, which is the toolbar band -- the screenshot
+            // that started this round showed it covering "Import chest", "Test roll" and "Undo". It
+            // goes to the panel's hint line instead, where it covers nothing.
+            tableHint = dev.ellipog.tasked.client.dev.TableEditorLayout.modeHint(tablePreview)
+                    + "  (press to cycle - this is how the numbers are read, not a property of the file)";
+        }
+        registerTarget(EditAction.TABLE_PREVIEW, "", mode, mode.x() + 2, mode.y() + 3, "", null, -1);
+
+        // The type picker takes the body while it is open: a list of types is a list, and rows are what
+        // lists are made of. The toolbar stays, so the picker is a page of this panel rather than a
+        // replacement for it.
+        if (pickingEntryType != null) {
+            // The frame's own list band: below the toolbar, above the footer. Not `overlayBodyRect()`,
+            // which is the quest card's body -- 14 pixels lower and 6 across from this card's -- and
+            // which drew the picker's heading over the title box, its group headings over the stepper and
+            // its first rows under the toolbar. Clipped to the card as well, because a long row should
+            // stop at the edge rather than run over the chrome.
+            BookGeometry.Rect page = tableEditorFrame.list();
+            if (questLayout != null) {
+                overlayView.apply(questLayout, page.width());
+                try (GuiRenderer.Scoped clip = r.clip(page.x(), page.y(), page.right(),
+                        page.bottom())) {
+                    QuestPanel.drawRows(r, page, overlayView.viewport(), questLayout, questRows,
+                            mouseX, mouseY);
+                }
+                // The list's own bar, outside the clip so it is the full height of the page. The card's
+                // picker page ends with these same three lines; this page did not, which is why the list
+                // stopped at "Server" with no sign that three more types were below the fold.
+                overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+            }
+            drawTableEditorToolbar(r, mouseX, mouseY, true);
+            drawTableHint(r, tableHint);
+            return;
+        }
+
+        drawTableEditorToolbar(r, mouseX, mouseY, true);
+
+        if (tableShowRoll) {
+            drawTableRollPane(r);
+            drawTableHint(r, tableHint);
+            return;
+        }
+
+        // --- the entries ---
+        BookGeometry.Rect list = tableEditorFrame.list();
+        int entries = table.entryCount();
+        // The folds are reconciled against the list before anything is measured against them: an undo, a
+        // remote edit or a removal moves the list under a set of position keys, and a fold left pointing
+        // past the end inflates the scroll extent with rows that are drawn nowhere.
+        reconcileFolds();
+        var folds = tableFolds();
+        tableScroll = Math.max(0, Math.min(tableScroll,
+                dev.ellipog.tasked.client.dev.TableEditorLayout.maxScroll(entries, tableEditorFrame, folds)));
+        drawTableHeadings(r, list);
+        // Clipped to the rows' band rather than the list's: the headings are the list's first strip,
+        // and a row scrolled up must disappear under them rather than over.
+        BookGeometry.Rect rowsBand = tableEditorFrame.rows();
+        try (GuiRenderer.Scoped clip = r.clip(rowsBand.x(), rowsBand.y(), rowsBand.right(),
+                rowsBand.bottom())) {
+            for (int i = 0; i < entries; i++) {
+                BookGeometry.Rect rect = dev.ellipog.tasked.client.dev.TableEditorLayout
+                        .rowRect(entries, tableEditorFrame, tableScroll, i, folds);
+                if (rect.bottom() < rowsBand.y() || rect.y() > rowsBand.bottom()) {
+                    continue;
+                }
+                drawTableEntryRow(r, table, i, rect, mouseX, mouseY);
+            }
+        }
+        if (entries == 0) {
+            r.text("No entries yet - Add item, or drag one in from the recipe viewer.", list.x() + 4,
+                    tableEditorFrame.rowsTop() + 4, ArmatureTheme.faint());
+        }
+        // The Import popover, last of everything: it is the innermost thing on screen while it is open,
+        // so it is drawn on top of the list. Its *presses* are asked first rather than last -- see
+        // `pressTableEditor` -- because the press scan takes the first target that contains the point,
+        // and "drawn on top" and "registered first" cannot both be true of one list.
+        if (tableImportOpen && tableImportAnchor != null) {
+            drawTableImportPopover(r, tableImportAnchor, mouseX, mouseY);
+        }
+        else {
+            tableImportBox = null;
+        }
+        drawTableHint(r, tableHint);
+    }
+
+    private void drawTableEditorToolbar(GuiRenderer r, int mouseX, int mouseY, boolean live) {
+        BookGeometry.Rect bar = tableEditorFrame.toolbar();
+        int x = bar.x();
+        // While the roll is showing, the adders are stood down and the roll button is the way back: the
+        // page is about what the table did, and a button that said "Test roll x10" over it would both
+        // re-roll (fine) and hide the only visible way out of the page (not fine).
+        if (tableShowRoll) {
+            tableToolbarButton(r, x, bar, "Back to table", mouseX, mouseY, EditAction.TABLE_ROLL, true);
+            // Set here, drawn by the caller at the end of its own frame: this method is one part of the
+            // panel's drawing, and a band drawn from inside it lands before the rows have had their say
+            // -- which is what made every sentence here a frame out of date.
+            tableHint = "The last test roll - press Back to table for the entries";
+            return;
+        }
+        // Adders first and filled, because they are what an author came to this panel to do; then the
+        // one Import button, whose two sources hang under it; then the utilities, right-aligned, because
+        // a diagnostic and a history control are not the same kind of act as adding to the table. Six
+        // identical outlines in a row is what the screenshot showed as a dumping ground.
+        x = tableToolbarButton(r, x, bar, "+ Item", mouseX, mouseY, EditAction.TABLE_ADD_ITEM, live, true);
+        x = tableToolbarButton(r, x, bar, "+ Reward", mouseX, mouseY, EditAction.TABLE_ADD_REWARD, live,
+                true);
+        // The Import button's own rectangle, remembered for the popover -- which is drawn by the caller
+        // *after* the rows, so that the order the press scan sees (the popover's rows, then the list's)
+        // is the order they are stacked on screen. Drawn from here it was under nothing and over nothing,
+        // and the two rows won the scan by registration order alone.
+        tableImportAnchor = BookGeometry.Rect.at(x, bar.y(), r.textWidth("Import...") + 10, bar.height());
+        tableToolbarButton(r, x, bar, "Import...", mouseX, mouseY, EditAction.TABLE_IMPORT_MENU, live,
+                false);
+        // Undo is a control that is either live or not: a blocked one registers no target, so a press
+        // does nothing and the hover says why -- rather than looking live, sending an op and coming
+        // back with a refusal, which is a button that appears to do nothing.
+        // The utilities keep the right end of the bar, so the run of controls has a direction: things
+        // that change the table on the left, things that read it on the right.
+        int rollWidth = r.textWidth(tableRollLabel()) + 10;
+        int undoWidth = r.textWidth("Undo") + 10;
+        int undoX = bar.right() - undoWidth;
+        int rollX = undoX - 4 - rollWidth;
+        tableToolbarButton(r, rollX, bar, tableRollLabel(), mouseX, mouseY, EditAction.TABLE_ROLL, live,
+                false);
+        BookGeometry.Rect undo = BookGeometry.Rect.at(undoX, bar.y(), undoWidth, bar.height());
+        boolean canUndo = live && tableCanUndo();
+        boolean undoHot = undo.contains(mouseX, mouseY);
+        drawEditAffordance(r, undo, undoHot && canUndo);
+        r.text("Undo", undo.x() + 5, undo.y() + (bar.height() - 8) / 2,
+                !canUndo ? ArmatureTheme.faint() : undoHot ? ArmatureTheme.title() : ArmatureTheme.body());
+        if (undoHot) {
+            tableHint = canUndo ? "Undo the last edit to this table" : "Nothing to undo yet";
+        }
+        if (canUndo) {
+            registerTarget(EditAction.TABLE_UNDO, "", undo, undo.x() + 5, undo.y(), "", null, -1);
+        }
+    }
+
+    private int tableToolbarButton(GuiRenderer r, int x, BookGeometry.Rect bar, String label, int mouseX,
+                                   int mouseY, EditAction action, boolean live) {
+        return tableToolbarButton(r, x, bar, label, mouseX, mouseY, action, live, false);
+    }
+
+    /**
+     * The same, with the bar's two weights.
+     *
+     * <p>{@code primary} fills the box and brightens its word: the adders are what the panel is for, and
+     * an import, a test roll or an undo is not the same kind of act. One convention, so a control's
+     * weight says what pressing it does rather than how long its word is.
+     */
+    private int tableToolbarButton(GuiRenderer r, int x, BookGeometry.Rect bar, String label, int mouseX,
+                                   int mouseY, EditAction action, boolean live, boolean primary) {
+        int width = r.textWidth(label) + 10;
+        BookGeometry.Rect box = BookGeometry.Rect.at(x, bar.y(), width, bar.height());
+        boolean hot = box.contains(mouseX, mouseY);
+        if (primary) {
+            ArmatureTheme.panel(r, box.x(), box.y(), box.width(), box.height(),
+                    ArmatureTheme.raised(), hot ? ArmatureTheme.title() : ArmatureTheme.panelEdge());
+        }
+        else {
+            drawEditAffordance(r, box, hot);
+        }
+        r.text(label, box.x() + 5, box.y() + (box.height() - 8) / 2,
+                !live ? ArmatureTheme.faint()
+                        : primary || hot ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(action, "", box, box.x() + 5, box.y(), "", null, -1);
+        return x + width + 4;
+    }
+
+    /**
+     * The Import button's two rows: from what, exactly.
+     *
+     * <p>One button rather than two, because the two imports are one act with two sources -- and the
+     * toolbar was six identical outlines in a row. The rows are drawn targets like everything else in
+     * this panel, so a rebuild cannot take them away between a press and its handling, and the press
+     * that misses them is what dismisses them (see {@code pressTableEditor}).
+     */
+    private void drawTableImportPopover(GuiRenderer r, BookGeometry.Rect button, int mouseX,
+                                        int mouseY) {
+        BookGeometry.Rect body = tableBody();
+        int width = Math.max(60, Math.min(150, body.width()));
+        int height = MENU_ROW_HEIGHT * 2 + 4;
+        int x = Math.max(body.x(), Math.min(button.x(), body.right() - width));
+        // Below the button when it fits, above it when it does not, and clamped into the card either way.
+        // The left edge was the only edge clamped before, so on a short window the second row ("From
+        // target chest") was drawn past the body's bottom -- over the entry list, and still taking the
+        // presses aimed at a row underneath it.
+        int below = button.bottom() + 1;
+        int y = below + height <= body.bottom()
+                ? below
+                : Math.max(body.y(), button.y() - height - 1);
+        ArmatureTheme.panel(r, x - 2, y - 2, width + 4, height + 4, ArmatureTheme.raised(),
+                ArmatureTheme.panelEdge());
+        // The rectangle it just drew, for the press: one derivation, so a press inside the popover is a
+        // press on what is on screen rather than on the arithmetic a second time.
+        tableImportBox = BookGeometry.Rect.at(x, y, width, height);
+        drawTableImportRow(r, x, y, width, "From inventory", EditAction.TABLE_IMPORT,
+                mouseX, mouseY);
+        drawTableImportRow(r, x, y + MENU_ROW_HEIGHT, width, "From target chest",
+                EditAction.TABLE_IMPORT_CHEST, mouseX, mouseY);
+    }
+
+    private void drawTableImportRow(GuiRenderer r, int x, int y, int width, String label,
+                                    EditAction action, int mouseX, int mouseY) {
+        BookGeometry.Rect row = BookGeometry.Rect.at(x, y, width, MENU_ROW_HEIGHT);
+        boolean hot = row.contains(mouseX, mouseY);
+        if (hot) {
+            r.fill(row.x(), row.y(), row.right(), row.bottom(),
+                    Colour.alphaOf(ArmatureTheme.title(), 0.18F));
+        }
+        r.text(fitLabel(r, label), row.x() + 4, row.y() + (row.height() - 8) / 2,
+                hot ? ArmatureTheme.title() : ArmatureTheme.body());
+        registerTarget(action, "", row, row.x() + 4, row.y(), "", null, -1);
+    }
+
+    /**
+     * The toolbar's Undo, drawn blocked when there is nothing to undo.
+     *
+     * <p>Read from the frame's budget rather than from the file's history: the budget is what Ctrl+Z
+     * acts on, so a button that looked live while the key said "nothing to undo" would be the button
+     * lying rather than the key.
+     */
+    private boolean tableCanUndo() {
+        return tableApplied > 0;
+    }
+
+    /** One entry: its badge, its weight with the chance that weight means, and its own fields folded. */
+    /**
+     * What the columns are: one strip above the first row.
+     *
+     * <p>There was none, and the row's own numbers were a quiz -- a stepper with no word over it is a
+     * count or a weight depending on which panel you came from. The headings are laid out through the
+     * row's own arithmetic, so a heading is over the column it names and moving a column moves its
+     * heading: one derivation, the rule the rest of these panels follow.
+     */
+    private void drawTableHeadings(GuiRenderer r, BookGeometry.Rect list) {
+        if (list.height() < dev.ellipog.tasked.client.dev.TableEditorLayout.HEADING_HEIGHT) {
+            return;
+        }
+        BookGeometry.Rect probe = BookGeometry.Rect.at(list.x(), list.y(), list.width(),
+                dev.ellipog.tasked.client.dev.TableEditorLayout.ROW_HEIGHT);
+        var row = dev.ellipog.tasked.client.dev.TableEditorLayout.row(probe);
+        BookGeometry.Rect odds = dev.ellipog.tasked.client.dev.TableEditorLayout.odds(probe);
+        int y = list.y() + 2;
+        r.text("Item / reward", row.icon().x(), y, ArmatureTheme.faint());
+        r.text("Chance", odds.right() - r.textWidth("Chance"), y, ArmatureTheme.faint());
+        String weight = "Weight";
+        r.text(weight, row.minus().x() + (row.plus().right() - row.minus().x()
+                - r.textWidth(weight)) / 2, y, ArmatureTheme.faint());
+    }
+
+    /**
+     * The panels' hint line: one sentence about whatever the pointer is over, in the footer band.
+     *
+     * <h2>Why the footer band rather than a floating label</h2>
+     *
+     * <p>Hover notes used to be drawn under the control that had them, and a sentence under the mode
+     * chip lands on the toolbar -- which is what the screenshot showed as a tooltip covering "Import
+     * chest", "Test roll" and "Undo". The footer band is empty in both panels (the buttons sit at its
+     * right end), so a note there covers nothing and there is one place to look for the answer to
+     * "what is this?" -- rather than a label that moves with the pointer and hides what it explains.
+     */
+    private void drawTableHint(GuiRenderer r, String text) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        BookGeometry.Rect card = geometry().modal();
+        // The free strip at the top of the footer band, above the row the controls sit in -- so the
+        // sentence cannot land under a button whatever the window is, and no control's x has to be
+        // guessed at. This used to be drawn at `body.bottom() + 8`, which is past the body and on the
+        // rule above this band, with a hardcoded 200 pixels reserved for controls it never asked about:
+        // a long sentence ran under Done and Back on a narrow window, and the reserve was a number
+        // rather than a measurement.
+        int y = card.bottom() - BookGeometry.MODAL_FOOTER_HEIGHT + 2;
+        int room = Math.max(0, card.width() - 2 * BookGeometry.MODAL_INSET);
+        try (GuiRenderer.Scoped clip = r.clip(card.x(), card.y(), card.right(), card.bottom())) {
+            r.text(Measure.truncate(text, room, textMeasure(r)), tableBody().x(), y,
+                    ArmatureTheme.faint());
+        }
+    }
+
+    private void drawTableEntryRow(GuiRenderer r, dev.ellipog.tasked.quest.loot.RewardTable table, int index,
+                                   BookGeometry.Rect rect, int mouseX, int mouseY) {
+        var row = dev.ellipog.tasked.client.dev.TableEditorLayout.row(rect);
+        var entry = table.entries().get(index);
+        boolean folded = tableFolded.contains(index);
+
+        ItemStack icon = entry.reward() instanceof dev.ellipog.tasked.quest.reward.ItemReward item
+                ? item.item().toStack()
+                : dev.ellipog.tasked.quest.reward.RewardTypes.iconOf(entry.reward().type()).toStack();
+        if (!icon.isEmpty()) {
+            r.icon(icon, row.icon().x(), row.icon().y(), 16);
+        }
+        // The name, through the one helper that knows a display's label is a translation key: drawing
+        // `label()` straight onto the row is what printed "tasked:reward.xp.points".
+        var display = dev.ellipog.tasked.quest.reward.RewardTypes.displayOf(entry.reward());
+        String name = dev.ellipog.tasked.client.RewardText.of(display);
+        BookGeometry.Rect nameBox = row.name();
+        // Centred on the row's own line, not on its whole rectangle: a folded row is taller because of
+        // the band under it, and its badge must stay on the line it belongs to.
+        int line = nameBox.height();
+        r.text(Measure.truncate(name, Math.max(0, nameBox.width() - 100), textMeasure(r)),
+                nameBox.x() + 1, nameBox.y() + (line - 8) / 2, ArmatureTheme.body());
+        int count = dev.ellipog.tasked.client.RewardText.countOf(display);
+        if (count > 1) {
+            String many = "x" + count;
+            int nameWidth = Math.min(r.textWidth(name), Math.max(0, nameBox.width() - 100));
+            r.text(many, nameBox.x() + 3 + nameWidth, nameBox.y() + (line - 8) / 2,
+                    ArmatureTheme.faint());
+        }
+
+        // The chance, from the table's own arithmetic -- computed once for the frame, in the caller.
+        var odds = tableOdds;
+        String chance = dev.ellipog.tasked.client.dev.TableEditorLayout
+                .chance(odds.each().get(index), tablePreview, table.lootSize());
+        String again = dev.ellipog.tasked.client.dev.TableEditorLayout
+                .atLeastOnce(odds.each().get(index), tablePreview, table.lootSize());
+        BookGeometry.Rect oddsBox = dev.ellipog.tasked.client.dev.TableEditorLayout.odds(rect);
+        r.text(chance, oddsBox.right() - r.textWidth(chance), oddsBox.y() + (line - 8) / 2,
+                odds.each().get(index).always() ? ArmatureTheme.title() : ArmatureTheme.faint());
+        // The "at least once" number is the same entry's second chance, so the hover that asks for it
+        // is over the chance itself -- and the sentence goes to the footer band rather than floating
+        // under the row, where it used to sit on the next entry's name (or, for the mode chip, on the
+        // toolbar). It was queued for every row before, hot or not, which is what stacked them.
+        if (!again.isEmpty() && oddsBox.contains(mouseX, mouseY)) {
+            tableHint = again + " - over " + table.lootSize() + " rolls";
+        }
+
+        // The weight, and its stepper. Blocked in the readings that throw no dice, for the header's own
+        // reason: a weight is not a quantity in a mode that grants everything.
+        boolean weighed = dev.ellipog.tasked.client.dev.TableEditorLayout.rolls(tablePreview);
+        // And the `-` is blocked at zero, where it cannot act: the press was clamped and the control
+        // swallowed it, which is the one thing this panel's Undo already refuses to do.
+        boolean canDown = weighed && entry.weight() > 0;
+        if (weighed) {
+            if (canDown) {
+                drawChip(r, row.minus(), "-", row.minus().contains(mouseX, mouseY));
+            }
+            else {
+                drawChipBlocked(r, row.minus(), "-");
+            }
+            drawChip(r, row.plus(), "+", row.plus().contains(mouseX, mouseY));
+        }
+        else {
+            drawChipBlocked(r, row.minus(), "-");
+            drawChipBlocked(r, row.plus(), "+");
+        }
+        String weight = trimNumber(entry.weight());
+        r.text(weight, row.value().x() + (row.value().width() - r.textWidth(weight)) / 2,
+                row.value().y() + (line - 8) / 2,
+                weighed ? ArmatureTheme.body() : ArmatureTheme.blocked());
+        if (row.minus().contains(mouseX, mouseY) || row.plus().contains(mouseX, mouseY)
+                || row.value().contains(mouseX, mouseY)) {
+            tableHint = !weighed
+                    ? dev.ellipog.tasked.client.dev.TableEditorLayout.unusedByMode(tablePreview)
+                    : !canDown
+                            ? "Already at zero - zero means always granted"
+                            : "Weight " + weight + " of " + trimNumber(tableWeightTotal)
+                                    + " - zero means always granted";
+        }
+        if (canDown) {
+            registerTarget(EditAction.TABLE_WEIGHT_DOWN, "", row.minus(), row.minus().x(),
+                    row.minus().y(), "", null, index);
+        }
+        if (weighed) {
+            registerTarget(EditAction.TABLE_WEIGHT_UP, "", row.plus(), row.plus().x(), row.plus().y(), "",
+                    null, index);
+            registerTarget(EditAction.TABLE_WEIGHT, "", row.value(), row.value().x() + 2,
+                    row.value().y(), "", null, index);
+        }
+
+        String mark = folded ? "\u25b2" : "\u25bc";
+        boolean foldHot = row.fold().contains(mouseX, mouseY);
+        r.text(mark, row.fold().x() + (row.fold().width() - r.textWidth(mark)) / 2,
+                row.fold().y() + (line - 8) / 2,
+                foldHot ? ArmatureTheme.title() : ArmatureTheme.body());
+        if (foldHot) {
+            tableHint = folded ? "Fold this entry back to its line" : "Open this entry's own fields";
+        }
+        registerTarget(EditAction.TABLE_FOLD, "", row.fold(), row.fold().x(), row.fold().y(), "", null,
+                index);
+
+        String cross = "\u00d7";
+        boolean removeHot = row.remove().contains(mouseX, mouseY);
+        r.text(cross, row.remove().x() + (row.remove().width() - r.textWidth(cross)) / 2,
+                row.remove().y() + (line - 8) / 2,
+                removeHot ? ArmatureTheme.title() : ArmatureTheme.body());
+        if (removeHot) {
+            tableHint = "Remove this entry";
+        }
+        registerTarget(EditAction.TABLE_REMOVE, "", row.remove(), row.remove().x(), row.remove().y(), "",
+                null, index);
+
+        // Folded open: the entry's own fields, chosen by the entry's reward type.
+        //
+        // This was two cases -- an item's id and count, and a nested table's "Edit" chip -- and every
+        // other type folded onto eighteen pixels of nothing, so an experience, command, advancement,
+        // stage or custom entry had no editable field anywhere in this panel. The controls now come from
+        // `TableRowFields`, which answers for every registered type and falls back to the raw JSON for
+        // anything it does not know; the band's height comes from the same list, one line per row of it,
+        // so what is drawn and what the scroll arithmetic reserved cannot disagree.
+        if (folded) {
+            var model = tableModel();
+            if (model.isPresent() && index < model.get().entryCount()) {
+                var lines = dev.ellipog.tasked.client.dev.TableRowFields
+                        .lines(model.get().entries().get(index).reward());
+                for (int on = 0; on < lines.size(); on++) {
+                    BookGeometry.Rect band = dev.ellipog.tasked.client.dev.TableEditorLayout
+                            .foldBand(rect, on);
+                    if (band.height() < dev.ellipog.tasked.client.dev.TableEditorLayout.FOLD_LINE_HEIGHT) {
+                        // A band too short to hold a control is not a line, and the height arithmetic and
+                        // this list disagreeing is the one thing that would put a control over the row
+                        // below. Nothing here can fix that; a missing line is the honest symptom.
+                        break;
+                    }
+                    var controls = lines.get(on).controls();
+                    var cells = dev.ellipog.tasked.client.dev.TableEditorLayout
+                            .foldCells(band, controls.size());
+                    for (int c = 0; c < cells.size() && c < controls.size(); c++) {
+                        drawFoldControl(r, cells.get(c), controls.get(c), index, mouseX, mouseY);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * One control inside a folded entry: a switch, a chip, a stepper, a box, or the nested table's way in.
+     *
+     * <p>Every control registers its own target, so the press and the drawing are the same list — the
+     * house rule, and the reason a folded row's controls cannot drift from where they are hit. The value
+     * each one is drawn from comes through the draft, so a press that sent an op shows its result on the
+     * next frame rather than when the server answers.
+     *
+     * <h2>{@code replaced}: the contract this method forgot</h2>
+     *
+     * <p>{@code InlineEdit.replaces} exists because a value the open field is showing must not be drawn
+     * by the surface underneath it as well — the fault it was written for was prose "printed twice, a
+     * line apart", and its own note says the callers are "the drawing sites of everything a field can
+     * replace… A site that forgets is a value drawn twice". Every one of these sites forgot: the flag was
+     * hardcoded {@code false}, so opening a command entry's text drew the old text in the box and the new
+     * text in the editor, and the old one stayed until the submit rewrote the model. The card's fields
+     * pass it; these do now, from the same one expression.
+     */
+    private void drawFoldControl(GuiRenderer r, BookGeometry.Rect box,
+                                 dev.ellipog.tasked.client.dev.TableRowFields.Control control, int index,
+                                 int mouseX, int mouseY) {
+        boolean hot = box.contains(mouseX, mouseY);
+        JsonObject entry = draftedEntry(index);
+        String value = entry == null ? "" : rawValue(entry, "reward." + control.field());
+        int baseline = box.y() + (box.height() - 8) / 2;
+        // The field this control commits to is the field the editor would be standing in for.
+        boolean replaced = dev.ellipog.tasked.client.dev.InlineEdit
+                .replaces(tableEntryPath(index, control.field()), editingPath);
+
+        switch (control.kind()) {
+            case FLAG -> {
+                boolean on = entry != null && flagOn(entry, "reward." + control.field());
+                // The chip and its label together, without a frame: a control that is a chip does not
+                // need a box drawn around it as well. That is the card's own rule for a switch.
+                drawSwitch(r, box, on);
+                String label = Measure.truncate(control.label(), Math.max(0, box.width() - 16),
+                        textMeasure(r));
+                r.text(label, box.x() + 15, baseline, on ? ArmatureTheme.title() : ArmatureTheme.faint());
+                registerTarget(EditAction.TABLE_FOLD_FLAG, control.field(), box, box.x(), box.y(), value,
+                        null, index);
+            }
+            case CHOICE -> {
+                // An absent value is the field's own first word rather than nothing: `auto` unset means
+                // "default", and an empty box with an options mark reads as a control that is broken. The
+                // card's form draws the same empty box, so this is the one place that decides it.
+                drawValue(r, box, dev.ellipog.tasked.client.dev.TableRowFields.choiceText(value), "",
+                        value.isEmpty(), replaced, mouseX, mouseY);
+                drawOptionsMark(r, box);
+                registerTarget(EditAction.TABLE_FOLD_CHOICE, control.field(), box, box.x() + 4,
+                        box.y() + 3, value, null, index);
+            }
+            case INT, DECIMAL -> {
+                // The label's rectangle comes from the layout, like every other control's: drawn at
+                // `plus.right() + 4` it began at the cell's right edge, so on a two-control line the
+                // left stepper's label ran across the right one's `-` chip.
+                var number = dev.ellipog.tasked.client.dev.TableEditorLayout
+                        .foldNumber(box, control.label().length());
+                drawChip(r, number.minus(), "-", number.minus().contains(mouseX, mouseY));
+                drawChip(r, number.plus(), "+", number.plus().contains(mouseX, mouseY));
+                r.text(Measure.truncate(control.label(), number.label().width(), textMeasure(r)),
+                        number.label().x(), baseline, ArmatureTheme.faint());
+                if (!replaced) {
+                    // The stepper's own number, drawn here rather than through `drawValue`: it sits
+                    // between the chips, so it has its own rectangle -- and its own turn at asking.
+                    r.text(Measure.truncate(value.isEmpty() ? "0" : value,
+                                    Math.max(0, number.value().width() - 4), textMeasure(r)),
+                            number.value().x() + 2, baseline, ArmatureTheme.body());
+                }
+                registerTarget(EditAction.TABLE_FOLD_STEP_DOWN, control.field(), number.minus(),
+                        number.minus().x(), number.minus().y(), value, null, index);
+                registerTarget(EditAction.TABLE_FOLD_STEP_UP, control.field(), number.plus(),
+                        number.plus().x(), number.plus().y(), value, null, index);
+                registerTarget(EditAction.TABLE_FOLD_TEXT, control.field(), number.value(),
+                        number.value().x() + 2, number.value().y(), value, null, index);
+            }
+            case ITEM -> {
+                int textX = drawItemValue(r, box, value, replaced, mouseX, mouseY);
+                registerTarget(EditAction.TABLE_ENTRY_ITEM, control.field(), box, textX,
+                        box.y() + 3, value, null, index);
+            }
+            case TABLE_OPEN -> {
+                drawValue(r, box, "Edit this table", "", false, false, mouseX, mouseY);
+                registerTarget(EditAction.TABLE_OPEN_CHILD, control.field(), box, box.x() + 4,
+                        box.y() + 3, value, null, index);
+            }
+            case RAW -> {
+                drawValue(r, box, "edit JSON", "", true, false, mouseX, mouseY);
+                registerTarget(EditAction.TABLE_FOLD_RAW, control.field(), box, box.x() + 4,
+                        box.y() + 3, value, null, index);
+            }
+            default -> {
+                // TEXT: the box shows the value, or its label when it is empty -- the same contract the
+                // card's text fields have, which is what tells an author what a blank box wants. And the
+                // editor's own field stands in for the value while it is open: see `replaced` above.
+                String shown = value.isEmpty() ? control.label() : value;
+                drawValue(r, box, shown, "", value.isEmpty() && !replaced, replaced, mouseX, mouseY);
+                registerTarget(EditAction.TABLE_FOLD_TEXT, control.field(), box, box.x() + 4,
+                        box.y() + 3, value, null, index);
+            }
+        }
+        if (hot && !control.hint().isEmpty()) {
+            // A field's own sentence, as a tooltip on the field: the footer band is for what the *page* is
+            // (the mode's meaning, the roll's summary), and a form of twenty controls all explaining
+            // themselves one at a time in one shared line is a line that changes faster than it can be
+            // read. The card's fields have used this surface all along.
+            tipAt(r, box, control.hint());
+        }
+    }
+
+    /**
+     * A tooltip under a control, sized to its sentence and kept inside the card.
+     *
+     * <p>The card's own fields build this inline at each of their sites; the table panel needs several, and
+     * a helper is what makes the "kept inside the card" half impossible to forget — a tooltip anchored to
+     * a control at the card's right edge would otherwise run off it.
+     */
+    private void tipAt(GuiRenderer r, BookGeometry.Rect anchor, String text) {
+        BookGeometry.Rect card = geometry().modal();
+        int width = r.textWidth(text) + 8;
+        int x = Math.max(card.x() + 4, Math.min(anchor.x(), card.right() - width - 6));
+        pendingLabels.add(new PendingLabel(BookGeometry.Rect.at(x, anchor.bottom() + 2, width, 12), text));
+    }
+
+    /**
+     * What a test roll shows: the summary, one line per entry with its rate, and a scroll.
+     *
+     * <h2>Why this is a page of the panel rather than a replacement for it</h2>
+     *
+     * <p>The first version printed the roll over the entry list as plain text and left the author there:
+     * the toolbar stayed, Done still meant "leave the table", and Escape was the only way back -- a way
+     * out nobody can see. The page has its own heading, its own scroll, and the toolbar's roll button
+     * becomes the way back (see {@code drawTableEditorToolbar}), so the state is a place with a door
+     * rather than a trap. The summary is arithmetic, not a text dump: every line says how many times the
+     * entry came up and what share of the rolls that is.
+     */
+    private void drawTableRollPane(GuiRenderer r) {
+        BookGeometry.Rect list = tableEditorFrame.list();
+        r.fill(list.x(), list.y(), list.right(), list.bottom(), ArmatureTheme.recessed());
+        var held = dev.ellipog.tasked.client.ClientTableRoll.of(tableDescribe());
+        if (held == null) {
+            r.text("Rolling...", list.x() + 4, list.y() + 2, ArmatureTheme.faint());
+            return;
+        }
+        // The heading strip, where the entry page keeps its column names: what was rolled, and how.
+        r.text("Test roll", list.x() + 2, list.y() + 2, ArmatureTheme.title());
+        String summary = held.rolls() + (held.rolls() == 1 ? " roll as " : " rolls as ")
+                + held.mode().wire()
+                + (held.truncated() ? "  (nesting cut off)" : "");
+        r.text(Measure.truncate(summary, Math.max(0, list.width() - 66), textMeasure(r)),
+                list.x() + 58, list.y() + 2, ArmatureTheme.faint());
+
+        BookGeometry.Rect band = tableEditorFrame.rows();
+        rollScroll = Math.max(0, Math.min(rollScroll, maxRollScroll(held)));
+        try (GuiRenderer.Scoped clip = r.clip(band.x(), band.y(), band.right(), band.bottom())) {
+            int y = band.y() - rollScroll;
+            for (var row : held.rows()) {
+                if (y + ROLL_PITCH > band.y() && y < band.bottom()) {
+                    drawRollRow(r, held, row.display(), row.depth(), row.hits(), row.emptyHits(), y, band);
+                }
+                y += ROLL_PITCH;
+            }
+            if (held.emptyHits() > 0) {
+                drawRollRow(r, held, null, 0, held.emptyHits(), 0, y, band);
+                y += ROLL_PITCH;
+            }
+            // And what no roll could pay out, last and in the blocked ink: a report that simply showed
+            // fewer rows than the file has reads as those entries not being in the table, and sends the
+            // author looking in the wrong place.
+            for (String note : held.notRolled()) {
+                if (y + ROLL_PITCH > band.y() && y < band.bottom()) {
+                    r.text(Measure.truncate(note, Math.max(0, band.width() - 8), textMeasure(r)),
+                            band.x() + 2, y, ArmatureTheme.blocked());
+                }
+                y += ROLL_PITCH;
+            }
+        }
+    }
+
+    /** The furthest the roll pane can scroll: every line, the empty band's and the notes'. */
+    private int maxRollScroll(dev.ellipog.tasked.client.ClientTableRoll.Held held) {
+        int lines = held.rows().size() + (held.emptyHits() > 0 ? 1 : 0) + held.notRolled().size();
+        return Math.max(0, lines * ROLL_PITCH - tableEditorFrame.rows().height());
+    }
+
+    /**
+     * One line of the roll: the entry, how often it came up, and what share of the rolls that is.
+     *
+     * <p>A {@code null} display is the empty band -- the rolls that paid nothing -- which is why it is
+     * drawn by this method rather than by a second one: it is a line like the others, with a rate.
+     *
+     * <p>The rate comes from the report's own mode, so a report rolled as {@code all_table} says 100%
+     * and one rolled as {@code choice} says Pick, whatever the chip behind the pane has been pressed to
+     * since. The count is not drawn for a mode with no dice: "0x" beside "Pick" is a number about
+     * nothing.
+     */
+    private void drawRollRow(GuiRenderer r, dev.ellipog.tasked.client.ClientTableRoll.Held held,
+                             dev.ellipog.tasked.net.TableRollPayload.Display display, int depth, int hits,
+                             int emptyHits, int y, BookGeometry.Rect band) {
+        int x = band.x() + 2 + depth * 10;
+        String name = display == null ? "nothing"
+                : dev.ellipog.tasked.client.RewardText.of(display.label(), display.fallback(),
+                        display.arg(), display.count(), display.item());
+        String rate = dev.ellipog.tasked.client.dev.TableEditorLayout
+                .reportRate(held.mode(), hits, held.rolls());
+        r.text(rate, band.right() - 4 - r.textWidth(rate), y,
+                display == null ? ArmatureTheme.faint() : ArmatureTheme.body());
+        boolean diced = held.mode() == dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM
+                || held.mode() == dev.ellipog.tasked.quest.reward.TableReward.Mode.LOOT;
+        int countedWidth = 0;
+        if (diced) {
+            String counted = hits + "x";
+            countedWidth = r.textWidth(counted);
+            r.text(counted, band.right() - 44 - countedWidth, y, ArmatureTheme.faint());
+        }
+        String paid = emptyHits > 0 ? name + " (paid nothing " + emptyHits + "x)" : name;
+        r.text(Measure.truncate(paid, Math.max(0, band.right() - 96 - countedWidth - x), textMeasure(r)),
+                x, y, display == null ? ArmatureTheme.faint() : ArmatureTheme.body());
+    }
+
+    // ------------------------------------------------------------------
+    // The Assets panel: the pack, listed
+    // ------------------------------------------------------------------
+
+    /** Which section the panel is showing. Seeded from the file, written back when it changes. */
+    private dev.ellipog.tasked.client.dev.AssetsLayout.Section assetsSection =
+            dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES;
+
+    /** How far the page is scrolled. Reset when the section changes, because the content did. */
+    private int assetsScroll;
+
+    /** The panel's hint line, rebuilt as it draws. */
+    private String assetsHint;
+
+    /** The panel's frame, from the card, once a frame. */
+    private dev.ellipog.tasked.client.dev.AssetsLayout.Frame assetsFrame;
+
+    /** The panel's pressable pieces, from the last frame's drawing -- the house rule, one list. */
+    private final List<EditTarget> assetsTargets = new ArrayList<>();
+
+    /**
+     * One line of the panel's page: a group heading, or a row.
+     *
+     * <p>The same shape the table panels' rows settled on — a name at the left and one detail at the right
+     * — and flat rather than nested, because {@link dev.ellipog.tasked.client.dev.AssetsLayout} measures a
+     * page as a list of two kinds of line and nothing else. {@code id} is what a press acts on; a line with
+     * no action is drawn and not pressable, which is how a refused file is listed without pretending it is
+     * something that can be opened.
+     */
+    private record AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind kind, String label,
+                             String detail, String id, EditAction action, boolean blocked,
+                             net.minecraft.world.item.ItemStack icon) {
+
+        static AssetLine heading(String label) {
+            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.HEADING, label, "", "",
+                    null, false, net.minecraft.world.item.ItemStack.EMPTY);
+        }
+
+        /**
+         * A table row: its title drawn, its file id as the detail, and the same id as what a press opens.
+         *
+         * <h2>Why this is a factory rather than a call with four arguments</h2>
+         *
+         * <p>Because the call got it wrong, and the log said so: {@code reward_tables/4 entries.json could not
+         * be read} — the Tables page passed its two strings in the other order, so the <b>entry count</b> landed
+         * in the identity slot and every press asked the server for a table named "4 entries". Two adjacent
+         * string parameters, one drawn and one acted on, is a shape that invites that mistake and it made it.
+         * Here the two questions are answered once, from the summary, and a caller never holds both.
+         */
+        static AssetLine table(ClientQuestCache.TableSummary table) {
+            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.ROW, table.title(),
+                    table.id(), table.id(), EditAction.ASSETS_ROW, false, table.icon());
+        }
+
+        /** A quest row: the path it lives at is drawn, and the quest's own id is what a press acts on. */
+        static AssetLine quest(ClientQuestCache.Entry quest) {
+            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.ROW, quest.title(),
+                    quest.chapterId() + "/" + quest.id(), quest.id(), EditAction.ASSETS_ROW, false,
+                    quest.icon());
+        }
+
+        /**
+         * A row that is there to be read: a table file that did not load.
+         *
+         * <p>Not pressable, and that is the honest answer rather than a missing feature — nothing can edit
+         * a file that did not decode, because every table op resolves a decoded draft. The row says what is
+         * wrong and the way out is the file itself. And it carries no icon, because the file that would
+         * have named one is the file that did not load.
+         */
+        static AssetLine refused(String label, String detail) {
+            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.ROW, label, detail, "",
+                    null, true, net.minecraft.world.item.ItemStack.EMPTY);
+        }
+
+        boolean pressable() {
+            return action != null && !blocked;
+        }
+    }
+
+    /** Opens the pack's panel, on the section the author was last reading. */
+    private void openAssets() {
+        closeMenu();
+        assetsSection = sectionNamed(ClientWorking.section());
+        assetsScroll = 0;
+        overlay = Overlay.ASSETS;
+        rebuildWidgets();
+    }
+
+    /** A remembered section's name as the enum. An unknown name is the first section, never a blank page. */
+    private static dev.ellipog.tasked.client.dev.AssetsLayout.Section sectionNamed(String name) {
+        for (dev.ellipog.tasked.client.dev.AssetsLayout.Section section
+                : dev.ellipog.tasked.client.dev.AssetsLayout.Section.values()) {
+            if (section.name().toLowerCase(java.util.Locale.ROOT).equals(name)) {
+                return section;
+            }
+        }
+        return dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES;
+    }
+
+    /** Shows a section and remembers it. The scroll goes with the content it was measured against. */
+    private void showAssets(dev.ellipog.tasked.client.dev.AssetsLayout.Section section) {
+        if (assetsSection != section) {
+            assetsSection = section;
+            assetsScroll = 0;
+            ClientWorking.rememberSection(section.name().toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    /** The page's lines, from whichever section is showing. */
+    private List<AssetLine> assetsLines() {
+        return switch (assetsSection) {
+            case TABLES -> assetsTableLines();
+            case QUESTS -> assetsQuestLines();
+        };
+    }
+
+    /** The loaded tables, then the files that are there and did not load. */
+    private List<AssetLine> assetsTableLines() {
+        List<AssetLine> lines = new ArrayList<>();
+        List<ClientQuestCache.TableSummary> loaded = ClientQuestCache.tables();
+        if (!loaded.isEmpty()) {
+            lines.add(AssetLine.heading("Tables"));
+            for (ClientQuestCache.TableSummary table : loaded) {
+                // The table's own icon, which the summary already carries: a table with none of its own
+                // shows the item its first entry grants, resolved server-side. And the row is built by the
+                // factory, so its id — what a press opens — is the table's and not something else.
+                lines.add(AssetLine.table(table));
+            }
+        }
+        List<ClientQuestCache.RefusedTable> refused = ClientQuestCache.refusedTables();
+        if (!refused.isEmpty()) {
+            // The list no other panel has, because a refused file is not a table and is in nothing else.
+            lines.add(AssetLine.heading("Not loaded"));
+            for (ClientQuestCache.RefusedTable table : refused) {
+                lines.add(AssetLine.refused(table.id(), table.why()));
+            }
+        }
+        if (lines.isEmpty()) {
+            lines.add(AssetLine.heading(ClientQuestCache.syncedAt() == 0
+                    ? "Waiting for the pack's files"
+                    : "No reward tables yet - New table makes one"));
+        }
+        return lines;
+    }
+
+    /** Every quest file, under the chapter it belongs to. */
+    private List<AssetLine> assetsQuestLines() {
+        List<AssetLine> lines = new ArrayList<>();
+        String chapter = null;
+        for (ClientQuestCache.Entry quest : ClientQuestCache.entries()) {
+            if (!quest.chapterTitle().equals(chapter)) {
+                chapter = quest.chapterTitle();
+                lines.add(AssetLine.heading(chapter));
+            }
+            lines.add(AssetLine.quest(quest));
+        }
+        if (lines.isEmpty()) {
+            lines.add(AssetLine.heading(ClientQuestCache.syncedAt() == 0
+                    ? "Waiting for the pack's files" : "No quests in this pack yet"));
+        }
+        return lines;
+    }
+
+    /** One line of the page: its icon where it has one, its label, and its detail at the right. */
+
+    /** One line of the page: its icon where it has one, its label, and its detail at the right. */
+    private void drawAssetLine(GuiRenderer r, List<AssetLine> lines, int index, int top,
+                               BookGeometry.Rect band, int mouseX, int mouseY) {
+        AssetLine line = lines.get(index);
+        int height = dev.ellipog.tasked.client.dev.AssetsLayout.lineHeight(line.kind());
+        BookGeometry.Rect box = BookGeometry.Rect.at(band.x(), top, band.width(), height);
+        int baseline = top + (height - 8) / 2;
+        if (line.kind() == dev.ellipog.tasked.client.dev.AssetsLayout.Kind.HEADING) {
+            r.text(Measure.truncate(line.label(), box.width(), textMeasure(r)), box.x(), baseline,
+                    ArmatureTheme.title());
+            return;
+        }
+        boolean hot = line.pressable() && box.contains(mouseX, mouseY);
+        if (hot) {
+            r.fill(box.x() - 2, box.y(), box.right(), box.bottom(), ArmatureTheme.raised());
+        }
+        // The icon, where there is one: a refused file has none, and the label keeps its inset so the two
+        // kinds of row line up rather than the iconless ones sitting to the left of everything else.
+        boolean icon = !line.icon().isEmpty();
+        if (icon) {
+            r.icon(line.icon(), box.x() + 2, box.y() + (height - dev.ellipog.tasked.client.dev.AssetsLayout.ICON) / 2,
+                    dev.ellipog.tasked.client.dev.AssetsLayout.ICON);
+        }
+        int inset = icon ? dev.ellipog.tasked.client.dev.AssetsLayout.ICON_TEXT_INSET : 2;
+        // Whether this row carries the two controls, which is a Tables row and nothing else: a quest is
+        // opened or it is not. `reserved` is what they and the air before them take, and it is the one number
+        // both the label's room and the detail's place are computed from — the first version reserved the
+        // chips but not the gap, and the detail came out touching the word "Copy".
+        boolean chipped = line.pressable()
+                && assetsSection == dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES
+                && line.action() == EditAction.ASSETS_ROW;
+        int reserved = chipped
+                ? dev.ellipog.tasked.client.dev.AssetsLayout.CHIPS
+                        + dev.ellipog.tasked.client.dev.AssetsLayout.DETAIL_GAP
+                : 0;
+        var ink = line.blocked() ? ArmatureTheme.blocked()
+                : hot ? ArmatureTheme.title() : ArmatureTheme.body();
+        String detail = line.detail().isEmpty() ? "" : Measure.truncate(line.detail(),
+                Math.max(0, box.width() / 2), textMeasure(r));
+        int room = box.width() - inset - reserved - 4 - (detail.isEmpty() ? 0 : r.textWidth(detail) + 6);
+        r.text(Measure.truncate(line.label(), Math.max(0, room), textMeasure(r)), box.x() + inset,
+                baseline, ink);
+        if (!detail.isEmpty()) {
+            // Left of the row's controls and their gap, which is the half that was missing: see `reserved`.
+            r.text(detail, box.right() - reserved - 4 - r.textWidth(detail), baseline,
+                    ArmatureTheme.faint());
+        }
+        if (line.pressable()) {
+            registerAssetTarget(EditAction.ASSETS_ROW, box, line);
+            // The row's own two controls, at its right end: copy first, remove last at the edge -- the same
+            // "a mis-aimed press has to travel past the harmless one" rule the entry rows follow. Only a
+            // table row has them: a quest is opened or it is not, and a type is read.
+            if (chipped) {
+                String copy = Labels.of("tasked.dev.copy");
+                int chip = dev.ellipog.tasked.client.dev.AssetsLayout.CHIP;
+                BookGeometry.Rect copyBox = BookGeometry.Rect.at(box.right() - chip * 2 - 1, box.y() + 1,
+                        chip - 1, height - 2);
+                BookGeometry.Rect removeBox = BookGeometry.Rect.at(box.right() - chip, box.y() + 1,
+                        chip - 1, height - 2);
+                boolean copyHot = copyBox.contains(mouseX, mouseY);
+                boolean removeHot = removeBox.contains(mouseX, mouseY);
+                r.text(copy, copyBox.x() + (copyBox.width() - r.textWidth(copy)) / 2, baseline,
+                        copyHot ? ArmatureTheme.title() : ArmatureTheme.faint());
+                r.text("\u00d7", removeBox.x() + (removeBox.width() - r.textWidth("\u00d7")) / 2, baseline,
+                        removeHot ? ArmatureTheme.title() : ArmatureTheme.faint());
+                assetsTargets.add(new EditTarget(EditAction.ASSETS_COPY, line.id(), copyBox, copyBox.x(),
+                        copyBox.y(), line.label(), null, assetsTargets.size()));
+                assetsTargets.add(new EditTarget(EditAction.ASSETS_REMOVE, line.id(), removeBox,
+                        removeBox.x(), removeBox.y(), line.label(), null, assetsTargets.size()));
+            }
+            if (hot) {
+                assetsHint = "Open " + line.label();
+            }
+        }
+        else if (line.blocked() && box.contains(mouseX, mouseY)) {
+            assetsHint = line.detail();
+        }
+    }
+
+    /** The page band's height, or zero before the first frame has built the frame. */
+    private int assetsPageBand() {
+        return assetsFrame == null ? 0 : assetsFrame.rows().height();
+    }
+
+    /** The panel's own pressable list, and its registration: one shape, so the two cannot drift. */
+    /** The panel's own pressable list, and its registration: one shape, so the two cannot drift. */
+    private void registerAssetTarget(EditAction action, BookGeometry.Rect box, AssetLine line) {
+        assetsTargets.add(new EditTarget(action, line.id(), box, box.x() + 2, box.y() + 3, line.label(),                null, assetsTargets.size()));
+    }
+
+    /** Draws the panel: the chrome, the sections, the page, the bar and the footer. */
+    private void drawAssets(GuiRenderer r, int mouseX, int mouseY) {
+        assetsHint = null;
+        assetsTargets.clear();
+        BookGeometry.Rect card = geometry().modal();
+        assetsFrame = dev.ellipog.tasked.client.dev.AssetsLayout.Frame.of(card);
+        drawModalCardChrome(r, "Assets", mouseX, mouseY, EditAction.ASSETS_CLOSE);
+
+        List<AssetLine> lines = assetsLines();
+        // The layout measures lines; a page carries them. One list seen two ways, so what is measured and
+        // what is drawn cannot disagree about how tall the page is.
+        var kinds = lines.stream().map(AssetLine::kind).toList();
+        BookGeometry.Rect band = assetsFrame.rows();
+        assetsScroll = Math.max(0, Math.min(assetsScroll,
+                dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, band.height())));
+
+        var sections = dev.ellipog.tasked.client.dev.AssetsLayout.Section.values();
+        for (int i = 0; i < sections.length; i++) {
+            BookGeometry.Rect box = assetsFrame.section(i);
+            boolean chosen = sections[i] == assetsSection;
+            boolean hot = box.contains(mouseX, mouseY);
+            var ink = chosen ? ArmatureTheme.title() : hot ? ArmatureTheme.body() : ArmatureTheme.faint();
+            r.text(sectionName(sections[i]), box.x() + 4, box.y() + (box.height() - 8) / 2, ink);
+        }
+
+        try (GuiRenderer.Scoped clip = r.clip(band.x(), band.y(), band.right(), band.bottom())) {
+            for (int i = 0; i < lines.size(); i++) {
+                int top = band.y() + dev.ellipog.tasked.client.dev.AssetsLayout.lineTop(kinds, i)
+                        - assetsScroll;
+                int height = dev.ellipog.tasked.client.dev.AssetsLayout.lineHeight(lines.get(i).kind());
+                if (top + height < band.y() || top > band.bottom()) {
+                    continue;
+                }
+                drawAssetLine(r, lines, i, top, band, mouseX, mouseY);
+            }
+        }
+
+        BookGeometry.Rect thumb = dev.ellipog.tasked.client.dev.AssetsLayout.thumb(kinds,
+                assetsFrame.scrollbar(), assetsScroll);
+        if (thumb != null) {
+            r.fill(thumb.x(), thumb.y(), thumb.right(), thumb.bottom(), ArmatureTheme.scrollThumb());
+        }
+
+        // The footer: the page's own action at the left, the way out at the right. Done closes the panel --
+        // one step, which is what every footer in this book now means.
+        BookGeometry.Rect footer = assetsFrame.footer();
+        int rowY = footer.bottom() - BookGeometry.MODAL_INSET - 14;
+        if (assetsSection == dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES) {
+            BookGeometry.Rect create = BookGeometry.Rect.at(footer.x() + BookGeometry.MODAL_INSET, rowY,
+                    72, 14);
+            drawTableButton(r, create, "New table", mouseX, mouseY, EditAction.ASSETS_NEW);
+        }
+        BookGeometry.Rect done = BookGeometry.Rect.at(footer.right() - BookGeometry.MODAL_INSET - 64,
+                rowY, 64, 14);
+        drawTableButton(r, done, Labels.of("tasked.screen.done"), mouseX, mouseY, EditAction.ASSETS_CLOSE);
+
+        drawTableHint(r, assetsHint);
+    }
+
+    /** The section's name in the author's words. */
+    private static String sectionName(dev.ellipog.tasked.client.dev.AssetsLayout.Section section) {
+        return switch (section) {
+            case TABLES -> "Tables";
+            case QUESTS -> "Quests";
+        };
+    }
+
+    /**
+     * The panel's press: the section column first, then the page's rows, then the footer.
+     *
+     * <p>The sections come first because their rectangles are drawn over the page's band's left edge in no
+     * way at all — they are a separate column — and asking the layout's own function keeps the answer the
+     * same one the drawing used.
+     */
+    private void pressAssets(double mouseX, double mouseY) {
+        if (assetsFrame == null) {
+            return;
+        }
+        var section = dev.ellipog.tasked.client.dev.AssetsLayout.sectionAt(assetsFrame, (int) mouseX,
+                (int) mouseY);
+        if (section != null) {
+            showAssets(section);
+            return;
+        }
+        for (EditTarget target : assetsTargets) {
+            if (target.box().contains(mouseX, mouseY)) {
+                pressAssetTarget(target);
+                return;
+            }
+        }
+    }
+
+    /** What a press on one of the panel's targets does. */
+    private void pressAssetTarget(EditTarget target) {
+        switch (target.action()) {
+            case ASSETS_CLOSE -> closeOverlay();
+            // The browser's own three verbs, so the two lists cannot disagree about what making, copying
+            // or removing a table does -- including that a table something still points at is refused by
+            // the server, which is where that guard lives.
+            case ASSETS_NEW -> createTable();
+            case ASSETS_COPY -> duplicateTable(target.path());
+            case ASSETS_REMOVE -> deleteTable(target.path());
+            case ASSETS_ROW -> {
+                switch (assetsSection) {
+                    case TABLES -> openTableEditorOn(target.path());
+                    case QUESTS -> {
+                        // The canvas, not the card: `locateOnCanvas` closes whatever is open, switches
+                        // chapter when the quest lives elsewhere, glides the camera until the node is
+                        // centred and flashes its outline -- the same call the prerequisite row's locate
+                        // icon makes. A list of every quest is for finding one, and finding it means being
+                        // taken there; opening its card instantly answered a question nobody had asked.
+                        locateOnCanvas(target.path());
+                    }
+                    default -> {
+                    }
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    /**
+     * Opens a named table's editor with no quest behind it, which is what the Assets list is for.
+     *
+     * <p>The same state `ClientTableOpen` sets when `/tasked table edit` arrives, so the command and the
+     * list are one road: clearing the stack and the roll, and remembering where the author came from.
+     */
+    private void openTableEditorOn(String table) {
+        dev.ellipog.tasked.client.ClientWorking.rememberTable(table);
+        tableAddress = dev.ellipog.tasked.editor.TableAddress.of(table);
+        tableStack.clear();
+        tableApplied = 0;
+        tableUndone = 0;
+        tableFolded.clear();
+        tableShowRoll = false;
+        tableImportOpen = false;
+        tablePreview = dev.ellipog.tasked.quest.reward.TableReward.Mode.RANDOM;
+        // Back to the panel, not to the book: the editor was opened from a list.
+        tableReturn = Overlay.ASSETS;
+        overlay = Overlay.TABLE_EDITOR;
+        rebuildWidgets();
+    }
+
+    private void pressTableEditor(double mouseX, double mouseY) {
+        if (tableEditorFrame == null || tableAddress == null) {
+            return;
+        }
+        // The Import popover is asked first, because it is drawn on top: the scan below takes the first
+        // target that contains the point, so a popover drawn last would lose every press in the region it
+        // covers to the entry row underneath it. That region is real -- the popover is drawn over the
+        // list on a short window -- and "whichever the toolbar happened to register first" is not a rule
+        // anybody could hold in their head.
+        if (tableImportOpen && tableImportBox != null && tableImportBox.contains(mouseX, mouseY)) {
+            for (EditTarget target : editTargets) {
+                boolean mine = target.action() == EditAction.TABLE_IMPORT
+                        || target.action() == EditAction.TABLE_IMPORT_CHEST;
+                if (mine && target.box().contains(mouseX, mouseY)) {
+                    pressTableEditorTarget(target, mouseX, mouseY);
+                    return;
+                }
+            }
+            // A press inside the popover that is not on one of its two rows is still the popover's: it
+            // dismisses it, and it must not reach the entry under it.
+            tableImportOpen = false;
+            return;
+        }
+        for (EditTarget target : editTargets) {
+            if (!target.box().contains(mouseX, mouseY)) {
+                continue;
+            }
+            pressTableEditorTarget(target, mouseX, mouseY);
+            return;
+        }
+        // A press that hit nothing dismisses an open Import popover: the popover is closed by the press
+        // that misses it, the same rule the sidebar's menu follows, and the press is spent doing it.
+        tableImportOpen = false;
+    }
+
+    private void pressTableEditorTarget(EditTarget target, double mouseX, double mouseY) {
+        int index = target.index();
+        switch (target.action()) {
+            // The footer's way out, answered on press like everything else in this panel. One table up
+            // while a nested table is on the stack, out of the panel at the root -- the same thing the
+            // button's own label says, because both read `tableStack`.
+            case TABLE_DONE -> popTableEditor();
+            case TABLE_PAGE_BACK -> {
+                // One step back from whatever the list has over it: the page of types, or the roll report.
+                // The panel stays open, which is what the button now says. The rebuild is the field
+                // question: the title box is built either way, but the picker's widget host has to be torn
+                // down.
+                pickingEntryType = null;
+                tableShowRoll = false;
+                rebuildWidgets();
+            }
+            case TABLE_IMPORT_MENU -> tableImportOpen = !tableImportOpen;
+            case TABLE_PREVIEW -> {
+                tablePreview = dev.ellipog.tasked.client.dev.TableEditorLayout
+                        .nextPreview(tablePreview);
+            }
+            case TABLE_ROLLS_UP, TABLE_ROLLS_DOWN -> {
+                // Read from the drafted model, so a burst of presses accumulates: the second press sees
+                // the first press's value rather than the replica the server has not answered about yet.
+                var model = tableModel();
+                // The bounds are the codec's, read from the table rather than restated here: a stepper
+                // that could reach one past the end would send a value the loader refuses, and the author
+                // would watch the number spring back with nothing said about why.
+                if (model.isPresent()) {
+                    int next = Math.max(dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MIN,
+                            Math.min(dev.ellipog.tasked.quest.loot.RewardTable.LOOT_SIZE_MAX,
+                                    model.get().lootSize()
+                                            + (target.action() == EditAction.TABLE_ROLLS_UP ? 1 : -1)));
+                    sendTableValue("lootSize", new com.google.gson.JsonPrimitive(next));
+                }
+            }
+            case TABLE_WEIGHT_UP, TABLE_WEIGHT_DOWN -> {
+                var model = tableModel();
+                if (model.isPresent() && index >= 0 && index < model.get().entryCount()) {
+                    double step = Screen.hasShiftDown() ? 10 : 1;
+                    double next = Math.max(0, model.get().entries().get(index).weight()
+                            + (target.action() == EditAction.TABLE_WEIGHT_UP ? step : -step));
+                    sendTableValue("entries." + index + ".weight", new com.google.gson.JsonPrimitive(next));
+                }
+            }
+            case TABLE_WEIGHT -> {
+                // The field edits the value it was drawn from, which is the drafted one -- so typing a
+                // weight and pressing Enter commits what the author read, not what the file last said.
+                var model = tableModel();
+                String shown = model.isPresent() && index >= 0 && index < model.get().entryCount()
+                        ? trimNumber(model.get().entries().get(index).weight())
+                        : target.value();
+                // And the commit goes to the TABLE, with the kind that says what the text becomes: the
+                // inline editor's own commit path writes a quest field, which for a path like
+                // `entries.1.weight` is a stray member in the quest file -- a weight box that corrupted
+                // the file it was opened from.
+                openTableFieldEditor(index, "weight",
+                        dev.ellipog.tasked.client.dev.TableRowFields.Kind.DECIMAL, shown,
+                        target.box(), target.textX(), target.textY(), mouseX, mouseY);
+            }
+            case TABLE_FOLD -> {
+                if (!tableFolded.remove(index)) {
+                    tableFolded.add(index);
+                }
+            }
+            case TABLE_FOLD_FLAG -> toggleTableFlag(index, target.path());
+            case TABLE_FOLD_CHOICE -> cycleTableChoice(index, target.path());
+            case TABLE_FOLD_STEP_UP -> nudgeTableNumber(index, target.path(), 1);
+            case TABLE_FOLD_STEP_DOWN -> nudgeTableNumber(index, target.path(), -1);
+            case TABLE_FOLD_TEXT -> {
+                // The value in the box is the drafted one, so what is typed over is what was read.
+                openTableFieldEditor(index, target.path(),
+                        dev.ellipog.tasked.client.dev.TableRowFields.Kind.TEXT,
+                        tableFieldText(index, target.path()), target.box(), target.textX(),
+                        target.textY(), mouseX, mouseY);
+            }
+            case TABLE_FOLD_RAW -> openTableFieldEditor(index, "",
+                    dev.ellipog.tasked.client.dev.TableRowFields.Kind.RAW,
+                    entryRewardText(index), target.box(), target.textX(), target.textY(), mouseX,
+                    mouseY);
+            case TABLE_REMOVE -> {
+                // One press, and the entry is gone -- so it asks first, the same confirm-in-place the
+                // inline table's removal uses. A cross is the narrowest control on the row and the row
+                // below it is another cross, so a mis-click here costs an entry and a second mis-click
+                // costs another.
+                if (!tableConfirmReplace) {
+                    tableConfirmReplace = true;
+                    status("Press again to remove this entry", true);
+                    return;
+                }
+                tableConfirmReplace = false;
+                // A list position that moved is no longer about the entry the author touched: the same
+                // rule the card follows when a task is removed. See FieldDraft#forgetList.
+                tableDraft.forgetList(effectiveChapter(), tableOwnerKey(), "entries");
+                // And the folds move with it: they are keyed by position, so every open fold above the
+                // hole has to shift down with the row it belongs to -- otherwise entry 3's fields are
+                // drawn under entry 2's name, and the next press on that fold edits the wrong entry.
+                forgetFoldAfterRemove(index);
+                sendTableOp(new dev.ellipog.tasked.editor.TableOp.Remove(tableAddress, index));
+            }
+            case TABLE_ADD_ITEM -> openTableItemPick("", -1, "Add an item to the table");
+            case TABLE_ENTRY_ITEM -> openTableItemPick(
+                    tableEntryPath(index, target.path().isEmpty() ? "item" : target.path()), index,
+                    "Choose the item");
+            case TABLE_ICON -> openTableItemPick("icon.item", -1, "Choose this table's icon");
+            case TABLE_IMPORT -> {
+                // The popover's choice is the press: it closes with the row it ran.
+                tableImportOpen = false;
+                // A sentinel: a refused import answers with the editor's own reply payload, and without
+                // one it would consume the next edit's -- misattributing every reply after it.
+                // An import is answered by an edit reply whatever happens -- `handleTableImport` replies
+                // on success and on refusal -- so its marker is consumed by the reply loop, like an op's.
+                ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                ArmatureNetwork.sendToServer(
+                        new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, false));
+            }
+            case TABLE_IMPORT_CHEST -> {
+                tableImportOpen = false;
+                ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                ArmatureNetwork.sendToServer(
+                        new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, true));
+            }
+            case TABLE_ROLL -> {
+                // One button, two meanings, and the label says which: over the entries it rolls, over the
+                // roll it goes back. The roll's own state is what decides, so the two can never disagree.
+                if (tableShowRoll) {
+                    tableShowRoll = false;
+                    tableImportOpen = false;
+                    rollScroll = 0;
+                    return;
+                }
+                rollScroll = 0;
+                tableShowRoll = true;
+                ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                // The reading the author has selected travels as it stands. It used to travel as a
+                // derived `includeEmpty` flag, which the server turned back into one of two modes --
+                // so "All once" and "Choice" came back as weighted rolls of a table whose own panel
+                // said every entry is granted. See TableRollRequestPayload.
+                ArmatureNetwork.sendToServer(new dev.ellipog.tasked.net.TableRollRequestPayload(
+                        tableAddress, TABLE_ROLL_COUNT, tablePreview));
+            }
+            case TABLE_UNDO -> tableUndo();
+            case TABLE_OPEN_CHILD -> {
+                var model = tableModel();
+                if (model.isPresent() && index >= 0 && index < model.get().entryCount()
+                        && model.get().entries().get(index).reward()
+                                instanceof dev.ellipog.tasked.quest.reward.TableReward nested
+                        && nested.tableId().isPresent()) {
+                    pushTableEditor(dev.ellipog.tasked.editor.TableAddress.of(nested.tableId().get()));
+                }
+            }
+            case TABLE_ADD_REWARD -> openTypePicker("rewards");
+            default -> {
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // A folded entry's own fields
+    // ------------------------------------------------------------------
+
+    /** The file path of one field of one entry's reward: {@code entries.2.reward.amount}. */
+    private static String tableEntryPath(int index, String field) {
+        String prefix = "entries." + index + ".reward";
+        return field == null || field.isEmpty() ? prefix : prefix + "." + field;
+    }
+
+    /**
+     * One entry's reward as JSON, with this panel's pending values applied.
+     *
+     * <p>Through the draft, like every other read in this panel: the fold's controls show what the author
+     * has just set, and a box drawn from the replica while the box beside it drew from the draft is two
+     * answers about one entry — which is what the fold did before this, for the item id and its count.
+     */
+    private JsonObject draftedEntry(int index) {
+        return entryAt(tableDraftedRoot(), index);
+    }
+
+    /** One entry of a table's tree by position, or null. */
+    private static JsonObject entryAt(JsonObject root, int index) {
+        if (root == null || !root.has("entries") || !root.get("entries").isJsonArray()) {
+            return null;
+        }
+        var entries = root.getAsJsonArray("entries");
+        if (index < 0 || index >= entries.size() || !entries.get(index).isJsonObject()) {
+            return null;
+        }
+        return entries.get(index).getAsJsonObject();
+    }
+
+    /** One field of one entry as text, for seeding a box: the drafted value, or empty. */
+    private String tableFieldText(int index, String field) {
+        JsonObject entry = draftedEntry(index);
+        return entry == null ? "" : rawValue(entry, "reward." + field);
+    }
+
+    /** One entry's whole reward as compact JSON, for the raw row. */
+    private String entryRewardText(int index) {
+        JsonObject entry = draftedEntry(index);
+        JsonObject reward = entry == null ? null : rawObject(entry, "reward");
+        return reward == null ? "{}" : reward.toString();
+    }
+
+    /**
+     * Opens the inline editor on a field of a table, with the kind its text commits as.
+     *
+     * <p>One way in, so the box a fold opens and the box the weight's own press opens are the same box
+     * with the same commit — the only difference being what the text becomes, which is the kind.
+     */
+    private void openTableFieldEditor(int index, String field,
+                                      dev.ellipog.tasked.client.dev.TableRowFields.Kind kind,
+                                      String shown, BookGeometry.Rect box, int textX, int textY,
+                                      double mouseX, double mouseY) {
+        if (tableAddress == null) {
+            return;
+        }
+        String path = tableEntryPath(index, field);
+        // The commit goes to the TABLE: the inline editor's own commit path writes a quest field, and a
+        // path like `entries.1.reward.amount` written into a quest file is a stray member in the wrong
+        // file. `tableEdit` is what says which file this box belongs to.
+        tableEdit = new TableEdit(path, kind);
+        openInlineEditor(new EditTarget(EditAction.FIELD, path, box, textX, textY, shown, null, index),
+                mouseX, mouseY);
+    }
+
+    /** A switch inside a fold: the field negated. */
+    private void toggleTableFlag(int index, String field) {
+        if (tableAddress == null || field.isEmpty()) {
+            return;
+        }
+        JsonObject entry = draftedEntry(index);
+        boolean on = entry != null && flagOn(entry, "reward." + field);
+        sendTableValue(tableEntryPath(index, field), new com.google.gson.JsonPrimitive(!on));
+    }
+
+    /**
+     * The {@code auto} chip: the next word in its ring, wrapping.
+     *
+     * <p>The ring is {@code TableRowFields.AUTO_VALUES} and it starts at {@code default}, which is the
+     * absent value — so a press on a reward that declares nothing moves it to {@code disabled} rather
+     * than to a word nothing understands.
+     */
+    private void cycleTableChoice(int index, String field) {
+        if (tableAddress == null || field.isEmpty()) {
+            return;
+        }
+        JsonObject entry = draftedEntry(index);
+        String current = entry == null ? "" : rawValue(entry, "reward." + field);
+        var ring = dev.ellipog.tasked.client.dev.TableRowFields.AUTO_VALUES;
+        int at = ring.indexOf(current);
+        String next = ring.get((at + 1) % ring.size());
+        sendTableValue(tableEntryPath(index, field), new com.google.gson.JsonPrimitive(next));
+    }
+
+    /** A stepper inside a fold: one entry's numeric field, nudged. Shift moves ten. */
+    private void nudgeTableNumber(int index, String field, int direction) {
+        if (tableAddress == null || field.isEmpty()) {
+            return;
+        }
+        JsonObject entry = draftedEntry(index);
+        String current = entry == null ? "" : rawValue(entry, "reward." + field);
+        int value;
+        try {
+            value = current.isEmpty() ? 0 : (int) Double.parseDouble(current);
+        }
+        catch (NumberFormatException notANumber) {
+            // A field holding something that is not a number: a press moves it to where the stepper
+            // would have started, which is more use than refusing and leaving it stuck.
+            value = 0;
+        }
+        int step = Screen.hasShiftDown() ? 10 : 1;
+        // Zero is the floor for every numeric field a fold has: a count of zero is a legal count, and a
+        // permission level of zero is how the format spells "no permission". What it is not is a second
+        // clamp of its own per field -- that would be a rule about the format living in a press handler.
+        int next = Math.max(0, value + direction * step);
+        sendTableValue(tableEntryPath(index, field), new com.google.gson.JsonPrimitive(next));
+    }
+
+    /**
+     * The folds as they stand, with each open entry's line count read from its own type.
+     *
+     * <p>Built once per frame beside the odds and the weight total, because it walks the entries: the
+     * drawing, the wheel and the drop all ask for the same value, and three walks of one list is three
+     * answers waiting to disagree.
+     */
+    private dev.ellipog.tasked.client.dev.TableEditorLayout.Folds tableFolds() {
+        return dev.ellipog.tasked.client.dev.TableEditorLayout.Folds.of(tableFolded,
+                this::tableFoldLines);
+    }
+
+    /** How many lines one entry's fold draws: its type's own fields, packed. Zero when it is not open. */
+    private int tableFoldLines(int index) {
+        var model = tableModel();
+        if (model.isEmpty() || index < 0 || index >= model.get().entryCount()) {
+            return 0;
+        }
+        return dev.ellipog.tasked.client.dev.TableRowFields
+                .lineCount(model.get().entries().get(index).reward());
+    }
+
+    /**
+     * Moves the fold state down over a removed entry, and drops the fold that was at the hole.
+     *
+     * <p>Folds are keyed by position, so removing entry 1 without this leaves entry 2's fold open — and
+     * entry 2 is now entry 1, so its fields are drawn under the wrong entry's name and the next press on
+     * that fold edits a row the author did not open.
+     */
+    private void forgetFoldAfterRemove(int removed) {
+        java.util.Set<Integer> moved = new java.util.LinkedHashSet<>();
+        for (int at : tableFolded) {
+            if (at < removed) {
+                moved.add(at);
+            }
+            else if (at > removed) {
+                moved.add(at - 1);
+            }
+            // The fold at the removed position is dropped: it belonged to the entry that is gone.
+        }
+        tableFolded.clear();
+        tableFolded.addAll(moved);
+    }
+
+    /**
+     * Drops the folds that name a row that is no longer there.
+     *
+     * <p>An undo, another player's edit or a reload all move the list under a set of indices, and a fold
+     * left pointing past the end is a fold whose lines are drawn nowhere while its presence still
+     * inflates the scroll extent — a list with a gap at the bottom and no row to explain it.
+     */
+    private void reconcileFolds() {
+        int entries = tableModel().map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+        tableFolded.removeIf(at -> at < 0 || at >= entries);
+    }
+
+    /**
+     * Opens the book's item picker, with the pick aimed at the table editor.
+     *
+     * <p>The picker is the book's own: the same list, the same search, the same carried stacks with
+     * their data. Only the commit differs -- see {@link #commitTablePick} -- and only the return: it
+     * closes back into the editor rather than into the card behind it.
+     *
+     * @param title what this pick is for, in the author's words. The card's title came from
+     *              {@code PickTarget}, whose three sentences are all about a chapter's, a group's or the
+     *              book's icon — so a table pick, which sets no target of its own, claimed to be choosing
+     *              a chapter's icon. What a pick is for is the caller's to say; the field it writes is
+     *              the other half, and it already came from the caller.
+     */
+    private void openTableItemPick(String path, int entryIndex, String title) {
+        if (tableAddress == null) {
+            return;
+        }
+        // The standalone picker overlay rather than the card's page of it: the card is not what is open
+        // here, and a page of a panel that is not on screen is a page nobody can see.
+        tablePickPath = path == null ? "" : path;
+        tablePickReturn = true;
+        forgetPickSubject();
+        pickTarget = PickTarget.QUEST;
+        pickTitle = title;
+        // The subject line names the table, and the icon shows what is being replaced — the table's own
+        // icon, or the item the picked one will replace. The card's picker has said both since it was
+        // written; this page said neither, so it was a list of the whole item registry with no statement
+        // of which table or which field it was for.
+        pickName = tableTitle();
+        pickIcon = tablePickSubjectFor(tablePickPath, entryIndex);
+        pickingItemPath = path == null || path.isEmpty() ? "entries.new" : path;
+        pickingItemCurrent = "";
+        pickingItemClearPath = null;
+        pickerSource = null;
+        pickerFrame = null;
+        itemSearch = null;
+        pickerSelected = -1;
+        pickerScroll = 0;
+        openPickerOverlay();
+    }
+
+    /** The icon a table pick's card shows: the table's own, or the entry's item. */
+    private ItemStack tablePickSubjectFor(String path, int entryIndex) {
+        var model = tableModel();
+        if (model.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        if (path != null && path.startsWith("icon")) {
+            return model.get().displayIcon().toStack();
+        }
+        if (entryIndex >= 0 && entryIndex < model.get().entryCount()
+                && model.get().entries().get(entryIndex).reward()
+                        instanceof dev.ellipog.tasked.quest.reward.ItemReward item) {
+            return item.item().toStack();
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /** Leaves the picker a table opened: back to the editor, with the pick forgotten. */
+    private void closeTablePick() {
+        tablePickPath = null;
+        closeItemPicker();
+        if (tableAddress != null) {
+            overlay = Overlay.TABLE_EDITOR;
+        }
+        rebuildWidgets();
+    }
+
+    /** The picker's commit when the pick belongs to a table: an entry, an item field, or the icon. */
+    private void commitTablePick(String id, String data, int count) {
+        String path = tablePickPath;
+        tablePickPath = null;
+        if (tableAddress == null || path == null) {
+            rebuildWidgets();
+            return;
+        }
+        if (id == null) {
+            status("tasked.status.that_field_cannot_be_cleared", true);
+            rebuildWidgets();
+            return;
+        }
+        JsonElement components = data == null || data.isEmpty()
+                ? null : com.google.gson.JsonParser.parseString(data);
+        if (path.isEmpty()) {
+            // A new entry, from the stack that was picked: an item reward, which is what "add this item
+            // to the table" means before the author tunes it. The shape comes from the one factory rather
+            // than being built here -- this hand-built copy was right while the type picker's was wrong --
+            // and the count goes in with it, because the picker was showing it: picking a carried stack of
+            // 128 iron wrote one iron, while dragging the same stack wrote 128.
+            var model = tableModel();
+            int at = model.map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+            tableDraft.forgetList(effectiveChapter(), tableOwnerKey(), "entries");
+            sendTableOp(new dev.ellipog.tasked.editor.TableOp.Insert(tableAddress, at,
+                    QuestPanelLayout.itemEntry(id, count, components)));
+            status("Added " + (count > 1 ? count + "x " : "") + id, false);
+        }
+        else {
+            // An item field: the id and its data as one edit, the same rule the card's item fields have
+            // -- two ops would be two saves, and a save between them is an item with the old data.
+            JsonObject fields = new JsonObject();
+            fields.addProperty(path, id);
+            int dot = path.lastIndexOf('.');
+            String sibling = (dot < 0 ? "" : path.substring(0, dot + 1)) + "components";
+            if (components == null) {
+                fields.add(sibling, com.google.gson.JsonNull.INSTANCE);
+            }
+            else {
+                fields.add(sibling, components);
+            }
+            sendTableOp(new dev.ellipog.tasked.editor.TableOp.SetFields(tableAddress, fields));
+            status("Set to " + id, false);
+        }
+        closeTablePick();
+    }
+
+    /** Ctrl+Z in the editor: the frame's own history, and never past the table it opened on. */
+    private void tableUndo() {
+        if (tableAddress == null || tableApplied <= 0) {
+            status("Nothing to undo in this table", true);
+            return;
+        }
+        // The drafts go first: the server is about to put the file back, and a pending value still
+        // holding what was undone would keep drawing it -- a Ctrl+Z that looks like it did nothing.
+        tableDraft.forgetOwner(effectiveChapter(), tableOwnerKey());
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Undo(tableAddress));
+    }
+
+    private void tableRedo() {
+        if (tableAddress == null || tableUndone <= 0) {
+            status("Nothing to redo in this table", true);
+            return;
+        }
+        tableDraft.forgetOwner(effectiveChapter(), tableOwnerKey());
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Redo(tableAddress));
+    }
+
+    // ------------------------------------------------------------------
+    // Dropping an item in from a recipe viewer
+    // ------------------------------------------------------------------
+
+    /**
+     * Where a dragged stack may land: the table editor's entry list, and nothing else.
+     *
+     * <p>Null whenever the book is showing something that is not that list — which is most of the time,
+     * and is the honest answer: a viewer that highlighted the card while a chapter was open would be
+     * offering a drop the screen is about to refuse.
+     */
+    @Override
+    public net.minecraft.client.renderer.Rect2i dropArea() {
+        if (overlay != Overlay.TABLE_EDITOR || tableAddress == null || tableEditorFrame == null
+                || tableShowRoll || pickingEntryType != null) {
+            return null;
+        }
+        BookGeometry.Rect list = tableEditorFrame.list();
+        return new net.minecraft.client.renderer.Rect2i(list.x(), list.y(), list.width(), list.height());
+    }
+
+    /**
+     * Takes a stack dropped on the entry list: one entry, at the row under the pointer.
+     *
+     * <p>The coordinates are what makes a drop land where it was aimed; a viewer that cannot report them
+     * sends {@code NaN}, which {@code dropIndexAt} reads as the end of the list. The entry is an item
+     * reward carrying the stack's count and its data — a dragged enchanted sword is that sword, the same
+     * rule the item picker follows.
+     */
+    @Override
+    public boolean acceptDrop(double mouseX, double mouseY, ItemStack stack) {
+        if (dropArea() == null || stack == null || stack.isEmpty()) {
+            return false;
+        }
+        int entries = tableModel().map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+        int at = Double.isNaN(mouseX) || Double.isNaN(mouseY)
+                ? entries
+                : dev.ellipog.tasked.client.dev.TableEditorLayout.dropIndexAt(entries, tableEditorFrame,
+                        tableScroll, mouseX, mouseY, tableFolds());
+        if (at < 0) {
+            return false;
+        }
+        String id = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        com.google.gson.JsonElement components = null;
+        if (!stack.getComponentsPatch().isEmpty()) {
+            components = net.minecraft.core.component.DataComponentPatch.CODEC
+                    .encodeStart(com.mojang.serialization.JsonOps.INSTANCE, stack.getComponentsPatch())
+                    .result()
+                    .orElse(null);
+        }
+        // The same factory the item picker commits through, and with the same count rule: a drop and a
+        // pick of one stack are one entry, and the count is the stack's either way.
+        JsonObject entry = QuestPanelLayout.itemEntry(id, stack.getCount(), components);
+        tableDraft.forgetList(effectiveChapter(), tableOwnerKey(), "entries");
+        sendTableOp(new dev.ellipog.tasked.editor.TableOp.Insert(tableAddress, at, entry));
+        status("Added " + (stack.getCount() > 1 ? stack.getCount() + "x " : "") + id, false);
+        return true;
+    }
+
+    /** A number without a trailing {@code .0}, for a panel. */
+    private static String trimNumber(double value) {
+        return value == Math.floor(value) && !Double.isInfinite(value)
+                ? String.valueOf((long) value) : String.valueOf(value);
+    }
+
+    /** The weight the table's entries add up to, for the header. */
+    private static double totalWeight(JsonObject root) {
+        double total = 0;
+        if (root == null || !root.has("entries") || !root.get("entries").isJsonArray()) {
+            return 0;
+        }
+        for (JsonElement element : root.getAsJsonArray("entries")) {
+            if (element.isJsonObject()) {
+                JsonElement weight = element.getAsJsonObject().get("weight");
+                if (weight != null && weight.isJsonPrimitive() && weight.getAsJsonPrimitive().isNumber()) {
+                    total += weight.getAsDouble();
+                }
+            }
+        }
+        return total;
+    }
+
+    /** What to call a table in the breadcrumb, without decoding it. */
+    private String tableNameOf(dev.ellipog.tasked.editor.TableAddress address) {
+        return switch (address.owner()) {
+            case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
+                ClientQuestCache.TableSummary summary = ClientQuestCache.table(named.id());
+                yield summary == null ? named.id() : summary.title();
+            }
+            case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> "inline table";
+        };
+    }
+
+    /**
+     * Forgets every picker that could be armed.
+     *
+     * <h2>One place, because the rule was enforced in one of two</h2>
+     *
+     * <p>{@code closeOverlay} cleared the type and condition pickers; {@code closeTablePanel} cleared
+     * neither. So pressing Done — or Escape — on the table editor's type picker closed the panel and left
+     * the picker armed, and the quest card that appeared behind it drew a list of reward types over
+     * itself. The card's own comment already stated the rule ("a picker left armed would greet the next
+     * quest with a list of types"); it was simply written where only one of the two exits could see it.
+     *
+     * <p>Adding a picker kind means adding it here, and this is the only place that has to know.
+     */
+    /**
+     * Forgets what the picker card is about: its target, its title, its icon and its subject line.
+     *
+     * <p>The four are one thing — what the card says it is for — and three callers each set them, which
+     * is how a stale one gets drawn: a table pick set no target of its own, fell back to the target's own
+     * sentence, and told the author it was choosing a chapter's icon. One reset, called by every picker
+     * that arms, so the next field added to the subject cannot be forgotten by two of the three.
+     */
+    private void forgetPickSubject() {
+        pickTarget = null;
+        pickTitle = "";
+        pickIcon = ItemStack.EMPTY;
+        pickName = "";
+    }
+
+    private void clearPickers() {
+        pickingEntryType = null;
+        pickingConditionFor = null;
+        tablePickPath = null;
+        // Cleared before the item picker closes, because that is what tells it *not* to hand the overlay
+        // back to the table editor: this is a exit, not a return.
+        tablePickReturn = false;
+        closeItemPicker();
+    }
+
     private void closeOverlay() {
         overlay = Overlay.NONE;
         overlayQuest = null;
@@ -12081,12 +15936,15 @@ public final class QuestBookScreen extends ArmatureScreen {
         // nothing there.
         entryFolded.clear();
         // The editor's transient state goes with the card: a picker left armed would greet the next
-        // quest with a list of types, and a Delete left confirmed would delete on one press.
-        pickingEntryType = null;
-        // And the condition picker's, which names an entry of the quest being closed for the same reason.
-        pickingConditionFor = null;
-        // And the item picker's, for the same reason: its path names a field of the quest being closed.
-        closeItemPicker();
+        // quest with a list of types, and a Delete left confirmed would delete on one press. One call,
+        // so every picker kind is forgotten by every exit rather than by whichever ones were remembered.
+        clearPickers();
+        // And the table panels', which name a table and a reward the closed card was showing.
+        closeTablePanel();
+        // The Assets panel's pressable list, which belongs to the frame that drew it: a list left behind
+        // would answer a press on a row that is no longer on screen.
+        assetsTargets.clear();
+        assetsScroll = 0;
         confirmingDelete = false;
         settingsOpen = false;
         draggingSlider = null;
@@ -12289,6 +16147,8 @@ public final class QuestBookScreen extends ArmatureScreen {
      */
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        renderMouseX = mouseX;
+        renderMouseY = mouseY;
         // The one forced signature in this class for drawing, and the whole of the seam at this call
         // site: a GuiGraphics arrives because Minecraft's Screen hands over one and there is no other
         // override, so it is wrapped and handed on. Nothing below this line names the type.
@@ -12395,13 +16255,22 @@ public final class QuestBookScreen extends ArmatureScreen {
                         cluster.height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
             }
 
+            // And the author's pill's mat, the cluster's own rule mirrored on the far side. Guarded on the
+            // field rather than on `mayEdit` because that is what is actually drawn: the pill is a widget
+            // and the widget pass below paints it, so the mat appears exactly when it does.
+            if (editPill != null) {
+                BookGeometry.Rect pills = geometry().pillMat();
+                ArmatureTheme.panel(renderer, pills.x(), pills.y(), pills.width(), pills.height(),
+                        ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+            }
+
             // And the author's pills' mat, the cluster's own rule mirrored on the far side. Its height
             // follows whether the Tools pill is showing, so a lone Edit pill is not backed by a strip
             // sized for a neighbour that is not there. Guarded on the field rather than on `mayEdit`
             // because that is what is actually drawn: the pills are widgets and the widget pass below
             // paints them, so the mat appears exactly when they do.
             if (editPill != null) {
-                BookGeometry.Rect pills = geometry().pillMat(toolsPill != null);
+                BookGeometry.Rect pills = geometry().pillMat();
                 ArmatureTheme.panel(renderer, pills.x(), pills.y(), pills.width(), pills.height(),
                         ArmatureTheme.panel(), ArmatureTheme.panelEdge());
             }
@@ -12577,6 +16446,29 @@ public final class QuestBookScreen extends ArmatureScreen {
                             redraw.accept(renderer);
                         }
                         drawOpenEditor(renderer);
+                    }
+                }
+                finally {
+                    pose.popPose();
+                }
+            }
+
+            // The colour picker, above the book and any card, below the tooltips. Its own fields were
+            // drawn by the widget pass underneath, so they are redrawn here on top of its surface -- the
+            // same arrangement `modalRedraws` uses for a card's controls.
+            if (colourPopover.isOpen()) {
+                pose.pushPose();
+                pose.translate(0F, 0F, MODAL_Z - CHROME_Z);
+                try {
+                    colourPopover.render(renderer, mouseX, mouseY);
+                    for (net.minecraft.client.gui.components.AbstractWidget widget
+                            : colourPopover.widgets()) {
+                        if (widget instanceof dev.ellipog.tasked.client.dev.ScrubField field) {
+                            field.render(renderer, mouseX, mouseY);
+                        }
+                        else if (widget instanceof dev.ellipog.armature.client.ArmatureTextField text) {
+                            text.render(renderer);
+                        }
                     }
                 }
                 finally {
@@ -13055,29 +16947,22 @@ public final class QuestBookScreen extends ArmatureScreen {
                 && !java.util.Objects.equals(popoverChapter, effectiveChapter())) {
             closeColourPopover();
         }
+        // A picker belongs to the chapter it was opened for: switching chapters under it would aim its
+        // commit at the wrong file, so it closes here rather than at each of the three switch paths.
+        if (colourPopover.isOpen()
+                && !java.util.Objects.equals(popoverChapter, effectiveChapter())) {
+            closeColourPopover();
+        }
         if (toolsTab == ToolsLayout.Tab.CHAPTER) {
             if (chapterLayout == null) {
                 return;
             }
-            // The panel's own surface and status line, drawn by the same method the book tab uses; a
-            // reader with nothing to report gets the edit-mode hint in the band it leaves empty.
-            ToolsPanel.State state = new ToolsPanel.State(toolsSelected, toolsFeedback,
-                    toolsFeedbackIsError, toolsSelected != null, editedTheme(), editedRadius(),
-                    editedRadiusChosen(), editedBackground(), editedBackgroundChosen(),
-                    Colour.alpha(editedTheme().colour("canvasPattern")));
+            // The panel's own surface, drawn by the same method the book tab uses.
+            ToolsPanel.State state = new ToolsPanel.State(editedTheme(), editedBackground());
             ToolsPanel.drawChrome(r, toolsFrame, state);
-            if ((toolsFeedback == null || toolsFeedback.isEmpty()) && !mayEditNow()) {
-                r.text(Measure.truncate(Labels.of(ChapterPanelLayout.EDIT_MODE_HINT),
-                                toolsFrame.feedback().width(),
-                                Measure.of(r::textWidth, r.lineHeight())),
-                        toolsFrame.feedback().x(), toolsFrame.feedback().y(), ArmatureTheme.faint());
-            }
-            // The chapter's identity under the title: it names the file the appearance and the fields
-            // below are about, and it is where the icon is seen as an item rather than as the id the
-            // row's button carries.
-            ChapterPanel.drawHeader(r, toolsFrame.header(),
-                    ToolsLayout.chapterHeader(toolsFrame.header()), chapterHeader, chapterIcon,
-                    chapterIconId);
+            // The chapter's own rows, identity first: the band that used to stand here was a second,
+            // unclickable copy of the identity rows below it, and it is gone -- the icon, title and
+            // subtitle are edited in the fold at the top of this list.
             QuestPanel.drawRows(r, toolsFrame.list(), toolsView.viewport(), chapterLayout, chapterRows,
                     mouseX, mouseY, InspectLayout.Mode.STACKED);
             if (toolsAppearanceVisible()) {
@@ -13124,11 +17009,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 return;
             }
             ToolsPanel.draw(r, toolsFrame, toolsView.viewport(), toolsLayout, toolsRows,
-                    new ToolsPanel.State(toolsSelected, toolsFeedback, toolsFeedbackIsError,
-                            toolsSelected != null, editedTheme(), editedRadius(), editedRadiusChosen(),
-                            editedBackground(), editedBackgroundChosen(),
-                            Colour.alpha(editedTheme().colour("canvasPattern"))),
-                    mouseX, mouseY, ToolsLayout.Tab.BOOK);
+                    new ToolsPanel.State(editedTheme(), editedBackground()), mouseX, mouseY);
         }
         // The row under the pointer, collected here and painted in the tooltip band after the panel:
         // the list's own clip would cut a box that reaches past the row's edge, which is the contract
@@ -13144,6 +17025,28 @@ public final class QuestBookScreen extends ArmatureScreen {
             rowTooltips.add(new RowTooltip(
                     ToolsLayout.onScreen(toolsView.viewport(), activeLayout().slot(hovered.key())),
                     List.of(Labels.of(hovered.help()))));
+        }
+        // The chapter's own rows -- identity, the rules, the group -- are InspectRows rather than tools
+        // actions, so they are asked separately: same band, same drawing, one more source of a hovered
+        // row. Clipped to the list, because a row scrolled out of it still has a slot somewhere on
+        // screen and its tooltip would otherwise appear over the tab strip or the actions row.
+        if (toolsTab == ToolsLayout.Tab.CHAPTER && chapterLayout != null
+                && toolsFrame.list().contains(mouseX, mouseY)) {
+            for (InspectRow row : chapterRows) {
+                String help = ChapterPanelLayout.help(row.key());
+                if (help == null) {
+                    continue;
+                }
+                Slot slot = chapterLayout.slot(row.key());
+                if (slot == null) {
+                    continue;
+                }
+                Slot box = InspectLayout.onScreen(toolsView.viewport(), slot);
+                if (box.contains((int) mouseX, (int) mouseY)) {
+                    rowTooltips.add(new RowTooltip(box, List.of(Labels.of(help))));
+                    break;
+                }
+            }
         }
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
         // call the sidebar and the party panel make. It was missing entirely, which left a list that
@@ -13204,6 +17107,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         // no faster than its retry window -- so a refusal or an empty answer is retried rather than
         // leaving the panel stuck, without turning a broken chapter into a request flood.
         if (mayEditNow() && ClientChapterReplica.claim(effectiveChapter(), revision, Util.getMillis())) {
+            ClientEditReplies.noteSent(REPLICA_SENTINEL);
             TaskedNetworking.requestReplica(effectiveChapter());
         }
 
@@ -13564,31 +17468,6 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (quests.isEmpty()) {
             r.text("No quests in this chapter", canvasLeft() + 10, canvasTop() + 10,
                     ArmatureTheme.faint());
-        }
-
-        // A hint, only until the player has zoomed. Then it would be clutter on a canvas they
-        // demonstrably already know how to drive.
-        //
-        // In the canvas's top-right corner, and not the bottom-left. The bottom-left was where the
-        // strip's own text lives, so the two were drawn on top of each other: the hint at y=917 and the
-        // strip's first line at y=928, eleven pixels apart, which in the screenshot is a line of text
-        // with another line of text through it. The top-right is empty — the view cluster is
-        // top-*left*, and the header's quest count is a surface above this one.
-        //
-        // Behind a LABEL_BACKDROP, which is that colour's entire purpose: text drawn over a canvas that
-        // may have a node underneath it. It composites to exactly the canvas colour, so it is invisible
-        // except by what it prevents.
-        if (Math.abs(viewport().scale() - 1.0F) < 0.001F) {
-            String hint = "scroll to zoom  \u00b7  drag to pan  \u00b7  click a quest";
-            int hintX = visibleCanvasRight() - 8 - r.textWidth(hint);
-            int hintY = canvasTop() + 8;
-            // Only when it clears the cluster. On a small window these two would meet, and a hint
-            // overlapping the buttons it is describing is worse than no hint at all.
-            if (hintX > viewControls().right() + 6) {
-                r.fill(hintX - 3, hintY - 2, visibleCanvasRight() - 5, hintY + 10,
-                        ArmatureTheme.labelBackdrop());
-                r.text(hint, hintX, hintY, ArmatureTheme.faint());
-            }
         }
 
         return hovered;
@@ -14222,6 +18101,14 @@ public final class QuestBookScreen extends ArmatureScreen {
      * book is inert" is now drawn just above the book, at the bottom of the raised band.
      */
     private void drawModal(GuiRenderer r, int mouseX, int mouseY, long now) {
+        // Every pressable piece this frame will draw is registered here and read by the click, so the
+        // list starts empty each frame. It used to be cleared by the quest card's editor alone, which
+        // was invisible while the card was the only thing that registered targets -- and became two
+        // compounding bugs when the table panels arrived: their targets accumulated for as long as a
+        // panel stayed open, and both press handlers scan the list from the front, so the oldest stale
+        // box won the click. A press was swallowed, or after a scroll it acted on the row that used to
+        // be under the pointer.
+        editTargets.clear();
         if (overlay == Overlay.PARTY) {
             drawPartyOverlay(r, mouseX, mouseY, now);
         }
@@ -14239,6 +18126,7 @@ public final class QuestBookScreen extends ArmatureScreen {
             // panel's: it is about the item registry rather than about the chapter it was opened from.
             drawPickerOverlay(r, mouseX, mouseY);
         }
+        // (the table panels clear the targets at the top of their own draws -- see `drawTableBrowser`)
         else if (overlay == Overlay.TEXTURE) {
             // The same: a list of the client's own files is chrome rather than a chapter's content, so
             // it is drawn outside every chapter scope, exactly as the item picker's card is.
@@ -14254,6 +18142,19 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         else if (overlay == Overlay.NAMING) {
             drawNamingOverlay(r);
+        }
+        else if (overlay == Overlay.TABLE_BROWSER) {
+            // A list of the pack's tables is chrome, like the item picker's list of the registry's
+            // items: it is about the pack rather than about the chapter behind it.
+            drawTableBrowser(r, mouseX, mouseY);
+        }
+        else if (overlay == Overlay.TABLE_EDITOR) {
+            drawTableEditor(r, mouseX, mouseY);
+        }
+        else if (overlay == Overlay.ASSETS) {
+            // The pack, which is chrome: it belongs to the book rather than to any chapter, so it is drawn
+            // outside the chapter's theme scope -- see `chapterBoundOverlay`, which does not name it.
+            drawAssets(r, mouseX, mouseY);
         }
         else if (overlay == Overlay.SETTINGS) {
             // A player's own card: chrome, like the rewards panel's, not a chapter's content.
@@ -14278,25 +18179,92 @@ public final class QuestBookScreen extends ArmatureScreen {
         // rebuilds again after it, because the overlay it left is `NONE` and this one is not.
         closeOverlay();
         overlay = Overlay.CHOICE;
+        // A fresh question: no pick in flight, and no refusal left over from the last one.
+        choicePending = false;
+        choiceError = null;
+        pressedChoiceEntry = -1;
         choiceView.scrollTo(0);
         rebuildWidgets();
     }
 
     /**
-     * Leaves the choice card: answered, or dismissed unanswered.
+     * Leaves the choice card: Escape, the outside of the card, or the connection going away.
      *
-     * <p>Both are one call, because both do the one thing: forget the offer and close. Dismissing is
-     * safe by design -- {@link ChoiceRewardPayload} is only an offer, and the reward is not marked
-     * claimed until an answer arrives -- so the same question comes back the next time Claim is
-     * pressed. That is what makes Escape a way out rather than a way to lose the reward.
+     * <p>The whole walk ends -- every queued offer goes, not just the one on screen. Dismissing is safe
+     * by design: {@link ChoiceRewardPayload} is only an offer, and a reward is not marked claimed until
+     * an answer arrives, so the same question comes back the next time its Choose is pressed. That is
+     * what makes Escape a way out rather than a way to lose a reward.
+     *
+     * <p>Keeping one for later is a different thing and does not come through here: see
+     * {@link #skipChoice}.
      */
     private void closeChoice() {
         ClientChoiceOffers.clear();
+        choicePending = false;
+        choiceError = null;
         overlay = Overlay.NONE;
         rebuildWidgets();
     }
 
-    /** The card's controls: one row per entry, and the footer's Keep-it-for-later. */
+    /**
+     * Keeps the current choice for later: it leaves the walk, and the next queued offer comes up.
+     *
+     * <p>Not a rotation to the back of the queue — a player who says "not now" has said they do not
+     * want to decide during this session, and a queue that came back around to the same question would
+     * be a modal loop. The reward stays outstanding in the inbox with its Choose button, so nothing is
+     * lost and nothing is asked twice.
+     */
+    private void skipChoice() {
+        if (choicePending) {
+            // The pick is in flight; answering it and skipping it at once would be two answers to one
+            // question. The button is drawn disabled while pending; this is the second guard.
+            return;
+        }
+        ClientChoiceOffers.pop();
+        choiceError = null;
+        overlay = Overlay.NONE;
+        rebuildWidgets();
+    }
+
+    /**
+     * The server's verdict on the pick that was in flight.
+     *
+     * <p>Matched against the offer on screen by quest and reward index. A verdict for anything else is
+     * dropped rather than acted on: Escape during the round trip clears the queue, and popping then
+     * would pop whatever slid into the slot -- a different question's offer.
+     */
+    void notifyChoiceResult(String questId, int rewardIndex, ClaimChoiceResultPayload.Result result) {
+        ClientChoiceOffers.Offer offer = ClientChoiceOffers.current();
+        if (offer == null || !offer.questId().equals(questId) || offer.rewardIndex() != rewardIndex) {
+            return;
+        }
+        choicePending = false;
+        if (result == ClaimChoiceResultPayload.Result.OK) {
+            // Granted: this offer leaves the walk, and the next one (if any) opens on the next tick.
+            ClientChoiceOffers.pop();
+            choiceError = null;
+            overlay = Overlay.NONE;
+            rebuildWidgets();
+            return;
+        }
+        // Refused. The card stays open with the player's question still on it: the pick is not
+        // discarded and the queue does not advance.
+        String entry = pressedChoiceEntry >= 0 && pressedChoiceEntry < offer.entries().size()
+                ? choiceLabel(offer.entries().get(pressedChoiceEntry))
+                : "";
+        choiceError = Component.translatable(result == ClaimChoiceResultPayload.Result.NO_SPACE
+                ? "tasked.screen.choice.no_space" : "tasked.screen.choice.refused", entry).getString();
+        rebuildWidgets();
+    }
+
+    /**
+     * The card's rows: one per entry, laid out but <b>drawn</b> by this screen.
+     *
+     * <p>They used to be widget buttons — and the icons they were given never appeared, while their
+     * labels did, so the one card whose whole job is "pick one of these" listed its rewards as bare
+     * words. The rewards inbox draws its rows itself, icons and all, and that is what this does now:
+     * one drawing path, one hit test, and the item's own sprite where the player can see it.
+     */
     private void buildChoiceWidgets() {
         choiceRows = List.of();
         choiceLayout = null;
@@ -14316,48 +18284,46 @@ public final class QuestBookScreen extends ArmatureScreen {
         choiceView.whole(true);
         choiceView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
                 body.viewHeight());
-        for (int i = 0; i < choiceRows.size(); i++) {
-            InspectRow row = choiceRows.get(i);
-            ChoiceRewardPayload.Entry entry = offer.entries().get(i);
-            ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
-                    () -> pressChoiceRow(row.key()));
-            button.alignLeft(true).flat(true);
-            ItemStack icon = itemStack(entry.item());
-            if (!icon.isEmpty()) {
-                button.icon(icon);
-            }
-            // The id on hover, because a table entry is otherwise only as identifiable as its label --
-            // and a label an author wrote can be as vague as "a surprise".
-            if (!entry.item().isEmpty()) {
-                button.tooltip(Component.literal(entry.item()));
-            }
-            choiceView.put(row.key(), button);
-        }
         choiceView.apply(choiceLayout, body.viewWidth());
 
         // The footer's one control, on the rectangle every card's footer uses. Dismissing is not a
         // refusal -- see `closeChoice` -- and saying so is the whole point of labelling it rather than
         // leaving Escape as the only way out.
         ArmatureButton later = control(geometry().overlayControls(false).get("back"),
-                Component.translatable("tasked.screen.keep_for_later"), this::closeChoice);
+                Component.translatable("tasked.screen.keep_for_later"), this::skipChoice);
         if (later != null) {
             later.ink(ArmatureButton.Ink.BODY)
                     .tooltip(Component.translatable("tasked.screen.the_reward_stays_yours_to_collect_and_claim_asks"));
+            if (choicePending) {
+                // Locked with the rows: skipping a question whose answer is in flight would send the
+                // pop racing the reply. See `notifyChoiceResult` for why that matters.
+                later.active = false;
+            }
         }
     }
 
-    /** A press on an entry: the answer goes to the server, and the question closes. */
+    /**
+     * A press on an entry: the answer goes to the server, and the card <b>waits</b> for the verdict.
+     *
+     * <p>It used to close on the press. That is what made a refused pick invisible: the card vanished,
+     * the player's decision with it, and the next question appeared as if the first had never been
+     * asked. Now the card holds, its rows lock, and the server's answer either advances it or is drawn
+     * on its face.
+     */
     private void pressChoiceRow(String key) {
         ClientChoiceOffers.Offer offer = ClientChoiceOffers.current();
         int index = choiceIndex(key);
-        if (offer == null || index < 0 || index >= offer.entries().size()) {
+        if (offer == null || choicePending || index < 0 || index >= offer.entries().size()) {
             return;
         }
+        choicePending = true;
+        choiceError = null;
+        pressedChoiceEntry = index;
+        rebuildWidgets();
         // The index, not the reward: the server re-resolves it against its own files, so the worst a
         // modified client can do is pick entry 2 instead of entry 1 of a table it was offered.
         ArmatureNetwork.sendToServer(
                 new ClaimChoicePayload(offer.questId(), offer.rewardIndex(), index));
-        closeChoice();
     }
 
     /** The entry index a row's key names, or -1 for a key that names nothing. */
@@ -14375,23 +18341,21 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /**
      * An entry's label, resolved the way every other reward label is: the item when there is one, the
-     * author's key with the count when there is not, and the fallback text after that.
+     * author's key with its subject when there is not, and the fallback text after that.
      *
      * <p>The same rule {@code ClientQuestCache.RewardEntry.text} states and the item picker's rows
      * follow, including the count in front -- the three lists show the same prizes, and a prize that
      * read differently in each would be a list an author has to learn twice.
+     *
+     * <p>Through {@link dev.ellipog.tasked.client.RewardText}, which knows that {@code label} is a
+     * translation key and {@code labelArg} is the subject it is formatted with. Reading the count into
+     * the key is what printed "Roll the 1 table" for a table called {@code dice}.
      */
     private static String choiceLabel(ChoiceRewardPayload.Entry entry) {
-        ItemStack item = itemStack(entry.item());
-        if (!item.isEmpty()) {
-            String name = item.getHoverName().getString();
-            return entry.count() > 1 ? "x" + entry.count() + " " + name : name;
-        }
-        if (!entry.labelFallback().isEmpty() && !entry.label().isEmpty()) {
-            return Component.translatableWithFallback(entry.label(), entry.labelFallback(), entry.count())
-                    .getString();
-        }
-        return entry.label().isEmpty() ? "?" : entry.label();
+        return dev.ellipog.tasked.client.RewardText.withCount(
+                dev.ellipog.tasked.client.RewardText.of(entry.label(), entry.labelFallback(),
+                        entry.labelArg(), entry.count(), entry.item()),
+                entry.count());
     }
 
     /**
@@ -14426,18 +18390,78 @@ public final class QuestBookScreen extends ArmatureScreen {
         r.text(Measure.truncate(quest == null ? heading : quest.title(), w - (textX - left) - 8, measure),
                 textX, top + 12, ArmatureTheme.title());
         if (quest != null) {
-            r.text(heading, textX, top + 26, ArmatureTheme.faint());
+            // The subtitle slot is also where a refusal is drawn: the card has to say what went wrong
+            // without the player leaving it, and this is the line the eye is already on.
+            r.text(Measure.truncate(choiceError == null ? heading : choiceError, w - (textX - left) - 8,
+                            measure), textX, top + 26,
+                    choiceError == null ? ArmatureTheme.faint() : ArmatureTheme.blocked());
         }
 
         if (choiceLayout == null) {
             return;
         }
+        // The offer is the one this card was built from: read again here rather than carried, because
+        // the rows and the entries they name are drawn in the same pass.
+        ClientChoiceOffers.Offer entries = ClientChoiceOffers.current();
         Viewport body = overlayBody();
         choiceView.apply(choiceLayout, body.viewWidth());
-        QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
-                body.viewWidth(), body.viewHeight()), choiceView.viewport(), choiceLayout, choiceRows,
-                mouseX, mouseY);
+        choiceRowRects.clear();
+        try (GuiRenderer.Scoped clip = r.clip(body.originX(), body.originY(), body.originX() + body.viewWidth(),
+                body.originY() + body.viewHeight())) {
+            for (int i = 0; i < choiceRows.size(); i++) {
+                var slot = choiceLayout.slot(choiceRows.get(i).key());
+                if (slot == null) {
+                    continue;
+                }
+                var onScreen = InspectLayout.onScreen(choiceView.viewport(), slot);
+                BookGeometry.Rect rect = BookGeometry.Rect.at(onScreen.x(), onScreen.y(),
+                        onScreen.width(), onScreen.height());
+                choiceRowRects.add(rect);
+                if (entries != null && i < entries.entries().size()) {
+                    drawChoiceRow(r, entries.entries().get(i), rect, mouseX, mouseY);
+                }
+            }
+        }
         choiceView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+    }
+
+    /**
+     * One offer, as the player reads it: the item's sprite, what it gives, and the item's id on hover.
+     *
+     * <p>A table entry has no item of its own — it rolls one — so it gets the type's icon and the name
+     * the label resolves to, which after the fix above names the table it rolls rather than counting it.
+     */
+    private void drawChoiceRow(GuiRenderer r, ChoiceRewardPayload.Entry entry, BookGeometry.Rect rect,
+                               int mouseX, int mouseY) {
+        boolean hot = rect.contains(mouseX, mouseY);
+        boolean shut = choicePending;
+        if (hot && !shut) {
+            r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.raised());
+        }
+        ItemStack icon = itemStack(entry.item());
+        int textX = rect.x() + 4;
+        if (!icon.isEmpty()) {
+            r.icon(icon, rect.x() + 2, rect.y() + (rect.height() - 16) / 2, 16);
+            textX = rect.x() + 22;
+        }
+        String label = choiceLabel(entry);
+        int room = Math.max(0, rect.right() - textX - (hot && !shut ? 40 : 6));
+        r.text(Measure.truncate(label, room, textMeasure(r)), textX,
+                rect.y() + (rect.height() - 8) / 2,
+                shut ? ArmatureTheme.blocked() : ArmatureTheme.body());
+        if (hot && !shut) {
+            String pick = "Pick";
+            r.text(pick, rect.right() - 4 - r.textWidth(pick), rect.y() + (rect.height() - 8) / 2,
+                    ArmatureTheme.title());
+            if (!entry.item().isEmpty()) {
+                // The id on hover, because an entry is otherwise only as identifiable as its label --
+                // and a label an author wrote can be as vague as "a surprise".
+                pendingLabels.add(new PendingLabel(
+                        BookGeometry.Rect.at(rect.x() + 20, rect.bottom() + 2,
+                                r.textWidth(entry.item()) + 8, 12),
+                        entry.item()));
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -14487,13 +18511,27 @@ public final class QuestBookScreen extends ArmatureScreen {
         UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
 
         List<RewardInboxLayout.Row> rows = new ArrayList<>();
-        for (ClientQuestCache.Entry entry : claimableQuests()) {
+        for (ClientQuestCache.Entry entry : visibleQuests()) {
+            if (entry.rewards().size() == 1) {
+                // One reward in the definition: one row, the reward inline, one Claim. Never decided
+                // from what is left outstanding -- a row that collapsed to a single line the moment a
+                // child was claimed would move every row below it under the player's pointer.
+                rows.add(singleRow(self, entry));
+                continue;
+            }
             int waiting = self == null ? 0 : ClientQuestCache.outstandingRewards(self, entry.id());
             rows.add(RewardInboxLayout.Row.quest(entry.id(), titleOf(entry), waiting));
             if (!expandedRewards.contains(entry.id())) {
                 continue;
             }
             for (int index = 0; index < entry.rewards().size(); index++) {
+                // Claimed children are not shown: this is a tray for what is still owed, not a history
+                // of what has been collected, and a pack played for twenty hours would otherwise fill
+                // the card with dead rows to scroll past. The row kind does not depend on this, so
+                // nothing moves when one goes.
+                if (self != null && ClientQuestCache.rewardClaimedBy(self, entry.id(), index)) {
+                    continue;
+                }
                 rows.add(rewardInboxRow(self, entry, index));
             }
         }
@@ -14506,10 +18544,11 @@ public final class QuestBookScreen extends ArmatureScreen {
         rewardView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
                 body.viewHeight());
         for (RewardInboxLayout.Row row : rewardRows) {
-            ArmatureButton button = control(0, 0, 0, 0, buttonLabel(row), row.isReward()
-                    ? () -> claimReward(row.questId(), row.rewardIndex())
-                    : () -> claimQuestFromInbox(row.questId()));
-            button.alignLeft(true).flat(true);
+            ArmatureButton button = control(0, 0, 0, 0, buttonLabel(row), row.expands()
+                    ? () -> claimQuestFromInbox(row.questId())
+                    : () -> claimReward(row.questId(), row.rewardIndex()));
+            // A real button face rather than flat text: every row here is a click target, and a bare
+            // label reads as status text until the pointer happens to find it.
             if (!row.pressable()) {
                 // Nothing left to take: a disabled control draws in the blocked colour and ignores the
                 // press, which is the honest shape for a row whose claim the server would refuse.
@@ -14520,20 +18559,118 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         rewardView.apply(rewardLayout, body.viewWidth());
 
-        // The footer: Claim all where the reader's Submit sits, Back where every card's does. `hasSubmit`
-        // is true because this card has a left-hand control, which is the flag's whole meaning -- the two
-        // rectangles come from one arithmetic and stack rather than collide on a narrow window.
+        buildRewardFilterChips();
+
+        // The footer: the sweep where the reader's Submit sits, Back where every card's does, and the
+        // sweep's label and reach follow the active chip. `hasSubmit` is true because this card has a
+        // left-hand control, which is the flag's whole meaning -- the two rectangles come from one
+        // arithmetic and stack rather than collide on a narrow window.
         Map<String, BookGeometry.Rect> controls = geometry().overlayControls(true);
-        ArmatureButton all = control(controls.get("submit"),
-                Component.translatable("tasked.screen.rewards.claim_all"), QuestBookScreen::claimAllRewards);
+        ArmatureButton all = control(controls.get("submit"), footerClaimLabel(),
+                () -> claimAllRewards(rewardFilter));
         if (all != null) {
-            all.accent(true).tooltip(Component.translatable("tasked.screen.collects_everything_the_server_is_holding"));
+            all.accent(true).tooltip(Component.translatable(rewardFilter == ClaimFilter.ALL
+                    ? "tasked.screen.collects_everything_the_server_is_holding"
+                    : "tasked.screen.collects_only_what_the_filter_shows"));
         }
         ArmatureButton back = control(controls.get("back"),
                 Component.translatable("tasked.screen.rewards.back"), this::closeOverlay);
         if (back != null) {
             back.ink(ArmatureButton.Ink.BODY);
         }
+    }
+
+    /** The filter chips, right-aligned in the card's header band. */
+    private void buildRewardFilterChips() {
+        ClaimFilter[] filters = ClaimFilter.values();
+        int chipHeight = 16;
+        int chipWidth = 56;
+        int gap = 4;
+        int y = overlayTop() + 15;
+        int right = overlayLeft() + overlayWidth() - 12;
+        if (right - (filters.length * chipWidth + (filters.length - 1) * gap)
+                < overlayLeft() + 14 + 60) {
+            // A card too narrow to hold the title and the chips: the chips go rather than the title,
+            // because a filter row squeezed against a truncated word is a row nobody can read. The
+            // list still works unfiltered; the chips come back when the window does.
+            return;
+        }
+        for (int i = 0; i < filters.length; i++) {
+            ClaimFilter filter = filters[i];
+            int x = right - (filters.length - i) * chipWidth - (filters.length - 1 - i) * gap;
+            ArmatureButton chip = control(x, y, chipWidth, chipHeight, filterLabel(filter),
+                    () -> setRewardFilter(filter));
+            chip.selected(filter == rewardFilter);
+        }
+    }
+
+    /** A press on a chip: the list narrows, and the footer follows it. */
+    private void setRewardFilter(ClaimFilter filter) {
+        if (rewardFilter == filter) {
+            return;
+        }
+        rewardFilter = filter;
+        rewardView.scrollTo(0);
+        rebuildWidgets();
+    }
+
+    private static Component filterLabel(ClaimFilter filter) {
+        return Component.translatable(switch (filter) {
+            case ALL -> "tasked.screen.rewards.filter_all";
+            case ITEMS -> "tasked.screen.rewards.filter_items";
+            case CHOICES -> "tasked.screen.rewards.filter_choices";
+        });
+    }
+
+    /** The footer button's label, which says exactly what the press will reach. */
+    private Component footerClaimLabel() {
+        return Component.translatable(switch (rewardFilter) {
+            case ALL -> "tasked.screen.rewards.claim_all";
+            case ITEMS -> "tasked.screen.rewards.claim_items";
+            case CHOICES -> "tasked.screen.rewards.choose_all";
+        });
+    }
+
+    /**
+     * The quests the card is showing: the waiting ones, narrowed by the active chip.
+     *
+     * <p>The same classification the server's sweep uses, mirrored by reward type — a chip that listed
+     * one set while the footer button claimed another would be one control disagreeing with itself.
+     */
+    private List<ClientQuestCache.Entry> visibleQuests() {
+        UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+        List<ClientQuestCache.Entry> out = new ArrayList<>();
+        for (ClientQuestCache.Entry entry : claimableQuests()) {
+            if (rewardFilter == ClaimFilter.ALL || shows(self, entry)) {
+                out.add(entry);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** Whether this quest has an outstanding reward the active chip is about. */
+    private boolean shows(UUID self, ClientQuestCache.Entry entry) {
+        for (int index = 0; index < entry.rewards().size(); index++) {
+            if (!ClientQuestCache.canClaimReward(self, entry, index)) {
+                continue;
+            }
+            String type = entry.rewards().get(index).type();
+            if (rewardFilter == ClaimFilter.CHOICES ? isChoiceType(type) : isItemType(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The reward types that hand over an item — the item reward, and the tables that can roll one. */
+    private static boolean isItemType(String type) {
+        return "tasked:item".equals(type) || "tasked:random".equals(type)
+                || "tasked:loot".equals(type) || "tasked:all_table".equals(type);
+    }
+
+    /** The one type that asks a question instead of handing something over. */
+    private static boolean isChoiceType(String type) {
+        return "tasked:choice".equals(type);
     }
 
     /**
@@ -14557,48 +18694,73 @@ public final class QuestBookScreen extends ArmatureScreen {
         return List.copyOf(out);
     }
 
-    /** Claim all: one press, and the server walks the book with the same test the single claim uses. */
-    private static void claimAllRewards() {
-        ArmatureNetwork.sendToServer(new ClaimAllPayload());
+    /**
+     * The sweep: one press, and the server walks the book with the same test the single claim uses.
+     *
+     * <p>The filter travels with it, so "Claim items" claims items — the button's label is a promise,
+     * and the server is the side that keeps it.
+     */
+    private static void claimAllRewards(ClaimFilter filter) {
+        ArmatureNetwork.sendToServer(new ClaimAllPayload(filter));
+    }
+
+    /** The one row of a quest whose definition holds exactly one reward. */
+    private RewardInboxLayout.Row singleRow(UUID self, ClientQuestCache.Entry entry) {
+        int index = 0;
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
+        // A count is drawn only when the row is a number of things: for an item that is "x16", and for
+        // the count-shaped types it is already inside the sentence ("5 XP").
+        int count = reward.hasItem() ? reward.count() : 0;
+        return RewardInboxLayout.Row.single(entry.id(), titleOf(entry), index, count,
+                statusOf(self, entry.id(), index));
     }
 
     /** One reward's inbox row, with the status this player's copy of it is in. */
     private RewardInboxLayout.Row rewardInboxRow(UUID self, ClientQuestCache.Entry entry, int index) {
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
-        String key = RewardInboxLayout.rewardKey(entry.id(), index);
-        RewardInboxLayout.Status status;
-        if (pendingClaims.contains(key)) {
-            status = RewardInboxLayout.Status.PENDING;
-        }
-        else if (self != null && ClientQuestCache.rewardClaimedBy(self, entry.id(), index)) {
-            status = RewardInboxLayout.Status.CLAIMED;
-        }
-        else if (!ClientQuestCache.canClaimReward(self, entry.id(), index)) {
-            // The same predicate the badge counts with: a row is gated exactly when the cache says
-            // this player could not take it, so the header's count and its rows cannot disagree.
-            status = RewardInboxLayout.Status.LOCKED;
-        }
-        else {
-            status = RewardInboxLayout.Status.READY;
-        }
         // A missing item shows the id it names, the same rule the viewer's row uses: an id with no item
         // is a fact worth telling apart from a row that simply has no icon.
         boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
         String label = missingItem ? reward.itemId() : rowText("rewards", reward);
-        // A count is drawn only when the row is a number of things: for an item that is "x16", and for
-        // the count-shaped types it is already inside the sentence ("5 XP").
         int count = reward.hasItem() ? reward.count() : 0;
-        return RewardInboxLayout.Row.reward(entry.id(), index, label, count, status);
+        return RewardInboxLayout.Row.reward(entry.id(), index, label, count,
+                statusOf(self, entry.id(), index));
+    }
+
+    /** Where one reward stands for this player, including a press still in flight. */
+    private RewardInboxLayout.Status statusOf(UUID self, String questId, int index) {
+        if (pendingClaims.contains(RewardInboxLayout.rewardKey(questId, index))) {
+            return RewardInboxLayout.Status.PENDING;
+        }
+        if (self != null && ClientQuestCache.rewardClaimedBy(self, questId, index)) {
+            return RewardInboxLayout.Status.CLAIMED;
+        }
+        if (!ClientQuestCache.canClaimReward(self, questId, index)) {
+            // The same predicate the badge counts with: a row is gated exactly when the cache says
+            // this player could not take it, so the header's count and its rows cannot disagree.
+            return RewardInboxLayout.Status.LOCKED;
+        }
+        return RewardInboxLayout.Status.READY;
     }
 
     /** What a row's strip button says: its action while it has one, its state once it does not. */
-    private static Component buttonLabel(RewardInboxLayout.Row row) {
-        if (row.pressable()) {
-            return Component.translatable(row.isReward()
-                    ? "tasked.screen.rewards.claim_row" : "tasked.screen.rewards.claim_quest");
+    private Component buttonLabel(RewardInboxLayout.Row row) {
+        if (!row.pressable()) {
+            return Component.translatable(row.status() == RewardInboxLayout.Status.LOCKED
+                    ? "tasked.viewer.locked" : "tasked.viewer.claimed");
         }
-        return Component.translatable(row.status() == RewardInboxLayout.Status.LOCKED
-                ? "tasked.viewer.locked" : "tasked.viewer.claimed");
+        if (row.expands()) {
+            return Component.translatable("tasked.screen.rewards.claim_quest");
+        }
+        return Component.translatable(isChoiceReward(row.questId(), row.rewardIndex())
+                ? "tasked.screen.rewards.choose" : "tasked.screen.rewards.claim_row");
+    }
+
+    /** Whether the reward at this position is a choice, so its button says a picker opens. */
+    private static boolean isChoiceReward(String questId, int index) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        return entry != null && index >= 0 && index < entry.rewards().size()
+                && isChoiceType(entry.rewards().get(index).type());
     }
 
     /**
@@ -14630,7 +18792,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         if (entry == null || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
             return;
         }
-        if (!"tasked:choice".equals(entry.rewards().get(rewardIndex).type())) {
+        if (!isChoiceType(entry.rewards().get(rewardIndex).type())) {
             pendingClaims.add(RewardInboxLayout.rewardKey(questId, rewardIndex));
         }
     }
@@ -14667,7 +18829,8 @@ public final class QuestBookScreen extends ArmatureScreen {
             return false;
         }
         for (RewardInboxLayout.Row row : rewardRows) {
-            if (row.isReward()) {
+            if (!row.expands()) {
+                // Only an accordion handle folds; a single row has nothing to open.
                 continue;
             }
             Slot slot = rewardLayout.slot(row.key());
@@ -14687,6 +18850,38 @@ public final class QuestBookScreen extends ArmatureScreen {
         return false;
     }
 
+    /** One reward's inbox row, with the status this player's copy of it is in. */
+    /** What a row's strip button says: its action while it has one, its state once it does not. */
+    /**
+     * Asks the server for one reward, and marks its row collected until the answer comes.
+     *
+     * <p>The optimistic half lives here and only here, and it is safe because an answer always comes:
+     * every claim handler sends a progress sync whether or not it paid, and the sync clears
+     * {@link #pendingClaims} and rebuilds. The worst a refusal produces is a row that reads collected
+     * for one round trip and then goes back — and the alternative, a row that shows nothing until the
+     * packet returns, reads as a press that did not register.
+     */
+    /**
+     * Marks one reward's row collected until the server answers.
+     *
+     * <p>Except a choice: the press does not collect it — it opens the card that asks the player which
+     * entry they want — so a choice row that read collected while its card was open would be the card
+     * promising a payout that has not happened. The pick marks it, through the sync that follows the
+     * answer.
+     */
+    /**
+     * The header's press: the whole quest's rewards, marked collected until the server answers.
+     *
+     * <p>Every row of the quest goes pending with the header, because that is what the press asked for:
+     * a header reading collected while its rows still offered their own buttons would be the card
+     * disagreeing with itself about one press.
+     */
+    /**
+     * Folds or unfolds one quest's rewards, from a press on its header's body.
+     *
+     * <p>Asked of the layout rather than of a rectangle written here — the same contract as every other
+     * press in this screen, so what is hit-tested is what was drawn.
+     */
     /**
      * The rewards card: what is waiting, and the controls that collect it.
      *
@@ -14704,7 +18899,7 @@ public final class QuestBookScreen extends ArmatureScreen {
                 Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
         r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
 
-        int waiting = claimableQuests().size();
+        int waiting = visibleQuests().size();
         int textX = left + 14;
         r.text(Component.translatable("tasked.screen.rewards.title").getString(), textX, top + 12,
                 ArmatureTheme.title());
@@ -14756,8 +18951,11 @@ public final class QuestBookScreen extends ArmatureScreen {
                 if (row.isReward()) {
                     drawRewardInboxReward(r, row, onScreen, hover, mouseX, mouseY);
                 }
-                else {
+                else if (row.expands()) {
                     drawRewardInboxHeader(r, row, onScreen, hover, mouseX, mouseY);
+                }
+                else {
+                    drawRewardInboxSingle(r, row, onScreen, hover, mouseX, mouseY);
                 }
             }
         }
@@ -14800,6 +18998,76 @@ public final class QuestBookScreen extends ArmatureScreen {
                             ? "tasked.screen.rewards.collapse_hint"
                             : "tasked.screen.rewards.expand_hint").getString(),
                     row.questId())));
+        }
+    }
+
+    /**
+     * A quest whose definition holds one reward: its title, the reward inline, and one Claim.
+     *
+     * <p>The reward's icon and count sit against the strip rather than after the title, so a long title
+     * is truncated instead of pushing them under the button. The hover carries both halves — the quest
+     * it belongs to, and the reward's full tooltip — because a single row is where an abstract title
+     * ("Botanical Wonders") would otherwise say nothing about what is being collected.
+     */
+    private void drawRewardInboxSingle(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
+                                       int mouseX, int mouseY) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(row.questId());
+        if (entry == null || row.rewardIndex() < 0 || row.rewardIndex() >= entry.rewards().size()) {
+            return;
+        }
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(row.rewardIndex());
+        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+        String tag = switch (row.status()) {
+            case LOCKED -> Component.translatable("tasked.viewer.locked").getString();
+            case CLAIMED, PENDING -> Component.translatable("tasked.viewer.claimed").getString();
+            case READY -> null;
+        };
+        // The inline reward: the count for an item, the sentence for anything else ("5 XP"), so the row
+        // says what it is giving without being opened.
+        String rewardText = reward.hasItem()
+                ? (row.count() > 1 ? "x" + row.count() : "")
+                : rowText("rewards", reward);
+
+        // Everything measured before anything is drawn, the rule the other rows document: the wash goes
+        // behind the icons, so its width has to be known before the row exists.
+        Slot strip = RewardInboxLayout.strip(slot);
+        int tagX = tag == null ? 0 : strip.x() - 6 - r.textWidth(tag);
+        int clusterRight = tag == null ? strip.x() - 6 : tagX - 6;
+        int rewardTextWidth = rewardText.isEmpty() ? 0 : 5 + r.textWidth(rewardText);
+        int clusterX = clusterRight - (ROW_ICON + rewardTextWidth);
+        ItemStack questIcon = entry.icon();
+        int textX = slot.x() + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
+        String title = Measure.truncate(row.label(), Math.max(0, clusterX - 8 - textX), textMeasure(r));
+        int contentRight = Math.max(clusterRight, textX + r.textWidth(title));
+
+        rowWash(r, slot, contentRight, hover);
+
+        int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
+        if (!questIcon.isEmpty()) {
+            r.icon(questIcon, slot.x(), iconY, ROW_ICON);
+        }
+        r.text(title, textX, textY, ArmatureTheme.title());
+        if (missingItem) {
+            drawItemPlaceholder(r, clusterX, iconY, ROW_ICON);
+        }
+        else {
+            r.icon(reward.hasItem() ? reward.item() : reward.icon(), clusterX, iconY, ROW_ICON);
+        }
+        if (!rewardText.isEmpty()) {
+            r.text(rewardText, clusterX + ROW_ICON + 5, textY, ArmatureTheme.faint());
+        }
+        if (tag != null) {
+            r.text(tag, tagX, textY, ArmatureTheme.blocked());
+        }
+
+        if (slot.contains(mouseX, mouseY)) {
+            List<String> lines = new ArrayList<>();
+            // The quest first: the reward's own lines say what is being collected, and this says which
+            // quest is giving it.
+            lines.add(entry.title());
+            lines.addAll(rewardTooltipLines(row.questId(), row.rewardIndex()));
+            rowTooltips.add(new RowTooltip(slot, lines));
         }
     }
 
@@ -15089,9 +19357,14 @@ public final class QuestBookScreen extends ArmatureScreen {
             r.icon(pickIcon, iconX, iconY, iconBox);
         }
         int textX = iconX + iconBox + 6;
-        r.text(pickTarget == PickTarget.BOOK ? "Choose the book's icon"
+        // What the pick is for, in the caller's words; the target's own sentence is the fallback for the
+        // three icon picks that have nobody to say it. See `openTableItemPick` for what the old
+        // arrangement got wrong: a pick with no target of its own fell through to "a chapter's icon".
+        r.text(pickTitle.isEmpty()
+                        ? pickTarget == PickTarget.BOOK ? "Choose the book's icon"
                         : pickTarget == PickTarget.GROUP ? "Choose the group's icon"
-                        : "Choose the chapter's icon",
+                        : "Choose the chapter's icon"
+                        : pickTitle,
                 textX, top + 12, ArmatureTheme.title());
         if (!pickName.isEmpty()) {
             r.text(pickName, textX, top + 26, ArmatureTheme.faint());
@@ -16145,14 +20418,54 @@ public final class QuestBookScreen extends ArmatureScreen {
                 partyScrollAt(mouseX).beginThumbDrag(mouseY);
                 partyScrollAt(mouseX).dragThumbTo(mouseY);
             }
+            else if ((overlay == Overlay.TABLE_BROWSER || overlay == Overlay.TABLE_EDITOR
+                    || overlay == Overlay.ASSETS) && button == 0) {
+                // Outside the card closes, which is the shape every card's outside press has. Inside it
+                // the rows are drawn targets, so they answer on press -- see the two press methods for
+                // what each control does.
+                if (clickedOutsideCard(mouseX, mouseY)) {
+                    // Rebuild, always: `closeTablePanel` nulls the panels' fields, and the redraws that
+                    // draw them live until the next rebuild. Closing without one left a redraw holding a
+                    // field that was no longer there -- which crashed the game on the very next frame
+                    // (a NullPointerException from `tableSearch.render`, the crash in the log).
+                    if (overlay == Overlay.ASSETS) {
+                        // The Assets panel has no table fields behind it: its own exit is the same one its
+                        // footer carries, so an outside press and a press on Done are one act.
+                        closeOverlay();
+                    }
+                    else {
+                        closeTablePanelAndRebuild();
+                    }
+                    return true;
+                }
+                if (overlay == Overlay.TABLE_BROWSER) {
+                    pressTableBrowser(mouseX, mouseY);
+                }
+                else if (overlay == Overlay.ASSETS) {
+                    pressAssets(mouseX, mouseY);
+                }
+                else {
+                    pressTableEditor(mouseX, mouseY);
+                }
+                return true;
+            }
             else if (overlay == Overlay.CHOICE && button == 0) {
-                // The bar and the outside; nothing else. An entry is a widget and answers on release,
-                // so the press has no rows to hit-test -- and an outside press dismisses the way every
-                // other card's does, which loses nothing: see `closeChoice`.
+                // The bar, then the rows, then the outside. The rows are drawn by this screen -- see
+                // `drawChoiceRow` -- so the press is what answers, and a press inside the card that hits
+                // no row does nothing: the list is what is on screen and the page behind it is not a
+                // second thing to press while a question is being answered.
                 if (choiceView.scrollbarHit(mouseX, mouseY)) {
                     choiceView.beginThumbDrag(mouseY);
                     choiceView.dragThumbTo(mouseY);
                     return true;
+                }
+                for (int i = 0; i < choiceRowRects.size(); i++) {
+                    if (choiceRowRects.get(i).contains(mouseX, mouseY)) {
+                        if (i < choiceRows.size()) {
+                            pressChoiceRow(choiceRows.get(i).key());
+                        }
+                        return true;
+                    }
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
                     closeChoice();
@@ -16318,6 +20631,17 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         if (!onCanvasCopy) {
             disarmCanvasCopy();
+        }
+
+        // The colour picker next: its own fields are widgets and were just offered the press, so what is
+        // left is its tracks and swatches -- and a press outside, which closes it and is consumed, so the
+        // click that dismisses the picker never also acts on what was behind it.
+        if (colourPopover.isOpen()) {
+            if (colourPopover.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            closeColourPopover();
+            return true;
         }
 
         // The colour picker next: its own fields are widgets and were just offered the press, so what is
@@ -17265,6 +21589,63 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
 
+        // The Assets panel's page, and its own band: the wheel belongs to the page under the pointer, and
+        // the clamp is the layout's so a short page cannot be scrolled past its end.
+        if (overlay == Overlay.ASSETS && scrollY != 0) {
+            var kinds = assetsLines().stream().map(AssetLine::kind).toList();
+            assetsScroll = Math.max(0, Math.min(
+                    assetsScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT),
+                    dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, assetsPageBand())));
+            return true;
+        }
+
+        // A picker page's list is the wheel's while it is open, and it is asked *before* the panel's own
+        // entries: the page is what is on screen. Without this branch the wheel fell through to the
+        // entries below and scrolled a list the author could not see -- clamped to a viewport that was
+        // not the page's -- so the rows past the fold (Command, Advancement, Custom) could not be reached
+        // at all. The card has the same branch for its own pages; this is the table editor's.
+        if (overlay == Overlay.TABLE_EDITOR && pickingEntryType != null) {
+            overlayView.scrollBy(-(int) (scrollY * 30));
+            return true;
+        }
+
+        // The table panels' own lists. The wheel over a panel's *list* scrolls it and nothing else does:
+        // the toolbar, the header and the breadcrumb are not lists, and until this existed a table with
+        // more entries than the band could show had no way to reach the ones below it at all.
+        //
+        // The band, not the card. This asked `tableBody()` — the whole body — so the wheel over the
+        // header or the toolbar scrolled the entries under the pointer, which the sentence above it
+        // already said must not happen. A rule in a comment and a different rule in the code is the
+        // shape of fault this panel keeps producing; the two panels scroll different bands, and
+        // `overTableList` is where that is decided once.
+        if ((overlay == Overlay.TABLE_BROWSER || overlay == Overlay.TABLE_EDITOR)
+                && overTableList(mouseX, mouseY)) {
+            if (overlay == Overlay.TABLE_BROWSER) {
+                if (tableBrowserFrame != null) {
+                    tableScroll = Math.max(0, Math.min(
+                            tableScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.TableBrowserLayout
+                                    .ROW_HEIGHT),
+                            dev.ellipog.tasked.client.dev.TableBrowserLayout
+                                    .maxScroll(tableRows, tableBrowserFrame)));
+                }
+            }
+            else if (tableEditorFrame != null) {
+                if (tableShowRoll) {
+                    var held = dev.ellipog.tasked.client.ClientTableRoll.of(tableDescribe());
+                    int most = held == null ? 0 : maxRollScroll(held);
+                    rollScroll = Math.max(0, Math.min(rollScroll - (int) (scrollY * ROLL_PITCH), most));
+                }
+                else {
+                    int entries = tableModel()
+                            .map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
+                    tableScroll = Math.max(0, Math.min(
+                            tableScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.TableEditorLayout.ROW_HEIGHT),
+                            dev.ellipog.tasked.client.dev.TableEditorLayout.maxScroll(entries, tableEditorFrame, tableFolds())));
+                }
+            }
+            return true;
+        }
+
         // The wheel over the sidebar scrolls the list, and over the canvas it still zooms. Routed by
         // region rather than by a modifier, because the two regions are visibly separate things and a
         // player pointing at one does not want the other: a list that zoomed the graph behind it, or a
@@ -17322,8 +21703,98 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        // The naming card's own keys, read before anything else: Enter is the button the card is for,
-        // and Escape abandons it without touching a file. Handing Enter to the field would blur it,
+        // The table panels' own keys, read before anything else. Escape unwinds in the order the author
+        // went in: the roll report first, then one table back, then the panel. A field left focused is
+        // blurred by the rebuild that follows, and a blur is a commit -- so a half-typed title is kept
+        // rather than dropped, which is the same rule the card's inline editor follows.
+        if (overlay == Overlay.TABLE_EDITOR && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            // The innermost thing on screen answers first, in the order the author went in: the picker
+            // page, then the roll report, then one table back, then the panel. The picker page had no
+            // case here at all, so Escape closed the panel and left the picker armed -- which is how a
+            // press on the type list ended up showing that list over a quest card.
+            if (pickingEntryType != null) {
+                pickingEntryType = null;
+                rebuildWidgets();
+                return true;
+            }
+            if (tableShowRoll) {
+                tableShowRoll = false;
+                tableImportOpen = false;
+                return true;
+            }
+            popTableEditor();
+            return true;
+        }
+        if (overlay == Overlay.TABLE_BROWSER && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            // Rebuild, for the same reason the outside press does: closing nulls the panel's fields
+            // while its redraws and its footer buttons live until the next rebuild -- which left the
+            // browser's own buttons drawn over the card and still taking presses, aimed at a reward that
+            // had already been forgotten.
+            closeTablePanelAndRebuild();
+            return true;
+        }
+        if (overlay == Overlay.ASSETS) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                // Escape and the footer's Done are one act, which is the rule every other card follows.
+                closeOverlay();
+                return true;
+            }
+            // The wheel's three keys, for the reader who never reaches for the mouse: the two arrows and
+            // the page's own bounds, clamped by the layout rather than by a second number here.
+            int step = switch (keyCode) {
+                case GLFW.GLFW_KEY_DOWN -> dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT;
+                case GLFW.GLFW_KEY_UP -> -dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT;
+                case GLFW.GLFW_KEY_PAGE_DOWN -> assetsPageBand();
+                case GLFW.GLFW_KEY_PAGE_UP -> -assetsPageBand();
+                default -> 0;
+            };
+            if (step != 0) {
+                var kinds = assetsLines().stream().map(AssetLine::kind).toList();
+                assetsScroll = Math.max(0, Math.min(assetsScroll + step,
+                        dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, assetsPageBand())));
+                return true;
+            }
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        // Ctrl+T opens the pack's panel, the way Ctrl+S saves and Ctrl+Z undoes: one chord per act, and
+        // only with nothing focused, so it cannot fire while a field is being typed into.
+        if (overlay == Overlay.NONE && keyCode == GLFW.GLFW_KEY_T && Screen.hasControlDown()
+                && getFocused() == null && mayEdit()) {
+            openAssets();
+            return true;
+        }
+        if (overlay == Overlay.TABLE_BROWSER && (keyCode == GLFW.GLFW_KEY_ENTER
+                || keyCode == GLFW.GLFW_KEY_KP_ENTER)) {
+            // Enter on the browser takes the row the keyboard is on: the same rule the item picker's
+            // Enter has, so the two lists are driven the same way.
+            pressTableBrowserRow(tableSelected);
+            return true;
+        }
+        // And the keys that *move* the keyboard's row. Without these the sentence above was a promise
+        // nothing could keep: the selection starts at -1 and only a press changed it, so Enter was a key
+        // that did nothing until the pointer had already done the work.
+        if (overlay == Overlay.TABLE_BROWSER
+                && (keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
+            stepTableBrowser(keyCode == GLFW.GLFW_KEY_DOWN ? 1 : -1);
+            return true;
+        }
+        // The editor's undo and redo, read *before* the focus gate further down. `keysForEditor` is only
+        // reached while no widget holds the keyboard, and this panel focuses a field the moment it opens
+        // one: the title box is focused whenever the table has no title of its own, which is every table
+        // an author has just made. So Ctrl+Z did nothing on exactly the table where a mistake is most
+        // likely, and the field it went to has no undo of its own. These are the panel's keys, like its
+        // Escape branches above, not the focused field's.
+        if (overlay == Overlay.TABLE_EDITOR && Screen.hasControlDown()) {
+            if (keyCode == GLFW.GLFW_KEY_Z) {
+                tableUndo();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_Y) {
+                tableRedo();
+                return true;
+            }
+        }
+        // The naming card's own keys, read before anything else: Enter is the button the card is for,        // and Escape abandons it without touching a file. Handing Enter to the field would blur it,
         // which is not what a form's Enter means.
         if (overlay == Overlay.NAMING) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
@@ -17347,6 +21818,10 @@ public final class QuestBookScreen extends ArmatureScreen {
         // field to the text someone pressed Escape to abandon.
         if (pickingItemPath != null) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                if (tablePickReturn) {
+                    closeTablePick();
+                    return true;
+                }
                 closeItemPicker();
                 rebuildWidgets();
                 return true;
@@ -17421,6 +21896,15 @@ public final class QuestBookScreen extends ArmatureScreen {
             // the focus. Falling through, not returning: the branches below are those meanings (leave
             // the picker, close the card, close the book). A focused button used to eat Escape whole,
             // because the old shape returned here without forwarding it anywhere at all.
+        }
+
+        // The colour picker's Escape, after the focused field's: a field with the keyboard answers first
+        // (a scrub field puts its value back), and the next Escape closes the picker and writes whatever
+        // its last gesture left unwritten.
+        if (colourPopover.isOpen() && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            closeColourPopover();
+            rebuildWidgets();
+            return true;
         }
 
         // The colour picker's Escape, after the focused field's: a field with the keyboard answers first
@@ -17512,10 +21996,20 @@ public final class QuestBookScreen extends ArmatureScreen {
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
+            // The table editor's undo is its own frame's: the file it is showing, and no further back
+            // than the table the author opened. See `tableApplied` for why that floor exists.
+            if (overlay == Overlay.TABLE_EDITOR) {
+                tableUndo();
+                return true;
+            }
             send(new EditorOp.Undo());
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Y) {
+            if (overlay == Overlay.TABLE_EDITOR) {
+                tableRedo();
+                return true;
+            }
             send(new EditorOp.Redo());
             return true;
         }
@@ -17662,6 +22156,10 @@ public final class QuestBookScreen extends ArmatureScreen {
 
     /** Asks the server for one edit. The client writes nothing: see {@code TaskedNetworking.sendEditorOp}. */
     private void send(EditorOp op) {
+        // Recorded so the reply can be told apart from a table op's: the two travel on one payload and
+        // answer in order, and a table's answer carries a table id in the field a quest's carries a
+        // quest id. See the reply loop for what each kind does to the table panel.
+        ClientEditReplies.noteSent("");
         String chapter = effectiveChapter();
         // Empty rather than null when the book has no chapters yet. The payload's chapter is the
         // session a structural edit is recorded on, and "no session" is the empty string the server
@@ -17691,6 +22189,7 @@ public final class QuestBookScreen extends ArmatureScreen {
         }
         fieldDraft.set(chapter, quest, path, value,
                 ClientQuestCache.treeRevision(), Util.getMillis());
+        ClientEditReplies.noteSent("");
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, new EditorOp.SetField(quest, path, value));
     }
 
@@ -18076,6 +22575,18 @@ public final class QuestBookScreen extends ArmatureScreen {
         // the middle was lost. A refusal also drops that chapter's pending values: the edit did not
         // stick, and the copy's own answer is the truth.
         for (EditorReplyPayload reply : ClientEditReplies.drain()) {
+            // Which op this answers, and what it means for the table panel. The kinds are matched in
+            // send order, which is the order replies arrive in on one channel.
+            String answered = ClientEditReplies.takeSent();
+            boolean replicaAnswer = REPLICA_SENTINEL.equals(answered);
+            if (answered != null && !answered.isEmpty() && !replicaAnswer) {
+                applyTableReply(answered, reply);
+                if (!reply.ok()) {
+                    // The edit did not stick, so nothing should pretend it did: the drafted value goes
+                    // and the panel draws what the file actually holds.
+                    tableDraft.forgetOwner(effectiveChapter(), tableOwnerKey());
+                }
+            }
             if (!reply.ok()) {
                 fieldDraft.forgetChapter(reply.chapter());
                 // The settings page's pending values are the same kind of ask and end the same way. A
@@ -18087,13 +22598,27 @@ public final class QuestBookScreen extends ArmatureScreen {
                     settingsDraft.clear();
                 }
             }
-            if (!reply.chapter().equals(effectiveChapter())) {
+            // A table op's chapter is empty by design -- a table is a file, not a chapter's -- so the
+            // comparison below would classify every table reply as "about a chapter you navigated away
+            // from" and skip it. That is what swallowed every table refusal and every import report: the
+            // only thing an author saw was the optimistic line the client said before asking.
+            boolean tableReply = answered != null && !answered.isEmpty() && !replicaAnswer;
+            if (!tableReply && !reply.chapter().equals(effectiveChapter())) {
                 // The answer is about a chapter the author has navigated away from. It is still news about
                 // that chapter's copy -- a refusal is exactly why its panel would keep saying "has not
                 // arrived yet" -- so it is recorded and logged rather than dropped in silence, which is what
                 // made the placeholder's lie impossible to diagnose.
                 if (!reply.ok()) {
                     String said = String.join(" ", reply.lines());
+                    // A table replica first, because it is the one that arrives with no chapter to its name:
+                    // recorded against the table it was asked for, which is the only way the panel that is
+                    // waiting for that table can say what the server said instead of saying nothing.
+                    if (replicaAnswer && replicaAskedFor != null) {
+                        dev.ellipog.tasked.client.ClientTableReplica.refuse(replicaAskedFor, said);
+                        Constants.LOG.info("tasked: table replica for \"{}\" was refused: {}",
+                                replicaAskedFor, said);
+                        replicaAskedFor = null;
+                    }
                     ClientChapterReplica.refuse(reply.chapter(), said);
                     Constants.LOG.info("tasked: replica for \"{}\" was refused while another chapter was open: {}",
                             reply.chapter(), said);
@@ -18106,19 +22631,61 @@ public final class QuestBookScreen extends ArmatureScreen {
                 }
                 else {
                     // Recorded, so the Chapter tab's placeholder can say what the server said instead of
-                    // claiming a copy is still on its way.
-                    ClientChapterReplica.refuse(reply.chapter(), line);
-                    Constants.LOG.info("tasked: replica for \"{}\" was refused: {}", reply.chapter(), line);
+                    // claiming a copy is still on its way. Not for a table reply: there is no chapter to
+                    // record it against, and the refusal is the panel's own answer.
+                    if (!tableReply) {
+                        ClientChapterReplica.refuse(reply.chapter(), line);
+                    }
+                    Constants.LOG.info("tasked: reply was refused: {}", line);
                     toast(line, true);
                 }
             }
-            if (reply.ok() && !reply.questId().isEmpty()) {
+            if (reply.ok() && !reply.questId().isEmpty() && (answered == null || answered.isEmpty())) {
                 // A quest the server made: created, or duplicated. Selecting it here rather than when the op was
                 // sent, because the id is the server's to choose and this is the first moment the author has it.
+                // Only for a chapter's op: a table op's id is a table's, and selecting a quest named after a
+                // table would move the canvas to a quest that does not exist.
                 selectedQuest = reply.questId();
                 report("Now editing " + reply.questId());
             }
         }
+    }
+
+    /**
+     * What an accepted table reply does to the panel: the frame's budget, and the conversions.
+     *
+     * <p>The budget moves only on an <b>accepted</b> reply, which is what makes it honest: a refused
+     * edit changed nothing on disk, so counting it would let Ctrl+Z reach past the table the author
+     * opened into the file's earlier history — an undo of somebody else's edit, off screen.
+     *
+     * <p>The two conversions move the frame rather than closing it, and they do it here rather than when
+     * the op was sent because the id is the server's to choose: `Make inline` mints a handle, `Save as
+     * preset` picks the name. Doing it now means the reload that follows finds a frame that already
+     * points at the table that exists, instead of a handle that no longer does.
+     */
+    private void applyTableReply(String kind, EditorReplyPayload reply) {
+        if (!reply.ok()) {
+            return;
+        }
+        switch (kind) {
+            case "Undo" -> {
+                tableApplied = Math.max(0, tableApplied - 1);
+                tableUndone++;
+            }
+            case "Redo" -> {
+                tableApplied++;
+                tableUndone = Math.max(0, tableUndone - 1);
+            }
+            default -> {
+                tableApplied++;
+                tableUndone = 0;
+            }
+        }
+        if (reply.questId().isEmpty() || tableAddress == null) {
+            return;
+        }
+        // No conversion moves the frame any more: a table is a file, and the ops that made one from a
+        // reward (`Inline`) or a reward's table from a file (`Extract`) are gone with inline tables.
     }
 
     /** A quest book should not stop the world ticking — you want to read it mid-fight. */

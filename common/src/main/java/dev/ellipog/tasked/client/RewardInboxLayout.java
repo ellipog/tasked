@@ -62,10 +62,19 @@ public final class RewardInboxLayout {
     private RewardInboxLayout() {
     }
 
-    /** Which of the two shapes a row is. */
+    /** Which of the three shapes a row is. */
     public enum Kind {
-        /** A quest: the accordion's handle, with its own Claim Quest. */
+        /** A quest with more than one reward: the accordion's handle, with its own Claim Quest. */
         QUEST,
+        /**
+         * A quest whose definition holds exactly one reward: one row, the reward drawn inline, one
+         * Claim.
+         *
+         * <p>Decided from the <b>definition</b> and never from what is left outstanding. A quest that
+         * collapsed from an accordion to a single row the moment a child was claimed would move every
+         * row below it — under a pointer that is usually already moving towards the next one.
+         */
+        SINGLE,
         /** One reward of an expanded quest, with its own Claim. */
         REWARD
     }
@@ -109,10 +118,25 @@ public final class RewardInboxLayout {
             return new Row(questKey(questId), Kind.QUEST, questId, -1, label, count, Status.READY);
         }
 
+        /**
+         * A quest with exactly one reward: the quest's title, and the reward drawn inline.
+         *
+         * <p>{@code rewardIndex} is the reward's own position in the quest definition, stored rather
+         * than assumed to be zero: the row model does not get to know what the definition holds.
+         */
+        public static Row single(String questId, String label, int rewardIndex, int count, Status status) {
+            return new Row(questKey(questId), Kind.SINGLE, questId, rewardIndex, label, count, status);
+        }
+
         /** One reward of an expanded quest. */
         public static Row reward(String questId, int rewardIndex, String label, int count, Status status) {
             return new Row(rewardKey(questId, rewardIndex), Kind.REWARD, questId, rewardIndex, label,
                     count, status);
+        }
+
+        /** Whether this row is the accordion's handle — the only kind that folds. */
+        public boolean expands() {
+            return kind == Kind.QUEST;
         }
 
         /** Whether this row's action has anything to take. Only a ready row's button is live. */
@@ -151,6 +175,7 @@ public final class RewardInboxLayout {
                 stack.row(row.key(), REWARD_HEIGHT, stripRoom(REWARD_INDENT));
             }
             else {
+                // A header and a single row are the same shape: one line, a strip, no indent.
                 stack.row(row.key(), HEADER_HEIGHT, stripRoom(0));
             }
         }
@@ -185,7 +210,8 @@ public final class RewardInboxLayout {
      * A row's own area — everything left of its action.
      *
      * <p>Where a header's toggle is hit-tested. The strip is a widget and answers first, so a press
-     * that reaches here is a press on the row and not on its button.
+     * that reaches here is a press on the row and not on its button. Only {@link Kind#QUEST} rows are
+     * tested: a single row has nothing to fold.
      */
     public static Slot body(Slot row) {
         Objects.requireNonNull(row, "row");

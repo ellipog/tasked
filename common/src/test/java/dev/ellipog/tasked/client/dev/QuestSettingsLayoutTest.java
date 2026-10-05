@@ -322,14 +322,14 @@ class QuestSettingsLayoutTest {
         void arrowsAreInsideAndReadable() {
             Slot strip = new Slot("x", 30, 40, QuestSettingsLayout.STRIP_WIDTH,
                     QuestSettingsLayout.ROW_HEIGHT);
-            BookGeometry.Rect down = QuestSettingsLayout.stepperBox(strip, "down");
-            BookGeometry.Rect up = QuestSettingsLayout.stepperBox(strip, "up");
+            BookGeometry.Rect down = QuestSettingsLayout.arrowBox(strip, "down");
+            BookGeometry.Rect up = QuestSettingsLayout.arrowBox(strip, "up");
             assertTrue(inside(box(strip), down), "the down arrow is outside its strip");
             assertTrue(inside(box(strip), up), "the up arrow is outside its strip");
             assertTrue(down.right() <= up.x(), "the two arrows overlap");
-            assertEquals(-1, QuestSettingsLayout.stepperStepAt(strip, down.x() + 1, down.y() + 1));
-            assertEquals(1, QuestSettingsLayout.stepperStepAt(strip, up.x() + 1, up.y() + 1));
-            assertEquals(null, QuestSettingsLayout.stepperStepAt(strip, strip.x() + 40, strip.y() + 1),
+            assertEquals(-1, QuestSettingsLayout.arrowStepAt(strip, down.x() + 1, down.y() + 1));
+            assertEquals(1, QuestSettingsLayout.arrowStepAt(strip, up.x() + 1, up.y() + 1));
+            assertEquals(null, QuestSettingsLayout.arrowStepAt(strip, strip.x() + 40, strip.y() + 1),
                     "a press between the arrows should step nothing");
         }
 
@@ -338,8 +338,6 @@ class QuestSettingsLayoutTest {
         void theOtherControlsStayInTheirStrip() {
             Slot strip = new Slot("icon", 12, 16, QuestSettingsLayout.STRIP_WIDTH,
                     QuestSettingsLayout.ROW_HEIGHT);
-            assertTrue(inside(box(strip), QuestSettingsLayout.valueBox(strip)),
-                    "the value's box is outside its strip");
             assertTrue(inside(box(strip), QuestSettingsLayout.switchTrack(strip)),
                     "the switch's track is outside its strip");
             assertTrue(inside(box(strip), QuestSettingsLayout.track(strip)),

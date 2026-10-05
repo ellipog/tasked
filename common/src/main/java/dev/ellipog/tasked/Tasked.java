@@ -231,7 +231,8 @@ public final class Tasked {
         if (server == null) {
             return;
         }
-        TreeRefresh.flush(() -> TaskedNetworking.refreshTree(server));
+        TreeRefresh.flush(() -> TaskedNetworking.refreshTree(server),
+                () -> TaskedNetworking.refreshTables(server));
     }
 
     /**

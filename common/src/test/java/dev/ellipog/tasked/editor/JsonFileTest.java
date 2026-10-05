@@ -235,6 +235,64 @@ class JsonFileTest {
     }
 
     @Test
+    @DisplayName("a dotted path reaches a list inside a reward's own inline table")
+    void entriesMoveThroughDottedPaths() {
+        JsonFile file = parse(Path.of("."), """
+                { "title": "x",
+                  "rewards": [ { "type": "tasked:random",
+                      "inline": { "uid": "h", "entries": [ { "weight": 1 } ] } } ] }
+                """);
+
+        JsonObject entry = new JsonObject();
+        entry.addProperty("weight", 2);
+        file.insert("rewards.0.inline.entries", 1, entry);
+        assertEquals(2, file.number("rewards.0.inline.entries.1.weight", 0), "appended where asked");
+        assertTrue(file.moveIndex("rewards.0.inline.entries", 1, 0));
+        assertEquals(2, file.number("rewards.0.inline.entries.0.weight", 0), "and reordered in place");
+        assertTrue(file.removeIndex("rewards.0.inline.entries", 0));
+        assertEquals(1, file.number("rewards.0.inline.entries.0.weight", 0));
+        assertFalse(file.removeIndex("rewards.0.inline.entries", 5), "past the end is a no-op");
+    }
+
+    @Test
+    @DisplayName("a table with no entries yet gets its first one, and nothing else is invented")
+    void theTerminalArrayMayBeCreatedAndNothingElse() {
+        // The state a freshly started inline table is in: the object is there, the list is not. The
+        // terminal array is created -- otherwise the first entry could never be added -- while every
+        // step above it must already exist.
+        JsonFile fresh = parse(Path.of("."), """
+                { "rewards": [ { "type": "tasked:random", "inline": { "uid": "h" } } ] }
+                """);
+        JsonObject entry = new JsonObject();
+        entry.addProperty("weight", 1);
+        fresh.insert("rewards.0.inline.entries", 0, entry);
+        assertEquals(1, fresh.number("rewards.0.inline.entries.0.weight", 0));
+
+        // A path whose intermediate is absent is refused rather than created: inventing `inline: {}`
+        // here would make a table with no handle, which nothing can address and nothing can fix.
+        JsonFile bare = parse(Path.of("."), """
+                { "rewards": [ { "type": "tasked:random" } ] }
+                """);
+        assertThrows(JsonFile.UnwritablePath.class,
+                () -> bare.insert("rewards.0.inline.entries", 0, entry),
+                "an intermediate that is not there is not invented");
+
+        // And an intermediate that is not an object, or a terminal that is not a list, are refusals.
+        JsonFile wrongShape = parse(Path.of("."), """
+                { "rewards": [ { "inline": 5 } ] }
+                """);
+        assertThrows(JsonFile.UnwritablePath.class,
+                () -> wrongShape.insert("rewards.0.inline.entries", 0, entry));
+        JsonFile notAList = parse(Path.of("."), """
+                { "rewards": [ { "inline": { "entries": "nope" } } ] }
+                """);
+        assertThrows(JsonFile.UnwritablePath.class,
+                () -> notAList.insert("rewards.0.inline.entries", 0, entry));
+        assertFalse(notAList.removeIndex("rewards.0.inline.entries", 0),
+                "and a remove through the same path says no rather than throwing");
+    }
+
+    @Test
     @DisplayName("a value of the wrong type reads as absent rather than as a surprise")
     void wrongTypesReadAsAbsent() {        JsonFile file = parse(Path.of("."), """
                 { "title": { "translate": "quest.title" }, "x": "left", "flag": 3 }

@@ -9,6 +9,7 @@ import dev.ellipog.armature.client.ui.inspect.InspectRow;
 import dev.ellipog.tasked.quest.EditorField;
 import dev.ellipog.tasked.quest.EditorSpecs;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
+import dev.ellipog.tasked.quest.reward.ItemReward;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 
@@ -300,6 +301,29 @@ public final class QuestPanelLayout {
     }
 
     /**
+     * The same, for a page whose <b>chrome</b> carries the page's name: no heading row at all.
+     *
+     * <h2>Where a page's name lives, and why this is a second method rather than a flag</h2>
+     *
+     * <p>The table editor's strip says "Add a reward" while the page is open, so a heading row naming the
+     * page again put one sentence on screen twice — and naming the *table* there instead ("dregs") was no
+     * better: the line said nothing the chrome had not, and it was the first thing the eye landed on. So
+     * this page has no first line: its list begins at its first group heading.
+     *
+     * <p>A quest's own card cannot do that: its chrome is the quest's identity, and the page is a guest in
+     * it, so that host keeps {@link #typeRows(String)} and names the act on its first list line. Two
+     * methods, because "who names this page" is the difference — a boolean would say the same thing with no
+     * name for it.
+     */
+    public static List<InspectRow> typeRowsNamedInChrome(String member) {
+        Set<String> registered = new TreeSet<>();
+        for (ResourceLocation id : ("rewards".equals(member) ? RewardTypes.ids() : TaskTypes.ids())) {
+            registered.add(id.toString());
+        }
+        return rowsNamed("", groupsFor(member), registered);
+    }
+
+    /**
      * The same, over an id set the caller supplies.
      *
      * <p>How the fallback group is tested: an id no table names is what an addon's type looks like, and
@@ -308,11 +332,15 @@ public final class QuestPanelLayout {
      */
     static List<InspectRow> typeRows(String member, Set<String> registered) {
         boolean tasks = !"rewards".equals(member);
-        List<TypeGroup> groups = tasks ? TASK_GROUPS : REWARD_GROUPS;
         // The picker's own heading, which is a sentence about adding -- "Add a task" -- rather than the
         // dock's button label ("Add task"): two surfaces, two keys, and the words differ.
         return rowsFor(tasks ? "tasked.dev.panel.add_a_task" : "tasked.dev.panel.add_a_reward",
-                groups, registered);
+                groupsFor(member), registered);
+    }
+
+    /** The groups one member's types are listed under: tasks grouped one way, rewards another. */
+    private static List<TypeGroup> groupsFor(String member) {
+        return "rewards".equals(member) ? REWARD_GROUPS : TASK_GROUPS;
     }
 
     /**
@@ -338,9 +366,26 @@ public final class QuestPanelLayout {
      * mean different things in different lists — and so an addon's type is in each list the day it
      * registers, named by its id where the table has nothing to call it.
      */
-    private static List<InspectRow> rowsFor(String heading, List<TypeGroup> groups, Set<String> registered) {
+    private static List<InspectRow> rowsFor(String heading, List<TypeGroup> groups,
+                                            Set<String> registered) {
+        return rowsNamed(Labels.of(heading), groups, registered);
+    }
+
+    /**
+     * The rows, with the first line's text already decided.
+     *
+     * <p>The two callers disagree about that one line and agree about everything else: one names the page
+     * from its own key, the other has the page's name in the chrome and asks for no line at all. A blank
+     * title is therefore not a heading with nothing in it — it is no heading, which is what
+     * {@link #typeRowsNamedInChrome} means. The groups, the fallback group and the type rows are the same
+     * in both, which is the part that must not drift.
+     */
+    private static List<InspectRow> rowsNamed(String titled, List<TypeGroup> groups,
+                                              Set<String> registered) {
         List<InspectRow> rows = new ArrayList<>();
-        rows.add(InspectRow.heading("h:type", Labels.of(heading)));
+        if (!titled.isBlank()) {
+            rows.add(InspectRow.heading("h:type", titled));
+        }
         Set<String> named = new TreeSet<>();
         int group = 0;
         for (TypeGroup each : groups) {
@@ -351,7 +396,11 @@ public final class QuestPanelLayout {
             }
             rows.add(InspectRow.heading(TYPE_GROUP_PREFIX + group++, Labels.of(each.title())));
             for (TypeChoice choice : shown) {
-                rows.add(InspectRow.action(TYPE_PREFIX + choice.id(), Labels.of(choice.name())));
+                // The id rides in the row's value slot, which is what the row drawing puts at the right
+                // end — the same place the item picker puts an item's id, so the two lists read alike and
+                // the spelling a file uses is on screen rather than only in a hover.
+                rows.add(new InspectRow(TYPE_PREFIX + choice.id(), InspectRow.Kind.ACTION,
+                        Labels.of(choice.name()), choice.id()));
                 named.add(choice.id());
             }
         }
@@ -638,14 +687,75 @@ public final class QuestPanelLayout {
         return "rewards".equals(member) ? RewardTypes.ids().contains(id) : TaskTypes.ids().contains(id);
     }
 
-    /** The tree a fresh entry of this type starts as, or null for a type this build cannot add. */
-    public static JsonObject defaultEntry(String member, String typeId) {
+    /**
+     * The tree a fresh <b>task or reward</b> of this type starts as, or null for a type this build
+     * cannot add.
+     *
+     * <h2>This returns the element of a quest's list, not of a table's</h2>
+     *
+     * <p>A quest's {@code rewards[]} holds rewards and a table's {@code entries[]} holds
+     * {@code {weight, reward}} pairs, so this tree is the right element for exactly one of the two
+     * lists. It said "a fresh entry of this type", and that word is what cost the table editor every
+     * press of its {@code + Reward} button: the caller read "entry", passed the result to
+     * {@code TableOp.Insert} — which documents itself as taking one entry — and the file was written
+     * with a reward where an entry belongs, refused by the validator as {@code unknown field "type"}.
+     *
+     * <p>A table's element is built by {@link #tableEntry}, and the two are deliberately separate
+     * methods rather than one that guesses: nothing about a reward tree says which list it is for.
+     */
+    public static JsonObject defaultElement(String member, String typeId) {
         ResourceLocation id = ResourceLocation.tryParse(typeId);
         if (id == null) {
             return null;
         }
         return ("rewards".equals(member) ? RewardTypes.defaultTree(id) : TaskTypes.defaultTree(id))
                 .orElse(null);
+    }
+
+    /**
+     * One <b>table entry</b>, from a reward tree: {@code {"weight": 1, "reward": …}}.
+     *
+     * <p>The shape is the file's — {@code RewardTable.Entry}'s two fields — and it lives here, beside
+     * {@link #defaultElement}, because that pairing is the whole lesson: a reward and a table entry are
+     * two different elements, and the three places that add an entry (the type picker, an item pick, a
+     * drag from a recipe viewer) each built this by hand. Two of them wrapped the reward and one did
+     * not, which is why adding an item worked and adding anything else was refused.
+     */
+    public static JsonObject tableEntry(JsonObject reward) {
+        JsonObject entry = new JsonObject();
+        // One, and not a share of anything: a weight added by a press is the neutral starting point an
+        // author tunes from. Zero would mean "always granted", which is a statement about the entry
+        // rather than a default.
+        entry.addProperty("weight", 1);
+        entry.add("reward", reward);
+        return entry;
+    }
+
+    /**
+     * One table entry holding an item, with the count of the stack it came from.
+     *
+     * <h2>Why the count is a parameter rather than the caller's business</h2>
+     *
+     * <p>The two ways an item gets into a table disagreed about it: a recipe-viewer drop carried the
+     * stack's count — a dragged stack of eight became eight — while an item picked in the picker, which
+     * <i>shows</i> the carried count ("x128 Iron Ore"), wrote no count at all and became one. The same
+     * stack, the same panel, two answers; and the picker was showing a number it then threw away.
+     *
+     * <p>A count of one is written as <b>absent</b>, because that is what the format's default is: an
+     * entry carrying no {@code count} and one carrying {@code 1} are the same entry, and the shorter file
+     * is the one an author reads.
+     */
+    public static JsonObject itemEntry(String itemId, int count, com.google.gson.JsonElement components) {
+        JsonObject reward = new JsonObject();
+        reward.addProperty("type", ItemReward.TYPE.toString());
+        reward.addProperty("item", itemId);
+        if (count > 1) {
+            reward.addProperty("count", count);
+        }
+        if (components != null && !components.isJsonNull()) {
+            reward.add("components", components);
+        }
+        return tableEntry(reward);
     }
 
     /**

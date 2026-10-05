@@ -305,9 +305,6 @@ class ChapterPanelLayoutTest {
                 "the row's label is a key; the screen resolves it");
         assertEquals("Edit mode is off", rows.get(0).value(),
                 "the value is resolved where it is built, so the test reads the sentence");
-        assertEquals("tasked.dev.chapter.edit_hint", ChapterPanelLayout.EDIT_MODE_HINT,
-                "the instruction has to name the button it tells the player to press, and its key is "
-                        + "what the test reads: the sentence lives in en_us");
     }
 
     @Test

@@ -58,7 +58,16 @@ public record EditorField(String path, String label, Kind kind, String unit, Str
         /** A coordinate: three numbers, with a press that fills them from where the player stands. */
         POSITION,
         /** A side length: three numbers, each a count of blocks. */
-        SIZE
+        SIZE,
+        /**
+         * A reward table: a card that names one, opens a browser to pick it, and opens an editor to
+         * change it — the one control that replaces the two JSON boxes a table reward used to carry.
+         *
+         * <p>Its own kind rather than a search box, because a table is not an id you type: it is an
+         * asset with a name, an icon and a roll, and the whole point of the editor is that an author
+         * never has to know its file name.
+         */
+        TABLE
     }
 
     /** A list a {@link Kind#SEARCH} can search. Every one is resolvable on the client alone. */
@@ -152,6 +161,18 @@ public record EditorField(String path, String label, Kind kind, String unit, Str
         return new EditorField(path, label, Kind.SIZE, "blocks", "", null, null);
     }
 
+    /**
+     * A reward table, chosen in the browser and edited in place.
+     *
+     * <p>The path is the reward's own {@code table} field; the control also owns the {@code inline}
+     * beside it, the way an item control owns the {@code components} beside its item — the two are one
+     * choice ("this reward rolls <i>this</i> table"), and drawing them as two boxes is what made an
+     * author pick one and then wonder why the other one won.
+     */
+    public static EditorField table(String path, String label) {
+        return new EditorField(path, label, Kind.TABLE, "", "", null, null);
+    }
+
     /** Whether this field is drawn as three numbers rather than one control. */
     public boolean isTriple() {
         return kind == Kind.POSITION || kind == Kind.SIZE;
@@ -192,6 +213,11 @@ public record EditorField(String path, String label, Kind kind, String unit, Str
         if (isTriple()) {
             return List.of(path);
         }
-        return kind == Kind.ITEM ? List.of(path, componentsPath()) : List.of(path);
+        if (kind == Kind.ITEM) {
+            return List.of(path, componentsPath());
+        }
+        // A table control edits the reference and the inline table beside it: one choice, two fields,
+        // exactly as an item control covers the components beside its item.
+        return kind == Kind.TABLE ? List.of(path, "inline") : List.of(path);
     }
 }

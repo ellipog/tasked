@@ -62,37 +62,4 @@ public final class ChapterPanel {
                 unset ? ArmatureTheme.faint() : ArmatureTheme.title());
     }
 
-    /**
-     * The chapter's identity: its icon, its title and its subtitle, on the band the frame reserved.
-     *
-     * @param icon   the resolved icon, or empty when the chapter's item is unknown or absent
-     * @param iconId the id as the file spells it, for the placeholder below
-     */
-    public static void drawHeader(GuiRenderer r, BookGeometry.Rect band, ToolsLayout.ChapterHeader parts,
-                                  ChapterPanelLayout.Header header, ItemStack icon, String iconId) {
-        ArmatureTheme.panel(r, band.x(), band.y(), band.width(), band.height(),
-                ArmatureTheme.recessed(), ArmatureTheme.panelEdge());
-
-        if (icon != null && !icon.isEmpty()) {
-            r.icon(icon, parts.icon().x(), parts.icon().y(), parts.icon().width());
-        }
-        else if (!iconId.isEmpty()) {
-            // The id names something this client does not have -- a missing mod, or a typo. Drawn as a
-            // mark rather than as nothing: an empty box reads as "no icon set", which is a different
-            // fact from "set to something absent", and only one of the two is worth chasing.
-            r.fill(parts.icon().x(), parts.icon().y(), parts.icon().right(), parts.icon().bottom(),
-                    ArmatureTheme.blocked());
-            r.centredText("?", parts.icon().x() + parts.icon().width() / 2,
-                    parts.icon().y() + (parts.icon().height() - 8) / 2, ArmatureTheme.title());
-        }
-
-        Measure measure = Measure.of(r::textWidth, r.lineHeight());
-        r.text(Measure.truncate(header.title(), parts.title().width(), measure), parts.title().x(),
-                parts.title().y() + (parts.title().height() - 8) / 2, ArmatureTheme.title());
-        if (!header.subtitle().isEmpty() && parts.subtitle().height() > 0) {
-            r.text(Measure.truncate(header.subtitle(), parts.subtitle().width(), measure),
-                    parts.subtitle().x(), parts.subtitle().y() + (parts.subtitle().height() - 8) / 2,
-                    ArmatureTheme.faint());
-        }
-    }
 }

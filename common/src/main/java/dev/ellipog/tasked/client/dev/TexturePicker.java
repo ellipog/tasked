@@ -97,24 +97,25 @@ public final class TexturePicker {
 
         String value = current == null ? "" : current.trim();
         if (!value.isEmpty() && !known(entries, value)) {
-            rows.add(new ItemPickerLayout.Row(ItemPickerLayout.Kind.MISSING, value, value,
+            rows.add(ItemPickerLayout.Row.of(ItemPickerLayout.Kind.MISSING, value, value,
                     Labels.of("tasked.dev.texture.missing")));
         }
 
         List<ItemPicker.Entry> matches = ItemPicker.rank(entries, query, ItemPicker.LIMIT);
         String typed = ItemPicker.missingCandidate(query, matches);
         if (!matches.isEmpty() || typed != null) {
-            rows.add(new ItemPickerLayout.Row(ItemPickerLayout.Kind.HEADING, "",
+            rows.add(ItemPickerLayout.Row.of(ItemPickerLayout.Kind.HEADING, "",
                     Labels.of("tasked.dev.texture.heading"), ""));
             if (typed != null) {
                 // The same row shape the current value's missing row uses: the id is the label, so it
                 // is visible, and the note says which kind of missing this is. A store row would have
                 // nothing to draw for it, which is why it is not one.
-                rows.add(new ItemPickerLayout.Row(ItemPickerLayout.Kind.MISSING, typed, typed,
+                rows.add(ItemPickerLayout.Row.of(ItemPickerLayout.Kind.MISSING, typed, typed,
                         Labels.of("tasked.dev.texture.missing")));
             }
             for (ItemPicker.Entry entry : matches) {
-                rows.add(new ItemPickerLayout.Row(ItemPickerLayout.Kind.TEXTURE, entry.id(),
+                // A texture is not a stack: `of` gives it the count of one, which is the floor.
+                rows.add(ItemPickerLayout.Row.of(ItemPickerLayout.Kind.TEXTURE, entry.id(),
                         entry.label(), entry.data()));
             }
         }

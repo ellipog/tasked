@@ -153,6 +153,10 @@ public final class TaskedCommand {
                                         .executes(ctx -> stageList(ctx,
                                                 EntityArgument.getPlayer(ctx, "player"))))))
 
+                // The reward tables, in their own file: reading a chest and filling one are aimed
+                // actions, and the editor cannot do them because a screen captures the mouse.
+                .then(TaskedTableCommand.node())
+
                 // The party commands, in their own file. Not a tidiness split: this one is 598 lines
                 // about quests, and party membership is a different subject with a different owner --
                 // Armature's teams. Two subjects, two files, and the boundary is where a reader would
@@ -246,6 +250,11 @@ public final class TaskedCommand {
         // `TaskedQuests.reload` would throw the undo history away after every applied op, because that is what
         // applying an op calls to put its own write on the canvas.
         TaskedQuests.editors().forget();
+        // And the table editors' draft cache, for the same reason and in the same place: a table edit
+        // validates against the file as it was last read, so a hand edit would be silently reverted by
+        // the next in-game one. `/tasked reload` is the one gesture that says "the files changed
+        // without me", so it is where that cache goes.
+        TaskedQuests.tables().forget();
         QuestLoader.Result result = TaskedQuests.reload();
         var problems = result.problems();
 

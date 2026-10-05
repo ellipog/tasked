@@ -152,7 +152,9 @@ public final class ChapterPanelLayout {
             return List.copyOf(rows);
         }
 
-        rows.add(InspectRow.heading(IDENTITY, "tasked.dev.chapter.identity"));
+        rows.add(InspectRow.heading(IDENTITY,
+                (folded.contains(IDENTITY) ? "› " : "▼ ")
+                        + "tasked.dev.chapter.identity"));
         if (!folded.contains(IDENTITY)) {
             rows.add(InspectRow.field("title", "tasked.dev.chapter.title", text(chapter, "title", "")));
             rows.add(InspectRow.field("subtitle", "tasked.dev.chapter.subtitle",
@@ -164,7 +166,9 @@ public final class ChapterPanelLayout {
                     String.join(", ", QuestPanelLayout.strings(chapter, "aliases"))));
         }
 
-        rows.add(InspectRow.heading(RULES, "tasked.dev.chapter.rules"));
+        rows.add(InspectRow.heading(RULES,
+                (folded.contains(RULES) ? "› " : "▼ ")
+                        + "tasked.dev.chapter.rules"));
         if (!folded.contains(RULES)) {
             rows.add(choiceRow(chapter, PROGRESSION));
             rows.add(toggle(chapter, "defaultConsumeItems"));
@@ -182,7 +186,9 @@ public final class ChapterPanelLayout {
             // Before the quest list, not after it: a chapter with twenty quests would push the group's
             // own fields below a scroll nobody makes, and the group is the thing this section exists to
             // make reachable.
-            rows.add(InspectRow.heading(GROUP, "tasked.dev.chapter.group"));
+            rows.add(InspectRow.heading(GROUP,
+                    (folded.contains(GROUP) ? "› " : "▼ ")
+                            + "tasked.dev.chapter.group"));
             if (!folded.contains(GROUP)) {
                 rows.add(InspectRow.field(GROUP_PREFIX + "title", "tasked.dev.chapter.title",
                         group.title()));
@@ -194,7 +200,9 @@ public final class ChapterPanelLayout {
             }
         }
 
-        rows.add(InspectRow.heading(QUESTS, "tasked.dev.chapter.quests"));
+        rows.add(InspectRow.heading(QUESTS,
+                (folded.contains(QUESTS) ? "› " : "▼ ")
+                        + "tasked.dev.chapter.quests"));
         if (!folded.contains(QUESTS)) {
             List<String> quests = QuestPanelLayout.strings(chapter, "quests");
             for (int i = 0; i < quests.size(); i++) {
@@ -205,15 +213,6 @@ public final class ChapterPanelLayout {
         }
         return List.copyOf(rows);
     }
-
-    /**
-     * The instruction the tab adds when the tools are shut, drawn by the screen in the panel's feedback
-     * band.
-     *
-     * <p>A constant rather than a literal at the drawing site because the test that says the sentence
-     * still names the button it tells you to press reads this, not a copy of it.
-     */
-    public static final String EDIT_MODE_HINT = "tasked.dev.chapter.edit_hint";
 
     /**
      * The tab for a player who is not in edit mode: one line naming the state, and nothing to press.
@@ -274,6 +273,41 @@ public final class ChapterPanelLayout {
         public boolean isLineStyle() {
             return key.startsWith(DEPENDENCY_STYLE + ".");
         }
+    }
+
+    /**
+     * The help a chapter row offers on hover, or null for a row whose label says it itself.
+     *
+     * <h2>Why a table, and why these rows needed one</h2>
+     *
+     * <p>The same shape {@code ToolsLayout.HELP} uses for the appearance rows, so the two halves of the
+     * Chapter tab answer the pointer the same way. The rules are the reason it exists: "Default
+     * Prerequisite Mode" is a name rather than an explanation, and the six line-style rows read like
+     * JSON keys. The keys are the commit paths, so the table and the rows cannot drift about which key
+     * a sentence belongs to.
+     */
+    private static final Map<String, String> HELP = Map.ofEntries(
+            Map.entry("title", "tasked.dev.chapter.help.title"),
+            Map.entry("subtitle", "tasked.dev.chapter.help.subtitle"),
+            Map.entry(ICON, "tasked.dev.chapter.help.icon"),
+            Map.entry("aliases", "tasked.dev.chapter.help.aliases"),
+            Map.entry("progressionMode", "tasked.dev.chapter.help.progression"),
+            Map.entry("defaultConsumeItems", "tasked.dev.chapter.help.consume_items"),
+            Map.entry("defaultPrerequisiteMode", "tasked.dev.chapter.help.prerequisite"),
+            Map.entry("autoClaim", "tasked.dev.chapter.help.auto_claim"),
+            Map.entry(DEPENDENCY_STYLE + ".form", "tasked.dev.chapter.help.line_form"),
+            Map.entry(DEPENDENCY_STYLE + ".arrowHead", "tasked.dev.chapter.help.line_head"),
+            Map.entry(DEPENDENCY_STYLE + ".arrowPlace", "tasked.dev.chapter.help.line_place"),
+            Map.entry(DEPENDENCY_STYLE + ".arrowDensity", "tasked.dev.chapter.help.line_density"),
+            Map.entry(DEPENDENCY_STYLE + ".dash", "tasked.dev.chapter.help.line_pattern"),
+            Map.entry(DEPENDENCY_STYLE + ".weight", "tasked.dev.chapter.help.line_weight"),
+            Map.entry(GROUP_PREFIX + "title", "tasked.dev.chapter.help.group_title"),
+            Map.entry(GROUP_PREFIX + ICON, "tasked.dev.chapter.help.group_icon"),
+            Map.entry(GROUP_PREFIX + "collapsedByDefault", "tasked.dev.chapter.help.group_collapsed"));
+
+    /** The help a chapter row key offers, or null. Headings and quest rows say themselves. */
+    public static String help(String key) {
+        return key == null ? null : HELP.get(key);
     }
 
     public static final Choice PROGRESSION =

@@ -55,6 +55,7 @@ class EditorSpecsTest {
             Map.entry("fluid", Set.of(EditorField.Kind.SEARCH)),
             Map.entry("entity", Set.of(EditorField.Kind.SEARCH)),
             Map.entry("toObserve", Set.of(EditorField.Kind.SEARCH)),
+            Map.entry("table", Set.of(EditorField.Kind.TABLE)),
             Map.entry("tag", Set.of(EditorField.Kind.TAG)),
             Map.entry("entityTypeTag", Set.of(EditorField.Kind.TAG)));
 

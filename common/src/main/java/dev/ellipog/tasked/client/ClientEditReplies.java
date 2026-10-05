@@ -36,7 +36,49 @@ public final class ClientEditReplies {
 
     private static final Deque<EditorReplyPayload> replies = new ArrayDeque<>();
 
+    /**
+     * What each in-flight request was, oldest first — the marker the reply loop matches answers against.
+     *
+     * <h2>Why the markers live here rather than on the screen</h2>
+     *
+     * <p>Because a request is not always answered by an edit reply. A replica fetch and a test roll are
+     * answered by their own payloads when they succeed and by an edit reply only when they are refused,
+     * and those payload handlers have no screen — the answer arrives on the game thread with whatever is
+     * open, which may be nothing. Keeping the markers beside the replies means both doors consume from
+     * one queue, so a successful fetch and a refusal move the same needle and the ops after them are not
+     * matched to the wrong answer.
+     *
+     * <p>Reading consumes, like the replies: a marker nobody pops is a marker that mis-aligns everything
+     * after it. Bounded like the replies, and cleared with them when the client leaves the world.
+     */
+    private static final Deque<String> sent = new ArrayDeque<>();
+
     private ClientEditReplies() {
+    }
+
+    /**
+     * Records that one request went out, so its answer can be matched to it.
+     *
+     * <p>Called where the request is sent — an op, a replica fetch, a test roll. The empty string is a
+     * quest op's marker and a table op records its own kind, which is what the reply loop reads to decide
+     * whether an answer moves the table panel's undo budget.
+     */
+    public static synchronized void noteSent(String marker) {
+        if (sent.size() >= MAX) {
+            sent.removeFirst();
+        }
+        sent.addLast(marker == null ? "" : marker);
+    }
+
+    /**
+     * The oldest marker still waiting, or null when the answer arrived through its own payload.
+     *
+     * <p>Null rather than an exception: a payload answered by something that never pushed a marker — a
+     * broadcast nobody asked for — is normal, and the reply loop treats an unknown answer as news about a
+     * copy rather than as an op's result.
+     */
+    public static synchronized String takeSent() {
+        return sent.pollFirst();
     }
 
     /** Called by the payload handler. */
@@ -66,5 +108,6 @@ public final class ClientEditReplies {
     /** Forgets everything: called when the client leaves the world it was editing. */
     public static synchronized void clear() {
         replies.clear();
+        sent.clear();
     }
 }

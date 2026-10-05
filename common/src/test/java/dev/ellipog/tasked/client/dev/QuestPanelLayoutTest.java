@@ -456,4 +456,96 @@ class QuestPanelLayoutTest {
         assertNull(QuestPanelLayout.get(quest, "tasks.notAnIndex"), "and so is a word where an index belongs");
         assertEquals("minecraft:iron_block", QuestPanelLayout.get(quest, "rewards.0.item").getAsString());
     }
+
+    @Test
+    @DisplayName("a page of types names the act on its first line, for a host that cannot")
+    void theTypePageNamesItsAct() {
+        // The quest card's host: its chrome is the quest's identity, so the page has to say what it is for
+        // itself -- and this is the only host that does, which is why the method is separate from the one
+        // the table editor calls.
+        List<InspectRow> rows = QuestPanelLayout.typeRows("rewards");
+
+        assertEquals(InspectRow.Kind.HEADING, rows.get(0).kind());
+        assertEquals("h:type", rows.get(0).key(), "the page's own line, keyed as the page's");
+        assertTrue(rows.get(0).label().toLowerCase(java.util.Locale.ROOT).contains("reward"),
+                "and it says what the page adds: " + rows.get(0).label());
+        assertTrue(QuestPanelLayout.typeRows("tasks").get(0).label()
+                        .toLowerCase(java.util.Locale.ROOT).contains("task"),
+                "the task member says task, from its own key");
+    }
+
+    @Test
+    @DisplayName("an item entry carries the stack it came from")
+    void anItemEntryCarriesItsCount() {
+        // The two ways an item gets into a table disagreed about this: a recipe-viewer drop carried the
+        // stack's count, while an item picked in the picker wrote none — and the picker was *showing* the
+        // count ("x128 Iron Ore"). One factory, one rule, so the number on screen is the number in the file.
+        JsonObject one = QuestPanelLayout.itemEntry("minecraft:stone", 1, null);
+
+        assertEquals(1.0, one.get("weight").getAsDouble(), "a new entry starts at the neutral weight");
+        JsonObject single = one.getAsJsonObject("reward");
+        assertEquals("tasked:item", single.get("type").getAsString());
+        assertEquals("minecraft:stone", single.get("item").getAsString());
+        assertFalse(single.has("count"), "a count of one is the format's default, and is left out");
+
+        JsonObject stack = QuestPanelLayout.itemEntry("minecraft:iron_ore", 128, null)
+                .getAsJsonObject("reward");
+        assertEquals(128, stack.get("count").getAsInt(), "a stack of 128 becomes 128");
+
+        // The picked data travels with the id, and an absent patch is absent rather than a null member.
+        JsonObject patched = QuestPanelLayout.itemEntry("minecraft:stone", 2,
+                JsonParser.parseString("{\"minecraft:custom_name\":\"Rock\"}")).getAsJsonObject("reward");
+        assertEquals(2, patched.get("count").getAsInt());
+        assertTrue(patched.has("components"), "the renamed stack is that stack");
+        assertFalse(QuestPanelLayout
+                .itemEntry("minecraft:stone", 1, com.google.gson.JsonNull.INSTANCE)
+                .getAsJsonObject("reward").has("components"));
+    }
+
+    @Test
+    @DisplayName("a page whose chrome names it has no heading row at all")
+    void aPageNamedInItsChromeHasNoFirstLine() {
+        // The table editor's strip says "Add a reward" while the page is open, so a heading row could only
+        // repeat that sentence or name the table -- and the table's name there was the first thing the eye
+        // landed on and the last thing it needed. The list begins at its first group heading instead.
+        List<InspectRow> rows = QuestPanelLayout.typeRowsNamedInChrome("rewards");
+
+        assertFalse(rows.isEmpty(), "the page must still list the registered types");
+        assertEquals(InspectRow.Kind.HEADING, rows.get(0).kind(),
+                "the first line is a group's heading, not the page's");
+        assertTrue(rows.stream().noneMatch(row -> "h:type".equals(row.key())),
+                "and there is no page heading row: " + rows.get(0).key());
+
+        // Everything else is the list the named page shows, minus that one row.
+        List<InspectRow> named = QuestPanelLayout.typeRows("rewards");
+        assertEquals(named.size() - 1, rows.size(), "one row fewer, and it is the heading");
+        for (int i = 0; i < rows.size(); i++) {
+            assertEquals(named.get(i + 1).key(), rows.get(i).key(), "row " + i + " is the same row");
+            assertEquals(named.get(i + 1).label(), rows.get(i).label());
+            assertEquals(named.get(i + 1).value(), rows.get(i).value(), "and carries the same id");
+        }
+    }
+
+    @Test
+    @DisplayName("a type row carries the id a file spells, unless its name is that id")
+    void typeRowsCarryTheirIds() {
+        // The right-aligned detail the item picker puts on a row — an item's id beside its name — so the
+        // spelling a file uses is on screen rather than only in a hover.
+        List<InspectRow> actions = QuestPanelLayout.typeRows("rewards").stream()
+                .filter(row -> row.kind() == InspectRow.Kind.ACTION).toList();
+
+        assertFalse(actions.isEmpty(), "the picker must list the registered types");
+        for (InspectRow row : actions) {
+            assertTrue(row.key().startsWith(QuestPanelLayout.TYPE_PREFIX), row.key());
+            String id = row.key().substring(QuestPanelLayout.TYPE_PREFIX.length());
+            if (row.label().equals(id)) {
+                // A type no table names is already labelled by its id, and printing it twice on one line
+                // is the duplication the header's title and id had.
+                assertTrue(row.value().isEmpty(), row.key() + " would print its id twice");
+            }
+            else {
+                assertEquals(id, row.value(), row.key() + " must carry the id it writes");
+            }
+        }
+    }
 }

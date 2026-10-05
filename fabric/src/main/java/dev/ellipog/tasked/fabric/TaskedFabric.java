@@ -2,6 +2,8 @@ package dev.ellipog.tasked.fabric;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.inventory.InventoryAccesses;
+import dev.ellipog.tasked.inventory.VanillaInventory;
 import dev.ellipog.tasked.net.TaskedNetworking;
 
 import net.fabricmc.api.ModInitializer;
@@ -33,6 +35,11 @@ public final class TaskedFabric implements ModInitializer {
         Tasked.init();
 
         ArmatureNetwork.install(new FabricNetworking());
+
+        // Fabric has no item-handler capability, so the vanilla semantics are the whole truth and the
+        // common implementation is installed explicitly rather than left to the default -- the two
+        // loaders then read the same, and the seam is visible at both entry points.
+        InventoryAccesses.install(VanillaInventory.INSTANCE);
 
         // The server half of Fabric's two-part registration. The client half is in TaskedFabricClient.
         TaskedFabric.registerServerReceivers();

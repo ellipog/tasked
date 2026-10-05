@@ -53,19 +53,38 @@ public final class ServerEditors {
             // edit to a chapter needs one to edit. See `EditorOps.applyWithoutSession`.
             return EditorOps.applyWithoutSession(root.get(), op);
         }
-        QuestEditor editor = open.get(chapter);
+        QuestEditor editor = open(chapter).orElse(null);
         if (editor == null) {
-            editor = QuestEditor.open(root.get(), chapter).orElse(null);
-            if (editor == null) {
-                return EditorOps.Applied.refused("no chapter called \"" + chapter + "\"");
-            }
-            open.put(chapter, editor);
+            return EditorOps.Applied.refused("no chapter called \"" + chapter + "\"");
         }
         EditorOps.Applied applied = EditorOps.apply(editor, op);
         if (applied.ok() && touchesStructure(applied)) {
             follow(chapter, editor, applied);
         }
         return applied;
+    }
+
+    /**
+     * The chapter's editor, opening it if it is not open.
+     *
+     * <p>For the callers that need the model rather than an op applied to it: a table's inline draft
+     * edits a quest file through this editor, so that its history and its save are the chapter's —
+     * an inline table <i>is</i> a quest field, and its undo is the same key as a title edit's.
+     */
+    public java.util.Optional<QuestEditor> open(String chapter) {
+        if (chapter == null || chapter.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        QuestEditor editor = open.get(chapter);
+        if (editor != null) {
+            return java.util.Optional.of(editor);
+        }
+        editor = QuestEditor.open(root.get(), chapter).orElse(null);
+        if (editor == null) {
+            return java.util.Optional.empty();
+        }
+        open.put(chapter, editor);
+        return java.util.Optional.of(editor);
     }
 
     /**

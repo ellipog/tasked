@@ -32,6 +32,13 @@ import java.util.Objects;
  * where the value is read; the Chapter tab builds all of its rows from the whole tree at once, so
  * {@link #overlaid} hands it a copy with the pending values applied and every row sees them.
  *
+ * <p>A third shape arrived with the reward-table panels: a panel whose values live in a file that is
+ * <b>not</b> the chapter's copy — a table's own file, or an inline table inside a quest — and whose
+ * paths are relative to that table. It reads through {@link #overlaid} like the Chapter tab does, and
+ * converges through {@link #reconcileOwner} against the copy it is actually drawing, because
+ * {@link #reconcile} compares <i>every</i> draft in a chapter against the chapter's values and would
+ * judge a table's drafts by the wrong file.
+ *
  * <h2>Why the expiry rule is not {@code SettingsDraft}'s</h2>
  *
  * <p>The settings page's preview draft expires the moment a newer tree arrives, because its preview
@@ -351,6 +358,47 @@ public final class FieldDraft {
     }
 
     /**
+     * The same, for one owner, against the copy that owner's values actually come from.
+     *
+     * <p>For a panel whose file is not the chapter's: a reward table's own file, or an inline table
+     * inside a quest. {@link #reconcile} walks every draft in the chapter and asks the chapter's copy
+     * about each — which is right for the card and wrong here, because a table's values are not in that
+     * copy at all. Same rules, one owner.
+     */
+    public void reconcileOwner(String chapter, String owner, Long copyRevision, ServerValues values,
+                               long nowMillis) {
+        if (chapter == null || owner == null || copyRevision == null) {
+            return;
+        }
+        boolean removed = pending.values().removeIf(entry ->
+                Objects.equals(entry.chapter(), chapter) && Objects.equals(entry.owner(), owner)
+                        && stale(entry, copyRevision, values, nowMillis));
+        if (removed) {
+            version++;
+        }
+    }
+
+    /**
+     * Forgets one owner's drafts, and the overlays made for it.
+     *
+     * <p>What an undo needs: the server has just put the file back, and a draft still holding the value
+     * the author undid would keep drawing it — a Ctrl+Z that appears to do nothing. Also what a refusal
+     * needs, for the same reason from the other side: the edit did not stick, so nothing should pretend
+     * it did.
+     */
+    public void forgetOwner(String chapter, String owner) {
+        if (owner == null) {
+            return;
+        }
+        boolean removed = pending.values().removeIf(entry ->
+                Objects.equals(entry.chapter(), chapter) && Objects.equals(entry.owner(), owner));
+        overlays.keySet().removeIf(key -> Objects.equals(key, chapter + "\u0000" + owner));
+        if (removed) {
+            version++;
+        }
+    }
+
+    /**
      * Reconciles the drafts against one chapter's replica copy.
      *
      * @param chapter      the chapter the copy is for
@@ -362,37 +410,46 @@ public final class FieldDraft {
         if (chapter == null || copyRevision == null) {
             return;
         }
-        boolean removed = pending.values().removeIf(entry -> {
-            if (!Objects.equals(entry.chapter(), chapter) || copyRevision <= entry.revision()) {
-                return false;
-            }
-            // A copy newer than the write that no longer has the list position this draft names: the
-            // shape moved under it, most likely by another author (a local shift forgets first). The
-            // draft is about nothing now, and letting it live would draw -- and commit -- its value on
-            // whichever entry the position landed on.
-            if (outOfRange(entry.path(), entry.owner(), values)) {
-                return true;
-            }
-            JsonElement server = values.value(entry.owner(), entry.path());
-            // A cleared field is a draft whose value is null, and it converges when the copy holds
-            // nothing there: `server.equals(null)` would never be true, so the cleared case needs its
-            // own comparison or it could only ever expire on the clock.
-            boolean same = entry.value() == null
-                    ? server == null : server != null && server.equals(entry.value());
-            if (same) {
-                return true;
-            }
-            // A copy newer than the ask that disagrees: a refusal whose reply was missed, or another
-            // author's edit. Bounded by time, because a burst's own copies can land mid-burst, and
-            // because a refusal does not move the tree -- so this is the only guard for one whose
-            // reply never arrived.
-            return nowMillis - entry.atMillis() > STALE_MILLIS;
-        });
+        boolean removed = pending.values().removeIf(entry ->
+                Objects.equals(entry.chapter(), chapter) && stale(entry, copyRevision, values, nowMillis));
         if (removed) {
             // Only a removal changes what an overlay should hold: this runs every frame, and bumping
             // the version unconditionally would throw the cache away on every one of them.
             version++;
         }
+    }
+
+    /**
+     * Whether a draft is finished: the copy has caught up with it, or has disagreed for too long.
+     *
+     * <p>One predicate for both reconcilers, because the rules are one rule — the difference between
+     * them is which drafts they are asked about, not what counts as done.
+     */
+    private static boolean stale(Pending entry, long copyRevision, ServerValues values, long nowMillis) {
+        if (copyRevision <= entry.revision()) {
+            return false;
+        }
+        // A copy newer than the write that no longer has the list position this draft names: the
+        // shape moved under it, most likely by another author (a local shift forgets first). The
+        // draft is about nothing now, and letting it live would draw -- and commit -- its value on
+        // whichever entry the position landed on.
+        if (outOfRange(entry.path(), entry.owner(), values)) {
+            return true;
+        }
+        JsonElement server = values.value(entry.owner(), entry.path());
+        // A cleared field is a draft whose value is null, and it converges when the copy holds
+        // nothing there: `server.equals(null)` would never be true, so the cleared case needs its
+        // own comparison or it could only ever expire on the clock.
+        boolean same = entry.value() == null
+                ? server == null : server != null && server.equals(entry.value());
+        if (same) {
+            return true;
+        }
+        // A copy newer than the ask that disagrees: a refusal whose reply was missed, or another
+        // author's edit. Bounded by time, because a burst's own copies can land mid-burst, and
+        // because a refusal does not move the tree -- so this is the only guard for one whose
+        // reply never arrived.
+        return nowMillis - entry.atMillis() > STALE_MILLIS;
     }
 
     /**

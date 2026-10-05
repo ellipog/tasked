@@ -118,8 +118,10 @@ class PayloadTest {
                 "tasked:choice_reward",
                 "tasked:claim_all",
                 "tasked:claim_choice",
+                "tasked:claim_choice_result",
                 "tasked:claim_reward",
                 "tasked:claim_reward_entry",
+                "tasked:claim_summary",
                 "tasked:dimension_sync",
                 "tasked:editor_op",
                 "tasked:editor_reply",
@@ -129,7 +131,13 @@ class PayloadTest {
                 "tasked:replica_request",
                 "tasked:reward_overflow",
                 "tasked:stage_sync",
-                "tasked:submit_task"), ids);
+                "tasked:submit_task",
+                "tasked:table_import_request",
+                "tasked:table_open",
+                "tasked:table_replica",
+                "tasked:table_replica_request",
+                "tasked:table_roll",
+                "tasked:table_roll_request"), ids);
     }
 
     @Test
@@ -150,6 +158,11 @@ class PayloadTest {
         // What a grant had to drop. Server to client, because the server is the one that knows: the
         // other way round it would be a book asking a question the action bar already answers.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:reward_overflow"));
+        // How a sweep ended, and the verdict on a pick: both are answers the panel waits for, so both
+        // travel from the server. Registered the other way round, a sweep that stopped would look
+        // exactly like one that finished, and a refused pick would look like a card that did nothing.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:claim_summary"));
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:claim_choice_result"));
         // A roster is server state, so it goes one way. Registered the other way round it would never
         // arrive, and the panel would sit on its empty state with nothing in either log.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:party_sync"));
@@ -215,6 +228,26 @@ class PayloadTest {
                 new RewardOverflowPayload(2, 64));
         assertEquals(2, dropped.stacks(), "stacks and items are different numbers on purpose");
         assertEquals(64, dropped.items(), "a stack of sixty-four is one drop and sixty-four items");
+
+        // The footer's filter rides with the press: it only narrows, and a codec that dropped it would
+        // make "Claim items" silently claim everything.
+        ClaimAllPayload filtered = roundTrip(ClaimAllPayload.CODEC,
+                new ClaimAllPayload(dev.ellipog.tasked.progress.ClaimFilter.ITEMS));
+        assertEquals(dev.ellipog.tasked.progress.ClaimFilter.ITEMS, filtered.filter());
+
+        ClaimSummaryPayload summary = roundTrip(ClaimSummaryPayload.CODEC,
+                new ClaimSummaryPayload(3, 8, true));
+        assertEquals(3, summary.claimed());
+        assertEquals(8, summary.total());
+        assertTrue(summary.halted(), "a stopped sweep and a finished one differ by this one bit");
+
+        ClaimChoiceResultPayload verdict = roundTrip(ClaimChoiceResultPayload.CODEC,
+                new ClaimChoiceResultPayload("punch_a_tree", 1,
+                        ClaimChoiceResultPayload.Result.NO_SPACE));
+        assertEquals("punch_a_tree", verdict.questId());
+        assertEquals(1, verdict.rewardIndex());
+        assertEquals(ClaimChoiceResultPayload.Result.NO_SPACE, verdict.result(),
+                "the two refusals are different sentences on the card, so they must survive the wire");
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {
@@ -388,19 +421,21 @@ class PayloadTest {
     }
 
     @Test
-    @DisplayName("the claim-all press is a codec that writes nothing and reads back the same press")
+    @DisplayName("the claim-all press carries its filter and no quest list")
     void claimAllRoundTrip() {
-        // Its own buffer rather than the shared helper: that helper asserts bytes were written, which
-        // is exactly what an empty payload must not do. Nothing to carry is still something to get
-        // right -- a read side needing bytes the write side never wrote would fail here, not in the
-        // panel, and the buffer staying empty is the property the wire is trusting.
+        // It used to carry nothing at all, and the buffer staying empty was the property the wire
+        // trusted. Now the panel's active chip rides with the press, because the footer button follows
+        // the filter and the server has to know which one it was following. One small int -- and still
+        // no quest ids: which quests are owed remains the server's to decide.
         FriendlyByteBuf plain = new FriendlyByteBuf(Unpooled.buffer());
         RegistryFriendlyByteBuf buffer = RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY).apply(plain);
 
-        ClaimAllPayload.CODEC.encode(buffer, new ClaimAllPayload());
-        assertEquals(0, buffer.writerIndex(), "the press carries nothing, so the buffer stays empty");
+        ClaimAllPayload.CODEC.encode(buffer, new ClaimAllPayload(
+                dev.ellipog.tasked.progress.ClaimFilter.CHOICES));
+        assertEquals(1, buffer.writerIndex(), "one small int for the filter, and no quest list");
 
-        assertEquals(new ClaimAllPayload(), ClaimAllPayload.CODEC.decode(buffer));
+        assertEquals(dev.ellipog.tasked.progress.ClaimFilter.CHOICES,
+                ClaimAllPayload.CODEC.decode(buffer).filter());
     }
 
     @Test

@@ -169,7 +169,7 @@ public final class TaskedNetworking {
                 ClaimAllPayload.CODEC,
                 ArmatureNetwork.Direction.TO_SERVER,
                 null,
-                (payload, sender) -> handleClaimAll(sender)));
+                TaskedNetworking::handleClaimAll));
 
         // --- and one reward on its own, for the rewards panel's rows ---
 
@@ -203,6 +203,22 @@ public final class TaskedNetworking {
                 RewardOverflowPayload.CODEC,
                 ArmatureNetwork.Direction.TO_CLIENT,
                 TaskedNetworking::handleRewardOverflow,
+                null));
+
+        // --- how a sweep ended, and what became of a pick: the two answers the panel waits for ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimSummaryPayload.TYPE,
+                ClaimSummaryPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleClaimSummary,
+                null));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimChoiceResultPayload.TYPE,
+                ClaimChoiceResultPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleClaimChoiceResult,
                 null));
 
         // --- the world's dimensions, server to client ---
@@ -256,6 +272,51 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_CLIENT,
                 TaskedNetworking::handleChapterReplica,
                 null));
+
+        // --- a reward table's file, asked for by an editor ---
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableReplicaRequestPayload.TYPE,
+                TableReplicaRequestPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleTableReplicaRequest));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableReplicaPayload.TYPE,
+                TableReplicaPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleTableReplica,
+                null));
+
+        // --- a table's dice, rolled by the server ---
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableRollRequestPayload.TYPE,
+                TableRollRequestPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleTableRollRequest));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableRollPayload.TYPE,
+                TableRollPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleTableRoll,
+                null));
+
+        // --- a table an editor was told to open, and an import asked for ---
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableOpenPayload.TYPE,
+                TableOpenPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleTableOpen,
+                null));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                TableImportRequestPayload.TYPE,
+                TableImportRequestPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleTableImport));
 
         // --- a party's roster, server to client ---
         //
@@ -459,16 +520,15 @@ public final class TaskedNetworking {
      * press.
      *
      * <p>{@link ProgressService#claimAll} finds the quests itself and asks the same question the single
-     * claim does, so the two controls cannot disagree about what may be taken. The payload carries
-     * nothing -- that is its point -- so it is named and dropped at the registration rather than handed
-     * to a method with a parameter it would never read.
+     * claim does, so the two controls cannot disagree about what may be taken. The one thing the
+     * payload carries is the panel's active filter chip, and it only ever narrows the sweep.
      */
-    private static void handleClaimAll(ServerPlayer sender) {
+    private static void handleClaimAll(ClaimAllPayload payload, ServerPlayer sender) {
         MinecraftServer server = sender.getServer();
         if (server == null || TaskedQuests.index().isEmpty()) {
             return;
         }
-        ProgressService.claimAll(server, sender);
+        ProgressService.claimAll(server, sender, payload.filter());
         // Sent whether or not anything paid, the same correction the single claim's handler documents:
         // a panel showing rewards the server has already given out is put right by the progress the
         // client already knows how to read.
@@ -493,10 +553,41 @@ public final class TaskedNetworking {
                     sender.getScoreboardName(), payload.questId());
             return;
         }
-        if (ProgressService.claimChoice(server, sender, entry.get(), payload.rewardIndex(),
-                payload.entryIndex())) {
+        ClaimChoiceResultPayload.Result result = ProgressService.claimChoice(server, sender, entry.get(),
+                payload.rewardIndex(), payload.entryIndex());
+        if (result == ClaimChoiceResultPayload.Result.OK) {
             sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
         }
+        // The verdict goes back either way, and it is what the card is waiting for: a refusal must
+        // reach the player as an answer on the card rather than as a card that closed and a decision
+        // that vanished. The quest id echoed is the canonical one, so a client holding an alias still
+        // matches it to the offer it is showing.
+        send(sender, new ClaimChoiceResultPayload(entry.get().quest().id(), payload.rewardIndex(), result));
+    }
+
+    /**
+     * How a bulk claim ended, routed to the book.
+     *
+     * <p>Routed rather than held, like the overflow notice: {@code QuestNotifier} owns the client-side
+     * sinks, and the sentence has to reach the book's own stack while the book is open. Outside the
+     * book there is nothing to do here — the action bar the server also sends is where that sentence
+     * belongs.
+     */
+    private static void handleClaimSummary(ClaimSummaryPayload payload) {
+        dev.ellipog.tasked.client.QuestNotifier.claimSummary(payload.claimed(), payload.total(),
+                payload.halted());
+    }
+
+    /**
+     * The server's verdict on a pick, routed to the card that asked.
+     *
+     * <p>The handler tolerates a card that is gone: Escape during the round trip clears the offers, and
+     * a verdict for an offer nobody is showing is dropped rather than matched to whatever is on screen
+     * now. See {@code QuestNotifier.choiceResult}.
+     */
+    private static void handleClaimChoiceResult(ClaimChoiceResultPayload payload) {
+        dev.ellipog.tasked.client.QuestNotifier.choiceResult(payload.questId(), payload.rewardIndex(),
+                payload.result());
     }
 
     // ------------------------------------------------------------------
@@ -532,10 +623,23 @@ public final class TaskedNetworking {
 
     /** Pushes the tree to every connected player, then their progress. Called after a reload. */
     public static void sendTreeToAll(MinecraftServer server) {
+        sendTreeToAll(server, true);
+    }
+
+    /**
+     * The same, optionally leaving progress alone.
+     *
+     * <p>For a table edit: the tree carries the tables' summaries and must go out, but a full progress
+     * sync re-serialises every quest's resolved state for every player, and a reward table cannot have
+     * changed any of it. The progress a player sees is the same progress.
+     */
+    public static void sendTreeToAll(MinecraftServer server, boolean withProgress) {
         QuestIndex index = TaskedQuests.index();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             QuestSync.sendTreeTo(player, index);
-            QuestSync.sendProgress(server, player, ProgressSyncPayload.REASON_RELOAD);
+            if (withProgress) {
+                QuestSync.sendProgress(server, player, ProgressSyncPayload.REASON_RELOAD);
+            }
         }
     }
 
@@ -549,6 +653,17 @@ public final class TaskedNetworking {
     public static void refreshTree(MinecraftServer server) {
         TaskedQuests.reload();
         sendTreeToAll(server);
+    }
+
+    /**
+     * The same, for an edit that only touched the reward tables.
+     *
+     * <p>The tables are re-read; the quest index and the settings are kept, and progress is left alone.
+     * See {@code TreeRefresh.Touch} for why the two refreshes exist.
+     */
+    public static void refreshTables(MinecraftServer server) {
+        TaskedQuests.reloadTables();
+        sendTreeToAll(server, false);
     }
 
     /**
@@ -788,6 +903,9 @@ public final class TaskedNetworking {
      * compares against: a copy and a tree that disagree are a copy to ask for again.
      */
     private static void handleChapterReplica(ChapterReplicaPayload payload) {
+        // One marker goes with it: the fetch is answered here when it succeeds and by an edit reply when
+        // it is refused, and both doors have to move the same needle -- see `ClientEditReplies.noteSent`.
+        ClientEditReplies.takeSent();
         ClientChapterReplica.accept(payload.chapter(), payload.quests(), payload.chapterTree(),
                 ClientQuestCache.treeRevision());
         Constants.LOG.info("tasked: chapter \"{}\" replica received ({} bytes)",
@@ -821,7 +939,25 @@ public final class TaskedNetworking {
             return;
         }
 
-        EditorOp op = EditorOps.read(parse(payload.op()));
+        JsonObject json = parse(payload.op());
+        // One payload carries both families of edit, and the table family is asked first: a table op is
+        // applied by a table draft over a file rather than by a chapter's editor, and the two would
+        // otherwise have to agree about what a "chapter" field means for a table.
+        dev.ellipog.tasked.editor.TableOp tableOp = dev.ellipog.tasked.editor.TableOps.read(json);
+        if (tableOp != null) {
+            EditorOps.Applied applied = TaskedQuests.tables().apply(tableOp);
+            if (applied.ok()) {
+                // Only the tables can have moved, so only the tables are re-read and progress is left
+                // alone -- see `TreeRefresh.Touch`.
+                TreeRefresh.requestTables();
+            }
+            reply(sender, payload.chapter(), applied.ok(),
+                    applied.questId() == null ? "" : applied.questId(),
+                    String.join("\n", applied.messages()));
+            return;
+        }
+
+        EditorOp op = EditorOps.read(json);
         if (op == null) {
             reply(sender, payload.chapter(), false, "", "that is not an edit this version knows");
             return;
@@ -837,6 +973,126 @@ public final class TaskedNetworking {
         reply(sender, payload.chapter(), applied.ok(),
                 applied.questId() == null ? "" : applied.questId(),
                 String.join("\n", applied.messages()));
+    }
+
+    /**
+     * A table's file, for an editor that asked.
+     *
+     * <p>Refused rather than answered with nothing when the id is unknown: the client remembers the
+     * refusal and draws it, which is a sentence an author can act on -- an empty file would look like a
+     * table that is empty.
+     */
+    private static void handleTableReplicaRequest(TableReplicaRequestPayload payload, ServerPlayer sender) {
+        if (!QuestAuthority.mayEdit(sender)) {
+            reply(sender, "", false, "",
+                    "You may not read the quest files (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+            return;
+        }
+        // Read from the file rather than gating on the loaded map. A table the author just made has a
+        // file and is not in that map until the next reload -- which the op itself schedules -- so the
+        // gate refused the editor's first request, and the retry then waited out the replica throttle:
+        // a brand-new table showed "Waiting for this table's file..." and a red refusal for its file
+        // that was right there. The replica is a file read; the map is only for the message.
+        String json = TaskedQuests.tables().replica(payload.table());
+        if (json.isBlank()) {
+            reply(sender, "", false, "", TaskedQuests.tables().exists(payload.table())
+                    ? "reward_tables/" + payload.table() + ".json could not be read"
+                    : "no reward table named \"" + payload.table() + "\"");
+            return;
+        }
+        ArmatureNetwork.sendToPlayer(sender, new TableReplicaPayload(payload.table(), json,
+                TaskedQuests.tables().referrers(payload.table())));
+    }
+
+    private static void handleTableReplica(TableReplicaPayload payload) {
+        // The fetch's own answer, so its marker is consumed here rather than left to mis-align the next
+        // op's reply -- a refusal comes back as an edit reply and pops it there instead.
+        ClientEditReplies.takeSent();
+        dev.ellipog.tasked.client.ClientTableReplica.accept(payload.table(), payload.json(),
+                dev.ellipog.tasked.client.ClientQuestCache.treeRevision(), payload.usedBy());
+    }
+
+    /**
+     * Rolls a table and answers with what came up.
+     *
+     * <p>Rolled on the server because a table's entries can point at other tables: the client holds the
+     * one file it is editing and a summary of the rest, which is enough to draw a table and not enough
+     * to roll one. The count is clamped by {@code TableRoller}, so a forged one cannot spin the thread.
+     *
+     * <p>The reading is the client's, taken as it stands. It used to be inferred here from an
+     * {@code includeEmpty} flag, which meant {@code all_table} and {@code choice} were reported as
+     * weighted rolls of a table whose own panel said otherwise — see {@link TableRollRequestPayload}.
+     */
+    private static void handleTableRollRequest(TableRollRequestPayload payload, ServerPlayer sender) {
+        if (!QuestAuthority.mayEdit(sender)) {
+            reply(sender, "", false, "",
+                    "You may not read the quest files (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+            return;
+        }
+        java.util.Optional<dev.ellipog.tasked.quest.loot.RewardTable> table =
+                TaskedQuests.tables().resolveTable(payload.address());
+        if (table.isEmpty()) {
+            reply(sender, "", false, "", "that table could not be read");
+            return;
+        }
+        dev.ellipog.tasked.quest.loot.TableRoller.Report report =
+                dev.ellipog.tasked.quest.loot.TableRoller.roll(table.get(), payload.mode(),
+                        payload.rolls(), sender.getRandom(),
+                        id -> TaskedQuests.rewardTables().get(id));
+        ArmatureNetwork.sendToPlayer(sender, TableRollPayload.of(report, payload.address().describe()));
+    }
+
+    private static void handleTableRoll(TableRollPayload payload) {
+        // Same door as the replica: a roll is answered by this payload when it works and by an edit
+        // reply when the table cannot be rolled, so one marker is consumed either way.
+        ClientEditReplies.takeSent();
+        dev.ellipog.tasked.client.ClientTableRoll.accept(payload.subject(), payload);
+    }
+
+    /** A command asked for a table's editor: park the request and make sure the book is on screen. */
+    private static void handleTableOpen(TableOpenPayload payload) {
+        dev.ellipog.tasked.client.ClientTableOpen.request(payload.table());
+        dev.ellipog.armature.api.client.ArmatureClient.openScreen(dev.ellipog.tasked.Tasked.QUEST_BOOK_SCREEN);
+    }
+
+    /**
+     * Fills a table from an inventory, on the server.
+     *
+     * <p>The items never travel -- see {@code TableImportRequestPayload} -- and the entries are inserted
+     * as one edit, so a whole chest is one Ctrl+Z. What the author hears back is the count, and the
+     * names of anything that had to be clipped.
+     */
+    private static void handleTableImport(TableImportRequestPayload payload, ServerPlayer sender) {
+        if (!QuestAuthority.mayEdit(sender)) {
+            reply(sender, "", false, "",
+                    "You may not edit the questline (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+            return;
+        }
+        dev.ellipog.tasked.quest.loot.TableImport.Imported imported;
+        if (payload.container()) {
+            java.util.Optional<net.minecraft.world.Container> container =
+                    dev.ellipog.tasked.quest.loot.TableImport.containerLookingAt(sender);
+            if (container.isEmpty()) {
+                reply(sender, "", false, "", dev.ellipog.tasked.quest.loot.TableImport
+                        .lookingAtBlock(sender)
+                        ? "Targeted block is not a container"
+                        : "Look at a container to import");
+                return;
+            }
+            imported = dev.ellipog.tasked.quest.loot.TableImport.fromContainer(container.get());
+        }
+        else {
+            imported = dev.ellipog.tasked.quest.loot.TableImport.fromPlayer(sender);
+        }
+        EditorOps.Applied applied = TaskedQuests.tables().importInto(payload.address(), imported.entries());
+        if (applied.ok()) {
+            TreeRefresh.requestTables();
+        }
+        reply(sender, "", applied.ok(), "",
+                applied.ok()
+                        ? dev.ellipog.tasked.quest.loot.TableImport.describe(imported,
+                                payload.address().describe())
+                        : String.join("\n", applied.messages()));
     }
 
     /** An op's JSON, or null: a payload from a newer client is a refusal rather than a parse crash. */
@@ -890,6 +1146,18 @@ public final class TaskedNetworking {
 
     public static void sendEditorOp(String chapter, EditorOp op) {
         ArmatureNetwork.sendToServer(new EditorOpPayload(chapter, EditorOps.write(op).toString()));
+    }
+
+    /**
+     * The same, for a table edit: one payload, two families.
+     *
+     * <p>The chapter argument is empty for a table op and the server ignores it — a table is a file
+     * rather than a chapter's — but it is still an argument rather than a second payload, because the
+     * two are the same message with different subjects and the client already has one channel for it.
+     */
+    public static void sendEditorOp(String chapter, dev.ellipog.tasked.editor.TableOp op) {
+        ArmatureNetwork.sendToServer(new EditorOpPayload(chapter,
+                dev.ellipog.tasked.editor.TableOps.write(op).toString()));
     }
 
     /**

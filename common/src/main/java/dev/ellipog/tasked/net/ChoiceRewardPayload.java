@@ -26,8 +26,15 @@ import java.util.List;
 public record ChoiceRewardPayload(String questId, int rewardIndex, List<Entry> entries)
         implements CustomPacketPayload {
 
-    /** One entry, as the picker draws it. */
-    public record Entry(String item, int count, String label, String labelFallback) {
+    /**
+     * One entry, as the picker draws it.
+     *
+     * <p>{@code labelArg} is the subject the label's translation key is formatted with — the table an
+     * entry rolls, the stage it grants. It was missing here, and the card filled the gap with the entry's
+     * <i>count</i>: a nested table entry therefore read "Roll the 1 table" instead of naming the table it
+     * rolls. The reward inbox has carried all four of these since it was written; this is the same four.
+     */
+    public record Entry(String item, int count, String label, String labelFallback, String labelArg) {
 
         // The exact buffer type, not `? super`: `apply(ByteBufCodecs.list())` needs the codec's own
         // type to line up with the list operation, and the wildcard breaks that inference.
@@ -37,6 +44,7 @@ public record ChoiceRewardPayload(String questId, int rewardIndex, List<Entry> e
                         ByteBufCodecs.VAR_INT, Entry::count,
                         ByteBufCodecs.stringUtf8(512), Entry::label,
                         ByteBufCodecs.stringUtf8(512), Entry::labelFallback,
+                        ByteBufCodecs.stringUtf8(512), Entry::labelArg,
                         Entry::new);
     }
 

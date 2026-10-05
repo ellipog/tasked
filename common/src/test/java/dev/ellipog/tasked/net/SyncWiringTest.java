@@ -117,7 +117,7 @@ class SyncWiringTest {
     }
 
     @Test
-    @DisplayName("the payload set is exactly these sixteen -- the viewer seam adds no message")
+    @DisplayName("the payload set is exactly these twenty-two -- the viewer seam adds no message")
     void theViewerSeamAddsNoPayload() {
         // T13's claim is "no new network message": the quest tree already reaches the client, so every
         // viewer reads the cache instead of being sent anything. A claim like that is worth a check
@@ -134,8 +134,10 @@ class SyncWiringTest {
                 "tasked:choice_reward",
                 "tasked:claim_all",
                 "tasked:claim_choice",
+                "tasked:claim_choice_result",
                 "tasked:claim_reward",
                 "tasked:claim_reward_entry",
+                "tasked:claim_summary",
                 "tasked:dimension_sync",
                 "tasked:editor_op",
                 "tasked:editor_reply",
@@ -145,7 +147,13 @@ class SyncWiringTest {
                 "tasked:replica_request",
                 "tasked:reward_overflow",
                 "tasked:stage_sync",
-                "tasked:submit_task"), declared,
+                "tasked:submit_task",
+                "tasked:table_import_request",
+                "tasked:table_open",
+                "tasked:table_replica",
+                "tasked:table_replica_request",
+                "tasked:table_roll",
+                "tasked:table_roll_request"), declared,
                 "the payload set moved; a viewer integration must not add a message");
     }
 
