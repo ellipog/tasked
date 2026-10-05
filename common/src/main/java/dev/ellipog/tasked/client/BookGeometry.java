@@ -144,15 +144,6 @@ public final class BookGeometry {
     public static final int ASSETS_PILL_WIDTH = 72;
 
     /**
-     * The gap between the two author pills.
-     *
-     * <p>Four pixels under the general {@link #EDGE}: at the full edge they read as two controls that happen
-     * to be near each other, and they are one row — the same cluster {@link #pillMat} draws one backing panel
-     * behind.
-     */
-    public static final int PILL_GAP = EDGE - 4;
-
-    /**
      * The party button's width, in the header.
      *
      * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
@@ -176,6 +167,16 @@ public final class BookGeometry {
 
     /** Between the panel's edge and the controls inside it. */
     public static final int EDGE = 8;
+
+    /**
+     * The gap between the two author pills.
+     *
+     * <p>Four pixels under the general {@link #EDGE}: at the full edge they read as two controls that happen
+     * to be near each other, and they are one row — the same cluster {@link #pillMat} draws one backing panel
+     * behind. Declared here rather than beside the pill widths because a constant cannot name one declared
+     * after it, which is what the first attempt did.
+     */
+    public static final int PILL_GAP = EDGE - 4;
 
     /**
      * How far the header's **text** sits from the panel's edge — the title at the left, the quest count

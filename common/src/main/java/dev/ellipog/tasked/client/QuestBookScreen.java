@@ -15109,8 +15109,9 @@ public final class QuestBookScreen extends ArmatureScreen
             if (chipped) {
                 String copy = Labels.of("tasked.dev.copy");
                 int chip = dev.ellipog.tasked.client.dev.AssetsLayout.CHIP;
-                BookGeometry.Rect copyBox = BookGeometry.Rect.at(box.right() - chip * 2 - 1, box.y() + 1,
-                        chip - 1, height - 2);
+                int gap = dev.ellipog.tasked.client.dev.AssetsLayout.CHIP_GAP;
+                BookGeometry.Rect copyBox = BookGeometry.Rect.at(box.right() - chip * 2 - gap,
+                        box.y() + 1, chip - 1, height - 2);
                 BookGeometry.Rect removeBox = BookGeometry.Rect.at(box.right() - chip, box.y() + 1,
                         chip - 1, height - 2);
                 boolean copyHot = copyBox.contains(mouseX, mouseY);
