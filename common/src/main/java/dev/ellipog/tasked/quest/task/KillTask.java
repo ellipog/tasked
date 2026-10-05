@@ -121,7 +121,7 @@ public record KillTask(TaskCommon common, Optional<ResourceLocation> entity,
         }
 
         @Override
-        public boolean canSubmitByHand(KillTask task) {
+        public boolean canSubmitByHand(KillTask task, boolean chapterDefault) {
             return false;
         }
 

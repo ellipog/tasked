@@ -144,6 +144,21 @@ public final class ProgressService {
             new LinkedHashMap<>();
 
     /**
+     * The live count of the tasks that wait for a press, per team.
+     *
+     * <p>A task that takes what it asks for is <b>not recorded by the tick</b> — see
+     * {@code TaskBehaviour#waitsForSubmit} — so the row's "5 of 8" has to come from somewhere, and
+     * this is it: the number the engine just combined under the party's own mode, which is the
+     * number it would take.
+     *
+     * <p>Only a waiting task has an entry, so a reader can ask for a task's live count without
+     * asking what kind of task it is looking at; zero is the honest answer for everything else.
+     * Live, like {@link #CONTRIBUTIONS} and for the same reason: it is inventories, so it goes down
+     * as well as up and is not part of {@code TeamProgress}.
+     */
+    private static final Map<UUID, Map<String, Integer>> LIVE = new LinkedHashMap<>();
+
+    /**
      * The server and tick the last full evaluation ran on.
      *
      * <p>Needed because the hook is a <i>player</i> tick: with four players online it fires four times
@@ -194,6 +209,27 @@ public final class ProgressService {
         }
         Map<String, Map<UUID, Integer>> mine = CONTRIBUTIONS.getOrDefault(owner, Map.of());
         return (questId, taskIndex) -> mine.getOrDefault(keyOf(questId, taskIndex), Map.of());
+    }
+
+    /**
+     * The live count of one team's waiting tasks, as the progress sync asks it.
+     *
+     * <p>Keyed the way {@link #contributors} is, and for the same reason: the {@code quest#index}
+     * key is this class's business. Zero for a task that is not waiting, which is the honest answer
+     * — its count is recorded progress and needs no second reading.
+     */
+    @FunctionalInterface
+    public interface Live {
+        int of(String questId, int taskIndex);
+    }
+
+    /** The live counts of one team's waiting tasks, captured when it is asked for. */
+    public static Live live(UUID owner) {
+        if (owner == null) {
+            return (questId, taskIndex) -> 0;
+        }
+        Map<String, Integer> mine = LIVE.getOrDefault(owner, Map.of());
+        return (questId, taskIndex) -> mine.getOrDefault(keyOf(questId, taskIndex), 0);
     }
 
     public static UUID progressOwner(MinecraftServer server, ServerPlayer player) {
@@ -313,6 +349,8 @@ public final class ProgressService {
             // And the pictures, which are per-world in exactly the same way: a team id is stable across
             // worlds, so a stale picture would be attributed to the new world's party.
             CONTRIBUTIONS.clear();
+            // And the live counts of the waiting tasks, which are inventories too.
+            LIVE.clear();
         }
 
         lastEvaluatedServer = server;
@@ -586,22 +624,11 @@ public final class ProgressService {
                 //
                 // Both are now answers a party can choose, so the fold moved to where the rule can be
                 // read on its own and asserted without a server. What stayed here is the asking, which
-                // is the part that needs a world.
-                List<Integer> perMember = new ArrayList<>(members.size());
-                // Who may contribute at all, which is a different question from how much they have: a
-                // member who fails the task's conditions contributes nothing, and -- see the take below
-                // -- pays nothing. An empty condition list passes, so an unconditioned task fills this
-                // with every member exactly as it always did.
-                List<ServerPlayer> contributors = new ArrayList<>(members.size());
-                for (ServerPlayer member : members) {
-                    if (!Conditions.passes(task.common().conditions(),
-                            new ConditionContext(member, server, owner))) {
-                        perMember.add(0);
-                        continue;
-                    }
-                    contributors.add(member);
-                    perMember.add(behaviour.get().current(task, new TaskContext(member, index, now)));
-                }
+                // is the part that needs a world -- and which now lives in countMembers, because the
+                // press that pays for a waiting task has to ask the same question. See `submit`.
+                PartyCounts counts = countMembers(index, server, owner, members, task,
+                        behaviour.get(), now);
+                List<Integer> perMember = counts.perMember();
 
                 // Kept, not just added up: this list is what the panel's rows name, and it used to be
                 // the tally's private business. See CONTRIBUTIONS.
@@ -635,21 +662,38 @@ public final class ProgressService {
                 // items are taken, so without this the task would un-complete itself.
                 int recorded = questProgress.progressOf(taskIndex);
                 int best = Math.max(recorded, current);
+
+                // A task that takes what it asks for waits for the press: the tick publishes the
+                // count for the row and the button, and records nothing. See waitsForSubmit, and
+                // `submit` for the press that takes it.
+                //
+                // <b>Not recorded</b>, rather than merely not taken: completion is read off the
+                // recorded progress (ProgressionEngine.tasksSatisfied), so a tick that took nothing
+                // but still recorded the count would finish the quest and leave the items in the
+                // player's pocket -- the opposite of what the press is for.
+                boolean waits = behaviour.get().waitsForSubmit(task, chapterConsumes);
+                if (waits) {
+                    LIVE.computeIfAbsent(owner, absent -> new LinkedHashMap<>())
+                            .put(keyOf(quest, taskIndex), current);
+                }
+
                 if (best <= recorded) {
                     continue;
                 }
-                questProgress = questProgress.recordTask(taskIndex, best);
-                changed = true;
+                if (!waits) {
+                    questProgress = questProgress.recordTask(taskIndex, best);
+                    changed = true;
 
-                // The lifecycle events, fired where the engine records the change rather than where
-                // it is later reported, so a listener runs before the caller's next statement. See
-                // TaskedEvents.
-                ServerPlayer mover = holder != null ? holder : earner;
-                if (best >= required) {
-                    TaskedEvents.TASK_COMPLETED.invoker().onTaskCompleted(mover, quest, taskIndex);
-                }
-                if (!beforeThisTask.anyTaskProgress() && questProgress.anyTaskProgress()) {
-                    TaskedEvents.QUEST_STARTED.invoker().onQuestStarted(mover, quest);
+                    // The lifecycle events, fired where the engine records the change rather than where
+                    // it is later reported, so a listener runs before the caller's next statement. See
+                    // TaskedEvents.
+                    ServerPlayer mover = holder != null ? holder : earner;
+                    if (best >= required) {
+                        TaskedEvents.TASK_COMPLETED.invoker().onTaskCompleted(mover, quest, taskIndex);
+                    }
+                    if (!beforeThisTask.anyTaskProgress() && questProgress.anyTaskProgress()) {
+                        TaskedEvents.QUEST_STARTED.invoker().onQuestStarted(mover, quest);
+                    }
                 }
 
                 // Whose carrying moved this quest forward, so the reward below goes to them.
@@ -663,7 +707,7 @@ public final class ProgressService {
                     earner = holder;
                 }
 
-                if (best >= required && behaviour.get().takesResources(task, chapterConsumes)) {
+                if (!waits && best >= required && behaviour.get().takesResources(task, chapterConsumes)) {
                     // Where the resources come from, and the mode decides it -- see takesFromEveryone.
                     //
                     // For the two modes that count one member, the payer is that member and is
@@ -680,7 +724,7 @@ public final class ProgressService {
                     if (mode.takesFromEveryone()) {
                         // From the contributors, not from everyone: an ungated member's items were never
                         // counted toward the requirement, so they are not the requirement's to take.
-                        consumeAcross(contributors, task, required, behaviour.get());
+                        consumeAcross(counts.contributors(), task, required, behaviour.get());
                     }
                     else {
                         behaviour.get().take(task, holder != null ? holder : earner, required);
@@ -1840,27 +1884,52 @@ public final class ProgressService {
         }
 
         Optional<dev.ellipog.tasked.quest.task.TaskBehaviour<QuestTask>> behaviour = TaskTypes.behaviourOf(task);
-        // `acceptsClientSubmit`, not `canSubmitByHand`: a task may have no button and still be
-        // submitted by the client that did the work -- an observation's watching is exactly that. See
-        // the two methods on TaskBehaviour.
-        if (behaviour.isEmpty() || !behaviour.get().acceptsClientSubmit(task)) {
-            return false;
-        }
-
         boolean chapterConsumes = chapterOf(TaskedQuests.index(), entry)
                 .map(Chapter::defaultConsumeItems)
                 .orElse(false);
+        // `acceptsClientSubmit`, not `canSubmitByHand`: a task may have no button and still be
+        // submitted by the client that did the work -- an observation's watching is exactly that. See
+        // the two methods on TaskBehaviour. Both are asked with the chapter's default, because an item
+        // task that does not say whether it consumes inherits it, and the button and the take have to
+        // be the same answer.
+        if (behaviour.isEmpty() || !behaviour.get().acceptsClientSubmit(task, chapterConsumes)) {
+            return false;
+        }
 
         if (behaviour.get().takesResources(task, chapterConsumes)) {
             int required = behaviour.get().required(task);
-            // The same question the count answers, asked of the player rather than of the record: a
-            // submit button showing for a task the player cannot pay is the skip this guards against.
-            int have = behaviour.get().current(task, new TaskContext(player, TaskedQuests.index(), now));
-            if (have < required) {
+            // The count the press has to meet is the one the row showed, which is the party's under
+            // the party's own mode -- the same reading the tick takes. Judging it by the presser's own
+            // inventory alone would refuse a pooled party a task the engine would have satisfied for
+            // them, and would make the button's own count a lie.
+            //
+            // Asked before the take, never after: a press the party cannot pay is the skip this
+            // guards against.
+            Team team = teamFor(server, owner);
+            List<ServerPlayer> members = onlineMembersOf(server, team);
+            if (members.isEmpty()) {
+                return false;
+            }
+            PartyMode mode = PartyStore.of(server).modeOf(owner);
+            int ownerIndex = indexOfMember(members, team.owner());
+            PartyCounts counts = countMembers(TaskedQuests.index(), server, owner, members, task,
+                    behaviour.get(), now);
+            PartyMode.Tally tally = mode.combine(counts.perMember(), ownerIndex);
+            if (tally.counted() < required) {
                 player.displayClientMessage(Component.translatable("tasked.quest.not_enough"), true);
                 return false;
             }
-            behaviour.get().take(task, player, required);
+            if (mode.takesFromEveryone()) {
+                // From the contributors, exactly as the tick would have: an ungated member's items
+                // were never counted toward the requirement, so they are not the requirement's to take.
+                consumeAcross(counts.contributors(), task, required, behaviour.get());
+            }
+            else {
+                // The payer the tally names -- the largest holder under ONE_MEMBER, the owner under
+                // OWNER_ONLY. No payer means the party holds nothing, which the count above refused.
+                ServerPlayer payer = tally.hasPayer() ? members.get(tally.payer()) : player;
+                behaviour.get().take(task, payer, required);
+            }
         }
 
         questProgress = questProgress.recordTask(taskIndex, behaviour.get().required(task));
@@ -2072,6 +2141,44 @@ public final class ProgressService {
         // a warning: the count was taken from live inventories a moment ago, and the only way to get
         // here is for an inventory to have changed between the count and the take. What it means is
         // that the party gave what it had, which is all a consuming task can ask of anybody.
+    }
+
+    /**
+     * One task's counts across a party, as the asking half of an evaluation.
+     *
+     * <p>Who may contribute at all is a different question from how much they have: a member who
+     * fails the task's conditions contributes nothing and — see {@link #consumeAcross} — pays
+     * nothing. An empty condition list passes, so an unconditioned task fills this with every member
+     * exactly as it always did.
+     *
+     * <p>Here rather than twice, because the tick and the press have to agree: a press judged by the
+     * presser's own inventory alone would refuse a pooled party the tick would have satisfied, and
+     * the row that shows the party's count would be lying about what the button does.
+     *
+     * @param index the quest index the passing task belongs to, for the {@link TaskContext} a
+     *              behaviour reads. The tick passes the one it was handed, so one pass sees one
+     *              snapshot of the pack.
+     */
+    private static PartyCounts countMembers(QuestIndex index, MinecraftServer server, UUID owner,
+                                            List<ServerPlayer> members, QuestTask task,
+                                            dev.ellipog.tasked.quest.task.TaskBehaviour<QuestTask> behaviour,
+                                            long now) {
+        List<Integer> perMember = new ArrayList<>(members.size());
+        List<ServerPlayer> contributors = new ArrayList<>(members.size());
+        for (ServerPlayer member : members) {
+            if (!Conditions.passes(task.common().conditions(),
+                    new ConditionContext(member, server, owner))) {
+                perMember.add(0);
+                continue;
+            }
+            contributors.add(member);
+            perMember.add(behaviour.current(task, new TaskContext(member, index, now)));
+        }
+        return new PartyCounts(contributors, perMember);
+    }
+
+    /** The two lists {@link #countMembers} produces: who is counted, and what each one holds. */
+    private record PartyCounts(List<ServerPlayer> contributors, List<Integer> perMember) {
     }
 
     private static Optional<Chapter> chapterOf(QuestIndex index, QuestIndex.QuestEntry entry) {

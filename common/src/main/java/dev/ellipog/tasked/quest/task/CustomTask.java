@@ -84,7 +84,7 @@ public record CustomTask(TaskCommon common, String id, int value) implements Que
          * one -- {@code canSubmitByHand} is the question the reader's Submit control is built from.
          */
         @Override
-        public boolean canSubmitByHand(CustomTask task) {
+        public boolean canSubmitByHand(CustomTask task, boolean chapterDefault) {
             return CustomTasks.handler(task.id())
                     .map(handler -> handler.canSubmitByHand(task))
                     .orElse(false);

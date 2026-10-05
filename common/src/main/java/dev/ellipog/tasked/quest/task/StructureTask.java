@@ -71,7 +71,7 @@ public record StructureTask(TaskCommon common, RegistryRef structure) implements
         }
 
         @Override
-        public boolean canSubmitByHand(StructureTask task) {
+        public boolean canSubmitByHand(StructureTask task, boolean chapterDefault) {
             return false;
         }
     };

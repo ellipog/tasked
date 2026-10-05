@@ -49,11 +49,16 @@ public interface TaskBehaviour<T> {
      * Whether the player can submit this task by hand, as opposed to it completing on its own.
      *
      * <p>True for a checkmark, which has nothing to observe and only completes when someone says so.
-     * True for an item task that consumes, where a player may prefer to hand the items over rather
-     * than have them taken. False for an item task that only checks presence — there is nothing to
-     * confirm, and a submit button that does nothing is worse than no button.
+     * True for a task that takes what it asks for, where the press is the consent to take it. False
+     * for an item task that only checks presence — there is nothing to confirm, and a submit button
+     * that does nothing is worse than no button.
+     *
+     * <p>The chapter default is a parameter because an item task that does not say whether it
+     * consumes inherits the chapter's answer, and "is there a button" has to be asked of the same
+     * value the take is. It used to read the task's own field alone, so a chapter with
+     * {@code defaultConsumeItems: true} took the items while the row said nothing was taken.
      */
-    default boolean canSubmitByHand(T task) {
+    default boolean canSubmitByHand(T task, boolean chapterDefault) {
         return true;
     }
 
@@ -66,8 +71,8 @@ public interface TaskBehaviour<T> {
      * on the player's behalf once the target has been looked at for long enough, so the server must
      * accept that press where it would refuse a hand-rolled one.
      */
-    default boolean acceptsClientSubmit(T task) {
-        return canSubmitByHand(task);
+    default boolean acceptsClientSubmit(T task, boolean chapterDefault) {
+        return canSubmitByHand(task, chapterDefault);
     }
 
     /**
@@ -80,6 +85,23 @@ public interface TaskBehaviour<T> {
      */
     default boolean takesResources(T task, boolean chapterDefault) {
         return false;
+    }
+
+    /**
+     * Whether this task <b>waits for the player to press Submit</b>, rather than the tick registering
+     * it the moment the count is met.
+     *
+     * <p>A task that takes what it asks for is handed over by hand: the press is the consent to take
+     * it, so the tick publishes the count — the row still shows "5 of 8" and the button still lights
+     * — and records nothing. Everything else is registered by the tick, which is what makes a
+     * presence-only item task and a checkmark complete the way they always have.
+     *
+     * <p>The second half of the answer is what protects a type that takes with no button at all:
+     * there would be nothing to press, so waiting would strand it. Nothing in this build is in that
+     * position — every consuming type has a button — but a custom handler is free to be.
+     */
+    default boolean waitsForSubmit(T task, boolean chapterDefault) {
+        return takesResources(task, chapterDefault) && canSubmitByHand(task, chapterDefault);
     }
 
     /**

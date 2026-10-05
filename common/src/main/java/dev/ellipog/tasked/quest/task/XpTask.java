@@ -59,7 +59,7 @@ public record XpTask(TaskCommon common, int value, boolean points) implements Qu
         }
 
         @Override
-        public boolean canSubmitByHand(XpTask task) {
+        public boolean canSubmitByHand(XpTask task, boolean chapterDefault) {
             return true;
         }
 

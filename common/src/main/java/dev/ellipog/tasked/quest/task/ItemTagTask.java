@@ -70,8 +70,11 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
         }
 
         @Override
-        public boolean canSubmitByHand(ItemTagTask task) {
-            return task.consumeItems().orElse(false);
+        public boolean canSubmitByHand(ItemTagTask task, boolean chapterDefault) {
+            // The chapter's default counts here too: a task that does not say whether it consumes has
+            // no button without it, and a task with no button that still takes the items on the tick
+            // is the one thing this must not be. See TaskBehaviour#waitsForSubmit.
+            return task.consumes(chapterDefault);
         }
 
         @Override

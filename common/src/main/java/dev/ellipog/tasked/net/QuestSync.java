@@ -83,6 +83,15 @@ public final class QuestSync {
      */
     private static final ProgressService.Contributors NOBODY = (questId, taskIndex) -> Map.of();
 
+    /**
+     * No live counts: the answer for a caller that only has stored progress to send.
+     *
+     * <p>{@link ProgressService.Live} answers zero for every task that is not waiting for a press, so
+     * a caller with no team behind it and a caller with a team agree on everything but the waiting
+     * tasks — which is exactly the difference this exists to name.
+     */
+    private static final ProgressService.Live NO_LIVE = (questId, taskIndex) -> 0;
+
     /** One player's last sent state: the team, the exact JSON sent per quest, and the locks it carried. */
     private record Sent(UUID teamId, Map<String, String> quests, String locks) {
     }
@@ -522,7 +531,7 @@ public final class QuestSync {
 
         JsonArray tasks = new JsonArray();
         for (QuestTask task : quest.tasks()) {
-            tasks.add(taskAsJson(task));
+            tasks.add(taskAsJson(task, chapter.defaultConsumeItems()));
         }
         json.add("tasks", tasks);
 
@@ -543,7 +552,7 @@ public final class QuestSync {
      * says the right thing — a greyed-out optional task, a button only where a button works, and
      * {@code 5 / 8}.
      */
-    private static JsonObject taskAsJson(QuestTask task) {
+    private static JsonObject taskAsJson(QuestTask task, boolean chapterConsumes) {
         TaskDisplay display = TaskTypes.displayOf(task);
 
         JsonObject json = new JsonObject();
@@ -561,8 +570,12 @@ public final class QuestSync {
         // into every key produced.
         json.addProperty("labelArg", display.labelArg());
         json.addProperty("optional", task.optional());
+        // Whether the row shows a Submit button, asked with the chapter's consume-items default: an
+        // item task that does not say whether it consumes inherits it, and a row that hid the button
+        // while the take still happened is the promise this field exists to keep. See
+        // TaskBehaviour#waitsForSubmit for the other half.
         json.addProperty("manual", TaskTypes.behaviourOf(task)
-                .map(behaviour -> behaviour.canSubmitByHand(task))
+                .map(behaviour -> behaviour.canSubmitByHand(task, chapterConsumes))
                 .orElse(false));
         // The observation fields, which are the only per-type data the client needs to do work with:
         // it ray-traces against them and submits when the timer is done. `manual` stays false above --
@@ -782,13 +795,33 @@ public final class QuestSync {
                                       ProgressService.Contributors contributors,
                                       java.util.Set<String> stageLocked,
                                       Map<String, ProgressService.LockView> locks) {
+        return progressDelta(resolution, progress, index, previous, contributors, stageLocked, locks,
+                NO_LIVE);
+    }
+
+    /**
+     * The same, with the live counts of the tasks that wait for a press.
+     *
+     * <p>A task that takes what it asks for records nothing until the press, so its stored progress is
+     * zero while the player has everything they need. The row's count is therefore the live one, which
+     * is also what lights the Submit button — and it is the only reading a player can be shown without
+     * lying about either the count or the button.
+     */
+    public static Delta progressDelta(ProgressionEngine.Resolution resolution,
+                                      TeamProgress progress,
+                                      QuestIndex index,
+                                      Map<String, String> previous,
+                                      ProgressService.Contributors contributors,
+                                      java.util.Set<String> stageLocked,
+                                      Map<String, ProgressService.LockView> locks,
+                                      ProgressService.Live live) {
         JsonObject changed = new JsonObject();
         Map<String, String> snapshot = new LinkedHashMap<>();
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
             String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked,
-                    locks.getOrDefault(quest.id(), ProgressService.LockView.NONE));
+                    locks.getOrDefault(quest.id(), ProgressService.LockView.NONE), live);
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -837,7 +870,8 @@ public final class QuestSync {
                                          Quest quest,
                                          ProgressService.Contributors contributors,
                                          java.util.Set<String> stageLocked,
-                                         ProgressService.LockView locks) {
+                                         ProgressService.LockView locks,
+                                         ProgressService.Live live) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
@@ -900,9 +934,14 @@ public final class QuestSync {
         // carries the same limitation: reordering a quest's tasks moves progress to a different task.
         // Sent anyway because "you have 5 of 8 logs" is the single most useful line in a quest book,
         // and a book that cannot show it is not worth opening.
+        //
+        // The number is the display value rather than the stored one, because a task that waits for a
+        // press has no stored progress until the press: its stored count is zero while the player has
+        // everything, so sending that would draw "0 of 8" at 8 of 8 and leave the Submit button dark.
+        // `live` answers zero for every other task, so for them this is the stored value unchanged.
         JsonArray tasks = new JsonArray();
         for (int i = 0; i < quest.tasks().size(); i++) {
-            tasks.add(stored.progressOf(i));
+            tasks.add(Math.max(stored.progressOf(i), live.of(quest.id(), i)));
         }
         one.add("tasks", tasks);
 
@@ -1035,7 +1074,10 @@ public final class QuestSync {
                 // cannot carry, because the text is built from the team's progress. See progressDelta.
                 ProgressService.stageLockedQuests(server, player, index),
                 // And the rows this player's conditions shut, for the same reason.
-                locks);
+                locks,
+                // And how much the tasks that wait for a press are holding right now, since none of it
+                // is recorded yet. See oneQuestAsJson.
+                ProgressService.live(owner));
         SENT.put(player.getUUID(), new Sent(owner, delta.snapshot(), lockText(locks)));
 
         // Counted here rather than at the `send` calls below. One logical message can be several

@@ -524,18 +524,23 @@ public final class TaskTypes {
             }
 
             @Override
-            public boolean canSubmitByHand(QuestTask task) {
-                return behaviour.canSubmitByHand((T) task);
+            public boolean canSubmitByHand(QuestTask task, boolean chapterDefault) {
+                return behaviour.canSubmitByHand((T) task, chapterDefault);
             }
 
             @Override
-            public boolean acceptsClientSubmit(QuestTask task) {
-                return behaviour.acceptsClientSubmit((T) task);
+            public boolean acceptsClientSubmit(QuestTask task, boolean chapterDefault) {
+                return behaviour.acceptsClientSubmit((T) task, chapterDefault);
             }
 
             @Override
             public boolean takesResources(QuestTask task, boolean chapterDefault) {
                 return behaviour.takesResources((T) task, chapterDefault);
+            }
+
+            @Override
+            public boolean waitsForSubmit(QuestTask task, boolean chapterDefault) {
+                return behaviour.waitsForSubmit((T) task, chapterDefault);
             }
 
             @Override

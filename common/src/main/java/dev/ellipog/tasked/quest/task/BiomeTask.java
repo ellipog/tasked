@@ -64,7 +64,7 @@ public record BiomeTask(TaskCommon common, RegistryRef biome) implements QuestTa
         }
 
         @Override
-        public boolean canSubmitByHand(BiomeTask task) {
+        public boolean canSubmitByHand(BiomeTask task, boolean chapterDefault) {
             return false;
         }
     };

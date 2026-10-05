@@ -86,7 +86,7 @@ public record LocationTask(TaskCommon common, Optional<ResourceLocation> dimensi
         }
 
         @Override
-        public boolean canSubmitByHand(LocationTask task) {
+        public boolean canSubmitByHand(LocationTask task, boolean chapterDefault) {
             return false;
         }
     };

@@ -50,7 +50,7 @@ public record DimensionTask(TaskCommon common, ResourceLocation dimension) imple
         }
 
         @Override
-        public boolean canSubmitByHand(DimensionTask task) {
+        public boolean canSubmitByHand(DimensionTask task, boolean chapterDefault) {
             // There is nothing to confirm: being there is the whole task, and it completes on its own.
             return false;
         }

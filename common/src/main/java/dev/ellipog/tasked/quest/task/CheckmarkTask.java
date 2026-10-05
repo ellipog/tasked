@@ -52,7 +52,7 @@ public record CheckmarkTask(TaskCommon common, QuestText title) implements Quest
         }
 
         @Override
-        public boolean canSubmitByHand(CheckmarkTask task) {
+        public boolean canSubmitByHand(CheckmarkTask task, boolean chapterDefault) {
             return true;
         }
     };

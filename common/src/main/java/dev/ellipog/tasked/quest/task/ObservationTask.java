@@ -192,13 +192,13 @@ public record ObservationTask(TaskCommon common, ObserveType observeType, String
         }
 
         @Override
-        public boolean canSubmitByHand(ObservationTask task) {
+        public boolean canSubmitByHand(ObservationTask task, boolean chapterDefault) {
             // No button: there is nothing to confirm, and a press would be a lie about the work.
             return false;
         }
 
         @Override
-        public boolean acceptsClientSubmit(ObservationTask task) {
+        public boolean acceptsClientSubmit(ObservationTask task, boolean chapterDefault) {
             // ...but the client that did the looking may submit on the player's behalf.
             return true;
         }

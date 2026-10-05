@@ -70,7 +70,7 @@ public record AdvancementTask(TaskCommon common, ResourceLocation advancement, O
         }
 
         @Override
-        public boolean canSubmitByHand(AdvancementTask task) {
+        public boolean canSubmitByHand(AdvancementTask task, boolean chapterDefault) {
             return false;
         }
     };

@@ -63,7 +63,7 @@ public record StageTask(TaskCommon common, ResourceLocation stage) implements Qu
         }
 
         @Override
-        public boolean canSubmitByHand(StageTask task) {
+        public boolean canSubmitByHand(StageTask task, boolean chapterDefault) {
             return false;
         }
     };

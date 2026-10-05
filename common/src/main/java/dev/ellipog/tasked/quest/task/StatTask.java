@@ -64,7 +64,7 @@ public record StatTask(TaskCommon common, ResourceLocation stat, int value) impl
         }
 
         @Override
-        public boolean canSubmitByHand(StatTask task) {
+        public boolean canSubmitByHand(StatTask task, boolean chapterDefault) {
             return false;
         }
     };

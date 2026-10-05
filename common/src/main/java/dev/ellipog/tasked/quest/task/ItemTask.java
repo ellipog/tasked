@@ -94,10 +94,14 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
         }
 
         @Override
-        public boolean canSubmitByHand(ItemTask task) {
+        public boolean canSubmitByHand(ItemTask task, boolean chapterDefault) {
             // Only worth a button when submitting actually does something. A presence-only task
             // completes by itself the moment the player has the items.
-            return task.consumeItems().orElse(false);
+            //
+            // The chapter's default counts, not just the task's own field: whether the buttons shows
+            // has to be the same answer as whether the take happens, or the row promises nothing is
+            // taken while the tick takes it.
+            return task.consumes(chapterDefault);
         }
 
         @Override

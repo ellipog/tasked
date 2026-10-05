@@ -81,7 +81,7 @@ public record FluidTask(TaskCommon common, ResourceLocation fluid, int amount) i
         }
 
         @Override
-        public boolean canSubmitByHand(FluidTask task) {
+        public boolean canSubmitByHand(FluidTask task, boolean chapterDefault) {
             return true;
         }
 
