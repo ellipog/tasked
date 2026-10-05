@@ -1003,12 +1003,13 @@ public final class BookGeometry {
     }
 
     /**
-     * The settings button, in the header between Party and the author's split control: the way into the
-     * player's own appearance settings.
+     * The settings button, in the header beside the party button: the way into the player's own text-size
+     * card.
      *
-     * <p>For every player, and that is the point of it existing: the theme, the Motion switch and the
-     * corner radius lived only in the author's tools panel, so the player they are for could not reach
-     * them. Anchored right to left from the party button, like every other member of the cluster.
+     * <p>For every player, and that is the point of it existing: how large the text draws is about the
+     * player's own body rather than the pack's look, so it is the one appearance row that cannot live
+     * behind edit permission with the palette and the corner radius. Anchored right to left from the
+     * party button, like every other member of the cluster.
      */
     public Rect settingsButton() {
         return Rect.at(partyButton().x() - ROW_GAP - SETTINGS_BUTTON_WIDTH, partyButton().y(),

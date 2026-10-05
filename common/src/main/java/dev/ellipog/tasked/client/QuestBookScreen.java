@@ -43,7 +43,7 @@ import dev.ellipog.tasked.client.ClientEditReplies;
 import dev.ellipog.tasked.client.viewer.QuestBookFocus;
 import dev.ellipog.tasked.client.viewer.RecipeLookups;
 import dev.ellipog.tasked.client.dev.HexColour;
-import dev.ellipog.tasked.client.dev.ChapterNaming;
+import dev.ellipog.tasked.quest.ChapterNaming;
 import dev.ellipog.tasked.client.dev.ChapterPanel;
 import dev.ellipog.tasked.client.dev.ChapterPanelLayout;
 import dev.ellipog.tasked.client.dev.ChapterTheme;
@@ -3043,23 +3043,15 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <p>Derived rather than toggled: the drawer <i>is</i> edit mode. It opens when the Edit pill latches
      * and closes with it, so there is no second flag that can disagree with the pill's own state. The
-     * control that used to be a separate Tools button in the header is the menu on the pill now -- a
-     * batch of maintenance actions -- and the panel itself follows Edit, which is the arrangement the
-     * redesign asked for ("the inspector only renders when Edit is toggled on").
+     * Tools button that used to sit in the header is gone: its menu held only actions that are already
+     * keys -- Undo, Redo, Snapping's switch and Alt+click's straighten -- so the menu went with it, and
+     * the panel itself follows Edit, which is the arrangement the redesign asked for ("the inspector
+     * only renders when Edit is toggled on").
      */
     private boolean drawerOpen() {
         return mayEditNow();
     }
 
-    /**
-     * Whether the inspector drawer is showing.
-     *
-     * <p>Derived rather than toggled: the drawer <i>is</i> edit mode. It opens when the Edit pill latches
-     * and closes with it, so there is no second flag that can disagree with the pill's own state. The
-     * control that used to be a separate Tools button in the header is the menu on the pill now -- a
-     * batch of maintenance actions -- and the panel itself follows Edit, which is the arrangement the
-     * redesign asked for ("the inspector only renders when Edit is toggled on").
-     */
     /**
      * Centres the content the first time a chapter is shown, and on a reset.
      *
@@ -6052,7 +6044,7 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <p>Accepts what a person types: `#RRGGBB`, `RRGGBB`, `#RGB`, or `#AARRGGBB` when the alpha matters.
      * Only RGB keeps the colour's own alpha, because setting a colour to translucent by mistake is not
-     * recoverable by looking at it -- and three of the forty-one tokens are translucent on purpose. The
+     * recoverable by looking at it -- and three of the forty-three tokens are translucent on purpose. The
      * reading itself is {@code HexColour}'s, where the cases are asserted; what is here is the two things
      * this screen does with the answer.
      *
@@ -6867,9 +6859,9 @@ public final class QuestBookScreen extends ArmatureScreen
                     ? "tasked.screen.rewards.none" : "tasked.screen.rewards.waiting", waiting));
         }
 
-        // The settings button, for every player -- the whole point of the card it opens. The theme, the
-        // Motion switch and the corner radius were the author's tools panel's until this existed, and
-        // the player they are for could not reach them.
+        // The settings button, for every player -- the whole point of the card it opens. How large the text
+        // draws is about the player's own body rather than the pack's look, so it is the one appearance row
+        // that cannot live behind edit permission with the palette and the corner radius.
         settingsHeaderButton = control(controls.get("settings"),
                 Component.translatable("tasked.screen.settings"), this::openSettingsOverlay);
         if (settingsHeaderButton != null) {
@@ -6897,7 +6889,7 @@ public final class QuestBookScreen extends ArmatureScreen
                         .selected(DevMode.on())
                         .tooltip(List.of(Component.translatable("tasked.screen.edit_this_questline"),
                                 Component.translatable("tasked.screen.drag_nodes_create_duplicate_delete"),
-                                Component.translatable("tasked.screen.ctrl_s_saves_ctrl_z_undoes")));
+                                Component.translatable("tasked.screen.ctrl_z_undoes_every_edit_is_saved")));
             }
             // Beside it, and for the same reader: the pack's own files, which no quest has to be open to
             // reach. Not a latch -- it opens a panel, and the panel's own way out closes it.
@@ -7131,8 +7123,7 @@ public final class QuestBookScreen extends ArmatureScreen
                     () -> claim(entry.id()));
             if (claim != null) {
                 claim.accent(true)
-                        .tooltip(List.of(Component.translatable("tasked.screen.collect_this_quest_s_rewards"),
-                                Component.translatable("tasked.screen.nothing_more_is_needed_it_is_already_finished")));
+                        .tooltip(claimTooltip(entry.id()));
                 // The first reward's own icon, when there is one to draw. A Claim button wearing the
                 // thing it is about says what it is for without a word of label.
                 if (!entry.rewards().isEmpty()) {
@@ -8479,7 +8470,9 @@ public final class QuestBookScreen extends ArmatureScreen
      * A choice's press: the value becomes the next option in the field's own ring, and round again.
      *
      * <p>One op per press, and a value the ring does not hold -- an addon's, or one this build removed --
-     * is not lost by the first press: the cycle starts from wherever the file is up to and moves on.
+     * is genuinely not lost by the first press, which is what this method's note claimed while the code
+     * wrapped such a value to the first option. See {@link #nextOption}: a value the ring does not hold
+     * is left where it is, and nothing is sent.
      */
     private void cycleChoice(EditTarget target) {
         JsonObject quest = replicaQuest();
@@ -8494,8 +8487,10 @@ public final class QuestBookScreen extends ArmatureScreen
         if (field == null || field.options().isEmpty()) {
             return;
         }
-        int at = field.options().indexOf(target.value());
-        String next = field.options().get((at + 1) % field.options().size());
+        String next = nextOption(field.options(), target.value());
+        if (next.equals(target.value())) {
+            return;
+        }
         sendField(editTarget(), target.path(), new JsonPrimitive(next));
     }
 
@@ -10583,7 +10578,7 @@ public final class QuestBookScreen extends ArmatureScreen
             refreshSidebarChapterTooltips(layout, counts);
             tooltippedCounts = counts;
         }
-        Map<String, Integer> rewards = rewardCounts().byChapter();
+        Map<String, Integer> waitingQuests = rewardCounts().byChapter();
 
         // One batch for the whole list: a bar is two fills and a count is one, and thirty rows drawn
         // without this would be ninety rounds of per-fill flushes for what is a decoration; see
@@ -10617,7 +10612,7 @@ public final class QuestBookScreen extends ArmatureScreen
                                 rect.width() - 2, ChapterBar.HEIGHT, fraction, fill, track);
                     }
                 }
-                Integer waiting = rewards.get(row.id());
+                Integer waiting = waitingQuests.get(row.id());
                 if (waiting != null && waiting > 0) {
                     String text = "(" + waiting + ")";
                     int accent = theme.inProgress();
@@ -12762,8 +12757,8 @@ public final class QuestBookScreen extends ArmatureScreen
      * The reward's own path from a table control's path.
      *
      * <p>The control's path is the reward's {@code table} field ({@code rewards.2.table}), and every
-     * operation about the reward — pointing it at a table, clearing it, starting an inline table in it —
-     * names the reward rather than the field.
+     * operation about the reward — pointing it at a table, clearing it — names the reward rather than the
+     * field, because that is the object the server edits.
      */
     private static String owningPathOf(String path) {
         return path != null && path.endsWith(".table")
@@ -15562,11 +15557,29 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * The {@code auto} chip: the next word in its ring, wrapping.
+     * The next word in a cycling control's ring, or the same word back when the ring does not hold it.
      *
-     * <p>The ring is {@code TableRowFields.AUTO_VALUES} and it starts at {@code default}, which is the
-     * absent value — so a press on a reward that declares nothing moves it to {@code disabled} rather
-     * than to a word nothing understands.
+     * <p>{@code indexOf} answers -1 for an absent value <i>and</i> for one this build does not know, and
+     * wrapping both to {@code ring[0]} meant a press rewrote the file: a reward carrying {@code no_toast}
+     * -- which a shipped example does -- became {@code default} on one stray click, and an addon's word
+     * became the first option of a field it had nothing to do with. Absence is the one case that means
+     * "unset", so it is the one case that advances.
+     */
+    private static String nextOption(List<String> ring, String current) {
+        int at = ring.indexOf(current);
+        if (at < 0) {
+            return current == null || current.isEmpty() ? ring.get(0) : current;
+        }
+        return ring.get((at + 1) % ring.size());
+    }
+
+    /**
+     * The {@code auto} chip: the next word in its ring, wrapping from the end back to the start.
+     *
+     * <p>The ring is {@code TableRowFields.AUTO_VALUES} -- the format's five words, taken from the enum --
+     * and it starts at {@code default}, which is the absent value, so a press on a reward that declares
+     * nothing moves it to {@code disabled} rather than to a word nothing understands. A value the ring
+     * does not hold is left alone; see {@link #nextOption}.
      */
     private void cycleTableChoice(int index, String field) {
         if (tableAddress == null || field.isEmpty()) {
@@ -15575,8 +15588,10 @@ public final class QuestBookScreen extends ArmatureScreen
         JsonObject entry = draftedEntry(index);
         String current = entry == null ? "" : rawValue(entry, "reward." + field);
         var ring = dev.ellipog.tasked.client.dev.TableRowFields.AUTO_VALUES;
-        int at = ring.indexOf(current);
-        String next = ring.get((at + 1) % ring.size());
+        String next = nextOption(ring, current);
+        if (next.equals(current)) {
+            return;
+        }
         sendTableValue(tableEntryPath(index, field), new com.google.gson.JsonPrimitive(next));
     }
 
@@ -18551,9 +18566,15 @@ public final class QuestBookScreen extends ArmatureScreen
         ArmatureButton all = control(controls.get("submit"), footerClaimLabel(),
                 () -> claimAllRewards(rewardFilter));
         if (all != null) {
-            all.accent(true).tooltip(Component.translatable(rewardFilter == ClaimFilter.ALL
+            List<Component> tip = new ArrayList<>();
+            tip.add(Component.translatable(rewardFilter == ClaimFilter.ALL
                     ? "tasked.screen.collects_everything_the_server_is_holding"
                     : "tasked.screen.collects_only_what_the_filter_shows"));
+            // One flag for the whole record, so the sweep asks once rather than per row.
+            if (ClientQuestCache.rewardsHeld()) {
+                tip.add(Component.translatable("tasked.screen.rewards.held"));
+            }
+            all.accent(true).tooltip(List.copyOf(tip));
         }
         ArmatureButton back = control(controls.get("back"),
                 Component.translatable("tasked.screen.rewards.back"), this::closeOverlay);
@@ -19147,7 +19168,28 @@ public final class QuestBookScreen extends ArmatureScreen
                 lines.add(Component.literal(line));
             }
         }
+        if (ClientQuestCache.rewardsBlockedOf(row.questId())) {
+            lines.add(Component.translatable("tasked.screen.rewards.held"));
+        }
         return lines;
+    }
+
+    /**
+     * A Claim button's hover, with the held line when the team's payouts are blocked.
+     *
+     * <p>The block is the server's and the server is the one that refuses; the button stays live because
+     * a block is team-wide while a reward may except itself with {@code ignoreRewardBlocking}, which never
+     * travels. So the hover says why a press may be refused rather than pretending the button cannot work
+     * -- which is the honest half of what the wire's `rewardsBlocked` is for.
+     */
+    private static List<Component> claimTooltip(String questId) {
+        List<Component> lines = new ArrayList<>(List.of(
+                Component.translatable("tasked.screen.collect_this_quest_s_rewards"),
+                Component.translatable("tasked.screen.nothing_more_is_needed_it_is_already_finished")));
+        if (ClientQuestCache.rewardsBlockedOf(questId)) {
+            lines.add(Component.translatable("tasked.screen.rewards.held"));
+        }
+        return List.copyOf(lines);
     }
 
     /**
@@ -19184,7 +19226,7 @@ public final class QuestBookScreen extends ArmatureScreen
     // The settings card
     // ------------------------------------------------------------------
 
-    /** Opens the player's accessibility card: Motion and text size. */
+    /** Opens the player's own text-size card. */
     private void openSettingsOverlay() {
         closeOverlay();
         overlay = Overlay.SETTINGS;
@@ -21749,8 +21791,9 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             return super.keyPressed(keyCode, scanCode, modifiers);
         }
-        // Ctrl+T opens the pack's panel, the way Ctrl+S saves and Ctrl+Z undoes: one chord per act, and
-        // only with nothing focused, so it cannot fire while a field is being typed into.
+        // Ctrl+T opens the pack's panel: one chord per act, the way Ctrl+Z undoes and Ctrl+S reports that
+        // there is nothing left to save. Only with nothing focused, so it cannot fire while a field is
+        // being typed into.
         if (overlay == Overlay.NONE && keyCode == GLFW.GLFW_KEY_T && Screen.hasControlDown()
                 && getFocused() == null && mayEdit()) {
             openAssets();

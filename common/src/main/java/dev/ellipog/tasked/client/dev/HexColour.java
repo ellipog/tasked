@@ -31,7 +31,7 @@ public final class HexColour {
      *
      * <p>A six- or three-digit code <b>keeps {@code existing}'s alpha</b> rather than becoming opaque; the
      * alpha only ever comes from an eight-digit code or from what the colour already had. Three of the
-     * forty-one tokens are translucent on purpose — a screen dim that hides the world is the one that would
+     * forty-three tokens are translucent on purpose — a screen dim that hides the world is the one that would
      * be noticed — and an alpha silently changed to FF is not recoverable by looking at the colour, which
      * then looks right on a background it should not look right on.
      *

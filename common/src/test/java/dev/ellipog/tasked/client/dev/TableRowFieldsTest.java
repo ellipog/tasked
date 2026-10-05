@@ -4,6 +4,7 @@ import com.mojang.serialization.JsonOps;
 
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
 import dev.ellipog.tasked.quest.QuestReward;
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardCommon;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 
@@ -195,6 +196,28 @@ class TableRowFieldsTest {
 
         assertEquals(auto.options(), TableRowFields.AUTO_VALUES,
                 "the fold's cycle and the registry's own options must be one ring");
+    }
+
+    @Test
+    @DisplayName("every word a file can carry is a word the cycle can reach")
+    void theAutoCycleReachesEveryWordTheFormatAccepts() {
+        // The fault this pins: the ring was three of the five words, hand-written, so a reward carrying
+        // `no_toast` -- which the shipped `the_scarecrows_blessing` does -- drew as a chip the cycle could
+        // not name, and a press on it answered indexOf(-1). The field came back as `default`, and a reward
+        // the author had set to give itself away silently started announcing itself. So: reachability, and
+        // the reading half of it -- a word the ring writes has to be one the loader reads back.
+        for (RewardAutoClaim mode : RewardAutoClaim.values()) {
+            String word = mode.name().toLowerCase(java.util.Locale.ROOT);
+
+            assertTrue(TableRowFields.AUTO_VALUES.contains(word),
+                    "the cycle cannot name `" + word + "`, so a press on it would rewrite the field");
+            assertEquals(java.util.Optional.of(mode), RewardAutoClaim.byName(word),
+                    "`" + word + "` is in the ring but not in the vocabulary the loader reads");
+        }
+        assertEquals(RewardAutoClaim.values().length, TableRowFields.AUTO_VALUES.size(),
+                "and the ring holds all five, not three of them");
+        assertEquals("default", TableRowFields.AUTO_VALUES.get(0),
+                "the ring starts at the absent value, so a blank field steps to a word that means something");
     }
 
     @Test

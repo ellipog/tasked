@@ -30,8 +30,8 @@ import java.util.function.Function;
  * <p>The container gets <b>empty slots only</b>: a chest with sixteen iron in it already is not part of
  * the working set, and merging into it would mix an author's pre-existing items into the export. Then
  * the player's own inventory, which is an ordinary insertion and where merging is what inventories do.
- * Then the ground, at the player's feet. Every one of the three counts is reported, so an overflow is
- * something the author is told about rather than something they find later.
+ * Then the ground, at the player's feet. Each non-zero count is reported, in that order, so an overflow
+ * is something the author is told about rather than something they find later.
  *
  * <h2>Nesting is a view, not a round trip</h2>
  *
@@ -112,7 +112,7 @@ public final class TableExport {
                 found.skipped++;
                 continue;
             }
-            if (TableReward.isChoice(reference) || depth >= RewardTable.MAX_NESTING) {
+            if (TableReward.isChoice(reference) || depth > RewardTable.MAX_NESTING) {
                 // A choice offers rather than grants, and past the depth limit every walk gives up --
                 // the loader reports both where they are written, and an export that hung or invented
                 // entries would be worse than one that counts them as skipped.

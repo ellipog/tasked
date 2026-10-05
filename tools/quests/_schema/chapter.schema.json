@@ -45,7 +45,7 @@
     "autoClaim": {
       "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
       "default": "default",
-      "description": "Whether this chapter's quests hand their rewards over on completion. `enabled` pays with a notification, `no_toast` silently, `invisible` with no trace at all; `disabled` waits for a claim, and `default` defers to the pack setting in index.json. A quest overrides this, and a reward's own `auto` overrides that. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
+      "description": "Whether this chapter's quests hand their rewards over on completion. `enabled` pays with a notification, `no_toast` silently, and `invisible` the same silence - the two silent names grant alike, the difference being FTB Quests' vocabulary rather than a behaviour; `disabled` waits for a claim, and `default` defers to the pack setting in index.json. A quest overrides this, and a reward's own `auto` overrides that. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
     },
     "dependencyStyle": {
       "$ref": "#/definitions/dependencyStyle",

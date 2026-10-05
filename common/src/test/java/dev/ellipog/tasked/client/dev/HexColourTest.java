@@ -62,7 +62,7 @@ class HexColourTest {
     @Test
     @DisplayName("a code without an alpha keeps the colour's own, which is the whole reason the rule exists")
     void sixDigitsKeepTheExistingAlpha() {
-        // Three of the forty-one tokens are translucent on purpose -- the screen dim above all -- and an
+        // Three of the forty-three tokens are translucent on purpose -- the screen dim above all -- and an
         // alpha silently set to FF is not something the author can see and undo by looking at the colour.
         int translucent = 0xB80A0A0D;
 

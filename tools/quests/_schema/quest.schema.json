@@ -45,7 +45,7 @@
       "description": "How many dependencies must be satisfied, replacing the mode's own count: this is how \"any three of these five\" is written. The mode still decides the *bar* each one must reach - completed, or merely started - so `one_started` with minRequired 2 means \"any two of these, started\". May not exceed the number of dependencies."
     },
 
-    "x": { "type": "integer", "default": 0, "description": "Canvas position. Grid spacing is 32." },
+    "x": { "type": "integer", "default": 0, "description": "Canvas position. The shipped chapters sit on a 32-unit grid; the editor snaps to 8." },
     "y": { "type": "integer", "default": 0 },
     "shape": {
       "enum": ["rounded", "square", "circle", "diamond", "hexagon", "octagon", "pentagon", "gear", "heart", "tome", "star", "none"],
@@ -79,7 +79,7 @@
     },
     "autoClaim": {
       "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
-      "description": "Whether this quest's rewards are handed over the moment it completes, overriding the chapter's own `autoClaim` (which in turn defers to the pack setting in index.json). A reward's own `auto` still wins over this. `enabled` pays with a notification, `no_toast` silently, `invisible` with no trace; `disabled` waits for a claim. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
+      "description": "Whether this quest's rewards are handed over the moment it completes, overriding the chapter's own `autoClaim` (which in turn defers to the pack setting in index.json). A reward's own `auto` still wins over this. `enabled` pays with a notification, `no_toast` silently, and `invisible` the same silence - the two silent names grant alike; `disabled` waits for a claim. Rewards that need a decision - a choice reward - are never auto-granted whatever this says."
     },
     "repeatable": {
       "type": "boolean",
@@ -557,7 +557,7 @@
         "auto": {
           "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
           "default": "default",
-          "description": "Rewards only. When it is handed over: default follows the tree's own setting, enabled gives it on completion, disabled waits for a claim, no_toast gives it without a toast, and invisible gives it without the player being told."
+          "description": "Rewards only. When it is handed over: default follows the tree's own setting, enabled gives it on completion, disabled waits for a claim, no_toast gives it without a toast, and invisible grants the same way - the two silent names are FTB Quests' vocabulary rather than a behaviour."
         },
         "excludeFromClaimAll": {
           "type": "boolean",

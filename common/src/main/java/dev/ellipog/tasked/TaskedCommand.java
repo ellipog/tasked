@@ -206,9 +206,9 @@ public final class TaskedCommand {
     /**
      * Where the server's settings live, and what is in force.
      *
-     * <p>The other half of the settings story: a player's own appearance is theirs and lives in the
-     * quest book's Settings card, while these are the server's -- a party's cap and a new party's
-     * policy, and the tree-wide quest defaults -- and they are files. This prints the values the
+     * <p>The other half of the settings story: a player's own text size lives in the quest book's
+     * Settings card and their look in the tools panel, while these are the server's -- a party's cap
+     * and a new party's policy, and the tree-wide quest defaults -- and they are files. This prints the
      * running server actually resolved, not the defaults, so an operator can tell "I edited it" from
      * "it took", and names the files to edit rather than describing them.
      */
@@ -228,9 +228,9 @@ public final class TaskedCommand {
                 + ", detectionDelay=" + quests.detectionDelay() + " ticks"), false);
         source.sendSuccess(() -> Component.literal("Files: " + configPath("armature") + " and "
                 + configPath(Tasked.MOD_ID) + "/quests/index.json. Edit, then /tasked reload."), false);
-        source.sendSuccess(() -> Component.literal(
-                "A player's own theme, motion and radius are theirs: the quest book's Settings button."),
-                false);
+        source.sendSuccess(() -> Component.literal("A player's own text size is theirs: the quest book's"
+                + " Settings button. The palette, the corner radius and the Motion switch are in the tools"
+                + " panel, behind edit permission."), false);
         return 1;
     }
 
@@ -255,6 +255,12 @@ public final class TaskedCommand {
         // the next in-game one. `/tasked reload` is the one gesture that says "the files changed
         // without me", so it is where that cache goes.
         TaskedQuests.tables().forget();
+        // And Armature's own settings file, which is the other file this command's read-out names:
+        // `ArmatureConfig.install` is built for a second call -- its own note names "a reload command"
+        // -- and this is the gesture it was written for. Not inside `TaskedQuests.reload`, for the
+        // reason above: the editor's refresh calls that after every applied op, and a settings file is
+        // not the tree.
+        ArmatureConfig.install(ArmatureApi.platform().configDir("armature"));
         QuestLoader.Result result = TaskedQuests.reload();
         var problems = result.problems();
 

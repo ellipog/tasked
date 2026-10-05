@@ -1,6 +1,8 @@
 package dev.ellipog.tasked.server;
 
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.config.ArmatureConfig;
+import dev.ellipog.armature.api.config.TeamSettings;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.armature.api.platform.ArmaturePlatform;
@@ -11,6 +13,7 @@ import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
+import dev.ellipog.tasked.api.TaskedScripts;
 import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.QuestState;
@@ -362,6 +365,14 @@ class QuestPlaythroughTest {
         assertEquals(0, storedQuestCount(),
                 "a refused command must not have written progress. A non-zero count here means the "
                         + "refusal happened after something was already recorded.");
+
+        // And the script binding, which is the documented parity: the same service call, and the same
+        // guard in front of it now. Without the guard a script could finish the chain the command above
+        // just refused, because the service itself never looks at a quest's dependencies.
+        assertFalse(TaskedScripts.complete(player, "the_underground"),
+                "the script path refuses a locked quest, as the command does");
+        assertEquals(QuestState.LOCKED, stateOf("the_underground"), "and it is still locked");
+        assertEquals(0, storedQuestCount(), "and the script's refusal wrote nothing either");
     }
 
     @Test
@@ -2353,6 +2364,30 @@ class QuestPlaythroughTest {
 
         setStage(THE_MARK, true);
         note("the progress listing stopped offering a claim the stage gate would refuse");
+    }
+
+    @Test
+    @Order(97)
+    @DisplayName("/tasked reload re-reads Armature's settings file, not only the quest folder")
+    void reloadReReadsArmatureSettings() throws IOException {
+        // `/tasked config` names two files and says to edit them and run this command. The quest half was
+        // always true; the Armature half was not, because `ArmatureConfig.install` had one caller --
+        // startup -- while the command re-read only the quest directory. So this asserts the other half
+        // through the command itself, at the one value an operator would change.
+        Path file = ROOT.resolve("config").resolve("armature").resolve(ArmatureConfig.FILE_NAME);
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "{\"teams\":{\"maxMembers\":9}}");
+
+        assertTrue(asOperator("/tasked reload").result() > 0, "the reload reports the files it decoded");
+        assertEquals(9, ArmatureConfig.current().teams().maxMembers(),
+                "the edited cap is in force without a restart");
+
+        // Restored to what a first start leaves, so the party-cap orders that count to eight are not
+        // reading a file this test wrote: deleting the file and reloading is what a fresh install does.
+        Files.delete(file);
+        assertTrue(asOperator("/tasked reload").result() > 0);
+        assertEquals(TeamSettings.DEFAULT.maxMembers(), ArmatureConfig.current().teams().maxMembers(),
+                "and the default is back in force");
     }
 
     /**

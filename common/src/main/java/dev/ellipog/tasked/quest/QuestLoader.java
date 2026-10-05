@@ -332,8 +332,10 @@ public final class QuestLoader {
                 return;
             }
             problems.error(document, "$", "circular table reference: " + String.join(" -> ", chain)
-                    + "\n    a roll through these tables can never finish, so it is cut off and grants"
-                    + " nothing. Break it by pointing one of them at a different table.");
+                    + "\n    a roll through these tables can never finish, so it is cut off past "
+                    + dev.ellipog.tasked.quest.loot.RewardTable.MAX_NESTING + " levels and pays only what"
+                    + " it reached -- every entry above the loop is paid again on each pass. Break it by"
+                    + " pointing one of them at a different table.");
         });
     }
 

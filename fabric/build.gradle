@@ -27,8 +27,8 @@ dependencies {
 
     // But a dev *run* is a real game with a real mod loader, and Tasked's fabric.mod.json requires
     // Armature -- so without this the first thing a dev server does is refuse to start: "Mod tasked
-    // requires armature 0.1.0 or above". The NeoForge module carries the same line for the same
-    // reason; this is the Fabric half.
+    // requires armature ${armature_version} or above". The NeoForge module carries the same line
+    // for the same reason; this is the Fabric half.
     //
     // With it, a dev run gets one step further and stops on Fabric API's *own* access widener:
     // "Namespace (intermediary) does not match current runtime namespace (named)". That is the dev

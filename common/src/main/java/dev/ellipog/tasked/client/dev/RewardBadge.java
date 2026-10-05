@@ -22,7 +22,7 @@ import dev.ellipog.armature.client.ui.shape.Shape;
  * full size. Nine pixels was tried first and the digit pressed against the ring; eleven is the size at
  * which it reads as a coin with a number on it rather than as a number in a box. Below the size where
  * the digit fits inside the ring it becomes a dot, and it shrinks with the node, so a zoomed-out graph
- * does not grow coins half the size of the nodes they mark. The sidebar carries the exact count.
+ * does not grow coins half the size of the nodes they mark. The sidebar counts quests with something waiting, and the quest's card or the rewards inbox counts the rewards themselves.
  *
  * <h2>Why the caller passes the colours</h2>
  *
@@ -135,12 +135,12 @@ public final class RewardBadge {
         disc(r, cx, cy, radius - 1, fill);
 
         if (diameter < FULL_DIAMETER) {
-            // A dot: a digit inside this ring would touch its edges, and the sidebar has the count.
+            // A dot: a digit inside this ring would touch its edges, and the sidebar has the count of quests.
             return;
         }
         if (count > MAX_DIGIT) {
-            // Two digits at this size are a smudge; a bullet says "several", and the sidebar says how
-            // many.
+            // Two digits at this size are a smudge; a bullet says "several", and the quest's card
+            // says how many.
             r.fill(cx - 1, cy - 1, cx + 2, cy + 2, ink);
             return;
         }

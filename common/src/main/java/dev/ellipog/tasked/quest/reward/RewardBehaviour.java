@@ -9,13 +9,18 @@ package dev.ellipog.tasked.quest.reward;
  *
  * <h2>Granting must be idempotent-safe, but is not required to be idempotent</h2>
  *
- * <p>Called from exactly one place — {@code ProgressService.claim}, which a player triggers — and that
- * call marks the rewards collected and <b>saves</b> before invoking this, persisting immediately. So a
- * crash midway through granting leaves a quest marked collected with some rewards given, losing the
- * remaining items rather than duplicating them.
+ * <p>Called from four paths, and they do not persist in the same order — which is the part a caller has
+ * to know, because it decides what a crash costs. The claim ({@code ProgressService.claim}, which a
+ * player triggers) <b>grants first and writes once after</b> the loop: each reward is marked as it is
+ * handed over, so a crash mid-grant leaves that reward unmarked and outstanding — given twice at worst
+ * rather than lost. Completion's auto-claim and the join sweep are the other way round: they mark and
+ * save first, each in its own order, so a crash mid-grant leaves the reward marked collected with part
+ * of it given. A table's leaves are granted by the same walk as any other reward, so a table pays its
+ * entries the way its parent quest does, in whichever order the path that reached it had already taken.
  *
- * <p>That is the deliberate choice. Duplicating a diamond is an exploit; losing one to a crash is an
- * annoyance. FTB Quests takes the same direction, and it is the only defensible one.
+ * <p>The automatic paths chose the loss over the duplication deliberately: duplicating a diamond is an
+ * exploit and losing one to a crash is an annoyance, and FTB Quests takes the same direction. The claim
+ * is the one press with the player watching, and it can afford the other trade.
  */
 public interface RewardBehaviour<T> {
 

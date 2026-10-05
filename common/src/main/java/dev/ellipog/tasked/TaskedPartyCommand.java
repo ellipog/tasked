@@ -191,7 +191,10 @@ public final class TaskedPartyCommand {
             context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.solo"), false);
         }
         else {
-            String name = team.name().isEmpty() ? "(unnamed)" : team.name();
+            // The panel's key for the same state, so an unnamed party reads the same on both surfaces.
+            Component name = team.name().isEmpty()
+                    ? Component.translatable("tasked.screen.party.unnamed")
+                    : Component.literal(team.name());
             context.getSource().sendSuccess(() -> Component.translatable("tasked.command.party.header",
                     name, team.size()), false);
 
@@ -464,7 +467,8 @@ public final class TaskedPartyCommand {
             return 0;
         }
         if (!team.isOwner(player.getUUID())) {
-            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_owner"));
+            context.getSource().sendFailure(
+                    Component.translatable("tasked.command.party.not_owner_action"));
             return 0;
         }
         if (!teams.rename(player.getUUID(), team.id(), name)) {
@@ -636,7 +640,8 @@ public final class TaskedPartyCommand {
         Team team = mine.get();
 
         if (!team.isOwner(player.getUUID())) {
-            context.getSource().sendFailure(Component.translatable("tasked.command.party.not_owner"));
+            context.getSource().sendFailure(
+                    Component.translatable("tasked.command.party.not_owner_action"));
             return 0;
         }
 

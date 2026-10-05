@@ -111,10 +111,11 @@ public final class RewardTableRefs {
      *
      * <p>A depth cap rather than a cycle check: the tree is finite, but it is built by a decoder whose
      * input an author wrote, and a walk that cannot exceed a stated depth is a walk that cannot be the
-     * reason a server thread dies. Eight, the same limit {@code TableReward.grantAll} uses.
+     * reason a server thread dies. The fourth of the four walks {@link RewardTable#MAX_NESTING} names --
+     * it used to write the number itself, with a comment maintaining the agreement by hand.
      */
     private static void collect(QuestReward reward, String path, List<Ref> refs, int depth) {
-        if (depth > 8 || !(reward instanceof TableReward table)) {
+        if (depth > RewardTable.MAX_NESTING || !(reward instanceof TableReward table)) {
             return;
         }
         table.tableId().ifPresent(id -> refs.add(new Ref(id, path)));

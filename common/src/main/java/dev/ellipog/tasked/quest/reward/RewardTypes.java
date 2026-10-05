@@ -50,10 +50,14 @@ public final class RewardTypes {
      */
     private static final java.util.List<dev.ellipog.tasked.quest.EditorField> COMMON_EDITOR =
             java.util.List.of(
-                    dev.ellipog.tasked.quest.EditorField.choice("auto", "Given", "default", "disabled",
-                                    "enabled")
+                    // The ring comes from the enum, because a hand-written list here was three of its five
+                    // words -- see RewardAutoClaim#wireValues.
+                    dev.ellipog.tasked.quest.EditorField.choice("auto", "Given",
+                                    RewardAutoClaim.wireValues().toArray(String[]::new))
                             .hint("when it is handed over: default follows the quest's own setting, enabled "
-                                    + "gives it on completion, disabled waits for a claim"),
+                                    + "gives it on completion with a notification, no_toast gives it "
+                                    + "silently, invisible gives it with no trace at all, disabled waits "
+                                    + "for a claim"),
                     dev.ellipog.tasked.quest.EditorField.flag("excludeFromClaimAll", "Claim separately")
                             .hint("Claim all leaves this one for its own press"),
                     dev.ellipog.tasked.quest.EditorField.flag("ignoreRewardBlocking", "Ignore blocking")

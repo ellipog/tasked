@@ -1822,7 +1822,7 @@ public final class ProgressService {
                 Component.translatable("tasked.reward.inventory_full_count", feedback.droppedStacks()), true);
         player.playNotifySound(SoundEvents.DISPENSER_FAIL, SoundSource.PLAYERS, 0.7F, 1.4F);
         ArmatureNetwork.sendToPlayer(player,
-                new RewardOverflowPayload(feedback.droppedStacks(), feedback.droppedItems()));
+                new RewardOverflowPayload(feedback.droppedStacks()));
     }
 
     /**

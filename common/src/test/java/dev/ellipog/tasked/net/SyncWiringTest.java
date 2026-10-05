@@ -117,7 +117,7 @@ class SyncWiringTest {
     }
 
     @Test
-    @DisplayName("the payload set is exactly these twenty-two -- the viewer seam adds no message")
+    @DisplayName("the payload set is exactly the declared list -- the viewer seam adds no message")
     void theViewerSeamAddsNoPayload() {
         // T13's claim is "no new network message": the quest tree already reaches the client, so every
         // viewer reads the cache instead of being sent anything. A claim like that is worth a check
@@ -605,7 +605,7 @@ class SyncWiringTest {
         long before = ClientPartyCache.rosterRevision();
 
         Consumer<PartySyncPayload> handler = clientHandler("party_sync");
-        handler.accept(throughTheCodec(PartySyncPayload.CODEC, new PartySyncPayload(party, packed)));
+        handler.accept(throughTheCodec(PartySyncPayload.CODEC, new PartySyncPayload(packed)));
 
         assertTrue(ClientPartyCache.hasParty(),
                 "the roster did not reach the cache, so a client in a party of two would draw the "
@@ -625,7 +625,7 @@ class SyncWiringTest {
         // A roster of nobody is a real message rather than an absent one: it is what a disband sends,
         // and the client has to be able to tell "I am in no party" from "I have heard nothing".
         handler.accept(throughTheCodec(PartySyncPayload.CODEC,
-                new PartySyncPayload(party, PartySnapshot.none().pack())));
+                new PartySyncPayload(PartySnapshot.none().pack())));
 
         assertFalse(ClientPartyCache.hasParty(),
                 "an empty roster must clear the party rather than be ignored, which is the whole "

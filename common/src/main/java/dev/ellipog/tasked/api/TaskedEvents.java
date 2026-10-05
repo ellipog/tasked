@@ -20,11 +20,13 @@ import net.minecraft.server.level.ServerPlayer;
  * and the thing a script most often wants is to run something <i>when</i> it is granted rather than to
  * poll for it.
  *
- * <h2>Fired from one place</h2>
+ * <h2>Fired beside the write, in two places</h2>
  *
- * <p>Every fire is inside {@link dev.ellipog.tasked.progress.ProgressService}, at the moment the
- * engine itself records the change — so an event cannot describe something that was refused, and a
- * listener runs before the caller's next statement. Listener exceptions are the listener's problem;
+ * <p>The four progress events fire inside {@link dev.ellipog.tasked.progress.ProgressService}, and
+ * {@link #STAGE_ADDED}/{@link #STAGE_REMOVED} fire in {@code StageService.add}/{@code remove} — beside
+ * the store write and the sync, which is where that class's own note says they belong. Both are at
+ * the moment the engine itself records the change, so an event cannot describe something that was
+ * refused, and a listener runs before the caller's next statement. Listener exceptions are the listener's problem;
  * the engine does not catch them, because swallowing a script error would make a broken script look
  * like a quest that silently did nothing.
  *

@@ -155,6 +155,22 @@ public final class InlineTables {
     }
 
     /**
+     * Re-mints every handle <b>inside</b> one table, leaving the table itself alone.
+     *
+     * <p>What a copied table file needs. {@link #remintAll} walks from the root, and a table file's root
+     * <i>is</i> a table — it holds an {@code entries} array, which is how a table is recognised — so the
+     * copy came back with a fresh {@code uid} at the top level. Both the schema and {@code rewards.md}
+     * say a table in its own file is addressed by its file name and that the loader ignores a root
+     * {@code uid} there: the field belongs to an inline table, and stamping one into a file is a field
+     * an author did not write. The entries inside are a different matter — a nested inline table is a
+     * second instance of itself in the copy, and needs a handle of its own.
+     */
+    public static int remintEntries(JsonObject table) {
+        JsonElement entries = table.get("entries");
+        return entries == null ? 0 : remint(entries, new LinkedHashSet<>(), true);
+    }
+
+    /**
      * The walk itself.
      *
      * <p>An inline table is recognised by its shape — an object holding an {@code entries} array, which

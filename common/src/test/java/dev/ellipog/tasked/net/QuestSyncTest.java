@@ -946,16 +946,22 @@ class QuestSyncTest {
             // server that has. The alternative -- drawing what it understands and saying so in the log --
             // degrades in the direction that keeps a player playing.
             QuestIndex index = twoGroups();
-            String version2 = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+            String thisBuild = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
 
-            // Version 9, plus a field this build has never heard of, which is what a newer server's tree
-            // actually looks like: the fields it knows, and one more.
-            String version9 = version2
-                    .replace("\"version\":2", "\"version\":9")
+            // One revision above this build's, plus a field it has never heard of, which is what a newer
+            // server's tree actually looks like: the fields it knows, and one more. Built from the
+            // constant rather than from a literal, because the literal this replaced was `"version":2` --
+            // a number no tree has emitted since the third revision, so the "newer" half of this test was
+            // quietly a second copy of the current version.
+            String newer = thisBuild
+                    .replace("\"version\":" + QuestSync.TREE_VERSION,
+                            "\"version\":" + (QuestSync.TREE_VERSION + 1))
                     .replace("\"quests\":", "\"somethingThisBuildHasNeverSeen\":[1,2,3],\"quests\":");
+            assertTrue(newer.contains("\"version\":" + (QuestSync.TREE_VERSION + 1)),
+                    "the fixture has to be a *newer* tree, or this test is about the current version");
 
             ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
-                    version9.getBytes(StandardCharsets.UTF_8));
+                    newer.getBytes(StandardCharsets.UTF_8));
 
             assertTrue(ClientQuestCache.hasData(),
                     "a newer tree must still be drawn with whatever this build understands");
@@ -1361,7 +1367,8 @@ class QuestSyncTest {
     void aStageLockedQuestArrivesLocked() {
         // The third per-player overlay on this wire, after the contributors and the claimable flag. A
         // gated quest's stored state is the team's, and whether *this* player may see and collect it is
-        // not -- so the client is told locked, and the claim flag is not sent at all.
+        // not -- so the client is told locked. (A `claimable` key used to ride this delta as well; it was
+        // parsed and read by nothing, so it is gone -- the per-player answer is `canClaimFor` below.)
         QuestIndex index = gatedRewardedQuest();
         Quest quest = Fixtures.quest(index, "a");
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
@@ -1375,9 +1382,6 @@ class QuestSyncTest {
 
         byte[] gated = QuestSync.progressDelta(resolution, waiting, index, null,
                 (questId, taskIndex) -> Map.of(), java.util.Set.of("a")).json();
-        assertFalse(new String(gated, StandardCharsets.UTF_8).contains("claimable"),
-                "a gated quest must not carry the claim flag at all: "
-                        + new String(gated, StandardCharsets.UTF_8));
         ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, gated, CLIENT_TICK);
 
         assertEquals(QuestState.LOCKED, ClientQuestCache.stateOf("a"),
@@ -1389,8 +1393,6 @@ class QuestSyncTest {
         // the assertions above are about the overlay and not about the fixture.
         byte[] open = QuestSync.progressDelta(resolution, waiting, index, null,
                 (questId, taskIndex) -> Map.of(), java.util.Set.of()).json();
-        assertTrue(new String(open, StandardCharsets.UTF_8).contains("claimable"),
-                "the control must carry the claim flag: " + new String(open, StandardCharsets.UTF_8));
         ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, open, CLIENT_TICK);
 
         assertEquals(QuestState.COMPLETED, ClientQuestCache.stateOf("a"),

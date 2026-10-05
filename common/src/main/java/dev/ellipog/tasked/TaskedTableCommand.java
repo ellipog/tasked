@@ -29,15 +29,17 @@ import java.util.Optional;
  *
  * <h2>Why a command as well as an editor</h2>
  *
- * <p>Because two of the things an author does with a table need the <b>crosshair</b>, and a screen
- * captures the mouse: reading a chest into a table and filling a chest from one are aimed actions, and
- * while the book is open there is nothing to aim. So those two live here, where the player is walking
- * around — and the editor's own buttons cover the parts that work with a panel open (its own item
- * picker, and reading the player's inventory).
+ * <p>Because filling a container from a table needs the <b>crosshair</b>, and a screen captures the
+ * mouse: it is an aimed action, and while the book is open there is nothing to aim. The same is true of
+ * reading a container while you are walking around — though the panel covers that one too, through its
+ * own `Import… › From target chest` row, which is why this note no longer claims both directions are
+ * commands. So the commands live here for the aimed half, and the editor's buttons cover what works with
+ * a panel open: its own item picker, reading the player's inventory, and reading the container you are
+ * looking at.
  *
  * <h2>The grammar is literal branches, not a row of optionals</h2>
  *
- * <p>{@code export <id> [here] [nested [here|container]]} as nested literals rather than two optional
+ * <p>{@code export <id> [here | nested [here | container]]} as nested literals rather than two optional
  * arguments in sequence: Brigadier tries the first optional against {@code here} and fails with
  * "unknown argument" instead of doing what was asked. Two branches that each read as a sentence is the
  * version an author can guess.

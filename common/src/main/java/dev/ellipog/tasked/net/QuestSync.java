@@ -168,6 +168,15 @@ public final class QuestSync {
      * travel here at all; that is per-player state and lives on the progress channel, where every
      * per-player fact belongs.
      *
+     * <p>Version 11 added the reward tables — {@code rewardTables} and {@code refusedTables} — which the
+     * editor's browser lists and a reward's table badge draws. A version-10 reader ignores both. The
+     * client pins this one by name, which is why it is here.
+     *
+     * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
+     * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
+     * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
+     * the map of the places it matters.
+     *
      * <p>The consequence, in the direction that matters most: <b>an old client on a new server still
      * draws today's flat list.</b> It reads the fields it knows and ignores the two it does not, which
      * is what Gson does with a key nobody asks for, so an install that has not been updated keeps
@@ -890,20 +899,12 @@ public final class QuestSync {
         boolean gated = stageLocked.contains(quest.id());
         one.addProperty("state", (gated ? QuestState.LOCKED : resolution.stateOf(quest)).name());
 
-        // Whether the quest is finished with something still to collect.
-        //
-        // Sent only when true, like the cooldown below, so the field's absence means "nothing to
-        // claim" rather than "an older server did not know about this" -- which is the opposite of
-        // the default the other fields take. Deliberate: a client that invented a Claim button for
-        // a quest with nothing waiting would send a claim the server refuses, and the player would
-        // be shown a button that does nothing. Absent is the safe reading in both directions here.
-        //
-        // Without this the button cannot exist. `rewardsClaimed` is on QuestProgress and this
-        // method did not put it on the wire, which is the same shape as `shape` never travelling:
-        // a field the engine records, the command prints, and no client ever hears about.
-        if (!gated && ProgressService.anyoneCouldClaim(progress, quest)) {
-            one.addProperty("claimable", true);
-        }
+        // Whether the quest is finished with something still to collect used to be sent here, as a
+        // `claimable` flag built from ProgressService.anyoneCouldClaim. Nothing ever read it: the client
+        // answers the per-player question itself from `claims` below, which is why the flag could not
+        // have been right even in principle -- it is the team's answer to a player's question. Removed
+        // rather than kept as a hint, because a field with no reader is a field the next person has to
+        // prove is dead before touching anything near it.
 
         // Who has collected what. Per player, because a claim is a player's own -- the client answers
         // "does the player at this keyboard have something to collect" from this map with its own

@@ -27,7 +27,7 @@ own **Claim**, or **Claim all** for everything outstanding.
 | `enabled` | Give it the moment the quest completes. |
 | `disabled` | Wait for a claim. |
 | `no_toast` | Give it automatically, without a toast. |
-| `invisible` | Give it automatically, without telling the player. |
+| `invisible` | Give it automatically; the same silence as `no_toast`. |
 
 ### Turning it on for a whole chapter
 
@@ -57,9 +57,9 @@ Two things a mode can never override:
 - **A held team gets nothing.** `/tasked rewards block` outranks every automatic mode; unblocking is
   the one moment it is released.
 
-`no_toast` and `invisible` differ in what the client shows: both grant silently, and both also
+`no_toast` and `invisible` are the same silence under two names: both grant without a toast and both
 suppress the completion notice for that quest, so a chapter of starter quests does not announce
-itself fifty times.
+itself fifty times. The words are borrowed from FTB Quests, which is why there are two of them.
 
 While anything is still waiting, the player sees it in two places: a small badge on the quest's node
 with the number of rewards, and a count beside the chapter's row in the sidebar — `The Shop (3)` —
@@ -225,13 +225,14 @@ it is, without an edit path into it.
 | **The header** | the title (type it — a blank title falls back to the id), the number of rolls, the entry count, the total weight, and the mode the chances are read as. |
 | **The rows** | one per entry: its icon and name, its weight with a stepper, and **the chance that weight means** — `Always` for a weight of zero, a percentage otherwise, `(per roll)` when the table rolls more than once, with the chance of seeing it *at least once* on hover. |
 | **The fold** | an entry's own fields, exactly as the card draws a reward's: the item (the picker, with the data of the stack you are holding), the count, and — for an entry that is itself a table — a button that opens it, with a breadcrumb back. |
-| **Add item** | the item picker, appending one entry at weight 1. You can also **drag a stack in from EMI or JEI**: it lands where you drop it, with its count and its data. |
-| **Add reward** | any registered reward type — experience, a command, another table — as an entry. |
-| **Import inventory** / **Import chest** | one entry per distinct item you carry, or per item in the container you are looking at. It appends and never touches what is there, and tells you what it did. |
+| **+ Item** | the item picker, appending one entry at weight 1. You can also **drag a stack in from EMI or JEI**: EMI lands it at the row under the pointer, JEI appends it to the end of the list, with its count and its data. |
+| **+ Reward** | any registered reward type — experience, a command, another table — as an entry. |
+| **Import...** | opens two rows. **From inventory** adds one entry per distinct item you carry; **From target chest** does the same for the container you are looking at, which the server resolves from your crosshair when the panel closes. Both append and never touch what is there, and tell you what they did. |
 | **Undo** | the last edit to this table, and stops at the table you opened — a nested table's steps are not its parent's. |
-| **Test roll ×10** | rolls the table (nesting and all) and shows what came up, without granting anything. The server rolls, because only it can see every table the first one reaches. |
+| **Test roll x10** | rolls the table (nesting and all) and shows what came up, without granting anything. The server rolls, because only it can see every table the first one reaches. |
 | **Done** | one table back, or out of the panel. `Ctrl+Z` undoes your edits here — and stops at the table you opened. |
 
-Two things are commands rather than buttons, because they need the crosshair and a screen captures the
-mouse: `/tasked table import <id>` and `/tasked table export <id>` read and fill the container you are
-looking at. See [commands](../commands.md).
+Filling a container from a table is a command rather than a button, because it needs the crosshair and a
+screen captures the mouse: `/tasked table export <id>`. Reading one is a button above — the panel's
+`Import... › From target chest` row — and `/tasked table import <id>` is the same read for a player who is
+walking around. See [commands](../commands.md).

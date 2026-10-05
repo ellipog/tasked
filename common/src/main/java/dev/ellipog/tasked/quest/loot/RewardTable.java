@@ -77,11 +77,18 @@ public record RewardTable(double emptyWeight, int lootSize, List<Entry> entries,
     /**
      * The deepest a table may nest before a walk gives up, named once.
      *
-     * <p>A table whose entry points back at itself is a file an author can write, so every walk over
-     * the graph needs a floor under it: the grant ({@code TableReward.resolve}), the report
-     * ({@link TableRoller}) and the export ({@link TableExport}). All three wrote {@code 8}, which is
-     * three descriptions of one rule and three chances for the report to disagree with the grant about
+     * <p>A table whose entry points back at itself is a file an author can write, so every walk over the
+     * graph needs a floor under it. There are <b>four</b>: the grant ({@code TableReward.resolve}), the
+     * report ({@link TableRoller}), the export ({@link TableExport}) and the loader's dangling-reference
+     * check ({@link RewardTableRefs}). Three of them wrote {@code 8} and the fourth wrote it too, which
+     * is four descriptions of one rule and four chances for the report to disagree with the grant about
      * what "too deep" means — and the report is the one an author believes.
+     *
+     * <p>They also have to agree about the <b>comparison</b>, which they did not: the grant and the
+     * reference walk cut at {@code depth > MAX_NESTING} while the report and the export cut at
+     * {@code >=}, so the two an author reads stopped one level before the one that pays. All four use
+     * {@code >} now, which is what this note means by "the deepest a table may nest": nesting <i>at</i>
+     * this depth is allowed, and a walk gives up past it.
      */
     public static final int MAX_NESTING = 8;
 

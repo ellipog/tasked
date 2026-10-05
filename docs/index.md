@@ -67,6 +67,8 @@ and the lines between nodes are its dependencies. From a quest's card a player s
 [[reward]]s, and picks between a choice reward's entries. A player in a party sees the roster there
 too, and the counts the party's mode combines.
 
-A player with permission level 2 gets **Edit** and **Tools** in the book's header. That is the in-game
-editor, and it writes the same files these pages describe — the server re-checks the permission and
-validates before anything lands on disk, so the client never writes a file.
+An operator gets the `✎ Edit` and `Assets` pills over the canvas's top-right corner — the header itself
+carries no authoring control. Edit latches edit mode and opens the tools panel; Assets opens the pack's
+own files. That is the in-game editor, and it writes the same files these pages describe: the server
+re-checks the permission and validates before anything lands on disk, so no quest file is written by the
+client — the player's own look and text size live in files the client owns.

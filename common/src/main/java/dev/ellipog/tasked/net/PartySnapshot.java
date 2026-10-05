@@ -627,10 +627,16 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
     public PartySnapshot withArriving(MinecraftServer server, ServerPlayer self,
                                       java.util.function.Function<UUID, List<Invite>> invitesFor) {
         List<String> listed = new ArrayList<>();
+        // The ids as well as the names, because a row's status is drawn from presence and presence is
+        // the id. The list does not answer for the arriving player -- see the class note -- and
+        // `withSelf` adds them; what it does answer for is everybody else, and that half was left empty
+        // so a whole roster drew offline at a login.
+        List<UUID> presentIds = new ArrayList<>();
         for (ServerPlayer online : server.getPlayerList().getPlayers()) {
             listed.add(online.getScoreboardName());
+            presentIds.add(online.getUUID());
         }
-        return withSelf(members, self.getUUID(), self.getScoreboardName(), listed,
+        return withSelf(members, self.getUUID(), self.getScoreboardName(), listed, presentIds,
                 invitesFor.apply(self.getUUID()));
     }
 
@@ -645,7 +651,7 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
      * by {@code PartySnapshotTest}, which has none.
      */
     PartySnapshot withSelf(List<Member> members, UUID self, String selfName, List<String> listed,
-                           List<Invite> invites) {
+                           List<UUID> presentIds, List<Invite> invites) {
         List<Member> named = new ArrayList<>(members.size());
         for (Member member : members) {
             named.add(member.id().equals(self) ? new Member(self, selfName, member.role()) : member);
@@ -658,8 +664,16 @@ public record PartySnapshot(UUID teamId, String teamName, UUID owner, List<Membe
         }
         online.sort(String::compareToIgnoreCase);
 
+        // And the same for presence, which is the id rather than the name. Both halves of the roster
+        // have to be told about the arriving player; telling only `online` left every row -- the
+        // player's own included -- drawing offline, because the status ink asks `present`.
+        List<UUID> here = new ArrayList<>(presentIds);
+        if (!here.contains(self)) {
+            here.add(self);
+        }
+
         return new PartySnapshot(teamId, teamName, owner, List.copyOf(named), List.copyOf(invites),
-                List.copyOf(online), mode, present, sent, policy, memberLimit, publicParties);
+                List.copyOf(online), mode, List.copyOf(here), sent, policy, memberLimit, publicParties);
     }
 
     /** The mode this party counts by, or the default when an older server sent none. */

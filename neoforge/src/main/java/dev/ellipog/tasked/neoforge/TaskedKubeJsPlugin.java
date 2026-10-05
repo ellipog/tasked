@@ -14,6 +14,7 @@ import dev.latvian.mods.kubejs.event.KubeEvent;
 import dev.latvian.mods.kubejs.plugin.KubeJSPlugin;
 import dev.latvian.mods.kubejs.script.BindingRegistry;
 import dev.latvian.mods.kubejs.script.ScriptManager;
+import dev.latvian.mods.kubejs.script.ScriptType;
 
 import net.minecraft.server.level.ServerPlayer;
 
@@ -92,15 +93,26 @@ public final class TaskedKubeJsPlugin implements KubeJSPlugin {
     }
 
     /**
-     * Forgets the handlers the previous scripts registered.
+     * Forgets the handlers the previous <b>server</b> scripts registered.
      *
-     * <p>Called before every (re)load, including the first. Registration replaces by id, so without
-     * this a handler whose script was deleted or renamed would go on measuring tasks for the rest of
-     * the session -- and the failure it produces is a custom task that keeps working after the file
-     * that defines it is gone, which reads as the reload not having happened.
+     * <p>Called before every (re)load, including the first, and for whichever manager is reloading --
+     * which is why the type is checked rather than assumed. KubeJS reloads the client manager on F3+T
+     * and on `/kubejs reload client-scripts`, and clearing the registries then would zero every custom
+     * task and reward a server script registered, in a single-player session, until a server-script
+     * reload or a restart. Only a server reload is a statement about the handlers those scripts left.
+     *
+     * <p>Registration replaces by id, so without this a handler whose script was deleted or renamed
+     * would go on measuring tasks for the rest of the session -- and the failure it produces is a
+     * custom task that keeps working after the file that defines it is gone, which reads as the reload
+     * not having happened. A startup reload no longer clears them either: the alternative, clearing on
+     * everything but the client, leaves the same wipe reachable through `/kubejs reload
+     * startup-scripts`.
      */
     @Override
     public void beforeScriptsLoaded(ScriptManager manager) {
+        if (manager.scriptType != ScriptType.SERVER) {
+            return;
+        }
         CustomTask.CustomTasks.clear();
         CustomReward.CustomRewards.clear();
     }

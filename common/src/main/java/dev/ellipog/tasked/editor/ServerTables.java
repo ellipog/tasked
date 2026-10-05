@@ -303,7 +303,11 @@ public final class ServerTables {
             return EditorOps.Applied.refused("reward_tables/" + duplicate.id() + ".json could not be read");
         }
         JsonObject copy = source.get().root().deepCopy();
-        InlineTables.remintAll(copy);
+        // The copy's own root is a table -- the file holds an `entries` array, which is what makes it
+        // one -- and a table in its own file is addressed by its file name. Reminting from the root
+        // stamped a fresh `uid` into the top level of a file the schema says must not carry one, so the
+        // walk starts at the entries: a nested inline table inside the copy still needs its own handle.
+        InlineTables.remintEntries(copy);
         TableEditor fresh = TableEditor.fresh(fileOf(duplicate.newId()), duplicate.newId(), copy);
         QuestEditor.SaveResult saved = fresh.save(loaded.get());
         if (!saved.ok()) {

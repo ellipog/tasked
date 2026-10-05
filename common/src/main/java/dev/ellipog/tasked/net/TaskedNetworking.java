@@ -1261,7 +1261,7 @@ public final class TaskedNetworking {
         // on. Both halves of it are logged -- see `handlePartySync` for the receiving side.
         Constants.LOG.info("Tasked: roster -> {} ({} member(s))",
                 player.getScoreboardName(), snapshot.members().size());
-        send(player, new PartySyncPayload(snapshot.teamId(), snapshot.pack()));
+        send(player, new PartySyncPayload(snapshot.pack()));
     }
 
     /**

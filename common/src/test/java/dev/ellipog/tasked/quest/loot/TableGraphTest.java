@@ -20,6 +20,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -256,5 +257,28 @@ class TableGraphTest {
                 { "inline": { "uid": "same", "entries": [
                     { "reward": { "type": "tasked:loot", "inline": { "uid": "same", "entries": [] } } } ] } }""");
         assertEquals(2, InlineTables.remintAll(copy), "a copied file re-mints every handle, clashes or not");
+    }
+
+    @Test
+    @DisplayName("a copied file is re-minted inside, and not given a handle it never had")
+    void aCopiedFileKeepsItsOwnNameAndRemintsWhatIsInside() {
+        // A table file's root *is* a table -- it holds an `entries` array, which is what makes it one --
+        // and a table in its own file is addressed by its file name. Re-minting from the root stamped a
+        // fresh `uid` into the top level of a file both the schema and rewards.md say carries none: a
+        // field the author never wrote, written by a copy. The walk starts at the entries instead,
+        // because a table nested inside the copy is a second instance of itself and does need a handle.
+        com.google.gson.JsonObject file = com.google.gson.JsonParser.parseString(
+                """
+                { "entries": [
+                    { "reward": { "type": "tasked:random",
+                                  "inline": { "uid": "inside", "entries": [] } } } ] }""")
+                .getAsJsonObject();
+
+        assertEquals(1, InlineTables.remintEntries(file), "the table inside the copy is re-minted");
+        assertFalse(file.has("uid"), "the file is addressed by its name, so a root handle is a field nobody wrote");
+
+        String inside = file.getAsJsonArray("entries").get(0).getAsJsonObject()
+                .getAsJsonObject("reward").getAsJsonObject("inline").get("uid").getAsString();
+        assertNotEquals("inside", inside, "and the copy's own handle is not the original's");
     }
 }

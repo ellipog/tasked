@@ -124,12 +124,15 @@ public final class TaskedScripts {
 
     /**
      * Finishes the quest for this player's progress, exactly as {@code /tasked complete} does — the same
-     * service call, so a script cannot complete something the command would refuse.
+     * service call, and now the same guard in front of it, so a script cannot complete something the
+     * command would refuse.
      *
-     * <p>Refuses, returning false, for an id that resolves to no quest and for a quest the engine will not
-     * complete (its gate shut for this player, its tasks unsatisfied, or a completion already paid out).
-     * The team is told either way, because a refusal the client does not hear about is a card that goes on
-     * showing the wrong thing.
+     * <p>Refuses, returning false, for an id that resolves to no quest, for a quest that is not playable
+     * (its dependencies unmet, which is the command's own first check), and for one the engine will not
+     * complete (its gate shut for this player, or a completion already paid out). The team is told after
+     * an attempt that reached the service, because a refusal the client does not hear about is a card
+     * that goes on showing the wrong thing; a locked quest is refused before anything is attempted, and
+     * the card already draws it locked.
      */
     public static boolean complete(ServerPlayer player, String questId) {
         MinecraftServer server = player == null ? null : player.getServer();
@@ -144,6 +147,14 @@ public final class TaskedScripts {
         QuestIndex.QuestEntry entry = found.get();
         UUID owner = ProgressService.progressOwner(server, player);
         TeamProgress before = ProgressStore.of(server).progressOf(owner);
+        // The command's own guard, and the reason the parity claim was false without it: the service
+        // refuses a shut stage gate and a settled completion, but a quest whose dependencies are unmet
+        // is LOCKED and would sail straight through it.
+        QuestState state = ProgressionEngine.resolve(index, before, server.overworld().getGameTime())
+                .stateOf(entry.quest());
+        if (!state.isPlayable()) {
+            return false;
+        }
         TeamProgress after = ProgressService.complete(server, owner, player, entry, before);
         boolean completed = after.progressOf(entry.quest()).state() == QuestState.COMPLETED;
         TaskedNetworking.sendProgressToTeam(server, player, ProgressSyncPayload.REASON_CHANGED);

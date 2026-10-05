@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.quest.ChapterNaming;
 import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestValidator;
@@ -368,7 +369,7 @@ public final class QuestStructure {
         for (QuestFiles.Declaration quest : chapterQuests) {
             String fileName = quest.path().getFileName().toString();
             String questId = quest.id() == null ? fileName : quest.id();
-            String fresh = unique(questId, taken, "_copy");
+            String fresh = ChapterNaming.suggested(questId, "_copy", taken);
             taken.add(fresh);
             names.add(fresh + QuestEditor.SUFFIX);
             reIds.add(new ReId(questId, fresh));
@@ -419,7 +420,7 @@ public final class QuestStructure {
         List<String> newChapters = new ArrayList<>();
         List<Rename> chapterRenames = new ArrayList<>();
         for (String chapter : sourceChapters) {
-            String fresh = unique(chapter, chapterIds, "_copy");
+            String fresh = ChapterNaming.suggested(chapter, "_copy", chapterIds);
             chapterIds.add(fresh);
             newChapters.add(fresh);
             chapterRenames.add(new Rename(chapter, fresh));
@@ -437,7 +438,7 @@ public final class QuestStructure {
             for (QuestFiles.Declaration quest : quests) {
                 String fileName = quest.path().getFileName().toString();
                 String questId = quest.id() == null ? fileName : quest.id();
-                String fresh = unique(questId, questIds, "_copy");
+                String fresh = ChapterNaming.suggested(questId, "_copy", questIds);
                 questIds.add(fresh);
                 names.add(fresh + QuestEditor.SUFFIX);
                 reIds.add(new ReId(questId, fresh));
@@ -1191,43 +1192,24 @@ public final class QuestStructure {
     // Names
     // ------------------------------------------------------------------
 
-    /** Why an id is not usable for a new chapter or group, or null when it is. */
+    /**
+     * Why an id is not usable for a new chapter or group, or null when it is.
+     *
+     * <p>The rule is {@link ChapterNaming}'s, which is where the book asks the same question: one home
+     * for it, and one wording, so a name refused here reads as the card would have put it. The collision
+     * sentence stays here because this list is the index's own ids -- the book's carries aliases too,
+     * which is why it says so and this does not.
+     */
     private static String idProblem(Path root, String kind, String id) {
-        if (id == null || id.isBlank()) {
-            return "the " + kind + " needs an id";
-        }
-        if (id.length() > 64) {
-            return "that id is longer than 64 characters";
-        }
-        for (int i = 0; i < id.length(); i++) {
-            char c = id.charAt(i);
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
-                return "an id may use only a-z, 0-9 and _ - \"" + id + "\" has '" + c + "' in it";
-            }
-        }
-        if (id.startsWith("_")) {
-            // The loader skips every name beginning with an underscore, so an id that has one could
-            // never be read back. Refused here rather than allowed and lost at the next load.
-            return "an id may not begin with \"_\": the loader skips those names";
-        }
-        if (QuestFiles.isDeletedName(id)) {
-            return "an id may not end with \"" + QuestFiles.DELETED_SUFFIX + "\"";
+        String problem = ChapterNaming.problemWith(id);
+        if (problem != null) {
+            return problem;
         }
         if (existingIds(root, kind.equals("group") ? QuestFiles.Kind.GROUP : QuestFiles.Kind.CHAPTER)
                 .contains(id)) {
             return "there is already a " + kind + " called \"" + id + "\"";
         }
         return null;
-    }
-
-    /** {@code base + suffix}, made unique against {@code taken} by appending a counter. */
-    private static String unique(String base, Set<String> taken, String suffix) {
-        String candidate = base + suffix;
-        int n = 2;
-        while (taken.contains(candidate)) {
-            candidate = base + suffix + n++;
-        }
-        return candidate;
     }
 
     // ------------------------------------------------------------------

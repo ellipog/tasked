@@ -40,7 +40,7 @@ import java.util.Objects;
  *
  * <ul>
  *   <li><b>Sections that fold</b>: the palette list and the colours are headings you can collapse,
- *       because forty-one rows and sixteen palettes in one column is a wall.</li>
+ *       because forty-three rows and sixteen palettes in one column is a wall.</li>
  *   <li><b>Controls on the rows</b>: a number is dragged or typed where it is named, a colour is a chip
  *       that opens the picker, and the two actions that write the player's own theme sit at the foot of
  *       the book tab.</li>
@@ -470,7 +470,7 @@ public final class ToolsLayout {
      * <h2>The kinds, and what each one says about where the control is</h2>
      *
      * <p>A {@code switch} is a label with a small button in a strip at its right; a {@code row} is itself
-     * the control, which is what sixteen themes and forty-one colours want, because a strip button per row
+     * the control, which is what sixteen themes and forty-three colours want, because a strip button per row
      * would be sixteen buttons all saying the same word; a {@code heading} is drawn, and in this panel it is
      * also pressable -- it folds its section.
      *

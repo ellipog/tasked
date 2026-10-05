@@ -6,8 +6,6 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-import java.util.UUID;
-
 /**
  * A party's roster, as it goes to a client.
  *
@@ -23,17 +21,16 @@ import java.util.UUID;
  * somebody accepts an invite, an officer removes somebody — and a roster that only refreshed when the
  * panel was opened would be a panel showing a party that is no longer the one you are in.
  *
- * <h2>Three components, and the ceiling is six</h2>
+ * <h2>Two components, and the id rides the roster</h2>
  *
- * <p>The team id goes as two longs rather than a string: fixed size, no parsing, no chance of a
- * malformed one. The roster itself is one string, because
- * {@code StreamCodec.composite} has no overload past six and a member list is variable-length — see
- * {@link PartySnapshot}, which owns the format and is tested on its own.
+ * <p>There used to be a third: the team id, as two longs rather than a string, fixed size and no
+ * parsing. It was never read — the handler consumes the packed roster alone — and the same id is the
+ * first header line {@link PartySnapshot#unpack} reads back, so the payload was carrying a second copy
+ * of a fact it already held. The ceiling is six; the roster is one string.
  *
- * @param teamId the party this describes
  * @param packed {@link PartySnapshot#pack()} — the roster, as one string
  */
-public record PartySyncPayload(UUID teamId, String packed) implements CustomPacketPayload {
+public record PartySyncPayload(String packed) implements CustomPacketPayload {
 
     /**
      * The payload's id. The constructor, not {@code createType} — that method hardcodes the
@@ -45,15 +42,13 @@ public record PartySyncPayload(UUID teamId, String packed) implements CustomPack
 
     public static final StreamCodec<? super RegistryFriendlyByteBuf, PartySyncPayload> CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.VAR_LONG, payload -> payload.teamId().getMostSignificantBits(),
-                    ByteBufCodecs.VAR_LONG, payload -> payload.teamId().getLeastSignificantBits(),
                     // A generous ceiling, and a hard one. The roster is a few hundred bytes for a party
                     // of any plausible size, so this is far above what it needs -- and the point of a
                     // limit is not to be tight, it is to refuse to allocate a string somebody else chose
                     // the length of. The bytes arrive from a server, which is not a stranger, which is
                     // not the same as being safe.
                     ByteBufCodecs.stringUtf8(32768), PartySyncPayload::packed,
-                    (most, least, packed) -> new PartySyncPayload(new UUID(most, least), packed));
+                    PartySyncPayload::new);
 
     @Override
     public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {

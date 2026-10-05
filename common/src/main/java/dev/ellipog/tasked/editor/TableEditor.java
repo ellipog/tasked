@@ -44,9 +44,6 @@ import java.util.Optional;
  */
 public final class TableEditor {
 
-    /** How many steps back a named table remembers. The same depth a chapter's history has. */
-    private static final int HISTORY = 60;
-
     /**
      * The file, for a named table. Null for an inline one, which resolves its file per operation --
      * see {@link #file()}.
@@ -408,7 +405,9 @@ public final class TableEditor {
             return false;
         }
         undo.push(file.json());
-        while (undo.size() > HISTORY) {
+        // The chapter's depth, from the one place it is written: a named table remembers as many
+        // steps as a chapter, and an inline table is on the chapter's own stack above.
+        while (undo.size() > QuestEditor.HISTORY) {
             undo.removeLast();
         }
         redo.clear();

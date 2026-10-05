@@ -17,8 +17,9 @@ import java.util.Set;
  * {@code "shape"}, {@code "size"} — because the codec is a {@link MapCodec}, not a nested object. A
  * quest file should not need an extra level of nesting to say where a box goes.
  *
- * <p>Grid spacing is 32 pixels, so quests at 0,0 and 32,0 touch. The editor snaps to that; a
- * hand-edited file can put one anywhere.
+ * <p>Grid spacing in the shipped chapters is 32 pixels, so quests at 0,0 and 32,0 touch. The editor
+ * snaps to 8, which divides that, so a dragged node lands on a multiple of 8; a hand-edited file can
+ * put one anywhere.
  */
 public record QuestLayout(int x, int y, QuestShape shape, int size, double iconScale, int rotation) {
 
@@ -50,8 +51,20 @@ public record QuestLayout(int x, int y, QuestShape shape, int size, double iconS
     public static final int MIN_ROTATION = 0;
     public static final int MAX_ROTATION = 359;
 
+    /**
+     * The node's size bounds and default, in pixels.
+     *
+     * <p>The bounds live here rather than in the codec, the validator and the client separately, which
+     * is where they used to be: they are a property of the record the field belongs to, and three
+     * copies of a range is three chances for one to move. Bounded because the canvas draws at a fixed
+     * scale — a 4000-pixel node would be a performance problem and is certainly a typo for 40.
+     */
+    public static final int MIN_SIZE = 16;
+    public static final int MAX_SIZE = 512;
+    public static final int DEFAULT_SIZE = 48;
+
     public static final QuestLayout DEFAULT =
-            new QuestLayout(0, 0, QuestShape.ROUNDED, 48, DEFAULT_ICON_SCALE, DEFAULT_ROTATION);
+            new QuestLayout(0, 0, QuestShape.ROUNDED, DEFAULT_SIZE, DEFAULT_ICON_SCALE, DEFAULT_ROTATION);
 
     /** The field names this contributes, for the validator to allow at quest level. */
     public static final Set<String> FIELDS =
@@ -62,8 +75,9 @@ public record QuestLayout(int x, int y, QuestShape shape, int size, double iconS
             Codec.INT.optionalFieldOf("y", 0).forGetter(QuestLayout::y),
             QuestShape.CODEC.optionalFieldOf("shape", QuestShape.ROUNDED).forGetter(QuestLayout::shape),
             // Bounded because the canvas draws at a fixed scale: a 4000-pixel node would be a
-            // performance problem and is certainly a typo for 40.
-            Codec.intRange(16, 512).optionalFieldOf("size", 48).forGetter(QuestLayout::size),
+            // performance problem and is certainly a typo for 40. The bounds come from the constants
+            // above, so the codec, the validator and the client cannot disagree about them.
+            Codec.intRange(MIN_SIZE, MAX_SIZE).optionalFieldOf("size", DEFAULT_SIZE).forGetter(QuestLayout::size),
             // The bounds live on QuestShape, where the geometry they describe lives, so the codec and
             // the validator cannot come to disagree about them.
             Codec.doubleRange(QuestShape.MIN_ICON_SCALE, QuestShape.MAX_ICON_SCALE)

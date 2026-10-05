@@ -184,6 +184,18 @@ class PayloadTest {
         // reward that can never be collected.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:choice_reward"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:claim_choice"));
+        // The table family: the editor's file request, the server's roll and the import a panel asks
+        // for all travel one way, and each answer comes back the other. Registered either way round,
+        // the table editor sits on "Waiting for this table's file..." or a roll report never arrives.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:table_replica_request"));
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:table_replica"));
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:table_roll_request"));
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:table_roll"));
+        // A table a command told the editor to open, and an import asked for by a panel: one is the
+        // server opening a screen on the client, the other is the client asking the server to read a
+        // container. Either the wrong way round is a press that does nothing at all.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tasked:table_open"));
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tasked:table_import_request"));
     }
 
     @Test
@@ -225,9 +237,8 @@ class PayloadTest {
         assertEquals(3, press.rewardIndex(), "the reward's index, and not the task's or an entry's");
 
         RewardOverflowPayload dropped = roundTrip(RewardOverflowPayload.CODEC,
-                new RewardOverflowPayload(2, 64));
-        assertEquals(2, dropped.stacks(), "stacks and items are different numbers on purpose");
-        assertEquals(64, dropped.items(), "a stack of sixty-four is one drop and sixty-four items");
+                new RewardOverflowPayload(2));
+        assertEquals(2, dropped.stacks(), "the drop count is what the sentence names");
 
         // The footer's filter rides with the press: it only narrows, and a codec that dropped it would
         // make "Claim items" silently claim everything.

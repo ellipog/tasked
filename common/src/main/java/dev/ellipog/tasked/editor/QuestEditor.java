@@ -72,8 +72,14 @@ public final class QuestEditor {
     private static final String QUEST_FILE = "quest.schema.json";
     private static final String QUEST_SCHEMA = "_schema/" + QUEST_FILE;
 
-    /** How many steps back the editor remembers. Deep enough for a session's worth of dragging. */
-    private static final int HISTORY = 60;
+    /**
+     * How many steps back the editor remembers. Deep enough for a session's worth of dragging.
+     *
+     * <p>Package-private rather than private, because a named table remembers the same number of steps
+     * and used to carry its own copy of the literal: this is the depth, and {@link TableEditor} reads
+     * it. An inline table is on this stack already, so there is nothing for it to keep of its own.
+     */
+    static final int HISTORY = 60;
 
     private final Path root;
     private final Path folder;

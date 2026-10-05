@@ -14,11 +14,16 @@ import com.google.gson.JsonObject;
  * The wire does not care: {@code TableOps.read} answers "is this one of mine", and the payload handler
  * asks that first.
  *
- * <h2>Creation ops carry a path, not an address</h2>
+ * <h2>Creation names a file, and a select names the reward</h2>
  *
- * <p>A table that does not exist yet has no handle, so the ops that make one are told where it goes:
- * the owning reward's path ({@code rewards.2}) plus the owner. The server mints the handle and returns
- * it, and everything after that addresses the table by the handle.
+ * <p>A creation op is a new <b>file</b> under {@code reward_tables/}: the caller sends the whole table it
+ * wants written. {@code Duplicate} is the other way one appears. Nothing here mints an <b>inline</b>
+ * table any more — the format still reads and rolls one, but the panel stopped making them, and a note
+ * that described the old minting op outlived the op by a while.
+ *
+ * <p>{@code Select} carries the owning reward's path ({@code rewards.2}) as well as the table it names,
+ * not because a handle is minted but so the server can find the reward it is pointing at: the write is
+ * one field on one reward, and the tree that says which reward is the server's to read.
  */
 public sealed interface TableOp {
 
@@ -57,7 +62,8 @@ public sealed interface TableOp {
     record Redo(TableAddress address) implements TableOp {
     }
 
-    /** A new file under {@code reward_tables/}, from the whole table the caller wrote. */
+    /** A new file under {@code reward_tables/}, from the whole table the caller wrote. Mints no handle:
+     * a table in its own file is addressed by its name. */
     record Create(String id, JsonObject root) implements TableOp {
     }
 

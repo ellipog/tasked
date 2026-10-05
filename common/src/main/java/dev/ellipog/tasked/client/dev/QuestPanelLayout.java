@@ -105,10 +105,12 @@ public final class QuestPanelLayout {
             rows.add(field(quest, "title"));
             rows.add(field(quest, "subtitle"));
             rows.add(field(quest, "icon.item"));
-            int descriptionLines = lines(quest);
+            int paragraphs = paragraphs(quest);
+            // The chapter panel's keys and its noun, because both panels count the same thing: the
+            // file's `description` array is a list of paragraphs, not of wrapped lines.
             rows.add(InspectRow.value(VALUE_PREFIX + "description", "tasked.dev.panel.description",
-                    Labels.of(descriptionLines == 1 ? "tasked.dev.panel.description_line"
-                            : "tasked.dev.panel.description_lines", descriptionLines)));
+                    Labels.of(paragraphs == 1 ? "tasked.dev.chapter.paragraph_in_file"
+                            : "tasked.dev.chapter.paragraphs_in_file", paragraphs)));
             rows.add(InspectRow.field("aliases", "tasked.dev.panel.aliases",
                     String.join(", ", strings(quest, "aliases"))));
         }
@@ -1105,7 +1107,7 @@ public final class QuestPanelLayout {
         return List.copyOf(out);
     }
 
-    private static int lines(JsonObject quest) {
+    private static int paragraphs(JsonObject quest) {
         JsonElement description = quest.get("description");
         if (description == null || !description.isJsonArray()) {
             return description == null ? 0 : 1;

@@ -51,10 +51,12 @@ nodes with per-quest shape, size and icon scale, styled dependency lines, markdo
 descriptions, live task progress and submit buttons, rewards with claim and claim-all, a
 choice-reward picker, and the party roster.
 
-**The editor is in-game and server-owned.** A player with permission level 2 gets Edit and Tools
-panels inside the book: forms for every task and reward type, a searchable item picker, drag to
-move a node with a snap grid, undo/redo, and Ctrl+S to save. The server re-checks permission and
-validates before writing; the client never writes a file.
+**The editor is in-game and server-owned.** A player with permission level 2 gets an Edit pill over the
+canvas's top-right corner, which latches edit mode and opens the tools panel inside the book, with an
+Assets pill beside it: forms for every task and reward type, a searchable item picker, drag to move a
+node with a snap grid, and undo/redo. Every edit is written as it is made, so Ctrl+S reports that rather
+than saving. The server re-checks permission and validates before writing: no quest file is written by
+the client, and the player's own look and text size are the client's own files.
 
 **For addons and packs.** `TaskedEvents` publishes quest, task, claim and stage events, and
 `TaskTypes.register` / `RewardTypes.register` / `ConditionTypes.register` add custom types with
@@ -83,14 +85,14 @@ tree, so Armature has to be in the local Maven repository first. From a sibling 
 
 ```cmd
 cd ..\armature
-gradlew build :common:publishToMavenLocal
+gradlew build publishToMavenLocal
 
 cd ..\tasked
 gradlew build
 ```
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-1.0.0.jar`) — the `-sources` and `-javadoc` jars are not mods. The test
+(`tasked-fabric-1.21.1-1.0.0.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile

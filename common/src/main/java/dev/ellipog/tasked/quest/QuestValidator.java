@@ -601,10 +601,13 @@ public final class QuestValidator {
         }
         if (document.has(path + ".size")) {
             Checks.optionalInt(document, path + ".size", problems).ifPresent(size -> {
-                if (size < 16 || size > 512) {
+                // The bounds come from the record that owns them, so the two cannot disagree -- the rule
+                // this file states for the icon scale and the rotation a few lines below.
+                if (size < QuestLayout.MIN_SIZE || size > QuestLayout.MAX_SIZE) {
                     problems.error(document, path + ".size",
-                            "size must be between 16 and 512, found " + size
-                                    + (size > 512 ? " - did you mean " + (size / 10) + "?" : ""));
+                            "size must be between " + QuestLayout.MIN_SIZE + " and " + QuestLayout.MAX_SIZE
+                                    + ", found " + size
+                                    + (size > QuestLayout.MAX_SIZE ? " - did you mean " + (size / 10) + "?" : ""));
                 }
             });
         }
@@ -1177,7 +1180,7 @@ public final class QuestValidator {
                 problems.error(document, elementPath, "a dependency id may not be empty");
                 continue;
             }
-            boolean wellFormed = candidate.length() <= 64;
+            boolean wellFormed = candidate.length() <= ChapterNaming.MAX_LENGTH;
             for (int j = 0; wellFormed && j < candidate.length(); j++) {
                 char ch = candidate.charAt(j);
                 wellFormed = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_';
@@ -1475,8 +1478,9 @@ public final class QuestValidator {
      * thing, looked up the same way.
      */
     private static void checkAlias(JsonDocument document, String path, String alias, Problems problems) {
-        if (alias.isEmpty() || alias.length() > 64) {
-            problems.error(document, path, "an alias must be between 1 and 64 characters");
+        if (alias.isEmpty() || alias.length() > ChapterNaming.MAX_LENGTH) {
+            problems.error(document, path, "an alias must be between 1 and "
+                    + ChapterNaming.MAX_LENGTH + " characters");
             return;
         }
         for (int i = 0; i < alias.length(); i++) {

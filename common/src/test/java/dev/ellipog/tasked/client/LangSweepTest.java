@@ -21,17 +21,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The translation keys and the code, held in step in both directions.
  *
- * <h2>What is swept, and what is not yet</h2>
+ * <h2>What is swept</h2>
  *
  * <p>{@code SWEPT} names the namespaces this sweep has converted — the player-facing screen strings,
- * status lines, state words, the command read-outs and the notices. Every key there must exist in
- * {@code en_us} <b>and</b> be referenced by code, so an orphan and a missing key both fail.
+ * status lines, state words, the command read-outs, the notices, and the editor's own
+ * {@code tasked.dev.*}, which was converted last. Every key there must exist in {@code en_us}
+ * <b>and</b> be referenced by code, so an orphan and a missing key both fail.
  *
- * <p>The editor's namespaces — the property panels' row labels, {@code tasked.dev.*} and the rest —
- * are deliberately <b>outside</b> this list: the sweep has not converted them yet, and a test that
- * asserted their keys today would fail on work that is still on the list rather than on a mistake.
- * The list shrinks by adding a prefix here as each surface is converted, and the note in TESTING.md
- * says which remain.
+ * <p>The editor's namespace is reached the second way: a layout record holds the key and the draw
+ * site resolves it, so {@code literalsThatAreKeys} reads those records rather than a
+ * {@code translatable(...)} call. Converting a surface is adding its prefix to {@code SWEPT}, and the
+ * note in TESTING.md says which are in.
  *
  * <p>Keys are found by scanning the sources for {@code translatable(...)} and
  * {@code translatableWithFallback(...)} with a literal first argument. That is a scan of <b>keys</b>,

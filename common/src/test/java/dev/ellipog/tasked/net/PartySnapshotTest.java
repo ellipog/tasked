@@ -370,7 +370,8 @@ class PartySnapshotTest {
          * id, and marked them offline to themselves.
          */
         private PartySnapshot arriving() {
-            return sample().withSelf(sample().members(), MEMBER, "Tester", List.of("Ellipog"), List.of());
+            return sample().withSelf(sample().members(), MEMBER, "Tester", List.of("Ellipog"),
+                    List.of(OWNER), List.of());
         }
 
         @Test
@@ -399,6 +400,15 @@ class PartySnapshotTest {
             assertEquals("Ellipog", arriving.members().get(0).name(),
                     "the other rows kept their names");
             assertEquals(2, arriving.members().size(), "and nobody was added or dropped");
+
+            // The other half of the roster, and the half a login got wrong: presence is the id, and the
+            // list the snapshot was built from did not have the arriving player's. Only `online` was told
+            // about them, so every row -- their own included -- drew offline.
+            assertTrue(arriving.present().contains(MEMBER),
+                    "the arriving player is present, so their own row does not draw them offline");
+            assertTrue(arriving.present().contains(OWNER),
+                    "and the ids the player list did have are carried through, so the rest of the roster "
+                            + "is not offline either");
         }
     }
 }

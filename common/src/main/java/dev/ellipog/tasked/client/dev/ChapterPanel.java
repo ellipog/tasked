@@ -5,23 +5,17 @@ import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
-import dev.ellipog.tasked.client.BookGeometry;
-
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
 import java.util.Map;
 
 /**
- * The Chapter tab's own drawing: the header band above its rows.
+ * The Chapter tab's own drawing: the cycling rows' arrows and the value between them.
  *
- * <h2>Why the header is not a row</h2>
- *
- * <p>The rows are a scrolling list of the chapter's fields; the header is <i>which chapter</i> those
- * fields are about, so it stays put while they scroll -- and it is the one place the icon's item id
- * can be seen as the item it names, beside the name it belongs to. Drawing it here rather than in the
- * screen keeps the same split every panel in this package has: the screen builds widgets, a class that
- * takes a {@link GuiRenderer} draws, and the rectangles come from {@link ToolsLayout}.
+ * <p>The rectangles come from {@link ChapterPanelLayout}, which owns the metrics for both halves, and
+ * the drawing lives here rather than in the screen for the same reason every panel in this package
+ * does: the screen builds widgets, and a class that takes a {@link GuiRenderer} draws.
  */
 public final class ChapterPanel {
 

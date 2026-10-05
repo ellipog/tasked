@@ -49,21 +49,25 @@ player opens the quest:
   bullet. Headings come in four sizes: `#` is twice the body text, then `##` at 1.75×, `###` at 1.5×
   and `####` at 1.25×. `#####` and `######` use the smallest of those, because the card's font has one
   size and the body's is its floor.
-- A backslash escapes the character after it, so `\*` is a literal star.
+- A backslash escapes the punctuation that would otherwise be markup -- a backslash, `*`, `_`, a
+  backtick, a bracket, a parenthesis, `#`, `-` or `+` -- so `\*` is a literal star and `\a` stays
+  `\a`.
 
 A line break is a line break: markdown here does not join lines into flowing paragraphs, because these
 files are written a line per paragraph and joining them would re-wrap prose an author had already
 wrapped. The file keeps the raw markdown — the editor shows it as written, and only the reader's card
 renders it.
 
-The same reading applies to a chapter's and a group's description. The editor always shows text that a
-reader would not yet see, which is the point of the `hideTextUntilComplete` flag below.
+A chapter's and a group's description are parsed and shown to nobody: neither reaches the reader's
+card -- a chapter's does not cross to the client at all, and the chapter panel shows only a paragraph
+count -- so the reading above is a quest's description. The editor always shows text that a reader
+would not yet see, which is the point of the `hideTextUntilComplete` flag below.
 
 ## The node on the canvas
 
 | Field | Default | Meaning |
 |---|---|---|
-| `x`, `y` | `0` | Position on the canvas, in canvas units rather than pixels, so the layout survives a window resize. Grid spacing is 32. |
+| `x`, `y` | `0` | Position on the canvas, in canvas units rather than pixels, so the layout survives a window resize. The shipped chapters sit on a 32-unit grid; the editor snaps to 8. |
 | `shape` | `rounded` | The outline: `rounded`, `square`, `circle`, `diamond`, `hexagon`, `octagon`, `pentagon`, `gear`, `heart`, `tome`, `star`, or `none`. |
 | `size` | `48` | The node's width and height, 16–512 pixels. |
 | `rotation` | `0` | Degrees clockwise. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |

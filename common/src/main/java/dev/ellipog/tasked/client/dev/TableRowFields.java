@@ -5,6 +5,7 @@ import dev.ellipog.tasked.quest.reward.AdvancementReward;
 import dev.ellipog.tasked.quest.reward.CommandReward;
 import dev.ellipog.tasked.quest.reward.CustomReward;
 import dev.ellipog.tasked.quest.reward.ItemReward;
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.StageReward;
 import dev.ellipog.tasked.quest.reward.TableReward;
 import dev.ellipog.tasked.quest.reward.XpReward;
@@ -203,15 +204,24 @@ public final class TableRowFields {
         return List.of(
                 new Control(Kind.CHOICE, "auto", "Given",
                         "when it is handed over: default follows the quest's own setting, enabled gives "
-                                + "it on completion, disabled waits for a claim"),
+                                + "it on completion with a notification, no_toast gives it silently, "
+                                + "invisible gives it with no trace at all, disabled waits for a claim"),
                 new Control(Kind.FLAG, "excludeFromClaimAll", "Claim separately",
                         "Claim all leaves this one for its own press"),
                 new Control(Kind.FLAG, "ignoreRewardBlocking", "Ignore blocking",
                         "give it even while the team's rewards are being held"));
     }
 
-    /** The words the {@code auto} cycle steps through, in order. The format's own spellings. */
-    public static final List<String> AUTO_VALUES = List.of("default", "disabled", "enabled");
+    /**
+     * The words the {@code auto} cycle steps through, in order: the format's own spellings, from the enum
+     * that owns them.
+     *
+     * <p>A list written here was three of the five words, which is how a press on the shipped
+     * {@code no_toast} reward became {@code default}. {@code TableRowFieldsTest} holds this equal to the
+     * registry's own options <i>and</i> to {@link RewardAutoClaim#wireValues()}, so the ring cannot lag
+     * the format again.
+     */
+    public static final List<String> AUTO_VALUES = RewardAutoClaim.wireValues();
 
     /**
      * What a cycling control shows for its value: the word, or the first word of its ring when it has none.

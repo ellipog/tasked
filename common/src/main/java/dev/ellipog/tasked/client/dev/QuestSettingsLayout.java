@@ -10,6 +10,7 @@ import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 import dev.ellipog.tasked.quest.PrerequisiteMode;
+import dev.ellipog.tasked.quest.QuestLayout;
 import dev.ellipog.tasked.quest.QuestShape;
 
 import java.util.ArrayList;
@@ -88,13 +89,18 @@ public final class QuestSettingsLayout {
     /** How much padding the node keeps inside the preview pane. */
     public static final int PREVIEW_PAD = 12;
 
-    /** The size range the file format allows. The slider spans it, logarithmically. */
-    public static final int MIN_SIZE = 16;
-    public static final int MAX_SIZE = 512;
+    /**
+     * The size range the file format allows. The slider spans it, logarithmically.
+     *
+     * <p>Delegated rather than restated: {@link QuestLayout} owns the field, so it owns the bounds, and
+     * a second pair of literals here is a second thing to keep in step with the codec.
+     */
+    public static final int MIN_SIZE = QuestLayout.MIN_SIZE;
+    public static final int MAX_SIZE = QuestLayout.MAX_SIZE;
 
     /** The rotation's bounds, in degrees: a full turn is the shape itself, so 360 is written as 0. */
-    public static final int MIN_ROTATION = 0;
-    public static final int MAX_ROTATION = 359;
+    public static final int MIN_ROTATION = QuestLayout.MIN_ROTATION;
+    public static final int MAX_ROTATION = QuestLayout.MAX_ROTATION;
 
     /** The icon scale's range, re-exported from the geometry that computes the fit. */
     public static final double MIN_ICON_SCALE = QuestShape.MIN_ICON_SCALE;

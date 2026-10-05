@@ -4,7 +4,8 @@ Everything Tasked can be asked from the command line is under `/tasked`. Player 
 claiming, and everything under `party` — are for whoever is playing. The commands that change the
 quest files or operator state (`reload`, `complete`, `reset`, `rewards block|unblock`, `stage
 add|remove`, and naming another player in `stage list`) ask for permission level 2, a command
-block's level.
+block's level — and so does everything under `table`, the reads included, along with `config`:
+they name the server's own file paths and table ids.
 
 ## For players
 
@@ -30,26 +31,30 @@ block's level.
 | `/tasked stage add <player> <stage>` | Grant a stage. |
 | `/tasked stage remove <player> <stage>` | Take one away. |
 | `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |
-| `/tasked config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tasked reload`. A player's own theme, motion and radius are theirs, in the quest book's Settings card. |
+| `/tasked config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tasked reload` — both files are re-read. A player's own text size is in the book's Settings card; the palette, the corner radius and the Motion switch are in the tools panel's Quest Book tab, which needs edit permission. |
 
 ## Reward tables
 
 Tables live in `config/tasked/quests/reward_tables/<id>.json` and are pointed at by the four table
-reward types — see [rewards](authoring/rewards.md). These commands are for the two things an editor
-cannot do, because a screen captures the mouse: reading a chest into a table, and filling one from it.
+reward types — see [rewards](authoring/rewards.md). The panel covers most of the editing, including
+reading **the container you are looking at** into a table (`Import... › From target chest`). These
+commands are for what a screen still cannot do: they are aimed actions, and an open book captures the
+mouse — filling a container from a table, and reading one while you are walking around.
 
 | Command | What it does |
 |---|---|
 | `/tasked table list` | Every loaded table: its id, its title, its entry count and how many times it rolls. |
-| `/tasked table roll <id> [rolls]` | Roll a table without granting anything, and print what came up — nesting included, and a nested loot table that paid nothing says so. Clamped to 500 rolls. |
+| `/tasked table roll <id> [rolls [reading]]` | Roll a table without granting anything, and print what came up — nesting included, and a nested loot table that paid nothing says so. Clamped to 500 rolls. The reading is `random` (the default), `loot`, `all_table` or `choice` — the same four words the file's own mode writes — and it can only be given after a count: `/tasked table roll <id> 3 loot`. |
 | `/tasked table import <id>` | Add an entry per distinct item in **the container you are looking at**. Appends: it never touches the entries already there, counts are summed per item (components included, so a named sword is its own entry), and anything clipped to the 6400 limit is named. |
-| `/tasked table export <id>` | Fill **the container you are looking at** with the table's items, one entry's configured count per stack, split into legal stacks. Empty slots only — nothing already in the chest is touched — then your inventory, then the ground, and all three counts are reported. |
+| `/tasked table export <id>` | Fill **the container you are looking at** with the table's items, one entry's configured count per stack, split into legal stacks. Empty slots only — nothing already in the chest is touched — then your inventory, then the ground; each non-zero count is reported, in that order. |
 | `/tasked table export <id> here` | The same, skipping the chest: your inventory, then the ground. The way out of a room where every angle within reach hits a wall. |
 | `/tasked table export <id> nested` | The same, resolving nested tables as well — everything the table can produce. The chest is then a **flattened view**: do not import it back into the same table, or its sub-tables become a flat list of entries. |
+| `/tasked table export <id> nested here` | The same again, skipping the chest: everything the table can produce, into your inventory and then the ground. `nested container` is the same as bare `nested`. |
 | `/tasked table edit <id>` | Open that table's editor in your quest book. Refuses an unknown id in chat rather than opening a modal that can only show a refusal. |
 
 `import` and `export` need a player: a console has no crosshair, no inventory and no feet to drop
-things at.
+things at. Every subcommand here asks for permission level 2, the reads (`list`, `roll`) included,
+because they read the server's files and tables rather than a player's.
 
 ## Parties
 

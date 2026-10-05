@@ -409,12 +409,18 @@ public final class ClientQuestCache {
     /**
      * One quest's progress, as the server last reported it.
      *
-     * <p>{@code claimable} is what the Claim button hangs on. The server sends it only when a quest is
-     * finished with something still to collect, so its absence — including from a server too old to
-     * send it — reads as "nothing to claim", which is the direction that cannot show a button that
-     * does nothing.
+     * <p>{@code blocked} is the team's rewards being held: the server sends the key only when they are, so
+     * its absence — including from a server too old to send it — reads as "not held", which is the
+     * direction that cannot label a button wrongly. It <b>labels</b> the panel and does not decide the
+     * claim: a block is team-wide while a reward may except itself with {@code ignoreRewardBlocking},
+     * which never travels, so turning it into "this cannot be collected" would hide rewards the server
+     * would happily pay.
+     *
+     * <p>There used to be a {@code claimable} component here, parsed from the wire and read by nothing:
+     * every button and badge recomputes the per-player answer through {@link #canClaimFor}, which is the
+     * question a claim actually asks, while the wire's value was team-scoped.
      */
-    private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean claimable,
+    private record Progress(QuestState state, long cooldown, List<Integer> tasks, boolean blocked,
                             Map<Integer, Map<UUID, Integer>> contributors,
                             /** Indices settled for the whole team (team-mode and auto claims). */
                             Set<Integer> teamClaims,
@@ -810,6 +816,28 @@ public final class ClientQuestCache {
      */
     public static boolean canClaimFor(UUID player, String questId) {
         return outstandingRewards(player, questId) > 0;
+    }
+
+    /**
+     * Whether the team's rewards are held, so the panel can say why a claim would be refused.
+     *
+     * <p>False for a quest this client has no progress for, and for every quest of a server that predates
+     * the key — one answer for both, and the safe one: no explanation offered rather than one that is
+     * wrong. See {@link #canClaimFor} for the question the button itself asks.
+     */
+    public static boolean rewardsBlockedOf(String questId) {
+        Progress found = progress.get(questId);
+        return found != null && found.blocked();
+    }
+
+    /**
+     * Whether the team's rewards are held at all, for a control that spans every quest.
+     *
+     * <p>The flag is the team's, so any quest that carries it carries it for the whole record — this
+     * exists so the rewards inbox's sweep button can ask once rather than guess from a row.
+     */
+    public static boolean rewardsHeld() {
+        return progress.values().stream().anyMatch(Progress::blocked);
     }
 
     /**
@@ -1286,7 +1314,15 @@ public final class ClientQuestCache {
                     stack(str(quest, "icon"), 1, quest.get("iconComponents")),
                     quest.has("x") ? quest.get("x").getAsInt() : 0,
                     quest.has("y") ? quest.get("y").getAsInt() : 0,
-                    quest.has("size") ? quest.get("size").getAsInt() : 48,
+                    // Clamped for the same reason, and by the same argument, as `iconScale` below: the
+                    // codec that bounded this ran on the server, over a file that server had. `size` was
+                    // the one number of the three that arrived raw, so a cross-version or hand-forged
+                    // 4000 reached the canvas -- which is exactly what the codec's own bound exists to
+                    // prevent. The bounds are QuestLayout's, the record that owns the field.
+                    quest.has("size")
+                            ? Math.min(Math.max(quest.get("size").getAsInt(),
+                                    QuestLayout.MIN_SIZE), QuestLayout.MAX_SIZE)
+                            : QuestLayout.DEFAULT_SIZE,
                     // Resolved with a fallback rather than by valueOf, so a server running a newer
                     // version that names a shape this client has never heard of draws a square
                     // instead of throwing while a player waits for a screen.
@@ -1593,7 +1629,7 @@ public final class ClientQuestCache {
                         readState(str(one, "state")),
                         one.has("cooldown") ? one.get("cooldown").getAsLong() : 0L,
                         List.copyOf(tasks),
-                        one.has("claimable") && one.get("claimable").getAsBoolean(),
+                        one.has("rewardsBlocked") && one.get("rewardsBlocked").getAsBoolean(),
                         Map.copyOf(contributors),
                         Set.copyOf(teamClaims),
                         Map.copyOf(claimedBy),

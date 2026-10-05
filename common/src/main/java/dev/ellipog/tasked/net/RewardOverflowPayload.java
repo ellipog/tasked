@@ -16,12 +16,14 @@ import net.minecraft.resources.ResourceLocation;
  * same routing decision made for completions.
  *
  * <p>Counts only. The stacks are on the ground by the time this is sent, and a payload carrying item
- * ids would be carrying a copy of something the player can already see.
+ * ids would be carrying a copy of something the player can already see. There used to be a second
+ * count — how many items those stacks held — and nothing read it: the handler passed the stack count
+ * alone into the one sentence that exists for this, so the number travelled, round-tripped and was
+ * asserted in tests while no player could ever be shown it. One fact, one component.
  *
  * @param stacks how many stacks were dropped
- * @param items  how many items those stacks held
  */
-public record RewardOverflowPayload(int stacks, int items) implements CustomPacketPayload {
+public record RewardOverflowPayload(int stacks) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<RewardOverflowPayload> TYPE =
             new CustomPacketPayload.Type<>(
@@ -30,7 +32,6 @@ public record RewardOverflowPayload(int stacks, int items) implements CustomPack
     public static final StreamCodec<? super RegistryFriendlyByteBuf, RewardOverflowPayload> CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.VAR_INT, RewardOverflowPayload::stacks,
-                    ByteBufCodecs.VAR_INT, RewardOverflowPayload::items,
                     RewardOverflowPayload::new);
 
     @Override

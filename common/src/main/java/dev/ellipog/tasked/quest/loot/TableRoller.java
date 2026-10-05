@@ -205,7 +205,7 @@ public final class TableRoller {
         if (child.isEmpty()) {
             return;
         }
-        if (depth >= RewardTable.MAX_NESTING) {
+        if (depth > RewardTable.MAX_NESTING) {
             truncated[0] = true;
             return;
         }

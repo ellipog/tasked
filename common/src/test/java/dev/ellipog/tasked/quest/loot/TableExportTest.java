@@ -167,9 +167,10 @@ class TableExportTest {
     @Test
     @DisplayName("nesting stops at the shared limit rather than at one of its own")
     void nestingStopsAtTheSharedLimit() {
-        // One constant for three walks: the grant, the report and this. The chain is built from a map so
-        // it is data rather than a stack of calls -- t0 points at t1, and so on -- and each table carries
-        // an item of its own, so the walk's reach can be counted exactly rather than described.
+        // One constant for four walks: the grant, the report, the loader's reference check and this. The
+        // chain is built from a map so it is data rather than a stack of calls -- t0 points at t1, and so
+        // on -- and each table carries an item of its own, so the walk's reach can be counted exactly
+        // rather than described.
         int limit = RewardTable.MAX_NESTING;
 
         Map<String, RewardTable> within = new java.util.HashMap<>();
@@ -185,16 +186,33 @@ class TableExportTest {
                 "one item per table, plus the last table's second, so the whole chain was walked");
         assertEquals(0, walked.skipped(), "and nothing inside the limit was cut off");
 
-        // One link longer than the limit: the reference *at* the limit is not opened, and the count says
-        // so rather than the chest being quietly short of what the table holds.
-        Map<String, RewardTable> tooDeep = new java.util.HashMap<>(within);
-        tooDeep.put("t" + limit, table(entry(item("iron_ingot", 1, 0)),
-                entry(reference("t" + (limit + 1), TableReward.Mode.RANDOM))));
-        tooDeep.put("t" + (limit + 1), table(entry(item("gold_ingot", 1, 0))));
+        // Deeper than the limit, in the shape that shows where the walk stops: one item per table and a
+        // reference onward, so the stack count *is* the count of tables walked. `>` is what "nesting at
+        // this depth is allowed" means, so the table at the limit is walked and the reference written in
+        // it is opened -- c(limit+1) is reached. One link more, and it is the reference written in *that*
+        // table, a level further down, that is counted as skipped: the gold past it is not reached.
+        Map<String, RewardTable> chain = new java.util.HashMap<>();
+        for (int i = 0; i <= limit + 1; i++) {
+            chain.put("c" + i, i == limit + 1
+                    ? table(entry(item("gold_ingot", 1, 0)))
+                    : table(entry(item("iron_ingot", 1, 0)),
+                            entry(reference("c" + (i + 1), TableReward.Mode.RANDOM))));
+        }
 
-        TableExport.Export cut = TableExport.stacks(tooDeep.get("t0"), true, tooDeep::get);
+        TableExport.Export reached = TableExport.stacks(chain.get("c0"), true, chain::get);
 
-        assertEquals(limit + 1, cut.stacks().size(), "every table up to the limit, and no further");
-        assertEquals(1, cut.skipped(), "the link past the limit is counted as the skipped entry");
+        assertEquals(limit + 2, reached.stacks().size(),
+                "every table up to and including the one past the limit, and the gold it holds");
+        assertEquals(0, reached.skipped(), "and every reference on the way down was opened");
+
+        chain.put("c" + (limit + 1), table(entry(item("iron_ingot", 1, 0)),
+                entry(reference("c" + (limit + 2), TableReward.Mode.RANDOM))));
+        chain.put("c" + (limit + 2), table(entry(item("gold_ingot", 1, 0))));
+
+        TableExport.Export cut = TableExport.stacks(chain.get("c0"), true, chain::get);
+
+        assertEquals(limit + 2, cut.stacks().size(),
+                "one link longer, and one stack per table walked: the gold past the limit is not in it");
+        assertEquals(1, cut.skipped(), "the reference written past the limit is the skipped entry");
     }
 }
