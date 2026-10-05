@@ -13,8 +13,8 @@ import dev.ellipog.armature.client.ui.shape.Shapes;
  * <p>The shapes live in Armature as {@link Shapes}, where the arithmetic can be used by anything — a
  * button, a panel border, a theme. What is here is the <b>vocabulary a quest file writes</b>:
  * {@code "rounded"}, {@code "square"}, {@code "circle"}, {@code "diamond"}, {@code "hexagon"},
- * {@code "octagon"}, {@code "pentagon"}, {@code "gear"}, {@code "heart"}, {@code "tome"} and
- * {@code "none"}. Every method below forwards to a {@link Shape}, and the indirection is deliberate
+ * {@code "octagon"}, {@code "pentagon"}, {@code "gear"}, {@code "heart"}, {@code "tome"},
+ * {@code "star"} and {@code "none"}. Every method below forwards to a {@link Shape}, and the indirection is deliberate
  * rather than vestigial: a data format needs a closed set of names that cannot change without someone
  * noticing, and an extensible geometry type needs the opposite. Those are two different jobs and this
  * class is the smaller one.

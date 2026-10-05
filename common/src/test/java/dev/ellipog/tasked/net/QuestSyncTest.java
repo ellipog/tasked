@@ -399,6 +399,60 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a task that waits for the press is offered its button when the press would be accepted")
+    void aWaitingTaskIsOfferedItsButtonWhenThePressWouldBeTaken() {
+        // One item task that consumes eight diamonds: the press is the only way this can finish, so the
+        // button has to exist -- and only then -- when the server would actually take the press. The
+        // rule that used to live in the screen asked `progress < count`, which for this task is true
+        // exactly while the press would be *refused* and false exactly when it would be accepted.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [ {\"type\": \"tasked:item\", "
+                        + "\"item\": \"minecraft:diamond\", \"count\": 8, \"consumeItems\": true} ]}"));
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertTrue(entryFor("a").tasks().get(0).waits(),
+                "the row has to be told that the press is what finishes this task, not the tick");
+
+        UUID team = UUID.randomUUID();
+
+        // Four held: the count is not met, so a press would be refused and there must be no button.
+        sendProgress(index, 0, 4, team);
+        assertEquals(4, ClientQuestCache.taskProgressOf("a", 0),
+                "the row draws what the player is holding, which is the whole point of the live count");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("a"),
+                "a button whose only effect is a refusal is worse than no button");
+
+        // Eight held, nothing handed in: ready, and it is the one task the row offers.
+        sendProgress(index, 0, 8, team);
+        assertEquals(8, ClientQuestCache.taskProgressOf("a", 0), "at eight held the row reads 8 of 8");
+        assertEquals(0, ClientQuestCache.firstSubmitTask("a"),
+                "and that is the moment the press would be accepted, so the button appears");
+
+        // Handed in: recorded eight, nothing held. The same 8 of 8 arrives, and there is no button.
+        sendProgress(index, 8, 0, team);
+        assertEquals(8, ClientQuestCache.taskProgressOf("a", 0),
+                "which is why the display value alone cannot decide the button -- see taskReady");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("a"),
+                "a handed-in task offers nothing, whatever its count says");
+        assertFalse(ClientQuestCache.taskReadyOf("a", 0), "and the server said so rather than the client");
+    }
+
+    /** One team's progress, with the server's live count for task 0 of the fixture's quest {@code a}. */
+    private static void sendProgress(QuestIndex index, int recorded, int held, UUID team) {
+        TeamProgress progress = recorded == 0
+                ? TeamProgress.empty()
+                : progressWith(index, "a", QuestProgress.NONE.recordTask(0, recorded));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+        dev.ellipog.tasked.progress.ProgressService.Live live =
+                (questId, taskIndex) -> questId.equals("a") && taskIndex == 0 ? held : 0;
+
+        ClientQuestCache.acceptProgress(team, NOW,
+                QuestSync.progressDelta(resolution, progress, index, null,
+                        (questId, taskIndex) -> Map.of(), java.util.Set.of(), Map.of(), live).json(),
+                CLIENT_TICK);
+    }
+
+    @Test
     @DisplayName("an item-tag task carries its tag, and an item task carries none")
     void aTagTaskCarriesItsTag() {
         // The tag is a field rather than a fragment of the row's sentence: it is what lets a recipe

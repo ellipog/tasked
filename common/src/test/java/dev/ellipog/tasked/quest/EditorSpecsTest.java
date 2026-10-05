@@ -66,8 +66,12 @@ class EditorSpecsTest {
             Set<String> paths = paths(TaskTypes.editorOf(id));
             Set<String> declared = TaskTypes.fieldsOf(id);
 
-            assertTrue(paths.containsAll(declared),
-                    id + " declares " + new TreeSet<>(minus(declared, paths))
+            // The registered set is the type's own fields plus the three every task has, so the form is
+            // asked to draw all of them -- with `conditions` exempt, because a list of objects is not a
+            // cell and the entry card draws it as its own section (see the note on the line below). The
+            // other two ride on the form through COMMON_EDITOR and must be drawn here.
+            assertTrue(paths.containsAll(minus(declared, Set.of("conditions"))),
+                    id + " declares " + new TreeSet<>(minus(minus(declared, Set.of("conditions")), paths))
                             + ", which its form does not draw");
             // `conditions` is exempt from the flat form on purpose: a list of objects is not a cell,
             // and the entry card draws it as its own section -- see ConditionFormLayout. Exempting it

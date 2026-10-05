@@ -96,9 +96,9 @@ class QuestIndexTest {
      * A directory of this test's own, for the quest tree {@link #loadExamples} builds.
      *
      * <p>An instance field rather than a static one, so each test method gets a fresh directory: these
-     * tests copy 139 files into it, and a shared one would mean a failed load leaving a half-built
-     * tree — and a half-built tree is exactly the state that produces a misleading "duplicate id"
-     * report on the next test rather than a clear failure.
+     * tests copy the whole example tree into it, and a shared one would mean a failed load leaving a
+     * half-built tree — and a half-built tree is exactly the state that produces a misleading
+     * "duplicate id" report on the next test rather than a clear failure.
      */
     @org.junit.jupiter.api.io.TempDir
     Path temp;
@@ -753,12 +753,14 @@ class QuestIndexTest {
                     "no example quest uses the " + shape + " shape, so nothing exercises it");
         }
 
-        // Both ends of the two ranges a node has. A 16-pixel speck and a 224-pixel moon are the same
-        // field, and a reader who has only seen 48-pixel nodes does not know that.
+        // The size and icon-scale ranges at the ends the exhibition actually shows: a 16-pixel speck,
+        // and a node of 200 pixels or more. The published range runs to 512 pixels and an icon of 0.25,
+        // and neither is exhibited on purpose -- a node that size is a wall rather than an example. What
+        // is asserted is what is drawn, so the claim and the content cannot disagree.
         assertTrue(all.stream().anyMatch(quest -> quest.layout().size() <= 16),
                 "no example node is drawn at the smallest size there is");
         assertTrue(all.stream().anyMatch(quest -> quest.layout().size() >= 200),
-                "no example node is a landmark, so the top of the size range is never seen");
+                "no example node is a landmark, so a large size is never seen");
         assertTrue(all.stream().anyMatch(quest -> quest.layout().iconScale() >= 1.0),
                 "no example icon fills its node corner to corner");
         assertTrue(all.stream().anyMatch(quest -> quest.layout().iconScale() <= 0.5),
@@ -997,6 +999,57 @@ class QuestIndexTest {
         assertTrue(index.chapters().stream().map(QuestIndex.ChapterEntry::chapter)
                         .anyMatch(chapter -> chapter.themePatch().isPresent()),
                 "no example chapter carries a themePatch, so the token-level override is never seen");
+    }
+
+    @Test
+    @DisplayName("every score gate in the examples has its objective created and set by the examples")
+    void scoreGatesHaveTheirInput() throws java.io.IOException {
+        // The defect this exists for: the festival's reward is gated on a scoreboard objective, and the
+        // example that claimed to open the gate only ever created the objective. `objectives add` sets
+        // nobody's score, and a missing objective reads as zero exactly like an objective nobody has
+        // set -- so the gate was born shut and stayed shut, and no test could see it because the
+        // playthrough exercises a different objective that the test itself sets.
+        //
+        // Generalised rather than pinned to that one quest: any score condition the exhibition grows
+        // needs both halves somewhere in the same tree, because neither the loader nor the engine can
+        // invent a score.
+        QuestLoader.Result loaded = loadExamples(temp.resolve("score_gates"));
+        assertTrue(loaded.ok(), "the examples should have nothing fatal in them, but reported:"
+                + messages(loaded.problems()));
+        QuestIndex index = loaded.index();
+        List<Quest> all = index.quests().stream().map(QuestIndex.QuestEntry::quest).toList();
+
+        List<String> commands = all.stream()
+                .flatMap(quest -> quest.rewards().stream())
+                .filter(CommandReward.class::isInstance)
+                .map(CommandReward.class::cast)
+                .map(CommandReward::command)
+                .toList();
+
+        List<String> gated = new ArrayList<>();
+        for (Quest quest : all) {
+            for (QuestReward reward : quest.rewards()) {
+                for (var condition : reward.common().conditions()) {
+                    if (condition instanceof ScoreCondition score) {
+                        gated.add(quest.id() + " -> " + score.objective());
+                        assertTrue(commands.stream().anyMatch(command ->
+                                        command.startsWith("scoreboard objectives add " + score.objective())),
+                                "nothing in the examples creates the \"" + score.objective()
+                                        + "\" objective that " + quest.id() + " is gated on, so the gate "
+                                        + "can never open");
+                        assertTrue(commands.stream().anyMatch(command ->
+                                        command.contains("scoreboard players set ")
+                                                && command.endsWith(" " + score.objective() + " 1")),
+                                "nothing in the examples sets anybody's score on \"" + score.objective()
+                                        + "\", which " + quest.id() + " is gated on: an objective that "
+                                        + "nobody has set reads as zero, exactly like one that does not "
+                                        + "exist, so the gate is born shut and stays shut");
+                    }
+                }
+            }
+        }
+        assertFalse(gated.isEmpty(),
+                "no example carries a score condition, so this rule is not being tested by anything");
     }
 
     @Test

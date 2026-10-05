@@ -16,8 +16,11 @@ import java.util.UUID;
  * @param player the player the condition is asked about
  * @param server the server they are on
  * @param owner  the progress owner this evaluation belongs to — the UUID a party's shared progress is
- *               keyed by. {@code tasked:party_size} resolves it to the team; a solo player is a party
- *               of one.
+ *               keyed by. No condition reads it today: {@code tasked:party_size} asks the
+ *               <b>player</b>, resolving them to their team itself, because the subject of a
+ *               condition is the player and never the team. It is here because the evaluation has to
+ *               know whose progress it is resolving, and a party condition is the one that looked
+ *               like it might be the exception.
  */
 public record ConditionContext(ServerPlayer player, MinecraftServer server, UUID owner) {
 }

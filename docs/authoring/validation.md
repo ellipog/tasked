@@ -5,17 +5,19 @@ that points at a quest that was renamed, a cycle nobody can unlock. Tasked's ans
 files before anything tries to trust them, and to say what is wrong in the format a compiler uses:
 
 ```
-quests/first_light/first_steps/punch_a_tree.json:14:9: error: unknown field "titl" (did you mean "title"?)
+quests/first_light/first_steps/punch_a_tree.json:14:9: error: unknown field "titl" - did you mean "title"?
+    valid fields here: description, icon, id, title
 ```
 
-File, line, column, severity, message. That is `DataProblem.render()`, and it is what the log carries
-for every problem a reload finds.
+File, line, column, severity, message — and, for a field nobody declares, the suggestions on the same line
+plus a second line naming the fields that would have worked. That is `DataProblem.render()` and the
+message beside it, and it is what the log carries for every problem a reload finds.
 
 ## Two passes, because they catch different mistakes
 
 **The per-file [[validator]] runs before the codecs do.** It checks structure and values: every
-required field present, every field one this type actually takes, every enum name valid, every id
-well-formed, every item that exists. Codecs alone cannot do this job — they ignore a field they do not
+required field present, every field some type or the common set declares, every enum name valid, every
+id well-formed, every item that exists. Codecs alone cannot do this job — they ignore a field they do not
 recognise, so `"titl": "Punch a Tree"` produces a quest with a blank title, no error, and nothing in
 any log. And a codec failure names the file but not the line, which is most of what an author needs.
 

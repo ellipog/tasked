@@ -1657,7 +1657,7 @@ class QuestPlaythroughTest {
     void aScoreConditionGatesTheClaim() {
         clearInventories();
 
-        // The objective does not exist when the world starts, which is the state docs/conditions.md
+        // The objective does not exist when the world starts, which is the state docs/authoring/conditions.md
         // calls out: a missing objective reads as zero, so the gate is shut rather than the quest
         // being broken. Four is deliberately one short of the reward's five.
         HeadlessServer.Outcome added = asOperator("/scoreboard objectives add condition_gallery_standing dummy");
@@ -2264,6 +2264,97 @@ class QuestPlaythroughTest {
         note("a pick was refused with no room, and paid once there was some");
     }
 
+    @Test
+    @Order(94)
+    @DisplayName("a task that takes waits for the press: the tick shows the count and records nothing")
+    void aTakingTaskWaitsForThePress() {
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:amethyst_shard 8");
+        assertEquals(1, given.result(), () -> "/give should have worked:\n" + given.text());
+
+        // An item task is re-counted on its own interval, so five ticks with a sleep between them is
+        // comfortably past the first evaluation.
+        for (int i = 0; i < 5; i++) {
+            tickOnce();
+            sleep(100);
+        }
+
+        assertNotEquals(QuestState.COMPLETED, stateOf("the_toll"),
+                "the shards must not finish a task whose cost is a press -- taking them unasked is the "
+                        + "one thing tasks.md promises does not happen");
+        assertEquals(0, recordedTask("the_toll", 0),
+                "and nothing may be recorded: completion is read off the recorded count, so recording it "
+                        + "here would finish the quest and leave the shards in the player's pocket");
+
+        HeadlessServer.Outcome submitted = asOperator("/tasked submit the_toll 0");
+        assertEquals(1, submitted.result(),
+                () -> "the press should have been accepted. It said:\n" + submitted.text());
+        assertEquals(QuestState.COMPLETED, stateOf("the_toll"), "the press is what finishes it");
+        assertEquals(8, recordedTask("the_toll", 0), "and the count it took is the count it recorded");
+        assertEquals(0, countInInventory(Items.AMETHYST_SHARD),
+                "the press takes what the task asked for -- that is the consent it exists for");
+
+        note("a consuming item task stayed unfinished through the tick and was taken at the press");
+    }
+
+    @Test
+    @Order(95)
+    @DisplayName("an automatic payout honours the stage gate, member by member")
+    void anAutomaticPayoutHonoursTheStageGate() {
+        // The gate's fifth part. A stage is one player's, and the team's record is the team's -- so a
+        // member who joined after the fact can read a completed quest they were never eligible for, and
+        // the automatic payout paid them anyway. The javadoc promised the gate decides whether a quest
+        // can "complete or pay out"; only completion and the manual claim checked it.
+        clearInventories();
+        setStage(THE_MARK, true);
+        asOperator("/tasked stage remove tasked-friend " + THE_MARK);
+
+        assertEquals(1, asOperator("/tasked party create the-gate-party").result());
+        assertEquals(1, asOperator("/tasked party invite tasked-friend").result());
+        assertTrue(server.callOnServerThread(
+                        () -> Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent()),
+                "the friend joins, so the party has two online members and the payout has two candidates");
+
+        HeadlessServer.Outcome completed = asOperator("/tasked complete auto_gate");
+        assertEquals(1, completed.result(),
+                () -> "the member holding the stage may complete it:\n" + completed.text());
+
+        assertEquals(1, countInInventory(Items.GOLDEN_APPLE),
+                "the member holding the stage is paid by the automatic payout");
+        assertEquals(0, countInInventoryOf(friend, Items.GOLDEN_APPLE),
+                "and the member who never held it is not, although the team's record is complete -- the "
+                        + "reward stays owed and is paid the first time they hold the stage");
+
+        assertEquals(1, asOperator("/tasked party disband").result(), "and the party is cleaned up");
+        note("a stage-gated automatic payout paid the stage holder and skipped the member without it");
+    }
+
+    @Test
+    @Order(96)
+    @DisplayName("a gated player is not offered a claim the server would refuse")
+    void theClaimHintAsksTheGate() {
+        // `/tasked progress` answers "is there something to collect" with the same question the claim
+        // path asks. It did not ask the stage gate, so it stamped "rewards waiting" on a quest the
+        // claim refused with "Nothing to collect", and claim-all counted one it would not take.
+        clearInventories();
+        assertEquals(1, asOperator("/tasked reset the_mark").result(), "start from an uncollected quest");
+        setStage(THE_MARK, true);
+        assertEquals(1, asOperator("/tasked complete the_mark").result());
+
+        // The claim suffix names the quest's id, and other quests in this pack legitimately have rewards
+        // waiting -- so the assertion is about *this* quest's line, not about the phrase appearing.
+        assertTrue(asOperator("/tasked progress").text().contains("/tasked claim the_mark"),
+                "with the stage held, the listing offers the claim:\n" + asOperator("/tasked progress").text());
+
+        setStage(THE_MARK, false);
+        assertFalse(asOperator("/tasked progress").text().contains("/tasked claim the_mark"),
+                "and with it removed the same quest is no longer offered, because the claim would be "
+                        + "refused:\n" + asOperator("/tasked progress").text());
+
+        setStage(THE_MARK, true);
+        note("the progress listing stopped offering a claim the stage gate would refuse");
+    }
+
     /**
      * The auto-claim chapter, seeded beside the examples.
      *
@@ -2283,7 +2374,7 @@ class QuestPlaythroughTest {
         Files.writeString(chapter.resolve("chapter.json"), """
                 { "$schema": "../../../_schema/chapter.schema.json",
                   "id": "auto_claim", "title": "Auto Claim", "autoClaim": "enabled",
-                  "quests": ["paid.json", "choice.json"] }
+                  "quests": ["paid.json", "choice.json", "gate.json"] }
                 """);
         Files.writeString(chapter.resolve("paid.json"), """
                 { "$schema": "../../../_schema/quest.schema.json", "id": "auto_paid", "title": "Auto Paid",
@@ -2300,9 +2391,19 @@ class QuestPlaythroughTest {
                     { "weight": 1, "reward": { "type": "tasked:item", "item": "minecraft:emerald",
                         "count": 1 } } ] } }] }
                 """);
+        // The stage gate on an automatic payout: a member who never held the stage must not be paid
+        // when the team finishes this, and the member who holds it must be. `the_induction:marked` is
+        // the stage the gate orders above hand out and take away, so there is one vocabulary for it.
+        Files.writeString(chapter.resolve("gate.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "auto_gate",
+                  "title": "Auto Gate", "requiresStage": "the_induction:marked",
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Done" }],
+                  "rewards": [{ "type": "tasked:item", "item": "minecraft:golden_apple", "count": 1 }] }
+                """);
         // The relative names the load check counts, in the same shape `seedExamples` produces.
         return List.of("auto_claim/group.json", "auto_claim/auto_claim/chapter.json",
-                "auto_claim/auto_claim/paid.json", "auto_claim/auto_claim/choice.json");
+                "auto_claim/auto_claim/paid.json", "auto_claim/auto_claim/choice.json",
+                "auto_claim/auto_claim/gate.json");
     }
 
     /**
@@ -2333,7 +2434,8 @@ class QuestPlaythroughTest {
                   "quests": ["the_summons.json", "the_mark.json", "the_fall.json",
                     "the_winnings.json", "the_password.json", "the_shopping_list.json",
                     "the_supply.json", "the_standing.json", "the_company.json",
-                    "the_receipt.json", "the_false_criterion.json", "ameth_start.json"] }
+                    "the_receipt.json", "the_false_criterion.json", "the_toll.json",
+                    "ameth_start.json"] }
                 """);
         Files.writeString(chapter.resolve("the_summons.json"), """
                 { "$schema": "../../../_schema/quest.schema.json", "id": "the_summons",
@@ -2437,6 +2539,16 @@ class QuestPlaythroughTest {
                   "rewards": [{ "type": "tasked:item", "item": "minecraft:amethyst_block",
                     "count": 1 }] }
                 """);
+        // The one quest whose task costs something, and it says so on the task. The chapter states no
+        // consume-items default, deliberately: this is about what an item task that *takes* does, not
+        // about inheritance, which ConsentToTakeTest pins through the same registry door.
+        Files.writeString(chapter.resolve("the_toll.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "the_toll",
+                  "title": "The Toll",
+                  "icon": { "item": "minecraft:amethyst_shard" },
+                  "tasks": [{ "type": "tasked:item", "item": "minecraft:amethyst_shard",
+                    "count": 8, "consumeItems": true }] }
+                """);
         Files.writeString(tables.resolve("loot.json"), """
                 { "emptyWeight": 3, "lootSize": 1,
                   "entries": [
@@ -2460,6 +2572,7 @@ class QuestPlaythroughTest {
                 "engine_gallery/the_galleries/the_company.json",
                 "engine_gallery/the_galleries/the_receipt.json",
                 "engine_gallery/the_galleries/the_false_criterion.json",
+                "engine_gallery/the_galleries/the_toll.json",
                 "engine_gallery/the_galleries/ameth_start.json",
                 "reward_tables/loot.json");
     }

@@ -3573,8 +3573,10 @@ public final class QuestBookScreen extends ArmatureScreen
                             buttonLabel(spec, line), () -> runPartyCommand(spec.command()));
                     if (button != null) {
                         button.accent(spec.accent());
-                        button.tooltip(List.of(Component.literal(partyText(line.label())),
-                                Component.literal(spec.command())));
+                        // The label only. The slash command this press sends used to be the second
+                        // line, and it is not a player's business: somebody pressing Disband wants to
+                        // know what the press does, not which Command the client runs for them.
+                        button.tooltip(List.of(Component.literal(partyText(line.label()))));
                         partyControls.put(spec.key(), button);
                     }
                 }
@@ -6422,7 +6424,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 button.icon(icon.stack());
             }
             else if (icon != null && !icon.id().isEmpty()) {
-                button.tooltip(List.of(Component.translatable("tasked.screen.missing_item", icon.id())));
+                button.tooltip(List.of(Component.translatable("tasked.screen.missing_item_hint")));
             }
 
             // Left-aligned, every row. A column of centred labels has a ragged left edge, so nothing
@@ -7148,7 +7150,7 @@ public final class QuestBookScreen extends ArmatureScreen
             if (submit != null) {
                 submit.accent(true)
                         .icon(entry.tasks().get(index).icon())
-                        .tooltip(List.of(Component.literal("Hand over task " + (index + 1)),
+                        .tooltip(List.of(Component.translatable("tasked.screen.quest_book.submit_hint"),
                                 Component.translatable("tasked.screen.the_server_checks_the_items_are_really_there")));
             }
         }
@@ -10659,7 +10661,7 @@ public final class QuestBookScreen extends ArmatureScreen
             List<Component> lines = new ArrayList<>(2);
             SidebarIcon icon = icons.get(row.key());
             if (icon != null && icon.stack().isEmpty() && !icon.id().isEmpty()) {
-                lines.add(Component.translatable("tasked.screen.missing_item", icon.id()));
+                lines.add(Component.translatable("tasked.screen.missing_item_hint"));
             }
             ChapterProgress progress = counts.byChapter().get(row.id());
             if (progress == null || progress.isEmpty()) {
@@ -16085,33 +16087,12 @@ public final class QuestBookScreen extends ArmatureScreen
                 CanvasReveal.glide(glideFromY, glideToY, elapsed, CanvasReveal.GLIDE_MILLIS));
     }
 
-    /** The first task a player hands over by hand, or -1. */
-    /**
-     * The first task a player hands over by hand <b>and still has to</b>, or -1.
-     *
-     * <h2>Why "still has to" is part of the question</h2>
-     *
-     * <p>Because a checkmark task stays a manual task after it has been handed in -- that is its type,
-     * not its state -- so a caller asking only "is there a manual task" was answered yes forever, and the
-     * Submit button stayed on screen after the press that used it. The report was exact: <i>"submit
-     * should disappear after it has been submitted, it doesn't now"</i>.
-     *
-     * <p>Reaching the task's count is the test rather than a submitted flag, because that is what the
-     * server records and what the button's own effect produces: submitting moves the progress, the
-     * progress sync arrives, and the screen rebuilds -- so the button goes because the reason it existed
-     * has gone, and not because a copy of the answer was kept here.
-     */
+    /** The first task a player hands over by hand <b>and still has to</b>, or -1. */
     private static int firstManualTask(ClientQuestCache.Entry quest) {
-        for (int i = 0; i < quest.tasks().size(); i++) {
-            ClientQuestCache.TaskEntry task = quest.tasks().get(i);
-            // A locked task has no button: the press would be refused, and a button that refuses is
-            // worse than no button at all. The row says locked and its hover says what is missing.
-            if (task.manual() && ClientQuestCache.taskLockOf(quest.id(), i).isEmpty()
-                    && ClientQuestCache.taskProgressOf(quest.id(), i) < task.count()) {
-                return i;
-            }
-        }
-        return -1;
+        // The rule lives in the cache, which holds all three of its inputs -- the task's own kind, what
+        // is recorded and what the server would accept a press on. See ClientQuestCache.firstSubmitTask
+        // for why a checkmark and a task that takes are offered their button at opposite moments.
+        return ClientQuestCache.firstSubmitTask(quest.id());
     }
 
     private static void submit(String questId, int taskIndex) {
@@ -18719,10 +18700,12 @@ public final class QuestBookScreen extends ArmatureScreen
     /** One reward's inbox row, with the status this player's copy of it is in. */
     private RewardInboxLayout.Row rewardInboxRow(UUID self, ClientQuestCache.Entry entry, int index) {
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
-        // A missing item shows the id it names, the same rule the viewer's row uses: an id with no item
-        // is a fact worth telling apart from a row that simply has no icon.
+        // A missing item is named for what it is, not by the id it was written as. The id is the
+        // author's to act on and the row is the player's to read; the picker is where the id belongs.
         boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
-        String label = missingItem ? reward.itemId() : rowText("rewards", reward);
+        String label = missingItem
+                ? Component.translatable("tasked.screen.missing_item").getString()
+                : rowText("rewards", reward);
         int count = reward.hasItem() ? reward.count() : 0;
         return RewardInboxLayout.Row.reward(entry.id(), index, label, count,
                 statusOf(self, entry.id(), index));
@@ -18994,11 +18977,13 @@ public final class QuestBookScreen extends ArmatureScreen
         r.text(count, countX, textY, ArmatureTheme.faint());
 
         if (slot.contains(mouseX, mouseY)) {
+            // The hint, and nothing else. The quest's id used to be the second line, which is an
+            // author's and a bug report's name for the row rather than a player's; the title above it
+            // is what the player is looking at.
             rowTooltips.add(new RowTooltip(slot, List.of(
                     Component.translatable(expanded
                             ? "tasked.screen.rewards.collapse_hint"
-                            : "tasked.screen.rewards.expand_hint").getString(),
-                    row.questId())));
+                            : "tasked.screen.rewards.expand_hint").getString())));
         }
     }
 
@@ -19142,9 +19127,11 @@ public final class QuestBookScreen extends ArmatureScreen
      * A row's strip button hover: what the press does, then everything the row is about.
      *
      * <p>A live button says "Press to collect"; a disabled one says its state instead, because the
-     * sentence a player needs from a button they cannot press is why not. A header names its quest id —
-     * a title can be renamed, and the id is what an author and a bug report both name — and a reward
-     * carries its own lines, {@link #rewardTooltipLines}.
+     * sentence a player needs from a button they cannot press is why not. A reward carries its own
+     * lines, {@link #rewardTooltipLines}. A header used to name its quest id here — a title can be
+     * renamed, and the id is what an author and a bug report name — and naming an id at a player is
+     * exactly what this file's hovers are not for: the title on the row is the same row, said the way
+     * the player reading it can use.
      */
     private List<Component> buttonTooltip(RewardInboxLayout.Row row) {
         List<Component> lines = new ArrayList<>();
@@ -19160,9 +19147,6 @@ public final class QuestBookScreen extends ArmatureScreen
                 lines.add(Component.literal(line));
             }
         }
-        else {
-            lines.add(Component.literal(row.questId()));
-        }
         return lines;
     }
 
@@ -19171,8 +19155,9 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <p>The item's lines are vanilla's — its name, its lore, its enchantments, its attributes — and
      * they are what the player is deciding about, so they are not summarised. The reward's own lines
-     * name the type, and a locked row names what it waits for. The id is added for the case a tooltip
-     * cannot name: a component this client cannot read still has an id a bug report can.
+     * name the type, and a locked row names what it waits for. An item's raw id used to be the last
+     * line, for the case a tooltip cannot name the thing; the name is already the first line, and an
+     * id is for the picker, where the author is the one who can act on it.
      */
     private List<String> rewardTooltipLines(String questId, int rewardIndex) {
         ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
@@ -19189,12 +19174,9 @@ public final class QuestBookScreen extends ArmatureScreen
         else {
             lines.add(rowText("rewards", reward));
         }
-        lines.addAll(QuestPanelLayout.playerTooltip("rewards", reward.type(), false));
+        lines.addAll(QuestPanelLayout.playerTooltip("rewards", reward.type(), false, false));
         appendConditionLines(lines, reward.conditions(),
                 ClientQuestCache.rewardLockOf(questId, rewardIndex));
-        if (reward.hasItem() && !reward.itemId().isEmpty()) {
-            lines.add(reward.itemId());
-        }
         return lines;
     }
 
@@ -20027,11 +20009,14 @@ public final class QuestBookScreen extends ArmatureScreen
 
         // --- measured, so the wash can be drawn behind the row at the width it will occupy ---
 
-        // An id with no item behind it is still the row's subject: the id is drawn where the item's
-        // name would be, in the ink that says something is wrong. The placeholder icon beside it says
-        // the same thing without words, and between them the row never reads as an ordinary task.
+        // An id with no item behind it is still the row's subject: the row says an item is missing,
+        // where the item's name would be, in the ink that says something is wrong. The id itself is
+        // the author's business -- the picker names it -- and a player can act on "missing", not on
+        // "minecraft:oak_log".
         boolean missingItem = !task.hasItem() && !task.itemId().isEmpty();
-        String text = missingItem ? task.itemId() : rowText("tasks", task);
+        String text = missingItem
+                ? Component.translatable("tasked.screen.missing_item").getString()
+                : rowText("tasks", task);
         int measuredTextX = x + ROW_ICON + 5;
         int measuredTextRight = measuredTextX + r.textWidth(text);
 
@@ -20047,13 +20032,16 @@ public final class QuestBookScreen extends ArmatureScreen
         // reach the row's far edge -- so a task that can be handed in has a highlight that spans it,
         // and that is correct rather than a leftover of the old full-width wash.
         boolean optional = task.optional();
-        boolean manual = task.manual();
+        // Whether this row offers the hand-in right now: the button's own predicate, so the tag and the
+        // button cannot disagree. Not the same as the type's `manual` flag -- a task that takes is handed
+        // in once the player can pay for it, and a task already handed in offers nothing.
+        boolean handIn = ClientQuestCache.submitOffered(entry.id(), index);
         // A condition this player does not meet. Locked wins the one tag slot: "hand in" would be a lie
         // about a button that is not drawn, and the explanation is the whole point of the tag.
         boolean locked = !ClientQuestCache.taskLockOf(entry.id(), index).isEmpty();
-        String tag = locked ? "locked" : (manual ? "hand in" : (optional ? "optional" : null));
+        String tag = locked ? "locked" : (handIn ? "hand in" : (optional ? "optional" : null));
         int tagX = tag == null ? 0 : x + availableWidth - r.textWidth(tag)
-                - (manual && optional && !locked ? r.textWidth("optional") + 6 : 0);
+                - (handIn && optional ? r.textWidth("optional") + 6 : 0);
 
         // Who is contributing, right-aligned before the tag. Placed here rather than down at the
         // drawing, because the wash behind the row reaches the same edge -- two expressions of "where
@@ -20083,16 +20071,17 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         if (row.contains(mouseX, mouseY)) {
             // The player's explanation, not the author's: this hover is read by someone who has never
-            // heard of a task type. The second line is about pressing Submit, so it is decided by the
-            // same predicate the button is: a locked task has no button, and telling the player to press
-            // one that is not there is the one way this hover can lie.
+            // heard of a task type. Its second line is about handing the task in, so it is told both
+            // halves of that: whether the button is drawn (a locked task has none, and telling the player
+            // to press one that is not there is the one way this hover can lie) and whether handing it in
+            // takes anything -- which is true of a locked consuming row too, and is why the sentence may
+            // not be read off the type id.
             List<String> lines = new ArrayList<>(QuestPanelLayout.playerTooltip("tasks", task.type(),
-                    task.manual() && !locked));
-            if (!task.tagId().isEmpty()) {
-                // The raw id, kept for the hover: the row's label is the humanized tag now, and the
-                // one thing "Any Iron Ores" cannot tell a player is which id to hand in.
-                lines.add(1, "#" + task.tagId());
-            }
+                    task.manual() && !locked, task.waits()));
+            // The tag's raw id used to be inserted here as "#minecraft:logs", for the row whose label
+            // reads "Any Logs". A player cannot hand in an id -- the label already names the tag, and
+            // "Click for recipes" below is how they find out which items are in it. The id is in the
+            // picker and in the row's own `tagId` for the recipe viewers, which is where it is data.
             appendConditionLines(lines, task.conditions(), ClientQuestCache.taskLockOf(entry.id(), index));
             if (RecipeLookups.canOpen(target)) {
                 lines.add("Click for recipes");
@@ -20159,7 +20148,7 @@ public final class QuestBookScreen extends ArmatureScreen
         if (optional && !locked) {
             r.text("optional", x + availableWidth - r.textWidth("optional"), textY, ArmatureTheme.faint());
         }
-        if (manual && !locked) {
+        if (handIn) {
             r.text("hand in", tagX, textY, ArmatureTheme.available());
         }
         if (locked) {
@@ -20261,9 +20250,12 @@ public final class QuestBookScreen extends ArmatureScreen
         int y = slot.y();
         int textY = y + (ROW_ICON - 8) / 2;
 
-        // The task row's rule, one row over: a reward whose item is gone shows the id it names.
+        // An item this pack no longer has is named for what it is rather than by its id: see
+        // `rewardInboxRow` for the row that is drawn rather than hovered, and the same rule here.
         boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
-        String text = missingItem ? reward.itemId() : rowText("rewards", reward);
+        String text = missingItem
+                ? Component.translatable("tasked.screen.missing_item").getString()
+                : rowText("rewards", reward);
         String count = reward.hasItem() && reward.count() > 1 ? "x" + reward.count() : null;
         // A condition this player does not meet on this reward. The row is drawn shut and the tag says
         // so; the claim button is not this row's -- see BookGeometry's claimable -- and the server
@@ -20295,7 +20287,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // The task row's rule, one member over: the player's explanation, never the author's.
             // A reward is collected rather than handed in, so there is no second line to pick.
             List<String> lines = new ArrayList<>(
-                    QuestPanelLayout.playerTooltip("rewards", reward.type(), false));
+                    QuestPanelLayout.playerTooltip("rewards", reward.type(), false, false));
             appendConditionLines(lines, reward.conditions(),
                     ClientQuestCache.rewardLockOf(entry.id(), index));
             if (RecipeLookups.canOpen(target)) {

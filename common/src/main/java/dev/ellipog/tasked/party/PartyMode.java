@@ -226,11 +226,11 @@ public enum PartyMode {
      * The total, and the largest holder as the one who pays.
      *
      * <p>The payer here is not "who the count came from" — it came from everybody. It is the member
-     * the engine would start with, and under this mode it does not finish there: see
-     * {@link #takesFromEveryone}. Naming the largest holder rather than the first member is the
-     * difference between paying out of the inventory that has something and paying out of one that
-     * has nothing, which matters for the message a reward sends and for the order the items come out
-     * in.
+     * the reward is paid to and the member the events name, because under this mode the party's task
+     * is satisfied by what its members hold between them, so there has to be one player to hand the
+     * result to. It is <b>not</b> where the take starts and not the order it proceeds in: see
+     * {@link #takesFromEveryone}, and {@code ProgressService.consumeAcross}, which walks the
+     * contributors in sorted member order so which pockets get lighter is reproducible.
      */
     private static Tally pooled(List<Integer> perMember) {
         int total = 0;

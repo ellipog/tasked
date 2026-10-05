@@ -6,8 +6,9 @@
   "description": [
     "Two conditions on one reward, and both must hold. The score",
     "condition reads the `first_light_standing` objective the first",
-    "account's command created -- a missing objective reads as zero, so",
-    "the gate is born shut and the command is what opens it.",
+    "account's commands created and set to 1: an objective that is",
+    "missing reads as zero, and so does one nobody has set, so the gate",
+    "is born shut and those commands are what open it.",
     "",
     "The party-size condition asks how many members of the player's party",
     "are online now, and you count as one: `min: 2` is the bring-a-friend",

@@ -101,6 +101,17 @@ class QuestClaimTest {
         assertEquals(RewardAutoClaim.ENABLED, silent.autoClaim(RewardAutoClaim.ENABLED),
                 "a quest that says nothing takes the chapter's mode");
 
+        // And one that says `"default"` out loud takes it too, which it did not: `Optional.of(DEFAULT)`
+        // is present, so `orElse` kept it, and every reward on that quest then resolved to a mode whose
+        // `automatic()` is false -- the quest waited for a claim while the schema and the editor's own
+        // picker both called that value "defer to the chapter".
+        QuestRules spelled = QuestRules.CODEC.parse(JsonOps.INSTANCE,
+                JsonParser.parseString("{\"autoClaim\": \"default\"}")).getOrThrow();
+        assertEquals(RewardAutoClaim.ENABLED, spelled.autoClaim(RewardAutoClaim.ENABLED),
+                "a written `default` is the unset state spelled out, so it defers like an absent field");
+        assertEquals(RewardAutoClaim.DISABLED, spelled.autoClaim(RewardAutoClaim.DISABLED),
+                "and it defers to whatever the chapter says, not to one particular mode");
+
         // And the chapter's own default defers to the pack setting, which is what makes the middle rung
         // of the ladder a real state rather than a pinned value.
         assertEquals(RewardAutoClaim.INVISIBLE,

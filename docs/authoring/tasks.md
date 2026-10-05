@@ -10,9 +10,11 @@ Every task object carries its `type` and that type's fields, flat at the same le
 { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
 ```
 
-A field that belongs to another type is a mistake the [[tasked:authoring/validation|validator]] reports rather
-than a value anything reads. The list of what this build has — and every field each type takes — is
-also one command away:
+A field that belongs to another type is accepted and ignored: the [[tasked:authoring/validation|validator]]
+checks a task against every type's fields at once, so what it reports is a field **no** type declares — a
+typo like `titl` rather than a field belonging to the type next door. What each type actually reads is
+what the codec decides, and the list of what this build has — with every field each type takes — is also
+one command away:
 
 ```cmd
 /tasked types

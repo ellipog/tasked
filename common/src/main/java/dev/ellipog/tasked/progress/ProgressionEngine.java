@@ -164,9 +164,15 @@ public final class ProgressionEngine {
                 // Repeatable with the cooldown elapsed: falls through, and resolves as playable again.
             }
 
-            // Mutually exclusive with something already taken.
+            // Mutually exclusive with something already taken -- but not with *itself*. A group's key is
+            // recorded for every quest that is satisfied for its dependents, this one included, so a
+            // repeatable quest reached its own key the moment its first round completed and locked
+            // itself out for good as soon as the cooldown elapsed (the fall-through at 158-165 above).
+            // The group locks siblings; the quest that took it is not its own sibling.
             Optional<String> group = quest.exclusiveGroup();
-            if (group.isPresent() && takenExclusiveGroups.contains(exclusiveKey(entry.chapterId(), group.get()))) {
+            if (group.isPresent()
+                    && takenExclusiveGroups.contains(exclusiveKey(entry.chapterId(), group.get()))
+                    && !(quest.repeatable() && satisfiedForDependents(quest, progress))) {
                 states.put(quest.id(), QuestState.LOCKED);
                 return QuestState.LOCKED;
             }

@@ -925,11 +925,17 @@ public final class ProgressService {
             if (!reward.common().autoClaim(fileDefault).automatic()) {
                 continue;
             }
-            // Per recipient, because the conditions are: a reward that pays each member is gated for
-            // each member. One whose conditions are unmet here is not lost -- it stays unclaimed, and
-            // the claim paths (including autoClaimFor at the next join) pick it up once they hold.
+            // Per recipient, because the conditions and the stage gate are: a reward that pays each
+            // member is gated for each member. One whose conditions are unmet, or whose stage this
+            // member has never held, is not lost -- it stays unclaimed, and the claim paths (including
+            // autoClaimFor at the next join) pick it up once they hold.
+            //
+            // The gate belongs here for the same reason it is on the completion path at 805 and the
+            // claim path: the team's record can be complete while a member who just joined it never
+            // held the stage, and paying them would be the one payout the gate does not cover.
             if (reward.common().teamReward(settings.defaultTeamReward())) {
                 if (!current.claims().team().contains(index)
+                        && stageGateOpen(server, quest, completer.getUUID())
                         && Conditions.passes(reward.common().conditions(),
                                 new ConditionContext(completer, server, owner))) {
                     grants.add(new Grant(index, completer, true));
@@ -938,6 +944,7 @@ public final class ProgressService {
             else {
                 for (ServerPlayer member : members) {
                     if (!current.claims().claimed(member.getUUID(), index, false)
+                            && stageGateOpen(server, quest, member.getUUID())
                             && Conditions.passes(reward.common().conditions(),
                                     new ConditionContext(member, server, owner))) {
                         grants.add(new Grant(index, member, false));
@@ -1566,7 +1573,7 @@ public final class ProgressService {
         int total = 0;
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
             TeamProgress team = ProgressStore.of(server).progressOf(owner);
-            if (!canClaimFor(team, entry.quest(), playerId)) {
+            if (!canClaimFor(server, team, entry.quest(), playerId)) {
                 continue;
             }
             total += payable(server, player, owner, team, entry.quest(), team.progressOf(entry.quest()),
@@ -1580,7 +1587,7 @@ public final class ProgressService {
         RewardFeedback feedback = new RewardFeedback();
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
             TeamProgress team = ProgressStore.of(server).progressOf(owner);
-            if (!canClaimFor(team, entry.quest(), playerId)) {
+            if (!canClaimFor(server, team, entry.quest(), playerId)) {
                 continue;
             }
             Claimed result = claim(server, player, entry, true, -1, feedback, filter, true);
@@ -1626,7 +1633,11 @@ public final class ProgressService {
             RewardAutoClaim fileDefault =
                     quest.autoClaim(entry.chapter().autoClaim().resolved(settings.defaultAutoClaim()));
             QuestProgress current = team.progressOf(quest);
-            if (current.state() != QuestState.COMPLETED || current.legacySettled()) {
+            // The join-time half of the stage gate: a member who was away and never held the stage is
+            // not paid on login either. Nothing is marked, so the reward is still owed, and this sweep
+            // pays it the first time they log in holding the stage.
+            if (current.state() != QuestState.COMPLETED || current.legacySettled()
+                    || !stageGateOpen(server, quest, player.getUUID())) {
                 continue;
             }
             List<Integer> owed = new ArrayList<>();
@@ -1708,11 +1719,17 @@ public final class ProgressService {
      * progress wire format's hint, the claim-all walk and (through the wire) the screen's Claim
      * button. Three copies of the condition would be three chances for the button to appear on a
      * quest the server would refuse.
+     *
+     * <p>The stage gate is part of the question, which is why the server is a parameter: a stage is a
+     * per-player fact and the record's state is the team's, so a quest can be finished for the team
+     * and refuse this player. Without it, `/tasked progress` offered a claim the claim path answered
+     * with "Nothing to collect", and claim-all counted one it would not take.
      */
-    public static boolean canClaimFor(TeamProgress progress, Quest quest, UUID player) {
+    public static boolean canClaimFor(MinecraftServer server, TeamProgress progress, Quest quest, UUID player) {
         QuestProgress current = progress.progressOf(quest);
         if (current.state() != QuestState.COMPLETED || current.legacySettled()
-                || quest.rewards().isEmpty()) {
+                || quest.rewards().isEmpty()
+                || !stageGateOpen(server, quest, player)) {
             return false;
         }
         QuestSettings settings = TaskedQuests.settings();

@@ -188,7 +188,12 @@ public final class QuestFiles {
         List<Path> files = new ArrayList<>();
         for (Path entry : entries) {
             String name = entry.getFileName().toString();
-            if (Files.isRegularFile(entry) && isQuestFile(name) && !isDeletedName(name)) {
+            // The `_` rule applies here like everywhere else. It did not, so `reward_tables/_draft.json`
+            // was read as a table whose id was `_draft` -- synced to clients and nameable by a reward --
+            // while the manual's "any file or folder whose name begins with `_` is skipped" said it was
+            // a note. See `DeclaredPaths.isIgnoredName`, which the other four walks already call.
+            if (Files.isRegularFile(entry) && isQuestFile(name) && !isDeletedName(name)
+                    && !DeclaredPaths.isIgnoredName(name)) {
                 files.add(entry);
             }
         }
@@ -566,7 +571,12 @@ public final class QuestFiles {
             return;
         }
         if (!declaredId.equals(folderName)) {
-            problems.error(document, "$.id",
+            // A warning, not an error, and that is the whole of finding 5: an error against this file
+            // makes QuestLoader refuse the declaration, which nulls the current group -- so the group,
+            // its chapters and every quest under them disappeared, while this javadoc, the manual and
+            // the discovery test all promised the folder still wins. The message is unchanged: both
+            // sides are still named, and the author still has one thing to fix.
+            problems.warn(document, "$.id",
                     "this file declares id \"" + declaredId + "\" and the folder it is in is called \""
                             + folderName + "\". A group folder's name is its id - the two have to agree,"
                             + " or the tree and the manifest describing it have drifted apart."

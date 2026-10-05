@@ -369,6 +369,29 @@ class ProgressionEngineTest {
         }
 
         @Test
+        @DisplayName("a repeatable quest in the group is not locked by its own completion")
+        void aRepeatableQuestDoesNotLockItself() {
+            // The group's key is recorded for every quest that is satisfied for its dependents, which
+            // includes the one that just completed. A repeatable quest therefore reached its own key the
+            // moment its first round ended and was locked out of its second, permanently -- the group is
+            // meant to lock the siblings, and a quest is not its own sibling.
+            QuestIndex index = indexOf(q("daily").repeatable(true).repeatCooldownTicks(600)
+                            .exclusiveGroup("spec").build(),
+                    q("once").exclusiveGroup("spec").build());
+            Quest daily = Fixtures.quest(index, "daily");
+            Quest once = Fixtures.quest(index, "once");
+
+            ProgressionEngine.Resolution resolution =
+                    ProgressionEngine.resolve(index, completedQuests(index, "daily"), NOW + 600);
+
+            assertEquals(QuestState.STARTED, resolution.stateOf(daily),
+                    "the cooldown elapsed, so the quest is playable again rather than locked by its own "
+                            + "group");
+            assertEquals(QuestState.LOCKED, resolution.stateOf(once),
+                    "and its sibling is still locked, which is what the group is for");
+        }
+
+        @Test
         @DisplayName("groups in different chapters do not collide, even with the same name")
         void scopedToChapter() {
             // Two chapters, each with a "spec" group. Completing one chapter's quest must not lock

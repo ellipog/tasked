@@ -26,7 +26,7 @@ block's level.
 | `/tasked reload` | Re-read the quest folder without a restart, and re-sync every connected player. Reports how many files loaded, and how many had errors. |
 | `/tasked complete <quest>` | Mark a quest complete for the team. It checks that the quest is playable and its stage gate is met, but it does not evaluate the tasks — that is what it is for. Rewards are left waiting to be claimed. |
 | `/tasked reset [quest]` | Clear progress — one quest, or the whole tree when no quest is named. Run it as a player: progress belongs to a team, and the console is not in one. |
-| `/tasked rewards block` / `unblock` | Hold or release the team's automatic payouts. |
+| `/tasked rewards block` / `unblock` | Hold or release the team's rewards. A held team collects nothing: the automatic payouts stop and every claim is refused, except for rewards marked `ignoreRewardBlocking`. |
 | `/tasked stage add <player> <stage>` | Grant a stage. |
 | `/tasked stage remove <player> <stage>` | Take one away. |
 | `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |

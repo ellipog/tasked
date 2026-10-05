@@ -31,6 +31,26 @@ public enum RewardAutoClaim {
 
     public static final Codec<RewardAutoClaim> CODEC = Codecs.enumByName(RewardAutoClaim.class);
 
+    /**
+     * The mode a file's spelling names, case-insensitively, or empty for a word this build does not
+     * know.
+     *
+     * <p>Here rather than at a call site, because a caller that matched the names itself was a second
+     * copy of this enum's vocabulary — three of the five, in the validator's automatic-mode warning.
+     * The name a file writes is this enum's business, the same business {@link #CODEC} is in.
+     */
+    public static java.util.Optional<RewardAutoClaim> byName(String name) {
+        if (name == null) {
+            return java.util.Optional.empty();
+        }
+        for (RewardAutoClaim mode : values()) {
+            if (mode.name().equalsIgnoreCase(name)) {
+                return java.util.Optional.of(mode);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     /** The mode in force, given the quest tree's own default. */
     public RewardAutoClaim resolved(RewardAutoClaim fileDefault) {
         return this == DEFAULT ? fileDefault : this;

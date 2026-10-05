@@ -49,7 +49,7 @@ import java.util.Optional;
  * <h2>Where the fields live</h2>
  *
  * <p>The flags are inside {@link QuestRules} because {@code RecordCodecBuilder} caps out at sixteen
- * components and this record has thirteen plus those five. The accessors below delegate, so callers
+ * components and this record has thirteen plus those fifteen. The accessors below delegate, so callers
  * write {@code quest.repeatable()} and never see the grouping.
  */
 public record Quest(
@@ -178,20 +178,6 @@ public record Quest(
         // All optional: one will do, unless there are none at all, in which case there is nothing
         // to do and the quest is completable by declaration.
         return tasks.isEmpty() ? 0 : 1;
-    }
-
-    /** Whether {@code index} is a task a player has to do. */
-    public boolean isTaskMandatory(int index) {
-        if (index < 0 || index >= tasks.size()) {
-            return false;
-        }
-        long mandatory = tasks.stream().filter(task -> !task.optional()).count();
-        if (mandatory > 0) {
-            return !tasks.get(index).optional();
-        }
-        // Every task is optional, so exactly one of them counts -- the first, so the choice is
-        // stable rather than depending on which the player happened to do first.
-        return !tasks.isEmpty() && index == 0;
     }
 
     /** Whether {@code index} is unlocked, given the tasks before it. Always true when not sequential. */

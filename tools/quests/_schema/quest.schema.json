@@ -42,7 +42,7 @@
       "minimum": 0,
       "maximum": 64,
       "default": 0,
-      "description": "How many dependencies must be satisfied. When set, prerequisiteMode is ignored - this is how \"any three of these five\" is written. May not exceed the number of dependencies."
+      "description": "How many dependencies must be satisfied, replacing the mode's own count: this is how \"any three of these five\" is written. The mode still decides the *bar* each one must reach - completed, or merely started - so `one_started` with minRequired 2 means \"any two of these, started\". May not exceed the number of dependencies."
     },
 
     "x": { "type": "integer", "default": 0, "description": "Canvas position. Grid spacing is 32." },
@@ -374,7 +374,7 @@
         "min": {
           "type": "integer",
           "minimum": 1,
-          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it."
+          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it. tasked:party_size is capped at 1000; tasked:score has no ceiling."
         },
         "advancement": {
           "$ref": "#/definitions/namespacedId",
@@ -392,7 +392,7 @@
     },
 
     "anyType": {
-      "description": "A task or a reward. The `type` field chooses the rest of the fields, and each field below names the type it belongs to. A field written for another type is a mistake the validator reports rather than a value anything reads.",
+      "description": "A task or a reward. The `type` field chooses the rest of the fields, and each field below names the type it belongs to. A field that no task or reward type declares is a mistake the validator reports rather than a value anything reads; a field that belongs to another type is read by that type and ignored by this one, because the validator checks every type's fields at once.",
       "type": "object",
       "required": ["type"],
       "properties": {
@@ -407,8 +407,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 72000,
-          "default": 20,
-          "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Raise it for an expensive check."
+          "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Left out, the task keeps its type's own cadence - 20 for most, 3 for a stat or a location, 5 for an advancement, 100 for a dimension - which is a sensible interval for how expensive that check is. Set it to override that. There is deliberately no one default here: a single number would be wrong for most of the types it applied to."
         },
         "conditions": {
           "type": "array",
@@ -502,8 +501,8 @@
         },
         "points": {
           "type": "boolean",
-          "default": false,
-          "description": "tasked:xp (task) - count levels rather than points."
+          "default": true,
+          "description": "tasked:xp (task) - whether the count is experience points (true, the default) or whole levels (false)."
         },
         "fluid": {
           "$ref": "#/definitions/namespacedId",
@@ -585,7 +584,7 @@
         "levels": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:xp (task and reward) - count levels rather than points."
+          "description": "tasked:xp (reward) - give whole levels rather than points, which is the default. The task's own switch is `points`, and it reads the other way: true there counts points."
         },
         "table": {
           "type": "string",

@@ -105,9 +105,11 @@ def example_files():
     summary of zero, and left the caller with an empty quest book and nothing in any log to explain
     it.
 
-    **Relative paths, not names**, because a name is no longer unique: `group.json` appears once per
-    group and `chapter.json` once per chapter. Returning bare names would make the copy step
-    overwrite eleven group manifests with twelve others, in whatever order `sorted` produced.
+    **Relative paths, not names**, because a name is not unique in the tree this was written for:
+    `group.json` appears once per group and `chapter.json` once per chapter. Returning bare names
+    would have overwritten eleven group manifests with twelve others, in whatever order `sorted`
+    produced -- the twelve-group era, kept here because the reason has not changed even though the
+    exhibition is one group now.
 
     The `_` rule applies to **every** segment, not just the last. `_schema/` is a directory, so a rule
     that tested only the file's own name would copy all three schema files into the config directory —

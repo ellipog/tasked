@@ -9,6 +9,7 @@ import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.armature.client.ui.ThemePatch;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
+import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 import dev.ellipog.tasked.quest.reward.RewardTypes;
 import dev.ellipog.tasked.quest.task.TaskTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -88,10 +89,10 @@ public final class QuestValidator {
     /**
      * A quest's own fields, plus the layout's and the rules'.
      *
-     * <p>{@link QuestRules} holds five of these — {@code repeatable}, {@code repeatCooldownTicks},
-     * {@code sequentialTasks}, {@code invisible} and {@code exclusiveGroup} — because
-     * {@code RecordCodecBuilder} caps out at sixteen components and the flat quest was over it. They
-     * are flat in JSON regardless; the grouping is only visible in Java.
+     * <p>{@link QuestRules} holds fifteen of these — the repeat flags, the reveal flags, the five hide
+     * flags, {@code invisibleUntilTasks}, {@code requiresStage} and {@code autoClaim}, listed in
+     * {@link QuestRules#FIELDS} — because {@code RecordCodecBuilder} caps out at sixteen components and
+     * the flat quest was over it. They are flat in JSON regardless; the grouping is only visible in Java.
      */
     private static final Set<String> QUEST_FIELDS = union(
             union(Set.of(
@@ -316,10 +317,10 @@ public final class QuestValidator {
         // is a field whose mistakes arrive as a codec message at line 1 column 1 — which is exactly what
         // happened to the first group description written as a list of lines.
         //
-        // `checkTextOrList`, not `checkTextList`, because this is the one description whose codec
-        // takes either shape -- see the method. Using the list-only check here was the validator
-        // being *stricter than the format*: a bare string decoded fine and was then failed by the
-        // validator, so the same file loaded with the check disabled and refused with it on. The
+        // `checkTextOrList`, not `checkTextList`, because a group's description is one of the three
+        // whose codec takes either shape -- see the method. Using the list-only check here was the
+        // validator being *stricter than the format*: a bare string decoded fine and was then failed by
+        // the validator, so the same file loaded with the check disabled and refused with it on. The
         // author's only clue would have been which build they had.
         checkTextOrList(document, path + ".description", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
@@ -415,6 +416,17 @@ public final class QuestValidator {
         Checks.rejectUnknown(document, path, allowedFields, problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
+        // A chapter's description was the one text field nothing looked at, and the two layouts' chapter
+        // codecs do not agree about its shape: the folder format's takes a list or one bare string (like
+        // a group's), while the version-1 chapter's takes a list only. So each is checked with the one
+        // that matches the codec it will meet -- a bare string in a version-1 file decoded as an error
+        // at line 1 column 1 before this, and a list is what that codec wants.
+        if (inlineChildren) {
+            checkTextList(document, path + ".description", problems);
+        }
+        else {
+            checkTextOrList(document, path + ".description", problems);
+        }
         checkIcon(document, path + ".icon", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
@@ -471,8 +483,8 @@ public final class QuestValidator {
             JsonElement patch = document.get(path + ".themePatch").orElse(null);
             if (patch == null || !patch.isJsonObject()) {
                 problems.error(document, path + ".themePatch", "expected an object of theme overrides,"
-                        + " found " + Checks.kindOf(patch) + ". Write any of \"colours\", \"cornerRadius\","
-                        + " \"motion\" or \"easing\".");
+                        + " found " + Checks.kindOf(patch) + ". Write any of "
+                        + quoted(ThemePatch.KEYS) + ".");
             }
             else {
                 java.util.List<String> patchProblems = new java.util.ArrayList<>();
@@ -855,9 +867,12 @@ public final class QuestValidator {
         // skips such a reward rather than eating it (see QuestReward#autoGrantable), so this is an
         // author being told their intent cannot be honoured, not a defect to refuse.
         if (document.has(path + ".auto")) {
+            // Which modes are automatic is the enum's own answer, asked rather than spelled out here:
+            // three hand-written names were a second copy of `automatic()`, and a sixth mode added to
+            // the enum would have been invisible to this warning.
             boolean automatic = Checks.optionalString(document, path + ".auto", problems)
-                    .map(name -> name.equalsIgnoreCase("enabled") || name.equalsIgnoreCase("no_toast")
-                            || name.equalsIgnoreCase("invisible"))
+                    .flatMap(RewardAutoClaim::byName)
+                    .map(RewardAutoClaim::automatic)
                     .orElse(false);
             boolean choice = type
                     .map(id -> id.equals(dev.ellipog.tasked.quest.reward.TableReward.TYPE_CHOICE))
@@ -1427,8 +1442,9 @@ public final class QuestValidator {
     /**
      * A description the format accepts in either shape: a list of paragraphs, or one bare string.
      *
-     * <p>Only {@link ChapterGroup} has this union, and the union is the codec's own doing — its javadoc
-     * argues why. The validator has to accept both <b>because the codec does</b>. A validator stricter
+     * <p>Three codecs take the union — a chapter group's, a group's in either layout, and the folder
+     * format's chapter — and their javadocs argue why. The validator has to accept both <b>because a
+     * codec does</b>. A validator stricter
      * than the format is the worst of both worlds: the file decodes, so the format says it is fine, and
      * is then refused, so the tool says it is not — and the author has no way to tell which is
      * authoritative. This is the same fault as a validator that is too *lax*, just pointing the other

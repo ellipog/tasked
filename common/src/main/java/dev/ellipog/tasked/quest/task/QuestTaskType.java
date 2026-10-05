@@ -7,7 +7,7 @@ import dev.ellipog.tasked.quest.QuestTask;
 /**
  * A kind of task, as a registered type.
  *
- * <p>Public, and public on purpose: this is how another mod adds a task type. Tasked registers two
+ * <p>Public, and public on purpose: this is how another mod adds a task type. Tasked registers fifteen
  * and would like there to be twenty more.
  *
  * <p>The behaviour is part of the type rather than a field on each task, because how a task is

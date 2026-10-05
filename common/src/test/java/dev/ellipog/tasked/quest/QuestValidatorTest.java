@@ -947,6 +947,14 @@ class QuestValidatorTest {
 
         assertTrue(problem.message().contains("cornerRadius"),
                 "the message names what a patch may hold: " + problem.message());
+        // And every key, not four of six: the vocabulary is ThemePatch's own, so a key added there
+        // cannot leave this sentence behind. `name` and `canvasBackground` were the two that had gone
+        // missing from it, which is exactly the drift a hand-written list produces.
+        for (String key : dev.ellipog.armature.client.ui.ThemePatch.KEYS) {
+            assertTrue(problem.message().contains("\"" + key + "\""),
+                    "the message should name every key a patch may hold, and misses \"" + key
+                            + "\": " + problem.message());
+        }
     }
 
     // ------------------------------------------------------------------
@@ -975,6 +983,31 @@ class QuestValidatorTest {
         DataProblem problem = containing(problems, "'sometimes' is not one of");
         assertTrue(problem.message().contains("no_toast"),
                 "the message lists the real names: " + problem.message());
+    }
+
+    @Test
+    @DisplayName("a chapter's description is checked against the codec that will read it")
+    void chapterDescriptionsAreCheckedPerLayout() {
+        // The folder format's chapter takes a list or one bare string, like a group's, so a bare string
+        // there is clean.
+        Problems folder = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document(
+                "getting_started/first_steps/chapter.json", """
+                        { "id": "first_steps", "title": "First Steps", "quests": ["a.json"],
+                          "description": "One bare line, which the folder format takes." }
+                        """), folder);
+        assertTrue(folder.isEmpty(), "the folder format's chapter takes the union, got:" + messages(folder));
+
+        // The version-1 chapter's codec is list-only, so the same shape there is an error -- and it used
+        // to be the codec's, reported at line 1 column 1 with no field named at all, because nothing
+        // checked a chapter's description.
+        Problems flat = validate(Fixtures.fileWithChapter("\"description\": \"One bare line.\",",
+                Fixtures.q("a").build()));
+        DataProblem refused = containing(flat, "expected a list");
+        assertTrue(refused.severity() == DataProblem.Severity.ERROR,
+                "a version-1 chapter's description has to be a list");
+        assertTrue(refused.path().contains("description"),
+                "and the problem names the field rather than pointing at the file: " + refused.path());
     }
 
     @Test

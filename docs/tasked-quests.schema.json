@@ -328,7 +328,7 @@
         "min": {
           "type": "integer",
           "minimum": 1,
-          "description": "tasked:score and tasked:party_size (condition) — the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it."
+          "description": "tasked:score and tasked:party_size (condition) — the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it. tasked:party_size is capped at 1000; tasked:score has no ceiling."
         },
         "advancement": {
           "$ref": "#/definitions/namespacedId",
@@ -591,8 +591,7 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 72000,
-          "default": 20,
-          "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Raise it for an expensive check."
+          "description": "Tasks only. How often the task is re-checked, in ticks, twenty to the second. Left out, the task keeps its type's own cadence — 20 for most, 3 for a stat or a location, 5 for an advancement, 100 for a dimension — which is a sensible interval for how expensive that check is. Set it to override that. There is deliberately no one default here: a single number would be wrong for most of the types it applied to."
         },
         "conditions": {
           "type": "array",

@@ -281,13 +281,13 @@ QUEST_DEFS: list[dict] = [
         "show_title": True,
         "deps": ["the_underground"],
         "lines": {"the_underground": {
-            "form": "radial", "bend": 0.3, "weight": "conduit",
+            "form": "curved", "bend": 0.3, "weight": "conduit",
             "arrowPlace": "stream", "arrowDensity": "medium",
         }},
         "desc": describe(
             "The chapter is one orrery and this is its hub: the largest node on the canvas, the"
             " only quest every arm begins at, and the line arriving from the west is the"
-            " chapter's own default style overridden into a radial conduit.",
+            " chapter's own default style overridden into a curved conduit.",
             "Seven arms leave this node. Each is a family of mechanisms -- instruments,"
             " measures, the compass, the hunt, the treasury, the clockwork, the veils -- and"
             " each head quest hangs off this one, so finishing the five first steps opens the"
@@ -487,7 +487,7 @@ QUEST_DEFS: list[dict] = [
         "prereq": "all_started",
         "sequential": True,
         "lines": {"the_long_walk": {
-            "form": "stepped", "arrowPlace": "stream", "arrowDensity": "medium",
+            "form": "chamfered", "arrowPlace": "stream", "arrowDensity": "medium",
         }},
         "desc": describe(
             "Three checkmarks that must be handed in in order: with `sequentialTasks: true` the"
@@ -497,7 +497,7 @@ QUEST_DEFS: list[dict] = [
             "This quest also states `prerequisiteMode: all_started`, so it opens when both its"
             " dependencies have been started rather than completed -- the loosest of the four"
             " modes, and the reason the beacon beside it can be lit in any order.",
-            "Its line is a `stepped` route drawn as a `stream` at `medium` density, three of"
+            "Its line is a `chamfered` route drawn as a `stream` at `medium` density, three of"
             " the line axes set on one edge."),
         "tasks": [
             task("checkmark", title="Turn the crank"),
@@ -518,8 +518,9 @@ QUEST_DEFS: list[dict] = [
             " outside a handler can advance it, so this quest will not complete in a build"
             " without one -- and that is not an error: the validator warns that nothing provides"
             " the id, which is exactly what a pack shipping an optional handler mod wants to"
-            " see. The KubeJS page in the manual has a worked script that registers"
-            " `first_light:beacon_lit` and lights this node.",
+            " see. The KubeJS page in the manual shows the pattern with a placeholder id of its"
+            " own (`my_pack:inducted_check`), so copying the page verbatim leaves this node"
+            " dead: registering `first_light:beacon_lit` is one line in a script beside it.",
             "This is the one warning the shipped examples are expected to produce, and the"
             " playthrough test asserts the load is clean of *errors* rather than of warnings"
             " for exactly this reason."),
@@ -794,14 +795,14 @@ QUEST_DEFS: list[dict] = [
         "icon": "minecraft:rotten_flesh",
         "arm": "hunt", "slot": 2, "offset": 14,
         "deps": ["the_hunt"],
-        "lines": {"the_hunt": {"form": "radial", "bend": 0.5}},
+        "lines": {"the_hunt": {"form": "curved", "bend": 0.5}},
         "desc": describe(
             "`entityTypeTag` counts any mob in a tag, so twelve of the undead is twelve of"
             " whatever the tag holds -- zombie, skeleton, drowned, phantom. It is its own field"
             " rather than a `#` in `entity`, so a tag where an id is expected is an error here"
             " as it is everywhere else.",
-            "Its line is `form: radial` with a half-strength bend: a circular arc, the route"
-            " the orrery's outer arms are drawn with."),
+            "Its line is `form: curved` with a half-strength bend: a broad bow, the route the"
+            " orrery's outer arms are drawn with."),
         "tasks": [task("kill", entityTypeTag="minecraft:undead", value=12)],
         "rewards": [reward("item", item="minecraft:gold_ingot", count=3)],
     },
@@ -1100,15 +1101,20 @@ QUEST_DEFS: list[dict] = [
         "deps": ["the_bells_rung"],
         "lines": {"the_bells_rung": {"weight": "bold"}},
         "desc": describe(
-            "A command reward is the escape hatch every pack reaches for, and this one reaches"
-            " for the scoreboard: it creates the `first_light_standing` objective the festival's"
-            " reward is gated on. That is the honest way to demonstrate a score condition --"
-            " the objective has to exist before anything can read it.",
-            "The festival hangs off this quest in the dependency graph, so a player meets the"
-            " objective before the gate that asks about it."),
+            "A command reward is the escape hatch every pack reaches for, and these two reach"
+            " for the scoreboard: one creates the `first_light_standing` objective the"
+            " festival's reward is gated on, and the other sets it to 1. That is the honest way"
+            " to demonstrate a score condition -- the objective has to exist and hold a value"
+            " before anything can read it, and an objective that exists at zero reads exactly"
+            " like one that does not exist at all.",
+            "One command per reward, because a command reward runs what it is given and nothing"
+            " more. The pair is the gate's input; the festival's own place in the graph is a"
+            " dependency on the witness list, not on this quest."),
         "tasks": [task("checkmark", title="Open the first account")],
-        "rewards": [reward("command",
-                           command="scoreboard objectives add first_light_standing dummy")],
+        "rewards": [
+            reward("command", command="scoreboard objectives add first_light_standing dummy"),
+            reward("command", command="scoreboard players set {p} first_light_standing 1"),
+        ],
     },
     {
         "id": "the_scarecrows_blessing",
@@ -1392,9 +1398,9 @@ QUEST_DEFS: list[dict] = [
         "deps": ["the_witness_list"],
         "desc": describe(
             "Two conditions on one reward, and both must hold. The score condition reads the"
-            " `first_light_standing` objective the first account's command created -- a missing"
-            " objective reads as zero, so the gate is born shut and the command is what opens"
-            " it.",
+            " `first_light_standing` objective the first account's commands created and set to"
+            " 1: an objective that is missing reads as zero, and so does one nobody has set, so"
+            " the gate is born shut and those commands are what open it.",
             "The party-size condition asks how many members of the player's party are online"
             " now, and you count as one: `min: 2` is the bring-a-friend gate. Nothing else"
             " about the party matters -- its progress mode, its owner, who is in it -- because"
@@ -1551,7 +1557,8 @@ QUEST_DEFS: list[dict] = [
             " edge's worth of line art, withheld.",
             "The reward is `tasked:custom`, the write half of the custom pair: it does whatever"
             " a handler registered under `first_light:announce` does, and warns rather than"
-            " failing when no handler is registered. The KubeJS page has the script."),
+            " failing when no handler is registered. The KubeJS page has the pattern, with a"
+            " placeholder id of its own rather than this one."),
         "tasks": [task("checkmark", title="Look back at the earth")],
         "rewards": [
             reward("custom", id="first_light:announce"),
@@ -1651,10 +1658,11 @@ def build_chapter() -> dict:
             "A hub at the centre opens seven arms. The instruments arm carries the item tasks;"
             " the measures arm carries experience, fluid, statistics and the custom handler;"
             " the compass carries dimension, biome, structure and location; the hunt carries"
-            " kills and observations; the treasury carries rewards and tables; the clockwork"
-            " carries the gates, the repeats and the stages; the veils carry the hiding family,"
-            " aliases and translation. Every file names the field it demonstrates and says why"
-            " the field exists.",
+            " kills and observations; the treasury carries eight of the ten reward types and"
+            " every table mode; the clockwork carries the gates, the repeats, the stages and a"
+            " translation-key title; the veils carry the hiding family, the aliases and the"
+            " custom reward. Every file names the field it demonstrates and says why the field"
+            " exists.",
             "The chapter sets all four of its inheritable defaults and then overrides them:"
             " `defaultConsumeItems: true` with tasks that decline it,"
             " `defaultPrerequisiteMode: one_started` with quests that state their own mode,"
@@ -1710,7 +1718,7 @@ CONDITION_TYPES = ["advancement", "item", "item_tag", "party_size", "score", "st
 SHAPES = ["rounded", "square", "circle", "diamond", "hexagon", "octagon", "pentagon", "gear",
           "heart", "tome", "star", "none"]
 LINE_VALUES = {
-    "form": ["orthogonal", "chamfered", "straight", "stepped", "curved", "radial"],
+    "form": ["orthogonal", "chamfered", "straight", "curved"],
     "arrowHead": ["chevron", "triangle", "dot", "diamond", "none"],
     "arrowPlace": ["target", "both", "mid", "stream"],
     "arrowDensity": ["low", "medium", "high"],

@@ -9,8 +9,8 @@
     "phantom. It is its own field rather than a `#` in `entity`, so a tag",
     "where an id is expected is an error here as it is everywhere else.",
     "",
-    "Its line is `form: curved` with a half-strength bend: a broad",
-    "bow, the route the orrery's outer arms are drawn with."
+    "Its line is `form: curved` with a half-strength bend: a broad bow,",
+    "the route the orrery's outer arms are drawn with."
   ],
   "icon": {
     "item": "minecraft:rotten_flesh"

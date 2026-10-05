@@ -20,12 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What is asked here, and what is not</h2>
  *
- * <p>The gate has four parts -- the field, the per-player view, the completion refusal and the claim
- * refusal -- and only the first is game-free. The other three need a server that holds stages, which the
- * playthrough harness has and a unit test does not; what this covers is that the field is real in the
- * format, that a typo in it is refused rather than silently ignored, and that a gate nobody can ask about
- * does not block (the harness runs with players whose server is null, so that case is a live one rather
- * than a hypothetical).
+ * <p>The gate has five parts -- the field, the per-player view, the completion refusal, the claim
+ * refusal and the automatic payouts (the tick's and the login sweep's), so a member who never held the
+ * stage is not paid when their team finishes the quest. Only the first is game-free. The other four need
+ * a server that holds stages, which the playthrough harness has and a unit test does not; what this
+ * covers is that the field is real in the format, that a typo in it is refused rather than silently
+ * ignored, and that a gate nobody can ask about does not block (the harness runs with players whose
+ * server is null, so that case is a live one rather than a hypothetical).
  */
 @DisplayName("the stage gate")
 class StageGateTest {

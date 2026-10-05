@@ -207,8 +207,8 @@ public final class TaskTypes {
             "xp", XpTask.MAP_CODEC, XpTask.FIELDS, java.util.List.of(
                     EditorField.number("value", "Hand in", "XP")
                             .hint("how much experience to hand over"),
-                    EditorField.flag("points", "Levels instead")
-                            .hint("count levels rather than points")),
+                    EditorField.flag("points", "Points")
+                            .hint("count experience points rather than whole levels")),
             XpTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpTask.DISPLAY,
             () -> new XpTask(new TaskCommon(false, 20), 100, true));
@@ -373,8 +373,15 @@ public final class TaskTypes {
         // The common settings ride on the form as well as on the field list -- see COMMON_EDITOR.
         List<EditorField> form = new java.util.ArrayList<>(editor);
         form.addAll(COMMON_EDITOR);
-        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, fields, List.copyOf(form), behaviour, icon,
-                display, defaults);
+        // And on the *registered* set, the way RewardTypes does it, so `fieldsOf` answers "every field
+        // this type accepts" rather than "the fields it adds". Without this, `/tasked types` printed a
+        // list that omitted `optional`, `autoSubmitTicks` and `conditions` -- the three the validator
+        // accepts for every task -- so the command's own claim to print "the list the validator itself
+        // uses" was false, and so was the manual's sentence quoting it.
+        Set<String> declared = new java.util.LinkedHashSet<>(fields);
+        declared.addAll(dev.ellipog.tasked.quest.TaskCommon.FIELDS);
+        QuestTaskType<T> typed = new SimpleQuestTaskType<>(id, codec, Set.copyOf(declared), List.copyOf(form),
+                behaviour, icon, display, defaults);
         REGISTRY.register(id, new Entry(widenSpec(typed), widenBehaviour(behaviour), icon,
                 widenDisplay(display), List.copyOf(form), () -> defaults.get()));
         return typed;

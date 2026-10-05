@@ -574,9 +574,17 @@ public final class QuestSync {
         // item task that does not say whether it consumes inherits it, and a row that hid the button
         // while the take still happened is the promise this field exists to keep. See
         // TaskBehaviour#waitsForSubmit for the other half.
-        json.addProperty("manual", TaskTypes.behaviourOf(task)
-                .map(behaviour -> behaviour.canSubmitByHand(task, chapterConsumes))
+        var behaviour = TaskTypes.behaviourOf(task);
+        json.addProperty("manual", behaviour
+                .map(known -> known.canSubmitByHand(task, chapterConsumes))
                 .orElse(false));
+        // Whether the tick leaves this task alone and the press is what finishes it. The row's button
+        // rule is not the same for the two cases: a checkmark is handed in before its count is met --
+        // its count is the press itself -- while a task that takes is handed in once it is, because
+        // there the count is the price. `taskReady` in the progress delta carries the second half.
+        if (behaviour.map(known -> known.waitsForSubmit(task, chapterConsumes)).orElse(false)) {
+            json.addProperty("waits", true);
+        }
         // The observation fields, which are the only per-type data the client needs to do work with:
         // it ray-traces against them and submits when the timer is done. `manual` stays false above --
         // no button -- and the submission is accepted because the type says so, not because of a flag
@@ -821,7 +829,8 @@ public final class QuestSync {
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
             String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked,
-                    locks.getOrDefault(quest.id(), ProgressService.LockView.NONE), live);
+                    locks.getOrDefault(quest.id(), ProgressService.LockView.NONE), live,
+                    entry.chapter().defaultConsumeItems());
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -871,7 +880,8 @@ public final class QuestSync {
                                          ProgressService.Contributors contributors,
                                          java.util.Set<String> stageLocked,
                                          ProgressService.LockView locks,
-                                         ProgressService.Live live) {
+                                         ProgressService.Live live,
+                                         boolean chapterConsumes) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
@@ -940,10 +950,22 @@ public final class QuestSync {
         // everything, so sending that would draw "0 of 8" at 8 of 8 and leave the Submit button dark.
         // `live` answers zero for every other task, so for them this is the stored value unchanged.
         JsonArray tasks = new JsonArray();
+        // And which of those waiting tasks the server would accept a press on *now*. It cannot be read
+        // off the numbers above: a waiting task records nothing until the press, so "holding eight" and
+        // "eight already handed in" are both 8 of 8 on this wire. The two facts that tell them apart --
+        // what is recorded and what is merely held -- only meet on the server, so it answers.
+        JsonArray ready = new JsonArray();
         for (int i = 0; i < quest.tasks().size(); i++) {
-            tasks.add(Math.max(stored.progressOf(i), live.of(quest.id(), i)));
+            int held = live.of(quest.id(), i);
+            tasks.add(Math.max(stored.progressOf(i), held));
+            if (pressAccepted(quest.tasks().get(i), stored.progressOf(i), held, chapterConsumes)) {
+                ready.add(i);
+            }
         }
         one.add("tasks", tasks);
+        if (!ready.isEmpty()) {
+            one.add("taskReady", ready);
+        }
 
         // The conditions this player does not meet, per row: the row index, then which of its
         // conditions failed, ascending. Absence means unlocked -- the opposite default from
@@ -986,6 +1008,25 @@ public final class QuestSync {
         }
 
         return one.toString();
+    }
+
+    /**
+     * Whether the server would accept a press on this task right now.
+     *
+     * <p>Two facts, and both have to hold: the task is one the press finishes rather than the tick
+     * (see {@code TaskBehaviour#waitsForSubmit}), enough is <b>held</b> to pay for it, and it has
+     * <b>not</b> been recorded yet — which is what tells "holding eight" apart from "eight already
+     * handed in", the two states that look identical on the wire because a waiting task records
+     * nothing until the press.
+     *
+     * <p>Here rather than on the client for exactly that reason: the client holds the display value
+     * and the count, and neither of them can answer it.
+     */
+    private static boolean pressAccepted(QuestTask task, int recorded, int held, boolean chapterConsumes) {
+        return TaskTypes.behaviourOf(task).map(behaviour -> {
+            int required = behaviour.required(task);
+            return behaviour.waitsForSubmit(task, chapterConsumes) && recorded < required && held >= required;
+        }).orElse(false);
     }
 
     // ------------------------------------------------------------------

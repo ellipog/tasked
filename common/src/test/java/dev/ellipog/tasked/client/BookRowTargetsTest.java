@@ -35,7 +35,7 @@ class BookRowTargetsTest {
     }
 
     private static ClientQuestCache.TaskEntry task(ItemStack item, String itemId, String tagId) {
-        return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, item, 1, false, false, "tasked:item",
+        return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, item, 1, false, false, false, "tasked:item",
                 "", "", "", itemId, "", "", 0, tagId, List.of());
     }
 

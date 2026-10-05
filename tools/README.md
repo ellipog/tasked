@@ -33,9 +33,9 @@ and the hub opens the sky — seven arms, each a family of mechanisms:
 | measures | Experience in points and levels, both fluids, a vanilla statistic, `sequentialTasks`, the custom task, and the turned gear. |
 | the compass | Dimension, biome (id and tag), structure (id and tag), location boxes (with and without `ignoreDimension`), the curved line with anchors, and the size extremes. |
 | the hunt | Kills by id, custom name, SNBT filter and entity tag; all seven `observeType` values; the advancement task whole and by criterion. |
-| the treasury | Every reward type, every table mode (named, inline, nested, the empty band), the payout flags, and the command reward's placeholders. |
-| the clockwork | The OR-gate, the exclusive pair, the capped branch point, the repeatable round, stages granted, read and removed, and all six condition types. |
-| the veils | The whole hiding family, an alias with a dependency written against it, a translation-key title, and the custom reward. |
+| the treasury | Eight of the ten reward types — `advancement`, `all_table`, `choice`, `command`, `item`, `loot`, `random` and `xp` — every table mode (named, inline, nested, the empty band), the payout flags, and the command reward's placeholders. The other two live elsewhere: `stage` in the clockwork, `custom` in the veils. |
+| the clockwork | The OR-gate, the exclusive pair, the capped branch point, the repeatable round, stages granted, read and removed, a translation-key title, and all six condition types. |
+| the veils | The whole hiding family, an alias with a dependency written against it, and the custom reward. |
 
 Every file names the field it demonstrates and says why the field exists. The chapter also sets
 all four of its inheritable defaults and then overrides them — `defaultConsumeItems: true`,
@@ -46,8 +46,11 @@ default.
 ### The coverage is enforced, twice
 
 `QuestIndexTest` asserts the exhibition line by line: every task, reward and condition type, every
-value of every line-art axis, every shape, both ends of the size and icon-scale ranges, the
-auto-claim ladder, the payout flags, the visibility family. And `gen_examples.py` — the script
+value of every line-art axis, every shape, a 16-pixel speck and a node of 200 pixels or more,
+`iconScale` at 1.0 and at 0.5 or less, the auto-claim ladder, the payout flags, the visibility family.
+Both ends of the *published* ranges are not shown and that is deliberate: the top is 512 pixels and an
+icon of 0.25, and a node that size is a wall rather than an example — the codec's own note calls 4000
+"certainly a typo for 40". And `gen_examples.py` — the script
 that writes the files — runs the same checklist *before* it writes anything, so a mechanism cannot
 be lost by editing the generator either.
 
@@ -65,7 +68,7 @@ to the file that has it. All paths are under `first_light/first_steps/` unless t
 
 | If you want to see… | read |
 |---|---|
-| an item task that counts itself, without consuming | `punch_a_tree.json` (and the four onboarding quests beside it) |
+| an item task that counts itself, without consuming | `punch_a_tree.json`, `make_a_table.json` and `stone_tools.json` — the three onboarding quests with an item task; `read_the_sign.json` and `the_underground.json` are checkmark-only |
 | a consuming task declared on the task itself | `the_carpenters_due.json` (`consumeItems: true`, `match: none`) |
 | `components` + `match: fuzzy` | `the_nameplate.json` |
 | `components` + `match: strict` | `the_warrant.json` |
@@ -134,7 +137,7 @@ overrides as the index:
 | If you want to see… | read |
 |---|---|
 | a chapter's `dependencyStyle` default | `chapter.json` (orthogonal, chevron, target, solid, thin) |
-| `form: orthogonal` / `chamfered` / `straight` / `stepped` / `curved` / `radial` | the chapter default; `the_carpenters_due.json`, `the_ancient_city.json`, `the_crank.json`, `the_mirror.json`, `the_engine.json` |
+| `form: orthogonal` / `chamfered` / `straight` / `curved` | the chapter default (`chapter.json`, orthogonal); `the_carpenters_due.json` and `the_crank.json` (chamfered); `the_ancient_city.json` (straight); `the_engine.json`, `the_lantern_watch.json`, `the_mirror.json` and `the_undead_cull.json` (curved) |
 | `dash: solid` / `dashed` / `dotted` / `dash_dot` / `double` / `hazard` | the chapter default; `the_tithe_of_experience.json`, `the_greenwood.json`, `the_apprentices_ink.json`, `the_villages.json`, `the_armoured_husk.json` |
 | `weight: thin` / `thick` / `bold` / `conduit` | the chapter default; `the_armoured_husk.json`, `the_first_account.json`, `the_engine.json` |
 | `arrowHead: chevron` / `triangle` / `dot` / `diamond` / `none` | the chapter default; `the_floodgate.json`, `the_lantern_watch.json`, `the_house_always_wins.json`, `the_graduation.json` |

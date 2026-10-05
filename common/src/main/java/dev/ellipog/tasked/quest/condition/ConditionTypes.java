@@ -84,7 +84,7 @@ public final class ConditionTypes {
                             .hint("the score to reach")),
             ScoreCondition.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("comparator"), 1), ScoreCondition.DISPLAY,
-            () -> new ScoreCondition("example:objective", 1));
+            () -> new ScoreCondition("condition_gallery_standing", 1));
 
     /** {@code tasked:advancement} — have earned an advancement, or one criterion of one. */
     public static final ConditionType<AdvancementCondition> ADVANCEMENT = register(

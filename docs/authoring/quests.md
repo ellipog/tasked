@@ -33,8 +33,9 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
 | `icon` | An item, as `{ "item": "minecraft:oak_log" }`. Defaults to paper. |
 | `aliases` | Former ids, so a rename does not orphan progress. |
 
-Chapter groups and chapters have ids, titles, subtitles and icons too, and the same rules apply to
-them.
+Chapters have ids, titles, subtitles and icons too, and the same rules apply to them. A chapter
+**group** has an id, a title, a description and an icon, and no subtitle: a group is a heading over
+chapters, and a second line of prose above them belongs to the chapter it is about.
 
 ## Writing a description
 

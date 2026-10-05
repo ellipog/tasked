@@ -61,6 +61,15 @@ public final class ClientQuestCache {
      * while a client is connected, so a resolution can be made once and kept.
      */
     public record TaskEntry(ItemStack icon, ItemStack item, int count, boolean optional, boolean manual,
+                            /**
+                             * Whether the press is what finishes this task, rather than the tick. It
+                             * decides which of the two button rules applies: a handed-in-before-the-count
+                             * task (a checkmark) is offered while its count is unmet, and a task that
+                             * takes is offered once the press would be accepted -- see
+                             * {@link #firstSubmitTask}. Absent means the tick registers it, which is the
+                             * old reading and therefore the safe one for a server that predates the field.
+                             */
+                            boolean waits,
                             String type, String label, String labelFallback, String labelArg, String itemId,
                             /** The observation fields, empty for every other type: what to watch, how. */
                             String observeType, String observeTarget, int observeTicks,
@@ -416,7 +425,14 @@ public final class ClientQuestCache {
                             /** The same for reward rows. */
                             Map<Integer, List<Integer>> rewardLocks,
                             /** A pre-per-player save's "collected": nobody may claim again. */
-                            boolean legacySettled) {
+                            boolean legacySettled,
+                            /**
+                             * The tasks whose press the server would accept right now. Absent for every
+                             * task of a server that predates the field, and for every task that is not
+                             * waiting for a press — both read as "no button", which is the direction that
+                             * cannot offer a press the server would refuse.
+                             */
+                            Set<Integer> ready) {
 
         /** Who is holding what toward one task, in the order the server named them. Empty for nobody. */
         Map<UUID, Integer> contributorsOf(int taskIndex) {
@@ -439,6 +455,11 @@ public final class ClientQuestCache {
         /** The same for one reward. */
         List<Integer> rewardLock(int index) {
             return rewardLocks.getOrDefault(index, List.of());
+        }
+
+        /** Whether a press on this task would be accepted right now. See {@link #firstSubmitTask}. */
+        boolean ready(int index) {
+            return ready.contains(index);
         }
     }
 
@@ -707,6 +728,75 @@ public final class ClientQuestCache {
     public static List<Integer> rewardLockOf(String questId, int rewardIndex) {
         Progress found = progress.get(questId);
         return found == null ? List.of() : found.rewardLock(rewardIndex);
+    }
+
+    /**
+     * Whether the server would accept a press on one task right now.
+     *
+     * <p>False for a quest or task this client has no progress for, and for every task of a server that
+     * predates {@code taskReady} — one answer for all three, and the safe one: no button offered rather
+     * than a press the server would refuse.
+     */
+    public static boolean taskReadyOf(String questId, int taskIndex) {
+        Progress found = progress.get(questId);
+        return found != null && found.ready(taskIndex);
+    }
+
+    /**
+     * The first task whose row offers the Submit button, or -1 for a quest that offers none.
+     *
+     * <h2>Two rules, because the two kinds of manual task are handed in at opposite moments</h2>
+     *
+     * <p>A <b>checkmark</b> has no count to meet — its count is the press itself — so its button is
+     * offered while that press has not happened, which is what {@code progress < count} says. A task
+     * that <b>takes</b> what it asks for is the other way round: the press is refused until the player
+     * is holding enough, so its button appears when the server says a press would be accepted. Offering
+     * it earlier would be a button whose only effect is a refusal, and offering it later — which is what
+     * a single {@code progress < count} rule did once such a task stopped being registered by the tick —
+     * would hide it at exactly the moment it became usable.
+     *
+     * <p>A locked task has no button either way: the press would be refused, and the row already says
+     * why. The question is the same one the reward rows ask of {@link #canClaimFor}, one kind over.
+     */
+    public static int firstSubmitTask(String questId) {
+        for (Entry quest : entries) {
+            if (!quest.id().equals(questId)) {
+                continue;
+            }
+            for (int i = 0; i < quest.tasks().size(); i++) {
+                if (submitOffered(questId, i)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        return -1;
+    }
+
+    /**
+     * Whether one task's row offers the Submit button right now — the predicate {@link #firstSubmitTask}
+     * walks, on its own so the row's tag and the hover can ask the same question rather than answer it
+     * again. See that method for why the two kinds of manual task are offered their button at opposite
+     * moments, and why a locked task is offered neither.
+     */
+    public static boolean submitOffered(String questId, int taskIndex) {
+        List<Entry> all = entries;
+        for (Entry quest : all) {
+            if (!quest.id().equals(questId)) {
+                continue;
+            }
+            if (taskIndex < 0 || taskIndex >= quest.tasks().size()) {
+                return false;
+            }
+            TaskEntry task = quest.tasks().get(taskIndex);
+            if (!task.manual() || !taskLockOf(questId, taskIndex).isEmpty()) {
+                return false;
+            }
+            return task.waits()
+                    ? taskReadyOf(questId, taskIndex)
+                    : taskProgressOf(questId, taskIndex) < task.count();
+        }
+        return false;
     }
 
     /**
@@ -1341,6 +1431,7 @@ public final class ClientQuestCache {
                 json.has("count") ? json.get("count").getAsInt() : 1,
                 json.has("optional") && json.get("optional").getAsBoolean(),
                 json.has("manual") && json.get("manual").getAsBoolean(),
+                json.has("waits") && json.get("waits").getAsBoolean(),
                 str(json, "type"),
                 str(json, "label"),
                 str(json, "labelFallback"),
@@ -1489,6 +1580,15 @@ public final class ClientQuestCache {
                     }
                 }
 
+                // The tasks whose press would be accepted right now, by position. Sparse in the same
+                // direction as `taskLocks`: absent means none of them, which reads as no button.
+                Set<Integer> ready = new java.util.LinkedHashSet<>();
+                if (one.has("taskReady")) {
+                    for (JsonElement value : one.getAsJsonArray("taskReady")) {
+                        ready.add(value.getAsInt());
+                    }
+                }
+
                 next.put(entry.getKey(), new Progress(
                         readState(str(one, "state")),
                         one.has("cooldown") ? one.get("cooldown").getAsLong() : 0L,
@@ -1499,7 +1599,8 @@ public final class ClientQuestCache {
                         Map.copyOf(claimedBy),
                         lockMap(one, "taskLocks"),
                         lockMap(one, "rewardLocks"),
-                        one.has("settled") && one.get("settled").getAsBoolean()));
+                        one.has("settled") && one.get("settled").getAsBoolean(),
+                        Set.copyOf(ready)));
             }
         }
         progress = Map.copyOf(next);

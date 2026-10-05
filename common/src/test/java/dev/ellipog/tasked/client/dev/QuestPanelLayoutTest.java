@@ -101,9 +101,11 @@ class QuestPanelLayoutTest {
         assertFalse(heading.isWarning(), "tasked:item is known, so its section is a heading");
         assertTrue(heading.label().contains("tasked:item"), "the section names the type");
 
-        // The registry's own field names, sorted: item, count, consumeItems, match, onlyFromCrafting.
-        assertEquals(List.of("tasks.0.consumeItems", "tasks.0.count", "tasks.0.item", "tasks.0.match",
-                        "tasks.0.onlyFromCrafting"),
+        // The registry's own field names plus the common ones, sorted: autoSubmitTicks, consumeItems,
+        // count, item, match, onlyFromCrafting, optional. `conditions` is in the registered set too and
+        // is filtered out on the way to a row, because a list of objects is not a text cell.
+        assertEquals(List.of("tasks.0.autoSubmitTicks", "tasks.0.consumeItems", "tasks.0.count",
+                        "tasks.0.item", "tasks.0.match", "tasks.0.onlyFromCrafting", "tasks.0.optional"),
                 rows.stream().map(InspectRow::key)
                         .filter(key -> key.startsWith("tasks.0.") && !key.equals("tasks.0.type"))
                         .toList(),
@@ -242,13 +244,15 @@ class QuestPanelLayoutTest {
     }
 
     @Test
-    @DisplayName("the picker's tooltip is the author's: hint, registry fields and the id a file spells")
+    @DisplayName("the picker's tooltip is the author's, and two lines: what it is for, and the fields it asks")
     void pickerTooltips() {
         List<String> lines = QuestPanelLayout.typeTooltip("tasks", "tasked:biome");
+        assertEquals(2, lines.size(),
+                "a hint and the fields it will ask for, and no third line repeating the id: " + lines);
         assertEquals("Be in a biome, or any biome of a tag.", lines.get(0));
-        assertTrue(lines.contains("Fields: biome"),
-                "the fields come from the registry, not from the table: " + lines);
-        assertEquals("tasked:biome", lines.get(lines.size() - 1), "the id a file spells is last");
+        assertEquals("Fields: autoSubmitTicks, biome, conditions, optional", lines.get(1),
+                "the fields come from the registry -- the type's own plus the three every task has -- "
+                        + "not from a second list: " + lines);
 
         assertEquals(List.of("addon:mystery"), QuestPanelLayout.typeTooltip("tasks", "addon:mystery"),
                 "no hint and no registered fields: the id is the whole description");
@@ -290,10 +294,11 @@ class QuestPanelLayoutTest {
                 "an unknown condition type has no form -- the raw-JSON fallback's trigger");
 
         List<String> tip = QuestPanelLayout.conditionTypeTooltip("tasked:item");
+        assertEquals(2, tip.size(), "the condition picker's hover is capped like the task picker's: " + tip);
         assertEquals("Have a count of one item.", tip.get(0), "the table's hint comes first");
-        assertTrue(tip.stream().anyMatch(line -> line.startsWith("Fields: ")),
-                "and the fields come from the registry: " + tip);
-        assertEquals("tasked:item", tip.get(tip.size() - 1), "the id a file spells is last");
+        assertTrue(tip.get(1).startsWith("Fields: "),
+                "and the fields come from the registry, as a comma-separated list rather than a set's "
+                        + "own toString: " + tip);
     }
 
     @Test
@@ -320,17 +325,20 @@ class QuestPanelLayoutTest {
     @DisplayName("every registered type's player tooltip is player language: no fields, no ids")
     void playerTooltipsArePlayerLanguage() {
         for (ResourceLocation id : TaskTypes.ids()) {
-            assertPlayerFacing("tasks", id.toString(), false);
-            assertPlayerFacing("tasks", id.toString(), true);
+            for (boolean byHand : new boolean[] {false, true}) {
+                for (boolean takes : new boolean[] {false, true}) {
+                    assertPlayerFacing("tasks", id.toString(), byHand, takes);
+                }
+            }
         }
         for (ResourceLocation id : RewardTypes.ids()) {
-            assertPlayerFacing("rewards", id.toString(), false);
+            assertPlayerFacing("rewards", id.toString(), false, false);
         }
     }
 
     /** The guard for the whole class of leak: the reader's hover must never be the author's. */
-    private static void assertPlayerFacing(String member, String typeId, boolean byHand) {
-        List<String> lines = QuestPanelLayout.playerTooltip(member, typeId, byHand);
+    private static void assertPlayerFacing(String member, String typeId, boolean byHand, boolean takes) {
+        List<String> lines = QuestPanelLayout.playerTooltip(member, typeId, byHand, takes);
         assertFalse(lines.isEmpty(), typeId + " has no tooltip at all");
         for (String line : lines) {
             assertFalse(line.isBlank(), typeId + " has a blank line");
@@ -345,19 +353,27 @@ class QuestPanelLayoutTest {
     void itemTooltips() {
         assertEquals(List.of("Have this many in your inventory.",
                         "Nothing is taken - the quest only checks that you have them."),
-                QuestPanelLayout.playerTooltip("tasks", "tasked:item", false),
+                QuestPanelLayout.playerTooltip("tasks", "tasked:item", false, false),
                 "a presence-only item task completes by itself, so nothing may be taken");
 
         assertEquals(List.of("Have this many in your inventory.",
                         "Hand it in with the Submit button - what you hand over is taken."),
-                QuestPanelLayout.playerTooltip("tasks", "tasked:item", true),
+                QuestPanelLayout.playerTooltip("tasks", "tasked:item", true, true),
                 "a consuming item task is handed over, and the player is told so");
+
+        // And the state that has no button at all yet -- locked, or a count not yet met. The items are
+        // still taken when it is finally handed in, so "nothing is taken" is the one sentence this may
+        // not print, and the row's own second fact is what says so.
+        List<String> waiting = QuestPanelLayout.playerTooltip("tasks", "tasked:item", false, true);
+        assertEquals("Handing it in takes what it asks for.", waiting.get(1));
+        assertFalse(waiting.stream().anyMatch(line -> line.contains("Nothing is taken")),
+                "a consuming row says what it takes whether or not its button is drawn: " + waiting);
     }
 
     @Test
     @DisplayName("a checkmark asks for the button and never claims anything is taken")
     void checkmarkTooltip() {
-        List<String> lines = QuestPanelLayout.playerTooltip("tasks", "tasked:checkmark", true);
+        List<String> lines = QuestPanelLayout.playerTooltip("tasks", "tasked:checkmark", true, false);
         assertEquals("You decide when this one is done.", lines.get(0));
         assertEquals("Press the Submit button when you have done it.", lines.get(1));
         assertFalse(lines.stream().anyMatch(line -> line.contains("taken")),
@@ -367,7 +383,7 @@ class QuestPanelLayoutTest {
     @Test
     @DisplayName("a reward's tooltip says when you get it, and never that anything is taken")
     void rewardTooltips() {
-        List<String> lines = QuestPanelLayout.playerTooltip("rewards", "tasked:item", false);
+        List<String> lines = QuestPanelLayout.playerTooltip("rewards", "tasked:item", false, false);
         assertEquals(List.of("You get this item when you claim the quest."), lines);
         assertFalse(lines.stream().anyMatch(line -> line.contains("taken")),
                 "a reward is given, not handed in: " + lines);

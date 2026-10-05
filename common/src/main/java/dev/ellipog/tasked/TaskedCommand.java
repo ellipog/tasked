@@ -419,7 +419,8 @@ public final class TaskedCommand {
             // A repeatable quest that is done still is, because it can be done again -- and so is one
             // with a payout still waiting, which is the case where leaving it out would hide the only
             // thing the player is meant to do next.
-            boolean claimable = ProgressService.canClaimFor(teamProgress, quest, player.getUUID());
+            boolean claimable = ProgressService.canClaimFor(
+                    context.getSource().getServer(), teamProgress, quest, player.getUUID());
             boolean worthShowing = state.isPlayable() || claimable
                     || (state == QuestState.COMPLETED && quest.repeatable());
             if (!worthShowing || (quest.invisible() && state != QuestState.COMPLETED)) {

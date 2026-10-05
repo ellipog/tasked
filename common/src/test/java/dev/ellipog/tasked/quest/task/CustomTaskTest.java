@@ -70,7 +70,7 @@ class CustomTaskTest {
 
         assertEquals(0, behaviourOf(absent).current(absent, null),
                 "a handler that is not installed is not an error: the task is inert, not broken");
-        assertFalse(behaviourOf(absent).canSubmitByHand(absent),
+        assertFalse(behaviourOf(absent).canSubmitByHand(absent, false),
                 "and a task nothing measures does not offer a Submit button that could not work");
         assertFalse(behaviourOf(absent).takesResources(absent, true),
                 "and it takes nothing, chapter default or not");
@@ -92,7 +92,7 @@ class CustomTaskTest {
         });
         CustomTask task = task("test:handin", 1);
 
-        assertTrue(behaviourOf(task).canSubmitByHand(task),
+        assertTrue(behaviourOf(task).canSubmitByHand(task, false),
                 "the override has to survive TaskTypes.widenBehaviour, which forwards every method by hand");
         assertEquals(0, behaviourOf(task("test:handin-absent", 1)).current(task("test:handin-absent", 1), null),
                 "and another id is unaffected by it");

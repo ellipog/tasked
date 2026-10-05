@@ -89,9 +89,15 @@ public record QuestRules(boolean repeatable,
      *
      * <p>One accessor rather than an {@code orElse} at each call site, so the server's grant path and
      * the client's toast path cannot resolve the ladder differently.
+     *
+     * <p>A written {@code "default"} is the unset state spelled out, so it defers like an absent field
+     * does. It used to short-circuit the fallback — {@code Optional.of(DEFAULT)} is present, and
+     * {@code orElse} keeps it — which meant every reward on a quest that said {@code "default"} resolved
+     * to {@code DEFAULT}, whose {@code automatic()} is false, so the whole quest waited for a claim
+     * while the editor's own picker and the schema both called that value "defer to the chapter".
      */
     public RewardAutoClaim autoClaim(RewardAutoClaim fallback) {
-        return autoClaim.orElse(fallback);
+        return autoClaim.filter(mode -> mode != RewardAutoClaim.DEFAULT).orElse(fallback);
     }
 
     /** The bounds of the two counted flags: a cap of dependents, and a number of tasks. */

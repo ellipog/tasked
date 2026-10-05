@@ -23,7 +23,7 @@ import java.util.Optional;
  * }
  * }</pre>
  *
- * <h2>The two chapter-level defaults, and why they earn their place</h2>
+ * <h2>The chapter-level defaults, and why they earn their place</h2>
  *
  * <p>{@code defaultPrerequisiteMode} is FTB Quests' {@code default_quest_prerequisite_mode}. A
  * chapter of thirty quests in a chain would otherwise repeat {@code "prerequisiteMode":

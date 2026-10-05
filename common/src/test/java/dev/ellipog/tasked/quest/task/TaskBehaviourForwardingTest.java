@@ -48,8 +48,10 @@ class TaskBehaviourForwardingTest {
         assertTrue(through.takesResources(task, false),
                 "the wrapper dropped takesResources, which is what silently stopped item consumption");
         assertEquals(4, through.required(task));
-        assertTrue(through.acceptsClientSubmit(task),
+        assertTrue(through.acceptsClientSubmit(task, false),
                 "a consuming task is submit-by-hand, and the client submit gate reads this");
+        assertTrue(through.waitsForSubmit(task, false),
+                "and it waits for the press, which is the engine's half of the same answer");
     }
 
     @Test
@@ -58,8 +60,10 @@ class TaskBehaviourForwardingTest {
         ItemTask task = itemTask(Optional.of(false));
         TaskBehaviour<QuestTask> through = TaskTypes.behaviourOf(task).orElseThrow();
 
-        assertFalse(through.takesResources(task, false));
-        assertFalse(through.acceptsClientSubmit(task),
+        assertFalse(through.takesResources(task, true));
+        assertFalse(through.acceptsClientSubmit(task, true),
                 "a presence-only task has no button, so its client submit is refused too");
+        assertFalse(through.waitsForSubmit(task, true),
+                "and the tick registers it: declining the chapter's default is the whole point of the field");
     }
 }

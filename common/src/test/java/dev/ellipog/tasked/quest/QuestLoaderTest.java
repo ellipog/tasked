@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static dev.ellipog.tasked.quest.Fixtures.q;
@@ -386,6 +387,67 @@ class QuestLoaderTest {
                 "the file name, without the suffix, is the table's id: " + result.rewardTables().keySet());
         assertEquals(1, result.rewardTables().get("loot").entryCount());
         assertEquals(0, result.index().questCount(), "and a table is not a quest");
+    }
+
+    @Test
+    @DisplayName("a table whose name starts with `_` is a note, not a table")
+    void underscoredRewardTablesAreSkipped() throws IOException {
+        // The `_` rule is the loader's promise that a file beside the content is not content. The
+        // reward-table reader did not apply it, so a draft in that folder became a table whose id was
+        // `_draft` -- synced to every client and nameable by a reward's `table` field.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve(QuestFiles.REWARD_TABLES_DIRECTORY));
+        Files.writeString(quests.resolve("reward_tables/_draft.json"), """
+                { "lootSize": 1,
+                  "entries": [ { "weight": 1,
+                    "reward": { "type": "tasked:item", "item": "minecraft:diamond" } } ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("reward_tables/loot.json"), """
+                { "lootSize": 1,
+                  "entries": [ { "weight": 1,
+                    "reward": { "type": "tasked:item", "item": "minecraft:emerald" } } ] }
+                """, StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertTrue(result.ok(), () -> "a draft table is not a problem:\n" + render(result.problems()));
+        assertEquals(Set.of("loot"), result.rewardTables().keySet(),
+                "the `_`-prefixed file is skipped like every other `_`-prefixed name, and the other one "
+                        + "still loads");
+        assertFalse(QuestFiles.rewardTableFiles(temp.resolve(QuestLoader.DIRECTORY))
+                        .stream().anyMatch(path -> path.getFileName().toString().startsWith("_")),
+                "and the discovery walk does not list it either");
+    }
+
+    @Test
+    @DisplayName("a group whose manifest id disagrees still loads, with the folder name winning")
+    void aMismatchedGroupStillLoads() throws IOException {
+        // The whole of finding 5: the mismatch was reported as an *error*, and the loader refuses a
+        // declaration with any error against it -- so the group, its chapter and every quest under them
+        // vanished, while the javadoc, the manual and the discovery test all promised the folder wins.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("getting_started/one"));
+        Files.writeString(quests.resolve("getting_started/group.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"A group\", \"chapters\": [\"one\"] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("getting_started/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("getting_started/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertTrue(result.ok(), () -> "a mismatched id is not fatal:\n" + render(result.problems()));
+        assertTrue(filesWithErrors(result).isEmpty(),
+                "it must not be an error against the group's manifest, which is what dropped the group: "
+                        + filesWithErrors(result));
+        assertTrue(render(result.problems()).contains("first_steps")
+                        && render(result.problems()).contains("getting_started"),
+                "and it is still reported, naming both sides:\n" + render(result.problems()));
+        assertEquals(1, result.index().groupCount(), "the group is in the tree");
+        assertEquals(1, result.index().chapterCount(), "so is its chapter");
+        assertEquals(1, result.index().questCount(), "and the quest under it, which used to vanish");
+        assertEquals("a", result.index().quests().get(0).quest().id());
     }
 
     @Test

@@ -16,7 +16,7 @@ import java.util.function.Function;
 /**
  * Have at least this much on a scoreboard objective.
  *
- * <pre>{@code { "type": "tasked:score", "objective": "mypack:reputation", "min": 10 } }</pre>
+ * <pre>{@code { "type": "tasked:score", "objective": "mypack_reputation", "min": 10 } }</pre>
  *
  * <p>Read through {@link ReadOnlyScoreInfo}, not {@code getOrCreatePlayerScore}: a condition that
  * creates the score it is asking about would make "has a score" true for everyone the moment the book
@@ -24,7 +24,8 @@ import java.util.function.Function;
  *
  * <p>An objective that does not exist reads as 0 — objectives are world state, so the validator cannot
  * check the name, and a typo locks the gate rather than crashing. That is documented for authors in
- * {@code docs/conditions.md}.
+ * {@code docs/authoring/conditions.md}, which is also where the reason the name carries no colon comes
+ * from: {@code /scoreboard objectives add} is what creates it, and it takes a word.
  */
 public record ScoreCondition(String objective, int min) implements QuestCondition {
 

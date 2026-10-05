@@ -13,8 +13,8 @@ ground-up replacement for FTB Quests — not a port of it, and not a reimplement
 **Quests are JSON, one file each.** A quests directory is a tree of groups and chapters: a
 `group.json` at the root of each group, a `chapter.json` naming its quests in order, one quest per
 file, and an optional `index.json` for tree-wide settings. Named reward tables sit alongside. The
-loader validates before it loads — required and unknown fields, id shape, enum names, item and tag
-existence, duplicate ids, dangling dependencies, cycles — and a file that fails is reported with
+loader validates before it loads — required and unknown fields, id shape, enum names, item existence,
+duplicate ids, dangling dependencies, cycles — and a file that fails is reported with
 its path and line number and skipped rather than killing the server. The earlier flat-file format
 is still read.
 

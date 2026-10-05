@@ -443,7 +443,7 @@ public final class QuestPanelLayout {
 
     /**
      * The author's description of a condition type, for the picker's button hover: what the table says it
-     * is for, the fields it will ask for, and the id a file spells.
+     * is for, and the fields it will ask for. Two lines at most -- see {@link #typeTooltip}.
      */
     public static List<String> conditionTypeTooltip(String typeId) {
         List<String> lines = new ArrayList<>();
@@ -456,10 +456,14 @@ public final class QuestPanelLayout {
         }
         ResourceLocation id = ResourceLocation.tryParse(typeId);
         if (id != null && ConditionTypes.ids().contains(id)) {
-            lines.add(Labels.of("tasked.dev.tip.fields",
-                    new TreeSet<>(ConditionTypes.fieldsOf(id)).toString()));
+            Set<String> fields = ConditionTypes.fieldsOf(id);
+            if (!fields.isEmpty()) {
+                lines.add(Labels.of("tasked.dev.tip.fields", String.join(", ", new TreeSet<>(fields))));
+            }
         }
-        lines.add(typeId);
+        else {
+            lines.add(typeId);
+        }
         return List.copyOf(lines);
     }
 
@@ -546,12 +550,15 @@ public final class QuestPanelLayout {
      * file spells.
      *
      * <p>Plain strings, because that is what the picker's buttons draw with. This is the <b>author's</b>
-     * description and it says so: field names and the id are what an author edits, and the picker is a
-     * tool only edit mode reaches. What a player reads on a row's hover is {@link #playerTooltip}, which
-     * shares none of these lines.
+     * description and it says so: field names are what an author edits, and the picker is a tool only
+     * edit mode reaches. What a player reads on a row's hover is {@link #playerTooltip}, which shares
+     * none of these lines.
      *
-     * <p>A type the table does not name has no hint, so its id -- which is the name in that case -- is
-     * the last line rather than the first.
+     * <p><b>Two lines at most.</b> The hint says what the type is for and the second line names the
+     * fields it will ask for, because that is the question a picker row is being asked. The id is a
+     * third line only when nothing else names the type -- an addon's, whose id <i>is</i> its name; for a
+     * type this build knows, the hint and the fields have already said which one it is, and a hover that
+     * repeats them is a hover nobody finishes reading.
      */
     public static List<String> typeTooltip(String member, String typeId) {
         TypeChoice choice = choiceFor(member, typeId);
@@ -566,13 +573,15 @@ public final class QuestPanelLayout {
                 lines.add(Labels.of("tasked.dev.tip.fields", String.join(", ", new TreeSet<>(fields))));
             }
         }
-        lines.add(typeId);
+        if (choice == null) {
+            lines.add(typeId);
+        }
         return List.copyOf(lines);
     }
 
     /** The player line for a type the table does not name: true of every one of them, and nothing else. */
-    private static final String UNKNOWN_TASK = "tasked.dev.tip.unknown_task";
-    private static final String UNKNOWN_REWARD = "tasked.dev.tip.unknown_reward";
+    private static final String UNKNOWN_TASK = "tasked.screen.tip.unknown_task";
+    private static final String UNKNOWN_REWARD = "tasked.screen.tip.unknown_reward";
 
     /** The type's player-facing line, or null for one the table does not name. */
     public static String playerHint(String member, String typeId) {
@@ -589,34 +598,43 @@ public final class QuestPanelLayout {
      * asks, and this says what that <i>means</i> and how it is completed. An author who wants the fields
      * and the id has the picker's tooltip, which is where that belongs -- see {@link #typeTooltip}.
      *
-     * <h2>The one row-specific fact</h2>
+     * <h2>The two row-specific facts, and why they are asked rather than guessed</h2>
      *
-     * <p>{@code byHand} is the row's own flag, the one that draws the "hand in" tag and the Submit
-     * button. It decides the second line, and what that line may claim depends on the type: the item
-     * kinds, experience and fluid take what they are handed; a checkmark takes nothing; and an addon's
-     * handler is its own business, so it gets the neutral wording. A carried item that is <b>not</b>
-     * handed in says so instead -- that nothing is taken is the surprising half of the two behaviours,
-     * and the half a player has no other way to learn.
+     * <p>{@code byHand} is whether this row offers the Submit button right now. {@code takes} is whether
+     * the task takes what it asks for when it is handed in -- the server's answer, sent with the tree as
+     * {@code waits}, rather than a list of type ids copied here. The copy was wrong twice over: it read
+     * {@code tasked:item} as always taking, so a chapter's consume-items default was invisible to it, and
+     * it printed "nothing is taken" on a locked consuming row, which is the one sentence this hover must
+     * never print when the task takes.
+     *
+     * <p>What the line claims therefore depends on {@code takes} first: a task that takes says so whether
+     * or not the button is drawn yet (a locked row and a row whose count is unmet both take the items when
+     * they are handed in), and a task that takes nothing says that instead -- the surprising half of the
+     * two behaviours, and the half a player has no other way to learn. A checkmark and an addon's handler
+     * each get their own neutral wording.
      */
-    public static List<String> playerTooltip(String member, String typeId, boolean byHand) {
+    public static List<String> playerTooltip(String member, String typeId, boolean byHand, boolean takes) {
         boolean rewards = "rewards".equals(member);
         String line = playerHint(member, typeId);
         List<String> lines = new ArrayList<>();
         lines.add(Labels.of(line == null ? (rewards ? UNKNOWN_REWARD : UNKNOWN_TASK) : line));
+        if (takes) {
+            lines.add(Labels.of(byHand
+                    ? "tasked.screen.tip.submit_takes"
+                    : "tasked.screen.tip.takes_when_handed_in"));
+            return List.copyOf(lines);
+        }
         if (!byHand) {
             if (!rewards && carriesItems(typeId)) {
-                lines.add(Labels.of("tasked.dev.tip.not_taken"));
+                lines.add(Labels.of("tasked.screen.tip.not_taken"));
             }
             return List.copyOf(lines);
         }
         if ("tasked:checkmark".equals(typeId)) {
-            lines.add(Labels.of("tasked.dev.tip.submit_checkmark"));
-        }
-        else if (!rewards && takesResources(typeId)) {
-            lines.add(Labels.of("tasked.dev.tip.submit_takes"));
+            lines.add(Labels.of("tasked.screen.tip.submit_checkmark"));
         }
         else {
-            lines.add(Labels.of("tasked.dev.tip.submit"));
+            lines.add(Labels.of("tasked.screen.tip.submit"));
         }
         return List.copyOf(lines);
     }
@@ -624,18 +642,6 @@ public final class QuestPanelLayout {
     /** The task kinds a row can carry in an inventory: their sentences are about having, not doing. */
     private static boolean carriesItems(String typeId) {
         return "tasked:item".equals(typeId) || "tasked:item_tag".equals(typeId);
-    }
-
-    /**
-     * The task kinds that take what they are handed.
-     *
-     * <p>The item kinds only reach a Submit button when set to consume -- a presence-only one completes
-     * by itself -- so when they are here, they take. Experience and fluid always take; a checkmark never
-     * does, which is why it is not in this set.
-     */
-    private static boolean takesResources(String typeId) {
-        return "tasked:item".equals(typeId) || "tasked:item_tag".equals(typeId)
-                || "tasked:xp".equals(typeId) || "tasked:fluid".equals(typeId);
     }
 
     /**
