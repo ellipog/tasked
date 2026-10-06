@@ -117,6 +117,7 @@ class PayloadTest {
                 "tasked:chapter_replica",
                 "tasked:choice_reward",
                 "tasked:claim_all",
+                "tasked:claim_chapter",
                 "tasked:claim_choice",
                 "tasked:claim_choice_result",
                 "tasked:claim_reward",
@@ -245,6 +246,20 @@ class PayloadTest {
         ClaimAllPayload filtered = roundTrip(ClaimAllPayload.CODEC,
                 new ClaimAllPayload(dev.ellipog.tasked.progress.ClaimFilter.ITEMS));
         assertEquals(dev.ellipog.tasked.progress.ClaimFilter.ITEMS, filtered.filter());
+
+        // And the chapter's own press carries the chapter and the view's filter: a codec that dropped
+        // the id would sweep the whole book from a banner, and one that dropped the filter would sweep
+        // past what the view is showing -- which the first version of it did, in the choices view.
+        ClaimChapterPayload chapter = roundTrip(ClaimChapterPayload.CODEC,
+                new ClaimChapterPayload("stone_age", dev.ellipog.tasked.progress.ClaimFilter.CHOICES));
+        assertEquals("stone_age", chapter.chapterId(), "the chapter id is the scope of the message");
+        assertEquals(dev.ellipog.tasked.progress.ClaimFilter.CHOICES, chapter.filter(),
+                "and the filter is what the banner was pressed in");
+        assertEquals("", new ClaimChapterPayload(null, null).chapterId(),
+                "a missing id is blank rather than null, which matches no chapter and claims nothing");
+        assertEquals(dev.ellipog.tasked.progress.ClaimFilter.ALL,
+                new ClaimChapterPayload(null, null).filter(),
+                "and a missing filter is everything, which is the narrowing that narrows least");
 
         ClaimSummaryPayload summary = roundTrip(ClaimSummaryPayload.CODEC,
                 new ClaimSummaryPayload(3, 8, true));

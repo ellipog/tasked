@@ -106,8 +106,11 @@ public final class QuestViewerContent implements QuestContent {
         ClientQuestCache.TaskEntry task = entry.tasks().get(index);
         int have = ClientQuestCache.taskProgressOf(questId, index);
         boolean locked = !ClientQuestCache.taskLockOf(questId, index).isEmpty();
+        // `taskDone` rather than `have >= task.count()` written here: the claim menu's progression
+        // column asks the same question about the same task, and one rule with two spellings is how a
+        // page and a column come to disagree about whether a task is finished.
         return new QuestRow(taskIcon(task), taskLabel(task), have, task.count(),
-                have >= task.count(), locked, task.tagId(), index);
+                ClientQuestCache.taskDone(questId, index), locked, task.tagId(), index);
     }
 
     @Override

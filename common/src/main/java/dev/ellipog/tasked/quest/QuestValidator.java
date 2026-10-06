@@ -2,7 +2,6 @@ package dev.ellipog.tasked.quest;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.MapCodec;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.JsonDocument;
@@ -257,9 +256,21 @@ public final class QuestValidator {
             if (version < 1) {
                 problems.error(document, "$.version", "version must be at least 1, found " + version);
             } else if (version > QuestFile.CURRENT_VERSION) {
-                problems.error(document, "$.version", "this file is version " + version
+                // A WARNING rather than an error, and the reason is the decode: this number is not what
+                // decides whether the file can be read, so refusing on it refuses files that read fine.
+                // The case it was costing is a newer build that added a *task type* and bumped the
+                // version -- the dispatch now decodes that node to an unknown-task placeholder and the
+                // rest of the file loads, so the version alone should not be what stops it.
+                //
+                // It is still reported loudly, because it is the one signal that an author is looking at
+                // a file from a build they do not have. What it does not do is claim more than it can:
+                // a field this build has never heard of is still an error below, so a file that only
+                // *adds a field to a known type* is refused there and not here.
+                problems.warn(document, "$.version", "this file is version " + version
                         + ", but this build understands at most " + QuestFile.CURRENT_VERSION
-                        + ". It was probably written by a newer version of Tasked.");
+                        + ". It was probably written by a newer version of Tasked; it is read as version "
+                        + QuestFile.CURRENT_VERSION + ", and anything this build cannot read is reported"
+                        + " below.");
             }
         });
 
@@ -603,11 +614,17 @@ public final class QuestValidator {
             Checks.optionalInt(document, path + ".size", problems).ifPresent(size -> {
                 // The bounds come from the record that owns them, so the two cannot disagree -- the rule
                 // this file states for the icon scale and the rotation a few lines below.
+                //
+                // A warning, not an error, because the codec now clamps this field rather than refusing
+                // the document: a validator stricter than the format would refuse a file that loads,
+                // which is the one thing this file's own javadoc calls the worst of both worlds. The
+                // sentence says what the value was read as, because that is the part the author needs.
                 if (size < QuestLayout.MIN_SIZE || size > QuestLayout.MAX_SIZE) {
-                    problems.error(document, path + ".size",
+                    problems.warn(document, path + ".size",
                             "size must be between " + QuestLayout.MIN_SIZE + " and " + QuestLayout.MAX_SIZE
-                                    + ", found " + size
-                                    + (size > QuestLayout.MAX_SIZE ? " - did you mean " + (size / 10) + "?" : ""));
+                                    + ", found " + size + " - it is read as "
+                                    + Math.max(QuestLayout.MIN_SIZE, Math.min(QuestLayout.MAX_SIZE, size))
+                                    + (size > QuestLayout.MAX_SIZE ? "; did you mean " + (size / 10) + "?" : ""));
                 }
             });
         }
@@ -629,12 +646,16 @@ public final class QuestValidator {
 
         if (document.has(path + ".rotation")) {
             Checks.optionalInt(document, path + ".rotation", problems).ifPresent(rotation -> {
+                // A warning, for the reason given on `size`: the codec clamps, so refusing here would
+                // refuse a file that reads.
                 if (rotation < QuestLayout.MIN_ROTATION || rotation > QuestLayout.MAX_ROTATION) {
-                    problems.error(document, path + ".rotation",
+                    problems.warn(document, path + ".rotation",
                             "rotation must be between " + QuestLayout.MIN_ROTATION + " and "
-                                    + QuestLayout.MAX_ROTATION + " degrees, found " + rotation
+                                    + QuestLayout.MAX_ROTATION + " degrees, found " + rotation + " - it is read as "
+                                    + Math.max(QuestLayout.MIN_ROTATION,
+                                            Math.min(QuestLayout.MAX_ROTATION, rotation))
                                     + (rotation == 360
-                                            ? " - a full turn is the shape itself, so write 0"
+                                            ? "; a full turn is the shape itself, so write 0"
                                             : ""));
                 }
             });
@@ -666,6 +687,10 @@ public final class QuestValidator {
      * <p>Bounds come from {@link QuestShape}, which is where the geometry they describe lives — and
      * therefore what the codec uses too. Two numbers in two places is the mistake this whole file is
      * arranged to avoid, and the honest reason a message can say "the largest that fits" and be right.
+     *
+     * <p>A warning rather than an error, matching the codec's clamp — and matching the wire, which has
+     * clamped this same field to these same bounds since before the file codec was written. That the
+     * two halves of one format disagreed about one number is the fault this closes.
      */
     private static void checkIconScale(JsonDocument document, String path, Problems problems) {
         JsonElement element = document.get(path).orElse(null);
@@ -681,12 +706,14 @@ public final class QuestValidator {
 
         double scale = element.getAsDouble();
         if (scale < QuestShape.MIN_ICON_SCALE || scale > QuestShape.MAX_ICON_SCALE) {
-            problems.error(document, path, "iconScale must be between "
+            problems.warn(document, path, "iconScale must be between "
                     + QuestShape.MIN_ICON_SCALE + " and " + QuestShape.MAX_ICON_SCALE + ", found " + scale
+                    + " - it is read as " + Math.max(QuestShape.MIN_ICON_SCALE,
+                            Math.min(QuestShape.MAX_ICON_SCALE, scale))
                     + (scale > QuestShape.MAX_ICON_SCALE
-                            ? " - 1.0 is the largest icon that fits in the node"
-                            : " - below a quarter the item is a smudge; omit the field for the default ("
-                              + QuestLayout.DEFAULT_ICON_SCALE + ")"));
+                            ? "; 1.0 is the largest icon that fits in the node"
+                            : "; below a quarter the item is a smudge, and the default is "
+                              + QuestLayout.DEFAULT_ICON_SCALE));
         }
     }
 
@@ -711,12 +738,20 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Optional<ResourceLocation> type = readType(document, path, TaskTypes.ids(), "quest task", problems);
+        Set<ResourceLocation> known = TaskTypes.ids();
+        Optional<ResourceLocation> type = readType(document, path, known, "quest task", problems);
         if (type.isEmpty()) {
-            // Already reported. Fall back to the union of every task type's fields, so that one bad
-            // type does not then produce a complaint about every field on the task.
+            // Already reported as an error — a missing or malformed "type". Fall back to the union of
+            // every task type's fields, so that one bad type does not then produce a complaint about
+            // every field on the task.
             Checks.rejectUnknown(document, path,
                     union(union(allTaskFields(), TaskCommon.FIELDS), Set.of("type")), problems);
+            return;
+        }
+        if (!known.contains(type.get())) {
+            // Warned by readType, and the node is kept as an unknown-task placeholder. Its fields
+            // cannot be judged against a type this build has never heard of, so the field check is
+            // skipped rather than reporting the whole node as unknown fields.
             return;
         }
 
@@ -856,9 +891,14 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Optional<ResourceLocation> type = readType(document, path, RewardTypes.ids(), "quest reward", problems);
+        Set<ResourceLocation> known = RewardTypes.ids();
+        Optional<ResourceLocation> type = readType(document, path, known, "quest reward", problems);
         if (type.isEmpty()) {
             Checks.rejectUnknown(document, path, union(allRewardFields(), Set.of("type")), problems);
+            return;
+        }
+        if (!known.contains(type.get())) {
+            // Warned by readType; the node is kept as an unknown-reward placeholder. See checkTask.
             return;
         }
         // The union of every reward type's fields, for the reason given in checkTask.
@@ -1004,10 +1044,15 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Optional<ResourceLocation> type = readType(document, path, ConditionTypes.ids(), "quest condition",
-                problems);
+        Set<ResourceLocation> known = ConditionTypes.ids();
+        Optional<ResourceLocation> type = readType(document, path, known, "quest condition", problems);
         if (type.isEmpty()) {
             Checks.rejectUnknown(document, path, union(allConditionFields(), Set.of("type")), problems);
+            return;
+        }
+        if (!known.contains(type.get())) {
+            // Warned by readType; the node is kept as an unknown-condition placeholder, and Conditions
+            // reads it as not met -- the safe direction for a gate. See checkTask for the skipped check.
             return;
         }
         // Every condition type's fields, for the reason checkTask gives for the same union: a condition
@@ -1045,7 +1090,9 @@ public final class QuestValidator {
      */
     private static void decodeEntry(JsonDocument document, String path, ResourceLocation id,
                                     MapCodec<?> codec, Problems problems) {
-        document.get(path).ifPresent(entry -> codec.codec().parse(JsonOps.INSTANCE, entry)
+        // Through Checks.parse, so an addon's codec that throws is reported against this entry rather
+        // than escaping the validator -- which runs inside the load, and inside the editor's save.
+        document.get(path).ifPresent(entry -> Checks.parse(codec.codec(), entry)
                 .error().ifPresent(error -> problems.error(document, path,
                         "these fields do not form a " + id + ":\n    "
                                 + error.message().replace("\n", "\n    "))));
@@ -1059,12 +1106,26 @@ public final class QuestValidator {
      * Reads and resolves a {@code "type"} field.
      *
      * <p>Reporting the unknown-type case here rather than leaving it to the codec is what produces a
-     * usable message. The codec's own dispatch does list the valid types — but by then the file has a
-     * structural error and is not decoded at all, so this is the only message the author ever sees,
-     * which is exactly why it should be the good one.
+     * usable message. The codec's own dispatch does list the valid types — but the file is refused
+     * before the codec ever runs, so this is the only message the author sees, which is exactly why it
+     * should be the good one.
      *
      * <p>The caller passes which registry it expects, so a task cannot claim a reward's type and be
      * told that every one of its fields is unknown.
+     *
+     * <h2>An unknown type is a warning, and the id still comes back</h2>
+     *
+     * <p>It was an error, and an error in this validator means the file is <b>not decoded at all</b> —
+     * so one node naming an addon that is not installed cost the author every quest in the file. That is
+     * the opposite of the additive compatibility the rest of the format is built for, and it is the
+     * same fault the missing-item check was already reversed for: a mod being absent is usually
+     * temporary, and a file that cannot be loaded is not recoverable by the person holding it.
+     *
+     * <p>The dispatch now decodes an unregistered type to a placeholder, so the node survives. The id
+     * is returned <i>anyway</i> for that case, which is how the caller knows to skip the per-node field
+     * check: the fields of a type this build has never heard of are not unknown fields, they are
+     * unreadable ones, and reporting each of them would be a page of noise about a node already
+     * reported once at its own line.
      */
     private static Optional<ResourceLocation> readType(JsonDocument document, String path,
                                                        Set<ResourceLocation> known, String kind,
@@ -1084,10 +1145,12 @@ public final class QuestValidator {
         }
 
         if (!known.contains(id)) {
-            problems.error(document, typePath, "unknown " + kind + " type \"" + raw.get() + "\"\n"
+            problems.warn(document, typePath, "unknown " + kind + " type \"" + raw.get() + "\"\n"
                     + "    known types: " + String.join(", ",
-                            known.stream().map(ResourceLocation::toString).sorted().toList()));
-            return Optional.empty();
+                            known.stream().map(ResourceLocation::toString).sorted().toList())
+                    + "\n    the node is kept and drawn as an unknown " + kind + ", and nothing in it"
+                    + " can make progress until the mod that provides \"" + raw.get() + "\" is loaded");
+            return Optional.of(id);
         }
         return Optional.of(id);
     }
@@ -1113,7 +1176,7 @@ public final class QuestValidator {
         // And the reference's own codec -- the icon's half of the entry check in checkTask: a
         // component patch the codec cannot read would otherwise reach the loader, which skips the
         // whole quest over it. The codec's own message names what it was unhappy about.
-        document.get(path).ifPresent(object -> ItemRef.CODEC.parse(JsonOps.INSTANCE, object)
+        document.get(path).ifPresent(object -> Checks.parse(ItemRef.CODEC, object)
                 .error().ifPresent(error -> problems.error(document, path,
                         "this is not a usable item reference:\n    "
                                 + error.message().replace("\n", "\n    "))));

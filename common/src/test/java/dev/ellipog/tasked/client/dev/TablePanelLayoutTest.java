@@ -90,7 +90,9 @@ class TablePanelLayoutTest {
             many.add(TableBrowserLayout.Row.table("t" + i, "Table " + i, "", 1, false));
         }
         List<TableBrowserLayout.Row> rows = TableBrowserLayout.rows(many, "");
-        int max = TableBrowserLayout.maxScroll(rows, frame);
+        // What overflows is stated against the list's own band: the class reports how tall its content is,
+        // and the subtraction the viewport does is the kit's rule rather than this class's.
+        int max = TableBrowserLayout.contentHeight(rows) - frame.list().height();
         assertTrue(max > 0, "the list must overflow for this to test anything");
 
         // A scroll is in pixels, as the wheel gives it: one row of scroll moves every row up by a row, so
@@ -124,6 +126,19 @@ class TablePanelLayoutTest {
         // body the panel is handed already stops above it. So the list ends where the body does, and a
         // row can never be drawn under a button.
         assertEquals(BODY.bottom(), frame.list().bottom());
+
+        // And the strip the bar is drawn in, which is the list's right edge given up rather than drawn
+        // over: the two rectangles tile the band exactly, and the strip is at least as wide as the bar
+        // the kit draws in it. That last assertion is the one that ties two repos' numbers together --
+        // `SCROLLBAR` here and `ScrollBar.WIDTH` in Armature -- so a bar widened on one side without the
+        // other fails here instead of drawing over the rows it describes.
+        assertEquals(frame.list().right(), frame.scrollbar().x(), "the strip starts where the rows stop");
+        assertEquals(BODY.right(), frame.scrollbar().right(), "and ends at the body's own edge");
+        assertEquals(BODY.width(), frame.list().width() + frame.scrollbar().width(),
+                "together they are exactly the body's width");
+        assertEquals(TableEditorLayout.SCROLLBAR, frame.scrollbar().width());
+        assertTrue(frame.scrollbar().width() >= dev.ellipog.armature.client.ui.kit.ScrollBar.WIDTH,
+                "the reserved strip has to hold the bar the kit draws in it");
     }
 
     @Test
@@ -161,6 +176,21 @@ class TablePanelLayoutTest {
         assertEquals(BODY.x(), frame.search().x());
         assertEquals(BODY.width(), frame.search().width(), "the search box is the full width");
         assertTrue(frame.list().y() >= frame.search().bottom(), "and the list starts below it");
+
+        // The bar's strip, on the same terms as the editor's: the two tile the band, and the reservation
+        // is wide enough for the three-pixel bar the kit draws at the strip's right edge. The rows here
+        // end in Edit, Copy and Delete, so a bar drawn one pixel into them would sit on the Delete button.
+        assertEquals(frame.list().right(), frame.scrollbar().x(), "the strip starts where the rows stop");
+        assertEquals(BODY.right(), frame.scrollbar().right(), "and ends at the body's own edge");
+        assertEquals(BODY.width(), frame.list().width() + frame.scrollbar().width(),
+                "together they are exactly the body's width");
+        assertEquals(TableBrowserLayout.SCROLLBAR, frame.scrollbar().width());
+        assertTrue(frame.scrollbar().width() >= dev.ellipog.armature.client.ui.kit.ScrollBar.WIDTH,
+                "the reserved strip has to hold the bar the kit draws in it");
+        assertTrue(frame.scrollbar().x() >= TableBrowserLayout.buttons(
+                        TableBrowserLayout.rowRect(TableBrowserLayout.rows(tables(), ""), frame, 0, 1))
+                        .delete().right(),
+                "and no row's own buttons reach into it");
     }
 
     @Test
@@ -262,6 +292,12 @@ class TablePanelLayoutTest {
         assertEquals(frame.rowsTop(), TableEditorLayout.rowRect(1, frame, 0, 0,
                         TableEditorLayout.Folds.none()).y(),
                 "a row at scroll zero starts at the first row's line, not at the strip");
+
+        // And the bar's strip covers the rows rather than the list: the headings do not scroll, so a
+        // groove starting at the list's top would claim a range twelve pixels of which nothing can move.
+        assertEquals(frame.rows().y(), frame.scrollbar().y(), "the strip starts with the rows");
+        assertEquals(frame.rows().height(), frame.scrollbar().height(), "and is as tall as them");
+        assertEquals(frame.rows().right(), frame.scrollbar().x(), "beside the rows, not over them");
     }
 
     @Test
@@ -302,7 +338,8 @@ class TablePanelLayoutTest {
         assertTrue(TableEditorLayout.contentHeight(3, threeLines)
                         > TableEditorLayout.contentHeight(3, TableEditorLayout.Folds.none()),
                 "the fold counts towards the content's height, so it can be scrolled to");
-        assertEquals(0, TableEditorLayout.maxScroll(3, frame, TableEditorLayout.Folds.none()),
+        assertEquals(0, Math.max(0, TableEditorLayout.contentHeight(3, TableEditorLayout.Folds.none())
+                        - frame.rows().height()),
                 "three closed rows fit the list, so there is nothing to scroll");
     }
 

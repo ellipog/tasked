@@ -15,6 +15,7 @@ import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
 import dev.ellipog.tasked.api.TaskedScripts;
 import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
+import dev.ellipog.tasked.progress.ClaimFilter;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.QuestState;
 import dev.ellipog.tasked.progress.StageService;
@@ -2390,6 +2391,78 @@ class QuestPlaythroughTest {
                 "and the default is back in force");
     }
 
+    @Test
+    @Order(98)
+    @DisplayName("a press on one chapter pays that chapter and leaves every other chapter owed")
+    void aChapterClaimStopsAtItsOwnChapter() {
+        // The claim menu's banner. Two chapters, one waiting reward each, both outstanding at the same
+        // moment -- which is the only arrangement in which "it paid only its own" is a fact rather than
+        // a coincidence. Different items, so which one was paid is read off the inventory.
+        clearInventories();
+        assertEquals(1, asOperator("/tasked complete one_ingot").result(), "the first chapter's quest");
+        assertEquals(1, asOperator("/tasked complete one_brick").result(), "and the second's");
+        assertEquals(0, countInInventory(Items.GOLD_INGOT),
+                "both rewards are `auto: disabled`, so completing either hands over nothing");
+
+        int ingotsBefore = countInInventory(Items.GOLD_INGOT);
+        int bricksBefore = countInInventory(Items.BRICK);
+        int claimed = server.callOnServerThread(() ->
+                ProgressService.claimChapter(server.server(), player, "probe_one", ClaimFilter.ALL));
+
+        assertEquals(1, claimed, "the banner's press paid exactly the one reward that chapter owed");
+        assertEquals(ingotsBefore + 2, countInInventory(Items.GOLD_INGOT),
+                "the named chapter's reward was handed over");
+        assertEquals(bricksBefore, countInInventory(Items.BRICK),
+                "and the other chapter's was not -- which is the whole of what the press promises");
+        assertTrue(rewardClaimed("one_ingot", 0), "the paid chapter's reward is recorded");
+        assertFalse(rewardClaimed("one_brick", 0), "and the untouched chapter's is still owed");
+
+        // A chapter id no chapter has. A typo, a rename, or a forged packet: the sweep walks the index,
+        // matches nothing, and pays nothing -- there is no error to raise because nothing was asked for.
+        assertEquals(0, server.callOnServerThread(() -> ProgressService.claimChapter(server.server(),
+                        player, "no_such_chapter", ClaimFilter.ALL)),
+                "an unknown chapter claims nothing");
+        assertEquals(0, server.callOnServerThread(() ->
+                        ProgressService.claimChapter(server.server(), player, "", ClaimFilter.ALL)),
+                "and a blank one claims nothing rather than sweeping the book");
+
+        // A second press on a chapter already collected is the same as the first: it finds nothing
+        // outstanding, so it pays nothing and says nothing.
+        assertEquals(0, server.callOnServerThread(() ->
+                        ProgressService.claimChapter(server.server(), player, "probe_one",
+                                ClaimFilter.ALL)),
+                "a chapter already collected pays nothing a second time");
+
+        // And the other chapter is still there to be collected, so the first press did not merely take
+        // everything and report one.
+        assertEquals(1, server.callOnServerThread(() ->
+                        ProgressService.claimChapter(server.server(), player, "probe_two",
+                                ClaimFilter.ALL)),
+                "the chapter the first press left alone is still collectable");
+        assertEquals(bricksBefore + 2, countInInventory(Items.BRICK), "and it pays what it owed");
+
+        // The filter narrows a chapter's press the way it narrows the footer's, which is the fault the
+        // first version of this payload had: a banner drawn in the choices view reached the item rewards
+        // the player could not see. Both probe rewards are items, so a choices-only press pays nothing.
+        assertEquals(1, asOperator("/tasked reset one_ingot").result(), "start it over");
+        assertEquals(1, asOperator("/tasked complete one_ingot").result());
+        int before = countInInventory(Items.GOLD_INGOT);
+        assertEquals(0, server.callOnServerThread(() ->
+                        ProgressService.claimChapter(server.server(), player, "probe_one",
+                                ClaimFilter.CHOICES)),
+                "a choices-only press takes nothing from a chapter of items");
+        assertEquals(before, countInInventory(Items.GOLD_INGOT),
+                "and nothing was handed over, so the banner reached only what its view showed");
+        assertEquals(1, server.callOnServerThread(() ->
+                        ProgressService.claimChapter(server.server(), player, "probe_one",
+                                ClaimFilter.ALL)),
+                "while the unfiltered press still pays it");
+
+        clearInventories();
+        note("a chapter's press paid its own reward, left the other chapter's, and an unknown id paid "
+                + "nothing");
+    }
+
     /**
      * The auto-claim chapter, seeded beside the examples.
      *
@@ -2613,19 +2686,26 @@ class QuestPlaythroughTest {
     }
 
     /**
-     * The rewards-inbox fixture: one quest with two rewards, both waiting.
+     * The rewards-inbox fixture: one quest with two rewards, both waiting, and two one-reward chapters
+     * beside it for the chapter-scoped press.
      *
      * <p>Written by the test for the reason {@link #seedAutoClaimChapter} is: the order below asks a
      * per-row claim to take one reward and proves it did not take the other, and no example quest is
      * shaped for that question. Both rewards are {@code auto: disabled}, so completing the quest hands
      * over nothing and the only way either arrives is the operation under test.
+     *
+     * <p>The two probe chapters exist for the same reason one level up: "a press on one chapter pays
+     * that chapter and no other" is only observable with two chapters outstanding at one moment, and
+     * that needs a second chapter that is nothing like the first. They give different items, so which
+     * one was paid is read off the inventory rather than inferred.
      */
     private static List<String> seedRewardInboxChapter(Path configDir) throws IOException {
         Path quests = configDir.resolve("tasked/quests/reward_inbox");
         Path chapter = quests.resolve("reward_inbox");
         Files.createDirectories(chapter);
         Files.writeString(quests.resolve("group.json"), """
-                { "id": "reward_inbox", "title": "Reward Inbox", "chapters": ["reward_inbox"] }
+                { "id": "reward_inbox", "title": "Reward Inbox",
+                  "chapters": ["reward_inbox", "probe_one", "probe_two"] }
                 """);
         Files.writeString(chapter.resolve("chapter.json"), """
                 { "$schema": "../../../_schema/chapter.schema.json",
@@ -2642,9 +2722,35 @@ class QuestPlaythroughTest {
                     { "type": "tasked:item", "item": "minecraft:emerald", "count": 5,
                       "auto": "disabled" }] }
                 """);
+
+        List<String> seeded = new ArrayList<>(List.of("reward_inbox/group.json",
+                "reward_inbox/reward_inbox/chapter.json",
+                "reward_inbox/reward_inbox/two_gifts.json"));
+        seeded.addAll(seedProbeChapter(quests, "probe_one", "one_ingot", "minecraft:gold_ingot"));
+        seeded.addAll(seedProbeChapter(quests, "probe_two", "one_brick", "minecraft:brick"));
         // The relative names the load check counts, in the same shape `seedExamples` produces.
-        return List.of("reward_inbox/group.json", "reward_inbox/reward_inbox/chapter.json",
-                "reward_inbox/reward_inbox/two_gifts.json");
+        return List.copyOf(seeded);
+    }
+
+    /** One chapter of the chapter-scoped fixture: a single quest, one waiting item, no auto-claim. */
+    private static List<String> seedProbeChapter(Path quests, String chapterId, String questId,
+                                                 String item) throws IOException {
+        Path folder = quests.resolve(chapterId);
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "%s", "title": "%s", "quests": ["%s.json"] }
+                """.formatted(chapterId, chapterId, questId));
+        Files.writeString(folder.resolve(questId + ".json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "%s",
+                  "title": "%s",
+                  "icon": { "item": "%s" },
+                  "tasks": [{ "type": "tasked:checkmark", "title": "Ask for it" }],
+                  "rewards": [{ "type": "tasked:item", "item": "%s", "count": 2,
+                    "auto": "disabled" }] }
+                """.formatted(questId, questId, item, item));
+        return List.of("reward_inbox/" + chapterId + "/chapter.json",
+                "reward_inbox/" + chapterId + "/" + questId + ".json");
     }
 
     /** Whether one of a quest's rewards is already claimed for the test player, from stored progress. */

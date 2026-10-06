@@ -115,6 +115,16 @@ public final class EditorOps {
             }
             case EditorOp.Undo ignored -> json.addProperty("kind", "undo");
             case EditorOp.Redo ignored -> json.addProperty("kind", "redo");
+            case EditorOp.Batch batch -> {
+                json.addProperty("kind", "batch");
+                // The elements written by this same method, so a new op kind cannot be readable at the
+                // top level and unreadable inside a batch: there is one writer and one reader for both.
+                com.google.gson.JsonArray ops = new com.google.gson.JsonArray();
+                for (EditorOp each : batch.ops()) {
+                    ops.add(write(each));
+                }
+                json.add("ops", ops);
+            }
             case EditorOp.MoveChapter move -> {
                 json.addProperty("kind", "moveChapter");
                 json.addProperty("chapter", move.chapter());
@@ -231,12 +241,45 @@ public final class EditorOps {
                 case "deleteGroup" -> new EditorOp.DeleteGroup(text(json, "group"));
                 case "undo" -> new EditorOp.Undo();
                 case "redo" -> new EditorOp.Redo();
+                case "batch" -> readBatch(json);
                 default -> null;
             };
         }
         catch (RuntimeException malformed) {
             return null;
         }
+    }
+
+    /**
+     * A batch read back: every element through this same reader, and the ones this build cannot act on
+     * dropped.
+     *
+     * <h2>Why a dropped element is not a refusal</h2>
+     *
+     * <p>Because a batch is one gesture made of many edits, and an element written by a newer client
+     * says nothing about the rest: refusing the whole gesture over one unknown kind would make an older
+     * server read "duplicate these seventy" as an error nobody can act on. A batch that is left empty by
+     * that dropping is refused on apply, where there is still somebody to tell — a sentence rather than
+     * nothing happening.
+     *
+     * <p>The outer object's own failures are the caller's: a batch whose {@code ops} is missing or is not
+     * an array reads as an empty batch and is refused there, which is the same answer by a shorter path.
+     */
+    private static EditorOp.Batch readBatch(JsonObject json) {
+        List<EditorOp> ops = new ArrayList<>();
+        JsonElement held = json.get("ops");
+        if (held != null && held.isJsonArray()) {
+            for (JsonElement element : held.getAsJsonArray()) {
+                if (!element.isJsonObject()) {
+                    continue;
+                }
+                EditorOp op = read(element.getAsJsonObject());
+                if (op != null) {
+                    ops.add(op);
+                }
+            }
+        }
+        return new EditorOp.Batch(ops);
     }
 
     private static String text(JsonObject json, String key) {
@@ -292,48 +335,231 @@ public final class EditorOps {
         }
         catch (JsonFile.UnwritablePath unwritable) {
             // A path nothing can be written to refused before it changed anything, but the op pushed
-            // its history on the way in -- so the undo here is the same one a refused save takes, and
-            // the model is left exactly as it was found.
-            editor.undo();
+            // its history on the way in -- so this is the same abandonment a refused save takes, and
+            // the model is left exactly as it was found, redo trail included.
+            editor.abandon();
             return Applied.refused("no file could take that edit: " + unwritable.getMessage());
         }
     }
 
+    /**
+     * Several chapter edits as one: one history step, one save, all or nothing.
+     *
+     * <h2>The order, and why it is this one</h2>
+     *
+     * <p>Every element is checked before the group is opened, so a batch that could never be applied
+     * costs nothing at all. Then the group takes the single snapshot, the mutations run, and the save
+     * happens once — after all of them — which is what makes one Ctrl+Z enough and what stops a batch
+     * paying for seventy validations of a chapter it is rewriting anyway.
+     *
+     * <p><b>Atomic.</b> An element that would change nothing, or a save the validator refuses, abandons
+     * the whole batch: the files and the memory go back to the snapshot, and no history is left behind.
+     * Applying sixty-eight of seventy would leave the author to find the two that are missing, and the
+     * Ctrl+Z they would then press reverts all sixty-eight regardless.
+     */
+    private static Applied applyBatch(QuestEditor editor, EditorOp.Batch batch) {
+        List<EditorOp> ops = batch.ops();
+        if (ops.isEmpty()) {
+            return Applied.refused("that batch holds no edits this version can apply");
+        }
+        for (EditorOp op : ops) {
+            if (!joinable(op)) {
+                return Applied.refused("a batch is one gesture's chapter edits, and " + describe(op)
+                        + " is not one of them");
+            }
+        }
+
+        // One slot for the first element that refused, and one for the count that landed: a Runnable
+        // cannot return either, and a batch that carries on past a refusal is the thing to avoid.
+        Applied[] refusal = new Applied[1];
+        int[] landed = new int[1];
+        editor.group(() -> {
+            for (EditorOp op : ops) {
+                Applied applied = applyOne(editor, op, false);
+                if (!applied.ok()) {
+                    refusal[0] = applied;
+                    return;
+                }
+                landed[0]++;
+            }
+        });
+
+        if (refusal[0] != null) {
+            editor.abandon();
+            List<String> messages = refusal[0].messages().isEmpty()
+                    ? List.of("one edit in that batch could not be applied, so none of them were")
+                    : refusal[0].messages();
+            return new Applied(false, null, messages, null, null, List.of());
+        }
+
+        QuestEditor.SaveResult saved = editor.save();
+        if (!saved.ok()) {
+            editor.abandon();
+            return new Applied(false, null, saved.messages(), null, null, List.of());
+        }
+        return new Applied(true, "", List.of(summary(ops)), null, null, List.of());
+    }
+
+    /**
+     * Whether an op may be one element of a {@link EditorOp.Batch}.
+     *
+     * <p>Chapter edits only. A structural edit's undo is the tree's own record rather than a snapshot of
+     * one chapter's files, so it cannot join a snapshot; {@code SetIndex} writes the root's settings with
+     * no history at all; and an undo, a redo or a nested batch has no meaning inside one. The list is
+     * written as a switch over the op so a new kind has to be classified by hand rather than defaulting
+     * into "joinable" — the fault that would be invisible until somebody's bulk delete half-worked.
+     */
+    private static boolean joinable(EditorOp op) {
+        return switch (op) {
+            case EditorOp.SetField ignored -> true;
+            case EditorOp.Move ignored -> true;
+            case EditorOp.Create ignored -> true;
+            case EditorOp.Duplicate ignored -> true;
+            case EditorOp.Paste ignored -> true;
+            case EditorOp.Insert ignored -> true;
+            case EditorOp.Remove ignored -> true;
+            case EditorOp.MoveEntry ignored -> true;
+            case EditorOp.SetChapter ignored -> true;
+            case EditorOp.SetGroup ignored -> true;
+            case EditorOp.Delete ignored -> true;
+            case EditorOp.Batch ignored -> false;
+            case EditorOp.Undo ignored -> false;
+            case EditorOp.Redo ignored -> false;
+            case EditorOp.SetIndex ignored -> false;
+            case EditorOp.MoveChapter ignored -> false;
+            case EditorOp.MoveGroup ignored -> false;
+            case EditorOp.CreateChapter ignored -> false;
+            case EditorOp.CreateGroup ignored -> false;
+            case EditorOp.RenameChapter ignored -> false;
+            case EditorOp.RenameGroup ignored -> false;
+            case EditorOp.DuplicateChapter ignored -> false;
+            case EditorOp.DuplicateGroup ignored -> false;
+            case EditorOp.DeleteChapter ignored -> false;
+            case EditorOp.DeleteGroup ignored -> false;
+        };
+    }
+
+    /** What a refused batch calls the element it refused: the kind, in the author's words. */
+    private static String describe(EditorOp op) {
+        return switch (op) {
+            case EditorOp.Batch ignored -> "a batch inside a batch";
+            case EditorOp.Undo ignored -> "an undo";
+            case EditorOp.Redo ignored -> "a redo";
+            case EditorOp.SetIndex ignored -> "a pack setting";
+            // One arm per kind rather than a list: a case may not bind the same name twice, and a
+            // pattern that names nothing is not in this language yet.
+            case EditorOp.MoveChapter ignored -> "moving a chapter";
+            case EditorOp.MoveGroup ignored -> "moving a group";
+            case EditorOp.CreateChapter ignored -> "making a chapter";
+            case EditorOp.CreateGroup ignored -> "making a group";
+            case EditorOp.RenameChapter ignored -> "renaming a chapter";
+            case EditorOp.RenameGroup ignored -> "renaming a group";
+            case EditorOp.DuplicateChapter ignored -> "copying a chapter";
+            case EditorOp.DuplicateGroup ignored -> "copying a group";
+            case EditorOp.DeleteChapter ignored -> "deleting a chapter";
+            case EditorOp.DeleteGroup ignored -> "deleting a group";
+            default -> "one of those edits";
+        };
+    }
+
+    /**
+     * One line for what a batch did, counted by kind.
+     *
+     * <p>A count rather than a list: the author made one gesture and wants to hear what it did, and the
+     * ids of seventy new quests are not a sentence. Mixed kinds answer with the honest general form, and
+     * the number is always there so a batch that did less than expected is visible at a glance.
+     */
+    private static String summary(List<EditorOp> ops) {
+        int duplicates = 0;
+        int deletes = 0;
+        int creates = 0;
+        for (EditorOp op : ops) {
+            switch (op) {
+                case EditorOp.Duplicate ignored -> duplicates++;
+                case EditorOp.Delete ignored -> deletes++;
+                case EditorOp.Create ignored -> creates++;
+                default -> {
+                }
+            }
+        }
+        String noun = ops.size() == 1 ? " quest" : " quests";
+        if (duplicates == ops.size()) {
+            return "Duplicated " + ops.size() + noun;
+        }
+        if (deletes == ops.size()) {
+            return "Deleted " + ops.size() + noun;
+        }
+        if (creates == ops.size()) {
+            return "Added " + ops.size() + noun;
+        }
+        return "Applied " + ops.size() + " edits as one step";
+    }
+
+    /**
+     * Several ops as the one op that carries them, which is the rule every bulk gesture follows.
+     *
+     * <p>One element stays itself rather than becoming a one-element batch, and that is not a
+     * micro-optimisation: a plain create or duplicate answers with the id it made, which is what selects
+     * the new node on the author's canvas and what a failed duplicate names. A batch carries no id, so
+     * wrapping a single edit would lose the answer that edit already gives.
+     */
+    public static EditorOp batch(List<EditorOp> ops) {
+        Objects.requireNonNull(ops, "ops");
+        return ops.size() == 1 ? ops.get(0) : new EditorOp.Batch(ops);
+    }
+
     private static Applied applyOne(QuestEditor editor, EditorOp op) {
+        return applyOne(editor, op, true);
+    }
+
+    /**
+     * One op, with the save optional.
+     *
+     * <p>{@code save} is false for exactly one caller: {@link #applyBatch}, which mutates several ops
+     * and saves once at the end. Everything else — the refusal shapes, what a refused save costs — is the
+     * same either way, so this is a flag on one switch rather than a second switch that would drift from
+     * it. Every case that is not a chapter mutation is unreachable with {@code save} false, because
+     * {@link #joinable} refuses those before a batch is opened.
+     */
+    private static Applied applyOne(QuestEditor editor, EditorOp op, boolean save) {
         return switch (op) {
             case EditorOp.SetField set ->
-                    finish(editor, op, editor.set(set.id(), set.path(), value(set.value())), null);
-            case EditorOp.Move move -> finish(editor, op, editor.move(move.id(), move.x(), move.y()), null);
+                    finish(editor, op, editor.set(set.id(), set.path(), value(set.value())), null, save);
+            case EditorOp.Move move ->
+                    finish(editor, op, editor.move(move.id(), move.x(), move.y()), null, save);
             case EditorOp.Create create -> {
                 String made = editor.create(create.x(), create.y());
-                yield finish(editor, op, made != null, made);
+                yield finish(editor, op, made != null, made, save);
             }
             case EditorOp.Duplicate duplicate -> {
                 String made = editor.duplicate(duplicate.id());
-                yield finish(editor, op, made != null, made);
+                yield finish(editor, op, made != null, made, save);
             }
             case EditorOp.Paste paste -> {
                 String made = paste.tree() == null
                         ? null : editor.paste(paste.tree(), paste.x(), paste.y());
-                yield finish(editor, op, made != null, made);
+                yield finish(editor, op, made != null, made, save);
             }
             case EditorOp.Insert insert ->
                     finish(editor, op, editor.insert(insert.id(), insert.member(), insert.index(),
-                            insert.entry()), null);
+                            insert.entry()), null, save);
             case EditorOp.Remove remove ->
                     finish(editor, op, editor.removeEntry(remove.id(), remove.member(),
-                            remove.index()), null);
+                            remove.index()), null, save);
             case EditorOp.MoveEntry move ->
                     finish(editor, op, editor.moveEntry(move.id(), move.member(), move.from(),
-                            move.to()), null);
+                            move.to()), null, save);
             case EditorOp.SetChapter set ->
-                    finish(editor, op, editor.setChapter(set.path(), value(set.value())), null);
+                    finish(editor, op, editor.setChapter(set.path(), value(set.value())), null, save);
             case EditorOp.SetGroup set ->
-                    finish(editor, op, editor.setGroup(set.path(), value(set.value())), null);
+                    finish(editor, op, editor.setGroup(set.path(), value(set.value())), null, save);
             // A root-level settings write: the file itself is what changes, like the structural kinds,
             // so it takes their path -- there is no chapter model to save and no meta to report.
             case EditorOp.SetIndex ignored -> structural(editor, op);
-            case EditorOp.Delete delete -> finish(editor, op, editor.delete(delete.id()), null);
+            case EditorOp.Delete delete -> finish(editor, op, editor.delete(delete.id()), null, save);
+            // A batch is handled as a whole, and never as an element of itself: `joinable` refused that
+            // before the group was opened.
+            case EditorOp.Batch batch -> applyBatch(editor, batch);
             // The structural kinds, in one line each: what they do depends only on the tree's root, not
             // on the chapter this op arrived at -- see `structureAt` and `applyWithoutSession`.
             case EditorOp.MoveChapter ignored -> structural(editor, op);
@@ -346,8 +572,8 @@ public final class EditorOps {
             case EditorOp.DuplicateGroup ignored -> structural(editor, op);
             case EditorOp.DeleteChapter ignored -> structural(editor, op);
             case EditorOp.DeleteGroup ignored -> structural(editor, op);
-            case EditorOp.Undo ignored -> history(editor, editor.undo());
-            case EditorOp.Redo ignored -> history(editor, editor.redo());
+            case EditorOp.Undo ignored -> history(editor, editor.undo(), "nothing to undo in this chapter");
+            case EditorOp.Redo ignored -> history(editor, editor.redo(), "nothing to redo in this chapter");
         };
     }
 
@@ -446,10 +672,13 @@ public final class EditorOps {
      * id the edit gave it — which is what keeps the editor cache right when Ctrl+Z moves a chapter back.
      * A field edit has no meta, and reports none.
      */
-    private static Applied history(QuestEditor editor, boolean changed) {
+    private static Applied history(QuestEditor editor, boolean changed, String nothing) {
         QuestStructure.Structure.Meta meta = editor.takeLastMeta();
         if (!changed) {
-            return new Applied(false, null, List.of("that edit would change nothing"), null, null, List.of());
+            // The sentence is the caller's, because the two halves of the key have two reasons: an undo
+            // with nothing behind it and a redo with nothing ahead of it are different news, and "that
+            // edit would change nothing" -- which is what this said for both -- told the author neither.
+            return new Applied(false, null, List.of(nothing), null, null, List.of());
         }
         if (meta == null) {
             // A field history: the model was put back in memory, and the save is what makes the disk
@@ -457,7 +686,9 @@ public final class EditorOps {
             // needs none: its steps wrote the files themselves, which is what they are for.
             QuestEditor.SaveResult saved = editor.save();
             if (!saved.ok()) {
-                editor.undo();
+                // Abandoned rather than undone: an undo that refuses must leave the history as it was
+                // found, and `undo` would leave the refused state on the redo trail. See `abandon`.
+                editor.abandon();
                 return new Applied(false, null, saved.messages(), null, null, List.of());
             }
             return new Applied(true, null, List.of(), null, null, List.of());
@@ -468,17 +699,25 @@ public final class EditorOps {
     /**
      * Saves what the op changed, or undoes the whole of it.
      *
-     * <p>One place, because "validate on apply" is one rule: a save that refused wrote nothing, so undoing the
-     * model puts memory back where disk already is, and the history is left as it was found.
+     * <p>One place, because "validate on apply" is one rule: a save that refused wrote nothing, so
+     * abandoning the model puts memory back where disk already is, and the history is left as it was
+     * found — the redo trail included, which is what {@code abandon} exists for. With {@code save} false
+     * the caller is {@code applyBatch}, which saves once for the whole gesture; nothing else passes it.
      */
-    private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId) {
+    private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId,
+                                  boolean save) {
         String about = madeId != null ? madeId : op.quest();
         if (!changed) {
             return new Applied(false, about, List.of("that edit would change nothing"), null, null, List.of());
         }
+        if (!save) {
+            // A batch element: the chapter is left dirty for the one save at the end, and the validation
+            // it needs happens there, once, over the files the whole gesture produced.
+            return new Applied(true, about, List.of(), null, null, List.of());
+        }
         QuestEditor.SaveResult saved = editor.save();
         if (!saved.ok()) {
-            editor.undo();
+            editor.abandon();
             return new Applied(false, null, saved.messages(), null, null, List.of());
         }
         return new Applied(true, about, List.of(), null, null, List.of());

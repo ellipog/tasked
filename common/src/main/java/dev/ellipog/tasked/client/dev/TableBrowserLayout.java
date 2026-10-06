@@ -55,6 +55,17 @@ public final class TableBrowserLayout {
     /** How much of a row the detail text may take, at most: the id and the entry count. */
     public static final int DETAIL_WIDTH = 150;
 
+    /**
+     * The width the list gives up on its right edge for the scrollbar.
+     *
+     * <p>The same arrangement the item picker states at length ({@code ItemPickerLayout.SCROLLBAR}) and
+     * for the same reason: three pixels of bar drawn at the list's edge is three pixels of every row,
+     * and this list's rows end in three buttons. Reserving the strip here is what keeps the bar off the
+     * Delete button rather than on it — and it is the layout that has to say so, because the row
+     * rectangles, the buttons, the clip and the bar all derive from this rectangle.
+     */
+    public static final int SCROLLBAR = 5;
+
     /** What a row is: the "none" row, or a table. */
     public enum Kind {
         /** Clears the reference: a reward does not have to roll a table. */
@@ -80,15 +91,19 @@ public final class TableBrowserLayout {
         }
     }
 
-    /** Where the search box is and where the list is, from the card's body. */
-    public record Frame(BookGeometry.Rect search, BookGeometry.Rect list) {
+    /** Where the search box is, where the list is, and the strip the bar is drawn in. */
+    public record Frame(BookGeometry.Rect search, BookGeometry.Rect list, BookGeometry.Rect scrollbar) {
 
         public static Frame of(BookGeometry.Rect body) {
             BookGeometry.Rect search = BookGeometry.Rect.at(body.x(), body.y(), body.width(),
                     SEARCH_HEIGHT);
+            BookGeometry.Rect band = BookGeometry.Rect.at(body.x(), search.bottom() + SEARCH_GAP,
+                    body.width(), Math.max(0, body.height() - SEARCH_HEIGHT - SEARCH_GAP));
             return new Frame(search,
-                    BookGeometry.Rect.at(body.x(), search.bottom() + SEARCH_GAP, body.width(),
-                            Math.max(0, body.height() - SEARCH_HEIGHT - SEARCH_GAP)));
+                    BookGeometry.Rect.at(band.x(), band.y(), Math.max(0, band.width() - SCROLLBAR),
+                            band.height()),
+                    BookGeometry.Rect.at(band.right() - SCROLLBAR, band.y(),
+                            Math.min(SCROLLBAR, band.width()), band.height()));
         }
     }
 
@@ -113,14 +128,15 @@ public final class TableBrowserLayout {
         return List.copyOf(rows);
     }
 
-    /** How tall the whole list is. */
+    /**
+     * How tall the whole list is.
+     *
+     * <p>What the list's viewport is told, and therefore what its clamp and its grip are derived from.
+     * The {@code maxScroll} that used to sit beside it was the same fact minus the band, and the two
+     * callers that read it clamped an offset by hand — which is the viewport's job now.
+     */
     public static int contentHeight(List<Row> rows) {
         return rows.size() * ROW_HEIGHT;
-    }
-
-    /** The furthest the list can scroll. */
-    public static int maxScroll(List<Row> rows, Frame frame) {
-        return Math.max(0, contentHeight(rows) - frame.list().height());
     }
 
     /**

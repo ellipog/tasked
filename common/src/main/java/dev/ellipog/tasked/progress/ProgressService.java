@@ -1554,16 +1554,63 @@ public final class ProgressService {
      *
      * <p>The quests are found here rather than named by the caller: a client sending a list of ids
      * would be a client deciding what it is owed. This asks the same {@link #canClaimFor} the single
-     * claim does, so the two cannot disagree about what a button may take. {@code filter} is the
-     * panel's active chip and only ever narrows — "Claim items" must not reach past what is on screen.
+     * claim does, so the two cannot disagree about what a button may take. {@code filter} is the claim
+     * menu's active view and only ever narrows — a view of choices must not reach past what is on
+     * screen.
+     *
+     * <p>One line, because {@link #sweep} is where the work is: this is the whole book and
+     * {@link #claimChapter} is one chapter of it, so the order, the strictness and the summary are one
+     * implementation rather than two that agree until somebody edits one.
+     *
+     * @return how many rewards were handed over
+     */
+    public static int claimAll(MinecraftServer server, ServerPlayer player, ClaimFilter filter) {
+        return sweep(server, player, filter, null);
+    }
+
+    /**
+     * Claims everything outstanding in one chapter, for the claim menu's banner.
+     *
+     * <p>The same sweep as {@link #claimAll} with the index narrowed to one chapter, and narrowed
+     * <b>here</b> rather than by the caller: the payload carries a chapter id and no quests, so which of
+     * that chapter's quests are owed stays the server's to decide, exactly as it does for the whole
+     * book. A chapter id matching nothing — a typo, a renamed chapter, a forged packet — walks the index
+     * and claims nothing, which is the honest outcome rather than an error: there is nothing to refuse.
+     *
+     * <p>Sharing the sweep rather than restating it is what keeps the two presses from disagreeing: the
+     * order, the strictness, the overflow tally and the summary sentence are one implementation, so
+     * "Claim Chapter" cannot spill items that "Claim all" would have stopped for.
+     *
+     * <p>{@code filter} is the view the banner was pressed in and only ever narrows — a banner drawn in
+     * a view of choices must not reach past what is on screen, the same promise the footer makes.
+     *
+     * @param chapterId the chapter to collect from, by id
+     * @param filter    what the sweep is allowed to touch
+     * @return how many rewards were handed over
+     */
+    public static int claimChapter(MinecraftServer server, ServerPlayer player, String chapterId,
+                                   ClaimFilter filter) {
+        return sweep(server, player, filter, chapterId == null ? "" : chapterId);
+    }
+
+    /**
+     * The sweep both bulk presses run: one chapter when {@code chapterId} is non-null, the whole book
+     * when it is null.
+     *
+     * <p>The quests are found here rather than named by the caller: a client sending a list of ids
+     * would be a client deciding what it is owed. This asks the same {@link #canClaimFor} the single
+     * claim does, so the buttons cannot disagree about what may be taken. {@code filter} is the panel's
+     * active view and only ever narrows — a view of choices must not reach past what is on screen.
      *
      * <p>Strict, and it stops at the first reward that does not fit: a sweep never spills items on the
      * floor, and the player is told how far it got. The count it reports against is taken before
      * anything is claimed, from the same classification the claim itself uses.
      *
+     * @param chapterId the chapter to keep, or null for every chapter
      * @return how many rewards were handed over
      */
-    public static int claimAll(MinecraftServer server, ServerPlayer player, ClaimFilter filter) {
+    private static int sweep(MinecraftServer server, ServerPlayer player, ClaimFilter filter,
+                             String chapterId) {
         UUID playerId = player.getUUID();
         UUID owner = progressOwner(server, player);
         QuestSettings settings = TaskedQuests.settings();
@@ -1572,6 +1619,9 @@ public final class ProgressService {
         // the summary needs, and it comes from the same loop that decides what to claim.
         int total = 0;
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
+            if (!inScope(entry, chapterId)) {
+                continue;
+            }
             TeamProgress team = ProgressStore.of(server).progressOf(owner);
             if (!canClaimFor(server, team, entry.quest(), playerId)) {
                 continue;
@@ -1586,6 +1636,9 @@ public final class ProgressService {
         // sentence per quest would be a wall the player cannot read behind the book.
         RewardFeedback feedback = new RewardFeedback();
         for (QuestIndex.QuestEntry entry : TaskedQuests.index().quests()) {
+            if (!inScope(entry, chapterId)) {
+                continue;
+            }
             TeamProgress team = ProgressStore.of(server).progressOf(owner);
             if (!canClaimFor(server, team, entry.quest(), playerId)) {
                 continue;
@@ -1602,6 +1655,16 @@ public final class ProgressService {
             announceSummary(player, claimed, total, halted);
         }
         return claimed;
+    }
+
+    /**
+     * Whether a quest is inside the sweep's scope.
+     *
+     * <p>Read off the index entry's own chapter rather than looked up again — the entry carries it,
+     * which is the same fact {@link #autoClaimFor} reads a few lines down for the same reason.
+     */
+    private static boolean inScope(QuestIndex.QuestEntry entry, String chapterId) {
+        return chapterId == null || entry.chapter().id().equals(chapterId);
     }
 
     /**

@@ -111,6 +111,16 @@ public final class TableEditorLayout {
     public static final int FOLD_PAD = 2;
 
     /**
+     * The width the list gives up on its right edge for the scrollbar.
+     *
+     * <p>Reserved here rather than drawn over the rows, for the reason the browser's own constant
+     * states: this list's rows carry a fold triangle, an icon, four fields and a remove cross, and the
+     * last of those is at the row's right edge. The headings and the rows both derive from the
+     * rectangle this narrows, so the bar and the content cannot end up in the same pixels.
+     */
+    public static final int SCROLLBAR = 5;
+
+    /**
      * How much taller a folded row is, for one line of its fields.
      *
      * <p>Kept as the one-line case of {@link #foldHeight}, because eighteen was the number the fixed
@@ -141,7 +151,7 @@ public final class TableEditorLayout {
 
     /** Where everything is, from the card's body. The footer belongs to the card, not to this. */
     public record Frame(BookGeometry.Rect crumb, BookGeometry.Rect header, BookGeometry.Rect toolbar,
-                        BookGeometry.Rect list) {
+                        BookGeometry.Rect list, BookGeometry.Rect scrollbar) {
 
         public static Frame of(BookGeometry.Rect body) {
             int y = body.y();
@@ -152,8 +162,16 @@ public final class TableEditorLayout {
             BookGeometry.Rect toolbar = BookGeometry.Rect.at(body.x(), y, body.width(), TOOLBAR_HEIGHT);
             y += TOOLBAR_HEIGHT;
             int listHeight = Math.max(0, body.height() - CRUMB_HEIGHT - HEADER_HEIGHT - TOOLBAR_HEIGHT);
-            BookGeometry.Rect list = BookGeometry.Rect.at(body.x(), y, body.width(), listHeight);
-            return new Frame(crumb, header, toolbar, list);
+            BookGeometry.Rect band = BookGeometry.Rect.at(body.x(), y, body.width(), listHeight);
+            BookGeometry.Rect list = BookGeometry.Rect.at(band.x(), band.y(),
+                    Math.max(0, band.width() - SCROLLBAR), band.height());
+            // The strip covers the rows and not the headings, because the headings are the first thing in
+            // the list and do not scroll: a bar starting at the list's top would claim a range that
+            // includes twelve pixels nothing can scroll.
+            int rowsTop = band.y() + Math.min(HEADING_HEIGHT, band.height());
+            return new Frame(crumb, header, toolbar, list,
+                    BookGeometry.Rect.at(band.right() - SCROLLBAR, rowsTop,
+                            Math.min(SCROLLBAR, band.width()), Math.max(0, band.bottom() - rowsTop)));
         }
 
         /** The column headings: the list's first strip, above the first row. */
@@ -372,18 +390,13 @@ public final class TableEditorLayout {
         return ROW_HEIGHT + foldHeight(folds == null ? 0 : folds.linesOf(index));
     }
 
-    /** How tall the whole entry list is, folds and all. */
+    /** How tall the whole entry list is, folds and all. What the list's viewport is told. */
     public static int contentHeight(int entries, Folds folds) {
         int total = 0;
         for (int i = 0; i < Math.max(0, entries); i++) {
             total += heightOf(i, folds);
         }
         return total;
-    }
-
-    /** The furthest the list can scroll. */
-    public static int maxScroll(int entries, Frame frame, Folds folds) {
-        return Math.max(0, contentHeight(entries, folds) - frame.rows().height());
     }
 
     /**

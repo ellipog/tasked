@@ -2,8 +2,15 @@
 
 Rewards are what a quest gives when it completes. They are separate from [[task]]s, evaluated once,
 and by default they wait for the player to claim them — the claim button on a finished quest's card,
-the **Rewards** inbox, where each waiting quest folds open into its own rewards and every row has its
-own **Claim**, or **Claim all** for everything outstanding.
+or the **Rewards** menu, which groups the whole book by chapter and collects at three levels: a
+**Claim** on one reward's row, **Claim Chapter** on a chapter's banner, and **Claim all** in the
+footer for everything the server is holding. Three toggles decide what the menu is showing — *Ready
+to claim*, *Choices pending* and *Claimed* — and the footer's sweep follows whichever is active, so a
+view of choices claims choices and a view of what you have already collected offers no sweep at all.
+
+Each row reads across four columns: what the quest is, how far along it is, what it gives, and the
+button that takes it. A quest's rewards are listed in the details column whether or not its row is
+folded open, so a chapter can be read at a glance and unfolded only where something needs deciding.
 
 ```json
 { "type": "tasked:item", "item": "minecraft:diamond", "count": 4 }

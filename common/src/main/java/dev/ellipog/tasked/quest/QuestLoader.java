@@ -2,7 +2,7 @@ package dev.ellipog.tasked.quest;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
-import com.mojang.serialization.JsonOps;
+import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.JsonLocation;
@@ -580,7 +580,11 @@ public final class QuestLoader {
      */
     private static <T> Optional<T> decode(Codec<T> codec, JsonDocument document, String display,
                                           Problems problems) {
-        DataResult<T> result = codec.parse(JsonOps.INSTANCE, document.root());
+        // Through Checks.parse, which contains a codec whose own functions throw. A raw throwable here
+        // would leave the whole load rather than this file -- see that method for the mistake that
+        // already cost this project every file in the tree, and for why an addon's codec is the case
+        // this cannot afford to assume about.
+        DataResult<T> result = Checks.parse(codec, document.root());
 
         Optional<T> decoded = result.result();
         if (decoded.isPresent()) {

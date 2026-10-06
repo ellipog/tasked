@@ -603,6 +603,42 @@ public final class ToolsLayout {
     }
 
     /**
+     * Where one of a list's controls is, by the key it answers to.
+     *
+     * <h2>Why this is not {@code Layout.slot}</h2>
+     *
+     * <p>Because a pair row is <b>one</b> slot with two controls in it, and the layout only knows the
+     * pair's own key — the left half's. The drawing has never had a problem with that: {@code ToolsPanel}
+     * asks for the row and then splits it with {@link #pairLeft}/{@link #pairRight}, which is the same
+     * arithmetic {@code ScrubPairField} places its two halves with. The press path was the half that
+     * looked the row up by the <i>control's</i> key, found nothing, and returned before opening
+     * anything — which is why the canvas's space chooser, the second half of the opacity row, could not
+     * be switched from Graph to Screen at all.
+     *
+     * <p>So the split lives here, once, for both readers, and a key that names no control answers null
+     * rather than a rectangle borrowed from its neighbour.
+     *
+     * @param layout the list the tab is showing, already placed
+     * @param rows   the same list of actions that layout was built from
+     * @param key    the control's key: a row's own, or a pair's second half
+     */
+    public static Slot controlSlot(Layout layout, List<Action> rows, String key) {
+        if (layout == null || rows == null || key == null) {
+            return null;
+        }
+        for (Action row : rows) {
+            Slot slot = layout.slot(row.key());
+            if (slot != null && key.equals(row.key())) {
+                return slot;
+            }
+            if (slot != null && row.right() != null && key.equals(row.right().key())) {
+                return pairRight(slot, key);
+            }
+        }
+        return null;
+    }
+
+    /**
      * The book's own rows: the fold's heading, then the pack's name and icon while it is open.
      *
      * <p>Their own entry point rather than part of {@link #appearanceRows}: the appearance sections

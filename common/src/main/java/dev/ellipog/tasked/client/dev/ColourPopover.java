@@ -49,8 +49,18 @@ public final class ColourPopover {
     private static final int RESET_WIDTH = 44;
     private static final int BUTTON_HEIGHT = 16;
 
-    /** The colours offered as quick picks. Seeded from the screen's palette, and grown by `+`. */
-    private static final List<Integer> PRESETS = new ArrayList<>();
+    /**
+     * The colours offered as quick picks, seeded when the picker opens.
+     *
+     * <h2>Why this is not static, which it was</h2>
+     *
+     * <p>It was one list for the whole client: shared across chapters, targets and pickers, grown forever
+     * by `+`, never saved — and once it passed the slots that fit, {@code presetRect} answered null for the
+     * overflow while `+` went on appending, so a press did nothing and said nothing. A quick pick is a
+     * convenience for the colour being edited, not a preference, so it is seeded per open from the theme's
+     * own surfaces and dies with the picker.
+     */
+    private final List<Integer> presets = new ArrayList<>();
 
     private boolean open;
     private BookGeometry.Rect panel = BookGeometry.Rect.at(0, 0, 0, 0);
@@ -75,6 +85,10 @@ public final class ColourPopover {
 
     /** Which part a press claimed, so the drag and the release go to the same one. */
     private Part dragging = Part.NONE;
+
+    /** Where the last frame drew it: the part the arrow keys nudge. See {@link #hoverPart}. */
+    private double pointerX;
+    private double pointerY;
 
     private enum Part {
         NONE,
@@ -148,13 +162,29 @@ public final class ColourPopover {
         } : preview;
         this.commit = commit == null ? value -> {
         } : commit;
+        // Seeded per open, the value in force included: "what this is now" is the quick pick an author
+        // reaches for most, and the list dies with the picker rather than growing for the whole session.
+        this.presets.clear();
         for (int preset : presets) {
-            if (!PRESETS.contains(preset)) {
-                PRESETS.add(preset & 0xFFFFFF);
-            }
+            addPreset(preset);
         }
+        addPreset(argb);
         place(anchor, bounds);
         syncFields();
+    }
+
+    /** One quick pick, without the alpha (a swatch is a colour, not a strength) and without duplicates. */
+    private void addPreset(int colour) {
+        int rgb = colour & 0xFFFFFF;
+        if (!presets.contains(rgb)) {
+            presets.add(rgb);
+        }
+    }
+
+    /** How many quick picks the row can show: the slots that fit, less the one `+` keeps. */
+    private int presetSlots() {
+        int fits = Math.max(1, (sv.width() + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
+        return Math.max(0, fits - 1);
     }
 
     /** Closes, writing anything the last gesture left unwritten -- one op, on the same terms as a release. */
@@ -210,12 +240,20 @@ public final class ColourPopover {
         cursor += BUTTON_HEIGHT + GAP;
 
         swatches = BookGeometry.Rect.at(sv.x(), cursor, sv.width(), SWATCH);
-        int fits = Math.max(1, (swatches.width() + SWATCH_GAP) / (SWATCH + SWATCH_GAP));
         plus = BookGeometry.Rect.at(swatches.right() - SWATCH, cursor, SWATCH, SWATCH);
-        // One slot fewer than fits is reserved for the `+`, which is drawn last and always present.
+        // One slot fewer than fits is reserved for the `+`, which is drawn last and always present -- and
+        // the row is as wide as the picks that will actually be shown, so a full row cannot push a swatch
+        // under the `+` and leave a press that does nothing.
         swatches = BookGeometry.Rect.at(swatches.x(), cursor,
-                Math.max(0, (Math.min(fits - 1, Math.max(1, PRESETS.size())) * (SWATCH + SWATCH_GAP))),
-                SWATCH);
+                Math.max(0, Math.min(presetSlots(), presets.size()) * (SWATCH + SWATCH_GAP)), SWATCH);
+    }
+
+    /** The hex field's text: eight digits while the alpha matters, six while it does not. */
+    private String hexText() {
+        int alphaChannel = ColourMath.channel(argb, 3);
+        return alphaChannel == 0xFF
+                ? String.format("#%06X", argb & 0xFFFFFF)
+                : String.format("#%08X", argb);
     }
 
     private static void placeChannel(ScrubField field, int x, int y, int width) {
@@ -228,7 +266,7 @@ public final class ColourPopover {
 
     /** Pushes the current colour into the fields, without touching the target. */
     private void syncFields() {
-        hex.setValue(String.format("#%06X", argb & 0xFFFFFF));
+        hex.setValue(hexText());
         red.value(ColourMath.channel(argb, 0));
         green.value(ColourMath.channel(argb, 1));
         blue.value(ColourMath.channel(argb, 2));
@@ -261,7 +299,7 @@ public final class ColourPopover {
      * So their model is updated through the same silent setter the screen would use.
      */
     private void syncFieldsWithoutRecursion() {
-        hex.setValue(String.format("#%06X", argb & 0xFFFFFF));
+        hex.setValue(hexText());
         red.value(ColourMath.channel(argb, 0));
         green.value(ColourMath.channel(argb, 1));
         blue.value(ColourMath.channel(argb, 2));
@@ -270,7 +308,7 @@ public final class ColourPopover {
     private void typeHex(String text) {
         Integer parsed = dev.ellipog.tasked.client.dev.HexColour.parse(text, argb);
         if (parsed == null) {
-            hex.setValue(String.format("#%06X", argb & 0xFFFFFF));
+            hex.setValue(hexText());
             return;
         }
         set(parsed);
@@ -293,8 +331,11 @@ public final class ColourPopover {
             return true;
         }
         if (button == 0 && plus.contains(mouseX, mouseY)) {
-            if (!PRESETS.contains(argb & 0xFFFFFF)) {
-                PRESETS.add(argb & 0xFFFFFF);
+            // Nothing to add once the row is full, and nothing pretended either: the `+` is drawn dimmed
+            // when there is no room, which is the half the old list was missing -- it kept appending past
+            // the slots that fit, so a press did nothing and said nothing.
+            if (presets.size() < presetSlots()) {
+                addPreset(argb);
             }
             return true;
         }
@@ -373,10 +414,10 @@ public final class ColourPopover {
     }
 
     private int presetAt(double mouseX, double mouseY) {
-        for (int i = 0; i < PRESETS.size(); i++) {
+        for (int i = 0; i < presets.size(); i++) {
             BookGeometry.Rect slot = presetRect(i);
             if (slot != null && slot.contains(mouseX, mouseY)) {
-                return PRESETS.get(i);
+                return presets.get(i);
             }
         }
         return -1;
@@ -390,13 +431,88 @@ public final class ColourPopover {
         return BookGeometry.Rect.at(x, swatches.y(), SWATCH, SWATCH);
     }
 
-    /** Escape closes the picker; the screen calls this before its own Escape meanings. */
-    public boolean keyPressed(int keyCode) {
-        if (!open || keyCode != 256) {
+    /**
+     * The picker's keys: the arrows nudge the part the pointer is over, and Shift takes a ten-step.
+     *
+     * <h2>Why there is a keyboard at all now</h2>
+     *
+     * <p>Because there was not, and it showed: the only key this ever answered was Escape — which the
+     * screen handles itself, so this method was not called at all — and the fields that <i>can</i> be typed
+     * into are the hex and the three channels, which are the wrong shape for "one step to the left".
+     *
+     * <h2>Where "the part" comes from</h2>
+     *
+     * <p>From the pointer the last {@link #render} saw, not from a second parameter: the picker is drawn
+     * with the frame's own pointer, so the part a key nudges is the part the crosshair is nearest, and the
+     * two cannot disagree. Escape is deliberately not here — it needs the screen's rebuild, which removes
+     * these fields, and a second way to close that never ran is what this method used to be.
+     *
+     * @param shift whether Shift is down, which is the coarse step
+     * @return whether the key was the picker's
+     */
+    public boolean keyPressed(int keyCode, boolean shift) {
+        if (!open) {
             return false;
         }
-        close();
+        int step = shift ? 10 : 1;
+        switch (keyCode) {
+            case 263 -> nudge(-step, 0);
+            case 262 -> nudge(step, 0);
+            case 265 -> nudge(0, -step);
+            case 264 -> nudge(0, step);
+            default -> {
+                return false;
+            }
+        }
         return true;
+    }
+
+    /**
+     * Which part the keys act on: the one under the pointer, or the saturation/value box anywhere else on
+     * the panel — a key that did nothing over the hex field would read as a broken key.
+     */
+    private Part hoverPart() {
+        if (sv.contains(pointerX, pointerY)) {
+            return Part.SV;
+        }
+        if (hue.contains(pointerX, pointerY)) {
+            return Part.HUE;
+        }
+        if (alpha.contains(pointerX, pointerY)) {
+            return Part.ALPHA;
+        }
+        return panel.contains(pointerX, pointerY) ? Part.SV : Part.NONE;
+    }
+
+    /** One step of the arrows, on the part under the pointer. */
+    private void nudge(int dx, int dy) {
+        int alphaChannel = ColourMath.channel(argb, 3);
+        switch (hoverPart()) {
+            case SV -> {
+                float saturation = clampUnit(hsvCache.saturation()
+                        + dx / (float) Math.max(1, sv.width() - 1));
+                float value = clampUnit(hsvCache.value()
+                        - dy / (float) Math.max(1, sv.height() - 1));
+                set(ColourMath.fromHsv(hsvCache.hue(), saturation, value, alphaChannel));
+            }
+            case HUE -> set(ColourMath.fromHsv(
+                    wrapUnit(hsvCache.hue() + dx / (float) Math.max(1, hue.width() - 1)),
+                    hsvCache.saturation(), hsvCache.value(), alphaChannel));
+            case ALPHA -> set(ColourMath.withChannel(argb, 3, Math.max(0,
+                    Math.min(255, alphaChannel + dx * 255 / Math.max(1, alpha.width() - 1)))));
+            case NONE -> {
+            }
+        }
+    }
+
+    private static float clampUnit(float value) {
+        return Math.max(0F, Math.min(1F, value));
+    }
+
+    /** A hue that wraps rather than sticking at the end: red is next to red. */
+    private static float wrapUnit(float value) {
+        float wrapped = value % 1F;
+        return wrapped < 0F ? wrapped + 1F : wrapped;
     }
 
     // ------------------------------------------------------------------
@@ -407,6 +523,10 @@ public final class ColourPopover {
         if (!open) {
             return;
         }
+        // Kept, because the arrow keys act on the part the pointer is over and the pointer arrives here:
+        // see `keyPressed` for why this is the frame's own position rather than a second parameter.
+        pointerX = mouseX;
+        pointerY = mouseY;
         ArmatureTheme.panel(r, panel.x() - 2, panel.y() - 3, panel.width() + 4, panel.height() + 6,
                 ArmatureTheme.raised(), ArmatureTheme.panelEdge());
         r.text(label, panel.x() + PAD, panel.y() + PAD, ArmatureTheme.title());
@@ -426,48 +546,68 @@ public final class ColourPopover {
             r.fill(sv.x() + x, sv.y(), sv.x() + x + 1, sv.bottom(),
                     ColourMath.fromHsv(hue, saturation, 1F, 0xFF));
         }
-        int steps = Math.min(48, sv.height());
-        for (int i = 0; i < steps; i++) {
-            float value = i / (float) steps;
-            int y = sv.y() + (int) (value * sv.height());
-            int next = sv.y() + (int) ((i + 1) / (float) steps * sv.height());
-            int veil = Math.round(value * 255F) << 24;
-            r.fill(sv.x(), y, sv.right(), Math.max(y + 1, next), veil);
+        // **One veil row per row of the box**, not 48 of them: the step count used to be a constant
+        // unrelated to the height, so a 120-pixel box drew 2.5-pixel bands and the gradient read as a
+        // ramp of stripes. The same bounded cost, one fill per row.
+        for (int y = 0; y < sv.height(); y++) {
+            int alpha = Math.round(y / (float) Math.max(1, sv.height() - 1) * 255F);
+            r.fill(sv.x(), sv.y() + y, sv.right(), sv.y() + y + 1, alpha << 24);
         }
-        // The marker: a ring around the colour's own spot.
+        // The marker: a crosshair, and two-tone on purpose. A single ring is invisible at one end of the
+        // gradient or the other -- white on the white corner, black on the black one -- so it is a black
+        // outline, a white inner ring and four arms, which reads on both.
         int markerX = sv.x() + Math.round(hsvCache.saturation() * (sv.width() - 1));
         int markerY = sv.y() + Math.round((1F - hsvCache.value()) * (sv.height() - 1));
-        r.fill(markerX - 3, markerY - 3, markerX + 4, markerY + 4, 0xFF000000);
-        r.fill(markerX - 2, markerY - 2, markerX + 3, markerY + 3, 0xFFFFFFFF);
+        crosshair(r, markerX, markerY, 3);
+    }
+
+    /**
+     * A two-tone crosshair at a point: a black ring with a white one inside it, and four short arms.
+     *
+     * <p>Four fills for the rings and eight for the arms, which is what makes it legible on a white
+     * corner and on a black one; a single white square vanishes on one and a single black square on the
+     * other, and the first version of this picker was the second of those.
+     */
+    private static void crosshair(GuiRenderer r, int x, int y, int arm) {
+        r.fill(x - 3, y - 3, x + 4, y + 4, 0xFF000000);
+        r.fill(x - 2, y - 2, x + 3, y + 3, 0xFFFFFFFF);
+        r.fill(x - 2, y - 1, x + 3, y + 2, 0xFF000000);
+        r.fill(x - 1, y - 2, x + 2, y + 3, 0xFFFFFFFF);
+        for (int i = 1; i <= arm; i++) {
+            r.fill(x - i - 1, y, x - i, y + 1, 0xFF000000);
+            r.fill(x + i, y, x + i + 1, y + 1, 0xFF000000);
+            r.fill(x, y - i - 1, x + 1, y - i, 0xFF000000);
+            r.fill(x, y + i, x + 1, y + i + 1, 0xFF000000);
+        }
     }
 
     private void drawHue(GuiRenderer r) {
-        int steps = Math.min(60, Math.max(1, hue.width() / 2));
+        // One fill per pixel of width: 60 steps over 160 pixels meant the marker could point at a colour
+        // that was not drawn, which is the whole of what a hue track is for.
+        int steps = Math.max(1, hue.width());
         for (int i = 0; i < steps; i++) {
-            int from = hue.x() + i * hue.width() / steps;
-            int to = hue.x() + (i + 1) * hue.width() / steps;
-            r.fill(from, hue.y(), Math.max(from + 1, to), hue.bottom(),
-                    ColourMath.fromHsv(i / (float) steps, 1F, 1F, 0xFF));
+            r.fill(hue.x() + i, hue.y(), hue.x() + i + 1, hue.bottom(),
+                    ColourMath.fromHsv(i / (float) Math.max(1, steps - 1), 1F, 1F, 0xFF));
         }
         marker(r, hue, Math.round(hsvCache.hue() * (hue.width() - 1)) + hue.x());
     }
 
     private void drawAlpha(GuiRenderer r) {
-        int steps = Math.min(60, Math.max(1, alpha.width() / 2));
-        for (int i = 0; i < steps; i++) {
-            int from = alpha.x() + i * alpha.width() / steps;
-            int to = alpha.x() + (i + 1) * alpha.width() / steps;
-            // A checkerboard under the alpha gradient, so a low alpha is visibly transparent rather than
-            // just dark -- the same reason every picker in every program draws one.
-            for (int x = from; x < Math.max(from + 1, to); x += 4) {
-                for (int y = alpha.y(); y < alpha.bottom(); y += 4) {
-                    boolean dark = ((x / 4) + (y / 4)) % 2 == 0;
-                    r.fill(x, y, Math.min(x + 4, Math.max(from + 1, to)), Math.min(y + 4, alpha.bottom()),
-                            dark ? 0xFF606060 : 0xFF9A9A9A);
-                }
+        int steps = Math.max(1, alpha.width());
+        // The checkerboard first, anchored to the track's own origin rather than to the screen: it is the
+        // track's transparency that is being shown, so it must not shift under the panel when the panel
+        // moves. Four-pixel cells, the size every picker in every program uses.
+        for (int x = 0; x < alpha.width(); x += 4) {
+            for (int y = 0; y < alpha.height(); y += 4) {
+                boolean dark = ((x / 4) + (y / 4)) % 2 == 0;
+                r.fill(alpha.x() + x, alpha.y() + y, Math.min(alpha.x() + x + 4, alpha.right()),
+                        Math.min(alpha.y() + y + 4, alpha.bottom()),
+                        dark ? 0xFF606060 : 0xFF9A9A9A);
             }
-            int scale = Math.round(i / (float) steps * 255F);
-            r.fill(from, alpha.y(), Math.max(from + 1, to), alpha.bottom(),
+        }
+        for (int i = 0; i < steps; i++) {
+            int scale = Math.round(i / (float) Math.max(1, steps - 1) * 255F);
+            r.fill(alpha.x() + i, alpha.y(), alpha.x() + i + 1, alpha.bottom(),
                     (scale << 24) | (argb & 0xFFFFFF));
         }
         marker(r, alpha, Math.round(ColourMath.channel(argb, 3) / 255F * (alpha.width() - 1)) + alpha.x());
@@ -486,10 +626,21 @@ public final class ColourPopover {
         r.text(word, reset.x() + (reset.width() - r.textWidth(word)) / 2,
                 reset.y() + (reset.height() - r.lineHeight()) / 2,
                 hot ? ArmatureTheme.title() : ArmatureTheme.faint());
+        // What it resets *to*, on hover, beside the title: "Reset" alone is a word whose meaning has to be
+        // guessed, and the answer -- the value this picker opened with -- is one line that was not written.
+        if (hot) {
+            String back = "back to " + (ColourMath.channel(openedWith, 3) == 0xFF
+                    ? String.format("#%06X", openedWith & 0xFFFFFF)
+                    : String.format("#%08X", openedWith));
+            int room = panel.right() - 4 - (panel.x() + PAD + r.textWidth(label) + 8);
+            r.text(dev.ellipog.armature.client.ui.kit.Measure.truncate(back, Math.max(0, room),
+                            dev.ellipog.armature.client.ui.kit.Measure.monospace(6, 9)),
+                    panel.x() + PAD + r.textWidth(label) + 8, panel.y() + PAD, ArmatureTheme.faint());
+        }
     }
 
     private void drawSwatches(GuiRenderer r, int mouseX, int mouseY) {
-        for (int i = 0; i < PRESETS.size(); i++) {
+        for (int i = 0; i < presets.size(); i++) {
             BookGeometry.Rect slot = presetRect(i);
             if (slot == null) {
                 break;
@@ -497,25 +648,19 @@ public final class ColourPopover {
             boolean hot = slot.contains(mouseX, mouseY);
             r.fill(slot.x() - 1, slot.y() - 1, slot.right() + 1, slot.bottom() + 1,
                     hot ? ArmatureTheme.title() : ArmatureTheme.panelEdge());
-            r.fill(slot.x(), slot.y(), slot.right(), slot.bottom(), 0xFF000000 | PRESETS.get(i));
+            r.fill(slot.x(), slot.y(), slot.right(), slot.bottom(), 0xFF000000 | presets.get(i));
         }
         boolean hot = plus.contains(mouseX, mouseY);
         r.fill(plus.x() - 1, plus.y() - 1, plus.right() + 1, plus.bottom() + 1,
                 hot ? ArmatureTheme.title() : ArmatureTheme.panelEdge());
         r.fill(plus.x(), plus.y(), plus.right(), plus.bottom(), ArmatureTheme.recessed());
         String glyph = "+";
+        // Dimmed when the row is full, because a control that cannot do anything must not look as though
+        // it can: this is the same treatment the table toolbar's Undo gets with nothing to undo.
+        boolean room = presets.size() < presetSlots();
         r.text(glyph, plus.x() + (plus.width() - r.textWidth(glyph)) / 2,
                 plus.y() + (plus.height() - r.lineHeight()) / 2,
-                hot ? ArmatureTheme.title() : ArmatureTheme.body());
-    }
-
-    /** The seed for the quick picks: what a fresh picker offers before anything is pinned. */
-    public static void seedPresets(List<Integer> colours) {
-        if (!PRESETS.isEmpty()) {
-            return;
-        }
-        for (int colour : colours) {
-            PRESETS.add(colour & 0xFFFFFF);
-        }
+                hot && room ? ArmatureTheme.title()
+                        : room ? ArmatureTheme.body() : ArmatureTheme.blocked());
     }
 }

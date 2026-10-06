@@ -171,12 +171,18 @@ public final class BookGeometry {
     /**
      * The gap between the two author pills.
      *
-     * <p>Four pixels under the general {@link #EDGE}: at the full edge they read as two controls that happen
-     * to be near each other, and they are one row — the same cluster {@link #pillMat} draws one backing panel
-     * behind. Declared here rather than beside the pill widths because a constant cannot name one declared
-     * after it, which is what the first attempt did.
+     * <p>Three pixels under the general {@link #EDGE}: at the full edge they read as two controls that
+     * happen to be near each other, and they are one row — the same cluster {@link #pillMat} draws one
+     * backing panel behind. Declared here rather than beside the pill widths because a constant cannot
+     * name one declared after it, which is what the first attempt did.
+     *
+     * <p><b>It was four, and the seam was one pixel too wide.</b> Playtest: the two pills read as one
+     * cluster already, and what was left was the air between them, which is the only part of the seam a
+     * person can measure — {@link #pillMat} covers it either way, so nothing else moves but the pair's own
+     * extent. {@link #MIN_CANVAS_WIDTH} names this constant rather than repeating the number, so the
+     * minimum canvas narrowed with it for free.
      */
-    public static final int PILL_GAP = EDGE - 4;
+    public static final int PILL_GAP = EDGE - 5;
 
     /**
      * How far the header's **text** sits from the panel's edge — the title at the left, the quest count
@@ -257,10 +263,10 @@ public final class BookGeometry {
     /**
      * The width the scroll view's bar needs, taken off the right of the list.
      *
-     * <p>{@code ScrollView.drawScrollbar} draws a three-pixel bar four pixels right of the viewport's
-     * right edge, so the bar occupies {@code viewRight() + 4} to {@code viewRight() + 7}. Eight leaves
-     * that a pixel clear of {@link #EDGE}, which is the whole of the arithmetic: the bar has to sit in
-     * the sidebar's inner margin and not on a row.
+     * <p>{@code ScrollBar} draws a three-pixel bar four pixels right of the viewport's right edge, so
+     * the bar occupies {@code viewRight() + 4} to {@code viewRight() + 7}. Eight leaves that a pixel
+     * clear of {@link #EDGE}, which is the whole of the arithmetic: the bar has to sit in the sidebar's
+     * inner margin and not on a row.
      *
      * <p>Named here rather than in {@code ScrollView} because it is this screen's column that has to
      * reserve it. A view that draws a bar in space its caller did not leave is a view drawing over the
@@ -445,6 +451,25 @@ public final class BookGeometry {
      * roster two hundred pixels wider than its longest name is the empty room the report was about.
      */
     public static final int MAX_MODAL_WIDTH = 520;
+
+    /**
+     * The widest a card gets, for the one surface that reads in columns.
+     *
+     * <h2>Why a second cap rather than a wider first one</h2>
+     *
+     * <p>Because the two answers are answers to different questions. {@link #MAX_MODAL_WIDTH}'s 380 was
+     * measured against <i>prose</i> — the width at which a line of a quest's description stays readable
+     * — and raising it would make every card in the book a wider room for the same short sentences. The
+     * claim menu is not prose: it is four columns of icons, counts and buttons, and the width it needs
+     * is the sum of the four, not a readability limit. Widening {@code MAX_MODAL_WIDTH} would have moved
+     * the party roster, the item picker and the settings card to fix a fault in none of them.
+     *
+     * <p>660 rather than a rounder number: {@code MODAL_INSET * 2} off it leaves 636 for the row, which
+     * is the widest context column ({@code CONTEXT}) plus the progression, reward and action columns and
+     * their gaps with room left for a quest title. It is a <b>cap</b>, not a size — a card narrower than
+     * this gets the window, and the columns clamp rather than running off it.
+     */
+    public static final int MAX_WIDE_MODAL_WIDTH = 660;
 
     /** The tallest a modal card gets. Past this the body scrolls rather than the card growing. */
     public static final int MAX_MODAL_HEIGHT = 340;
@@ -770,8 +795,34 @@ public final class BookGeometry {
      * is left rather than the cap, so the card never runs off the screen.
      */
     public Rect modal() {
-        int width = Math.max(MIN_MODAL_WIDTH, Math.min(MAX_MODAL_WIDTH, screenWidth - MODAL_MARGIN * 2));
-        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(MAX_MODAL_HEIGHT, screenHeight - MODAL_MARGIN * 2));
+        return centred(MAX_MODAL_WIDTH, MAX_MODAL_HEIGHT);
+    }
+
+    /**
+     * The wide card, for the one surface that reads in columns.
+     *
+     * <p>See {@link #MAX_WIDE_MODAL_WIDTH} for why a second cap exists at all. Everything else about
+     * this rectangle is {@link #modal()}'s: the same height cap, the same floor, the same margin, and
+     * the same centre — so a window too small for either gets the same answer from both, and a caller
+     * that switches cards does not move the footer it places from {@link #questFooter}.
+     */
+    public Rect wideModal() {
+        return centred(MAX_WIDE_MODAL_WIDTH, MAX_MODAL_HEIGHT);
+    }
+
+    /**
+     * A card of the largest size the window allows, centred — the one derivation of both caps.
+     *
+     * <p>Written once and called by both entry points rather than copied into each, because two copies
+     * of this arithmetic are two answers to "how wide is a card", which is the class of fault this file
+     * exists to prevent. It is private, so the only thing a caller can vary is which cap it asks for.
+     *
+     * <p>The floors matter as much as the caps. A window smaller than the cap plus its margins gets what
+     * is left rather than the cap, so the card never runs off the screen.
+     */
+    private Rect centred(int maxWidth, int maxHeight) {
+        int width = Math.max(MIN_MODAL_WIDTH, Math.min(maxWidth, screenWidth - MODAL_MARGIN * 2));
+        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(maxHeight, screenHeight - MODAL_MARGIN * 2));
         return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
     }
 
@@ -817,7 +868,27 @@ public final class BookGeometry {
      * @param preferredWidth  how wide the card would like to be
      */
     public Rect modalFramed(int contentHeight, int preferredWidth) {
-        Rect base = modal();
+        return framed(modal(), contentHeight, preferredWidth);
+    }
+
+    /**
+     * The same, on the wide card: for a caller that knows its content's height and needs the columns.
+     *
+     * <p>The invariant {@link #modalFramed} documents holds here too and for the same reason — the
+     * width does not depend on the height — which is what lets the claim menu build its rows at the
+     * card's width before it knows how tall the card will be.
+     */
+    public Rect wideModalFramed(int contentHeight, int preferredWidth) {
+        return framed(wideModal(), contentHeight, preferredWidth);
+    }
+
+    /**
+     * A card sized to its content, within the caps of the base card it was given.
+     *
+     * <p>The base is a parameter rather than a call to {@link #modal()} so that both framed entry points
+     * share one arithmetic — see {@link #centred} for the same argument one level down.
+     */
+    private Rect framed(Rect base, int contentHeight, int preferredWidth) {
         int width = Math.max(MIN_MODAL_WIDTH, Math.min(base.width(), preferredWidth));
         int height = Math.max(MIN_MODAL_HEIGHT, Math.min(base.height(), contentHeight + MODAL_CHROME));
         return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
@@ -1225,6 +1296,34 @@ public final class BookGeometry {
         // The fault is the one this class exists to prevent, one level up: two rectangles describing
         // one panel, agreeing until the panel changed shape.
         return questFooter(modal(), hasSubmit);
+    }
+
+    /**
+     * The quest editor's own bar, in the footer: from the card's inset to just short of Back.
+     *
+     * <h2>Why this is here rather than in the screen</h2>
+     *
+     * <p>Because the screen got it wrong in a way no test could see. The four controls in it — Delete,
+     * Duplicate, Copy and the Settings button that opens a node's shape, size, placement and rules — were
+     * placed from the <b>reader's Submit slot</b>, read out of {@code overlayControls(false)}: a map that
+     * deliberately has no {@code "submit"} key, because asking for one moves Back up a row on a narrow
+     * card, above the band the body reserves for it. So the key answered null and the whole bar was
+     * skipped, which is the report "the editor is missing the button it used to have".
+     *
+     * <p>The bar is one expression, and it is the same expression the reader's footer is laid out from —
+     * the card's inset, the row Back is in, and everything left of Back. Written here, the sweep in
+     * {@code BookGeometryTest} holds it: a bar that ran into Back, left the card, or sat in another row
+     * would fail there rather than in a playtest.
+     *
+     * @return the bar's rectangle, or null when the footer has no Back to place it against
+     */
+    public Rect editorBar() {
+        Rect back = overlayControls(false).get("back");
+        if (back == null) {
+            return null;
+        }
+        int left = modal().x() + MODAL_INSET;
+        return Rect.at(left, back.y(), Math.max(0, back.x() - ROW_GAP * 2 - left), back.height());
     }
 
     /**

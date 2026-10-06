@@ -9,6 +9,7 @@ import dev.ellipog.armature.client.ArmatureSwitch;
 import dev.ellipog.armature.client.ArmatureTextField;
 import dev.ellipog.armature.client.Look;
 import dev.ellipog.armature.client.TextScale;
+import dev.ellipog.armature.client.ArmatureScrollStyle;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.Tooltips;
 import dev.ellipog.armature.client.ui.ArmatureLive;
@@ -27,6 +28,7 @@ import dev.ellipog.armature.client.ui.kit.Hover;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.RichText;
+import dev.ellipog.armature.client.ui.kit.ScrollBar;
 import dev.ellipog.armature.client.ui.kit.ScrollView;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
@@ -85,11 +87,10 @@ import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.net.ClaimRewardPayload;
 import dev.ellipog.tasked.net.ClaimRewardEntryPayload;
 import dev.ellipog.tasked.net.ClaimAllPayload;
+import dev.ellipog.tasked.net.ClaimChapterPayload;
 import dev.ellipog.tasked.net.ChoiceRewardPayload;
 import dev.ellipog.tasked.net.ClaimChoicePayload;
 import dev.ellipog.tasked.net.SubmitTaskPayload;
-import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
-import dev.ellipog.tasked.progress.ClaimFilter;
 import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
 import dev.ellipog.tasked.progress.ClaimFilter;
 import dev.ellipog.tasked.progress.QuestState;
@@ -315,6 +316,31 @@ public final class QuestBookScreen extends ArmatureScreen
     /** The settings card's width. Narrower than the modal: two rows do not want a wide card. */
     private static final int SETTINGS_CARD_WIDTH = 340;
     private static final int BODY_BOTTOM = 46;
+
+    /**
+     * The claim menu's card: the widest a card gets, and a body that starts below a taller band.
+     *
+     * <p>The band is taller than {@link #BODY_TOP} because it carries the state toggles as well as the
+     * two lines of title — the title, the subtitle, and the toggle row under them. Named here rather
+     * than written at the three call sites that need it, which is exactly what {@link #BODY_TOP}'s own
+     * note is about: one rectangle described twice is one rectangle that will disagree with itself.
+     */
+    private static final int REWARDS_CARD_WIDTH = BookGeometry.MAX_WIDE_MODAL_WIDTH;
+    private static final int REWARDS_BODY_TOP = 62;
+
+    /**
+     * The height of one state toggle, and the air between the band's rule and it.
+     *
+     * <p>Declared rather than written at the two sites that need them, because the band's height, the
+     * toggle's position and where the body starts are <b>one</b> decision: the first version drew the
+     * band at a hard-coded 45 while the body began at {@link #REWARDS_BODY_TOP}, so the toggle row
+     * straddled the rule separating the two — a control half in the header and half in the list.
+     */
+    private static final int STATE_CHIP_HEIGHT = 16;
+    private static final int STATE_CHIP_GAP = 6;
+
+    /** The gap between two reward cells in the details column. */
+    private static final int REWARD_CELL_GAP = 8;
 
     /**
      * Node labels, and the room they are allowed to take.
@@ -676,12 +702,31 @@ public final class QuestBookScreen extends ArmatureScreen
     private dev.ellipog.tasked.editor.TableAddress.Owner tableOwner;
     private String tableOwningPath;
 
-    /** The browser's state: its query, its scroll, its selection, and its frame from the last frame. */
+    /** The browser's state: its query, its selection, and its frame from the last frame. */
     private String tableQuery = "";
-    private int tableScroll;
 
-    /** The roll pane's own scroll: a page of its own, so it does not move the entry list under it. */
-    private int rollScroll;
+    /**
+     * The table panels' scrolls: <b>one viewport each</b>, and the bar that owns each one.
+     *
+     * <h2>Why these are two fields where there used to be one</h2>
+     *
+     * <p>There was one {@code int tableScroll} for both panels, and the two lists are different
+     * lengths in different bands: the browser's rows are 22 pixels and the editor's 20, and each panel
+     * clamped the offset against its own {@code maxScroll} but read the number the other had left
+     * there. Scroll to the bottom of the editor's entries, go back to the browser, and the browser's
+     * list was where the editor had put it — a list arriving part-way down for no reason the person
+     * looking at it could see. The viewport is what makes that unrepresentable rather than unlikely:
+     * the offset, the clamp and the bar's range are one object's, and there is one object per list.
+     *
+     * <p>The roll pane keeps its own, on the panel's own terms: it is a page of its own, and moving it
+     * must not move the entry list under it.
+     */
+    private final Viewport tableBrowserBody = Viewport.fixed();
+    private final ScrollBar tableBrowserBar = new ScrollBar(tableBrowserBody);
+    private final Viewport tableEditorBody = Viewport.fixed();
+    private final ScrollBar tableEditorBar = new ScrollBar(tableEditorBody);
+    private final Viewport rollBody = Viewport.fixed();
+    private final ScrollBar rollBar = new ScrollBar(rollBody);
 
     /** Whether the toolbar's Import popover is showing. See `drawTableImportPopover`. */
     private boolean tableImportOpen;
@@ -789,6 +834,16 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Whether the picker on screen was opened by the table editor, so it closes back into it. */
     private boolean tablePickReturn;
+
+    /**
+     * The same, for the type picker: a list of rewards opened from the table editor.
+     *
+     * <p>Its own flag rather than a shared one because the two pages are closed by different code --
+     * the item picker's `closeItemPicker` knows how to leave a table, and the type page's own close is
+     * below -- and because the press that adds a type has to know which file it is adding to. See
+     * {@code pressTypeRow}, which is where the difference matters.
+     */
+    private boolean typePickReturn;
 
     /**
      * The table field the open inline editor is editing, and what kind of value it is, or null.
@@ -1055,7 +1110,7 @@ public final class QuestBookScreen extends ArmatureScreen
     private static final String CHOICE_PREFIX = "choice:";
 
     /**
-     * The rewards panel's own list: an accordion of quests whose rewards are waiting.
+     * The rewards panel's own list: a chapter accordion whose quests fold open onto their rewards.
      *
      * <p>Its own view for the reason {@link #choiceView} is: the two cards are never open at once, and a
      * shared scroll would carry one list's position into the other.
@@ -1067,13 +1122,52 @@ public final class QuestBookScreen extends ArmatureScreen
     private Layout rewardLayout;
 
     /**
-     * The quests whose reward rows the inbox is showing open.
+     * Each quest's admitted rewards, by quest id — what its details column draws.
      *
-     * <p>Collapsed by default, and remembered for as long as this screen lives. Nothing is hidden that
-     * a press cannot get at -- the header carries its own count and its own Claim Quest -- and a pack
-     * with twenty waiting quests opens as twenty lines rather than as a wall of rewards.
+     * <p>Built once per rebuild rather than re-derived in the drawing, and the difference is not
+     * tidiness: a reward cell's text is a resolved translation, and the drawing runs sixty times a
+     * second while a rebuild runs when the progress moves. It is also what lets a folded quest's column
+     * be filled from the <b>same</b> walk its fold would list, so the two cannot disagree about what the
+     * quest is giving.
      */
-    private final Set<String> expandedRewards = new HashSet<>();
+    private final Map<String, List<RewardInboxLayout.Row>> questRewardCells = new java.util.HashMap<>();
+
+    /**
+     * How many rewards the view holds, folded or not — the count on the card's second line.
+     *
+     * <p>Counted in the same walk that builds the rows, because counting the built rows would miss every
+     * reward inside a folded quest: a fold hides rows, it does not remove them from the view, and a
+     * subtitle that disagreed with the chapter badges above it would be the card contradicting itself.
+     */
+    private int rewardListed;
+
+    /**
+     * The claim menu's own card, sized to its rows and wider than the modal.
+     *
+     * <p>Null until the card is built, and rebuilt on every {@code buildRewardWidgets} for the reason
+     * {@link #appearanceCard} is: a window resized while the menu is open has to re-derive the card, and
+     * the card is what the body, the footer and the header band are all placed from. It is the
+     * {@code wideModal} pair rather than {@code modal}, because four columns do not fit in the width the
+     * prose cards are capped at — see {@link BookGeometry#MAX_WIDE_MODAL_WIDTH}.
+     */
+    private BookGeometry.Rect rewardCard;
+
+    /**
+     * The chapters whose quests the menu is showing open.
+     *
+     * <p>Collapsed by default, and remembered for as long as this screen lives. Nothing is hidden that a
+     * press cannot get at -- a banner carries its own badge and its own Claim Chapter -- and a pack with
+     * twenty chapters opens as twenty lines rather than as a wall of quests.
+     */
+    private final Set<String> expandedChapters = new HashSet<>();
+
+    /**
+     * The quests whose reward rows the menu is showing open.
+     *
+     * <p>The same fold one level down, and a separate set because the two are independent: opening a
+     * chapter does not open every quest in it, which is what keeps a chapter of thirty quests readable.
+     */
+    private final Set<String> expandedQuests = new HashSet<>();
 
     /**
      * The rows a press has already asked the server for, by {@link RewardInboxLayout} key.
@@ -1085,13 +1179,17 @@ public final class QuestBookScreen extends ArmatureScreen
     private final Set<String> pendingClaims = new HashSet<>();
 
     /**
-     * The card's active filter chip: which quests it lists, and what the footer button may take.
+     * The card's active state: which rows it lists, and what the footer button may take.
      *
-     * <p>Remembered for as long as the screen lives, like the folds. The footer follows it -- "Claim
-     * items" while the list shows items -- because a button that acted on rows the player cannot see
-     * would be acting on hidden elements.
+     * <p>Remembered for as long as the screen lives, like the folds. The footer follows it -- the sweep
+     * reaches exactly what the view shows -- because a button that acted on rows the player cannot see
+     * would be acting on hidden elements. {@code READY} is where it starts: the menu's first job is what
+     * is owed, and a history of what has been collected is the third thing a player wants from it.
+     *
+     * <p>See {@link RewardInboxLayout.State} for the admission rule and the filter it maps to, both of
+     * which are asserted there rather than here.
      */
-    private ClaimFilter rewardFilter = ClaimFilter.ALL;
+    private RewardInboxLayout.State rewardState = RewardInboxLayout.State.READY;
 
     /** Whether a pick is in flight: the choice card's rows and its Keep-it-for-later are locked. */
     private boolean choicePending;
@@ -1157,10 +1255,10 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>The viewport is fixed-scale: a sidebar does not zoom, and a view that reported a zoom range of
      * one would be a view whose zoom controls are drawn, enabled, and do nothing.
      *
-     * <p>The bar this view draws is also <b>draggable</b>, which the view owns rather than this screen:
-     * {@link ScrollView#scrollbarHit} decides whether a press belongs to it and
-     * {@link ScrollView#dragThumbTo} maps a pointer's y back onto a scroll offset. That mapping is the
-     * inverse of the drawing's own formula, so it lives beside it — see that class's note.
+     * <p>The bar this view draws is a control, and the kit owns it rather than this screen:
+     * {@link ScrollBar} decides whether a press is the grip's or the groove's, maps a pointer's y back
+     * onto a scroll offset, and pages on a held groove. That mapping is the inverse of the drawing's own
+     * formula, so it lives beside it — see that class's note.
      *
      * <p>It is <b>not</b> cleared on a resize, and that is deliberate. {@code init} runs on every resize
      * and on every rebuild, and the outline's expansion state — and so the player's collapses — lives in
@@ -1205,6 +1303,25 @@ public final class QuestBookScreen extends ArmatureScreen
 
     private boolean dragging;
     private boolean pressMoved;
+
+    /**
+     * The scrollbar the pointer is holding, or null.
+     *
+     * <h2>Why one field holds the gesture rather than a branch per list</h2>
+     *
+     * <p>Because this screen has fifteen scrollable regions and a drag has to survive the pointer
+     * leaving whichever one it started in. The version this replaces re-derived the subject from the
+     * <i>live pointer position</i> on every move, which had two consequences that both arrived as
+     * reports about feel rather than about logic: dragging the left party column's bar and moving the
+     * pointer rightwards transferred the drag to the right column's bar, and any bar whose release
+     * branch somebody had forgotten — there were three — stayed held until the next press.
+     *
+     * <p>So a press captures one bar here, and the move, the release and the hold-repeat are that
+     * bar's and nothing else's. It is also the whole of "the grab survives leaving the bar": the
+     * pointer may leave the strip, the panel and the window, and the gesture is still the button.
+     */
+    private ScrollBar heldBar;
+
     private double pressX;
     private double pressY;
 
@@ -1330,6 +1447,12 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** The chapter the picker was opened for, so a chapter switch under it closes it. */
     private String popoverChapter;
+
+    /** The token the picker is editing, so it closes when the chip it is anchored to leaves the drawer. */
+    private String popoverToken;
+
+    /** The controls the open colour picker muted, so closing it wakes those and only those. */
+    private final List<net.minecraft.client.gui.components.AbstractWidget> mutedBehind = new ArrayList<>();
 
     /** The frame's pointer, for redraws that run outside the pass that receives it. */
     private int renderMouseX;
@@ -1483,7 +1606,8 @@ public final class QuestBookScreen extends ArmatureScreen
      * "what is waiting" for the canvas and the sidebar at once, and both are read every frame.
      */
     private record RewardCounts(long progress, long tree, java.util.UUID player,
-                                Map<String, Integer> byQuest, Map<String, Integer> byChapter) {
+                                Map<String, Integer> byQuest, Map<String, Integer> byChapter,
+                                Map<String, RewardInboxLayout.Tally> rewardsByChapter) {
     }
 
     private RewardCounts rewardCounts;
@@ -1499,8 +1623,15 @@ public final class QuestBookScreen extends ArmatureScreen
             return current;
         }
         rewardCounts = new RewardCounts(progress, tree, self,
-                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self));
+                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self),
+                ClientQuestCache.rewardsByChapter(self));
         return rewardCounts;
+    }
+
+    /** A chapter's banner badge, or the empty tally for a chapter the walk has not reached. */
+    private RewardInboxLayout.Tally tallyOf(String chapterId) {
+        return rewardCounts().rewardsByChapter()
+                .getOrDefault(chapterId, RewardInboxLayout.Tally.EMPTY);
     }
 
     /**
@@ -1801,6 +1932,25 @@ public final class QuestBookScreen extends ArmatureScreen
     /** The picker's search box, while it is open. Read for its text and cleared with the picker. */
     private ArmatureTextField itemSearch;
 
+    /**
+     * The type picker's own state: its search box, its rows, the band they are drawn in and the scroll.
+     *
+     * <p>Beside the item picker's rather than sharing it, which is not tidiness: the two are laid out in
+     * different bands (that one over the card, this one inside whichever card owns the page), and one set
+     * of fields would be two layouts in one variable. The rows are the last drawing's, so the press reads
+     * what was drawn rather than a second computation of it.
+     */
+    private ArmatureTextField typeSearch;
+    private List<ItemPickerLayout.Row> typeRows = List.of();
+    private ItemPickerLayout.Frame typeFrame;
+    private String typeQuery = "";
+    private int typeSelected = -1;
+    /** The list's scroll, its clamp and its bar as one object, and the strip the bar is drawn in. */
+    private final Viewport typeBody = Viewport.fixed();
+    private final ScrollBar typeBar = new ScrollBar(typeBody);
+    /** What the row under the pointer says for itself: a type's description, or why it cannot be taken. */
+    private String typeHint;
+
     /** The registry's entries, and the player's carried stacks -- gathered once, when the picker opens. */
     private List<ItemPicker.Entry> pickerEntries = List.of();
     private List<ItemPicker.Entry> pickerInventory = List.of();
@@ -1817,7 +1967,9 @@ public final class QuestBookScreen extends ArmatureScreen
     private List<ItemPicker.Entry> pickerMatches = List.of();
     private String pickerQuery = "";
     private int pickerSelected = -1;
-    private int pickerScroll;
+    /** The list's scroll, its clamp and its bar as one object, on the type page's own terms. */
+    private final Viewport pickerBody = Viewport.fixed();
+    private final ScrollBar pickerBar = new ScrollBar(pickerBody);
 
     /**
      * The texture picker's own state -- catalogue, query, list and scroll -- beside the item picker's
@@ -1839,7 +1991,9 @@ public final class QuestBookScreen extends ArmatureScreen
     private ArmatureTextField textureSearch;
     private String textureQuery = "";
     private int textureSelected = -1;
-    private int textureScroll;
+    /** The list's scroll, its clamp and its bar as one object, on the same terms again. */
+    private final Viewport textureBody = Viewport.fixed();
+    private final ScrollBar textureBar = new ScrollBar(textureBody);
 
     /**
      * The sizes the texture rows' pictures read, keyed by file.
@@ -2455,7 +2609,104 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private Viewport sidebarViewport() {
         BookGeometry.Rect rect = geometry().sidebarViewport(mayEditNow());
+        // The pitch goes with the bounds, because both are the frame's: this list moves a row at a time
+        // -- the wheel snaps to `pitch()`, and the bar's page keeps one of those rows on screen -- and
+        // the bar is where both of those numbers now live.
+        sidebarView.bar().pitch(SidebarLayout.pitch());
         return sidebarView.viewport().bounds(rect.x(), rect.y(), rect.width(), rect.height());
+    }
+
+    /**
+     * Ties one list's viewport and bar to the band it is drawn in, for one frame.
+     *
+     * <h2>One call, because the numbers are one decision</h2>
+     *
+     * <p>A drawn list needs its region, its content height, its bar's strip and its row pitch, and every
+     * one of those is either the frame's or the content's — so a screen that set them at its own draw
+     * site would write the same four lines at every list and get one of them wrong. Worse, the clamp is
+     * the thing that used to be written by hand: an offset clamped against a maximum the bar computed a
+     * second way is the fault this kit exists to make unrepresentable, and the viewport is where the
+     * clamp lives now.
+     *
+     * <p>The strip is passed rather than derived from the region's edge, and that is the whole reason
+     * this takes five arguments: these lists each reserved a strip <b>inside</b> their own width
+     * ({@code SCROLLBAR} on the three layout classes), so the bar sits beside the rows rather than over
+     * the last few pixels of them. A bar placed at {@code region.right()} would draw on the row it
+     * describes — which is what the hand-rolled thumb used to do.
+     *
+     * @param region        the band the rows are drawn in and clipped to
+     * @param strip         the column the bar owns, from the layout that reserved it
+     * @param contentHeight how tall the whole list is, from the layout that owns it
+     * @param pitch         one row of it: what a wheel notch moves, and what a page keeps
+     */
+    private static void bindList(Viewport body, ScrollBar bar, BookGeometry.Rect region,
+                                 BookGeometry.Rect strip, int contentHeight, int pitch) {
+        body.bounds(region.x(), region.y(), region.width(), region.height());
+        body.setContentSize(region.width(), contentHeight);
+        bar.strip(strip.right() - ScrollBar.WIDTH, strip.y(), ScrollBar.WIDTH, strip.height()).pitch(pitch);
+    }
+
+    /**
+     * Draws one list's bar in whatever state the pointer puts it in.
+     *
+     * <p>The clock is read here rather than threaded through every drawing method that owns a list: a
+     * bar's hover is a frame-driven ease, the value only has to be the frame's, and the alternative is a
+     * {@code long now} parameter on eight methods whose only other use for it would be passing it along.
+     */
+    private static void drawBar(GuiRenderer r, ScrollBar bar, int mouseX, int mouseY) {
+        bar.draw(r, ArmatureScrollStyle.skin(), mouseX, mouseY, net.minecraft.Util.getMillis());
+    }
+
+    /**
+     * Offers a press to one bar, and captures it if the bar takes it.
+     *
+     * <h2>Why every press goes through here</h2>
+     *
+     * <p>Because a press that a bar takes has to become <b>this screen's</b> gesture rather than the
+     * bar's alone: the move, the release and the hold-repeat are routed from {@link #heldBar}, and a
+     * call site that pressed a bar without capturing it would leave the bar paging forever with nothing
+     * able to release it. One method means the two cannot come apart, and it is why the fifteen press
+     * branches in this class are one line each.
+     *
+     * @return whether the bar took the press
+     */
+    private boolean pressBar(ScrollBar bar, double mouseX, double mouseY) {
+        if (!bar.press(mouseX, mouseY, net.minecraft.Util.getMillis())) {
+            return false;
+        }
+        heldBar = bar;
+        return true;
+    }
+
+    /**
+     * Keeps the held bar honest, once a frame: the hold-repeat, and the release that never arrived.
+     *
+     * <h2>Why a frame is involved at all</h2>
+     *
+     * <p>Because a groove held down has to keep paging, and Minecraft has no mouse auto-repeat: a press
+     * is one event and a hold is silence. So the repeat is driven from here, with the frame's own clock
+     * — the same "time is passed in" rule every animation in this toolkit follows, which is why the
+     * repeat can be asserted by passing a larger number rather than by waiting.
+     *
+     * <h2>And why the window's focus ends the gesture</h2>
+     *
+     * <p>Because a drag can end without a mouse-up. {@code MouseHandler} stops dispatching
+     * {@code mouseDragged} the moment the window is inactive, and a button released while it is inactive
+     * is an event no screen is ever handed — so alt-tabbing away mid-drag used to leave the bar held,
+     * which is invisible until the pointer comes back and the list moves without a button being down.
+     * The condition that stops the events is therefore the condition that ends the gesture, and it is the
+     * same one Minecraft asks ({@code Minecraft.isWindowActive}) before it dispatches a drag at all.
+     */
+    private void maintainHeldBar(long now) {
+        if (heldBar == null) {
+            return;
+        }
+        if (!Minecraft.getInstance().isWindowActive()) {
+            heldBar.release();
+            heldBar = null;
+            return;
+        }
+        heldBar.advance(now);
     }
 
     /**
@@ -2476,12 +2727,12 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>The replacement pair is a token per theme, so a light theme gets a bar that reads on light.
      * That is the whole point of the token, and it was being bypassed.
      */
-    private void drawSidebarScrollbar(GuiRenderer r) {
+    private void drawSidebarScrollbar(GuiRenderer r, int mouseX, int mouseY) {
         // Re-bound here, not assumed. The scrollbar's geometry comes from the viewport, so the viewport
         // has to describe the current window before it is drawn -- and this is the first thing in the
         // frame that needs it, because the drawing itself happens before the widget pass.
         sidebarViewport();
-        sidebarView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, sidebarView.bar(), mouseX, mouseY);
     }
 
     // ------------------------------------------------------------------
@@ -4233,7 +4484,11 @@ public final class QuestBookScreen extends ArmatureScreen
             }
         }
         Layout active = activeLayout();
-        dev.ellipog.armature.client.ui.kit.Slot slot = active == null ? null : active.slot(row.key());
+        // The list the layout was built from, because a pair row is one slot with two controls in it:
+        // `Layout.slot` knows the pair's own key and nothing about its right half, so asking it for the
+        // chooser's key answered null and this returned before opening a menu -- the canvas's space
+        // chooser was unreachable for exactly that reason. See `ToolsLayout.controlSlot`.
+        dev.ellipog.armature.client.ui.kit.Slot slot = ToolsLayout.controlSlot(active, activeRows(), row.key());
         dev.ellipog.armature.client.ui.kit.Slot onScreen = slot == null ? null
                 : ToolsLayout.onScreen(toolsView.viewport(), slot);
         if (onScreen == null) {
@@ -4460,29 +4715,61 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Whether a press landed on a colour chip: the one rectangle a chip owns. */
     private boolean pressToolsChip(double mouseX, double mouseY) {
-        Layout active = activeLayout();
-        if (active == null) {
-            return false;
-        }
-        List<ToolsLayout.Action> rows = toolsTab == ToolsLayout.Tab.CHAPTER
-                ? chapterAppearanceRows : toolsRows;
-        for (ToolsLayout.Action row : rows) {
+        for (ToolsLayout.Action row : activeRows()) {
             if (!row.isChip()) {
                 continue;
             }
-            dev.ellipog.armature.client.ui.kit.Slot slot = active.slot(row.key());
-            if (slot == null) {
-                continue;
-            }
-            dev.ellipog.armature.client.ui.kit.Slot onScreen =
-                    ToolsLayout.onScreen(toolsView.viewport(), slot);
-            BookGeometry.Rect chip = ToolsLayout.chip(onScreen);
-            if (chip.contains(mouseX, mouseY)) {
+            BookGeometry.Rect chip = chipRect(ToolsLayout.tokenId(row.key()));
+            if (chip != null && chip.contains(mouseX, mouseY)) {
                 openColourPopover(ToolsLayout.tokenId(row.key()), chip);
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Where a colour row's chip is on screen right now, or null when that row is not in the list.
+     *
+     * <p>One derivation for the press that opens the picker and for the test that closes it again: a chip
+     * the picker is anchored to has to be a chip that is <i>drawn</i>, and a second computation of the same
+     * rectangle is the fault this screen has had from the drawer's first version.
+     */
+    private BookGeometry.Rect chipRect(String token) {
+        Layout active = activeLayout();
+        if (active == null || token == null) {
+            return null;
+        }
+        for (ToolsLayout.Action row : activeRows()) {
+            if (!row.isChip() || !token.equals(ToolsLayout.tokenId(row.key()))) {
+                continue;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot slot = active.slot(row.key());
+            if (slot == null) {
+                return null;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot onScreen =
+                    ToolsLayout.onScreen(toolsView.viewport(), slot);
+            return ToolsLayout.chip(onScreen);
+        }
+        return null;
+    }
+
+    /**
+     * Whether the chip the picker is open for is still inside the drawer's viewport.
+     *
+     * <p>A row scrolled out of the panel leaves its chip somewhere off the list, and the picker anchored to
+     * it would float over whatever is there instead -- so it closes. The band is the list's own viewport,
+     * which is what the chip is drawn inside of, so a chip half scrolled past the edge counts as gone:
+     * pressing it is not possible either.
+     */
+    private boolean chipOnScreen(String token) {
+        BookGeometry.Rect chip = chipRect(token);
+        if (chip == null) {
+            return false;
+        }
+        dev.ellipog.armature.client.ui.kit.Viewport view = toolsView.viewport();
+        return chip.bottom() > view.originY() && chip.y() < view.originY() + view.viewHeight();
     }
 
     /** A field's label, armed for a scrub: the box is the widget's, the label is the screen's. */
@@ -4499,8 +4786,10 @@ public final class QuestBookScreen extends ArmatureScreen
     /**
      * Opens the picker at a chip.
      *
-     * <p>The presets are the theme's own four surfaces, seeded once: a quick pick that is always available
-     * rather than a saved list that would need a file to live in. The preview and the commit are the same
+     * <p>The quick picks are the theme's own four surfaces, handed to the picker per open rather than
+     * seeded into a list it keeps for the session: a quick pick belongs to the colour being edited, and a
+     * list that outlived the picker grew without bound and offered a `+` that silently stopped working
+     * once the row was full. See {@code ColourPopover.presets}. The preview and the commit are the same
      * pair every other control uses -- a drag previews, a release writes once.
      */
     private void openColourPopover(String token, BookGeometry.Rect anchor) {
@@ -4510,12 +4799,14 @@ public final class QuestBookScreen extends ArmatureScreen
         closeColourPopover();
         int argb = editedTheme().colour(token);
         popoverChapter = effectiveChapter();
-        dev.ellipog.tasked.client.dev.ColourPopover.seedPresets(List.of(
-                editedTheme().colour("panel"), editedTheme().colour("raised"),
-                editedTheme().colour("title"), editedTheme().colour("accent")));
+        popoverToken = token;
         colourPopover.open(anchor, geometry().canvas(), labelOfToken(token), argb,
-                List.of(), value -> previewToken(token, value), value -> writeThemeToken(token, value));
+                List.of(editedTheme().colour("panel"), editedTheme().colour("raised"),
+                        editedTheme().colour("title"), editedTheme().colour("accent")),
+                value -> previewToken(token, value), value -> writeThemeToken(token, value));
         buildPopoverWidgets();
+        // Everything the picker now covers stops answering presses: see `setBehindControlsActive`.
+        setBehindControlsActive(false);
     }
 
     /** Registers the picker's four fields with the screen, at the positions it has just placed them. */
@@ -4528,6 +4819,65 @@ public final class QuestBookScreen extends ArmatureScreen
         }
     }
 
+    /**
+     * Makes every control <b>behind</b> the colour picker inert while it is open, and gives them back.
+     *
+     * <h2>Why this is not the press order</h2>
+     *
+     * <p>The picker is drawn over the drawer, and the drawer's controls are widgets — so a press that
+     * lands on the picker was offered to whatever it covers first, because the widget pass runs before the
+     * picker's own hit test. The report was exact: <i>"i can click the reset button when its behind the
+     * colour picker popup"</i> — the Revert at the drawer's foot, which the picker's own height puts it
+     * over. Reordering the press instead would have broken the picker's fields, which <i>are</i> widgets
+     * and need the container's pass to take focus when they are clicked.
+     *
+     * <p>So this is the rule the modal card already applies, in its own words: <i>"a control the player
+     * cannot see is a control they cannot aim at, so a press there is a press on whatever happens to be
+     * under the pointer"</i> — the same fault, reported for the header's Close and Party, fixed the same
+     * way. The picker's own four fields are exempt because they are what is on screen.
+     *
+     * <h2>Only the ones this muted</h2>
+     *
+     * <p>The list is what it turned off, not everything it found: a control that was already inert — the
+     * toolbar's Undo with nothing to undo, a type a table refuses — must stay inert when the picker
+     * closes, and a blanket "make everything active again" is how a disabled button comes back to life.
+     *
+     * <p>Re-applied after every rebuild: a rebuild replaces every widget with a fresh, active one, and an
+     * open picker whose fields were rebuilt would otherwise let the next press through again.
+     */
+    private void setBehindControlsActive(boolean active) {
+        if (active) {
+            for (net.minecraft.client.gui.components.AbstractWidget widget : mutedBehind) {
+                widget.active = true;
+            }
+            mutedBehind.clear();
+            return;
+        }
+        java.util.List<net.minecraft.client.gui.components.AbstractWidget> mine = colourPopover.widgets();
+        mutedBehind.clear();
+        for (net.minecraft.client.gui.components.events.GuiEventListener child : children()) {
+            if (child instanceof net.minecraft.client.gui.components.AbstractWidget widget
+                    && !mine.contains(widget) && widget.active) {
+                mutedBehind.add(widget);
+                widget.active = false;
+            }
+        }
+    }
+
+    /**
+     * A rebuild replaces every control, so the picker's own pass has to be re-applied over it.
+     *
+     * <p>See {@link #setBehindControlsActive}: the fields are re-added by the drawer's own widget pass, so
+     * what is left to redo is making everything else inert again.
+     */
+    @Override
+    public void rebuildWidgets() {
+        super.rebuildWidgets();
+        if (colourPopover.isOpen()) {
+            setBehindControlsActive(false);
+        }
+    }
+
     /** Closes the picker, writing whatever its last gesture left unwritten. */
     private void closeColourPopover() {
         if (!colourPopover.isOpen()) {
@@ -4537,6 +4887,8 @@ public final class QuestBookScreen extends ArmatureScreen
         for (net.minecraft.client.gui.components.AbstractWidget widget : colourPopover.widgets()) {
             removeWidget(widget);
         }
+        // The controls it was covering are controls again.
+        setBehindControlsActive(true);
     }
 
     /** Switches the dock's tab. The other panel's state is not touched: see {@link #toolsTab}. */
@@ -4563,6 +4915,17 @@ public final class QuestBookScreen extends ArmatureScreen
     /** The list layout the open tab is showing: the book's rows, or the chapter's combined list. */
     private Layout activeLayout() {
         return toolsTab == ToolsLayout.Tab.CHAPTER ? chapterLayout : toolsLayout;
+    }
+
+    /**
+     * The rows that layout was built from: the book tab's list, or the chapter's appearance rows.
+     *
+     * <p>Beside {@link #activeLayout} because the two are one answer -- a layout is built from a list and
+     * a control is found by walking the list it came from ({@link ToolsLayout#controlSlot}), so anywhere
+     * that has one needs the other.
+     */
+    private List<ToolsLayout.Action> activeRows() {
+        return toolsTab == ToolsLayout.Tab.CHAPTER ? chapterAppearanceRows : toolsRows;
     }
 
     /**
@@ -4962,7 +5325,7 @@ public final class QuestBookScreen extends ArmatureScreen
         pickerFrame = null;
         pickerQuery = "";
         pickerSelected = -1;
-        pickerScroll = 0;
+        pickerBody.setScrollY(0);
         overlay = Overlay.PICKER;
         rebuildWidgets();
     }
@@ -4990,24 +5353,6 @@ public final class QuestBookScreen extends ArmatureScreen
         sendField(target, key, new JsonPrimitive(!flagOn(quest, key)));
     }
 
-    /** The panel's action rows: adding a dependency, a task, a reward; and the type picker's rows. */
-    private void pressQuestAction(String key) {
-        if (key.equals(QuestPanelLayout.DEPENDENCY_ADD)) {
-            addDependency("");
-        }
-        else if (key.equals(QuestPanelLayout.DEPENDENCY_PICK)) {
-            armDependencyPick();
-        }
-        else if (key.equals(QuestPanelLayout.ADD_TASKS) || key.equals(QuestPanelLayout.ADD_REWARDS)) {
-            // The type picker: the same body, listing what can be added. One state, so Escape and the
-            // rows' own presses have one place to look.
-            openTypePicker(key.equals(QuestPanelLayout.ADD_TASKS) ? "tasks" : "rewards");
-        }
-        else if (key.startsWith(QuestPanelLayout.TYPE_PREFIX)) {
-            pressTypeRow(key.substring(QuestPanelLayout.TYPE_PREFIX.length()));
-        }
-    }
-
     /**
      * Opens the type picker on a member, at the top of its list.
      *
@@ -5020,6 +5365,81 @@ public final class QuestBookScreen extends ArmatureScreen
         pickingConditionFor = null;
         overlayView.scrollTo(0);
         rebuildWidgets();
+    }
+
+    /**
+     * The same list of types, opened <b>from the table editor</b>: a card over the editor, not a page of it.
+     *
+     * <h2>Why this is not {@link #openTypePicker}</h2>
+     *
+     * <p>Because the button beside it does the other thing. `+ Item` opens the picker's own overlay card
+     * — see {@link #openTableItemPick} — so a list of rewards drawn *inside* the table's card put two
+     * sibling buttons in one toolbar into two different shapes: one opened a card over the panel and the
+     * other pushed a page into it, with the table's chrome above the list and the table's footer as its
+     * way out. The act is the same, so the presentation is the same: a pick from a table opens a card, and
+     * a pick from a quest card is a page of that card (which is what that card's item picker is too).
+     *
+     * <p>The card's subject is filled the way the item pick does it — the table's name, and the icon the
+     * pick is for — and it goes through {@link #tablePickSubjectFor} rather than naming an icon itself, so
+     * the `+ Item` beside it and this button cannot show two different headers for one act.
+     */
+    private void openTableTypePick(String member, String title) {
+        if (tableAddress == null) {
+            return;
+        }
+        typePickReturn = true;
+        // The subject is reset *before* it is filled, and the target named, exactly as the item pick does
+        // it: the card's own widget pass re-reads the subject from the tree while this overlay is open, and
+        // a `pickTarget` left as a chapter's from the last pick would put that chapter's title and icon on
+        // the header of a list of the table's rewards.
+        forgetPickSubject();
+        pickTarget = PickTarget.QUEST;
+        pickTitle = title;
+        pickName = tableTitle();
+        pickIcon = tablePickSubjectFor("", -1);
+        pickingEntryType = member;
+        pickingConditionFor = null;
+        // A fresh box and a fresh list per open, on the item picker's terms: the last page's query must
+        // not filter this one's, and a list has no memory between openings.
+        typeSearch = null;
+        typeQuery = "";
+        typeSelected = -1;
+        typeBody.setScrollY(0);
+        overlay = Overlay.PICKER;
+        rebuildWidgets();
+    }
+
+    /** Leaves the type page a table opened: back to the editor, with the pick forgotten. */
+    private void closeTypePick() {
+        typePickReturn = false;
+        pickingEntryType = null;
+        pickingConditionFor = null;
+        typeRows = List.of();
+        typeFrame = null;
+        typeSearch = null;
+        typeQuery = "";
+        typeSelected = -1;
+        typeBody.setScrollY(0);
+        if (tableAddress != null) {
+            overlay = Overlay.TABLE_EDITOR;
+        }
+        rebuildWidgets();
+    }
+
+    /**
+     * Leaves whichever page is over the card: the table's type pick closes back into the editor, and the
+     * card's own pages are left by {@link #leaveCardPage}.
+     *
+     * <p>One method for the three ways out of a page -- Escape, the footer's Back and a press outside --
+     * so the page cannot be left one way by the key and another by the button.
+     */
+    private void leaveTypePage() {
+        if (typePickReturn) {
+            closeTypePick();
+        }
+        else {
+            leaveCardPage();
+        }
     }
 
     /**
@@ -5136,7 +5556,12 @@ public final class QuestBookScreen extends ArmatureScreen
         // The type picker opened from the table editor adds an *entry*, not a reward on a quest. Read
         // before the card's own path, which would otherwise insert the reward into the quest behind the
         // panel -- a reward on a quest the author is not looking at, from a press they made in a table.
-        if (tableAddress != null && overlay == Overlay.TABLE_EDITOR && pickingEntryType != null) {
+        //
+        // The test is the return flag and not the overlay, which is the half of this that the consistency
+        // fix above had to move with the button: the page is now a card *over* the editor, so `overlay` is
+        // PICKER while it is open and a condition that asked for TABLE_EDITOR would fall through to the
+        // card's path -- the exact fault this comment describes, arriving from the other direction.
+        if (tableAddress != null && typePickReturn && pickingEntryType != null) {
             // `defaultElement` is a reward; a table's list holds `{weight, reward}`. This press used to
             // pass the reward straight to the insert, so the file got a reward where an entry belongs --
             // refused by the validator as `unknown field "type"` and `unknown field "table"`, every time,
@@ -5150,9 +5575,12 @@ public final class QuestBookScreen extends ArmatureScreen
             tableDraft.forgetList(effectiveChapter(), tableOwnerKey(), "entries");
             sendTableOp(new dev.ellipog.tasked.editor.TableOp.Insert(tableAddress, at,
                     QuestPanelLayout.tableEntry(reward)));
-            pickingEntryType = null;
+            // **The page closes, and it closes back into the editor.** Clearing the member alone left the
+            // overlay as PICKER with no list under it, so the picker's card went on showing whatever the
+            // item picker had last held -- and `closeTypePick` is the same exit the footer's Back takes,
+            // so adding a type and leaving the page are one route rather than two.
+            closeTypePick();
             status("Added " + typeId, false);
-            rebuildWidgets();
             return;
         }
         String member = pickingEntryType;
@@ -5256,54 +5684,6 @@ public final class QuestBookScreen extends ArmatureScreen
         status("Copied " + editTarget(), false);
     }
 
-    /**
-     * Which of an entry's two drawn controls a point is on: "copy", "remove", or null.
-     *
-     * <p>Drawn, not hosted: a list row carries one widget and an entry has two controls, so the pair
-     * is drawn by the panel and hit-tested here -- from the same {@code stripHalves} derivation the
-     * drawing uses, which is the radius stepper's arrangement and exists for the same reason.
-     */
-    private String entryActionAt(double mouseX, double mouseY) {
-        if (questLayout == null) {
-            return null;
-        }
-        Viewport view = overlayView.viewport();
-        for (InspectRow row : questRows) {
-            if (!row.isEntry()) {
-                continue;
-            }
-            Slot slot = questLayout.slot(row.key());
-            if (slot == null) {
-                continue;
-            }
-            List<Slot> halves = InspectLayout.stripHalves(slot);
-            if (InspectLayout.onScreen(view, halves.get(0)).contains(mouseX, mouseY)) {
-                return "copy";
-            }
-            if (InspectLayout.onScreen(view, halves.get(1)).contains(mouseX, mouseY)) {
-                return "remove";
-            }
-        }
-        return null;
-    }
-
-    /** The key of the entry row whose strip holds a point, or null. The pair to {@link #entryActionAt}. */
-    private String entryUnder(double mouseX, double mouseY) {
-        if (questLayout == null) {
-            return null;
-        }
-        Viewport view = overlayView.viewport();
-        for (InspectRow row : questRows) {
-            if (!row.isEntry()) {
-                continue;
-            }
-            Slot slot = questLayout.slot(row.key());
-            if (slot != null && InspectLayout.onScreen(view, slot).contains(mouseX, mouseY)) {
-                return row.key();
-            }
-        }
-        return null;
-    }
 
     /**
      * Adds one dependency, by the id typed into the Add row.
@@ -5481,12 +5861,10 @@ public final class QuestBookScreen extends ArmatureScreen
             pressCanvasCopy();
             return;
         }
-        // The canvas space row is a chooser widget now, so this branch is only reached if a caller
-        // presses its key directly; kept because the write is the same one the menu row runs.
-        if (ToolsLayout.CANVAS_SPACE.equals(key)) {
-            toggleCanvasSpace();
-            return;
-        }
+        // There is no branch for the canvas space row: it is the second half of a PAIR, so it is a
+        // `ChoiceField` widget and its press opens a menu of the two spaces (`openChoiceMenu`). The
+        // branch that used to sit here toggled the space on a press of a row that is never pressed, and
+        // a second write path for one value is what this panel's rows deliberately do not have.
         String palette = ToolsLayout.paletteId(key);
         if (palette != null) {
             choosePalette(palette);
@@ -5739,17 +6117,6 @@ public final class QuestBookScreen extends ArmatureScreen
         writeThemeBackground(new CanvasBackground(current.kind(), current.space(), spacing,
                 current.tuning(), current.image()));
         status("Canvas spacing " + spacing, false);
-        rebuildWidgets();
-    }
-
-    /** The space row: graph-anchored and screen-fixed, toggled. */
-    private void toggleCanvasSpace() {
-        CanvasBackground current = editedBackground();
-        CanvasBackground.Space next = current.space() == CanvasBackground.Space.GRAPH
-                ? CanvasBackground.Space.SCREEN : CanvasBackground.Space.GRAPH;
-        writeThemeBackground(new CanvasBackground(current.kind(), next, current.spacing(),
-                current.tuning(), current.image()));
-        status("Canvas space: " + ToolsPanel.spaceLabel(next), false);
         rebuildWidgets();
     }
 
@@ -7167,7 +7534,19 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>Rebuilt with the value it already held: a tick rebuild (a replica arriving mid-search) must not
      * clear what is being typed.
      */
+    /**
+     * The pickers' search boxes: the item picker's while it is over the card, and the type page's.
+     *
+     * <p>They are the same control in the same place of the same shape of page, so they are built by one
+     * method — and rebuilt with the text they already held, because a tick rebuild (a replica arriving
+     * mid-search) must not clear what is being typed.
+     */
     private void buildPickerWidgets() {
+        buildItemSearch();
+        buildTypeSearch();
+    }
+
+    private void buildItemSearch() {
         if (pickingItemPath == null) {
             itemSearch = null;
             return;
@@ -7207,6 +7586,42 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
+     * The type page's search box, built on the item picker's own terms.
+     *
+     * <p>Kept across rebuilds, focused on open, and redrawn after the card through {@code modalRedraws}
+     * clipped to the page — the ordering that has cost this screen three separate faults and is written
+     * down beside the item picker's own copy of it. What differs is only the band: the page may be a
+     * guest of the table editor's card rather than of the quest card, and the box goes in the band the
+     * list does.
+     */
+    private void buildTypeSearch() {
+        if (!typePageOpen()) {
+            typeSearch = null;
+            return;
+        }
+        final BookGeometry.Rect band = typePageBand();
+        ItemPickerLayout.Frame frame = ItemPickerLayout.Frame.of(band);
+        String kept = typeSearch == null ? "" : typeSearch.value();
+        typeSearch = new ArmatureTextField(frame.search().x(), frame.search().y(),
+                frame.search().width(), frame.search().height(), kept);
+        // A blur must commit nothing: Enter and Escape are the page's while it is open, and a rebuild
+        // that blurred the box would otherwise set the field to whatever text it happened to hold.
+        typeSearch.onSubmit(text -> { });
+        addRenderableWidget(typeSearch);
+        modalRedraws.add(r -> {
+            try (GuiRenderer.Scoped clip = r.clip(band.x(), band.y(), band.right(), band.bottom())) {
+                typeSearch.render(r);
+                if (typeSearch.value().isEmpty()) {
+                    r.text("Search types \u2014 name or id", frame.search().x() + 4,
+                            frame.search().y() + (frame.search().height() - 8) / 2,
+                            ArmatureTheme.faint());
+                }
+            }
+        });
+        setFocused(typeSearch);
+    }
+
+    /**
      * The quest editor's widgets: the edit bar in the footer, and one control per inspector row.
      *
      * <p>Built exactly like the dock's lists -- register a widget under the row's key, let the
@@ -7218,18 +7633,22 @@ public final class QuestBookScreen extends ArmatureScreen
         // The edit bar, in the footer the reader uses for Submit and Claim -- hidden while editing,
         // because an author's own progress is noise on the page they are writing. Delete asks once:
         // the first press arms it and says so, the second deletes, and anything else disarms it.
-        // `false`: these panels build no Submit, and asking the footer for one makes it move Back up a
-        // row whenever the card is narrow -- a control drawn above the band the body reserves for it.
+        //
+        // **Its rectangle comes from the geometry, and that is the fix rather than a tidy-up.** It used to
+        // be the reader's Submit slot, read out of `overlayControls(false)` -- a map that deliberately has
+        // no "submit" key, because asking for one moves Back up a row on a narrow card, above the band the
+        // body reserves for it. So the key answered null, the whole bar was skipped, and four controls
+        // were never built at all: Delete, Duplicate, Copy, and the Settings button that opens a node's
+        // shape, size, placement and rules. "The editor is missing the button it used to have" was that
+        // one line, and it had been missing since the footer was refactored rather than since any round
+        // of this session. `BookGeometry.editorBar` derives it from the card and Back, and the sweep in
+        // `BookGeometryTest` now holds it.
         Map<String, BookGeometry.Rect> controls = geometry().overlayControls(false);
-        BookGeometry.Rect slot = controls.get("submit");
+        BookGeometry.Rect slot = geometry().editorBar();
         if (slot != null) {
-            // The footer's real width -- from the card's inset to the Done button -- not the reader's
-            // Submit slot: four buttons in that slot truncated every label ("Del...", "Dup..."), which
-            // is a bar that cannot say what its buttons do.
-            BookGeometry.Rect back = controls.get("back");
             int gap = 2;
             int left = slot.x();
-            int right = back == null ? slot.right() + 200 : back.x() - 8;
+            int right = slot.right();
             int quarter = Math.max(0, (right - left - gap * 3) / 4);
             BookGeometry.Rect delete = BookGeometry.Rect.at(left, slot.y(), quarter, slot.height());
             BookGeometry.Rect duplicate = BookGeometry.Rect.at(delete.right() + gap, slot.y(),
@@ -7273,36 +7692,11 @@ public final class QuestBookScreen extends ArmatureScreen
 
         buildPickerWidgets();
 
-        // The body is the preview itself now -- drawn, not a list of widgets -- so the only rows that
-        // still need hosting are the type picker's, when it is open.
-        if (pickingEntryType != null || pickingConditionFor != null) {
-            questRows = pickerRows();
-            Viewport body = overlayBody();
-            questLayout = InspectLayout.build(questRows, body.viewWidth(), Measure.monospace(6, 9));
-            overlayView.clear();
-            overlayView.whole(true);
-            overlayView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
-                    body.viewHeight());
-            for (InspectRow row : questRows) {
-                if (row.kind() == InspectRow.Kind.ACTION
-                        && row.key().startsWith(QuestPanelLayout.TYPE_PREFIX)) {
-                    String typeId = row.key().substring(QuestPanelLayout.TYPE_PREFIX.length());
-                    ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
-                            () -> pressQuestAction(row.key()));
-                    button.alignLeft(true).flat(true);
-                    // The type's registered icon and its hover description. The icon is the one the entry
-                    // row will lead with once the type is added, so the picker chooses in the terms the
-                    // row reads back in.
-                    ItemStack icon = pickerIcon(typeId);
-                    if (!icon.isEmpty()) {
-                        button.icon(icon);
-                    }
-                    button.tooltip(pickerTooltip(typeId));
-                    overlayView.put(row.key(), button);
-                }
-            }
-            overlayView.apply(questLayout, body.viewWidth());
-        }
+        // The type page hosts no widgets of its own: its rows are drawn by `drawTypePicker` from the
+        // catalogue, the way the item picker's are, and its only control is the search box
+        // `buildPickerWidgets` has just placed. It used to be one button per type placed into
+        // `overlayView`, which meant the rows were widgets -- no keyboard, no scrollbar, and a hover that
+        // could not say why a type the table refuses was refused.
 
         // The settings page's widgets, when it is open: one text field per row that takes typing, placed
         // by the page's own layout so a scrolled field sits beside its label. Everything else on the
@@ -7500,18 +7894,12 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
 
-        // The type picker takes the body when it is open: a list of types is a list, and rows are what
-        // lists are made of. The only rows left in this card.
-        if (pickingEntryType != null || pickingConditionFor != null) {
-            if (questLayout != null) {
-                overlayView.apply(questLayout, body.viewWidth());
-                QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
-                        body.viewWidth(), body.viewHeight()), overlayView.viewport(), questLayout,
-                        questRows, mouseX, mouseY);
-            }
-            // The list's own bar, drawn here because this page returns before the card's call below:
-            // a list that scrolls with nothing on screen saying so is the defect that call records.
-            overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        // The type page takes the body when it is open: a list of types is a list, and rows are what
+        // lists are made of. Drawn by the item picker's own row renderer -- see `drawTypePicker` -- so
+        // adding a task reads like adding an item, which is what this round was asked for.
+        if (typePageOpen()) {
+            drawTypePicker(r, BookGeometry.Rect.at(body.originX(), body.originY(), body.viewWidth(),
+                    body.viewHeight()), mouseX, mouseY);
             return;
         }
 
@@ -7590,7 +7978,7 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             drawDependencyAddRow(r, placed(layout, body, OverlayLayout.REQUIRES_ADD), mouseX, mouseY);
         }
-        overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, overlayView.bar(), mouseX, mouseY);
 
         // Where the open editor goes, every frame. The card scrolls under it -- the wheel is answered by
         // the body even while a field has the keyboard -- and the description's height has to track the
@@ -7655,10 +8043,25 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private boolean registerTarget(EditAction action, String path, BookGeometry.Rect box, int textX,
                                    int textY, String value, String member, int index) {
+        return registerInto(editTargets, action, path, box, textX, textY, value, member, index);
+    }
+
+    /**
+     * The same, into the list the caller names.
+     *
+     * <p>The list is a parameter because a panel has its own: the Assets panel draws its chrome and its
+     * footer with the helpers below, presses from {@link #assetsTargets}, and never reads
+     * {@link #editTargets} while it is open. A helper that decides the destination for its caller made
+     * New table, Done and the card's cross unreachable -- drawn as controls, registered in a list the
+     * panel that presses them does not walk. See {@code drawAssets} for the other half.
+     */
+    private static boolean registerInto(List<EditTarget> into, EditAction action, String path,
+                                        BookGeometry.Rect box, int textX, int textY, String value,
+                                        String member, int index) {
         if (box.width() <= 0 || box.height() <= 0) {
             return false;
         }
-        editTargets.add(new EditTarget(action, path, box, textX, textY, value, member, index));
+        into.add(new EditTarget(action, path, box, textX, textY, value, member, index));
         return true;
     }
 
@@ -8678,7 +9081,7 @@ public final class QuestBookScreen extends ArmatureScreen
         dev.ellipog.tasked.client.dev.QuestSettingsPanel.draw(r, frame, settingsLayout, settingsRows,
                 quest, settingsViewOf(entry, quest, mouseX, mouseY), settingsView.viewport(),
                 mouseX, mouseY);
-        settingsView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, settingsView.bar(), mouseX, mouseY);
     }
 
     /** The description the card lays out: the tree's lines, or the open editor's own text. */
@@ -8850,6 +9253,163 @@ public final class QuestBookScreen extends ArmatureScreen
         return overlay == Overlay.TABLE_EDITOR
                 ? QuestPanelLayout.typeRowsNamedInChrome(pickingEntryType)
                 : QuestPanelLayout.typeRows(pickingEntryType);
+    }
+
+    /**
+     * The type catalogue as {@link TypePicker} takes it: a type, its group, and any refusal.
+     *
+     * <p>Read out of the panel's own rows rather than out of the registries a second time, because those
+     * rows <i>are</i> the catalogue — the grouping, the order and the fallback group for an addon's type
+     * all live in {@code QuestPanelLayout}, and a second walk of the registries here is how the two would
+     * come to disagree about which types exist.
+     *
+     * <p>A group's name is the last heading seen before the row, and a heading is not an entry.
+     */
+    private List<dev.ellipog.tasked.client.dev.TypePicker.Entry> typeCatalogue() {
+        List<dev.ellipog.tasked.client.dev.TypePicker.Entry> entries = new ArrayList<>();
+        String group = "";
+        for (InspectRow row : pickerRows()) {
+            if (row.kind() == InspectRow.Kind.HEADING) {
+                group = row.label();
+                continue;
+            }
+            if (row.kind() != InspectRow.Kind.ACTION
+                    || !row.key().startsWith(QuestPanelLayout.TYPE_PREFIX)) {
+                continue;
+            }
+            String typeId = row.key().substring(QuestPanelLayout.TYPE_PREFIX.length());
+            entries.add(new dev.ellipog.tasked.client.dev.TypePicker.Entry(typeId, row.label(), group,
+                    tableTypeRefusal(typeId)));
+        }
+        return List.copyOf(entries);
+    }
+
+    /**
+     * The type page's own first line.
+     *
+     * <p>Always the card's own, because the page is always a page of a card now: a quest card's chrome is
+     * the quest's identity so the page has to name the act, and the picker card a table opens has a header
+     * of its own which says what the pick is for — so this is the line under it rather than a repeat of it.
+     */
+    private String typePageHeading() {
+        return pickingConditionFor != null
+                ? Labels.of("tasked.dev.panel.add_condition")
+                : Labels.of("tasks".equals(pickingEntryType)
+                        ? "tasked.dev.panel.add_a_task" : "tasked.dev.panel.add_a_reward");
+    }
+
+    /** Whether a type page -- a list of tasks, rewards or conditions -- is over the card. */
+    private boolean typePageOpen() {
+        return pickingEntryType != null || pickingConditionFor != null;
+    }
+
+    /**
+     * The type page's band: the overlay body, which is the same rectangle the item picker's list uses.
+     *
+     * <p>One band for both hosts now. It used to have a second case for the table editor's list band, from
+     * when `+ Reward` drew a page *inside* that panel; the button opens the picker's own card instead, like
+     * the `+ Item` beside it, so the page is drawn where the card says it is.
+     */
+    private BookGeometry.Rect typePageBand() {
+        return BookGeometry.Rect.at(overlayBody().originX(), overlayBody().originY(),
+                overlayBody().viewWidth(), overlayBody().viewHeight());
+    }
+
+    /**
+     * The type page: one search box, the catalogue, and the scrollbar.
+     *
+     * <p>Drawn by the same row renderer the item picker uses — see {@link #drawPickerRows} — because the
+     * two pages are the same act with different catalogues, and the report that asked for this round was
+     * exactly that they did not read alike.
+     */
+    private void drawTypePicker(GuiRenderer r, BookGeometry.Rect band, int mouseX, int mouseY) {
+        typeHint = null;
+        typeFrame = ItemPickerLayout.Frame.of(band);
+        String query = typeSearch == null ? "" : typeSearch.value();
+        if (!query.equals(typeQuery)) {
+            // A keystroke is a new list: the selection goes back to nothing and the scroll to the top,
+            // because an index into the old list does not name anything in this one.
+            typeQuery = query;
+            typeSelected = -1;
+            typeBody.setScrollY(0);
+        }
+        typeRows = dev.ellipog.tasked.client.dev.TypePicker.compose(typeCatalogue(), query,
+                typePageHeading());
+        bindList(typeBody, typeBar, typeFrame.list(), typeFrame.scrollbar(),
+                ItemPickerLayout.contentHeight(typeRows), ItemPickerLayout.ROW_HEIGHT);
+        int typeScroll = typeBody.scrollY();
+        if (typeSelected >= 0) {
+            typeSelected = ItemPickerLayout.clamp(typeRows, typeSelected);
+        }
+
+        // Clipped to the list, not to the page: a row scrolled up under the search box would otherwise
+        // paint into it, and an item icon draws at its own depth, so it would show *through* the box.
+        try (GuiRenderer.Scoped clip = r.clip(typeFrame.list().x(), typeFrame.list().y(),
+                typeFrame.list().right(), typeFrame.list().bottom())) {
+            if (typeRows.isEmpty()) {
+                r.text("Type to search what this build can add, or scroll the list.",
+                        typeFrame.list().x() + 4, typeFrame.list().y() + 4, ArmatureTheme.faint());
+            }
+            else {
+                drawPickerRows(r, typeFrame, typeRows, typeScroll, typeSelected, mouseX, mouseY,
+                        this::pickerIcon, row -> false);
+            }
+        }
+        // The bar, outside the clip so it is the full height of the list, and in a strip of its own so it
+        // is beside the rows rather than over the ids at their right.
+        drawBar(r, typeBar, mouseX, mouseY);
+        // The row under the pointer says what it is, and says why when it cannot be taken. The buttons
+        // these rows replaced carried this as a tooltip, and a drawn row has no tooltip: the hint band is
+        // where this panel already answers "what is this?", and it is the same band for both hosts.
+        int over = ItemPickerLayout.rowAt(typeRows, typeFrame, typeScroll, mouseY);
+        if (over >= 0 && over < typeRows.size()) {
+            ItemPickerLayout.Row row = typeRows.get(over);
+            if (!row.id().isEmpty()) {
+                String described = pickerTooltip(row.id()).stream()
+                        .map(Component::getString)
+                        .filter(line -> !line.isBlank())
+                        .reduce((first, next) -> first + "  \u00b7  " + next)
+                        .orElse("");
+                typeHint = row.note().isEmpty() || described.isEmpty()
+                        ? (row.note().isEmpty() ? described : row.note())
+                        : row.note() + "  \u2014  " + described;
+            }
+        }
+        drawTableHint(r, typeHint);
+    }
+
+    /**
+     * One press on the type page: the row under the pointer, or nothing.
+     *
+     * <p>From the last frame's own rows, so the row that answers is the row that was drawn — and a row
+     * that cannot be taken says why in the hint line rather than doing nothing at all.
+     *
+     * @return whether the press was the page's: a row, taken or refused. A press that hit no row is not
+     *     the page's, which is what lets the caller treat it as a press outside the card
+     */
+    private boolean pressTypePicker(double mouseX, double mouseY) {
+        if (typeFrame == null) {
+            return false;
+        }
+        int index = ItemPickerLayout.rowAt(typeRows, typeFrame, typeBody.scrollY(), mouseY);
+        if (index < 0) {
+            return false;
+        }
+        ItemPickerLayout.Row row = typeRows.get(index);
+        if (!ItemPickerLayout.pickable(row)) {
+            typeHint = row.note().isEmpty() ? typeHint : row.note();
+            return true;
+        }
+        typeSelected = index;
+        pressTypeRow(row.id());
+        return true;
+    }
+
+    /** The selected row's type, for Enter: the id of the row the keyboard is on, or null. */
+    private String selectedType() {
+        ItemPickerLayout.Row row = typeSelected >= 0 && typeSelected < typeRows.size()
+                ? typeRows.get(typeSelected) : null;
+        return row == null || !ItemPickerLayout.pickable(row) ? null : row.id();
     }
 
     /** A picker row's icon: the registered type's, from whichever of the three registries it came. */
@@ -9194,7 +9754,7 @@ public final class QuestBookScreen extends ArmatureScreen
             return null;
         }
         return dev.ellipog.tasked.client.dev.TableEditorLayout.rowRect(entries, tableEditorFrame,
-                tableScroll, index, tableFolds());
+                tableEditorBody.scrollY(), index, tableFolds());
     }
 
     /**
@@ -9508,7 +10068,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // first rows are what say what this one can hold.
         itemSearch = null;
         pickerSelected = -1;
-        pickerScroll = 0;
+        pickerBody.setScrollY(0);
         rebuildWidgets();
     }
 
@@ -9542,7 +10102,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // filter this field's list.
         itemSearch = null;
         pickerSelected = -1;
-        pickerScroll = 0;
+        pickerBody.setScrollY(0);
         rebuildWidgets();
     }
 
@@ -9576,15 +10136,25 @@ public final class QuestBookScreen extends ArmatureScreen
         pickerFrame = null;
         pickerQuery = "";
         pickerSelected = -1;
-        pickerScroll = 0;
+        pickerBody.setScrollY(0);
         itemSearch = null;
         if (ownOverlay) {
             overlay = Overlay.NONE;
         }
     }
 
-    /** Leaves the dock's picker: the list closes and the book it was opened over comes back. */
+    /**
+     * Leaves the picker's card: the list closes and what it was opened over comes back.
+     *
+     * <p>Two lists arrive here — the item catalogue and a table's list of rewards — so the type page is
+     * asked first: its own close knows the difference between a page of the quest card and a card a table
+     * opened, and `closeItemPicker` knows it for the item picker's.
+     */
     private void closePickerOverlay() {
+        if (typePageOpen()) {
+            leaveTypePage();
+            return;
+        }
         closeItemPicker();
         rebuildWidgets();
     }
@@ -9832,7 +10402,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // top, because an index into the old list does not name anything in this one.
             pickerQuery = query;
             pickerSelected = -1;
-            pickerScroll = 0;
+            pickerBody.setScrollY(0);
         }
         pickerMatches = pickerSource != null && query.isBlank()
                 // A search field opens on the first ten of its list rather than on nothing: the list is
@@ -9854,8 +10424,9 @@ public final class QuestBookScreen extends ArmatureScreen
                 // The item picker's own rule for its results (null), and the search field's own words for
                 // its list -- see ItemPickerLayout#compose.
                 pickerSource == null ? null : EditorSpecs.label(pickerSource.name()));
-        pickerScroll = Math.max(0,
-                Math.min(pickerScroll, ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
+        bindList(pickerBody, pickerBar, pickerFrame.list(), pickerFrame.scrollbar(),
+                ItemPickerLayout.contentHeight(pickerRows), ItemPickerLayout.ROW_HEIGHT);
+        int pickerScroll = pickerBody.scrollY();
         // `-1` is "nothing chosen yet", and it stays that way until the author chooses. A selection
         // invented here would be Enter's answer on a picker nobody has touched -- and the first pickable
         // row is often Clear, so that answer would quietly empty the field. `clamp` re-lands a real
@@ -9878,51 +10449,88 @@ public final class QuestBookScreen extends ArmatureScreen
                         pickerFrame.list().x() + 4, pickerFrame.list().y() + 4, ArmatureTheme.faint());
                 return;
             }
-            Measure measure = textMeasure(r);
-            for (int i = 0; i < pickerRows.size(); i++) {
-                BookGeometry.Rect rect =
-                        ItemPickerLayout.rowRect(pickerRows, pickerFrame, pickerScroll, i);
-                // Off the list is not drawn -- the clip would cut a row the keyboard can still land on
-                // and the wheel can bring back, and a half row at the edge is exactly what the clip is
-                // for, so only the wholly-out ones are skipped.
-                if (rect.bottom() <= pickerFrame.list().y()
-                        || rect.y() >= pickerFrame.list().bottom()) {
-                    continue;
-                }
-                ItemPickerLayout.Row row = pickerRows.get(i);
-                if (row.kind() == ItemPickerLayout.Kind.HEADING) {
-                    r.text(row.label(), rect.x() + 2, rect.y() + (rect.height() - 8) / 2,
-                            ArmatureTheme.faint());
-                    continue;
-                }
-                if (i == pickerSelected) {
-                    r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.recessed());
-                }
-                else if (rect.contains(mouseX, mouseY)) {
-                    drawEditAffordance(r, rect, true);
-                }
-                int textX = rect.x() + 4;
-                boolean missing = row.kind() == ItemPickerLayout.Kind.MISSING;
-                if (row.kind() == ItemPickerLayout.Kind.ITEM) {
-                    r.icon(itemStack(row.id()), rect.x() + 1, rect.y() + 1,
-                            Math.max(8, rect.height() - 2));
+            drawPickerRows(r, pickerFrame, pickerRows, pickerScroll, pickerSelected, mouseX, mouseY,
+                    this::itemIconOf, row -> row.kind() == ItemPickerLayout.Kind.MISSING);
+        }
+        // The list's bar, in the strip the frame kept for it: outside the clip, so its groove is the
+        // full height of the list rather than the part of it that happens to be on screen.
+        drawBar(r, pickerBar, mouseX, mouseY);
+    }
+
+    /** An item row's icon: the stack the id names, or nothing when the build cannot draw it. */
+    private ItemStack itemIconOf(String id) {
+        return itemStack(id);
+    }
+
+    /**
+     * One picker's rows, drawn: the renderer the item list and the type list share.
+     *
+     * <h2>Why this is one method</h2>
+     *
+     * <p>Because the two pages are the same act with different catalogues, and the report that asked for
+     * the type page at all was that they did not read alike. Two loops would be two chances for one of
+     * them to grow a hover wash the other does not have — the drift this screen has already paid for
+     * twice, in the picker's placeholder and in the chip and the row that both edited one token.
+     *
+     * <p>The two things that differ are parameters rather than branches on the caller: {@code iconOf}
+     * supplies the picture (an item's stack, a type's registered icon, nothing at all), and
+     * {@code placeholderOf} says which rows have no picture *because the id does not resolve* — the item
+     * picker's missing rows, which get the question-mark box — as opposed to a type that simply
+     * registered no icon, which gets no box and the label where the icon would be.
+     *
+     * <p>A row is drawn blocked, and unpressable, when it is a clear row, a missing id, or a row that
+     * carries a {@link ItemPickerLayout.Row#note()} — a type a table will not take.
+     */
+    private void drawPickerRows(GuiRenderer r, ItemPickerLayout.Frame frame,
+                                List<ItemPickerLayout.Row> rows, int scroll, int selected,
+                                int mouseX, int mouseY,
+                                java.util.function.Function<String, ItemStack> iconOf,
+                                java.util.function.Predicate<ItemPickerLayout.Row> placeholderOf) {
+        Measure measure = textMeasure(r);
+        for (int i = 0; i < rows.size(); i++) {
+            BookGeometry.Rect rect = ItemPickerLayout.rowRect(rows, frame, scroll, i);
+            // Off the list is not drawn -- the clip would cut a row the keyboard can still land on
+            // and the wheel can bring back, and a half row at the edge is exactly what the clip is
+            // for, so only the wholly-out ones are skipped.
+            if (rect.bottom() <= frame.list().y() || rect.y() >= frame.list().bottom()) {
+                continue;
+            }
+            ItemPickerLayout.Row row = rows.get(i);
+            if (row.kind() == ItemPickerLayout.Kind.HEADING) {
+                r.text(row.label(), rect.x() + 2, rect.y() + (rect.height() - 8) / 2,
+                        ArmatureTheme.faint());
+                continue;
+            }
+            if (i == selected) {
+                r.fill(rect.x(), rect.y(), rect.right(), rect.bottom(), ArmatureTheme.recessed());
+            }
+            else if (rect.contains(mouseX, mouseY)) {
+                drawEditAffordance(r, rect, true);
+            }
+            int textX = rect.x() + 4;
+            boolean placeholder = placeholderOf.test(row);
+            if (placeholder) {
+                // No item behind the id: a placeholder where the icon would be, and the note that
+                // says so. The id itself is the label, so it is kept and visible either way.
+                drawItemPlaceholder(r, rect.x() + 1, rect.y() + 1, Math.max(8, rect.height() - 2));
+                textX = rect.x() + 20;
+            }
+            else {
+                ItemStack icon = row.id().isEmpty() ? ItemStack.EMPTY : iconOf.apply(row.id());
+                if (!icon.isEmpty()) {
+                    r.icon(icon, rect.x() + 1, rect.y() + 1, Math.max(8, rect.height() - 2));
                     textX = rect.x() + 20;
                 }
-                else if (missing) {
-                    // No item behind the id: a placeholder where the icon would be, and the note that
-                    // says so. The id itself is the label, so it is kept and visible either way.
-                    drawItemPlaceholder(r, rect.x() + 1, rect.y() + 1, Math.max(8, rect.height() - 2));
-                    textX = rect.x() + 20;
-                }
-                boolean blocked = missing || row.kind() == ItemPickerLayout.Kind.CLEAR;
-                r.text(Measure.truncate(row.label(), rect.width() - (textX - rect.x()) - 30, measure),
-                        textX, rect.y() + (rect.height() - 8) / 2,
-                        blocked ? ArmatureTheme.blocked() : ArmatureTheme.body());
-                if (!row.secondary().isEmpty()) {
-                    r.text(row.secondary(), rect.right() - 4 - r.textWidth(row.secondary()),
-                            rect.y() + (rect.height() - 8) / 2,
-                            blocked ? ArmatureTheme.blocked() : ArmatureTheme.faint());
-                }
+            }
+            boolean blocked = placeholder || row.kind() == ItemPickerLayout.Kind.CLEAR
+                    || !row.note().isEmpty();
+            r.text(Measure.truncate(row.label(), rect.width() - (textX - rect.x()) - 30, measure),
+                    textX, rect.y() + (rect.height() - 8) / 2,
+                    blocked ? ArmatureTheme.blocked() : ArmatureTheme.body());
+            if (!row.secondary().isEmpty()) {
+                r.text(row.secondary(), rect.right() - 4 - r.textWidth(row.secondary()),
+                        rect.y() + (rect.height() - 8) / 2,
+                        blocked ? ArmatureTheme.blocked() : ArmatureTheme.faint());
             }
         }
     }
@@ -10054,7 +10662,7 @@ public final class QuestBookScreen extends ArmatureScreen
         textureSearch = null;
         textureQuery = "";
         textureSelected = -1;
-        textureScroll = 0;
+        textureBody.setScrollY(0);
         textureMatches = List.of();
         textureRows = List.of();
         textureFrame = null;
@@ -10083,7 +10691,7 @@ public final class QuestBookScreen extends ArmatureScreen
         textureSearch = null;
         textureQuery = "";
         textureSelected = -1;
-        textureScroll = 0;
+        textureBody.setScrollY(0);
         textureMatches = List.of();
         textureRows = List.of();
         textureFrame = null;
@@ -10173,11 +10781,12 @@ public final class QuestBookScreen extends ArmatureScreen
             // rebuilt here and nowhere else -- see `rebuildTextureRows` for why the drawing must not.
             textureQuery = query;
             textureSelected = -1;
-            textureScroll = 0;
+            textureBody.setScrollY(0);
             rebuildTextureRows(query);
         }
-        textureScroll = Math.max(0,
-                Math.min(textureScroll, ItemPickerLayout.maxScroll(textureRows, textureFrame)));
+        bindList(textureBody, textureBar, textureFrame.list(), textureFrame.scrollbar(),
+                ItemPickerLayout.contentHeight(textureRows), ItemPickerLayout.ROW_HEIGHT);
+        int textureScroll = textureBody.scrollY();
         if (textureSelected >= 0) {
             textureSelected = ItemPickerLayout.clamp(textureRows, textureSelected);
         }
@@ -10242,6 +10851,9 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
             }
         }
+        // The list's bar, in the frame's own strip and outside the clip: the item picker's arrangement,
+        // because the two pages are the same act with a different catalogue.
+        drawBar(r, textureBar, mouseX, mouseY);
     }
 
     /**
@@ -11419,11 +12031,7 @@ public final class QuestBookScreen extends ArmatureScreen
         String many = targets.size() > 1 ? " " + targets.size() + " quests" : "";
         List<MenuItem> items = new ArrayList<>();
         items.add(MenuItem.of("Open", () -> openOverlay(id)));
-        items.add(MenuItem.of("Duplicate" + many, () -> {
-            for (String each : targets) {
-                send(new EditorOp.Duplicate(each));
-            }
-        }));
+        items.add(MenuItem.of("Duplicate" + many, () -> duplicateSelection(targets)));
         items.add(MenuItem.of("Copy" + many, this::copySelection));
         if (targets.size() == 1) {
             items.add(MenuItem.of("Add dependency\u2026", () -> {
@@ -11437,9 +12045,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 armed ? "Really delete?" + questDeleteNote(targets) : "Delete" + many,
                 armed
                         ? () -> {
-                            for (String each : targets) {
-                                send(new EditorOp.Delete(each));
-                            }
+                            deleteSelection(targets);
                             selectedQuest = null;
                             multiSelection.clear();
                         }
@@ -12725,13 +13331,22 @@ public final class QuestBookScreen extends ArmatureScreen
      * click measured against a card that is not on screen, which is the class of fault this file's
      * geometry exists to prevent.
      *
+     * <p>The claim menu is the third such card, and it needed this branch rather than sharing the
+     * modal's rectangle: it is <b>wider</b> than `modal()`, so the first version of it would have closed
+     * on a press inside its own left and right margins -- the exact width the redesign added. See
+     * {@link #rewardCard}.
+     *
      * <p>A click inside a card but not on a control does nothing, deliberately: it belongs to the
      * panel. A click outside closes it, which is what every dialog does.
      */
     private boolean clickedOutsideCard(double mouseX, double mouseY) {
-        BookGeometry.Rect card = overlay == Overlay.PARTY && partyCard != null
-                ? partyCard
-                : geometry().modal();
+        BookGeometry.Rect card = geometry().modal();
+        if (overlay == Overlay.PARTY && partyCard != null) {
+            card = partyCard;
+        }
+        else if (overlay == Overlay.REWARDS && rewardCard != null) {
+            card = rewardCard;
+        }
 
         return mouseX < card.x() || mouseX > card.right()
                 || mouseY < card.y() || mouseY > card.bottom();
@@ -12821,6 +13436,18 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private void drawModalCardChrome(GuiRenderer r, String title, int mouseX, int mouseY,
                                      EditAction closeAction) {
+        drawModalCardChrome(r, title, mouseX, mouseY, closeAction, editTargets);
+    }
+
+    /**
+     * The same, registering the close chip in the list the caller names.
+     *
+     * <p>Only the Assets panel passes its own: it is the one card here that is not the quest editor's,
+     * so the chip's press belongs to its press method rather than to the editor's. See
+     * {@link #registerInto}.
+     */
+    private void drawModalCardChrome(GuiRenderer r, String title, int mouseX, int mouseY,
+                                     EditAction closeAction, List<EditTarget> into) {
         int left = overlayLeft();
         int top = overlayTop();
         int w = overlayWidth();
@@ -12838,7 +13465,7 @@ public final class QuestBookScreen extends ArmatureScreen
         boolean hot = close.contains(mouseX, mouseY);
         r.text(cross, close.x() + (close.width() - r.textWidth(cross)) / 2, close.y() + 2,
                 hot ? ArmatureTheme.title() : ArmatureTheme.body());
-        registerTarget(closeAction, "", close, close.x(), close.y(), "", null, -1);
+        registerInto(into, closeAction, "", close, close.x(), close.y(), "", null, -1);
     }
 
     /**
@@ -13102,7 +13729,7 @@ public final class QuestBookScreen extends ArmatureScreen
         tableOwningPath = owningPathOf(target.path());
         tableQuery = "";
         tableSelected = -1;
-        tableScroll = 0;
+        tableBrowserBody.setScrollY(0);
         tableSearch = null;
         tableConfirmReplace = false;
         overlay = Overlay.TABLE_BROWSER;
@@ -13199,7 +13826,8 @@ public final class QuestBookScreen extends ArmatureScreen
         tableShowRoll = false;
         tableImportOpen = false;
         tableConfirmReplace = false;
-        tableScroll = 0;
+        tableEditorBody.setScrollY(0);
+        rollBody.setScrollY(0);
         tableTitleField = null;
         tablePreview = preview;
         overlay = Overlay.TABLE_EDITOR;
@@ -13586,11 +14214,18 @@ public final class QuestBookScreen extends ArmatureScreen
         if (!typed.equals(tableQuery)) {
             tableQuery = typed;
             tableSelected = -1;
-            tableScroll = 0;
+            tableBrowserBody.setScrollY(0);
         }
         tableRows = dev.ellipog.tasked.client.dev.TableBrowserLayout.rows(summaryRows(), tableQuery);
-        tableScroll = Math.max(0, Math.min(tableScroll,
-                dev.ellipog.tasked.client.dev.TableBrowserLayout.maxScroll(tableRows, tableBrowserFrame)));
+        // The bounds, the range, the clamp and the bar in one call: the list's own height is what the
+        // viewport needs, and the clamp it applies here is the one the drawing and the bar both read.
+        // There used to be a `Math.max(0, Math.min(...))` against `maxScroll` at this line and the same
+        // expression again in the wheel's branch, which is two places for one range to be wrong.
+        bindList(tableBrowserBody, tableBrowserBar, tableBrowserFrame.list(),
+                tableBrowserFrame.scrollbar(),
+                dev.ellipog.tasked.client.dev.TableBrowserLayout.contentHeight(tableRows),
+                dev.ellipog.tasked.client.dev.TableBrowserLayout.ROW_HEIGHT);
+        int tableScroll = tableBrowserBody.scrollY();
 
         try (GuiRenderer.Scoped clip = r.clip(tableBrowserFrame.list().x(), tableBrowserFrame.list().y(),
                 tableBrowserFrame.list().right(), tableBrowserFrame.list().bottom())) {
@@ -13604,6 +14239,9 @@ public final class QuestBookScreen extends ArmatureScreen
                 drawTableBrowserRow(r, i, rect, mouseX, mouseY);
             }
         }
+        // Outside the clip, like every bar here: the strip is not part of the list's content, and a bar
+        // clipped to the band would lose the ends of its own groove on the frame it was needed most.
+        drawBar(r, tableBrowserBar, mouseX, mouseY);
         if (tableRows.size() <= 1) {
             String empty = tableQuery.isBlank()
                     ? "No reward tables yet - New table makes one."
@@ -13632,16 +14270,19 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         int pitch = dev.ellipog.tasked.client.dev.TableBrowserLayout.ROW_HEIGHT;
+        // The range first, so the two writes below are clamped against this list's own end rather than
+        // against whatever the last frame left behind -- this runs from a key press, which is not
+        // ordered against the drawing pass.
+        tableBrowserBody.setContentSize(tableBrowserFrame.list().width(),
+                dev.ellipog.tasked.client.dev.TableBrowserLayout.contentHeight(tableRows));
         BookGeometry.Rect rect = dev.ellipog.tasked.client.dev.TableBrowserLayout
-                .rowRect(tableRows, tableBrowserFrame, tableScroll, tableSelected);
+                .rowRect(tableRows, tableBrowserFrame, tableBrowserBody.scrollY(), tableSelected);
         if (rect.y() < tableBrowserFrame.list().y()) {
-            tableScroll = tableSelected * pitch;
+            tableBrowserBody.setScrollY(tableSelected * pitch);
         }
         else if (rect.bottom() > tableBrowserFrame.list().bottom()) {
-            tableScroll = (tableSelected + 1) * pitch - tableBrowserFrame.list().height();
+            tableBrowserBody.setScrollY((tableSelected + 1) * pitch - tableBrowserFrame.list().height());
         }
-        tableScroll = Math.max(0, Math.min(tableScroll,
-                dev.ellipog.tasked.client.dev.TableBrowserLayout.maxScroll(tableRows, tableBrowserFrame)));
     }
 
     private void drawTableBrowserRow(GuiRenderer r, int index, BookGeometry.Rect rect, int mouseX,
@@ -13756,8 +14397,27 @@ public final class QuestBookScreen extends ArmatureScreen
         drawTableButton(r, box, label, mouseX, mouseY, action, -1);
     }
 
+    /**
+     * The same, registering into the list the caller names.
+     *
+     * <p>The Assets panel's footer is the only caller that passes its own list: the card's own footer
+     * answers in {@link #editTargets}, which is the list its press method walks, and the Assets panel's
+     * answers in {@link #assetsTargets}, which is the list *its* press method walks. A helper that
+     * picked for its caller put three controls on screen that no press could reach -- see
+     * {@link #registerInto}.
+     */
+    private void drawTableButton(GuiRenderer r, BookGeometry.Rect box, String label, int mouseX,
+                                 int mouseY, EditAction action, List<EditTarget> into) {
+        drawTableButton(r, box, label, mouseX, mouseY, action, -1, into);
+    }
+
     private void drawTableButton(GuiRenderer r, BookGeometry.Rect box, String label, int mouseX,
                                  int mouseY, EditAction action, int index) {
+        drawTableButton(r, box, label, mouseX, mouseY, action, index, editTargets);
+    }
+
+    private void drawTableButton(GuiRenderer r, BookGeometry.Rect box, String label, int mouseX,
+                                 int mouseY, EditAction action, int index, List<EditTarget> into) {
         boolean hot = box.contains(mouseX, mouseY);
         drawEditAffordance(r, box, hot);
         // Truncated first, and the offset measured from what is drawn: centring the *untruncated* label
@@ -13767,7 +14427,7 @@ public final class QuestBookScreen extends ArmatureScreen
         String shown = Measure.truncate(label, Math.max(0, box.width() - 4), textMeasure(r));
         r.text(shown, box.x() + (box.width() - r.textWidth(shown)) / 2, box.y() + (box.height() - 8) / 2,
                 hot ? ArmatureTheme.title() : ArmatureTheme.body());
-        registerTarget(action, "", box, box.x(), box.y(), "", null, index);
+        registerInto(into, action, "", box, box.x(), box.y(), "", null, index);
     }
 
     private void pressTableBrowser(double mouseX, double mouseY) {
@@ -13938,57 +14598,18 @@ public final class QuestBookScreen extends ArmatureScreen
         // focus pointer on the previous rebuild's field, which is a widget no longer in the list.)
         buildTableTitleField();
 
-        // The type picker, when the editor asked for one: the same rows the card builds, hosted the
-        // same way -- the rows are buttons rather than drawn targets, so they answer wherever they are
-        // built from, and only the layout differs.
-        if (pickingEntryType != null) {
-            questRows = pickerRows();
-            // The page band *inside this card*, and the same rectangle `drawTableEditor` draws the rows
-            // at. It used to be `overlayBody()` -- the quest card's body -- which is a different
-            // rectangle by design (its inset and its top offset are that card's), so the picker's heading
-            // landed on this card's title line, its group headings on the stepper line, and its first
-            // rows behind the toolbar. Two call sites, one rectangle: a page laid out at one place and
-            // drawn at another is a list nobody can press where they read it.
-            BookGeometry.Rect page = tableEditorFrame.list();
-            Viewport body = overlayView.viewport().bounds(page.x(), page.y(), page.width(),
-                    page.height());
-            questLayout = InspectLayout.build(questRows, body.viewWidth(), Measure.monospace(6, 9));
-            overlayView.clear();
-            overlayView.whole(true);
-            overlayView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
-                    body.viewHeight());
-            for (InspectRow row : questRows) {
-                if (row.kind() == InspectRow.Kind.ACTION
-                        && row.key().startsWith(QuestPanelLayout.TYPE_PREFIX)) {
-                    String typeId = row.key().substring(QuestPanelLayout.TYPE_PREFIX.length());
-                    ArmatureButton button = control(0, 0, 0, 0, Component.literal(row.label()),
-                            () -> pressQuestAction(row.key()));
-                    button.alignLeft(true).flat(true);
-                    ItemStack icon = pickerIcon(typeId);
-                    if (!icon.isEmpty()) {
-                        button.icon(icon);
-                    }
-                    // A type a table cannot hold stays on the list, drawn blocked with its reason -- the
-                    // same treatment the toolbar's Undo gets when there is nothing to undo. Hiding it
-                    // would leave an author who expected it with no way to find out why it is absent;
-                    // offering it live and refusing the save is what this replaced, and it left them
-                    // with a row in the panel that never reached the file.
-                    String refusal = tableTypeRefusal(typeId);
-                    if (refusal.isEmpty()) {
-                        button.tooltip(pickerTooltip(typeId));
-                    }
-                    else {
-                        button.active = false;
-                        List<Component> lines = new ArrayList<>(pickerTooltip(typeId));
-                        lines.add(Component.literal(refusal));
-                        button.tooltip(List.copyOf(lines));
-                    }
-                    overlayView.put(row.key(), button);
-                }
-            }
-            overlayView.apply(questLayout, body.viewWidth());
-            return;
-        }
+        // The type page hosts no widgets of its own beyond its search box: its rows are drawn by
+        // `drawTypePicker` from the catalogue this editor's registries supply, in the band below -- the
+        // card's own list band, which is the rectangle `drawTableEditor` draws them in. Laying the page
+        // out at `overlayBody()` -- the *quest* card's body, a different rectangle by design -- put the
+        // picker's heading on this card's title line and its first rows behind the toolbar; one band, one
+        // derivation.
+        //
+        // `buildPickerWidgets` is called here for the search box, and its absence was a real fault: the
+        // card's own pass built the box and this one did not, so the table editor's page had a list with
+        // no box over it -- the page half-wired, which is the shape of every "the control is not there"
+        // report this screen has had.
+        buildPickerWidgets();
     }
 
     /**
@@ -14249,37 +14870,11 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         registerTarget(EditAction.TABLE_PREVIEW, "", mode, mode.x() + 2, mode.y() + 3, "", null, -1);
 
-        // The type picker takes the body while it is open: a list of types is a list, and rows are what
-        // lists are made of. The toolbar stays, so the picker is a page of this panel rather than a
-        // replacement for it.
-        if (pickingEntryType != null) {
-            // The frame's own list band: below the toolbar, above the footer. Not `overlayBodyRect()`,
-            // which is the quest card's body -- 14 pixels lower and 6 across from this card's -- and
-            // which drew the picker's heading over the title box, its group headings over the stepper and
-            // its first rows under the toolbar. Clipped to the card as well, because a long row should
-            // stop at the edge rather than run over the chrome.
-            BookGeometry.Rect page = tableEditorFrame.list();
-            if (questLayout != null) {
-                overlayView.apply(questLayout, page.width());
-                try (GuiRenderer.Scoped clip = r.clip(page.x(), page.y(), page.right(),
-                        page.bottom())) {
-                    QuestPanel.drawRows(r, page, overlayView.viewport(), questLayout, questRows,
-                            mouseX, mouseY);
-                }
-                // The list's own bar, outside the clip so it is the full height of the page. The card's
-                // picker page ends with these same three lines; this page did not, which is why the list
-                // stopped at "Server" with no sign that three more types were below the fold.
-                overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
-            }
-            drawTableEditorToolbar(r, mouseX, mouseY, true);
-            drawTableHint(r, tableHint);
-            return;
-        }
 
         drawTableEditorToolbar(r, mouseX, mouseY, true);
 
         if (tableShowRoll) {
-            drawTableRollPane(r);
+            drawTableRollPane(r, mouseX, mouseY);
             drawTableHint(r, tableHint);
             return;
         }
@@ -14292,8 +14887,14 @@ public final class QuestBookScreen extends ArmatureScreen
         // past the end inflates the scroll extent with rows that are drawn nowhere.
         reconcileFolds();
         var folds = tableFolds();
-        tableScroll = Math.max(0, Math.min(tableScroll,
-                dev.ellipog.tasked.client.dev.TableEditorLayout.maxScroll(entries, tableEditorFrame, folds)));
+        // The entries' band, not the list's: the headings do not scroll, so the range, the clamp and the
+        // bar all describe the rows under them. Bound from the same `rows()` rectangle the drawing and
+        // the hit test read, which is what keeps the grip's travel and the list's end one answer.
+        bindList(tableEditorBody, tableEditorBar, tableEditorFrame.rows(),
+                tableEditorFrame.scrollbar(),
+                dev.ellipog.tasked.client.dev.TableEditorLayout.contentHeight(entries, folds),
+                dev.ellipog.tasked.client.dev.TableEditorLayout.ROW_HEIGHT);
+        int tableScroll = tableEditorBody.scrollY();
         drawTableHeadings(r, list);
         // Clipped to the rows' band rather than the list's: the headings are the list's first strip,
         // and a row scrolled up must disappear under them rather than over.
@@ -14313,6 +14914,10 @@ public final class QuestBookScreen extends ArmatureScreen
             r.text("No entries yet - Add item, or drag one in from the recipe viewer.", list.x() + 4,
                     tableEditorFrame.rowsTop() + 4, ArmatureTheme.faint());
         }
+        // The entries' bar, on the band the entries are in rather than on the whole list: the headings
+        // above it do not scroll, and a groove that claimed them would put the grip's ends in the wrong
+        // place by the height of a line.
+        drawBar(r, tableEditorBar, mouseX, mouseY);
         // The Import popover, last of everything: it is the innermost thing on screen while it is open,
         // so it is drawn on top of the list. Its *presses* are asked first rather than last -- see
         // `pressTableEditor` -- because the press scan takes the first target that contains the point,
@@ -14802,7 +15407,7 @@ public final class QuestBookScreen extends ArmatureScreen
      * rather than a trap. The summary is arithmetic, not a text dump: every line says how many times the
      * entry came up and what share of the rolls that is.
      */
-    private void drawTableRollPane(GuiRenderer r) {
+    private void drawTableRollPane(GuiRenderer r, int mouseX, int mouseY) {
         BookGeometry.Rect list = tableEditorFrame.list();
         r.fill(list.x(), list.y(), list.right(), list.bottom(), ArmatureTheme.recessed());
         var held = dev.ellipog.tasked.client.ClientTableRoll.of(tableDescribe());
@@ -14819,7 +15424,13 @@ public final class QuestBookScreen extends ArmatureScreen
                 list.x() + 58, list.y() + 2, ArmatureTheme.faint());
 
         BookGeometry.Rect band = tableEditorFrame.rows();
-        rollScroll = Math.max(0, Math.min(rollScroll, maxRollScroll(held)));
+        // The page's own range and clamp, from the same line count its drawing walks: `maxRollScroll` was
+        // the clamp here and the drawing's `y` was computed from the same pitch, which is the pair this
+        // replaces with one object. A report is a list like any other and it gets a bar like any other --
+        // it is lines of text about a roll, and "there is more below" is exactly what it has to say.
+        bindList(rollBody, rollBar, band, tableEditorFrame.scrollbar(), rollLines(held) * ROLL_PITCH,
+                ROLL_PITCH);
+        int rollScroll = rollBody.scrollY();
         try (GuiRenderer.Scoped clip = r.clip(band.x(), band.y(), band.right(), band.bottom())) {
             int y = band.y() - rollScroll;
             for (var row : held.rows()) {
@@ -14843,12 +15454,14 @@ public final class QuestBookScreen extends ArmatureScreen
                 y += ROLL_PITCH;
             }
         }
+        // The report's own bar, beside the lines rather than over them: the strip is the one the editor's
+        // entries use, so the two views of this panel put their grip in the same column.
+        drawBar(r, rollBar, mouseX, mouseY);
     }
 
-    /** The furthest the roll pane can scroll: every line, the empty band's and the notes'. */
-    private int maxRollScroll(dev.ellipog.tasked.client.ClientTableRoll.Held held) {
-        int lines = held.rows().size() + (held.emptyHits() > 0 ? 1 : 0) + held.notRolled().size();
-        return Math.max(0, lines * ROLL_PITCH - tableEditorFrame.rows().height());
+    /** How many lines the roll report has: every entry, the empty band's, and the notes'. */
+    private static int rollLines(dev.ellipog.tasked.client.ClientTableRoll.Held held) {
+        return held.rows().size() + (held.emptyHits() > 0 ? 1 : 0) + held.notRolled().size();
     }
 
     /**
@@ -14894,8 +15507,9 @@ public final class QuestBookScreen extends ArmatureScreen
     private dev.ellipog.tasked.client.dev.AssetsLayout.Section assetsSection =
             dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES;
 
-    /** How far the page is scrolled. Reset when the section changes, because the content did. */
-    private int assetsScroll;
+    /** The page's scroll, its clamp and its bar as one object. Reset when the section changes. */
+    private final Viewport assetsBody = Viewport.fixed();
+    private final ScrollBar assetsBar = new ScrollBar(assetsBody);
 
     /** The panel's hint line, rebuilt as it draws. */
     private String assetsHint;
@@ -14969,7 +15583,7 @@ public final class QuestBookScreen extends ArmatureScreen
     private void openAssets() {
         closeMenu();
         assetsSection = sectionNamed(ClientWorking.section());
-        assetsScroll = 0;
+        assetsBody.setScrollY(0);
         overlay = Overlay.ASSETS;
         rebuildWidgets();
     }
@@ -14989,7 +15603,7 @@ public final class QuestBookScreen extends ArmatureScreen
     private void showAssets(dev.ellipog.tasked.client.dev.AssetsLayout.Section section) {
         if (assetsSection != section) {
             assetsSection = section;
-            assetsScroll = 0;
+            assetsBody.setScrollY(0);
             ClientWorking.rememberSection(section.name().toLowerCase(java.util.Locale.ROOT));
         }
     }
@@ -15131,12 +15745,6 @@ public final class QuestBookScreen extends ArmatureScreen
         }
     }
 
-    /** The page band's height, or zero before the first frame has built the frame. */
-    private int assetsPageBand() {
-        return assetsFrame == null ? 0 : assetsFrame.rows().height();
-    }
-
-    /** The panel's own pressable list, and its registration: one shape, so the two cannot drift. */
     /** The panel's own pressable list, and its registration: one shape, so the two cannot drift. */
     private void registerAssetTarget(EditAction action, BookGeometry.Rect box, AssetLine line) {
         assetsTargets.add(new EditTarget(action, line.id(), box, box.x() + 2, box.y() + 3, line.label(),                null, assetsTargets.size()));
@@ -15148,15 +15756,17 @@ public final class QuestBookScreen extends ArmatureScreen
         assetsTargets.clear();
         BookGeometry.Rect card = geometry().modal();
         assetsFrame = dev.ellipog.tasked.client.dev.AssetsLayout.Frame.of(card);
-        drawModalCardChrome(r, "Assets", mouseX, mouseY, EditAction.ASSETS_CLOSE);
+        drawModalCardChrome(r, "Assets", mouseX, mouseY, EditAction.ASSETS_CLOSE, assetsTargets);
 
         List<AssetLine> lines = assetsLines();
         // The layout measures lines; a page carries them. One list seen two ways, so what is measured and
         // what is drawn cannot disagree about how tall the page is.
         var kinds = lines.stream().map(AssetLine::kind).toList();
         BookGeometry.Rect band = assetsFrame.rows();
-        assetsScroll = Math.max(0, Math.min(assetsScroll,
-                dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, band.height())));
+        bindList(assetsBody, assetsBar, band, assetsFrame.scrollbar(),
+                dev.ellipog.tasked.client.dev.AssetsLayout.contentHeight(kinds),
+                dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT);
+        int assetsScroll = assetsBody.scrollY();
 
         var sections = dev.ellipog.tasked.client.dev.AssetsLayout.Section.values();
         for (int i = 0; i < sections.length; i++) {
@@ -15179,24 +15789,24 @@ public final class QuestBookScreen extends ArmatureScreen
             }
         }
 
-        BookGeometry.Rect thumb = dev.ellipog.tasked.client.dev.AssetsLayout.thumb(kinds,
-                assetsFrame.scrollbar(), assetsScroll);
-        if (thumb != null) {
-            r.fill(thumb.x(), thumb.y(), thumb.right(), thumb.bottom(), ArmatureTheme.scrollThumb());
-        }
+        // The page's bar, in the strip the layout keeps inside the page's right edge: the grip is drawn
+        // where the rows are not, which is the arrangement the two hand-rolled thumbs here and in the
+        // pickers did not have -- they painted over the last three pixels of every line.
+        drawBar(r, assetsBar, mouseX, mouseY);
 
         // The footer: the page's own action at the left, the way out at the right. Done closes the panel --
-        // one step, which is what every footer in this book now means.
-        BookGeometry.Rect footer = assetsFrame.footer();
-        int rowY = footer.bottom() - BookGeometry.MODAL_INSET - 14;
+        // one step, which is what every footer in this book now means. Both rectangles come from
+        // `AssetsLayout.Footer`, and both are registered in *this panel's* list: this panel presses from
+        // `assetsTargets`, and a control registered in `editTargets` is one no press here can reach --
+        // which is exactly how New table, Done and the header's cross came to do nothing at all.
+        dev.ellipog.tasked.client.dev.AssetsLayout.Footer footer =
+                dev.ellipog.tasked.client.dev.AssetsLayout.Footer.of(assetsFrame);
         if (assetsSection == dev.ellipog.tasked.client.dev.AssetsLayout.Section.TABLES) {
-            BookGeometry.Rect create = BookGeometry.Rect.at(footer.x() + BookGeometry.MODAL_INSET, rowY,
-                    72, 14);
-            drawTableButton(r, create, "New table", mouseX, mouseY, EditAction.ASSETS_NEW);
+            drawTableButton(r, footer.newTable(), "New table", mouseX, mouseY, EditAction.ASSETS_NEW,
+                    assetsTargets);
         }
-        BookGeometry.Rect done = BookGeometry.Rect.at(footer.right() - BookGeometry.MODAL_INSET - 64,
-                rowY, 64, 14);
-        drawTableButton(r, done, Labels.of("tasked.screen.done"), mouseX, mouseY, EditAction.ASSETS_CLOSE);
+        drawTableButton(r, footer.done(), Labels.of("tasked.screen.done"), mouseX, mouseY,
+                EditAction.ASSETS_CLOSE, assetsTargets);
 
         drawTableHint(r, assetsHint);
     }
@@ -15449,10 +16059,10 @@ public final class QuestBookScreen extends ArmatureScreen
                 if (tableShowRoll) {
                     tableShowRoll = false;
                     tableImportOpen = false;
-                    rollScroll = 0;
+                    rollBody.setScrollY(0);
                     return;
                 }
-                rollScroll = 0;
+                rollBody.setScrollY(0);
                 tableShowRoll = true;
                 ClientEditReplies.noteSent(REPLICA_SENTINEL);
                 // The reading the author has selected travels as it stands. It used to travel as a
@@ -15472,7 +16082,7 @@ public final class QuestBookScreen extends ArmatureScreen
                     pushTableEditor(dev.ellipog.tasked.editor.TableAddress.of(nested.tableId().get()));
                 }
             }
-            case TABLE_ADD_REWARD -> openTypePicker("rewards");
+            case TABLE_ADD_REWARD -> openTableTypePick("rewards", "Add a reward to the table");
             default -> {
             }
         }
@@ -15712,11 +16322,22 @@ public final class QuestBookScreen extends ArmatureScreen
         pickerFrame = null;
         itemSearch = null;
         pickerSelected = -1;
-        pickerScroll = 0;
+        pickerBody.setScrollY(0);
         openPickerOverlay();
     }
 
-    /** The icon a table pick's card shows: the table's own, or the entry's item. */
+    /**
+     * The icon a table pick's card shows: the table's own, or the entry's item.
+     *
+     * <h2>What the header's icon means, since it is one derivation for four buttons</h2>
+     *
+     * <p>It is the pick's <b>subject</b>: the icon row shows the icon that will be replaced, an entry's
+     * item field shows the item that will be replaced, and a pick that <i>adds</i> an entry — `+ Item` and
+     * `+ Reward` alike — shows the table it is being added to, because that is the subject there is. It
+     * used to answer {@code EMPTY} for a new entry, so `+ Item` had no icon while `+ Reward` had one, and
+     * the first fix for that took the icon off the reward instead of putting it on the item: two reports
+     * for one line. The fallback below is the half that makes them agree.
+     */
     private ItemStack tablePickSubjectFor(String path, int entryIndex) {
         var model = tableModel();
         if (model.isEmpty()) {
@@ -15730,7 +16351,8 @@ public final class QuestBookScreen extends ArmatureScreen
                         instanceof dev.ellipog.tasked.quest.reward.ItemReward item) {
             return item.item().toStack();
         }
-        return ItemStack.EMPTY;
+        // A new entry: the table, which is what the pick is for.
+        return model.get().displayIcon().toStack();
     }
 
     /** Leaves the picker a table opened: back to the editor, with the pick forgotten. */
@@ -15849,7 +16471,7 @@ public final class QuestBookScreen extends ArmatureScreen
         int at = Double.isNaN(mouseX) || Double.isNaN(mouseY)
                 ? entries
                 : dev.ellipog.tasked.client.dev.TableEditorLayout.dropIndexAt(entries, tableEditorFrame,
-                        tableScroll, mouseX, mouseY, tableFolds());
+                        tableEditorBody.scrollY(), mouseX, mouseY, tableFolds());
         if (at < 0) {
             return false;
         }
@@ -15939,6 +16561,9 @@ public final class QuestBookScreen extends ArmatureScreen
         // Cleared before the item picker closes, because that is what tells it *not* to hand the overlay
         // back to the table editor: this is a exit, not a return.
         tablePickReturn = false;
+        // And the type page's own return flag with it, for the same reason: a stale one would have the
+        // next page of a quest card leaving itself back into a table that is not on screen.
+        typePickReturn = false;
         closeItemPicker();
     }
 
@@ -15962,7 +16587,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // The Assets panel's pressable list, which belongs to the frame that drew it: a list left behind
         // would answer a press on a row that is no longer on screen.
         assetsTargets.clear();
-        assetsScroll = 0;
+        assetsBody.setScrollY(0);
         confirmingDelete = false;
         settingsOpen = false;
         draggingSlider = null;
@@ -16645,6 +17270,9 @@ public final class QuestBookScreen extends ArmatureScreen
         // every animation here testable, and `Motion.tween` for how the client's setting reaches it.
         long now = Util.getMillis();
 
+        // The one gesture here with no event to hang off, and the one release that never arrives.
+        maintainHeldBar(now);
+
         // The book first, always, and a scrim over it when a modal is open. The scrim used to be drawn
         // *only* when no overlay was open, so opening a modal replaced the whole book with a flat dim
         // -- and the request was to keep it: "dont close whats behind them, just have it in the
@@ -16721,9 +17349,11 @@ public final class QuestBookScreen extends ArmatureScreen
         ArmatureTheme.panel(r, card.x(), card.y(), card.width(), card.height(),
                 ArmatureTheme.panel(), ArmatureTheme.panelEdge());
 
-        drawPartyFace(r, partyLeftFace, partyLeftLayout, partyLeftView, partyColumn(true), now);
+        drawPartyFace(r, partyLeftFace, partyLeftLayout, partyLeftView, partyColumn(true), mouseX, mouseY,
+                now);
         if (partyRightFace != null) {
-            drawPartyFace(r, partyRightFace, partyRightLayout, partyRightView, partyColumn(false), now);
+            drawPartyFace(r, partyRightFace, partyRightLayout, partyRightView, partyColumn(false), mouseX,
+                    mouseY, now);
         }
 
         // The roster rows are the left column's own composition rather than `Line`s -- see
@@ -16744,7 +17374,7 @@ public final class QuestBookScreen extends ArmatureScreen
      * cannot leave the clamp measuring the previous window.
      */
     private void drawPartyFace(GuiRenderer r, PartyPanelLayout.Face face, Layout layout,
-                               ScrollView view, Viewport body, long now) {
+                               ScrollView view, Viewport body, int mouseX, int mouseY, long now) {
         if (layout == null) {
             return;
         }
@@ -16785,7 +17415,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
             }
         }
-        view.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, view.bar(), mouseX, mouseY);
     }
 
     /**
@@ -16944,10 +17574,11 @@ public final class QuestBookScreen extends ArmatureScreen
                 && !java.util.Objects.equals(popoverChapter, effectiveChapter())) {
             closeColourPopover();
         }
-        // A picker belongs to the chapter it was opened for: switching chapters under it would aim its
-        // commit at the wrong file, so it closes here rather than at each of the three switch paths.
-        if (colourPopover.isOpen()
-                && !java.util.Objects.equals(popoverChapter, effectiveChapter())) {
+        // And it belongs to the chip it was opened from: a row scrolled out of the drawer's viewport
+        // would leave the picker anchored to a chip that is no longer drawn, floating over whatever is
+        // there instead. The same `onScreen` derivation the chip's own press uses, so the two agree about
+        // where the chip is -- and only when the chip's row is no longer on screen at all.
+        if (colourPopover.isOpen() && !chipOnScreen(popoverToken)) {
             closeColourPopover();
         }
         if (toolsTab == ToolsLayout.Tab.CHAPTER) {
@@ -17014,9 +17645,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // drew -- the book tab's `toolsRows`, the chapter's appearance rows -- and `helpAt` reads the
         // same layout and viewport the drawing just used, so the sentence belongs to the row the
         // pointer is over, scrolled or not. A row with no help says itself, and `helpAt` answers null.
-        List<ToolsLayout.Action> activeRows =
-                toolsTab == ToolsLayout.Tab.CHAPTER ? chapterAppearanceRows : toolsRows;
-        ToolsLayout.Hovered hovered = ToolsLayout.helpAt(activeRows, activeLayout(),
+        ToolsLayout.Hovered hovered = ToolsLayout.helpAt(activeRows(), activeLayout(),
                 toolsView.viewport(), mouseX, mouseY);
         if (hovered != null && inTools(mouseX, mouseY)) {
             rowTooltips.add(new RowTooltip(
@@ -17048,7 +17677,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // The bar, from the kit's own rectangles and drawn only when there is more than fits -- the same
         // call the sidebar and the party panel make. It was missing entirely, which left a list that
         // scrolled with nothing on screen saying so.
-        toolsView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, toolsView.bar(), mouseX, mouseY);
     }
 
     private void drawBook(GuiRenderer r, int mouseX, int mouseY, long now) {
@@ -17141,10 +17770,16 @@ public final class QuestBookScreen extends ArmatureScreen
                 ArmatureTheme.panelEdge());
 
         // The sidebar's scrollbar. Drawn here rather than by the widget pass, because it is chrome
-        // rather than a widget -- though it *is* clickable, and `mouseClicked`/`mouseDragged` route its
-        // drag through the same ScrollView. Every number it needs comes from the viewport, so the thumb
+        // rather than a widget -- though it *is* clickable, and a press on it is captured by `pressBar`
+        // like every other bar in this screen. Every number it needs comes from the viewport, so the grip
         // and the rows it describes come from one object.
-        drawSidebarScrollbar(r);
+        //
+        // **Drawn whether or not a modal is open, and only pressable when none is** -- which is the same
+        // rule the rows themselves follow. The book stays on screen behind a card on purpose (the request
+        // was "dont close whats behind them, just have it in the background"), so the whole of it is drawn
+        // and the whole of it is inert; a bar that vanished while its own rows stayed would be the one
+        // part of the sidebar that behaved differently from the rest of it.
+        drawSidebarScrollbar(r, mouseX, mouseY);
 
         // The party strip, drawn here beside the sidebar's scrollbar because it is chrome rather than
         // content: it describes the player's own situation, not the questline on screen, so no chapter's
@@ -17872,13 +18507,16 @@ public final class QuestBookScreen extends ArmatureScreen
     /** One styled line along a path that is already computed, with the arrowhead gaps the caller wants. */
     private static void drawStyledPath(GuiRenderer r, List<LineArt.Point> path, DependencyStyle style,
                                        int fromHalf, int toHalf, int colour) {
-        for (LineArt.Fill fill : LineArt.fills(path, style.weightOr(DependencyStyle.Weight.THIN),
+        DependencyStyle.Weight weight = style.weightOr(DependencyStyle.Weight.THIN);
+        for (LineArt.Fill fill : LineArt.fills(path, weight,
                 style.dashOr(DependencyStyle.Dash.SOLID))) {
             r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), MenuFlyoutArt.ink(fill.tone(), colour));
         }
+        // The head is drawn at the line's own weight: a six-pixel conduit ending in a hairline arrow was
+        // the report, and the head's standoff and reach grow with the weight so it still clears its node.
         for (LineArt.Fill fill : LineArt.arrows(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
                 style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(),
-                fromHalf, toHalf)) {
+                fromHalf, toHalf, weight)) {
             r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), colour);
         }
     }
@@ -18419,7 +19057,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
             }
         }
-        choiceView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, choiceView.bar(), mouseX, mouseY);
     }
 
     /**
@@ -18485,15 +19123,15 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * The card's controls: an accordion of waiting quests, Claim all, and Back.
+     * The card's controls: a chapter accordion, its quests, their rewards, Claim all, and Back.
      *
-     * <h2>One button per row, in the strip the layout reserved</h2>
+     * <h2>One button per row, in the action column the layout reserved</h2>
      *
      * <p>The shape the tools panel's switches use: the row itself is drawn by {@link #drawRewardsOverlay},
-     * and its button is placed in the strip outside the row's narrowed slot. A header's <b>body</b> is
-     * the accordion's handle and is hit-tested by {@link #toggleRewardHeader} — so the press a widget
-     * did not take is the press the row handles, and a click on Claim Quest can never also fold the row
-     * it belongs to.
+     * and its button is placed in the action column outside the row's narrowed slot. A banner's or a
+     * header's <b>body</b> is the accordion's handle and is hit-tested by {@link #toggleRewardRow} — so
+     * the press a widget did not take is the press the row handles, and a click on Claim Chapter can
+     * never also fold the row it belongs to.
      *
      * <h2>Status is the client's answer, not the client's decision</h2>
      *
@@ -18501,49 +19139,77 @@ public final class QuestBookScreen extends ArmatureScreen
      * recomputes the same answer when the press arrives. A row that is already collected or gated is
      * drawn with a disabled button rather than no button: it is still part of what the quest gives, and
      * hiding it would make the accordion change shape as the player collects.
+     *
+     * <h2>Three levels, and the state decides what is in them</h2>
+     *
+     * <p>Chapters in the book's declared order, the quests of an expanded one, and the rewards of an
+     * expanded quest. A container is listed when something inside it passed
+     * {@link RewardInboxLayout.State#accepts} — so the Claimed view shows the chapters a player actually
+     * collected from, rather than a banner for every chapter in the book with nothing under it.
+     *
+     * <h2>Why the card is built before the rows and sized after them</h2>
+     *
+     * <p>The rows have to be measured at the width the card will actually be, and the card's height
+     * comes from the rows. That is only possible because the card's width does not depend on its height
+     * — the invariant {@code wideModalFramed} documents — so the width is asked for first with the
+     * height unknown, the rows are built at it, and the card is then sized to what they came to.
      */
     private void buildRewardWidgets() {
         rewardRows = List.of();
         rewardLayout = null;
-        UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+        rewardCard = null;
+        questRewardCells.clear();
+        rewardListed = 0;
+        UUID self = selfId();
 
         List<RewardInboxLayout.Row> rows = new ArrayList<>();
-        for (ClientQuestCache.Entry entry : visibleQuests()) {
-            if (entry.rewards().size() == 1) {
-                // One reward in the definition: one row, the reward inline, one Claim. Never decided
-                // from what is left outstanding -- a row that collapsed to a single line the moment a
-                // child was claimed would move every row below it under the player's pointer.
-                rows.add(singleRow(self, entry));
-                continue;
-            }
-            int waiting = self == null ? 0 : ClientQuestCache.outstandingRewards(self, entry.id());
-            rows.add(RewardInboxLayout.Row.quest(entry.id(), titleOf(entry), waiting));
-            if (!expandedRewards.contains(entry.id())) {
-                continue;
-            }
-            for (int index = 0; index < entry.rewards().size(); index++) {
-                // Claimed children are not shown: this is a tray for what is still owed, not a history
-                // of what has been collected, and a pack played for twenty hours would otherwise fill
-                // the card with dead rows to scroll past. The row kind does not depend on this, so
-                // nothing moves when one goes.
-                if (self != null && ClientQuestCache.rewardClaimedBy(self, entry.id(), index)) {
-                    continue;
+        int ordinal = 0;
+        for (Map.Entry<String, String> chapter : chapters().entrySet()) {
+            ordinal++;
+            String chapterId = chapter.getKey();
+            List<RewardInboxLayout.Row> inside = new ArrayList<>();
+            if (self != null) {
+                for (ClientQuestCache.Entry entry : questsIn(chapterId)) {
+                    if (entry.rewards().isEmpty()) {
+                        continue;
+                    }
+                    // One walk per quest, read twice: the details column and the fold. See
+                    // `questRewardCells`.
+                    List<RewardInboxLayout.Row> leaves = rewardCells(self, chapterId, entry);
+                    if (leaves.isEmpty()) {
+                        continue;
+                    }
+                    questRewardCells.put(entry.id(), leaves);
+                    rewardListed += leaves.size();
+                    inside.addAll(questRows(chapterId, entry, leaves));
                 }
-                rows.add(rewardInboxRow(self, entry, index));
+            }
+            if (inside.isEmpty()) {
+                continue;
+            }
+            rows.add(RewardInboxLayout.Row.chapter(chapterId,
+                    chapterLabel(ordinal, chapterId, chapter.getValue()), chapterProgress(chapterId),
+                    tallyOf(chapterId),
+                    containerStatus(RewardInboxLayout.chapterKey(chapterId), inside)));
+            if (expandedChapters.contains(chapterId)) {
+                rows.addAll(inside);
             }
         }
         rewardRows = List.copyOf(rows);
 
-        Viewport body = overlayBody();
-        rewardLayout = RewardInboxLayout.build(rewardRows, body.viewWidth(), Measure.monospace(6, 9));
+        int cardWidth = geometry().wideModalFramed(0, REWARDS_CARD_WIDTH).width();
+        rewardLayout = RewardInboxLayout.build(rewardRows, rewardBodyWidth(cardWidth),
+                Measure.monospace(6, 9));
+        rewardCard = geometry().wideModalFramed(REWARDS_BODY_TOP + rewardLayout.height(),
+                REWARDS_CARD_WIDTH);
+        Viewport body = rewardBody();
+
         rewardView.clear();
         rewardView.whole(true);
         rewardView.viewport().bounds(body.originX(), body.originY(), body.viewWidth(),
                 body.viewHeight());
         for (RewardInboxLayout.Row row : rewardRows) {
-            ArmatureButton button = control(0, 0, 0, 0, buttonLabel(row), row.expands()
-                    ? () -> claimQuestFromInbox(row.questId())
-                    : () -> claimReward(row.questId(), row.rewardIndex()));
+            ArmatureButton button = control(0, 0, 0, 0, buttonLabel(row), rowPress(row));
             // A real button face rather than flat text: every row here is a click target, and a bare
             // label reads as status text until the pointer happens to find it.
             if (!row.pressable()) {
@@ -18556,18 +19222,19 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         rewardView.apply(rewardLayout, body.viewWidth());
 
-        buildRewardFilterChips();
+        buildRewardStateChips();
 
         // The footer: the sweep where the reader's Submit sits, Back where every card's does, and the
-        // sweep's label and reach follow the active chip. `hasSubmit` is true because this card has a
-        // left-hand control, which is the flag's whole meaning -- the two rectangles come from one
-        // arithmetic and stack rather than collide on a narrow window.
-        Map<String, BookGeometry.Rect> controls = geometry().overlayControls(true);
+        // sweep's label and reach follow the active state. `hasSubmit` is true only while there is
+        // something a sweep could take -- the Claimed view is a history, and a sweep over it would be a
+        // button whose only answer is no, drawn where every other card puts its primary action.
+        Map<String, BookGeometry.Rect> controls =
+                geometry().questFooter(rewardCard, rewardState.filter() != null);
         ArmatureButton all = control(controls.get("submit"), footerClaimLabel(),
-                () -> claimAllRewards(rewardFilter));
+                () -> claimAllRewards(rewardState.filter()));
         if (all != null) {
             List<Component> tip = new ArrayList<>();
-            tip.add(Component.translatable(rewardFilter == ClaimFilter.ALL
+            tip.add(Component.translatable(rewardState == RewardInboxLayout.State.READY
                     ? "tasked.screen.collects_everything_the_server_is_holding"
                     : "tasked.screen.collects_only_what_the_filter_shows"));
             // One flag for the whole record, so the sweep asks once rather than per row.
@@ -18583,92 +19250,228 @@ public final class QuestBookScreen extends ArmatureScreen
         }
     }
 
+    /**
+     * One quest's rows, from the rewards already admitted for it.
+     *
+     * <p>Empty when nothing inside the quest belongs in the current view, which is what makes a chapter
+     * of untouched quests contribute no rows rather than a run of headers with nothing under them.
+     */
+    private List<RewardInboxLayout.Row> questRows(String chapterId, ClientQuestCache.Entry entry,
+                                                  List<RewardInboxLayout.Row> leaves) {
+        if (entry.rewards().size() == 1) {
+            // One reward in the definition: one row, the reward in the details column, one Claim. Never
+            // decided from what is left outstanding -- a row that collapsed to a single line the moment
+            // a child was claimed would move every row below it under the player's pointer.
+            return List.of(singleRow(chapterId, entry, leaves.get(0).status()));
+        }
+
+        List<RewardInboxLayout.Row> out = new ArrayList<>();
+        out.add(RewardInboxLayout.Row.quest(chapterId, entry.id(), titleOf(entry), leaves.size(),
+                questProgress(entry.id()),
+                containerStatus(RewardInboxLayout.questKey(entry.id()), leaves)));
+        if (expandedQuests.contains(entry.id())) {
+            out.addAll(leaves);
+        }
+        return out;
+    }
+
+    /**
+     * A quest's rewards as rows, for the rewards the active view admits.
+     *
+     * <p>One walk, read twice: it is what the fold lists and what the details column draws, which is why
+     * the column shows a folded quest's rewards rather than going blank until it is opened.
+     */
+    private List<RewardInboxLayout.Row> rewardCells(UUID self, String chapterId,
+                                                    ClientQuestCache.Entry entry) {
+        List<RewardInboxLayout.Row> out = new ArrayList<>();
+        for (int index = 0; index < entry.rewards().size(); index++) {
+            RewardInboxLayout.Status status = statusOf(self, entry, index);
+            if (rewardState.accepts(status, isChoiceType(entry.rewards().get(index).type()))) {
+                out.add(rewardInboxRow(chapterId, entry, index, status));
+            }
+        }
+        return out;
+    }
+
+    /** This client's player, or null before there is one — a headless client, or a screen built early. */
+    private UUID selfId() {
+        return minecraft.player == null ? null : minecraft.player.getUUID();
+    }
+
+    /**
+     * A container row's status, from the leaves it holds.
+     *
+     * <p>Ready when anything inside it is: the press takes the whole container, so its button is live
+     * exactly when there is something for it to take. A press already in flight reads collected — the
+     * optimistic half every row has — and a container whose leaves are all collected reads collected
+     * too, so the Claimed view's banners are not drawn as though they were still owed.
+     *
+     * <p>The fallback is collected rather than locked, and that is exact rather than a guess: a locked
+     * leaf is admitted by no state at all, so a container with rows in it holds ready, pending or
+     * collected ones and nothing else.
+     */
+    private RewardInboxLayout.Status containerStatus(String key, List<RewardInboxLayout.Row> leaves) {
+        if (pendingClaims.contains(key)) {
+            return RewardInboxLayout.Status.PENDING;
+        }
+        for (RewardInboxLayout.Row leaf : leaves) {
+            if (leaf.status() == RewardInboxLayout.Status.READY) {
+                return RewardInboxLayout.Status.READY;
+            }
+        }
+        return RewardInboxLayout.Status.CLAIMED;
+    }
+
+    /** What a row's action does. */
+    private Runnable rowPress(RewardInboxLayout.Row row) {
+        return switch (row.kind()) {
+            case CHAPTER -> () -> claimChapterFromInbox(row.chapterId());
+            case QUEST -> () -> claimQuestFromInbox(row.questId());
+            case SINGLE, REWARD -> () -> claimReward(row.questId(), row.rewardIndex());
+        };
+    }
+
+    /** A quest's own progression: how many of its tasks are done, over how many it asks for. */
+    private static ChapterProgress questProgress(String questId) {
+        return new ChapterProgress(ClientQuestCache.tasksComplete(questId),
+                ClientQuestCache.tasksTotal(questId));
+    }
+
+    /** A chapter's completion, from the cache the sidebar's ring and the header's summary share. */
+    private ChapterProgress chapterProgress(String chapterId) {
+        return chapterCounts().byChapter().getOrDefault(chapterId, ChapterProgress.EMPTY);
+    }
+
+    /**
+     * A chapter's banner title: its ordinal, its title, and the group it belongs to.
+     *
+     * <p>The ordinal is the chapter's position in the book's declared order, and it earns its place for
+     * the reason the menu groups by chapter at all: two chapters can hold a quest of the same name —
+     * "Craft a Crafting Table" is the obvious one — and the number is what tells a reader which section
+     * they are in when a banner has scrolled to the top of the list.
+     *
+     * <p>The group is a faint prefix rather than a fourth accordion level: it is context, not a thing to
+     * fold, and a book with no groups draws exactly the same banner without it.
+     */
+    private String chapterLabel(int ordinal, String chapterId, String title) {
+        String numbered = ordinal + " \u00b7 " + title;
+        String group = groupTitleOf(chapterId);
+        return group.isEmpty() ? numbered : group + " \u203a " + numbered;
+    }
+
+    /** The title of the group a chapter hangs under, or empty for a chapter that belongs to none. */
+    private static String groupTitleOf(String chapterId) {
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            if (!chapter.id().equals(chapterId)) {
+                continue;
+            }
+            if (chapter.groupId().isEmpty()) {
+                return "";
+            }
+            for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
+                if (group.id().equals(chapter.groupId())) {
+                    return group.title();
+                }
+            }
+            return "";
+        }
+        return "";
+    }
+
+    /** The body's width for a card of this width: what the card holds inside its insets. */
+    private static int rewardBodyWidth(int cardWidth) {
+        return Math.max(0, cardWidth - BookGeometry.MODAL_INSET * 2);
+    }
+
+    /**
+     * The claim menu's body, from the card last built.
+     *
+     * <p>Its own rather than {@link #overlayBody()}'s, because this card is its own rectangle: the menu
+     * is wider than the modal and its header band is taller, since it carries the state toggles. The
+     * shape of the arithmetic is the overlay's — an inset at the sides, a stop above and a stop below —
+     * so the two bodies are read the same way even though they are different rectangles.
+     */
+    private Viewport rewardBody() {
+        BookGeometry.Rect card = rewardCard;
+        return rewardView.viewport().bounds(
+                card.x() + BookGeometry.MODAL_INSET,
+                card.y() + REWARDS_BODY_TOP,
+                rewardBodyWidth(card.width()),
+                Math.max(0, card.height() - REWARDS_BODY_TOP - BookGeometry.MODAL_CHROME));
+    }
+
     /** The filter chips, right-aligned in the card's header band. */
-    private void buildRewardFilterChips() {
-        ClaimFilter[] filters = ClaimFilter.values();
-        int chipHeight = 16;
-        int chipWidth = 56;
+    private void buildRewardStateChips() {
+        RewardInboxLayout.State[] states = RewardInboxLayout.State.values();
+        int chipHeight = STATE_CHIP_HEIGHT;
+        int chipWidth = stateChipWidth();
         int gap = 4;
-        int y = overlayTop() + 15;
-        int right = overlayLeft() + overlayWidth() - 12;
-        if (right - (filters.length * chipWidth + (filters.length - 1) * gap)
-                < overlayLeft() + 14 + 60) {
-            // A card too narrow to hold the title and the chips: the chips go rather than the title,
-            // because a filter row squeezed against a truncated word is a row nobody can read. The
-            // list still works unfiltered; the chips come back when the window does.
+        // Under the two lines of title and above the rule, from the same number the rule is drawn at.
+        int y = rewardCard.y() + REWARDS_BODY_TOP - STATE_CHIP_HEIGHT - STATE_CHIP_GAP;
+        int right = rewardCard.right() - BookGeometry.MODAL_INSET;
+        int titleRoom = 90;
+        if (right - (states.length * chipWidth + (states.length - 1) * gap)
+                < rewardCard.x() + BookGeometry.MODAL_INSET + titleRoom) {
+            // A card too narrow to hold the title and the toggles: the toggles go rather than the title,
+            // because a row of chips squeezed against a truncated word is a row nobody can read. The
+            // list still works in whichever state it is in; the chips come back when the window does.
             return;
         }
-        for (int i = 0; i < filters.length; i++) {
-            ClaimFilter filter = filters[i];
-            int x = right - (filters.length - i) * chipWidth - (filters.length - 1 - i) * gap;
-            ArmatureButton chip = control(x, y, chipWidth, chipHeight, filterLabel(filter),
-                    () -> setRewardFilter(filter));
-            chip.selected(filter == rewardFilter);
+        for (int i = 0; i < states.length; i++) {
+            RewardInboxLayout.State state = states[i];
+            int x = right - (states.length - i) * chipWidth - (states.length - 1 - i) * gap;
+            ArmatureButton chip = control(x, y, chipWidth, chipHeight, stateLabel(state),
+                    () -> setRewardState(state));
+            chip.selected(state == rewardState);
         }
     }
 
-    /** A press on a chip: the list narrows, and the footer follows it. */
-    private void setRewardFilter(ClaimFilter filter) {
-        if (rewardFilter == filter) {
+    /**
+     * How wide one state toggle is: the longest of the three labels, plus its padding.
+     *
+     * <p>Measured rather than picked, which is the rule the rest of this file's chips arrived at the
+     * hard way: a fixed width that happens to fit "Choices" truncates "Choices pending", and a truncated
+     * toggle reads as a control whose label nobody finished. The stand-in measure is the one every
+     * layout in this screen is built with, so the chip and the rows agree about how wide a character is.
+     */
+    private static int stateChipWidth() {
+        Measure measure = Measure.monospace(6, 9);
+        int widest = 0;
+        for (RewardInboxLayout.State state : RewardInboxLayout.State.values()) {
+            widest = Math.max(widest, measure.width(stateLabel(state).getString()));
+        }
+        return widest + 12;
+    }
+
+    /** A press on a toggle: the list narrows, and the footer follows it. */
+    private void setRewardState(RewardInboxLayout.State state) {
+        if (rewardState == state) {
             return;
         }
-        rewardFilter = filter;
+        rewardState = state;
         rewardView.scrollTo(0);
         rebuildWidgets();
     }
 
-    private static Component filterLabel(ClaimFilter filter) {
-        return Component.translatable(switch (filter) {
-            case ALL -> "tasked.screen.rewards.filter_all";
-            case ITEMS -> "tasked.screen.rewards.filter_items";
-            case CHOICES -> "tasked.screen.rewards.filter_choices";
-        });
-    }
-
-    /** The footer button's label, which says exactly what the press will reach. */
-    private Component footerClaimLabel() {
-        return Component.translatable(switch (rewardFilter) {
-            case ALL -> "tasked.screen.rewards.claim_all";
-            case ITEMS -> "tasked.screen.rewards.claim_items";
-            case CHOICES -> "tasked.screen.rewards.choose_all";
+    /** What one toggle says. */
+    private static Component stateLabel(RewardInboxLayout.State state) {
+        return Component.translatable(switch (state) {
+            case READY -> "tasked.screen.rewards.state_ready";
+            case CHOICES -> "tasked.screen.rewards.state_choices";
+            case CLAIMED -> "tasked.screen.rewards.state_claimed";
         });
     }
 
     /**
-     * The quests the card is showing: the waiting ones, narrowed by the active chip.
+     * The footer button's label, which says exactly what the press will reach.
      *
-     * <p>The same classification the server's sweep uses, mirrored by reward type — a chip that listed
-     * one set while the footer button claimed another would be one control disagreeing with itself.
+     * <p>Two arms rather than three, and that is the state enum's doing rather than an omission: a sweep
+     * exists only in the views that have something to sweep, so the Claimed view draws no footer button
+     * at all and there is no third label to write.
      */
-    private List<ClientQuestCache.Entry> visibleQuests() {
-        UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
-        List<ClientQuestCache.Entry> out = new ArrayList<>();
-        for (ClientQuestCache.Entry entry : claimableQuests()) {
-            if (rewardFilter == ClaimFilter.ALL || shows(self, entry)) {
-                out.add(entry);
-            }
-        }
-        return List.copyOf(out);
-    }
-
-    /** Whether this quest has an outstanding reward the active chip is about. */
-    private boolean shows(UUID self, ClientQuestCache.Entry entry) {
-        for (int index = 0; index < entry.rewards().size(); index++) {
-            if (!ClientQuestCache.canClaimReward(self, entry, index)) {
-                continue;
-            }
-            String type = entry.rewards().get(index).type();
-            if (rewardFilter == ClaimFilter.CHOICES ? isChoiceType(type) : isItemType(type)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** The reward types that hand over an item — the item reward, and the tables that can roll one. */
-    private static boolean isItemType(String type) {
-        return "tasked:item".equals(type) || "tasked:random".equals(type)
-                || "tasked:loot".equals(type) || "tasked:all_table".equals(type);
+    private Component footerClaimLabel() {
+        return Component.translatable(rewardState == RewardInboxLayout.State.CHOICES
+                ? "tasked.screen.rewards.choose_all" : "tasked.screen.rewards.claim_all");
     }
 
     /** The one type that asks a question instead of handing something over. */
@@ -18682,6 +19485,10 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>Asked of {@code ClientQuestCache.canClaimFor} rather than derived from a state: that is the same
      * question the reader's Claim button asks, so the panel and the button cannot disagree about what is
      * waiting -- and it is per player, so a teammate having collected their copy does not hide this one's.
+     *
+     * <p>Not the menu's row list any more — the menu groups by chapter and admits rows by the active
+     * state, which is {@link #buildRewardWidgets}. This is the header's question: whether anything at all
+     * is waiting, so the button that opens the menu can say so before it is pressed.
      */
     private List<ClientQuestCache.Entry> claimableQuests() {
         UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
@@ -18700,26 +19507,62 @@ public final class QuestBookScreen extends ArmatureScreen
     /**
      * The sweep: one press, and the server walks the book with the same test the single claim uses.
      *
-     * <p>The filter travels with it, so "Claim items" claims items — the button's label is a promise,
-     * and the server is the side that keeps it.
+     * <p>The view's filter travels with it, so a view of choices claims choices — the button's label is
+     * a promise, and the server is the side that keeps it. Never called with a null filter: the Claimed
+     * view draws no sweep, so there is nothing to press.
      */
     private static void claimAllRewards(ClaimFilter filter) {
         ArmatureNetwork.sendToServer(new ClaimAllPayload(filter));
     }
 
-    /** The one row of a quest whose definition holds exactly one reward. */
-    private RewardInboxLayout.Row singleRow(UUID self, ClientQuestCache.Entry entry) {
-        int index = 0;
-        ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
-        // A count is drawn only when the row is a number of things: for an item that is "x16", and for
-        // the count-shaped types it is already inside the sentence ("5 XP").
-        int count = reward.hasItem() ? reward.count() : 0;
-        return RewardInboxLayout.Row.single(entry.id(), titleOf(entry), index, count,
-                statusOf(self, entry.id(), index));
+    /**
+     * The banner's press: the whole chapter's rewards, marked collected until the server answers.
+     *
+     * <p>Every reward row of every quest in the chapter goes pending with the banner, for the reason the
+     * quest's own press marks its children: a banner reading collected while the rows under it still
+     * offered their own buttons would be the card disagreeing with itself about one press.
+     *
+     * <p>The chapter's quests are walked from the tree rather than from the built rows, because the rows
+     * hold only what the active state admits — and the press takes what the server will pay, which is a
+     * question the view does not get to answer.
+     *
+     * <p>The view's filter travels with it, for the reason the footer's does: a banner drawn in a view
+     * of choices must not reach past what the player can see. The record normalises the null the Claimed
+     * view would send, and that view draws no pressable banner to send it from.
+     */
+    private void claimChapterFromInbox(String chapterId) {
+        pendingClaims.add(RewardInboxLayout.chapterKey(chapterId));
+        for (ClientQuestCache.Entry entry : questsIn(chapterId)) {
+            pendingClaims.add(RewardInboxLayout.questKey(entry.id()));
+            for (int index = 0; index < entry.rewards().size(); index++) {
+                markPending(entry.id(), index);
+            }
+        }
+        rebuildWidgets();
+        ArmatureNetwork.sendToServer(new ClaimChapterPayload(chapterId, rewardState.filter()));
+        Constants.LOG.debug("tasked: asked the server for every reward in chapter {}", chapterId);
     }
 
-    /** One reward's inbox row, with the status this player's copy of it is in. */
-    private RewardInboxLayout.Row rewardInboxRow(UUID self, ClientQuestCache.Entry entry, int index) {
+    /** The one row of a quest whose definition holds exactly one reward. */
+    /**
+     * The one row of a quest whose definition holds exactly one reward.
+     *
+     * <p>Its reward is the row's own, and the count is drawn only when the row is a number of things:
+     * for an item that is "x16", and for the count-shaped types it is already inside the sentence
+     * ("5 XP").
+     */
+    private RewardInboxLayout.Row singleRow(String chapterId, ClientQuestCache.Entry entry,
+                                            RewardInboxLayout.Status status) {
+        int index = 0;
+        ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
+        int count = reward.hasItem() ? reward.count() : 0;
+        return RewardInboxLayout.Row.single(chapterId, entry.id(), titleOf(entry), index, count,
+                questProgress(entry.id()), status);
+    }
+
+    /** One reward's menu row, with the status this player's copy of it is in. */
+    private RewardInboxLayout.Row rewardInboxRow(String chapterId, ClientQuestCache.Entry entry,
+                                                 int index, RewardInboxLayout.Status status) {
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
         // A missing item is named for what it is, not by the id it was written as. The id is the
         // author's to act on and the row is the player's to read; the picker is where the id belongs.
@@ -18728,37 +19571,50 @@ public final class QuestBookScreen extends ArmatureScreen
                 ? Component.translatable("tasked.screen.missing_item").getString()
                 : rowText("rewards", reward);
         int count = reward.hasItem() ? reward.count() : 0;
-        return RewardInboxLayout.Row.reward(entry.id(), index, label, count,
-                statusOf(self, entry.id(), index));
+        return RewardInboxLayout.Row.reward(chapterId, entry.id(), index, label, count, status);
     }
 
-    /** Where one reward stands for this player, including a press still in flight. */
-    private RewardInboxLayout.Status statusOf(UUID self, String questId, int index) {
-        if (pendingClaims.contains(RewardInboxLayout.rewardKey(questId, index))) {
+    /**
+     * Where one reward stands for this player, including a press still in flight.
+     *
+     * <p>Asked with the entry already in hand, because the claim menu asks it once per reward of every
+     * visible quest on every frame — see {@code ClientQuestCache.rewardClaimedBy}'s entry overload for
+     * what the id lookup would cost at that rate.
+     */
+    private RewardInboxLayout.Status statusOf(UUID self, ClientQuestCache.Entry entry, int index) {
+        if (pendingClaims.contains(RewardInboxLayout.rewardKey(entry.id(), index))) {
             return RewardInboxLayout.Status.PENDING;
         }
-        if (self != null && ClientQuestCache.rewardClaimedBy(self, questId, index)) {
+        if (self != null && ClientQuestCache.rewardClaimedBy(self, entry, index)) {
             return RewardInboxLayout.Status.CLAIMED;
         }
-        if (!ClientQuestCache.canClaimReward(self, questId, index)) {
+        if (!ClientQuestCache.canClaimReward(self, entry, index)) {
             // The same predicate the badge counts with: a row is gated exactly when the cache says
-            // this player could not take it, so the header's count and its rows cannot disagree.
+            // this player could not take it, so the banner's count and its rows cannot disagree.
             return RewardInboxLayout.Status.LOCKED;
         }
         return RewardInboxLayout.Status.READY;
     }
 
-    /** What a row's strip button says: its action while it has one, its state once it does not. */
+    /**
+     * What a row's action button says: its action while it has one, its state once it does not.
+     *
+     * <p>The action is named by the row's kind rather than by whether it folds, which is what the two
+     * kinds of accordion need: a banner and a quest header both fold, and a button that said "Claim
+     * Quest" on a chapter would be the card naming the wrong rung of its own ladder.
+     */
     private Component buttonLabel(RewardInboxLayout.Row row) {
         if (!row.pressable()) {
             return Component.translatable(row.status() == RewardInboxLayout.Status.LOCKED
                     ? "tasked.viewer.locked" : "tasked.viewer.claimed");
         }
-        if (row.expands()) {
-            return Component.translatable("tasked.screen.rewards.claim_quest");
-        }
-        return Component.translatable(isChoiceReward(row.questId(), row.rewardIndex())
-                ? "tasked.screen.rewards.choose" : "tasked.screen.rewards.claim_row");
+        return switch (row.kind()) {
+            case CHAPTER -> Component.translatable("tasked.screen.rewards.claim_chapter");
+            case QUEST -> Component.translatable("tasked.screen.rewards.claim_quest");
+            case SINGLE, REWARD -> Component.translatable(
+                    isChoiceReward(row.questId(), row.rewardIndex())
+                            ? "tasked.screen.rewards.choose" : "tasked.screen.rewards.claim_row");
+        };
     }
 
     /** Whether the reward at this position is a choice, so its button says a picker opens. */
@@ -18822,20 +19678,24 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Folds or unfolds one quest's rewards, from a press on its header's body.
+     * Folds or unfolds a chapter's quests, or a quest's rewards, from a press on the row's body.
      *
      * <p>Asked of the layout rather than of a rectangle written here — the same contract as every other
-     * press in this screen, so what is hit-tested is what was drawn.
+     * press in this screen, so what is hit-tested is what was drawn. Only the two accordion kinds are
+     * tested: a single row has nothing to fold, and a reward row has nothing under it.
+     *
+     * <p>The two folds are separate sets, so opening a chapter does not open every quest in it. That is
+     * the difference between a menu a player can read and one that unfolds to forty rows the first time
+     * it is touched.
      */
-    private boolean toggleRewardHeader(double mouseX, double mouseY) {
+    private boolean toggleRewardRow(double mouseX, double mouseY) {
         if (rewardLayout == null || !rewardView.viewport().containsScreen(mouseX, mouseY)) {
-            // Outside the list's own rectangle: a header scrolled under the card's header or footer is
+            // Outside the list's own rectangle: a row scrolled under the card's header or footer is
             // clipped away, and a press there is the card's, not a hidden row's.
             return false;
         }
         for (RewardInboxLayout.Row row : rewardRows) {
             if (!row.expands()) {
-                // Only an accordion handle folds; a single row has nothing to open.
                 continue;
             }
             Slot slot = rewardLayout.slot(row.key());
@@ -18846,8 +19706,10 @@ public final class QuestBookScreen extends ArmatureScreen
             if (!onScreen.contains(mouseX, mouseY)) {
                 continue;
             }
-            if (!expandedRewards.remove(row.questId())) {
-                expandedRewards.add(row.questId());
+            Set<String> open = row.isChapter() ? expandedChapters : expandedQuests;
+            String id = row.isChapter() ? row.chapterId() : row.questId();
+            if (!open.remove(id)) {
+                open.add(id);
             }
             rebuildWidgets();
             return true;
@@ -18855,93 +19717,98 @@ public final class QuestBookScreen extends ArmatureScreen
         return false;
     }
 
-    /** One reward's inbox row, with the status this player's copy of it is in. */
-    /** What a row's strip button says: its action while it has one, its state once it does not. */
     /**
-     * Asks the server for one reward, and marks its row collected until the answer comes.
+     * The claim menu: the chapters, their quests, their rewards, and the controls that collect them.
      *
-     * <p>The optimistic half lives here and only here, and it is safe because an answer always comes:
-     * every claim handler sends a progress sync whether or not it paid, and the sync clears
-     * {@link #pendingClaims} and rebuilds. The worst a refusal produces is a row that reads collected
-     * for one round trip and then goes back — and the alternative, a row that shows nothing until the
-     * packet returns, reads as a press that did not register.
-     */
-    /**
-     * Marks one reward's row collected until the server answers.
-     *
-     * <p>Except a choice: the press does not collect it — it opens the card that asks the player which
-     * entry they want — so a choice row that read collected while its card was open would be the card
-     * promising a payout that has not happened. The pick marks it, through the sync that follows the
-     * answer.
-     */
-    /**
-     * The header's press: the whole quest's rewards, marked collected until the server answers.
-     *
-     * <p>Every row of the quest goes pending with the header, because that is what the press asked for:
-     * a header reading collected while its rows still offered their own buttons would be the card
-     * disagreeing with itself about one press.
-     */
-    /**
-     * Folds or unfolds one quest's rewards, from a press on its header's body.
-     *
-     * <p>Asked of the layout rather than of a rectangle written here — the same contract as every other
-     * press in this screen, so what is hit-tested is what was drawn.
-     */
-    /**
-     * The rewards card: what is waiting, and the controls that collect it.
-     *
-     * <p>The count is the header's second line rather than part of its title, so the title reads the same
-     * whether nothing is waiting or twenty things are.
+     * <p>The count on the second line is the view's own count rather than the book's, so the sentence
+     * agrees with the list under it: "12 ready to collect" beside a list of ready rows, or "7 already
+     * collected" beside the history.
      */
     private void drawRewardsOverlay(GuiRenderer r, int mouseX, int mouseY) {
-        int left = overlayLeft();
-        int top = overlayTop();
-        int w = overlayWidth();
-        int h = overlayHeight();
+        if (rewardCard == null) {
+            return;
+        }
+        int left = rewardCard.x();
+        int top = rewardCard.y();
+        int w = rewardCard.width();
+        int h = rewardCard.height();
 
         ArmatureTheme.panel(r, left, top, w, h, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, 45, ArmatureTheme.raised(),
-                Math.max(0, ArmatureTheme.current().cornerRadius() - 1), ArmatureTheme.CORNERS_TOP);
-        r.fill(left + 1, top + 46, left + w - 1, top + 47, ArmatureTheme.panelEdge());
+        // The band and its rule come off the body's own top edge rather than from numbers written here.
+        // They were 45 and 46 while the body began at REWARDS_BODY_TOP, which is three answers to one
+        // question -- and the wrong three: the state toggles were drawn straddling the rule.
+        ArmatureTheme.fillSurface(r, left + 1, top + 1, w - 2, REWARDS_BODY_TOP - 1,
+                ArmatureTheme.raised(), Math.max(0, ArmatureTheme.current().cornerRadius() - 1),
+                ArmatureTheme.CORNERS_TOP);
+        r.fill(left + 1, top + REWARDS_BODY_TOP, left + w - 1, top + REWARDS_BODY_TOP + 1,
+                ArmatureTheme.panelEdge());
 
-        int waiting = visibleQuests().size();
+        int listed = listedRewards();
         int textX = left + 14;
         r.text(Component.translatable("tasked.screen.rewards.title").getString(), textX, top + 12,
                 ArmatureTheme.title());
-        r.text(Component.translatable(waiting == 0
-                        ? "tasked.screen.rewards.none" : "tasked.screen.rewards.waiting", waiting).getString(),
-                textX, top + 26, ArmatureTheme.faint());
+        r.text(subtitle(listed).getString(), textX, top + 26, ArmatureTheme.faint());
 
         if (rewardLayout == null) {
             return;
         }
-        Viewport body = overlayBody();
+        Viewport body = rewardBody();
         rewardView.apply(rewardLayout, body.viewWidth());
         if (rewardRows.isEmpty()) {
             // Nothing waiting is a sentence rather than an empty card, and it says what puts something
-            // here: an empty list with no explanation reads as a list that failed to load.
-            r.text(Component.translatable("tasked.screen.rewards.none_hint").getString(),
+            // here: an empty list with no explanation reads as a list that failed to load. Which
+            // sentence depends on the view, because "finish a quest" is the wrong advice to give
+            // somebody looking at what they have already collected.
+            r.text(Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
+                            ? "tasked.screen.rewards.claimed_none"
+                            : "tasked.screen.rewards.none_hint").getString(),
                     body.originX() + 4, body.originY() + 4, ArmatureTheme.faint());
         }
         else {
             drawRewardInboxRows(r, body, mouseX, mouseY);
         }
-        rewardView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, rewardView.bar(), mouseX, mouseY);
     }
 
     /**
-     * The inbox's rows: a header per quest and, under an expanded one, its rewards.
+     * How many rewards the view is listing — the count the card's second line states.
      *
-     * <p>Drawn rather than hosted as widgets, the division the roster's rows already use: the strip
+     * <p>Counted in the build, not from the rows: a folded quest's rewards are not rows but they are
+     * still in the view, and a subtitle that disagreed with the badges above it would be the card
+     * contradicting itself. See {@link #rewardListed}.
+     */
+    private int listedRewards() {
+        return rewardListed;
+    }
+
+    /** The card's second line, which says what the view is showing and how much of it there is. */
+    private Component subtitle(int listed) {
+        if (listed == 0) {
+            return Component.translatable("tasked.screen.rewards.none");
+        }
+        return Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
+                ? "tasked.screen.rewards.claimed_count" : "tasked.screen.rewards.waiting", listed);
+    }
+
+    /**
+     * The menu's rows: chapter banners, the quests under an expanded one, and their rewards.
+     *
+     * <p>Drawn rather than hosted as widgets, the division the roster's rows already use: the action
      * buttons are the widgets, and everything the player reads is painted here — inside the body's clip,
      * so a scrolled row is cut at the card's edge rather than drawn over its header.
+     *
+     * <p>A quest's own reward cells are taken from the reward rows that follow it, which is what makes
+     * the details column show exactly what the fold would reveal: the rows are already built and already
+     * filtered by the active state, so the drawing does not ask the cache a second time and cannot
+     * disagree with the list it is drawing.
      */
     private void drawRewardInboxRows(GuiRenderer r, Viewport body, int mouseX, int mouseY) {
         long now = Util.getMillis();
         Viewport view = rewardView.viewport();
         try (GuiRenderer.Scoped clip = r.clip(body.originX(), body.originY(),
                 body.originX() + body.viewWidth(), body.originY() + body.viewHeight())) {
-            for (RewardInboxLayout.Row row : rewardRows) {
+            for (int i = 0; i < rewardRows.size(); i++) {
+                RewardInboxLayout.Row row = rewardRows.get(i);
                 Slot slot = rewardLayout.slot(row.key());
                 if (slot == null) {
                     continue;
@@ -18953,68 +19820,227 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
                 rowHover.update(row.key(), now);
                 float hover = rowHover.amount(row.key(), now);
-                if (row.isReward()) {
-                    drawRewardInboxReward(r, row, onScreen, hover, mouseX, mouseY);
-                }
-                else if (row.expands()) {
-                    drawRewardInboxHeader(r, row, onScreen, hover, mouseX, mouseY);
-                }
-                else {
-                    drawRewardInboxSingle(r, row, onScreen, hover, mouseX, mouseY);
+                switch (row.kind()) {
+                    case CHAPTER -> drawRewardChapterRow(r, row, onScreen, hover, mouseX, mouseY);
+                    case QUEST -> drawRewardQuestRow(r, row, onScreen, hover, mouseX, mouseY);
+                    case SINGLE -> drawRewardInboxSingle(r, row, onScreen, hover, mouseX, mouseY);
+                    case REWARD -> drawRewardInboxReward(r, row, onScreen, hover, mouseX, mouseY);
                 }
             }
         }
     }
 
     /**
-     * A quest's header: the fold marker, its icon, its title, and how much waits inside.
+     * A chapter's banner: its fold marker, its icon, its ordinal and title, its completion, its badge,
+     * and Claim Chapter.
      *
-     * <p>The count is measured against the strip rather than printed after the title, so a long title
-     * is truncated instead of running under the Claim Quest button — the oldest fault in this
-     * codebase's panels.
+     * <p>Every cell is measured before anything is drawn, the rule every row in this file follows: the
+     * hover wash goes behind the icons, so its width has to be known before the row exists.
      */
-    private void drawRewardInboxHeader(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
-                                       int mouseX, int mouseY) {
-        boolean expanded = expandedRewards.contains(row.questId());
+    private void drawRewardChapterRow(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
+                                      int mouseX, int mouseY) {
+        boolean expanded = expandedChapters.contains(row.chapterId());
         String marker = expanded ? "\u25bc" : "\u203a";
         int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
-        Slot strip = RewardInboxLayout.strip(slot);
-        String count = Component.translatable("tasked.screen.rewards.header_count", row.count()).getString();
-        int countX = strip.x() - 6 - r.textWidth(count);
+        Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
+        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
+        Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
 
-        rowWash(r, slot, slot.right(), hover);
+        String done = row.progress().isEmpty() ? ""
+                : Component.translatable("tasked.screen.chapter_progress", row.progress().done(),
+                        row.progress().total()).getString();
+        // The live badge the banner exists for: how much of this chapter is ready, or -- in the view
+        // that lists what was collected -- how much of it is done with. One sentence over one tally.
+        RewardInboxLayout.Tally tally = row.tally();
+        String badge = tally.total() == 0 ? ""
+                : Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
+                                ? "tasked.screen.rewards.chapter_claimed"
+                                : "tasked.screen.rewards.chapter_ready",
+                        rewardState == RewardInboxLayout.State.CLAIMED ? tally.claimed() : tally.ready(),
+                        tally.total()).getString();
 
-        int x = slot.x();
+        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
+        int badgeX = rewards.x() + Math.max(0, rewards.width() - r.textWidth(badge));
+        int contentRight = Math.max(badgeX + r.textWidth(badge), doneX + r.textWidth(done));
+
+        rowWash(r, slot, Math.max(contentRight, context.x() + 40), hover);
+
+        int x = context.x();
         r.text(marker, x, textY, ArmatureTheme.faint());
         x += r.textWidth(marker) + 4;
-        ClientQuestCache.Entry entry = ClientQuestCache.entry(row.questId());
-        ItemStack icon = entry == null ? ItemStack.EMPTY : entry.icon();
-        if (!icon.isEmpty() && r.icon(icon, x, slot.y() + (slot.height() - ROW_ICON) / 2, ROW_ICON)) {
+        ItemStack icon = chapterIcon(row.chapterId());
+        if (!icon.isEmpty() && r.icon(icon, x, iconY, ROW_ICON)) {
             x += ROW_ICON + 5;
         }
-        int room = Math.max(0, countX - x - 6);
+        int room = Math.max(0, progress.x() - 6 - x);
         r.text(Measure.truncate(row.label(), room, textMeasure(r)), x, textY, ArmatureTheme.title());
-        r.text(count, countX, textY, ArmatureTheme.faint());
+        r.text(done, doneX, textY, ArmatureTheme.faint());
+        r.text(badge, badgeX, textY,
+                tally.ready() > 0 ? ArmatureTheme.inProgress() : ArmatureTheme.faint());
 
         if (slot.contains(mouseX, mouseY)) {
-            // The hint, and nothing else. The quest's id used to be the second line, which is an
-            // author's and a bug report's name for the row rather than a player's; the title above it
-            // is what the player is looking at.
             rowTooltips.add(new RowTooltip(slot, List.of(
                     Component.translatable(expanded
                             ? "tasked.screen.rewards.collapse_hint"
-                            : "tasked.screen.rewards.expand_hint").getString())));
+                            : "tasked.screen.rewards.expand_hint").getString(),
+                    countLine(row))));
         }
     }
 
     /**
-     * A quest whose definition holds one reward: its title, the reward inline, and one Claim.
+     * A container row's hover: how much is inside it, in the words the active view is using.
      *
-     * <p>The reward's icon and count sit against the strip rather than after the title, so a long title
-     * is truncated instead of pushing them under the button. The hover carries both halves — the quest
-     * it belongs to, and the reward's full tooltip — because a single row is where an abstract title
-     * ("Botanical Wonders") would otherwise say nothing about what is being collected.
+     * <p>The count on a banner or a quest header is the number of rewards the fold would reveal, so the
+     * sentence has to follow the view: "to collect" beside a list of what is owed, "collected" beside
+     * the history. It is the same number either way, which is why it is one call with two words.
+     *
+     * <p>A string rather than a {@code Component}, because a row's hover is a list of lines the screen
+     * draws itself — see {@link RowTooltip} — and the resolved words are what that list holds.
+     */
+    private String countLine(RewardInboxLayout.Row row) {
+        return Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
+                ? "tasked.screen.rewards.header_claimed" : "tasked.screen.rewards.header_count",
+                row.count()).getString();
+    }
+
+    /**
+     * A quest's row: its fold marker, icon and title, its task completion, its rewards, and its action.
+     *
+     * <p>The details column is filled whether or not the quest is open — it is the same walk the fold
+     * lists, so a player reads what a quest gives without unfolding it, and the icons above cannot
+     * disagree with the rows below.
+     */
+    private void drawRewardQuestRow(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
+                                    int mouseX, int mouseY) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(row.questId());
+        if (entry == null) {
+            return;
+        }
+        boolean expanded = expandedQuests.contains(row.questId());
+        String marker = expanded ? "\u25bc" : "\u203a";
+        int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
+
+        Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
+        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
+        Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
+
+        String done = row.progress().isEmpty() ? ""
+                : Component.translatable("tasked.screen.rewards.tasks_done", row.progress().done(),
+                        row.progress().total()).getString();
+        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
+
+        int x = context.x();
+        int markerRoom = r.textWidth(marker) + 4;
+        ItemStack icon = entry.icon();
+        int iconRoom = icon.isEmpty() ? 0 : ROW_ICON + 5;
+        int titleRoom = Math.max(0, progress.x() - 6 - (x + markerRoom + iconRoom));
+        String title = Measure.truncate(row.label(), titleRoom, textMeasure(r));
+        int contentRight = Math.max(doneX + r.textWidth(done),
+                x + markerRoom + iconRoom + r.textWidth(title));
+
+        rowWash(r, slot, contentRight, hover);
+
+        r.text(marker, x, textY, ArmatureTheme.faint());
+        x += markerRoom;
+        if (iconRoom > 0) {
+            r.icon(icon, x, iconY, ROW_ICON);
+            x += iconRoom;
+        }
+        r.text(title, x, textY, ArmatureTheme.title());
+        r.text(done, doneX, textY, ArmatureTheme.faint());
+        drawRewardCells(r, rewards, questRewardCells.getOrDefault(row.questId(), List.of()), textY,
+                iconY);
+
+        if (slot.contains(mouseX, mouseY)) {
+            rowTooltips.add(new RowTooltip(slot, List.of(
+                    Component.translatable(expanded
+                            ? "tasked.screen.rewards.collapse_hint"
+                            : "tasked.screen.rewards.expand_hint").getString(),
+                    countLine(row))));
+        }
+    }
+
+    /**
+     * The details column: one cell per reward, packed from the column's left edge, with a count.
+     *
+     * <p>A "+N" carries whatever did not fit rather than the column overflowing into the action beside
+     * it — a quest with six rewards has six cells' worth of information and only three cells' worth of
+     * room, and the fold is where the rest is read.
+     */
+    private void drawRewardCells(GuiRenderer r, Slot column, List<RewardInboxLayout.Row> cells,
+                                 int textY, int iconY) {
+        int x = column.x();
+        int drawn = 0;
+        for (RewardInboxLayout.Row cell : cells) {
+            ClientQuestCache.Entry entry = ClientQuestCache.entry(cell.questId());
+            if (entry == null || cell.rewardIndex() < 0
+                    || cell.rewardIndex() >= entry.rewards().size()) {
+                continue;
+            }
+            ClientQuestCache.RewardEntry reward = entry.rewards().get(cell.rewardIndex());
+            String label = rewardCellText(cell, reward);
+            int width = ROW_ICON + (label.isEmpty() ? 0 : 5 + r.textWidth(label));
+            boolean last = drawn == cells.size() - 1;
+            if (drawn > 0 && !last && x + width + REWARD_CELL_GAP > column.right()) {
+                break;
+            }
+            boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+            if (missingItem) {
+                drawItemPlaceholder(r, x, iconY, ROW_ICON);
+            }
+            else {
+                r.icon(reward.hasItem() ? reward.item() : reward.icon(), x, iconY, ROW_ICON);
+            }
+            if (!label.isEmpty()) {
+                r.text(label, x + ROW_ICON + 5, textY, ArmatureTheme.faint());
+            }
+            x += width + REWARD_CELL_GAP;
+            drawn++;
+        }
+
+        int left = cells.size() - drawn;
+        if (left > 0 && x + r.textWidth("+00") <= column.right()) {
+            r.text("+" + left, x, textY, ArmatureTheme.faint());
+        }
+    }
+
+    /**
+     * One reward cell's text: the count for an item, the sentence for anything else, and the word for a
+     * reward that is waiting on the player's decision.
+     *
+     * <p>A choice has no count to show and its own sentence is its label, so its cell would be an icon
+     * with nothing beside it — which reads as a reward whose details failed to load. What goes there is
+     * what the row is asking for, which is also how a player finds the choices in a column of items.
+     */
+    private String rewardCellText(RewardInboxLayout.Row row, ClientQuestCache.RewardEntry reward) {
+        if (reward.hasItem()) {
+            return row.count() > 1 ? "x" + row.count() : "";
+        }
+        if (isChoiceType(reward.type())) {
+            return Component.translatable("tasked.screen.rewards.choose").getString();
+        }
+        return rowText("rewards", reward);
+    }
+
+    /** A chapter's icon, from the explicit chapter list, or empty for a chapter the server did not send. */
+    private static ItemStack chapterIcon(String chapterId) {
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            if (chapter.id().equals(chapterId)) {
+                return chapter.icon();
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /**
+     * A quest whose definition holds one reward: its title, the reward in the details column, one Claim.
+     *
+     * <p>The hover carries both halves — the quest it belongs to, and the reward's full tooltip —
+     * because a single row is where an abstract title ("Botanical Wonders") would otherwise say nothing
+     * about what is being collected.
      */
     private void drawRewardInboxSingle(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
                                        int mouseX, int mouseY) {
@@ -19023,50 +20049,32 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         ClientQuestCache.RewardEntry reward = entry.rewards().get(row.rewardIndex());
-        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
-        String tag = switch (row.status()) {
-            case LOCKED -> Component.translatable("tasked.viewer.locked").getString();
-            case CLAIMED, PENDING -> Component.translatable("tasked.viewer.claimed").getString();
-            case READY -> null;
-        };
-        // The inline reward: the count for an item, the sentence for anything else ("5 XP"), so the row
-        // says what it is giving without being opened.
-        String rewardText = reward.hasItem()
-                ? (row.count() > 1 ? "x" + row.count() : "")
-                : rowText("rewards", reward);
+        int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
-        // Everything measured before anything is drawn, the rule the other rows document: the wash goes
-        // behind the icons, so its width has to be known before the row exists.
-        Slot strip = RewardInboxLayout.strip(slot);
-        int tagX = tag == null ? 0 : strip.x() - 6 - r.textWidth(tag);
-        int clusterRight = tag == null ? strip.x() - 6 : tagX - 6;
-        int rewardTextWidth = rewardText.isEmpty() ? 0 : 5 + r.textWidth(rewardText);
-        int clusterX = clusterRight - (ROW_ICON + rewardTextWidth);
+        Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
+        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
+        Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
+
+        String done = row.progress().isEmpty() ? ""
+                : Component.translatable("tasked.screen.rewards.tasks_done", row.progress().done(),
+                        row.progress().total()).getString();
+        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
+
         ItemStack questIcon = entry.icon();
-        int textX = slot.x() + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
-        String title = Measure.truncate(row.label(), Math.max(0, clusterX - 8 - textX), textMeasure(r));
-        int contentRight = Math.max(clusterRight, textX + r.textWidth(title));
+        int textX = context.x() + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
+        String title = Measure.truncate(row.label(), Math.max(0, progress.x() - 6 - textX),
+                textMeasure(r));
+        int contentRight = Math.max(doneX + r.textWidth(done), textX + r.textWidth(title));
 
         rowWash(r, slot, contentRight, hover);
 
-        int textY = slot.y() + (slot.height() - 8) / 2;
-        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
         if (!questIcon.isEmpty()) {
-            r.icon(questIcon, slot.x(), iconY, ROW_ICON);
+            r.icon(questIcon, context.x(), iconY, ROW_ICON);
         }
         r.text(title, textX, textY, ArmatureTheme.title());
-        if (missingItem) {
-            drawItemPlaceholder(r, clusterX, iconY, ROW_ICON);
-        }
-        else {
-            r.icon(reward.hasItem() ? reward.item() : reward.icon(), clusterX, iconY, ROW_ICON);
-        }
-        if (!rewardText.isEmpty()) {
-            r.text(rewardText, clusterX + ROW_ICON + 5, textY, ArmatureTheme.faint());
-        }
-        if (tag != null) {
-            r.text(tag, tagX, textY, ArmatureTheme.blocked());
-        }
+        r.text(done, doneX, textY, ArmatureTheme.faint());
+        drawRewardCells(r, rewards, List.of(row), textY, iconY);
 
         if (slot.contains(mouseX, mouseY)) {
             List<String> lines = new ArrayList<>();
@@ -19079,12 +20087,12 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * One reward under its header: icon, name, count, and the state tag for a row that is not ready.
+     * One reward under its quest: its name, its status, its icon and count, and its own Claim.
      *
      * <p>The viewer's reward row, one list over — the icon, the sentence and the count are the same
      * facts drawn the same way, so a reward reads the same wherever it appears. What is added is the
-     * status: a collected or gated row is drawn shut, because a row is only worth offering when the
-     * player has something to decide about it.
+     * status, which sits in the progression column so that column holds one axis down the whole list
+     * rather than being blank on every other row.
      */
     private void drawRewardInboxReward(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
                                        int mouseX, int mouseY) {
@@ -19093,51 +20101,41 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         ClientQuestCache.RewardEntry reward = entry.rewards().get(row.rewardIndex());
-        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
-        String count = reward.hasItem() && row.count() > 1 ? "x" + row.count() : null;
-        String tag = switch (row.status()) {
+        int textY = slot.y() + (slot.height() - 8) / 2;
+        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
+
+        Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
+        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
+        Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
+
+        String state = switch (row.status()) {
             case LOCKED -> Component.translatable("tasked.viewer.locked").getString();
             case CLAIMED, PENDING -> Component.translatable("tasked.viewer.claimed").getString();
-            case READY -> null;
+            case READY -> Component.translatable("tasked.viewer.ready").getString();
         };
+        int stateX = progress.x() + Math.max(0, progress.width() - r.textWidth(state));
 
-        // Everything measured before anything is drawn: the wash goes behind the icon, so its width has
-        // to be known before the row exists -- the rule drawRewardRow documents at length. The label's
-        // room reserves the count as well as the tag, so a long name is truncated rather than printed
-        // under either of them.
-        Slot strip = RewardInboxLayout.strip(slot);
-        int tagX = tag == null ? 0 : strip.x() - 6 - r.textWidth(tag);
-        int textStart = slot.x() + ROW_ICON + 5;
-        int countWidth = count == null ? 0 : 5 + r.textWidth(count);
-        int labelRoom = Math.max(0, (tag == null ? strip.x() - 6 : tagX - 6) - textStart - countWidth);
-        String shown = Measure.truncate(row.label(), labelRoom, textMeasure(r));
-        int contentRight = textStart + r.textWidth(shown) + countWidth;
-        if (tag != null) {
-            contentRight = Math.max(contentRight, strip.x() - 6);
-        }
+        boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
+        boolean shut = !row.pressable();
+        String shown = Measure.truncate(row.label(), Math.max(0, progress.x() - 6 - context.x()),
+                textMeasure(r));
+        int contentRight = Math.max(stateX + r.textWidth(state),
+                context.x() + ROW_ICON + 5 + r.textWidth(shown));
 
         rowWash(r, slot, contentRight, hover);
 
-        int textY = slot.y() + (slot.height() - 8) / 2;
-        int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
-        int textX = slot.x();
-        ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
         if (missingItem) {
-            drawItemPlaceholder(r, slot.x(), iconY, ROW_ICON);
-            textX = slot.x() + ROW_ICON + 5;
+            drawItemPlaceholder(r, context.x(), iconY, ROW_ICON);
         }
-        else if (r.icon(toDraw, slot.x(), iconY, ROW_ICON)) {
-            textX = slot.x() + ROW_ICON + 5;
+        else {
+            r.icon(reward.hasItem() ? reward.item() : reward.icon(), context.x(), iconY, ROW_ICON);
         }
-        boolean shut = !row.pressable();
-        r.text(shown, textX, textY,
+        r.text(shown, context.x() + ROW_ICON + 5, textY,
                 missingItem || shut ? ArmatureTheme.blocked() : ArmatureTheme.body());
-        if (count != null) {
-            r.text(count, textX + r.textWidth(shown) + 5, textY, ArmatureTheme.faint());
-        }
-        if (tag != null) {
-            r.text(tag, tagX, textY, ArmatureTheme.blocked());
-        }
+        r.text(state, stateX, textY,
+                row.status() == RewardInboxLayout.Status.READY
+                        ? ArmatureTheme.faint() : ArmatureTheme.blocked());
+        drawRewardCells(r, rewards, List.of(row), textY, iconY);
 
         if (slot.contains(mouseX, mouseY)) {
             rowTooltips.add(new RowTooltip(slot, rewardTooltipLines(row.questId(), row.rewardIndex())));
@@ -19168,7 +20166,12 @@ public final class QuestBookScreen extends ArmatureScreen
                 lines.add(Component.literal(line));
             }
         }
-        if (ClientQuestCache.rewardsBlockedOf(row.questId())) {
+        // A banner has no quest to ask about, and the block it would hit is the team's -- which spans
+        // every quest in the chapter, so it is asked once for the whole record rather than per row.
+        boolean held = row.isChapter()
+                ? ClientQuestCache.rewardsHeld()
+                : ClientQuestCache.rewardsBlockedOf(row.questId());
+        if (held) {
             lines.add(Component.translatable("tasked.screen.rewards.held"));
         }
         return lines;
@@ -19333,11 +20336,10 @@ public final class QuestBookScreen extends ArmatureScreen
         QuestPanel.drawRows(r, BookGeometry.Rect.at(body.originX(), body.originY(),
                 body.viewWidth(), body.viewHeight()), body, appearanceLayout,
                 appearanceRows, mouseX, mouseY);
-        // The bar only when there is something to scroll: the card is sized to its rows, so this is a
-        // window too short to hold them rather than the usual case.
-        if (appearanceLayout.height() > body.viewHeight()) {
-            appearanceView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
-        }
+        // The bar, which draws nothing at all when the rows fit -- so the `if` that used to guard this
+        // call is gone: it was a second answer to a question the bar already answers, and the two would
+        // have disagreed the day a card grew a scrollbar it did not need.
+        drawBar(r, appearanceView.bar(), mouseX, mouseY);
     }
 
     /**
@@ -19395,7 +20397,16 @@ public final class QuestBookScreen extends ArmatureScreen
             r.text(pickName, textX, top + 26, ArmatureTheme.faint());
         }
 
-        drawItemPicker(r, overlayBody(), mouseX, mouseY);
+        // The list under that header: the item catalogue, or the type page a table opened -- which is the
+        // same card, the same header and the same footer with a different list, because that is what the
+        // button beside `+ Item` now does.
+        if (typePageOpen()) {
+            drawTypePicker(r, BookGeometry.Rect.at(overlayBody().originX(), overlayBody().originY(),
+                    overlayBody().viewWidth(), overlayBody().viewHeight()), mouseX, mouseY);
+        }
+        else {
+            drawItemPicker(r, overlayBody(), mouseX, mouseY);
+        }
     }
 
     private void drawOverlay(GuiRenderer r, int mouseX, int mouseY, long now) {
@@ -19516,7 +20527,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // that can happen here.
         // The theme's own scrollbar tokens, for the same reason the sidebar's uses them: the overlay's
         // bar was drawn from `recessed` and `controlEdge`, neither of which was chosen for the job.
-        overlayView.drawScrollbar(r, ArmatureTheme.scrollTrack(), ArmatureTheme.scrollThumb());
+        drawBar(r, overlayView.bar(), mouseX, mouseY);
     }
 
     /**
@@ -20440,21 +21451,29 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
                 return true;
             }
-            // The panel's bar first, and on the same terms as the sidebar's: a press anywhere on the
-            // track jumps the thumb to the pointer and then drags from there. `beginThumbDrag` before
-            // `dragThumbTo` matters -- without the first, the second returns immediately because no drag
-            // is in progress.
+            // The panel's bars first, and on the same terms as every other bar in this screen: a press on
+            // a grip drags it, and a press on the groove pages toward the pointer and keeps paging while
+            // it is held. `press` is what decides which of the two it is, from the grip's own rectangle.
             //
-            // Before the outside test rather than after, because the grab band is deliberately wider
-            // than the three-pixel bar (`ScrollView.scrollbarHit`) and its outer edge reaches one pixel
-            // past the card -- so the order decides whether that pixel drags the bar or closes the
-            // panel, and a scrollbar you can miss by a pixel is the thing the wide band exists to fix.
-            if (overlay == Overlay.PARTY && partyScrollAt(mouseX).scrollbarHit(mouseX, mouseY)) {
-                partyScrollAt(mouseX).beginThumbDrag(mouseY);
-                partyScrollAt(mouseX).dragThumbTo(mouseY);
+            // Before the outside test rather than after, because the grab band is deliberately wider than
+            // the three-pixel bar and its outer edge reaches past the card -- so the order decides whether
+            // that pixel drags the bar or closes the panel, and a scrollbar you can miss by a pixel is the
+            // thing the wide band exists to fix.
+            if (overlay == Overlay.PARTY && button == 0 && pressBar(partyScrollAt(mouseX).bar(), mouseX,
+                    mouseY)) {
+                return true;
             }
-            else if ((overlay == Overlay.TABLE_BROWSER || overlay == Overlay.TABLE_EDITOR
+            if ((overlay == Overlay.TABLE_BROWSER || overlay == Overlay.TABLE_EDITOR
                     || overlay == Overlay.ASSETS) && button == 0) {
+                // The bars first: the three panels here each have a list, and a press on a grip or a
+                // groove is the list's rather than the card's. Before the outside test, for the reason
+                // the party panel's note gives -- the grab band is wider than the bar.
+                ScrollBar panelBar = overlay == Overlay.ASSETS ? assetsBar
+                        : overlay == Overlay.TABLE_BROWSER ? tableBrowserBar
+                        : tableShowRoll ? rollBar : tableEditorBar;
+                if (pressBar(panelBar, mouseX, mouseY)) {
+                    return true;
+                }
                 // Outside the card closes, which is the shape every card's outside press has. Inside it
                 // the rows are drawn targets, so they answer on press -- see the two press methods for
                 // what each control does.
@@ -20489,9 +21508,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 // `drawChoiceRow` -- so the press is what answers, and a press inside the card that hits
                 // no row does nothing: the list is what is on screen and the page behind it is not a
                 // second thing to press while a question is being answered.
-                if (choiceView.scrollbarHit(mouseX, mouseY)) {
-                    choiceView.beginThumbDrag(mouseY);
-                    choiceView.dragThumbTo(mouseY);
+                if (pressBar(choiceView.bar(), mouseX, mouseY)) {
                     return true;
                 }
                 for (int i = 0; i < choiceRowRects.size(); i++) {
@@ -20510,14 +21527,12 @@ public final class QuestBookScreen extends ArmatureScreen
             else if (overlay == Overlay.REWARDS && button == 0) {
                 // A header's body folds its rewards, and this is the press the strip's widget did not
                 // take -- so a click on Claim Quest can never also fold the row it belongs to.
-                if (toggleRewardHeader(mouseX, mouseY)) {
+                if (toggleRewardRow(mouseX, mouseY)) {
                     return true;
                 }
                 // The bar, then the outside -- the same shape the choice card's press has, and for
                 // same reason: the rows' buttons are widgets and answer on release.
-                if (rewardView.scrollbarHit(mouseX, mouseY)) {
-                    rewardView.beginThumbDrag(mouseY);
-                    rewardView.dragThumbTo(mouseY);
+                if (pressBar(rewardView.bar(), mouseX, mouseY)) {
                     return true;
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
@@ -20531,12 +21546,17 @@ public final class QuestBookScreen extends ArmatureScreen
                 // shape every other card's outside press has; a press inside that hits no row does
                 // nothing, because the list is what is on screen and the page behind it is not a
                 // second thing to press while a file is being chosen.
+                // The list's bar, before the rows: it is the one control on this card whose target is a
+                // pixel wide three times over, and a press aimed at it must not close the card.
+                if (pressBar(textureBar, mouseX, mouseY)) {
+                    return true;
+                }
                 if (clickedOutsideCard(mouseX, mouseY)) {
                     closeTexturePicker();
                     return true;
                 }
                 if (textureFrame != null) {
-                    int row = ItemPickerLayout.rowAt(textureRows, textureFrame, textureScroll, mouseY);
+                    int row = ItemPickerLayout.rowAt(textureRows, textureFrame, textureBody.scrollY(), mouseY);
                     if (row >= 0) {
                         pressTextureRow(row);
                     }
@@ -20544,26 +21564,28 @@ public final class QuestBookScreen extends ArmatureScreen
                 return true;
             }
             else if ((overlay == Overlay.QUEST || overlay == Overlay.PICKER) && mayEditNow() && button == 0) {
-                // The type picker's bar before its rows, on the same contract as every other list: a
-                // press that starts on the bar stays on the bar, so this runs before anything that
-                // would take the press as a row's. `beginThumbDrag` first -- `dragThumbTo` moves a drag
-                // that has begun and does nothing to one that has not.
-                //
-                // The card's own page keeps wheel-only scrolling: its right edge is where a row's Copy
-                // and cross sit, and a band that swallowed those presses would be a worse trade than a
-                // bar that answers the wheel alone.
-                if ((pickingEntryType != null || pickingConditionFor != null)
-                        && overlayView.scrollbarHit(mouseX, mouseY)) {
-                    overlayView.beginThumbDrag(mouseY);
-                    overlayView.dragThumbTo(mouseY);
+                // The type page's bar, then its rows: it is the list on screen, and a press aimed at its
+                // grip is the list's rather than the page's. A press that hits no row *outside the card*
+                // leaves the page, which is the shape the item picker's own card has -- the page is a card
+                // now, from the table editor, and a card whose only exit is a key is a trap.
+                if (typePageOpen()) {
+                    if (pressBar(typeBar, mouseX, mouseY)) {
+                        return true;
+                    }
+                    if (!pressTypePicker(mouseX, mouseY) && clickedOutsideCard(mouseX, mouseY)) {
+                        leaveTypePage();
+                    }
                     return true;
                 }
-                // The item picker's rows first, from the last frame's own drawing. A press inside the
-                // card that is not a row does nothing -- the list is what is on screen, and the page
-                // behind it is not a second thing to press while a field is being set.
+                // The item picker's rows, from the last frame's own drawing. A press inside the card that
+                // is not a row does nothing -- the list is what is on screen, and the page behind it is
+                // not a second thing to press while a field is being set.
                 if (pickingItemPath != null) {
+                    if (pressBar(pickerBar, mouseX, mouseY)) {
+                        return true;
+                    }
                     int row = pickerFrame == null ? -1
-                            : ItemPickerLayout.rowAt(pickerRows, pickerFrame, pickerScroll, mouseY);
+                            : ItemPickerLayout.rowAt(pickerRows, pickerFrame, pickerBody.scrollY(), mouseY);
                     if (row >= 0) {
                         pressPickerRow(row);
                     }
@@ -20574,9 +21596,19 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
                 // The settings page owns the body while it is open: a press on it is the page's, and
                 // there is nothing behind it to fall through to -- it is a page of the card, not a
-                // popover over one. Escape and the Settings button are the ways back.
+                // popover over one. Escape and the Settings button are the ways back. Its bar is the
+                // page's own control, so it is asked before the page is.
                 if (settingsOpen) {
+                    if (pressBar(settingsView.bar(), mouseX, mouseY)) {
+                        return true;
+                    }
                     pressSettingsPage(mouseX, mouseY);
+                    return true;
+                }
+                // The card's own body scroll, before the marked pieces: the editor's card is a list of
+                // prose and rows like the reader's, and its bar was drawn here with no press branch at all
+                // -- so the grip was a picture and its `draggingThumb` branch downstream was dead code.
+                if (pressBar(overlayView.bar(), mouseX, mouseY)) {
                     return true;
                 }
                 // The card's own marked pieces, from the last frame's drawing -- one derivation for
@@ -20612,6 +21644,14 @@ public final class QuestBookScreen extends ArmatureScreen
                 // that answers; a press that hits no row keeps the old behaviour: outside closes,
                 // inside is swallowed.
                 //
+                // The card's own body scroll, before the rows: a press on the grip is the card's, and
+                // the reader's rows are pressed from the last frame's own list below. **Left only**, and
+                // that is not a detail: this branch serves the middle button too -- a middle press on a
+                // prerequisite row is the locate gesture -- so a bar that took any button would swallow
+                // the middle click that was aimed past it.
+                if (button == 0 && pressBar(overlayView.bar(), mouseX, mouseY)) {
+                    return true;
+                }
                 // A prerequisite row is the card's own navigation: a plain press opens that quest's
                 // card, and its locate icon -- or a middle-click or shift-click anywhere on the row --
                 // closes the card and takes the canvas to the node instead.
@@ -20621,6 +21661,19 @@ public final class QuestBookScreen extends ArmatureScreen
                 // The recipe-viewer rows answer the left press alone; a middle press that hit no
                 // prerequisite falls through to the outside test, exactly as it did before.
                 if (button == 0 && pressRowItem(mouseX, mouseY)) {
+                    return true;
+                }
+                if (clickedOutsideCard(mouseX, mouseY)) {
+                    closeOverlay();
+                }
+            }
+            else if (overlay == Overlay.SETTINGS && button == 0) {
+                // The player's own card. Its one control is a widget and the widget pass has already
+                // offered it the press; what is left is the bar, which is the only thing on this card
+                // that is neither a widget nor a row -- so a press aimed at its grip is the list's
+                // rather than the card's, and everything else keeps the shape every card's press has:
+                // outside closes, inside is swallowed.
+                if (pressBar(appearanceView.bar(), mouseX, mouseY)) {
                     return true;
                 }
                 if (clickedOutsideCard(mouseX, mouseY)) {
@@ -20679,27 +21732,8 @@ public final class QuestBookScreen extends ArmatureScreen
             return true;
         }
 
-        // The colour picker next: its own fields are widgets and were just offered the press, so what is
-        // left is its tracks and swatches -- and a press outside, which closes it and is consumed, so the
-        // click that dismisses the picker never also acts on what was behind it.
-        if (colourPopover.isOpen()) {
-            if (colourPopover.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
-            closeColourPopover();
-            return true;
-        }
-
-        // Then the sidebar's scrollbar, which is not a widget -- it is chrome this screen draws and
-        // hit-tests itself, in the margin to the right of the rows. It has to be checked here rather
-        // than left to the widget pass for that reason, and it cannot steal a click from a row because
-        // its grab band starts just past the viewport's right edge.
-        //
-        // A press anywhere on the track jumps the thumb to the pointer and then drags from there, which
-        // is what every list on every platform does. `beginThumbDrag` before `dragThumbTo` matters:
-        // without the first, the second returns immediately because no drag is in progress.
-        // The panel first, and it swallows everything inside its own rectangle: a press on the panel is
-        // never a press on the canvas, or choosing a colour would pan the graph underneath it.
+        // The tools panel first, and it swallows everything inside its own rectangle: a press on the
+        // panel is never a press on the canvas, or choosing a colour would pan the graph underneath it.
         if (inTools(mouseX, mouseY)) {
             // The colour chips first: they are drawn by the panel and hit-tested here, from the same
             // rectangle the chip is painted with (`ToolsLayout.chip`), so the chip that is seen is the
@@ -20755,16 +21789,24 @@ public final class QuestBookScreen extends ArmatureScreen
                     return true;
                 }
             }
-            if (toolsView.scrollbarHit(mouseX, mouseY)) {
-                toolsView.beginThumbDrag(mouseY);
-                toolsView.dragThumbTo(mouseY);
+            // The panel's own bar, last of its controls and before the swallow: the rows above are
+            // widgets and drawn targets, and the bar is the one thing on the panel that is neither.
+            // Left button only, like every other bar in this screen: the bar's gestures are a drag and a
+            // held page, and neither is a thing to hang off a right press.
+            if (button == 0) {
+                pressBar(toolsView.bar(), mouseX, mouseY);
             }
             return true;
         }
 
-        if (overlay == Overlay.NONE && button == 0 && sidebarView.scrollbarHit(mouseX, mouseY)) {
-            sidebarView.beginThumbDrag(mouseY);
-            sidebarView.dragThumbTo(mouseY);
+        // The sidebar's scrollbar, which is not a widget -- it is chrome this screen draws and
+        // hit-tests itself, in the margin to the right of the rows. It has to be checked here rather
+        // than left to the widget pass for that reason, and it cannot steal a click from a row because
+        // its grab band starts just past the viewport's right edge.
+        //
+        // Gated on there being no modal, which is what the drawing now does too: this used to be drawn
+        // behind an open card while the press here refused it, so the bar was visible and dead.
+        if (overlay == Overlay.NONE && button == 0 && pressBar(sidebarView.bar(), mouseX, mouseY)) {
             return true;
         }
 
@@ -21139,40 +22181,18 @@ public final class QuestBookScreen extends ArmatureScreen
             return true;
         }
 
-        // The scrollbar's drag, before the canvas pan and before the widgets. It has to be first
-        // because a drag that started on the bar must stay on the bar: the pan would otherwise take
-        // the movement, and the canvas would slide sideways while the pointer was over a scrollbar.
-        // The choice card's list, likewise.
-        if (choiceView.draggingThumb()) {
-            choiceView.dragThumbTo(mouseY);
-            return true;
-        }
-
-        // And the rewards panel's.
-        if (rewardView.draggingThumb()) {
-            rewardView.dragThumbTo(mouseY);
-            return true;
-        }
-
-        // The type picker's list, on the same contract as the rest of the bars.
-        if (overlayView.draggingThumb()) {
-            overlayView.dragThumbTo(mouseY);
-            return true;
-        }
-
-        if (toolsView.draggingThumb()) {
-            toolsView.dragThumbTo(mouseY);
-            return true;
-        }
-
-        if (sidebarView.draggingThumb() || partyLeftView.draggingThumb()
-                || partyRightView.draggingThumb()) {
-            if (sidebarView.draggingThumb()) {
-                sidebarView.dragThumbTo(mouseY);
-            }
-            else {
-                partyScrollAt(mouseX).dragThumbTo(mouseY);
-            }
+        // The bar's drag, before the canvas pan and before the widgets. It has to be first because a drag
+        // that started on a bar must stay on that bar: the pan would otherwise take the movement, and the
+        // canvas would slide sideways while the pointer was over a scrollbar.
+        //
+        // One field rather than one branch per list, and that is the fix rather than a tidy-up. The
+        // version this replaces asked each view in turn and re-derived the subject from the pointer's own
+        // x for the party panel -- so dragging the left column's bar and moving rightwards handed the
+        // drag to the right column, and any bar whose release branch was missing stayed held. The bar
+        // captured at the press is the only one that can be dragged, and the pointer may be anywhere: off
+        // the strip, off the card, off the window.
+        if (heldBar != null) {
+            heldBar.dragTo(mouseY);
             return true;
         }
 
@@ -21340,14 +22360,16 @@ public final class QuestBookScreen extends ArmatureScreen
             return true;
         }
 
-        // Consumed unconditionally once a drag is in progress, and deliberately not "only if the
-        // pointer is still over the bar". Letting go outside the bar is how a drag ends in every
-        // program ever written, and releasing on the last position the bar saw is what makes the end
-        // of a drag land where the pointer was when it was let go.
-        if (choiceView.endThumbDrag() || rewardView.endThumbDrag() || overlayView.endThumbDrag()
-                || sidebarView.endThumbDrag() || partyLeftView.endThumbDrag()
-                || partyRightView.endThumbDrag()
-                || toolsView.endThumbDrag()) {
+        // Consumed unconditionally once a bar is held, and deliberately not "only if the pointer is still
+        // over the bar". Letting go outside the bar is how a drag ends in every program ever written, and
+        // releasing on the last position the bar saw is what makes the end of a drag land where the
+        // pointer was when it was let go.
+        //
+        // One field, so the seven-way disjunction that used to be here -- and the three bars somebody had
+        // forgotten to add to it -- is not a list that can go stale.
+        if (heldBar != null) {
+            heldBar.release();
+            heldBar = null;
             return true;
         }
 
@@ -21547,9 +22569,17 @@ public final class QuestBookScreen extends ArmatureScreen
             // The wheel is the list's, and nothing behind the card answers it. First, before the dock's
             // branch below: the panel is still built behind the card, so without this the wheel scrolled
             // the dock underneath -- the same hole the party panel's note describes.
+            //
+            // Two lists arrive in this card, so the type page is asked first: its own band and its own
+            // rows are what the pointer is over when a table's `+ Reward` is open.
+            if (typePageOpen()) {
+                if (typeFrame != null) {
+                    typeBar.wheel(scrollY);
+                }
+                return true;
+            }
             if (pickerFrame != null) {
-                pickerScroll = Math.max(0, Math.min(pickerScroll - (int) (scrollY * 30),
-                        ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
+                pickerBar.wheel(scrollY);
             }
             return true;
         }
@@ -21558,8 +22588,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // The same for the texture picker's list: the wheel is its own, clamped where it lands, and
             // the dock behind the card does not move.
             if (textureFrame != null) {
-                textureScroll = Math.max(0, Math.min(textureScroll - (int) (scrollY * 30),
-                        ItemPickerLayout.maxScroll(textureRows, textureFrame)));
+                textureBar.wheel(scrollY);
             }
             return true;
         }
@@ -21567,19 +22596,19 @@ public final class QuestBookScreen extends ArmatureScreen
         if (overlay == Overlay.CHOICE) {
             // The card is a list, so the wheel is the list's -- and absorbed whether or not there is
             // anywhere to go, the same as every other card's.
-            choiceView.scrollBy(-(int) (scrollY * 30));
+            choiceView.bar().wheel(scrollY);
             return true;
         }
 
         if (overlay == Overlay.REWARDS) {
-            rewardView.scrollBy(-(int) (scrollY * 30));
+            rewardView.bar().wheel(scrollY);
             return true;
         }
 
         // Over the panel, the wheel scrolls it -- and does not zoom the canvas behind it, for the same
         // reason a press on it does not pan: it is a surface, not a hole.
         if (inTools(mouseX, mouseY)) {
-            toolsView.scrollBy(-(int) (scrollY * 30));
+            toolsView.bar().wheel(scrollY);
             return true;
         }
 
@@ -21589,7 +22618,10 @@ public final class QuestBookScreen extends ArmatureScreen
             // the canvas behind a party panel. A modal that answers the pointer but not the wheel is a
             // modal with a hole in it -- and one that answers the wheel by doing nothing is still
             // answering it, which is what stops the list behind it from moving.
-            partyScrollAt(mouseX).scrollBy(-(int) (scrollY * 30));
+            //
+            // Which column is the pointer's rather than which was grabbed: the wheel has no gesture, and
+            // the two columns are separate surfaces side by side.
+            partyScrollAt(mouseX).bar().wheel(scrollY);
             return true;
         }
 
@@ -21600,17 +22632,21 @@ public final class QuestBookScreen extends ArmatureScreen
             // scrolled the invisible editor behind the page and left the column still, and the report
             // was simply "i cant scroll".
             if (settingsOpen) {
-                settingsView.scrollBy(-(int) (scrollY * 30));
+                settingsView.bar().wheel(scrollY);
                 return true;
             }
             // While a picker is open the wheel is the list's, not the card's: the card is not what is
             // on screen. Clamped where it lands, because a flick past the bottom should stop at the
             // bottom -- the same rule as the body's below, for the same reason.
+            if (typePageOpen()) {
+                if (typeFrame != null) {
+                    typeBar.wheel(scrollY);
+                }
+                return true;
+            }
             if (pickingItemPath != null) {
                 if (pickerFrame != null) {
-                    pickerScroll = Math.max(0,
-                            Math.min(pickerScroll - (int) (scrollY * 30),
-                                    ItemPickerLayout.maxScroll(pickerRows, pickerFrame)));
+                    pickerBar.wheel(scrollY);
                 }
                 return true;
             }
@@ -21619,30 +22655,45 @@ public final class QuestBookScreen extends ArmatureScreen
             // Clamped by the viewport rather than here, and that is the fix rather than a tidy-up:
             // the previous version wrote the offset unclamped and left the drawing pass to clamp it
             // against a height computed somewhere else, so a flick past the bottom sat out of range
-            // until the next frame happened to correct it.
-            overlayBody().scrollBy(-(int) (scrollY * 30));
+            // until the next frame happened to correct it. Through the bar, like every other list here,
+            // so the card's own wheel keeps the fraction a smooth wheel sends rather than truncating it.
+            overlayView.bar().wheel(scrollY);
+            return true;
+        }
+
+        // The player's own settings card, which had no branch at all: the wheel over it reached the
+        // canvas and zoomed the graph behind the card. A modal that answers the pointer but not the
+        // wheel is a modal with a hole in it, and this one has two -- see the naming card below.
+        if (overlay == Overlay.SETTINGS) {
+            appearanceView.bar().wheel(scrollY);
+            return true;
+        }
+
+        // The naming card, likewise: a card with one field and no list, and the wheel absorbed rather
+        // than passed to the graph underneath it.
+        if (overlay == Overlay.NAMING) {
             return true;
         }
 
         // The Assets panel's page, and its own band: the wheel belongs to the page under the pointer, and
-        // the clamp is the layout's so a short page cannot be scrolled past its end.
+        // the clamp is the viewport's -- set from the same line count the drawing walks -- so a short
+        // page cannot be scrolled past its end.
         if (overlay == Overlay.ASSETS && scrollY != 0) {
-            var kinds = assetsLines().stream().map(AssetLine::kind).toList();
-            assetsScroll = Math.max(0, Math.min(
-                    assetsScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT),
-                    dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, assetsPageBand())));
+            assetsBar.wheel(scrollY);
             return true;
         }
 
-        // A picker page's list is the wheel's while it is open, and it is asked *before* the panel's own
-        // entries: the page is what is on screen. Without this branch the wheel fell through to the
-        // entries below and scrolled a list the author could not see -- clamped to a viewport that was
-        // not the page's -- so the rows past the fold (Command, Advancement, Custom) could not be reached
-        // at all. The card has the same branch for its own pages; this is the table editor's.
-        if (overlay == Overlay.TABLE_EDITOR && pickingEntryType != null) {
-            overlayView.scrollBy(-(int) (scrollY * 30));
-            return true;
-        }
+        // A branch stood here for the table editor's type page -- `overlay == TABLE_EDITOR &&
+        // pickingEntryType != null`, scrolling `overlayView` and then scrolling the type page -- and it
+        // was **unreachable**, which is worth recording so it is not added back. The type page's state is
+        // set in exactly two places and neither can leave the overlay on the editor: `openTableTypePick`
+        // sets `Overlay.PICKER` in the same call that sets the member, and `closeTypePick` clears the
+        // member *before* it returns the overlay to `TABLE_EDITOR`; the other two setters
+        // (`openTypePicker`, `openConditionTypePicker`) are reached only from `pressEditTarget`, which
+        // runs under `QUEST` or `PICKER`. So the wheel over a table's pick list was always answered by the
+        // picker card's own branch below -- and the dead branch's `overlayView.scrollBy` moved an offset
+        // that nothing in that card is drawn through, which is why it read as a bug when it was only ever
+        // a branch nobody could reach.
 
         // The table panels' own lists. The wheel over a panel's *list* scrolls it and nothing else does:
         // the toolbar, the header and the breadcrumb are not lists, and until this existed a table with
@@ -21657,25 +22708,16 @@ public final class QuestBookScreen extends ArmatureScreen
                 && overTableList(mouseX, mouseY)) {
             if (overlay == Overlay.TABLE_BROWSER) {
                 if (tableBrowserFrame != null) {
-                    tableScroll = Math.max(0, Math.min(
-                            tableScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.TableBrowserLayout
-                                    .ROW_HEIGHT),
-                            dev.ellipog.tasked.client.dev.TableBrowserLayout
-                                    .maxScroll(tableRows, tableBrowserFrame)));
+                    tableBrowserBar.wheel(scrollY);
                 }
             }
             else if (tableEditorFrame != null) {
                 if (tableShowRoll) {
-                    var held = dev.ellipog.tasked.client.ClientTableRoll.of(tableDescribe());
-                    int most = held == null ? 0 : maxRollScroll(held);
-                    rollScroll = Math.max(0, Math.min(rollScroll - (int) (scrollY * ROLL_PITCH), most));
+                    // The report's pitch is its own: twelve-pixel lines, not twenty-pixel rows.
+                    rollBar.wheel(scrollY, ROLL_PITCH);
                 }
                 else {
-                    int entries = tableModel()
-                            .map(dev.ellipog.tasked.quest.loot.RewardTable::entryCount).orElse(0);
-                    tableScroll = Math.max(0, Math.min(
-                            tableScroll - (int) (scrollY * dev.ellipog.tasked.client.dev.TableEditorLayout.ROW_HEIGHT),
-                            dev.ellipog.tasked.client.dev.TableEditorLayout.maxScroll(entries, tableEditorFrame, tableFolds())));
+                    tableEditorBar.wheel(scrollY);
                 }
             }
             return true;
@@ -21689,7 +22731,14 @@ public final class QuestBookScreen extends ArmatureScreen
         // Checked before the canvas, and the two cannot both match -- the sidebar is to the left of the
         // canvas's own left edge -- so the order is for the reader rather than for the logic.
         if (sidebarViewport().containsScreen(mouseX, mouseY)) {
-            scrollSidebar(-(int) (scrollY * SidebarLayout.pitch()));
+            // Through the bar's own notch counter and not its `wheel`, because this list snaps: a wheel
+            // landing between two rows is answered by `scrollSidebar`, which moves the offset onto the
+            // row the notch was aimed at. The fraction the counter keeps is what makes a trackpad's
+            // small deltas add up to that notch instead of being truncated away.
+            int notches = sidebarView.bar().notches(scrollY);
+            if (notches != 0) {
+                scrollSidebar(-notches * SidebarLayout.pitch());
+            }
             return true;
         }
 
@@ -21775,18 +22824,21 @@ public final class QuestBookScreen extends ArmatureScreen
                 return true;
             }
             // The wheel's three keys, for the reader who never reaches for the mouse: the two arrows and
-            // the page's own bounds, clamped by the layout rather than by a second number here.
+            // the page's own bounds. The arrows are one row and the page keys are one screen less that
+            // row, which is the same pair the bar's own page-step uses -- so a page by key and a page by
+            // groove land in the same place.
             int step = switch (keyCode) {
                 case GLFW.GLFW_KEY_DOWN -> dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT;
                 case GLFW.GLFW_KEY_UP -> -dev.ellipog.tasked.client.dev.AssetsLayout.ROW_HEIGHT;
-                case GLFW.GLFW_KEY_PAGE_DOWN -> assetsPageBand();
-                case GLFW.GLFW_KEY_PAGE_UP -> -assetsPageBand();
+                // The bar's own page, not the band's whole height: one screen less the row that carries
+                // over is what a page means everywhere else in this screen, and a key that landed
+                // somewhere a groove press would not is two answers to one question.
+                case GLFW.GLFW_KEY_PAGE_DOWN -> assetsBar.pageStep();
+                case GLFW.GLFW_KEY_PAGE_UP -> -assetsBar.pageStep();
                 default -> 0;
             };
             if (step != 0) {
-                var kinds = assetsLines().stream().map(AssetLine::kind).toList();
-                assetsScroll = Math.max(0, Math.min(assetsScroll + step,
-                        dev.ellipog.tasked.client.dev.AssetsLayout.maxScroll(kinds, assetsPageBand())));
+                assetsBody.setScrollY(assetsBody.scrollY() + step);
                 return true;
             }
             return super.keyPressed(keyCode, scanCode, modifiers);
@@ -21852,6 +22904,31 @@ public final class QuestBookScreen extends ArmatureScreen
         // Enter and Escape *submit*, and while a picker is open neither means that -- Enter commits the
         // rule above, and Escape leaves the field as it was. Handing them to the box would set the
         // field to the text someone pressed Escape to abandon.
+        // The type page's keys, on the item picker's terms and read first: the page is a list, so Enter
+        // adds the selected row, the arrows walk it, and Escape leaves the page rather than the card
+        // (`leaveCardPage` is what the footer's Back runs, so the key and the button are one act).
+        if (typePageOpen()) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                leaveTypePage();
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                String chosen = selectedType();
+                if (chosen != null) {
+                    pressTypeRow(chosen);
+                }
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_UP) {
+                typeSelected = ItemPickerLayout.step(typeRows, typeSelected, -1);
+                return true;
+            }
+            if (keyCode == GLFW.GLFW_KEY_DOWN) {
+                typeSelected = ItemPickerLayout.step(typeRows, typeSelected, 1);
+                return true;
+            }
+        }
+
         if (pickingItemPath != null) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 if (tablePickReturn) {
@@ -21943,12 +23020,12 @@ public final class QuestBookScreen extends ArmatureScreen
             return true;
         }
 
-        // The colour picker's Escape, after the focused field's: a field with the keyboard answers first
-        // (a scrub field puts its value back), and the next Escape closes the picker and writes whatever
-        // its last gesture left unwritten.
-        if (colourPopover.isOpen() && keyCode == GLFW.GLFW_KEY_ESCAPE) {
-            closeColourPopover();
-            rebuildWidgets();
+        // And its arrows: the picker's keyboard is the only way to nudge a colour by one, and it acts on
+        // the part the pointer is over -- read from the frame the picker was last drawn with, so the key
+        // and the crosshair cannot disagree. Shift is the ten-step. Read before the canvas focus below,
+        // which would otherwise walk the nodes while a picker is open over them.
+        if (colourPopover.isOpen()
+                && colourPopover.keyPressed(keyCode, Screen.hasShiftDown())) {
             return true;
         }
 
@@ -22016,7 +23093,32 @@ public final class QuestBookScreen extends ArmatureScreen
                 && !focused.isFocused()) {
             setFocused(null);
         }
+        // **A focused control that did not want the key leaves the editor's own chords to the screen.**
+        // A number field is focused by the very press that starts a drag, and it answers false for
+        // Ctrl+Z -- so before this, Ctrl+Z after touching a number did nothing at all: not the field's
+        // undo, not the chapter's. Only the undo pair and Ctrl+S, and only once the widget has refused
+        // them by returning false: a focused field's Backspace is a character and its Ctrl+A is a
+        // selection, so the destructive chords stay behind the no-focus guard above. A text field
+        // consumes Z and Y itself and keeps that meaning -- see `ArmatureTextField`.
+        if (!handled && getFocused() != null && mayEditNow() && unclaimedEditorChord(keyCode)
+                && keysForEditor(keyCode)) {
+            return true;
+        }
         return handled;
+    }
+
+    /**
+     * The editor's chords a non-text control has no meaning for: the undo pair, and the save report.
+     *
+     * <p>Deliberately not Delete, Ctrl+D, Ctrl+N, Ctrl+A or Ctrl+V: those are the keys a focused control
+     * could be about to use for something of its own, and a screen that deleted a selection because a
+     * number field had the keyboard would be the trap the guard above exists to prevent.
+     */
+    private static boolean unclaimedEditorChord(int keyCode) {
+        if (!Screen.hasControlDown()) {
+            return false;
+        }
+        return keyCode == GLFW.GLFW_KEY_Z || keyCode == GLFW.GLFW_KEY_Y || keyCode == GLFW.GLFW_KEY_S;
     }
 
     /** @return whether the key was one of the editor's, and was handled */
@@ -22033,12 +23135,23 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
             // The table editor's undo is its own frame's: the file it is showing, and no further back
-            // than the table the author opened. See `tableApplied` for why that floor exists.
+            // than the table the author opened. See `tableApplied` for why that floor exists. Shift is
+            // the redo half here as well, which is the pair every editor has.
             if (overlay == Overlay.TABLE_EDITOR) {
-                tableUndo();
+                if (Screen.hasShiftDown()) {
+                    tableRedo();
+                }
+                else {
+                    tableUndo();
+                }
                 return true;
             }
-            send(new EditorOp.Undo());
+            if (Screen.hasShiftDown()) {
+                redoEdit();
+            }
+            else {
+                undoEdit();
+            }
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Y) {
@@ -22046,7 +23159,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 tableRedo();
                 return true;
             }
-            send(new EditorOp.Redo());
+            redoEdit();
             return true;
         }
         // The shifted pair, read before the plain keys below: `Ctrl+N` is a new *quest*, and on the same
@@ -22076,11 +23189,9 @@ public final class QuestBookScreen extends ArmatureScreen
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_D && selectedQuest != null) {
-            // The whole selection duplicates, one op each: a copy of six quests is six quests, and the
-            // server names each one.
-            for (String id : selection()) {
-                send(new EditorOp.Duplicate(id));
-            }
+            // The whole selection duplicates, as one edit per chapter it spans: seventy quests are one
+            // gesture, one history step and one save, and one Ctrl+Z takes them all back. See `sendBulk`.
+            duplicateSelection(selection());
             return true;
         }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
@@ -22088,9 +23199,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // The selection clears here rather than when the answer arrives: the node is on its way out, and a
             // canvas highlighting a quest the server has already been asked to remove is a highlight of
             // something that is about to not be there.
-            for (String id : selection()) {
-                send(new EditorOp.Delete(id));
-            }
+            deleteSelection(selection());
             selectedQuest = null;
             multiSelection.clear();
             return true;
@@ -22192,15 +23301,85 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Asks the server for one edit. The client writes nothing: see {@code TaskedNetworking.sendEditorOp}. */
     private void send(EditorOp op) {
+        send(op, effectiveChapter());
+    }
+
+    /**
+     * The same, aimed at the chapter that owns the edit.
+     *
+     * <p>The chapter is a parameter because a selection can name quests in another chapter — a
+     * multi-selection survives a chapter change — and a bulk op has to reach the editor that holds those
+     * quests, not the one the author happens to be looking at.
+     */
+    private void send(EditorOp op, String chapter) {
         // Recorded so the reply can be told apart from a table op's: the two travel on one payload and
         // answer in order, and a table's answer carries a table id in the field a quest's carries a
-        // quest id. See the reply loop for what each kind does to the table panel.
+        // quest id. See the reply loop for what each kind does to the table panel. One marker per
+        // payload: a gesture that becomes several payloads gets several answers, in order.
         ClientEditReplies.noteSent("");
-        String chapter = effectiveChapter();
         // Empty rather than null when the book has no chapters yet. The payload's chapter is the
         // session a structural edit is recorded on, and "no session" is the empty string the server
         // reads the same way -- which is what lets an empty pack make its first chapter.
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, op);
+    }
+
+    /**
+     * A bulk gesture: every id in the selection, as <b>one</b> edit per chapter.
+     *
+     * <h2>Why the selection is not simply looped over</h2>
+     *
+     * <p>Because a gesture is not an operation. Looping sent one op per quest, and each op cost a history
+     * snapshot and a save — so "duplicate these seventy" was seventy presses of Ctrl+Z to take back,
+     * which is not an undo. One batch per chapter is one step per chapter, which is what the model can
+     * honestly offer: the history lives in a chapter's editor.
+     *
+     * <p>A chapter whose share of the selection is a single quest is sent as that plain op rather than as
+     * a one-element batch, because a create or a duplicate answers with the id it made — that is what
+     * selects the new node on the canvas. See {@code EditorOps.batch}.
+     */
+    private void sendBulk(List<String> ids, java.util.function.Function<String, EditorOp> opFor) {
+        java.util.Map<String, List<String>> byChapter =
+                dev.ellipog.tasked.client.dev.BatchPlan.byChapter(ids, id -> {
+                    ClientQuestCache.Entry entry = entryFor(id);
+                    return entry == null ? null : entry.chapterId();
+                });
+        for (java.util.Map.Entry<String, List<String>> chapter : byChapter.entrySet()) {
+            List<EditorOp> ops = new ArrayList<>(chapter.getValue().size());
+            for (String id : chapter.getValue()) {
+                ops.add(opFor.apply(id));
+            }
+            send(dev.ellipog.tasked.editor.EditorOps.batch(ops), chapter.getKey());
+        }
+    }
+
+    /** Duplicates the whole selection: one history step per chapter it spans. */
+    private void duplicateSelection(List<String> ids) {
+        sendBulk(ids, EditorOp.Duplicate::new);
+    }
+
+    /** Deletes the whole selection: one history step per chapter it spans. */
+    private void deleteSelection(List<String> ids) {
+        sendBulk(ids, EditorOp.Delete::new);
+    }
+
+    /**
+     * Ctrl+Z: one step back, with this client's pending values dropped first.
+     *
+     * <p>The drafts go before the op goes out, for the reason {@code tableUndo} gives for the table's:
+     * the server is about to put the file back, and a pending value still holding what was undone would
+     * keep drawing it — a Ctrl+Z that looks like it did nothing.
+     */
+    private void undoEdit() {
+        fieldDraft.forgetChapter(effectiveChapter());
+        settingsDraft.clear();
+        send(new EditorOp.Undo());
+    }
+
+    /** The same, forward. */
+    private void redoEdit() {
+        fieldDraft.forgetChapter(effectiveChapter());
+        settingsDraft.clear();
+        send(new EditorOp.Redo());
     }
 
     /**

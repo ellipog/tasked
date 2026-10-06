@@ -129,7 +129,11 @@ public final class ConditionTypes {
     private static final class Dispatch {
         static final Codec<QuestCondition> CODEC = TypeDispatch.codec(
                 "quest condition", "type", QuestCondition::type,
-                () -> REGISTRY.values().stream().map(Entry::spec).toList());
+                () -> REGISTRY.values().stream().map(Entry::spec).toList(),
+                // A placeholder rather than a refusal, so one addon condition does not cost the author
+                // every quest in the file. It deliberately registers no behaviour: Conditions reads an
+                // unregistered type as NOT met, which is the safe direction for a gate.
+                UnknownCondition::new);
     }
 
     public static Codec<QuestCondition> dispatchCodec() {
@@ -202,8 +206,19 @@ public final class ConditionTypes {
                 .map(com.google.gson.JsonElement::getAsJsonObject));
     }
 
-    /** What a condition asks for, as a client should draw it. {@code NONE} for an unregistered type. */
+    /**
+     * What a condition asks for, as a client should draw it.
+     *
+     * <p>A row naming the type for an unknown one — see {@code TaskTypes.displayOf} for why a named row
+     * beats a blank one, which matters most here: a gate nothing can evaluate is exactly the thing an
+     * author needs to be told about, because {@link Conditions} reads it as <b>not met</b> and the task
+     * or reward behind it will never fire.
+     */
     public static ConditionDisplay displayOf(QuestCondition condition) {
+        if (condition instanceof UnknownCondition unknown) {
+            return ConditionDisplay.ofTranslatableText("tasked.condition.unknown_type",
+                    "Unknown condition type: " + unknown.type(), unknown.type().toString());
+        }
         return REGISTRY.get(condition.type())
                 .map(entry -> entry.display().apply(condition))
                 .orElse(ConditionDisplay.NONE);
@@ -228,7 +243,15 @@ public final class ConditionTypes {
         return REGISTRY.get(id).map(entry -> entry.spec().codec());
     }
 
-    /** How to evaluate a condition. Empty for an unregistered type, which cannot have decoded. */
+    /**
+     * How to evaluate a condition.
+     *
+     * <p>Empty for an {@link UnknownCondition}, and that emptiness <b>is</b> the behaviour:
+     * {@link Conditions} reads a missing entry as not met. The direction is the safe one for a gate —
+     * a lock that cannot be read stays shut — and it is stated here rather than left implicit because
+     * an unknown type can now actually reach this method, where before the dispatch refused to decode
+     * one at all. There is no {@code UnknownCondition.BEHAVIOUR} to find, on purpose; see that record.
+     */
     public static Optional<ConditionBehaviour<QuestCondition>> behaviourOf(QuestCondition condition) {
         return REGISTRY.get(condition.type()).map(Entry::behaviour);
     }

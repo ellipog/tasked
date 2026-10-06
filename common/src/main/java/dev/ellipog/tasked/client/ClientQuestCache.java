@@ -749,6 +749,28 @@ public final class ClientQuestCache {
     }
 
     /**
+     * Whether one task is finished, by the rule the viewer page reads.
+     *
+     * <h2>Why this is a method rather than a comparison written at each call site</h2>
+     *
+     * <p>{@code progress >= count} is the definition of a finished task, and it was spelled out inline
+     * in the viewer's live row. One predicate, one reader, so the rule cannot drift between the page
+     * that draws a task's status and anything else that later needs the same answer.
+     */
+    public static boolean taskDone(String questId, int taskIndex) {
+        Entry entry = entry(questId);
+        return entry != null && taskDone(entry, questId, taskIndex);
+    }
+
+    /** The same, for a caller that already holds the entry. */
+    private static boolean taskDone(Entry entry, String questId, int taskIndex) {
+        if (taskIndex < 0 || taskIndex >= entry.tasks().size()) {
+            return false;
+        }
+        return taskProgressOf(questId, taskIndex) >= entry.tasks().get(taskIndex).count();
+    }
+
+    /**
      * The first task whose row offers the Submit button, or -1 for a quest that offers none.
      *
      * <h2>Two rules, because the two kinds of manual task are handed in at opposite moments</h2>
@@ -930,6 +952,51 @@ public final class ClientQuestCache {
         return counts;
     }
 
+    /**
+     * How much of each chapter is owed, collected, or there at all — the claim menu's banner badge.
+     *
+     * <h2>Why this counts rewards where {@link #claimableByChapter} counts quests</h2>
+     *
+     * <p>Because the two are answering different questions and both are asked on screen at once. A
+     * sidebar row is a <i>chapter</i>, and "how many quests have something for me" is what a player
+     * reads off it — that is {@code claimableByChapter}, and it is unchanged. A claim menu's banner is a
+     * <i>claim</i>, and "3 of these 5 rewards are ready" is what it has to say, which is a count of
+     * rewards. One map that looked like the other would eventually be read for it.
+     *
+     * <p>{@code total} counts every reward of the chapter whether or not this player can take it, so the
+     * badge's denominator is what the chapter holds rather than what is left — a proportion that shrank
+     * as the player collected would read as progress going backwards.
+     */
+    public static java.util.Map<String, RewardInboxLayout.Tally> rewardsByChapter(UUID player) {
+        java.util.Map<String, int[]> tally = new java.util.LinkedHashMap<>();
+        for (Entry entry : entries) {
+            // ready, claimed, total -- in that order, which is the record's.
+            int[] counts = tally.computeIfAbsent(entry.chapterId(), id -> new int[3]);
+            Progress found = progress.get(entry.id());
+            for (int index = 0; index < entry.rewards().size(); index++) {
+                counts[2]++;
+                if (found == null || player == null) {
+                    continue;
+                }
+                // The same two predicates the rows and the buttons read, so the banner cannot count
+                // something the list below it refuses to show.
+                if (found.claimed(player, index, entry.rewards().get(index).team())) {
+                    counts[1]++;
+                }
+                else if (claimable(player, entry, found, index)) {
+                    counts[0]++;
+                }
+            }
+        }
+
+        java.util.Map<String, RewardInboxLayout.Tally> out = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, int[]> found : tally.entrySet()) {
+            int[] counts = found.getValue();
+            out.put(found.getKey(), new RewardInboxLayout.Tally(counts[0], counts[1], counts[2]));
+        }
+        return out;
+    }
+
     /** The rewards waiting per quest, by quest id — the canvas badges' own count. */
     public static java.util.Map<String, Integer> outstandingByQuest(UUID player) {
         java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
@@ -961,9 +1028,21 @@ public final class ClientQuestCache {
      * {@code team} flag decides, exactly as the claim path does.
      */
     public static boolean rewardClaimedBy(UUID player, String questId, int rewardIndex) {
-        Progress found = progress.get(questId);
         Entry entry = entry(questId);
-        if (found == null || entry == null || player == null
+        return entry != null && rewardClaimedBy(player, entry, rewardIndex);
+    }
+
+    /**
+     * The same, for a caller that already holds the entry.
+     *
+     * <p>Because the id lookup is a walk of the whole tree, and the claim menu asks this once per reward
+     * of every visible quest, every frame: without this overload a five-hundred-quest pack would answer
+     * one frame's question with half a million comparisons. The same reason {@link #canClaimReward} has
+     * the same pair.
+     */
+    public static boolean rewardClaimedBy(UUID player, Entry entry, int rewardIndex) {
+        Progress found = progress.get(entry.id());
+        if (found == null || player == null
                 || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
             return false;
         }
@@ -1447,7 +1526,8 @@ public final class ClientQuestCache {
         return null;
     }
 
-    /** A quest's per-line overrides, keyed by dependency id. Absent or malformed reads as none. */    private static java.util.Map<String, DependencyStyle> dependencyLines(JsonObject quest) {
+    /** A quest's per-line overrides, keyed by dependency id. Absent or malformed reads as none. */
+    private static java.util.Map<String, DependencyStyle> dependencyLines(JsonObject quest) {
         JsonElement element = quest.get("dependencyLines");
         if (element == null || !element.isJsonObject()) {
             return java.util.Map.of();
@@ -1456,7 +1536,19 @@ public final class ClientQuestCache {
         for (java.util.Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
             lines.put(entry.getKey(), DependencyStyle.from(entry.getValue()));
         }
-        return java.util.Map.copyOf(lines);
+        // `Collections.unmodifiableMap`, NOT `Map.copyOf`, and the difference reaches the author's file.
+        // `Map.copyOf` returns an immutable map in *hash* order, so this map's iteration order stopped
+        // matching the JSON it was parsed from -- and the fallback branch of `QuestBookScreen`'s
+        // `dependencyLinesOf` rebuilds the whole `dependencyLines` object by iterating it and sends that
+        // object as one field write. A line-style edit could therefore permute the on-disk key order of
+        // every other override in the quest, which is a Git diff nobody made. The permutation was a pure
+        // function of the key set, so it was not even random -- it was just not the file's order, and
+        // adding one override reshuffled the rest.
+        //
+        // The read-only guarantee is the same; only the order differs. See `Quest.dependencyLines` for
+        // why the order is part of the format rather than an accident: a diff on a file an author
+        // hand-wrote should show the line they changed.
+        return java.util.Collections.unmodifiableMap(lines);
     }
 
     private static TaskEntry taskEntry(JsonObject json) {

@@ -14,9 +14,11 @@ import java.util.List;
  * reads as a broken mouse rather than as arithmetic. So the rows are composed here, their heights
  * decided here, and {@code rowRect} is the one answer both the drawing and the hit test read.
  *
- * <p>The list's scroll is the caller's: every method here takes the offset it is drawing at and
- * clamps it only where clamping is the answer ({@link #maxScroll}). A class that also remembered the
- * scroll would be a second place the screen's state lives.
+ * <p>The list's scroll is the caller's, and it is one object's: every method here takes the offset it
+ * is drawing at, and {@link #contentHeight} is what the caller's viewport is told — so the clamp, the
+ * grip's travel and the rows' positions all come from the same number rather than from three
+ * expressions that agree until one of them is edited. A class that also remembered the scroll would be
+ * a second place the screen's state lives.
  */
 public final class ItemPickerLayout {
 
@@ -28,6 +30,25 @@ public final class ItemPickerLayout {
 
     /** One pickable row. */
     public static final int ROW_HEIGHT = 18;
+
+    /**
+     * The width the list gives up on its right edge for the scrollbar.
+     *
+     * <h2>Why the list reserves it rather than the bar drawing over the rows</h2>
+     *
+     * <p>The hand-rolled thumb this replaces was painted at {@code list().right() - 3}: the last three
+     * pixels of every row's own rectangle — the row's right margin, one pixel clear of the id it draws
+     * there, and still <b>the row</b>. A bar has to own a column of its own or it cannot be a control:
+     * a press on those three pixels belonged to the row, and there was nothing for a drag to start on.
+     * So the strip is reserved, and the pattern is the one the pack's own page already used
+     * ({@code AssetsLayout.rows}/{@code scrollbar}) and the sidebar reserved before either
+     * ({@code BookGeometry.SIDEBAR_SCROLLBAR}). Stating it in the <i>layout</i> is the only place it can
+     * be stated and still be true of the row rectangles, the clip, the hit test and the bar at once.
+     *
+     * <p>Five rather than three: a three-pixel bar at the strip's right edge with two pixels of
+     * clearance between it and the last character of a row.
+     */
+    public static final int SCROLLBAR = 5;
 
     /** What a row is for. Headings name a section; the others can be pressed. */
     public enum Kind {
@@ -44,7 +65,15 @@ public final class ItemPickerLayout {
          * the drawing is where the two differ, because a picture is not an item. {@link #pickable}
          * accepts it with every kind that is not a heading.
          */
-        TEXTURE
+        TEXTURE,
+        /**
+         * A registered type, picked by {@code TypePicker}: a task, a reward, a condition.
+         *
+         * <p>Row for row the item picker's shape — icon, name, the id a file spells at the right — which
+         * is the point of it: adding a task reads like adding an item, because it is the same act. The
+         * rows carry no stack, so their count is always one.
+         */
+        TYPE
     }
 
     /**
@@ -59,16 +88,29 @@ public final class ItemPickerLayout {
      * was formatted into the label and nowhere else, so the picker showed a number and then threw it
      * away — while a recipe-viewer drop of the same stack carried it. One is the floor: everything that
      * is not a stack (a heading, a clear, a miss) stands for one thing.
+     *
+     * <p>{@code note} is the sentence that says why a row **cannot be taken** — a type a table refuses,
+     * today — and a row with one is not selectable, not walkable by the arrow keys and not committed by
+     * Enter. It is deliberately not the same field as {@code secondary}: a missing item's note explains
+     * it and the row is still pickable ("pressing the row that appears keeps it"), while a refusal is a
+     * thing the file will not take, and the difference between "this is odd" and "this will not work" is
+     * one the picker has to make.
      */
-    public record Row(Kind kind, String id, String label, String secondary, int count) {
+    public record Row(Kind kind, String id, String label, String secondary, int count, String note) {
 
         public Row {
             count = Math.max(1, count);
+            note = note == null ? "" : note;
         }
 
-        /** A row that is not a stack: a heading, a clear row, a missing id, a texture. */
+        /** A row that is not a stack: a heading, a clear row, a missing id, a texture, a type. */
         public static Row of(Kind kind, String id, String label, String secondary) {
-            return new Row(kind, id, label, secondary, 1);
+            return new Row(kind, id, label, secondary, 1, "");
+        }
+
+        /** The same, for a row that also says why it cannot be taken. */
+        public static Row blocked(Kind kind, String id, String label, String secondary, String note) {
+            return new Row(kind, id, label, secondary, 1, note);
         }
     }
 
@@ -84,21 +126,26 @@ public final class ItemPickerLayout {
         public static final Current NONE = new Current("", true, false);
     }
 
-    /** Where the search box is and where the list is, from the card's body rectangle. */
-    public record Frame(BookGeometry.Rect search, BookGeometry.Rect list) {
+    /** Where the search box is, where the list is, and the strip the bar is drawn in. */
+    public record Frame(BookGeometry.Rect search, BookGeometry.Rect list, BookGeometry.Rect scrollbar) {
 
         /**
-         * The body split in two: the box across its top, the list under it.
+         * The body split in three: the box across its top, the list under it, and the bar's strip down
+         * the list's right edge.
          *
-         * <p>No gap between them, because the box is the first thing in the list rather than a header
-         * over it -- a strip of card between a search box and the results it searches is a strip that
-         * does nothing.
+         * <p>No gap between the box and the list, because the box is the first thing in the list rather
+         * than a header over it -- a strip of card between a search box and the results it searches is a
+         * strip that does nothing.
          */
         public static Frame of(BookGeometry.Rect body) {
+            BookGeometry.Rect band = BookGeometry.Rect.at(body.x(), body.y() + SEARCH_HEIGHT,
+                    body.width(), Math.max(0, body.height() - SEARCH_HEIGHT));
             return new Frame(
                     BookGeometry.Rect.at(body.x(), body.y(), body.width(), SEARCH_HEIGHT),
-                    BookGeometry.Rect.at(body.x(), body.y() + SEARCH_HEIGHT, body.width(),
-                            Math.max(0, body.height() - SEARCH_HEIGHT)));
+                    BookGeometry.Rect.at(band.x(), band.y(), Math.max(0, band.width() - SCROLLBAR),
+                            band.height()),
+                    BookGeometry.Rect.at(band.right() - SCROLLBAR, band.y(),
+                            Math.min(SCROLLBAR, band.width()), band.height()));
         }
     }
 
@@ -170,18 +217,21 @@ public final class ItemPickerLayout {
         return row.kind() == Kind.HEADING ? HEADING_HEIGHT : ROW_HEIGHT;
     }
 
-    /** How tall the whole list is, headings and all. */
+    /**
+     * How tall the whole list is, headings and all.
+     *
+     * <p>The one number a caller has to state for the list to scroll: the viewport it hands this to
+     * clamps the offset from it, and the bar draws its grip as the visible fraction of it. There used to
+     * be a {@code maxScroll} beside it — {@code max(0, contentHeight - band)} — and it was a second
+     * derivation of the same fact, kept alive by the two callers that clamped an offset by hand. Both of
+     * those are the viewport's now, so the band is subtracted in the one place that knows it.
+     */
     public static int contentHeight(List<Row> rows) {
         int total = 0;
         for (Row row : rows) {
             total += heightOf(row);
         }
         return total;
-    }
-
-    /** The furthest the list can scroll before its last row is at the bottom of the frame. */
-    public static int maxScroll(List<Row> rows, Frame frame) {
-        return Math.max(0, contentHeight(rows) - frame.list().height());
     }
 
     /**
@@ -212,9 +262,13 @@ public final class ItemPickerLayout {
         return -1;
     }
 
-    /** Whether a row can be selected or pressed. A heading is neither. */
+    /**
+     * Whether a row can be selected or pressed. A heading is not, and neither is a row that says why it
+     * cannot be taken — the refusal is the validator's, and offering a row that the save will reject is
+     * how an author ends up with a row in the panel that never reaches the file.
+     */
     public static boolean pickable(Row row) {
-        return row.kind() != Kind.HEADING;
+        return row.kind() != Kind.HEADING && row.note().isEmpty();
     }
 
     /** The first pickable row, or -1 when there is none. */
@@ -280,7 +334,7 @@ public final class ItemPickerLayout {
         String counted = entry.count() > 1 ? "x" + entry.count() + " " + name : name;
         // And the count travels as well as being printed: whatever this row is used to build takes the
         // stack's size, so the number on screen is the number that lands in the file.
-        return new Row(Kind.ITEM, entry.id(), counted, entry.id(), entry.count());
+        return new Row(Kind.ITEM, entry.id(), counted, entry.id(), entry.count(), "");
     }
 
     private ItemPickerLayout() {

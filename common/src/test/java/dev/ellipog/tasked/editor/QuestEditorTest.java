@@ -17,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -426,5 +427,58 @@ class QuestEditorTest {
         com.google.gson.JsonObject icon = new com.google.gson.JsonObject();
         icon.addProperty("item", item);
         return icon;
+    }
+
+    // ------------------------------------------------------------------
+    // The group of edits: one step for a gesture
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a group of edits is one history step, and redo puts the whole of it back")
+    void aGroupIsOneStep() {
+        QuestEditor editor = open();
+
+        editor.group(() -> {
+            assertTrue(editor.set("one", "title", "First"));
+            assertTrue(editor.set("two", "title", "Second"));
+            assertTrue(editor.set("one", "x", 32.0));
+        });
+
+        assertEquals("First", editor.quest("one").text("title", ""));
+        assertEquals(32.0, editor.quest("one").number("x", -1), 0.0001, "every edit in the group landed");
+
+        assertTrue(editor.undo(), "the group is on the history");
+        assertEquals("One", editor.quest("one").text("title", ""), "and one undo takes the whole of it");
+        assertEquals("Two", editor.quest("two").text("title", ""));
+        assertEquals(0.0, editor.quest("one").number("x", -1), 0.0001);
+        assertFalse(editor.canUndo(), "one step, not three");
+
+        assertTrue(editor.redo(), "and the group is one redo as well");
+        assertEquals("First", editor.quest("one").text("title", ""));
+        assertEquals("Second", editor.quest("two").text("title", ""));
+        assertEquals(32.0, editor.quest("one").number("x", -1), 0.0001);
+        assertFalse(editor.canRedo(), "one step forward, not three");
+    }
+
+    @Test
+    @DisplayName("a group cannot nest, and a structural edit cannot join one")
+    void aGroupIsOneLevel() {
+        QuestEditor editor = open();
+
+        // A nested snapshot would be a step inside a step, and the inner one's undo would leave the
+        // author halfway through a gesture they cannot see the edges of.
+        assertThrows(IllegalStateException.class, () -> editor.group(() -> editor.group(() -> {
+        })));
+
+        // And a structural edit is refused rather than silently left out of the snapshot: its undo is
+        // the tree's own record, not this chapter's files.
+        assertThrows(IllegalStateException.class,
+                () -> editor.group(() -> editor.record(null)));
+
+        // The flag is cleared by the `finally`, so the edits after a refused group are ordinary edits
+        // again -- a group abandoned by an exception must not leave every later edit without a step.
+        assertTrue(editor.set("one", "title", "After"));
+        assertTrue(editor.undo());
+        assertEquals("One", editor.quest("one").text("title", ""));
     }
 }

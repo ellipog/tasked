@@ -35,9 +35,11 @@ class ItemPickerLayoutTest {
 
     /** A frame with a real search box and a list 100 tall, so the scroll rules have somewhere to go. */
     private static ItemPickerLayout.Frame frame() {
-        return new ItemPickerLayout.Frame(
-                BookGeometry.Rect.at(10, 20, 200, ItemPickerLayout.SEARCH_HEIGHT),
-                BookGeometry.Rect.at(10, 20 + ItemPickerLayout.SEARCH_HEIGHT, 200, 100));
+        // Through `Frame.of` rather than the record's own constructor: the fixture then exercises the
+        // split the screen uses, so a strip that moved would move this too instead of being asserted
+        // against a second, hand-built rectangle that agrees with nothing.
+        return ItemPickerLayout.Frame.of(BookGeometry.Rect.at(10, 20, 200,
+                ItemPickerLayout.SEARCH_HEIGHT + 100));
     }
 
     @Test
@@ -113,7 +115,7 @@ class ItemPickerLayoutTest {
     }
 
     @Test
-    @DisplayName("the frame is the body's top strip for the box, and the rest for the list")
+    @DisplayName("the frame is the body's top strip for the box, the rest for the list, and a strip for the bar")
     void theFrameSplitsTheBody() {
         BookGeometry.Rect body = BookGeometry.Rect.at(5, 7, 210, 130);
         ItemPickerLayout.Frame frame = ItemPickerLayout.Frame.of(body);
@@ -124,10 +126,23 @@ class ItemPickerLayoutTest {
         assertEquals(body.width(), frame.search().width());
         assertEquals(frame.search().bottom(), frame.list().y(), "no gap: the list starts under the box");
         assertEquals(body.bottom(), frame.list().bottom(), "and ends with the body");
+
+        // The bar's strip, and the property the two rectangles have to have: they tile the band the
+        // rows live in, with no overlap and no seam. A row drawn under the strip is a row whose text is
+        // cut off, and a gap between them is a column of card nobody drew.
+        assertEquals(frame.list().right(), frame.scrollbar().x(), "the strip starts where the rows stop");
+        assertEquals(body.right(), frame.scrollbar().right(), "and ends at the body's own edge");
+        assertEquals(body.width(), frame.list().width() + frame.scrollbar().width(),
+                "together they are exactly the body's width");
+        assertEquals(ItemPickerLayout.SCROLLBAR, frame.scrollbar().width());
+        assertTrue(frame.scrollbar().width() >= dev.ellipog.armature.client.ui.kit.ScrollBar.WIDTH,
+                "the reserved strip has to hold the bar the kit draws in it");
+        assertEquals(frame.list().height(), frame.scrollbar().height(),
+                "and the bar is as tall as the list it describes");
     }
 
     @Test
-    @DisplayName("the content is as tall as its rows, and the scroll stops at the last of them")
+    @DisplayName("the content is as tall as its rows, and what fits needs no scroll")
     void theScroll() {
         ItemPickerLayout.Frame frame = frame();
         List<ItemPickerLayout.Row> rows = ItemPickerLayout.compose(
@@ -135,9 +150,12 @@ class ItemPickerLayoutTest {
 
         int content = ItemPickerLayout.contentHeight(rows);
         assertTrue(content > frame.list().height(), "the fixture should overflow, or this proves nothing");
-        assertEquals(content - frame.list().height(), ItemPickerLayout.maxScroll(rows, frame));
+        // The clamp itself is the viewport's now -- the list is told how tall its content is and subtracts
+        // its own band -- so what this asserts is the height, which is the one number this class owes.
+        assertEquals(5 * ItemPickerLayout.ROW_HEIGHT + 2 * ItemPickerLayout.HEADING_HEIGHT, content,
+                "the clear row, two results under their heading, and the inventory under its own");
 
-        assertTrue(ItemPickerLayout.maxScroll(List.of(), frame) == 0, "nothing to scroll costs nothing");
+        assertEquals(0, ItemPickerLayout.contentHeight(List.of()), "nothing to scroll costs nothing");
     }
 
     @Test
@@ -177,5 +195,30 @@ class ItemPickerLayoutTest {
                 "a stale index from a shrunken list lands on the nearest real row, not the first");
         assertEquals(first, ItemPickerLayout.clamp(rows, -5), "and one below zero lands on the first");
         assertEquals(-1, ItemPickerLayout.firstPickable(List.of()), "nothing to select");
+    }
+
+    @Test
+    @DisplayName("a row that says why it cannot be taken is not a row that can be taken")
+    void aRefusalIsNotPickable() {
+        // The rule the type picker leans on: a type a table will not hold is offered -- hiding it leaves
+        // an author with no way to find out why it is absent -- and it cannot be pressed, landed on by
+        // the arrows, or committed by Enter.
+        List<ItemPickerLayout.Row> rows = List.of(
+                ItemPickerLayout.Row.of(ItemPickerLayout.Kind.HEADING, "", "Rewards", ""),
+                ItemPickerLayout.Row.of(ItemPickerLayout.Kind.TYPE, "tasked:item", "Item",
+                        "tasked:item"),
+                ItemPickerLayout.Row.blocked(ItemPickerLayout.Kind.TYPE, "tasked:choice", "Choice",
+                        "tasked:choice", "a table cannot hold a choice"),
+                ItemPickerLayout.Row.of(ItemPickerLayout.Kind.TYPE, "tasked:xp", "Xp", "tasked:xp"));
+
+        assertFalse(ItemPickerLayout.pickable(rows.get(2)), "a refused row is not pickable");
+        assertTrue(ItemPickerLayout.pickable(rows.get(1)), "and its neighbours are, note and all");
+        assertEquals("", rows.get(1).note(), "a row with nothing against it carries no note");
+
+        assertEquals(1, ItemPickerLayout.firstPickable(rows), "the heading is stepped over as well");
+        assertEquals(3, ItemPickerLayout.step(rows, 1, 1), "and so is the refusal");
+        assertEquals(1, ItemPickerLayout.step(rows, 3, -1));
+        assertEquals(1, ItemPickerLayout.clamp(rows, 2),
+                "a selection that lands on a refusal slides back to the nearest row that can be taken");
     }
 }

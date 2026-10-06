@@ -318,6 +318,45 @@ class ToolsLayoutTest {
 
 
     @Test
+    @DisplayName("every control is found by its own key, a pair's second half included")
+    void everyControlIsFoundByItsKey() {
+        // Two lists, because the two canvas shapes build different rows: a procedural pattern's is the
+        // only place a PAIR exists at all -- the opacity field beside the space chooser -- and an
+        // image's has none. A sweep that only ever saw the second list would have had nothing to check,
+        // which is part of why the space chooser's press stayed broken under a green suite: no test had
+        // ever put a pair row in a layout and asked for its second half.
+        List<List<ToolsLayout.Action>> lists = List.of(
+                ToolsLayout.canvasRows(new CanvasBackground(CanvasBackground.Kind.DOTS,
+                        CanvasBackground.Space.GRAPH, 24), true, null),
+                everyRow());
+
+        int pairs = 0;
+        for (List<ToolsLayout.Action> rows : lists) {
+            Layout layout = ToolsLayout.build(rows, 288, MEASURE);
+            for (ToolsLayout.Action row : rows) {
+                Slot own = layout.slot(row.key());
+                assertNotNull(own, "the layout placed no slot for " + row.key());
+                assertEquals(own, ToolsLayout.controlSlot(layout, rows, row.key()),
+                        "a row is found at its own slot: " + row.key());
+                if (row.right() == null) {
+                    continue;
+                }
+                pairs++;
+                Slot half = ToolsLayout.controlSlot(layout, rows, row.right().key());
+                assertEquals(ToolsLayout.pairRight(own, row.right().key()), half,
+                        "a pair's second half is found where the panel draws it: " + row.right().key());
+                assertTrue(half.x() >= own.x() && half.right() <= own.right(),
+                        "and inside its own row: " + half + " in " + own);
+            }
+            assertNull(ToolsLayout.controlSlot(layout, rows, "no:such:control"),
+                    "a key that names no control answers nothing");
+        }
+        assertTrue(pairs > 0, "no pair row was swept, so the half of the panel that has the bug this "
+                + "exists for went unchecked");
+        assertNull(ToolsLayout.controlSlot(null, List.of(), "x"), "no layout and no rows is nothing");
+    }
+
+    @Test
     @DisplayName("the panel floats inside the canvas it is docked to, and leaves it most of its width")
     void thePanelIsInsideTheCanvas() {
         BookGeometry.Rect canvas = BookGeometry.Rect.at(150, 30, 800, 500);

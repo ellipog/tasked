@@ -4,7 +4,9 @@ import dev.ellipog.tasked.quest.DependencyStyle;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -93,16 +95,21 @@ class LineArtTest {
     }
 
     @Test
-    @DisplayName("a thick line is drawn twice, one pixel apart")
-    void thickIsTwoRuns() {
+    @DisplayName("a thick line is as many rows as its weight, straddling the route")
+    void thickIsTwoRows() {
+        // This used to read "drawn twice, one pixel apart", because the band was built by copying a
+        // one-pixel run sideways — always one side. It is a filled band now, so what is worth asserting
+        // is the width it covers and that it sits *on* the route rather than under it: the node rims the
+        // line ends on are computed from the route, so a band hanging off one side met them off-centre.
         List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
                 new LineArt.Point(0, 10), new LineArt.Point(40, 10));
 
         List<LineArt.Fill> fills = LineArt.fills(path, DependencyStyle.Weight.THICK, DependencyStyle.Dash.SOLID);
 
-        assertEquals(2, fills.size());
-        assertEquals(10, fills.get(0).y1());
-        assertEquals(11, fills.get(1).y1(), "the twin sits one pixel over");
+        assertEquals(2, spansRows(fills), "a two-pixel line is two rows: " + fills);
+        Set<Long> ink = ink(fills);
+        assertTrue(ink.contains(key(20, 9)) && ink.contains(key(20, 10)),
+                "and the two rows straddle the route's own row: " + fills);
     }
 
     @Test
@@ -586,25 +593,31 @@ class LineArtTest {
     }
 
     @Test
-    @DisplayName("weights stack parallel chips: one, two, three, and a conduit of six with a light core")
-    void weightsStackToTheirWidth() {
+    @DisplayName("the band is as wide as the weight, and a conduit runs border, body, core")
+    void weightsAreTheirWidth() {
+        // The counts here used to be fill counts — one rectangle per copied run — because that is what
+        // the drawing was. A filled band merges rows, so the count says nothing about the width; the
+        // rasterised width does, and the tones are read from the fills themselves.
         List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
                 new LineArt.Point(0, 10), new LineArt.Point(40, 10));
 
-        assertEquals(1, LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.SOLID).size());
-        assertEquals(2, LineArt.fills(path, DependencyStyle.Weight.THICK, DependencyStyle.Dash.SOLID).size());
-        assertEquals(3, LineArt.fills(path, DependencyStyle.Weight.BOLD, DependencyStyle.Dash.SOLID).size());
+        for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+            List<LineArt.Fill> fills = LineArt.fills(path, weight, DependencyStyle.Dash.SOLID);
+            assertEquals(weight.width(), spansRows(fills),
+                    "the band is not its own width: " + weight + " " + fills);
+            assertTrue(ink(fills).size() >= weight.width() * 40,
+                    "and it runs the route's length: " + weight);
+        }
 
         List<LineArt.Fill> conduit =
                 LineArt.fills(path, DependencyStyle.Weight.CONDUIT, DependencyStyle.Dash.SOLID);
-        assertEquals(6, conduit.size(), "a conduit is six pixels: " + conduit);
-        assertEquals(LineArt.Tone.EDGE, conduit.get(0).tone(), "dark border");
-        assertEquals(LineArt.Tone.MAIN, conduit.get(1).tone());
-        assertEquals(LineArt.Tone.CORE, conduit.get(2).tone(), "light core");
-        assertEquals(LineArt.Tone.CORE, conduit.get(3).tone());
-        assertEquals(LineArt.Tone.EDGE, conduit.get(5).tone(), "and the other border");
+        assertEquals(6, conduit.size(), "a conduit's six rows are their own tones: " + conduit);
+        assertEquals(List.of(LineArt.Tone.EDGE, LineArt.Tone.MAIN, LineArt.Tone.CORE,
+                        LineArt.Tone.CORE, LineArt.Tone.MAIN, LineArt.Tone.EDGE),
+                conduit.stream().map(LineArt.Fill::tone).toList(),
+                "dark border, body, light core, and the same back down");
         for (int i = 1; i < conduit.size(); i++) {
-            assertEquals(conduit.get(i - 1).y2(), conduit.get(i).y1(), "the band must be contiguous at " + i);
+            assertEquals(conduit.get(i - 1).y2(), conduit.get(i).y1(), "the band is contiguous at " + i);
         }
     }
 
@@ -683,5 +696,351 @@ class LineArtTest {
         assertEquals(LineArt.arrows(path, DependencyStyle.ArrowHead.CHEVRON,
                         DependencyStyle.ArrowPlace.STREAM, DependencyStyle.LEGACY_STREAM_SPACING, 0, 0),
                 many, "the legacy many and a stream at 24 pixels are the same drawing");
+    }
+
+    // ------------------------------------------------------------------
+    // The stroke: as thick as its weight, and whole at every form
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a thick line is whole through every corner, at every form and weight")
+    void cornersAreWhole() {
+        // The reported fault, as a test. The old band grew downward along a horizontal run and rightward
+        // along a vertical one, both measured absolutely rather than along the route, so a turn whose
+        // arms opened the other way left a whole width-wide block of the elbow empty -- a bite out of the
+        // corner, which is what "unexpected gaps and holes" was looking at.
+        for (DependencyStyle.Form form : List.of(DependencyStyle.Form.ORTHOGONAL,
+                DependencyStyle.Form.CHAMFERED)) {
+            for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+                for (int[] ends : new int[][] { { 60, 10, 10, 60 }, { 10, 10, 60, 60 },
+                        { 60, 60, 10, 10 } }) {
+                    List<LineArt.Point> path = LineArt.path(form, new LineArt.Point(ends[0], ends[1]),
+                            new LineArt.Point(ends[2], ends[3]));
+                    assertWhole(LineArt.fills(path, weight, DependencyStyle.Dash.SOLID), path, weight,
+                            form + " " + weight);
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("a diagonal is as thick as a straight run, and the band follows the route")
+    void diagonalsAreWhole() {
+        // The second half of the report: a chip offset "diagonally" regardless of the slope made a
+        // shallow diagonal a different apparent thickness from a steep one, and left the band oblique to
+        // the line it was meant to be. Area is the honest measure -- a stroke's ink is its width times
+        // its length whatever the angle -- so it is asserted, along with the same wholeness as above.
+        for (DependencyStyle.Form form : DependencyStyle.Form.values()) {
+            for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+                List<LineArt.Point> path = LineArt.path(form, new LineArt.Point(10, 90),
+                        new LineArt.Point(150, 20));
+                String at = form + " " + weight;
+                List<LineArt.Fill> fills = LineArt.fills(path, weight, DependencyStyle.Dash.SOLID);
+
+                assertWhole(fills, path, weight, at);
+                double area = ink(fills).size();
+                double expected = weight.width() * LineArt.length(path);
+                assertTrue(area >= expected * 0.8 && area <= expected * 1.3,
+                        at + " inks " + area + " pixels for a stroke of about " + Math.round(expected)
+                                + ": the band is not the line's own width");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("a pattern stays a pattern: caps are square, gaps are real, and dots do not touch")
+    void patternsScaleWithTheWeight() {
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 10), new LineArt.Point(120, 10));
+
+        for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+            int w = weight.width();
+            String at = " at " + weight;
+            var columns = inkedColumns(LineArt.fills(path, weight, DependencyStyle.Dash.DASHED));
+
+            // A dash's cap is square to the path: every column of a dash carries the whole width.
+            for (int x : columns) {
+                assertEquals(w, columnHeight(LineArt.fills(path, weight, DependencyStyle.Dash.DASHED), x),
+                        "a dash's cap is not square" + at + " at x=" + x);
+            }
+            // And the gaps are at least as wide as the line, so a heavy dash still reads as dashes.
+            for (int[] run : columnRuns(columns, 120)) {
+                assertTrue(run[1] - run[0] + 1 >= w || run[0] == 0 || run[1] == 119,
+                        "a dash or a gap narrower than the line itself" + at + ": " + run[0] + ".." + run[1]);
+            }
+
+            // A dotted line's beads do not touch at any weight, which is the fault the old fixed
+            // four-pixel period had at six pixels wide: the beads merged into a solid line. A bead of the
+            // *trunk* is one pixel of route and the whole weight tall -- the wide plus is the arrowhead's
+            // bead, not this -- so the test reads the column heights and the gaps between them.
+            var dots = inkedColumns(LineArt.fills(path, weight, DependencyStyle.Dash.DOTTED));
+            var dotRuns = columnRuns(dots, 120);
+            assertTrue(dotRuns.size() > 3, "a dotted line is a run of beads" + at + ": " + dotRuns.size());
+            for (int[] run : dotRuns) {
+                assertEquals(1, run[1] - run[0] + 1, "a bead is one route pixel long" + at + ": " + run[0]);
+                assertEquals(w, columnHeight(LineArt.fills(path, weight, DependencyStyle.Dash.DOTTED),
+                                run[0]),
+                        "and as tall as the line is thick" + at + " at x=" + run[0]);
+            }
+            for (int i = 1; i < dotRuns.size(); i++) {
+                assertTrue(dotRuns.get(i)[0] > dotRuns.get(i - 1)[1] + 1,
+                        "two beads touch" + at + ": " + dotRuns.get(i - 1)[1] + " and " + dotRuns.get(i)[0]);
+            }
+            assertTrue(dotRuns.size() < 120 / 2, "and the line is not solid" + at);
+        }
+    }
+
+    @Test
+    @DisplayName("a head is as heavy as the line it caps, and stays attached to it")
+    void headsFollowTheWeight() {
+        for (DependencyStyle.ArrowHead head : List.of(DependencyStyle.ArrowHead.CHEVRON,
+                DependencyStyle.ArrowHead.TRIANGLE, DependencyStyle.ArrowHead.DIAMOND,
+                DependencyStyle.ArrowHead.DOT)) {
+            for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+                String at = head + " at " + weight;
+                List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                        new LineArt.Point(16, 16), new LineArt.Point(216, 16));
+                List<LineArt.Fill> trunk = LineArt.fills(path, weight, DependencyStyle.Dash.SOLID);
+                List<LineArt.Fill> marks = LineArt.arrows(path, head, DependencyStyle.ArrowPlace.TARGET,
+                        32, 0, 0, weight);
+
+                assertFalse(marks.isEmpty(), at + " drew no head at all");
+                assertTrue(spansRows(marks) >= weight.width(),
+                        at + " is thinner than the line it caps: " + spansRows(marks));
+                assertTrue(adjacent(ink(trunk), ink(marks)),
+                        at + " floats off its own line, which is the unexpected gap this pins");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("a weighted band is one piece on a straight run, with no pixel inked twice")
+    void aStraightBandIsTiled() {
+        // Where the geometry is exact -- an axis-aligned run -- the band must be a clean tiling: no
+        // overlap at all, and one tone per pixel. On a diagonal the band is a staircase and its own
+        // shapes overlap by a pixel here and there, which is why this is asserted where it is meaningful
+        // rather than everywhere; the coverage and area assertions above cover the rest.
+        for (DependencyStyle.Weight weight : DependencyStyle.Weight.values()) {
+            List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                    new LineArt.Point(0, 10), new LineArt.Point(50, 10));
+
+            List<LineArt.Fill> fills = LineArt.fills(path, weight, DependencyStyle.Dash.SOLID);
+            int expected = weight == DependencyStyle.Weight.CONDUIT ? weight.width() : 1;
+            assertEquals(expected, fills.size(),
+                    "an axis run is one rectangle per tone band: " + weight + " " + fills);
+            Set<Long> seen = new HashSet<>();
+            for (LineArt.Fill fill : fills) {
+                for (int y = fill.y1(); y < fill.y2(); y++) {
+                    for (int x = fill.x1(); x < fill.x2(); x++) {
+                        assertTrue(seen.add(key(x, y)), "the band inks " + x + "," + y + " twice: " + fills);
+                    }
+                }
+            }
+            if (weight == DependencyStyle.Weight.CONDUIT) {
+                assertEquals(List.of(LineArt.Tone.EDGE, LineArt.Tone.MAIN, LineArt.Tone.CORE,
+                                LineArt.Tone.CORE, LineArt.Tone.MAIN, LineArt.Tone.EDGE),
+                        fills.stream().map(LineArt.Fill::tone).toList(),
+                        "a conduit is a border, a body and a core, in that order");
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The raster helpers the stroke tests read
+    // ------------------------------------------------------------------
+
+    /** Every pixel a fill list inks, as packed coordinates. */
+    private static Set<Long> ink(List<LineArt.Fill> fills) {
+        Set<Long> out = new HashSet<>();
+        for (LineArt.Fill fill : fills) {
+            for (int y = fill.y1(); y < fill.y2(); y++) {
+                for (int x = fill.x1(); x < fill.x2(); x++) {
+                    out.add(key(x, y));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static long key(int x, int y) {
+        return ((long) x << 32) | (y & 0xFFFFFFFFL);
+    }
+
+    private static int keyX(long key) {
+        return (int) (key >> 32);
+    }
+
+    private static int keyY(long key) {
+        return (int) key;
+    }
+
+    /**
+     * The whole stroke, stated two ways that a notch cannot pass.
+     *
+     * <p><b>Nothing inside the band is missing.</b> Every pixel whose perpendicular distance to the route
+     * is at most half the width — less half a pixel, which is the rasterisation's own rim and where a
+     * staircase's single-pixel nicks live — must be inked. The care over the rim is deliberate rather
+     * than convenient: a diagonal edge is a staircase in any rasteriser, so demanding the exact rim would
+     * be demanding anti-aliasing. The half-pixel allowance still catches what was reported, which was a
+     * block a whole width across missing from the outside of a corner.
+     *
+     * <p><b>And the ink is one piece.</b> Eight-connected throughout, from the first walk point's own ink
+     * to the last. Eight rather than four because a hairline diagonal is a staircase of diagonally
+     * adjacent pixels — that is what a one-pixel line at 45 degrees *is* in any rasteriser — so a
+     * four-connected requirement would fail on a drawing that is entirely correct. What this still
+     * catches is a band drawn in two separate pieces, which a corner drawn by two one-sided shifts is
+     * once the arms are thick enough to overshoot each other.
+     */
+    private static void assertWhole(List<LineArt.Fill> fills, List<LineArt.Point> path,
+                                    DependencyStyle.Weight weight, String at) {
+        Set<Long> ink = ink(fills);
+        assertFalse(ink.isEmpty(), at + " drew nothing at all");
+
+        double inside = (weight.width() - 1) / 2.0 - 0.5;
+        if (inside > 0) {
+            Set<Long> candidates = new HashSet<>();
+            int reach = weight.width() + 1;
+            for (LineArt.Point point : LineArt.walk(path)) {
+                for (int dx = -reach; dx <= reach; dx++) {
+                    for (int dy = -reach; dy <= reach; dy++) {
+                        candidates.add(key(point.x() + dx, point.y() + dy));
+                    }
+                }
+            }
+            for (long pixel : candidates) {
+                int x = keyX(pixel);
+                int y = keyY(pixel);
+                // Measured from the pixel's **centre**, because that is what the stroke's geometry is
+                // built on: a fill of (x..x+1, y..y+1) is the pixel whose centre is (x+.5, y+.5), and
+                // measuring from its corner would demand ink half a pixel outside the band everywhere.
+                if (insideBand(path, x + 0.5, y + 0.5, inside)) {
+                    assertTrue(ink.contains(pixel),
+                            at + " leaves " + x + "," + y + " empty, and it is inside the band ("
+                                    + LineArt.distance(path, x + 0.5, y + 0.5) + " from the route of a "
+                                    + weight.width() + "-pixel stroke)");
+                }
+            }
+        }
+
+        java.util.Deque<Long> frontier = new java.util.ArrayDeque<>();
+        Set<Long> seen = new HashSet<>();
+        frontier.add(ink.iterator().next());
+        while (!frontier.isEmpty()) {
+            long pixel = frontier.removeFirst();
+            if (!seen.add(pixel)) {
+                continue;
+            }
+            int x = keyX(pixel);
+            int y = keyY(pixel);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    long next = key(x + dx, y + dy);
+                    if (ink.contains(next)) {
+                        frontier.add(next);
+                    }
+                }
+            }
+        }
+        assertEquals(ink.size(), seen.size(),
+                at + " draws its band in more than one piece: " + (ink.size() - seen.size())
+                        + " pixel(s) are cut off from the rest");
+    }
+
+    /** The columns a fill list inks, ascending and distinct. */
+    private static List<Integer> inkedColumns(List<LineArt.Fill> fills) {
+        java.util.TreeSet<Integer> out = new java.util.TreeSet<>();
+        for (long pixel : ink(fills)) {
+            out.add(keyX(pixel));
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * Whether a pixel is inside the band's body: within {@code half} of one of the route's own segments,
+     * and past neither of that segment's ends.
+     *
+     * <p>The ends matter, and this is not pedantry: {@link LineArt#distance} measures to a segment, so a
+     * point just *beyond* the route's first pixel is one diagonal away from it — and the stroke's cap is
+     * flat there, not a disc. Asking for ink outside the cap would demand a round cap nobody specified.
+     */
+    private static boolean insideBand(List<LineArt.Point> path, double x, double y, double half) {
+        for (int i = 0; i < path.size() - 1; i++) {
+            LineArt.Point a = path.get(i);
+            LineArt.Point b = path.get(i + 1);
+            double dx = b.x() - a.x();
+            double dy = b.y() - a.y();
+            double length = Math.hypot(dx, dy);
+            if (length < 0.001) {
+                continue;
+            }
+            double along = ((x - a.x()) * dx + (y - a.y()) * dy) / length;
+            if (along < 0 || along > length) {
+                continue;
+            }
+            double across = Math.abs((x - a.x()) * (-dy / length) + (y - a.y()) * (dx / length));
+            if (across <= half) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** How many pixels of one column are inked. */
+    private static int columnHeight(List<LineArt.Fill> fills, int x) {
+        int height = 0;
+        for (long pixel : ink(fills)) {
+            if (keyX(pixel) == x) {
+                height++;
+            }
+        }
+        return height;
+    }
+
+    /** The runs of consecutive columns in a set of columns, as inclusive pairs. */
+    private static List<int[]> columnRuns(List<Integer> columns, int limit) {
+        List<int[]> out = new java.util.ArrayList<>();
+        int start = -1;
+        int previous = -2;
+        for (int x : columns) {
+            if (start < 0) {
+                start = x;
+            }
+            else if (x != previous + 1) {
+                out.add(new int[] { start, previous });
+                start = x;
+            }
+            previous = x;
+        }
+        if (start >= 0) {
+            out.add(new int[] { start, previous });
+        }
+        return out;
+    }
+
+    /** How many rows a fill list's ink spans: a head is at least as tall as the line is wide. */
+    private static int spansRows(List<LineArt.Fill> fills) {
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+        for (LineArt.Fill fill : fills) {
+            min = Math.min(min, fill.y1());
+            max = Math.max(max, fill.y2());
+        }
+        return max - min;
+    }
+
+    /** Whether two ink sets touch, eight-connected: a head that floats off its line fails this. */
+    private static boolean adjacent(Set<Long> first, Set<Long> second) {
+        for (long pixel : second) {
+            int x = keyX(pixel);
+            int y = keyY(pixel);
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (first.contains(key(x + dx, y + dy))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

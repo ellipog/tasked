@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -106,6 +107,24 @@ class ServerEditorsTest {
     }
 
     @Test
+    @DisplayName("a batch applied through the server is one step: one undo takes the whole gesture back")
+    void aBatchThroughTheServer() throws IOException {
+        // The path a bulk gesture actually travels: one payload, one op, one chapter's editor. What this
+        // adds to `EditorOpsTest` is the server's half -- the cached editor is found by the chapter the
+        // client named, and its history is the one the batch joins.
+        EditorOps.Applied applied = editors.apply("first_steps", EditorOps.batch(List.of(
+                new EditorOp.SetField("one", "title", new JsonPrimitive("First")),
+                new EditorOp.Move("one", 128, 64))));
+
+        assertTrue(applied.ok(), () -> "refused: " + applied.messages());
+        assertTrue(titleOnDisk().contains("\"First\""), "both edits landed, and both are on the disk");
+
+        assertTrue(editors.apply("first_steps", new EditorOp.Undo()).ok(), "and one undo is enough");
+        assertTrue(titleOnDisk().contains("\"One\""));
+        assertTrue(titleOnDisk().contains("\"x\": 0"), "the whole gesture is back, both edits of it");
+    }
+
+    @Test
     @DisplayName("a reload drops the open chapters, so the next op reads the files again")
     void forgetStartsAgain() {
         assertTrue(editors.apply("first_steps", setTitle("Second")).ok());
@@ -152,10 +171,14 @@ class ServerEditorsTest {
     @DisplayName("an edit the validator refuses leaves the chapter open and the disk untouched")
     void aRefusalKeepsTheChapter() throws IOException {
         String before = titleOnDisk();
-        // An unknown type, not a missing item: a missing item is a warning now (kept and marked), and
-        // this test needs a fault the loader truly refuses.
+        // An unknown field, not an unknown type: a missing item became a warning when the id was kept and
+        // the row marked, and an unknown type became one when the dispatch learned to decode it to a
+        // placeholder. This test needs a fault the loader truly refuses, and a field no type declares is
+        // the one that remains an error.
         com.google.gson.JsonObject mystery = new com.google.gson.JsonObject();
-        mystery.addProperty("type", "addon:missing");
+        mystery.addProperty("type", "tasked:checkmark");
+        mystery.addProperty("title", "Did it");
+        mystery.addProperty("splines", 4);
 
         EditorOps.Applied refused = editors.apply("first_steps",
                 new EditorOp.Insert("one", "tasks", 0, mystery));

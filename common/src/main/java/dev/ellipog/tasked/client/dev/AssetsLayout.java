@@ -239,35 +239,53 @@ public final class AssetsLayout {
     }
 
     /**
-     * The furthest a page may be scrolled, given the band it is drawn in.
+     * The footer's two buttons: what the page offers at the left, the way out at the right.
      *
-     * <p>Zero when the content fits, which is what stops a short page honouring a wheel notch it cannot
-     * take — the same clamp the table panels do, in one place rather than at each wheel site.
+     * <h2>Why this is here and was nowhere</h2>
+     *
+     * <p>These were two rectangles written in the screen, at the call site, beside the two calls that
+     * drew them — the one piece of this panel that did not come from this class. The fault that found
+     * was not a wrong rectangle: it was that a control drawn from an expression nobody else could ask
+     * about is a control no test can hold, and the panel's own press list never learned the two existed.
+     * So the pair is derived here, both of them, from the band they sit in.
+     *
+     * <p>Widths are capped at half the free room so the two can never overlap on a squeezed card, and
+     * the cap only binds when it has to: on a card of any normal width each button keeps its own full
+     * width, which is what the panel has always drawn.
      */
-    public static int maxScroll(List<Kind> lines, int bandHeight) {
-        return Math.max(0, contentHeight(lines) - bandHeight);
+    public record Footer(BookGeometry.Rect newTable, BookGeometry.Rect done) {
+
+        public static Footer of(Frame frame) {
+            BookGeometry.Rect footer = frame.footer();
+            int height = Math.max(0, Math.min(FOOTER_BUTTON_HEIGHT, footer.height() - PAD));
+            int y = footer.bottom() - PAD - height;
+            int room = Math.max(0, footer.width() - PAD * 2);
+            int each = Math.max(0, (room - FOOTER_GAP) / 2);
+            int left = Math.max(0, Math.min(NEW_TABLE_WIDTH, each));
+            int right = Math.max(0, Math.min(DONE_WIDTH, each));
+            return new Footer(BookGeometry.Rect.at(footer.x() + PAD, y, left, height),
+                    BookGeometry.Rect.at(footer.right() - PAD - right, y, right, height));
+        }
     }
 
     /**
-     * The thumb of the page's scrollbar, or null when there is nothing to scroll.
+     * A footer button's height: fourteen, the size this panel's footer has always drawn.
      *
-     * <p>Arithmetic rather than a viewport because the three pages scroll by lines of two heights and the
-     * bar has to say where in that they are; null rather than a full-height thumb for content that fits,
-     * because a bar that is always there is a bar that says nothing.
+     * <p>Deliberately not {@link BookGeometry#OVERLAY_CONTROL_HEIGHT}: this card's chrome is a modal's,
+     * but its controls are this panel's own size, and growing them to the book's twenty would be a
+     * change to the picture made in the name of an arithmetic tidy-up. If they should be the book's
+     * size, that is a report about the picture and its own round.
      */
-    public static BookGeometry.Rect thumb(List<Kind> lines, BookGeometry.Rect band, int scroll) {
-        int content = contentHeight(lines);
-        if (content <= band.height() || band.height() <= 0) {
-            return null;
-        }
-        int height = Math.max(6, band.height() * band.height() / content);
-        int travel = band.height() - height;
-        int at = maxScroll(lines, band.height()) == 0
-                ? 0
-                : travel * Math.max(0, Math.min(scroll, maxScroll(lines, band.height())))
-                        / maxScroll(lines, band.height());
-        return BookGeometry.Rect.at(band.x(), band.y() + at, band.width(), height);
-    }
+    public static final int FOOTER_BUTTON_HEIGHT = 14;
+
+    /** "New table" — the page's own action, at the footer's left. */
+    public static final int NEW_TABLE_WIDTH = 72;
+
+    /** "Done" — the way out, at the footer's right. */
+    public static final int DONE_WIDTH = 64;
+
+    /** The least air between the two, when the card is too narrow to give each its full width. */
+    public static final int FOOTER_GAP = 6;
 
     private AssetsLayout() {
     }

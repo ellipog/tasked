@@ -93,6 +93,9 @@ public final class QuestEditor {
     /** The meta of the last structural undo or redo. See {@link #takeLastMeta()}. */
     private QuestStructure.Structure.Meta lastMeta;
 
+    /** Whether a {@link #group} is open: its mutations join that one history step. See {@link #push}. */
+    private boolean grouping;
+
     /**
      * One step of this chapter's history.
      *
@@ -683,8 +686,17 @@ public final class QuestEditor {
         return true;
     }
 
-    /** Records the current state, and forgets the redo trail — a new edit is a new future. */
+    /**
+     * Records the current state, and forgets the redo trail — a new edit is a new future.
+     *
+     * <p>Silent while a {@link #group} is open: that block took the one snapshot the whole group costs,
+     * and a second one per mutation inside it is precisely the seventy-step history this class grew
+     * {@code group} to stop writing.
+     */
     private void push() {
+        if (grouping) {
+            return;
+        }
         undo.push(snapshotFiles());
         trim();
         redo.clear();
@@ -695,11 +707,52 @@ public final class QuestEditor {
      *
      * <p>Called by {@link EditorOps} after {@link QuestStructure} has already performed the edit: the
      * structure is the record of what happened, not a plan, which is why it is pushed rather than run.
+     *
+     * <p>Refused while a {@link #group} is open, and by throwing rather than by joining it: a structural
+     * edit is not covered by a snapshot of one chapter's files, so a group that reached here would be a
+     * history step that undoes less than it claims. {@code EditorOps} refuses a batch containing one
+     * before the group is opened, so this is a bug-finder for a future caller, not a path a player can
+     * reach.
      */
     void record(QuestStructure.Structure structure) {
+        if (grouping) {
+            throw new IllegalStateException("a structural edit cannot join a group: the group's snapshot"
+                    + " is this chapter's files, and a structure is the tree's");
+        }
         undo.push(new Structural(structure));
         trim();
         redo.clear();
+    }
+
+    /**
+     * Runs several chapter edits as <b>one</b> history step.
+     *
+     * <h2>What this is for</h2>
+     *
+     * <p>A gesture is not an operation: duplicating seventy selected quests is one act, and seventy
+     * snapshots made it seventy presses of Ctrl+Z to take back. So the snapshot is taken <b>here</b>,
+     * once, and every mutation inside the block finds {@link #push} already satisfied and does not take
+     * another. Undo restores the files as they were before the whole block, which is exactly what "undo
+     * that gesture" means — and it works for the file-level mutations (a create, a duplicate, a delete)
+     * because {@link #restore} puts the *disk* back, not only the trees.
+     *
+     * <p>Cannot nest, and the flag is cleared in a {@code finally}: a nested group's snapshot would be a
+     * step inside a step, and a group abandoned by an exception must not leave every later edit silently
+     * without a history entry.
+     */
+    void group(Runnable work) {
+        Objects.requireNonNull(work, "work");
+        if (grouping) {
+            throw new IllegalStateException("a group cannot nest: one snapshot is the whole point");
+        }
+        push();
+        grouping = true;
+        try {
+            work.run();
+        }
+        finally {
+            grouping = false;
+        }
     }
 
     /**
@@ -717,6 +770,35 @@ public final class QuestEditor {
     /** Puts the last step back, for the same caller. */
     boolean undoHistory() {
         return undo();
+    }
+
+    /**
+     * Puts the last step back and forgets it entirely: what a refused edit costs.
+     *
+     * <h2>Why this is not {@link #undo}</h2>
+     *
+     * <p>Because undo <b>remembers</b> the state it left — that is what redo is for — so a refused save
+     * that called {@code undo()} put the refused, mutated state on the redo trail, and the next Ctrl+Y
+     * brought it back into memory as though the validator had allowed it: a value the loader had just
+     * refused, drawn on the screen until the next edit saved over it. An edit that refused must be as if
+     * it never happened, so this restores the snapshot and touches no trail. It is also what makes
+     * {@code EditorOps.history}'s promise — "the history is left as it was found" — true rather than
+     * nearly true.
+     *
+     * <p>A structural step is left where it is: only a snapshot of this chapter's files can be abandoned
+     * this way, and nothing abandons a structure (its own steps are what reverse it, and they are not
+     * reached by a refusal).
+     */
+    void abandon() {
+        if (undo.isEmpty()) {
+            return;
+        }
+        History history = undo.pop();
+        if (history instanceof Snapshot snapshot) {
+            restore(snapshot);
+            return;
+        }
+        undo.push(history);
     }
 
     /** The same, forward. */
@@ -934,6 +1016,7 @@ public final class QuestEditor {
         }
 
         int written = 0;
+        List<DataProblem> failures = new ArrayList<>();
         for (Path path : toWrite) {
             try {
                 JsonFile file = path.equals(manifest.file()) ? manifest
@@ -946,10 +1029,23 @@ public final class QuestEditor {
                 written++;
             }
             catch (IOException e) {
+                // Reported as a refusal, not only logged. `SaveResult.ok()` is `refused.isEmpty()`, so a
+                // swallowed IOException told the player their edit had landed while the file was not
+                // written -- and `JsonFile.write` uses `Files.writeString`, which truncates before it
+                // writes, so a failure part-way through can leave the file shorter than it was. Silence
+                // is the one answer that is wrong here: the author is about to close the editor.
+                //
+                // The edit is not lost -- the tree in memory is still dirty, so a second save retries it
+                // -- and the sentence says so, because "could not be written" on its own reads as
+                // "your work is gone".
                 Constants.LOG.warn("tasked: {} could not be written.", path, e);
+                failures.add(new DataProblem(root.relativize(path).toString(), 1, 1, "$",
+                        DataProblem.Severity.ERROR, "could not be written: " + e
+                        + "\n    the edit is still in memory, so saving again retries it; the file on"
+                        + " disk may be incomplete until then"));
             }
         }
-        return new SaveResult(written, List.of());
+        return new SaveResult(written, List.copyOf(failures));
     }
 
     /** Which document a file is, so the validator reads it with the right rules. */

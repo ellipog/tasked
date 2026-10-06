@@ -240,11 +240,19 @@ class EditorOpsTest {
     void aRefusedEditCostsNothing() throws IOException {
         String before = file("one");
         QuestEditor editor = open();
-        // An unknown *type*, because that is what is still fatal: a missing item became a warning this
-        // round (the id is kept and the row marks it), so the refusal case needs a fault the loader
-        // genuinely cannot read -- and a type no build can dispatch is exactly that.
+        // An unknown *field*, which is still fatal. It has to be a fault the loader genuinely cannot
+        // read, and the two former candidates are gone: a missing item became a warning when the id was
+        // kept and the row marked, and an unknown *type* became one when the dispatch learned to decode
+        // it to a placeholder -- so a chapter containing `addon:missing` now loads, and refusing its save
+        // would be the editor disagreeing with the loader about the same file.
+        //
+        // A field no type declares is the fault that remains an error, and it is the right one for this
+        // test: it is what the typo check exists to catch, and the check is what makes "the loader would
+        // refuse this" true rather than assumed.
         JsonObject mystery = new JsonObject();
-        mystery.addProperty("type", "addon:missing");
+        mystery.addProperty("type", "tasked:checkmark");
+        mystery.addProperty("title", "Did it");
+        mystery.addProperty("splines", 4);
 
         EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.Insert("one", "tasks", 0, mystery));
 
@@ -497,5 +505,125 @@ class EditorOpsTest {
         assertFalse(applied.ok());
         assertEquals(List.of("one", "two"), editor.questIds());
         assertFalse(editor.dirty());
+    }
+
+    // ------------------------------------------------------------------
+    // A batch: one gesture, one step
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a batch of duplicates is one history step, and one undo takes all of them back")
+    void aBatchIsOneStep() throws IOException {
+        QuestEditor editor = open();
+
+        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(List.of(
+                new EditorOp.Duplicate("one"), new EditorOp.Duplicate("two"),
+                new EditorOp.Duplicate("one"))));
+
+        assertTrue(applied.ok(), () -> "refused: " + applied.messages());
+        assertEquals(5, editor.questIds().size(), "three copies of two originals: " + editor.questIds());
+        assertTrue(applied.questId().isEmpty(),
+                "a batch names no single quest: a gesture that made three of them has no one id");
+        assertEquals(List.of("Duplicated 3 quests"), applied.messages(),
+                "and the sentence is the count, which is what the author can check");
+
+        // **The point of the round.** Seventy quests used to be seventy presses of Ctrl+Z.
+        assertTrue(editor.undo(), "the whole gesture is one step on the history");
+        assertEquals(List.of("one", "two"), editor.questIds(), "and one undo takes all of it back");
+        assertFalse(editor.undo(), "there was nothing else on the stack: it was one step, not three");
+
+        // And the disk agrees, which is the half a memory-only assertion would miss: `restore` renames
+        // what the batch created out of the way again.
+        assertFalse(Files.exists(folder.resolve("one_copy.json")), "the copies are off the disk");
+    }
+
+    @Test
+    @DisplayName("a batch whose elements delete is one step too, and says how many")
+    void aBatchOfDeletes() {
+        QuestEditor editor = open();
+
+        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(
+                List.of(new EditorOp.Delete("one"), new EditorOp.Delete("two"))));
+
+        assertTrue(applied.ok(), () -> "refused: " + applied.messages());
+        assertEquals(List.of("Deleted 2 quests"), applied.messages());
+        assertTrue(editor.undo(), "one step");
+        assertEquals(List.of("one", "two"), editor.questIds(), "and one undo puts both back");
+        assertTrue(Files.exists(folder.resolve("two.json")), "with the file, renamed back into place");
+    }
+
+    @Test
+    @DisplayName("a batch that would not all apply is refused whole, and puts the disk back")
+    void aBatchIsAllOrNothing() throws IOException {
+        QuestEditor editor = open();
+        String before = file("one");
+
+        // The second element cannot apply -- there is no quest called "ghost" -- and the honest answer is
+        // none of them rather than the first one and a mystery.
+        EditorOps.Applied applied = EditorOps.apply(editor, EditorOps.batch(List.of(
+                new EditorOp.Duplicate("one"), new EditorOp.Duplicate("ghost"))));
+
+        assertFalse(applied.ok(), "a batch holding an edit that cannot apply is refused");
+        assertFalse(applied.messages().isEmpty(), "with a sentence");
+        assertEquals(List.of("one", "two"), editor.questIds(), "nothing was duplicated");
+        assertEquals(before, file("one"), "the bytes are as they were");
+        assertFalse(Files.exists(folder.resolve("one_copy.json")), "and nothing new is on the disk");
+        assertFalse(editor.canUndo(), "an edit that did not happen is not an undo step");
+        assertFalse(editor.canRedo(), "and it leaves no redo trail either");
+    }
+
+    @Test
+    @DisplayName("a batch refuses the edits that are not one chapter's, before touching anything")
+    void aBatchRefusesTheWrongKinds() throws IOException {
+        QuestEditor editor = open();
+        String before = file("one");
+
+        for (EditorOp wrong : List.of(new EditorOp.Undo(), new EditorOp.Redo(),
+                new EditorOp.SetIndex("bookTitle", new JsonPrimitive("The Orrery Ledger")),
+                new EditorOp.Batch(List.of(new EditorOp.Delete("two"))),
+                new EditorOp.MoveGroup("getting_started", 0))) {
+            EditorOps.Applied applied = EditorOps.apply(editor,
+                    EditorOps.batch(List.of(new EditorOp.Duplicate("one"), wrong)));
+
+            assertFalse(applied.ok(), () -> "a batch holding " + wrong + " must be refused");
+            assertFalse(applied.messages().isEmpty(), "with a sentence: " + wrong);
+        }
+
+        assertFalse(EditorOps.apply(editor, new EditorOp.Batch(List.of())).ok(),
+                "an empty batch is a refusal, not a silent success");
+        assertEquals(before, file("one"), "and nothing was written while refusing");
+        assertEquals(List.of("one", "two"), editor.questIds());
+        assertFalse(editor.canUndo(), "no refusal left a step behind");
+    }
+
+    @Test
+    @DisplayName("a batch crosses the wire, and an element this build cannot read is dropped")
+    void aBatchCrossesTheWire() {
+        EditorOp.Batch batch = new EditorOp.Batch(List.of(new EditorOp.Duplicate("one"),
+                new EditorOp.Delete("two")));
+        roundTrip(open(), batch);
+        roundTrip(open(), new EditorOp.Batch(List.of()));
+
+        // A newer client's element, and one that is not an object at all: the gesture's readable half
+        // still travels, because refusing all of it over one unknown kind would make an older server
+        // read "duplicate these seventy" as an error nobody can act on.
+        JsonObject wire = EditorOps.write(batch);
+        JsonObject unknown = new JsonObject();
+        unknown.addProperty("kind", "reticulate");
+        wire.getAsJsonArray("ops").add(unknown);
+        wire.getAsJsonArray("ops").add(new JsonPrimitive("not an object"));
+
+        assertEquals(batch, EditorOps.read(wire), "the readable half is still the gesture");
+    }
+
+    @Test
+    @DisplayName("one op stays itself rather than becoming a one-element batch")
+    void oneOpIsNotABatch() {
+        EditorOp single = new EditorOp.Duplicate("one");
+
+        assertEquals(single, EditorOps.batch(List.of(single)),
+                "a single edit keeps the answer it gives: the id it made, which selects the new node");
+        assertTrue(EditorOps.batch(List.of(single, new EditorOp.Delete("two"))) instanceof EditorOp.Batch,
+                "and two edits are one step");
     }
 }

@@ -199,7 +199,18 @@ public final class RewardTypes {
     private static final class Dispatch {
         static final Codec<QuestReward> CODEC = TypeDispatch.codec(
                 "quest reward", "type", QuestReward::type,
-                () -> REGISTRY.values().stream().map(Entry::spec).toList());
+                () -> REGISTRY.values().stream().map(Entry::spec).toList(),
+                // A placeholder rather than a refusal, for the reason UnknownReward gives: one addon
+                // reward in a file must not cost the author every quest in it.
+                UnknownReward::of);
+    }
+
+    /**
+     * {@link UnknownReward#BEHAVIOUR}, widened once, in its own class for the reason
+     * {@code TaskTypes.Dispatch} gives: nothing here may be read while this class is initialising.
+     */
+    private static final class Unknown {
+        static final RewardBehaviour<QuestReward> BEHAVIOUR = widenBehaviour(UnknownReward.BEHAVIOUR);
     }
 
     public static Codec<QuestReward> dispatchCodec() {
@@ -280,10 +291,15 @@ public final class RewardTypes {
     /**
      * What a reward gives, as a client should draw it.
      *
-     * <p>{@link RewardDisplay#NONE} for an unregistered type — reachable only from a listing against a
-     * quest that failed to decode, which the validator has already reported.
+     * <p>A row naming the type for an unknown one — see {@code TaskTypes.displayOf} for why a named row
+     * beats a blank one. {@link RewardDisplay#NONE} otherwise for an unregistered type, which is now
+     * reachable only from a reward built by hand rather than decoded.
      */
     public static RewardDisplay displayOf(QuestReward reward) {
+        if (reward instanceof UnknownReward unknown) {
+            return RewardDisplay.ofTranslatableText("tasked.reward.unknown_type",
+                    "Unknown reward type: " + unknown.type(), unknown.type().toString(), 1);
+        }
         return REGISTRY.get(reward.type())
                 .map(entry -> entry.display().apply(reward))
                 .orElse(RewardDisplay.NONE);
@@ -318,8 +334,21 @@ public final class RewardTypes {
         return REGISTRY.get(id).map(entry -> entry.spec().fields()).orElse(Set.of());
     }
 
-    /** How to grant a reward. Empty for an unregistered type, which cannot have decoded. */
+    /**
+     * How to grant a reward.
+     *
+     * <p>An {@link UnknownReward} answers with {@link UnknownReward#BEHAVIOUR} — a no-op — so a caller
+     * that reaches a payout path finds "there is nothing to pay it with" rather than an empty
+     * {@code Optional} it might handle as a failure. Its {@code autoGrantable} is false, so the
+     * automatic paths leave it for the claim instead of marking it collected unpaid.
+     *
+     * <p>Empty for an unregistered type that is not a decoded {@code UnknownReward}, which can now only
+     * be a reward built by hand.
+     */
     public static Optional<RewardBehaviour<QuestReward>> behaviourOf(QuestReward reward) {
+        if (reward instanceof UnknownReward) {
+            return Optional.of(Unknown.BEHAVIOUR);
+        }
         return REGISTRY.get(reward.type()).map(Entry::behaviour);
     }
 

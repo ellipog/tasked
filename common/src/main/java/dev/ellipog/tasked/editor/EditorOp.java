@@ -3,6 +3,8 @@ package dev.ellipog.tasked.editor;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.List;
+
 /**
  * One edit, as somebody asks for it.
  *
@@ -169,6 +171,37 @@ public sealed interface EditorOp {
 
     /** And forward again. */
     record Redo() implements EditorOp {
+    }
+
+    /**
+     * Several chapter edits as <b>one</b> edit: one history step, one save, one Ctrl+Z.
+     *
+     * <h2>Why this exists</h2>
+     *
+     * <p>Because a gesture is not an operation. Selecting seventy quests and pressing Ctrl+D is one act,
+     * and sending seventy ops made it seventy history steps and seventy saves — so taking it back was
+     * seventy presses of Ctrl+Z, which is not an undo, it is a punishment. The model's history is a
+     * snapshot per step, so the fix is not "group the ops on the client": it is one snapshot around the
+     * whole batch, which is what {@code QuestEditor.group} is for.
+     *
+     * <h2>What may be in one</h2>
+     *
+     * <p>Chapter edits only: fields, entries, moves, creates, duplicates, pastes, deletes. A structural
+     * edit — a chapter or a group moved, renamed, made or deleted — is refused, because its undo is the
+     * tree's own record and not a snapshot of one chapter's files; {@link Undo}, {@link Redo} and a
+     * nested batch are refused for the same reason one level down. The refusal is a sentence rather than
+     * a silent partial application, and it costs nothing: the rule is checked before the group is opened.
+     *
+     * <p><b>Atomic.</b> If any element cannot be applied, or the save refuses, the whole batch is undone.
+     * A bulk "duplicate these seventy" that quietly did sixty-eight would leave the author to work out
+     * which two are missing, and the Ctrl+Z they would press reverts all sixty-eight anyway — so the
+     * honest answer is none of them, with a sentence naming what refused.
+     */
+    record Batch(List<EditorOp> ops) implements EditorOp {
+
+        public Batch {
+            ops = List.copyOf(ops == null ? List.of() : ops);
+        }
     }
 
     // ------------------------------------------------------------------

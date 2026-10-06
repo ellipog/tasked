@@ -133,6 +133,7 @@ class SyncWiringTest {
                 "tasked:chapter_replica",
                 "tasked:choice_reward",
                 "tasked:claim_all",
+                "tasked:claim_chapter",
                 "tasked:claim_choice",
                 "tasked:claim_choice_result",
                 "tasked:claim_reward",
@@ -413,6 +414,42 @@ class SyncWiringTest {
                 "two deltas left 'second' where one full sync does not");
         assertEquals(aThird, ClientQuestCache.stateOf("third"));
         assertEquals(aFirstTask, ClientQuestCache.taskProgressOf("first", 0));
+    }
+
+    @Test
+    @DisplayName("the claim menu's progression column counts finished tasks by the viewer's own rule")
+    void taskCompletionIsOneRuleForTwoReaders() {
+        // The claim menu draws "2/3 complete" and the viewer page draws each task's own done flag. They
+        // are one predicate, so a quest whose first two tasks are done has to read the same in both --
+        // which is what this asserts, because two spellings of "is this task finished" is how a column
+        // comes to disagree with the page drawn beside it.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(Fixtures.q("first").tasks(3).build()));
+        Quest first = Fixtures.quest(index, "first");
+        UUID team = UUID.randomUUID();
+        ClientQuestCache.clear();
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                QuestSync.treeAsJson(index));
+
+        assertEquals(3, ClientQuestCache.tasksTotal("first"), "the fixture asks for three tasks");
+        assertEquals(0, ClientQuestCache.tasksComplete("first"), "and nothing is done to begin with");
+        assertFalse(ClientQuestCache.taskDone("first", 0), "no task is finished on an untouched quest");
+
+        TeamProgress progress = TeamProgress.empty().put(first,
+                QuestProgress.NONE.completedAt(NOW).recordTask(0, 1).recordTask(1, 1));
+        sendProgressAsTheServerWould(team,
+                QuestSync.progressAsJson(resolve(index, progress), progress, index), true);
+
+        assertEquals(2, ClientQuestCache.tasksComplete("first"), "two of the three are finished");
+        assertTrue(ClientQuestCache.taskDone("first", 0), "the first is");
+        assertTrue(ClientQuestCache.taskDone("first", 1), "the second is");
+        assertFalse(ClientQuestCache.taskDone("first", 2), "and the third is not");
+
+        // An index no task holds reads as not-done rather than throwing: the column asks this per row,
+        // and a stale index after a reload is a row that should read as unfinished.
+        assertFalse(ClientQuestCache.taskDone("first", 9), "an index no task holds is not finished");
+        assertFalse(ClientQuestCache.taskDone("first", -1), "nor is a negative one");
+        assertEquals(0, ClientQuestCache.tasksComplete("no_such_quest"), "an unknown quest has none done");
+        assertEquals(0, ClientQuestCache.tasksTotal("no_such_quest"), "and asks for none");
     }
 
     @Test

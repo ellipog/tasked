@@ -304,7 +304,21 @@ public final class TaskTypes {
      */
     private static final class Dispatch {
         static final Codec<QuestTask> CODEC = TypeDispatch.codec(
-                "quest task", "type", QuestTask::type, () -> REGISTRY.values().stream().map(Entry::spec).toList());
+                "quest task", "type", QuestTask::type, () -> REGISTRY.values().stream().map(Entry::spec).toList(),
+                // An unregistered type decodes to a placeholder rather than failing, so one addon task in
+                // a file no longer costs the author every quest in it -- see UnknownTask and TypeDispatch.
+                UnknownTask::of);
+    }
+
+    /**
+     * {@link UnknownTask#BEHAVIOUR}, widened once.
+     *
+     * <p>In its own class for the reason {@link Dispatch} gives: reading a widened behaviour during this
+     * class's initialisation is the shape that closed the cycle once already. Built on first use, by
+     * which point every class involved has finished.
+     */
+    private static final class Unknown {
+        static final TaskBehaviour<QuestTask> BEHAVIOUR = widenBehaviour(UnknownTask.BEHAVIOUR);
     }
 
     public static Codec<QuestTask> dispatchCodec() {
@@ -408,11 +422,19 @@ public final class TaskTypes {
     /**
      * What a task asks for, as a client should draw it.
      *
-     * <p>{@link TaskDisplay#NONE} for an unregistered type. That is reachable only from a listing
-     * against a quest that failed to decode, which the validator has already reported — so a blank
-     * row is the right degradation rather than a crash in a rendering path.
+     * <p>A row naming the type for an unknown one — {@link UnknownTask} carries no fields to describe, so
+     * the honest row is the one that says which type is missing. It is drawn rather than left blank
+     * because a blank row in the middle of a quest is indistinguishable from a task that does nothing,
+     * and "some_addon:reticulate" is the sentence that tells the author what to install.
+     *
+     * <p>{@link TaskDisplay#NONE} otherwise for an unregistered type, which is now reachable only from a
+     * task built by hand rather than decoded.
      */
     public static TaskDisplay displayOf(QuestTask task) {
+        if (task instanceof UnknownTask unknown) {
+            return TaskDisplay.ofTranslatableText("tasked.task.unknown_type",
+                    "Unknown task type: " + unknown.type(), unknown.type().toString(), 1);
+        }
         return REGISTRY.get(task.type())
                 .map(entry -> entry.display().apply(task))
                 .orElse(TaskDisplay.NONE);
@@ -450,8 +472,22 @@ public final class TaskTypes {
         return REGISTRY.get(id).map(entry -> entry.spec().codec());
     }
 
-    /** How to evaluate a task. Empty for an unregistered type, which cannot have decoded. */
+    /**
+     * How to evaluate a task.
+     *
+     * <p>An {@link UnknownTask} answers with {@link UnknownTask#BEHAVIOUR} — never satisfied, no button —
+     * so the engine's "nothing can measure this" reading is stated here rather than left to a caller's
+     * {@code orElse}. The numbers are the ones {@code ProgressionEngine} already used for an
+     * unregistered behaviour, so no quest's progression changes; what changes is that the file is
+     * readable.
+     *
+     * <p>Empty for an unregistered type that is not a decoded {@code UnknownTask}, which can now only be
+     * a task built by hand.
+     */
     public static Optional<TaskBehaviour<QuestTask>> behaviourOf(QuestTask task) {
+        if (task instanceof UnknownTask) {
+            return Optional.of(Unknown.BEHAVIOUR);
+        }
         return REGISTRY.get(task.type()).map(Entry::behaviour);
     }
 

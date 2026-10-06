@@ -50,8 +50,8 @@ parties are being read from, which is how an operator tells Tasked's own teams f
 
 **The quest book** opens from the quest book item or the **B** key: a pannable, zoomable canvas of
 nodes with per-quest shape, size and icon scale, styled dependency lines, markdown quest
-descriptions, live task progress and submit buttons, rewards with claim and claim-all, a
-choice-reward picker, and the party roster.
+descriptions, live task progress and submit buttons, a claim menu grouped by chapter with claim,
+claim-chapter and claim-all, a choice-reward picker, and the party roster.
 
 **The editor is in-game and server-owned.** A player with permission level 2 gets an Edit pill over the
 canvas's top-right corner, which latches edit mode and opens the tools panel inside the book, with an

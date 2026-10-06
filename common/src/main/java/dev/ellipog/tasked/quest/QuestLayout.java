@@ -4,6 +4,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
+import dev.ellipog.armature.api.data.Codecs;
+
 import java.util.Set;
 
 /**
@@ -74,17 +76,31 @@ public record QuestLayout(int x, int y, QuestShape shape, int size, double iconS
             Codec.INT.optionalFieldOf("x", 0).forGetter(QuestLayout::x),
             Codec.INT.optionalFieldOf("y", 0).forGetter(QuestLayout::y),
             QuestShape.CODEC.optionalFieldOf("shape", QuestShape.ROUNDED).forGetter(QuestLayout::shape),
-            // Bounded because the canvas draws at a fixed scale: a 4000-pixel node would be a
-            // performance problem and is certainly a typo for 40. The bounds come from the constants
-            // above, so the codec, the validator and the client cannot disagree about them.
-            Codec.intRange(MIN_SIZE, MAX_SIZE).optionalFieldOf("size", DEFAULT_SIZE).forGetter(QuestLayout::size),
+            // Clamped rather than range-checked, and the three fields below are the ones in this format
+            // where that is the right trade. A layout number is presentation: a node drawn at 4000
+            // pixels, or turned 360 degrees, is a number the author got wrong, not a file this build
+            // cannot read — and refusing the file costs every quest in it. `Codec.intRange` would report
+            // an error and the document would not decode at all.
+            //
+            // The precedent is the wire's, not a new invention: `ClientQuestCache` already clamps an
+            // out-of-range `iconScale` to the shape's own bounds rather than dropping the quest, so a
+            // file codec that refused the file was the two halves of one format disagreeing about one
+            // number. The bounds still come from the constants above and from QuestShape, so the codec,
+            // the validator and the client cannot disagree about them.
+            //
+            // Not extended to the numbers that are a task's *meaning* -- an item count, a required
+            // value -- where silently reading 0 as 1 would change what the quest asks for. Those keep
+            // their range check; see `Codecs.clampedInt` for the argument in full.
+            Codecs.clampedInt(MIN_SIZE, MAX_SIZE).optionalFieldOf("size", DEFAULT_SIZE)
+                    .forGetter(QuestLayout::size),
             // The bounds live on QuestShape, where the geometry they describe lives, so the codec and
             // the validator cannot come to disagree about them.
-            Codec.doubleRange(QuestShape.MIN_ICON_SCALE, QuestShape.MAX_ICON_SCALE)
+            Codecs.clampedDouble(QuestShape.MIN_ICON_SCALE, QuestShape.MAX_ICON_SCALE)
                     .optionalFieldOf("iconScale", DEFAULT_ICON_SCALE).forGetter(QuestLayout::iconScale),
             // Degrees, and a whole turn is written as 0 rather than 360: the geometry treats them as the
-            // same shape, and one spelling of "not turned" is one thing for a file to say.
-            Codec.intRange(MIN_ROTATION, MAX_ROTATION)
+            // same shape, and one spelling of "not turned" is one thing for a file to say. A file that
+            // says 360 anyway is read as the top of the range rather than refused.
+            Codecs.clampedInt(MIN_ROTATION, MAX_ROTATION)
                     .optionalFieldOf("rotation", DEFAULT_ROTATION).forGetter(QuestLayout::rotation)
     ).apply(instance, QuestLayout::new));
 

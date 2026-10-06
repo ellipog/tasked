@@ -171,6 +171,15 @@ public final class TaskedNetworking {
                 null,
                 TaskedNetworking::handleClaimAll));
 
+        // --- and one chapter of it, for the claim menu's banner ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClaimChapterPayload.TYPE,
+                ClaimChapterPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleClaimChapter));
+
         // --- and one reward on its own, for the rewards panel's rows ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -532,6 +541,25 @@ public final class TaskedNetworking {
         // Sent whether or not anything paid, the same correction the single claim's handler documents:
         // a panel showing rewards the server has already given out is put right by the progress the
         // client already knows how to read.
+        sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
+    }
+
+    /**
+     * The player pressing Claim Chapter on the claim menu's banner: one chapter's outstanding rewards.
+     *
+     * <p>The same contract as {@link #handleClaimAll} one rung down. The chapter id is a scope rather
+     * than a list: {@link ProgressService#claimChapter} walks its own index, keeps the quests whose
+     * chapter matches, and asks the same {@code canClaimFor} the single claim asks — so an id a
+     * modified client invented reaches nothing, and an id naming a real chapter reaches only what that
+     * chapter actually owes this player. The filter narrows it further, to the view the banner was
+     * pressed in.
+     */
+    private static void handleClaimChapter(ClaimChapterPayload payload, ServerPlayer sender) {
+        MinecraftServer server = sender.getServer();
+        if (server == null || TaskedQuests.index().isEmpty()) {
+            return;
+        }
+        ProgressService.claimChapter(server, sender, payload.chapterId(), payload.filter());
         sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
     }
 
