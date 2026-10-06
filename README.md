@@ -78,7 +78,7 @@ their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked al
 | Java | 21 |
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
-| Armature | 0.1.0+, required on both loaders |
+| Armature | 0.1.1+, required on both loaders |
 | KubeJS | optional, NeoForge only, 2101.7.2+ |
 
 Tasked is built on **Armature**, a standalone library and UI toolkit. Both metadata files declare
@@ -87,8 +87,18 @@ missing.
 
 ## Building
 
-Tasked compiles against Armature's published `armature-common` artifact rather than its source
-tree, so Armature has to be in the local Maven repository first. From a sibling checkout:
+Tasked compiles against Armature's published `armature-common` artifact, which Armature's release
+workflow publishes to its own Maven repository on every tag. So this is the whole of it:
+
+```cmd
+gradlew build
+```
+
+The version it compiles against is `armature_version` in `gradle.properties`, and that version has to
+be released before a build here can use it — the release workflow checks, and says so by name.
+
+To build against an *unreleased* Armature instead — a change on its `main`, before any tag — publish
+it locally first. `mavenLocal` is declared ahead of the remote repository, so the local copy wins:
 
 ```cmd
 cd ..\armature
