@@ -71,6 +71,22 @@ public final class EditorSession {
     /**
      * Forgets the pending positions once the server has sent a tree that is newer than they are.
      *
+     * <h2>Why the clear is wholesale, and why that is not the (0,0) fault</h2>
+     *
+     * <p>It was tempting to make this selective — to drop only the positions the arriving tree disagrees
+     * with and keep the rest — and it is wrong, which is worth recording because it looks like a strict
+     * improvement. <b>What is stored here is "the server has not answered yet"</b>, and a revision that
+     * moves means it <i>has</i> answered. A position kept past that point is a position the tree has already
+     * refuted, drawn over the top of the server's own answer: the author sees their node where they left it
+     * while the file says otherwise, which is the one thing this class exists to prevent. It is not merely
+     * conservative — {@code nodeX} falls back to {@code movedX} whenever an id is present, with no further
+     * check, so a kept entry is drawn.
+     *
+     * <p>So the clear stays. The (0,0) write it contributed to is fixed where it belongs: the release that
+     * commits a multi-node drag now asks {@link #hasMoved} before reading a position, instead of trusting
+     * that every id it remembers still has one. That guard is the whole fix, and it is the read path's own
+     * rule — see {@code QuestBookScreen.nodeX}, which has always guarded this way.
+     *
      * <p>Called with the cache's revision, every frame, because that is where the fact lives: the tree
      * arriving is what makes the files' own answer the current one, and nothing else in this class can see it.
      * A revision that has not moved leaves them alone, which is what keeps a node where the author put it
