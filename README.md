@@ -3,7 +3,7 @@
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
 
-> **Status: 0.1.0 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
+> **Status: 0.1.1 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
 > the progression engine, server-authoritative sync, the quest book and the in-game editor all work
 > on both loaders, but the version is below 1.0 on purpose: a break in the quest format needs only a
 > minor bump, so read the release notes before upgrading. Tasked ships no quests of its own: it is an
@@ -108,8 +108,34 @@ cd ..\tasked
 gradlew build
 ```
 
+### Writing a handler mod
+
+Tasked's own API is on the same repository, because a separate mod can register its own
+`tasked:custom` task and reward types — the arrangement [docs/authoring/tasks.md](docs/authoring/tasks.md)
+describes as *"a pack shipping a handler mod as an optional dependency"*:
+
+```groovy
+repositories {
+    maven { url = 'https://maven.ellipog.dev' }
+}
+
+dependencies {
+    // TaskedScripts, TaskedEvents and the CustomTask / CustomReward registries.
+    compileOnly 'dev.ellipog:tasked-common-1.21.1:0.1.1'
+    // TaskedEvents extends Armature's Event, so that one is needed beside it.
+    compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.1'
+}
+```
+
+`compileOnly`, because both are separate mod jars at runtime — the loader supplies them from the
+`mods` folder. The `-fabric` and `-neoforge` siblings are on the same repository for a handler mod's
+`runtimeOnly` in a dev run.
+
+A KubeJS pack needs none of this. Scripts register the same handlers through the plugin KubeJS finds
+inside Tasked's jar, which is [docs/authoring/kubejs.md](docs/authoring/kubejs.md).
+
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-0.1.0.jar`) — the `-sources` jars are not mods. The test
+(`tasked-fabric-1.21.1-0.1.1.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile
