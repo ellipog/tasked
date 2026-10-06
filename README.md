@@ -3,7 +3,7 @@
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
 
-> **Status: 0.1.1 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
+> **Status: 0.1.2 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
 > the progression engine, server-authoritative sync, the quest book and the in-game editor all work
 > on both loaders, but the version is below 1.0 on purpose: a break in the quest format needs only a
 > minor bump, so read the release notes before upgrading. Tasked ships no quests of its own: it is an
@@ -121,9 +121,9 @@ repositories {
 
 dependencies {
     // TaskedScripts, TaskedEvents and the CustomTask / CustomReward registries.
-    compileOnly 'dev.ellipog:tasked-common-1.21.1:0.1.1'
+    compileOnly 'dev.ellipog:tasked-common-1.21.1:0.1.2'
     // TaskedEvents extends Armature's Event, so that one is needed beside it.
-    compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.1'
+    compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.2'
 }
 ```
 
@@ -135,7 +135,7 @@ A KubeJS pack needs none of this. Scripts register the same handlers through the
 inside Tasked's jar, which is [docs/authoring/kubejs.md](docs/authoring/kubejs.md).
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-0.1.1.jar`) — the `-sources` jars are not mods. The test
+(`tasked-fabric-1.21.1-0.1.2.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile

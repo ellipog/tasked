@@ -6,7 +6,7 @@ as done — the client renders what it is told and nothing more, so no player ca
 editing their own game.
 
 > [!NOTE]
-> **Tasked is at 0.1.1 — pre-1.0 — and everything these pages describe works on both loaders, except
+> **Tasked is at 0.1.2 — pre-1.0 — and everything these pages describe works on both loaders, except
 > where a page says otherwise** (the KubeJS binding is NeoForge-only, and its page says so). The
 > quest folder format and its [[validator]], the progression engine, server-authoritative sync, the
 > quest book and its in-game editor are all built, but the version is below 1.0 on purpose: a break
