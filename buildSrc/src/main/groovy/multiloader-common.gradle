@@ -194,8 +194,33 @@ publishing {
         }
     }
     repositories {
+        // The Maven tree the release workflow uploads to maven.ellipog.dev -- see the same block in
+        // armature's copy for the full reasoning. `gradlew publishToLocalRepo` is the one command.
+        //
+        // Tasked's API is published for a *handler mod*: the docs already describe a pack shipping
+        // "a handler mod as an optional dependency", and registering a custom task or reward type
+        // means compiling against CustomTasks.Handler, TaskedScripts and TaskedEvents. A KubeJS pack
+        // needs none of this -- scripts register the same handlers through the plugin, which KubeJS
+        // finds inside this jar.
+        //
+        // The root project's build directory, not this project's: this convention runs in every
+        // subproject, and `layout.buildDirectory` would write one module into each of
+        // common/build/repo, fabric/build/repo and neoforge/build/repo -- three trees, each holding a
+        // third of a repository, where the upload wants one.
         maven {
-            url System.getenv('local_maven_url')
+            name = 'localRepo'
+            url = rootProject.layout.buildDirectory.dir('repo')
+        }
+
+        // A hand-run push somewhere else, when local_maven_url is set. Only declared when there is a
+        // URL: a repository with a null url is one Gradle cannot publish to, and leaving it in the
+        // list made `publish` a landmine rather than an omission.
+        def remote = System.getenv('local_maven_url')
+        if (remote) {
+            maven {
+                name = 'external'
+                url = remote
+            }
         }
     }
 }

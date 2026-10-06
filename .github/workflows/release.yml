@@ -79,6 +79,75 @@ jobs:
           echo "minecraft_version=$minecraft_version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
+      # A static bucket will happily overwrite a published version, and then every consumer's cache
+      # disagrees with every other one about what "0.1.1" means -- a real repository refuses, and this
+      # is the same refusal one HEAD request deep, before the build rather than after it.
+      - name: Refuse to publish a version that already exists
+        env:
+          BASE: https://maven.ellipog.dev
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          mc='${{ steps.version.outputs.minecraft_version }}'
+          for artifact in tasked-common tasked-fabric tasked-neoforge; do
+            url="$BASE/dev/ellipog/${artifact}-${mc}/${version}/${artifact}-${mc}-${version}.pom"
+            # `|| { ... }` rather than relying on `set -e`: an assignment whose command substitution
+            # fails aborts the step with curl's own exit code and no output at all, and "exit code 6"
+            # is not something anybody can act on. A repository that cannot be reached is a different
+            # fault from a version that is already published, and it says so.
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")" || {
+              echo "::error::could not reach $url (curl exit $?)"
+              exit 1
+            }
+            case "$code" in
+              404) echo "not published yet: ${artifact}-${mc} ${version}" ;;
+              200) echo "::error::${artifact}-${mc} ${version} is already published at $url"
+                   echo "Published versions are permanent. Bump version= in gradle.properties and tag again."
+                   exit 1 ;;
+              *)   echo "::error::could not check $url (HTTP $code)"
+                   exit 1 ;;
+            esac
+          done
+
+      # The credentials and the bucket, checked before the twenty-minute build rather than after it,
+      # with rclone's own words in the annotation. See armature's copy: "Access Denied" reads the same
+      # for a wrong key, an absent key and a key with a typo in its name.
+      - name: Check the upload credentials
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY RCLONE_CONFIG_R2_ENDPOINT; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is empty"
+              missing=1
+            fi
+          done
+          if [ "$missing" != 0 ]; then
+            echo "Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_ACCOUNT_ID as repository secrets on ellipog/tasked."
+            exit 1
+          fi
+          if ! command -v rclone >/dev/null; then
+            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o rclone.zip
+            unzip -q -o rclone.zip
+            sudo install -m 0755 rclone-*-linux-amd64/rclone /usr/local/bin/rclone
+          fi
+          # `sed -n 1p` rather than `head -n 1`: head closes the pipe, rclone dies of SIGPIPE, and
+          # pipefail turns a one-line banner into a failed release.
+          rclone version | sed -n 1p
+          rclone listremotes
+          if ! out="$(rclone lsf R2:ellipog-maven 2>&1)"; then
+            escaped="$(printf '%s' "$out" | head -c 1200 | sed 's/%/%25/g; s/\r//g' | awk '{ printf "%s%%0A", $0 }')"
+            echo "::error::rclone could not list the bucket: ${escaped}"
+            exit 1
+          fi
+          echo "the bucket is reachable"
+
       - name: Make gradlew executable
         run: chmod +x gradlew
 
@@ -145,12 +214,14 @@ jobs:
           done
           exit 0
 
-      # The loader projects only. Tasked's `common` jar is not a mod and nothing consumes a
-      # published `tasked-common`, and a non-mod jar in a `mods` folder is what makes Fabric refuse
-      # the whole folder ("Found 2 non-fabric mods") -- see the note in .utils/deploy.ps1.
+      # The loader jars only, for the *release assets*: those are what a player installs, and a
+      # non-mod jar in a `mods` folder is what makes Fabric refuse the whole folder ("Found 2
+      # non-fabric mods") -- see the note in .utils/deploy.ps1. `tasked-common` is the API a handler
+      # mod compiles against, so it goes to the Maven below instead, where nothing installs it by
+      # accident.
       #
       # Named rather than found with `find . -path '*/build/libs/*.jar'`, which also matches
-      # `buildSrc/build/libs/buildSrc.jar`, and which would reach into the Armature checkout above.
+      # `buildSrc/build/libs/buildSrc.jar` and would pick up the Maven tree under `build/repo`.
       # Loom's unremapped dev jar lives in `build/devlibs`, which is never read here; the `-dev.jar`
       # exclusion is kept as a guard for a loader that changes it.
       - name: Collect the release jars
@@ -183,6 +254,76 @@ jobs:
           name: tasked-${{ steps.version.outputs.tag }}
           path: dist/*.jar
           if-no-files-found: error
+
+      # -- maven.ellipog.dev ----------------------------------------------------------------
+      #
+      # Tasked's API for a *handler mod*: the docs already describe a pack shipping one as an
+      # optional dependency, and registering a custom task or reward type means compiling against
+      # CustomTasks.Handler, TaskedScripts and TaskedEvents. All three modules go up, so a handler
+      # mod's dev run can resolve the loader jars too. A KubeJS pack needs none of this -- scripts
+      # register the same handlers through the plugin KubeJS finds inside this jar.
+      - name: Publish the Maven tree
+        run: ./gradlew publishToLocalRepo --console=plain
+
+      - name: Upload it to maven.ellipog.dev
+        env:
+          RCLONE_CONFIG_R2_TYPE: s3
+          RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          set -euo pipefail
+          # rclone was installed by the credentials check above, which is why this does not install it
+          # a second time.
+          #
+          # `copy`, never `sync`. Sync deletes whatever is at the destination and is not in the
+          # source -- which here is every version ever published, Armature's included, because both
+          # repos publish into one bucket. One word, one command, and the whole repository is gone.
+          #
+          # A published version can never change, so those files are cached for a year. The
+          # `maven-metadata.xml` beside them *does* change -- it gains a version on every release --
+          # so it is uploaded separately, with a short life, and excluded from the long one.
+          #
+          # Output is captured rather than streamed so that a failure can carry rclone's own words
+          # into an annotation; a run's log is not readable from outside.
+          upload() {
+            local out
+            # `--s3-no-check-bucket` is not optional: rclone's S3 backend checks the bucket exists
+            # -- and creates it if not -- before an upload, and the token is deliberately scoped to
+            # one bucket's objects, so that check answers "S3: CreateBucket ... AccessDenied".
+            if ! out="$(rclone copy build/repo R2:ellipog-maven --s3-no-check-bucket "$@" -v 2>&1)"; then
+              local escaped
+              escaped="$(printf '%s' "$out" | tail -c 2000 | sed 's/%/%25/g; s/\r//g' | awk '{ printf "%s%%0A", $0 }')"
+              echo "::error::rclone copy failed: ${escaped}"
+              exit 1
+            fi
+            echo "$out" | tail -n 5
+          }
+          upload --exclude "maven-metadata.xml*" \
+            --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --no-traverse
+          upload --include "maven-metadata.xml*" \
+            --header-upload "Cache-Control: public, max-age=300" \
+            --no-traverse
+
+      # An upload reporting success and the artifact being *fetchable* are two different claims, and
+      # only the second one matters to the handler mod that is about to depend on it.
+      - name: Check it is actually being served
+        run: |
+          set -euo pipefail
+          version='${{ steps.version.outputs.version }}'
+          mc='${{ steps.version.outputs.minecraft_version }}'
+          url="https://maven.ellipog.dev/dev/ellipog/tasked-common-${mc}/${version}/tasked-common-${mc}-${version}.pom"
+          for attempt in 1 2 3 4 5; do
+            if curl -sf -o /dev/null --max-time 30 "$url"; then
+              echo "served: $url"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::$url is not being served after the upload"
+          exit 1
 
       - name: Publish the GitHub Pre-Release
         uses: softprops/action-gh-release@v3
