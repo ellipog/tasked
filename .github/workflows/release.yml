@@ -92,13 +92,42 @@ jobs:
       - name: Publish Armature to the local Maven repository
         working-directory: armature
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew :common:publishToMavenLocal --console=plain
+          ./gradlew :common:publishToMavenLocal --console=plain 2>&1 | tee "$RUNNER_TEMP/armature.log"
 
       # `build` includes `check` includes `test`, so the suite runs here without being named and a
-      # failing test stops the release -- the same rule the local deploy script follows.
+      # failing test stops the release -- the same rule the local deploy script follows. The log is
+      # kept in a file as well as the console so the next step can read it.
       - name: Build with Gradle
-        run: ./gradlew build --console=plain
+        run: |
+          set -o pipefail
+          ./gradlew build --console=plain 2>&1 | tee "$RUNNER_TEMP/tasked.log"
+
+      # A failed build's reason, in the run's own summary and annotations rather than only in a log
+      # nobody opens. Both Gradle logs are read, because the Armature publish above can be the step
+      # that fails -- and when it is, the interesting error is in *its* output, not in this one's.
+      - name: Report what the build said
+        if: failure()
+        run: |
+          {
+            echo '### The build failed, and Gradle said'
+            for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tasked.log"; do
+              [ -f "$log" ] || continue
+              echo "#### $(basename "$log") (tail)"
+              echo '```'
+              tail -n 80 "$log"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tasked.log"; do
+            [ -f "$log" ] || continue
+            echo "::error::$(basename "$log")"
+            grep -a -E "error:|FAILURE:|What went wrong|Caused by:|> Task .* FAILED|Could not resolve|Execution failed|tests? (completed|failed)" "$log" \
+              | head -n 20 | cut -c1-320 | sed 's/%/%25/g; s/\r//g' \
+              | while IFS= read -r line; do echo "::error::$line"; done
+          done
+          exit 0
 
       # The loader projects only. Tasked's `common` jar is not a mod and nothing consumes a
       # published `tasked-common`, and a non-mod jar in a `mods` folder is what makes Fabric refuse
