@@ -122,10 +122,17 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tasked.log"; do
             [ -f "$log" ] || continue
-            echo "::error::$(basename "$log")"
-            grep -a -E "error:|FAILURE:|What went wrong|Caused by:|> Task .* FAILED|Could not resolve|Execution failed|tests? (completed|failed)" "$log" \
-              | head -n 20 | cut -c1-320 | sed 's/%/%25/g; s/\r//g' \
-              | while IFS= read -r line; do echo "::error::$line"; done
+            # Everything Gradle writes between these two markers is the fault. One annotation carries
+            # it whole -- newlines escaped, because the run UI keeps only the first ten annotations --
+            # and the first few lines are repeated one per annotation so they read without expanding.
+            block="$(sed -n '/FAILURE: Build failed with an exception/,/^BUILD FAILED/p' "$log" | head -n 60 | cut -c1-500)"
+            if [ -z "$block" ]; then
+              block="$(tail -n 60 "$log" | cut -c1-500)"
+            fi
+            escaped="$(printf '%s\n' "$block" | sed 's/%/%25/g; s/\r//g' | awk '{ printf "%s%%0A", $0 }')"
+            echo "::error::$(basename "$log") said: ${escaped}"
+            printf '%s\n' "$block" | head -n 8 | cut -c1-320 | sed 's/%/%25/g; s/\r//g' \
+              | while IFS= read -r line; do if [ -n "$line" ]; then echo "::error::$line"; fi; done
           done
           exit 0
 
@@ -181,5 +188,5 @@ jobs:
           body: |
             Install `tasked-fabric-*.jar` on Fabric, or `tasked-neoforge-*.jar` on NeoForge.
 
-            **Armature is required on both loaders** — install it alongside Tasked; the loader names
+            **Armature is required on both loaders** -- install it alongside Tasked; the loader names
             it if it is missing.
