@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.client.dev;
 
+import dev.ellipog.armature.client.ui.CacheHits;
 import dev.ellipog.tasked.quest.DependencyStyle;
 
 import java.util.ArrayList;
@@ -312,6 +313,10 @@ public final class LineArt {
         // See `walk` for why that is the difference between a chapter at 20 fps and one at 120.
         FillsKey key = new FillsKey(List.copyOf(path), ink, pattern);
         List<Fill> cached = FILLS.get(key);
+        // Reported for both answers: see CacheHits. This is the cache whose key was rebuilt per edge per
+        // frame, so its ratio is the one that says whether the memo is being consulted or merely built --
+        // a hit rate near zero here is a key that costs more than the entry saves.
+        CacheHits.asked(FILL_CACHE, cached != null);
         if (cached != null) {
             return cached;
         }
@@ -378,6 +383,50 @@ public final class LineArt {
                                             DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
                                             int toHalf, DependencyStyle.Weight weight) {
         return arrows(relative(path), head, place, spacing, fromHalf, toHalf, weight);
+    }
+
+    /** How a route's arrowheads are asked for, so the three call sites cannot disagree about the set. */
+    public record ArrowSpec(DependencyStyle.ArrowHead head, DependencyStyle.ArrowPlace place, int spacing,
+                            int fromHalf, int toHalf, DependencyStyle.Weight weight) {
+
+        /** The usual case: a head at the line's own weight, with no rim halves. */
+        public static ArrowSpec of(DependencyStyle style) {
+            return new ArrowSpec(style.headOr(DependencyStyle.ArrowHead.CHEVRON),
+                    style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(), 0, 0,
+                    style.weightOr(DependencyStyle.Weight.THIN));
+        }
+    }
+
+    /**
+     * Everything one route draws, measured from its own first point — the route, its ink and its heads.
+     *
+     * <h2>Why this exists as one value rather than three calls</h2>
+     *
+     * <p>Because the memo behind {@link #fills} and {@link #arrows} is keyed on the <b>route</b>, and the
+     * route a caller has is absolute while the route the memo wants is relative. So every call paid for the
+     * key before it could be told the answer was already known: {@link #relative} builds a list and one
+     * {@code Point} per point of the route, {@code List.copyOf} copies it again, and the key's
+     * {@code hashCode} walks all of it — <b>per edge, per frame</b>, for a route that had not moved. The
+     * walk and the stroke were saved; the price of asking was not.
+     *
+     * <p>Handing back the relative route along with the rectangles is what lets a caller keep the whole
+     * answer for as long as the route stands: a canvas that has not moved asks once and then re-issues
+     * rectangles. See {@code QuestBookScreen.FrameEdge}, which is the caller that does.
+     *
+     * <p>{@code relative} is the route itself when it already starts at the origin, so this costs nothing
+     * extra for a path built in relative space.
+     */
+    public static EdgeGeometry geometry(List<Point> path, DependencyStyle style, ArrowSpec arrows) {
+        DependencyStyle.Weight weight = style.weightOr(DependencyStyle.Weight.THIN);
+        DependencyStyle.Dash dash = style.dashOr(DependencyStyle.Dash.SOLID);
+        List<Point> local = relative(path);
+        return new EdgeGeometry(local, fills(local, weight, dash),
+                arrows(local, arrows.head(), arrows.place(), arrows.spacing(),
+                        arrows.fromHalf(), arrows.toHalf(), arrows.weight()));
+    }
+
+    /** One route's ink and heads, measured from the route's first point. See {@link #geometry}. */
+    public record EdgeGeometry(List<Point> route, List<Fill> fills, List<Fill> arrows) {
     }
 
     /**
@@ -987,6 +1036,7 @@ public final class LineArt {
         // have gone on allocating one object per pixel of every line while the lines themselves stopped.
         ArrowsKey key = new ArrowsKey(List.copyOf(path), head, place, spacing, fromHalf, toHalf, ink);
         List<Fill> cached = ARROWS.get(key);
+        CacheHits.asked(ARROW_CACHE, cached != null);
         if (cached != null) {
             return cached;
         }
@@ -997,6 +1047,10 @@ public final class LineArt {
         ARROWS.put(key, answer);
         return answer;
     }
+
+    /** This table's name in the hit/miss report. Constants, so a probe allocates nothing. */
+    private static final String FILL_CACHE = "linefills";
+    private static final String ARROW_CACHE = "linearrows";
 
     /** The route, style and geometry a set of heads was computed from. */
     private record ArrowsKey(List<Point> path, DependencyStyle.ArrowHead head,

@@ -74,13 +74,104 @@ public final class QuestViewerContent implements QuestContent {
     private volatile java.util.Map<String, QuestPage> byId = java.util.Map.of();
     private volatile long builtRevision = -1L;
 
+    /**
+     * The tags the last rebuild expanded, and the holder set it read each one from.
+     *
+     * <h2>The input the tree revision does not carry</h2>
+     *
+     * <p>A snapshot is rebuilt when the tree revision moves, and that is right for everything the tree
+     * carries — but this snapshot is also a function of the client's <b>item tags</b>, which are synced from a
+     * datapack rather than from this mod's files. A {@code /reload} that changes tag membership, or a mod
+     * added to an existing world, moves no quest revision at all: so a quest gated on {@code #c:ingots/iron}
+     * went on being findable from a member the pack had removed, and stayed unfindable from one it had added,
+     * until the player relogged. Nothing logged and nothing looked wrong.
+     *
+     * <p><b>The watched value is the holder set object itself</b>, compared by identity — the mechanism kept
+     * as plain as it can be. Binding tags builds a fresh holder set per tag, so the object behind a tag id is
+     * a different one after a reload while the id is the same; comparing the object is the whole question.
+     *
+     * <p><b>Three earlier versions encoded the identity instead, and each was wrong in a different way</b> —
+     * worth recording, because the first two look obviously right:
+     *
+     * <ol>
+     *   <li>an <b>identity hash</b> repeats once the object is collected, and these sets are exactly the
+     *       short-lived kind that gets collected — so a replaced set hashed the same as the one it replaced;</li>
+     *   <li>an <b>equals-keyed weak map</b> compares with {@code equals}, and a holder set is a record, so two
+     *       sets holding the same members are equal and shared a serial;</li>
+     *   <li>a <b>weak map with an identity-comparing key</b> cannot work at all: {@code WeakHashMap} looks a
+     *       key up by calling {@code equals} on the key it is <i>given</i> against the key it <i>holds</i>, so
+     *       a key whose referent is gone matches nothing — including its own entry.</li>
+     * </ol>
+     *
+     * <p>Storing the object sidesteps all three. Strong references are affordable: one entry per tag the pack
+     * actually names, which is a handful, and those sets are already held by the item registry for as long as
+     * the client lives.
+     *
+     * <p><b>Why not a reload listener.</b> The obvious answer is to register one and bump a counter, and this
+     * codebase has none anywhere: it would mean a loader-specific hook in two loader modules for a question
+     * that can be asked locally. This asks it locally — one lookup per expanded tag per tick — and it is
+     * testable without a running game, which a listener is not.
+     */
+    private volatile java.util.Map<TagKey<Item>, HolderSet<Item>> watchedTags = java.util.Map.of();
+
+    /**
+     * How a tag's holder set is looked up. Production reads the client's item registry.
+     *
+     * <p>A field rather than a direct call so a test can hand back a different object: a test JVM loads no
+     * datapack, so {@code BuiltInRegistries.ITEM.getTag} answers empty there and the one thing this mechanism
+     * exists for — a tag whose holder set has been replaced — cannot be reached. It is the same shape
+     * {@code rebuild}'s tag resolver takes, and for the same reason.
+     */
+    private java.util.function.Function<TagKey<Item>, Optional<HolderSet<Item>>> tagHolders =
+            tag -> BuiltInRegistries.ITEM.getTag(tag).map(set -> (HolderSet<Item>) set);
+
+    /** Points the tag lookup somewhere else. For a test; see {@link #tagHolders}. */
+    void setTagHolders(java.util.function.Function<TagKey<Item>, Optional<HolderSet<Item>>> holders) {
+        this.tagHolders = holders;
+    }
+
+    /** The tags the last rebuild expanded, and the set it read each from. For a test. */
+    java.util.Map<TagKey<Item>, HolderSet<Item>> watchedTags() {
+        return watchedTags;
+    }
+
+    /**
+     * Whether any watched tag now reads from a different holder set than the snapshot was built against.
+     *
+     * <p>Package-private rather than private so a test can ask the question directly. It was private, and
+     * that is what made a failing test hard to read: the test could only see the <b>revision</b> it produced,
+     * so "the stamp is wrong" and "this method was never consulted" looked identical from outside — which is
+     * four attempts of guessing. Exposed, the test can say which.
+     *
+     * <p>Cheap: one lookup per tag the pack actually names, and an identity comparison each. A tag that has
+     * since disappeared is a change too — it is no longer there at all — so a reload that removes a tag
+     * rebuilds rather than leaving a snapshot serving members that are gone.
+     */
+    boolean tagsMoved() {
+        for (java.util.Map.Entry<TagKey<Item>, HolderSet<Item>> watched : watchedTags.entrySet()) {
+            Optional<HolderSet<Item>> now = tagHolders.apply(watched.getKey());
+            if (now.isEmpty() || now.get() != watched.getValue()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void tick() {
         long revision = ClientQuestCache.treeRevision();
-        if (revision == builtRevision) {
+        if (revision == builtRevision && !tagsMoved()) {
             return;
         }
-        rebuild(revision, QuestViewerContent::registryTagItems);
+        // The tags the walk expands, collected as it goes, so the watch list is exactly what the snapshot
+        // was built from rather than a second walk deciding what it might have read.
+        java.util.Map<TagKey<Item>, HolderSet<Item>> seen = new java.util.HashMap<>();
+        rebuild(revision, tag -> {
+            Optional<HolderSet<Item>> holders = tagHolders.apply(tag);
+            holders.ifPresent(set -> seen.put(tag, set));
+            return itemsOf(holders);
+        });
+        watchedTags = java.util.Map.copyOf(seen);
     }
 
     @Override
@@ -319,7 +410,18 @@ public final class QuestViewerContent implements QuestContent {
      * reading of a file that names a tag no pack provides.
      */
     private static List<ResourceLocation> registryTagItems(TagKey<Item> tag) {
-        Optional<HolderSet.Named<Item>> holders = BuiltInRegistries.ITEM.getTag(tag);
+        return itemsOf(BuiltInRegistries.ITEM.getTag(tag));
+    }
+
+    /**
+     * The members of a holder set, as ids.
+     *
+     * <p>Split from {@link #registryTagItems} so {@link #tick} can read a tag's holder set <b>once</b> and
+     * take both things it needs from it — the members to expand and the object to watch. Reading it twice
+     * would be two registry lookups per tag per rebuild for one answer, and it would leave the watch and the
+     * members free to disagree if the two reads straddled a reload.
+     */
+    private static List<ResourceLocation> itemsOf(Optional<? extends HolderSet<Item>> holders) {
         if (holders.isEmpty()) {
             return List.of();
         }

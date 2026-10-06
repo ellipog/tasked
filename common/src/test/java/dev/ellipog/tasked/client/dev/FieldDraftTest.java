@@ -108,6 +108,48 @@ class FieldDraftTest {
     }
 
     @Test
+    @DisplayName("two chapters' drafts for one fixed owner are two drafts, not one overwritten slot")
+    void twoChaptersDraftsDoNotCollide() {
+        // The case the chapter *guard* could not catch, which is why the chapter has to be in the key.
+        //
+        // `CHAPTER_OWNER` and `BOOK_OWNER` are the same string in every chapter — that is the whole point
+        // of them — so with the key being `owner\0path` alone, chapter A's pending chapter-title and
+        // chapter B's were one map entry. B's write replaced A's, and then A's read found an entry whose
+        // chapter was B and answered **null**: "not mine" and "not there" were the same answer, so a
+        // pending edit silently vanished and the author's press looked like it had done nothing.
+        FieldDraft draft = new FieldDraft();
+        draft.set("alpha", FieldDraft.CHAPTER_OWNER, "title", new JsonPrimitive("First"), 1L, 0L);
+        draft.set("beta", FieldDraft.CHAPTER_OWNER, "title", new JsonPrimitive("Second"), 1L, 0L);
+
+        assertEquals(new JsonPrimitive("First"),
+                draft.value("alpha", FieldDraft.CHAPTER_OWNER, "title"),
+                "alpha's own pending title survives beta's write");
+        assertEquals(new JsonPrimitive("Second"),
+                draft.value("beta", FieldDraft.CHAPTER_OWNER, "title"),
+                "and beta has its own");
+
+        // The same for the book's settings, which is the other fixed owner.
+        draft.set("alpha", FieldDraft.BOOK_OWNER, "bookTitle", new JsonPrimitive("A"), 1L, 0L);
+        draft.set("beta", FieldDraft.BOOK_OWNER, "bookTitle", new JsonPrimitive("B"), 1L, 0L);
+
+        assertEquals(new JsonPrimitive("A"),
+                draft.value("alpha", FieldDraft.BOOK_OWNER, "bookTitle"));
+        assertEquals(new JsonPrimitive("B"),
+                draft.value("beta", FieldDraft.BOOK_OWNER, "bookTitle"));
+
+        // And the typed readers agree, since they go through the same lookup.
+        assertEquals("First", draft.text("alpha", FieldDraft.CHAPTER_OWNER, "title", "server"));
+        assertEquals("Second", draft.text("beta", FieldDraft.CHAPTER_OWNER, "title", "server"));
+
+        // Forgetting one chapter leaves the other's alone, which is the other half of "they are two".
+        draft.forgetChapter("alpha");
+        assertNull(draft.value("alpha", FieldDraft.CHAPTER_OWNER, "title"));
+        assertEquals(new JsonPrimitive("Second"),
+                draft.value("beta", FieldDraft.CHAPTER_OWNER, "title"),
+                "and beta is untouched by alpha's refusal");
+    }
+
+    @Test
     @DisplayName("clear forgets everything, and an empty draft answers nothing")
     void clearForgetsEverything() {
         FieldDraft draft = new FieldDraft();

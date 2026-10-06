@@ -22,12 +22,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -97,6 +99,95 @@ class QuestViewerContentTest {
 
     private static List<String> ids(List<QuestRef> refs) {
         return refs.stream().map(QuestRef::id).toList();
+    }
+
+    /**
+     * A holder set for the oak-log holder, built to order.
+     *
+     * <p>Built on first use rather than in a field initialiser: the item registry is not populated until
+     * {@code MinecraftTestBootstrap.boot()} has run, and a static initialiser runs before {@code @BeforeAll} —
+     * which made an earlier version of this class fail to initialise at all.
+     *
+     * <p>Two calls with different {@code times} give different objects, and that was **measured rather than
+     * assumed**: a probe confirmed {@code HolderSet.direct} does not cache, and that two sets with equal
+     * members are {@code equals} but not {@code ==} — which is the whole reason this mechanism compares by
+     * identity rather than by equality.
+     */
+    private static Optional<net.minecraft.core.HolderSet<Item>> oakLogSet(int times) {
+        var holder = net.minecraft.core.registries.BuiltInRegistries.ITEM.getHolderOrThrow(
+                net.minecraft.resources.ResourceKey.create(
+                        net.minecraft.core.registries.Registries.ITEM,
+                        ResourceLocation.parse("minecraft:oak_log")));
+        java.util.List<net.minecraft.core.Holder<Item>> holders = new java.util.ArrayList<>();
+        for (int i = 0; i < times; i++) {
+            holders.add(holder);
+        }
+        return Optional.of(net.minecraft.core.HolderSet.direct(holders));
+    }
+
+    @Test
+    @DisplayName("a reload that changes a tag's holder set rebuilds the snapshot, and one that does not, does not")
+    void aTagThatMovedRebuildsTheSnapshot() {
+        // The input the tree revision does not carry, and the reason this mechanism exists.
+        //
+        // `#minecraft:logs` becoming the items a viewer can find is a function of the client's **item tags**,
+        // which are synced from a datapack rather than from this mod's files. A `/reload` that changes tag
+        // membership moves no quest revision at all — so before this, a quest gated on a tag went on being
+        // findable from a member the pack had removed, and stayed unfindable from one it had added, until the
+        // player relogged. Nothing logged and nothing looked wrong.
+        accept(ONE_QUEST);
+        QuestViewerContent content = new QuestViewerContent();
+        TagKey<Item> logs = TagKey.create(net.minecraft.core.registries.Registries.ITEM,
+                ResourceLocation.parse("minecraft:logs"));
+
+        Optional<net.minecraft.core.HolderSet<Item>> stable = oakLogSet(1);
+        Optional<net.minecraft.core.HolderSet<Item>> replaced = oakLogSet(2);
+
+        // The fixture's own sanity, asserted **first** and on purpose. An earlier version of this test
+        // assumed two calls gave two objects without checking, so when the mechanism appeared not to fire
+        // there was no way to tell "the comparison is wrong" from "the two sets were one object" — and four
+        // attempts were spent on that ambiguity. This assertion removes it.
+        assertNotSame(stable.get(), replaced.get(),
+                "the fixture's two sets must be different objects, or this test proves nothing");
+
+        content.setTagHolders(tag -> stable);
+        content.tick();
+        assertEquals(1, content.pages().size(), "the tag task's quest has a page");
+        assertTrue(content.watchedTags().containsKey(logs),
+                "and the tag the walk expanded is the one being watched");
+        assertFalse(content.tagsMoved(), "and the snapshot was built from the set in force");
+
+        content.tick();
+        assertFalse(content.tagsMoved(), "a tick with the same set has nothing to rebuild for");
+        assertEquals(1, content.pages().size(), "and nothing was rebuilt");
+
+        // The holder set is replaced, which is what binding tags after a reload does. The next tick has to
+        // notice without the tree revision having moved -- which is the whole defect. The decision is asserted
+        // before the tick, so a failure says which of the two is wrong.
+        content.setTagHolders(tag -> replaced);
+        assertTrue(content.tagsMoved(),
+                "a tag now read from a different holder set has moved, with the tree untouched");
+        content.tick();
+
+        // **The observable is `tagsMoved()` and not `revision()`, and that is the point.** `revision()`
+        // reports the *tree* revision the snapshot was built against, and a tag change does not move it — so a
+        // test asserting "the revision changed" can never pass, however well the mechanism works. That is what
+        // this test got wrong for four attempts, and it is worth stating because the wrong observable looked
+        // entirely reasonable. What a rebuild does is take the set now in force as the new baseline, so the
+        // honest reading is that the watch has settled and holds the set the snapshot came from.
+        assertFalse(content.tagsMoved(),
+                "and the snapshot was rebuilt for it, so the new set is now the baseline");
+        assertEquals(replaced.get(), content.watchedTags().get(logs),
+                "the watch holds the set the snapshot was actually built from");
+
+        // And a tag that has gone away is a change too: a reload that removes a tag must not leave a snapshot
+        // serving the members it used to have.
+        content.setTagHolders(tag -> Optional.empty());
+        assertTrue(content.tagsMoved(), "a tag that is no longer declared has moved");
+        content.tick();
+        assertFalse(content.tagsMoved(), "and the rebuild settled that too");
+        assertFalse(content.watchedTags().containsKey(logs),
+                "a tag that is no longer declared is no longer watched");
     }
 
     @Test

@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -181,5 +182,56 @@ class LineArtFillCacheTest {
         // what every frame used to cost, twice over, for this chapter.
         System.out.printf("still chapter of %d edge(s): first frame %d walk point(s), second frame %d%n",
                 chapter.size(), walked[0], walked[1]);
+    }
+
+    @Test
+    @DisplayName("one geometry call is the two relative calls, and its route is the relative one")
+    void oneGeometryCallIsBoth() {
+        // What `FrameEdge` keeps. The memo behind `fills`/`arrows` is keyed on the route, and the route a
+        // caller has is absolute while the route the memo wants is relative — so every call paid for the key
+        // before it could be told the answer was known: `relative` builds a list and one `Point` per point,
+        // `List.copyOf` copies it again, and the key's `hashCode` walks all of it, per edge, per frame.
+        // `geometry` hands back the relative route along with the rectangles so a caller can keep the whole
+        // answer for as long as the route stands, which is what takes that off the per-frame path.
+        //
+        // A base nothing else draws at, so this route is genuinely its own cache entry.
+        List<Point> path = route(41_000, 52_000);
+        DependencyStyle style = DependencyStyle.BUILT_IN;
+
+        LineArt.EdgeGeometry geometry = LineArt.geometry(path, style, LineArt.ArrowSpec.of(style));
+
+        // 1. The rectangles are not merely *equal* to what the two relative calls give — they are the same
+        //    lists. That is a stronger statement than the drawing looking the same: the new path hands the
+        //    renderer the very objects the old path handed it, out of the same memo, so a pixel cannot move.
+        //    `assertSame` is what says so, and it is the assertion that makes a pixel diff unnecessary here.
+        assertSame(LineArt.fillsRelative(path, style.weightOr(DependencyStyle.Weight.THIN),
+                        style.dashOr(DependencyStyle.Dash.SOLID)),
+                geometry.fills(), "the ink is the very list the relative call gives");
+        assertSame(LineArt.arrowsRelative(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
+                        style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(), 0, 0,
+                        style.weightOr(DependencyStyle.Weight.THIN)),
+                geometry.arrows(), "and so are the heads");
+
+        // 2. And the route it hands back is the relative one, which is what makes the memo findable: asking
+        //    again with it must be the same entry, so nothing is walked.
+        assertNotEquals(path, geometry.route(),
+                "a route that did not start at the origin is handed back relative");
+        assertEquals(0, geometry.route().get(0).x(), "and its own first point is the origin");
+        assertEquals(0, geometry.route().get(0).y(), "in both axes");
+
+        LineArt.drainWalked();
+        LineArt.fills(geometry.route(), style.weightOr(DependencyStyle.Weight.THIN),
+                style.dashOr(DependencyStyle.Dash.SOLID));
+        LineArt.arrows(geometry.route(), style.headOr(DependencyStyle.ArrowHead.CHEVRON),
+                style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(), 0, 0,
+                style.weightOr(DependencyStyle.Weight.THIN));
+        assertEquals(0, LineArt.drainWalked(),
+                "and a caller holding the relative route walks nothing on the next frame");
+
+        // 3. The route at the origin is handed back as itself, so a path already in relative space costs no
+        //    copy — which is the case for the arrowheads' own two-point strokes.
+        List<Point> atOrigin = List.of(new Point(0, 0), new Point(40, 0), new Point(40, 30));
+        assertEquals(atOrigin, LineArt.geometry(atOrigin, style, LineArt.ArrowSpec.of(style)).route(),
+                "a route already measured from its first point is not copied");
     }
 }

@@ -470,6 +470,24 @@ public final class QuestBookScreen extends ArmatureScreen
     private int lastLineHoverPanY;
     private int lastLineHoverEdges = -1;
     private long lastLineHoverRevision = -1L;
+
+    /**
+     * The two revisions the routes also depend on, and their absence was a stale answer rather than a
+     * missed saving.
+     *
+     * <p>A line's geometry is a function of its endpoints, and those move for reasons the tree revision
+     * does not record: a **draft** write — a stepper press, a size nudge, a scrub's release — changes a
+     * node's position or its size with the tree untouched, and {@code EditorSession}'s pending moves change
+     * one without moving either. So with only the revision and the edge *count* in the key, a nudge that
+     * moved a node left the hover answering for the route the line used to be: the pointer sits still, the
+     * count is the same, and the highlight stays on a line that is no longer under it.
+     *
+     * <p>The count was never enough on its own for the same reason: it catches a line being added or
+     * removed, and says nothing about one having moved. {@code CanvasState} already carries both of these
+     * for the edges themselves — this is the same key, one layer up.
+     */
+    private long lastLineHoverDraft = Long.MIN_VALUE;
+    private long lastLineHoverEditors = Long.MIN_VALUE;
     private boolean lastLineHoverMoving;
     private String[] lastLineHover;
 
@@ -638,6 +656,23 @@ public final class QuestBookScreen extends ArmatureScreen
      * {@link #columns()} and {@link #applyColumns} are the whole of the bridge.
      */
     private PanelKind overlay2 = PanelKind.NONE;
+
+    /**
+     * Whether the author has the Book/Chapter dock open.
+     *
+     * <h2>Why this is a field, and what it stopped being</h2>
+     *
+     * <p>The dock used to <i>be</i> edit mode: it was derived from it — {@code drawerOpen()} answered
+     * {@code mayEditNow()} — so it appeared when the Edit pill latched and went away with it. That gave the
+     * Edit pill a second meaning, "close the panel so the dock comes back", because the dock and a panel
+     * share column 1 and the dock is not drawn while a panel is in it. An author pressing Edit to leave
+     * edit mode got the panel closed instead, and had to press again to do what they asked for.
+     *
+     * <p>So the dock has its own pill and its own state, and neither edit mode nor the arrangement touches
+     * it: {@link #drawerInColumn()} is the only place it is read, and {@link #pressPanelsPill} the only place
+     * it is written. Session-only, like {@link #overlay} — nothing about the arrangement reaches disk.
+     */
+    private boolean dockOpen;
 
     /**
      * The kind whose surface the four accessors below answer for: what is being drawn, built, or pressed.
@@ -2222,10 +2257,15 @@ public final class QuestBookScreen extends ArmatureScreen
      * the header, so every player's header is the same four controls. They are ordinary widgets drawn by
      * the widget pass (the canvas is inside its clip), which is why they need no line in the hand-drawn
      * chrome list the header's controls do.
+     *
+     * <p>Three of them, and only one is a mode: see {@link #pressPanelsPill} for the dock, which used to be
+     * edit mode's side effect and is now the author's own switch.
      */
     private ArmatureButton editPill;
     /** The Assets pill, beside it. Built for the same readers and for no others. */
     private ArmatureButton assetsPill;
+    /** The Panels pill, leftmost of the three: it opens the dock. Built for the same readers. */
+    private ArmatureButton panelsPill;
 
     /**
      * The node the drag is carrying, once the drag is one: past the threshold, following the pointer.
@@ -3208,26 +3248,55 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * The Edit pill's press: edit mode, or the column back.
+     * The Edit pill's press: edit mode on or off, and nothing else.
      *
-     * <h2>Why it is not simply "toggle edit mode"</h2>
+     * <h2>What it used to be, and why that was wrong</h2>
      *
-     * <p>Because a docked panel and the tools dock share one column — that was the choice, so that a column
-     * never becomes two — and while a panel is in it the dock is not drawn at all ({@code drawTools} returns
-     * early for any open overlay). So an author looking at a quest panel who presses Edit meant "give me the
-     * tools back", and what they got was edit mode switched <i>off</i> with the panel still there: the tools
-     * were then two presses away and the canvas had lost its edit mode. This is the one press that swaps the
-     * occupants, which is what the shared column needs to be usable.
+     * <p>It was not simply a toggle. Because the dock and a docked panel share column 1 — the choice, so that
+     * a column never becomes two — and the dock is not drawn while a panel is in it, this press meant "close
+     * the panel and give me the dock back" whenever a panel was open. So an author who pressed Edit to leave
+     * edit mode got the panel closed and edit mode left <i>on</i>, and had to press again to do the thing
+     * they asked for. One control, two meanings, and the second one was not what its label said.
      *
-     * <p>With no panel open it is what it always was, including turning edit mode off — so a reader's pill,
-     * and an author's second press, are unchanged.
+     * <p>The dock has its own pill now ({@link #pressPanelsPill}), which is what made the press one thing:
+     * the panel is the panel's business, the dock is the dock's, and this is the mode's. Turning edit mode
+     * off still closes the arrangement — see {@link #setEditing} for why the columns go with it — but that is
+     * a consequence of leaving the mode rather than a second job for this press.
      */
     private void pressEditPill() {
-        if (docked(overlay)) {
-            closePanelColumn(false);
-            return;
-        }
         setEditing(!DevMode.on());
+    }
+
+    /**
+     * The Panels pill's press: the author's dock, on or off.
+     *
+     * <h2>Why the dock is a control's business and not a mode's</h2>
+     *
+     * <p>It used to be edit mode's: the dock appeared when the Edit pill latched, and went with it, so there
+     * was no way to be editing without a column over the canvas and no way to have the dock without being in
+     * edit mode. That is what forced the Edit pill to double as the dock's escape — see {@link
+     * #pressEditPill} — and it made the dock impossible to put away without leaving the mode.
+     *
+     * <p>So it is a latch of its own, over {@link #dockOpen}, and edit mode neither opens nor closes it. It
+     * is still the fallback occupant of column 1 ({@link #drawerInColumn}), so opening a panel over it hides
+     * it and closing that panel brings it back — the shared column is unchanged, only the thing that decides
+     * who is in it.
+     */
+    private void pressPanelsPill() {
+        dockOpen = !dockOpen;
+        if (dockOpen) {
+            // The dock arrives the way a column does: the same wipe every panel gets, started at the press
+            // that asked for it rather than on the next tick. See `startPanelReveal`.
+            startPanelReveal();
+        }
+        else {
+            // Its transient state goes with it, the same set `closeOverlay` clears for a panel: a colour
+            // picker left anchored to a row that is no longer drawn would float over the canvas, and a
+            // picker armed for a chapter would greet the next opening aimed at a file nobody chose.
+            closeColourPopover();
+            clearPickers();
+        }
+        rebuildWidgets();
     }
 
     /** Pages the child into the first column, and remembers that the player asked for it. */
@@ -3340,14 +3409,15 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Whether the dock is the thing in the first column: edit mode on, and no overlay over it.
+     * Whether the dock is the thing in the first column: the author asked for it, and no overlay is over it.
      *
-     * <p>Derived rather than a field, for the reason {@link #drawerOpen()} gives — the dock <i>is</i> edit
-     * mode — plus one: a field here would be a second thing to keep in step with the arrangement, and the
-     * arrangement already has one writer.
+     * <p>The overlay wins because the two share one column, which is the arrangement's own rule rather than
+     * a special case here: a panel opened while the dock is up replaces it, and closing that panel brings the
+     * dock back. <b>{@code dockOpen} is what makes the dock the fallback occupant</b> — it used to be edit
+     * mode, which is why the dock was not the author's to close.
      */
     private boolean drawerInColumn() {
-        return overlay == PanelKind.NONE && drawerOpen();
+        return overlay == PanelKind.NONE && dockOpen;
     }
 
     /** Takes an arrangement back from the rules, which are the only thing that decides one. */
@@ -3544,8 +3614,9 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <p>Keyed on the arrival rather than on the kind: a column is arriving exactly when one has been started
      * and the wipe has not finished, whichever start it was -- a panel being opened, or the author's dock
-     * when edit mode comes on. It asked `docked(overlay)`, which was the same answer while the only thing
-     * that could arrive was an overlay.
+     * when the Panels pill is pressed. It asked `docked(overlay)`, which was the same answer while the only
+     * thing that could arrive was an overlay, and then `drawerOpen()`, which was the same answer while the
+     * dock arrived with edit mode.
      */
     private boolean panelRevealing(long now) {
         return panelRevealStart != 0
@@ -3633,16 +3704,24 @@ public final class QuestBookScreen extends ArmatureScreen
         // is the whole point of the flags.
         boolean authoring = mayEditNow();
 
-        // Built once per (chapter, tree, progress, draft, authoring) rather than once per call, and the
-        // calls are per frame and per press: the canvas asks what to draw, the hover asks what was
-        // drawn, and a click asks again -- each one a walk of every quest in the pack with a visibility
-        // rule per entry. The five inputs are every one of the walk's, so a cache that misses one is a
-        // canvas drawing the wrong chapter rather than a canvas that is slow.
+        // Built once per (chapter, tree, progress, authoring) rather than once per call, and the calls are
+        // per frame and per press: the canvas asks what to draw, the hover asks what was drawn, and a click
+        // asks again -- each one a walk of every quest in the pack with a visibility rule per entry.
+        //
+        // **Four inputs, and the draft is deliberately not one of them.** The walk reads
+        // `entry.chapterId()` and `questVisible(entry.id())`, and `questVisible` is remembered per tree and
+        // per progress alone -- its own note says "nothing here reads a draft". So a draft version in this
+        // key invalidated a whole-pack walk for a question the draft cannot change: every stepper press, and
+        // every preview write of a scrub, re-walked and re-allocated the canvas's quest list.
+        //
+        // The old comment here claimed "the five inputs are every one of the walk's", which was the
+        // over-keying stated as a virtue. It is worth keeping the mistake in view: an input added to a key
+        // "to be safe" is a cache that misses, and a comment asserting completeness is not the same as one
+        // that has been checked against the walk.
         long tree = ClientQuestCache.treeRevision();
         long progress = ClientQuestCache.progressRevision();
-        long draft = fieldDraft.version();
         if (questsInHeld != null && java.util.Objects.equals(questsInChapter, chapterId)
-                && questsInTree == tree && questsInProgress == progress && questsInDraft == draft
+                && questsInTree == tree && questsInProgress == progress
                 && questsInAuthoring == authoring) {
             return questsInHeld;
         }
@@ -3659,7 +3738,6 @@ public final class QuestBookScreen extends ArmatureScreen
         questsInChapter = chapterId;
         questsInTree = tree;
         questsInProgress = progress;
-        questsInDraft = draft;
         questsInAuthoring = authoring;
         return built;
     }
@@ -3669,7 +3747,6 @@ public final class QuestBookScreen extends ArmatureScreen
     private String questsInChapter;
     private long questsInTree = Long.MIN_VALUE;
     private long questsInProgress = Long.MIN_VALUE;
-    private long questsInDraft = Long.MIN_VALUE;
     private boolean questsInAuthoring;
 
     /**
@@ -3963,20 +4040,6 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private boolean mayEditNow() {
         return DevMode.on() && mayEdit();
-    }
-
-    /**
-     * Whether the inspector drawer is showing.
-     *
-     * <p>Derived rather than toggled: the drawer <i>is</i> edit mode. It opens when the Edit pill latches
-     * and closes with it, so there is no second flag that can disagree with the pill's own state. The
-     * Tools button that used to sit in the header is gone: its menu held only actions that are already
-     * keys -- Undo, Redo, Snapping's switch and Alt+click's straighten -- so the menu went with it, and
-     * the panel itself follows Edit, which is the arrangement the redesign asked for ("the inspector
-     * only renders when Edit is toggled on").
-     */
-    private boolean drawerOpen() {
-        return mayEditNow();
     }
 
     /**
@@ -8140,22 +8203,24 @@ public final class QuestBookScreen extends ArmatureScreen
         // two. A player who is not an operator never has them built at all, so their screen carries no
         // trace of authoring: the same header as everyone, and a canvas with only the view cluster on it.
         //
-        // Edit latches edit mode, and the inspector drawer follows it -- see `drawerOpen`, where that is
-        // derived rather than a second flag. It is the author's only floating control: the Tools menu it
-        // used to open held Straighten, Undo, Redo and Snapping, and every one of those is already a key
-        // or a switch in the Book tab, so the menu was a second way to do four things and nothing else.
+        // Three controls, in the author's reading order: the dock they work in, the pack's own files, and
+        // the mode. Only Edit is a latch over the screen's state; Panels latches the dock, and Assets opens
+        // a panel whose own way out closes it.
+        panelsPill = null;
         editPill = null;
         assetsPill = null;
         if (mayEdit()) {
-            editPill = control(controls.get("editPill"),
-                    Component.literal("\u270E ").append(Component.translatable("tasked.screen.edit")),
-                    this::pressEditPill);
-            if (editPill != null) {
-                editPill.ink(ArmatureButton.Ink.BODY)
-                        .selected(DevMode.on())
-                        .tooltip(List.of(Component.translatable("tasked.screen.edit_this_questline"),
-                                Component.translatable("tasked.screen.drag_nodes_create_duplicate_delete"),
-                                Component.translatable("tasked.screen.ctrl_z_undoes_every_edit_is_saved")));
+            // The dock, which used to be what edit mode drew rather than a control. See `pressPanelsPill`
+            // for why the Edit pill had to stop meaning two things, and `drawerInColumn` for the one place
+            // this switch is read.
+            panelsPill = control(controls.get("panelsPill"),
+                    Component.translatable("tasked.screen.panels"), this::pressPanelsPill);
+            if (panelsPill != null) {
+                panelsPill.ink(ArmatureButton.Ink.BODY)
+                        .selected(dockOpen)
+                        .tooltip(List.of(Component.translatable("tasked.screen.the_author_s_dock"),
+                                Component.translatable("tasked.screen.the_book_and_chapter_tabs"),
+                                Component.translatable("tasked.screen.press_again_to_put_it_away")));
             }
             // Beside it, and for the same reader: the pack's own files, which no quest has to be open to
             // reach. Not a latch -- it opens a panel, and the panel's own way out closes it.
@@ -8166,6 +8231,18 @@ public final class QuestBookScreen extends ArmatureScreen
                         .tooltip(List.of(Component.translatable("tasked.screen.the_packs_own_files"),
                                 Component.translatable("tasked.screen.tables_quests_and_types"),
                                 Component.translatable("tasked.screen.ctrl_t_opens_this")));
+            }
+            // And the mode, last. It latches edit mode and nothing else -- the drawer it used to open and
+            // close as a side effect has its own pill now.
+            editPill = control(controls.get("editPill"),
+                    Component.literal("\u270E ").append(Component.translatable("tasked.screen.edit")),
+                    this::pressEditPill);
+            if (editPill != null) {
+                editPill.ink(ArmatureButton.Ink.BODY)
+                        .selected(DevMode.on())
+                        .tooltip(List.of(Component.translatable("tasked.screen.edit_this_questline"),
+                                Component.translatable("tasked.screen.drag_nodes_create_duplicate_delete"),
+                                Component.translatable("tasked.screen.ctrl_z_undoes_every_edit_is_saved")));
             }
         }
     }
@@ -8182,7 +8259,11 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Edit mode on or off, with the pill and the inspector drawer following.
+     * Edit mode on or off, with the pill following.
+     *
+     * <p>The inspector drawer used to follow too, because it <i>was</i> edit mode. It is the Panels pill's now
+     * — see {@link #pressPanelsPill} — so this method no longer opens or closes a column on the way in, and
+     * only puts the arrangement away on the way out.
      *
      * <p>Switching either way closes the Tools menu: a menu anchored to a pill that is about to vanish
      * (turning edit off) would hang over the canvas with nothing to belong to, and leaving it open while
@@ -8192,16 +8273,15 @@ public final class QuestBookScreen extends ArmatureScreen
         DevMode.setOn(on);
         closeMenu();
         closeColourPopover();
-        if (on) {
-            // The dock arrives the way a column does: the same wipe every panel gets, started at the action
-            // that asked for it rather than on the next tick. See `startPanelReveal`.
-            startPanelReveal();
-        }
-        else {
-            // **And turning edit mode off closes the arrangement**, because the dock is the first column's
-            // fallback occupant: without this, a child opened from the dock would outlive the parent it was
-            // opened from -- `overlay2` set with the dock gone -- and be presented in a column of its own.
-            // The same transition `closeOverlay` uses, so both columns go together.
+        if (!on) {
+            // **And turning edit mode off puts the arrangement away.** Not because a child could outlive its
+            // parent -- `overlay`/`overlay2` make that impossible by themselves now that the dock is not the
+            // fallback occupant -- but because the panels are the mode's surfaces: leaving the mode with a
+            // card still over the canvas would leave the author in a panel whose every field had just gone
+            // inert. The same transition `closeOverlay` uses, so both columns go together.
+            //
+            // The dock is deliberately not in this: it is not a column occupant of its own, it is the
+            // fallback one, and it belongs to the Panels pill rather than to the mode.
             applyColumns(PanelStack.afterClose(columns(), false));
         }
         report(on ? "Edit mode on" : "Edit mode off");
@@ -8816,10 +8896,10 @@ public final class QuestBookScreen extends ArmatureScreen
         // The server's answer with the page's pending values applied over it, resolved here rather than
         // in the panel: the outline a rotation produces has to be *built*, and building it per frame
         // inside the drawing would rebuild a sampled table per frame.
-        QuestShape shape = settingsDraft.shape(entry.shape());
-        int size = settingsDraft.size(entry.size());
-        double iconScale = settingsDraft.iconScale(entry.iconScale());
-        int rotation = settingsDraft.rotation(entry.rotation());
+        QuestShape shape = settingsDraft.shape(entry.id(), entry.shape());
+        int size = settingsDraft.size(entry.id(), entry.size());
+        double iconScale = settingsDraft.iconScale(entry.id(), entry.iconScale());
+        int rotation = settingsDraft.rotation(entry.id(), entry.rotation());
         boolean showTitle = flagOn(quest, "showTitle");
         int hoveredCell = -1;
         String hoveredKey = null;
@@ -14180,38 +14260,50 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** A swatch's press: the shape, remembered for the preview and sent to the server. */
     private void chooseShape(QuestShape shape) {
-        settingsDraft.shape(shape, revision());
-        sendField(editTarget(), "shape",
+        String target = editTarget();
+        if (target == null) {
+            return;
+        }
+        settingsDraft.shape(target, shape, revision());
+        sendField(target, "shape",
                 new JsonPrimitive(shape.name().toLowerCase(java.util.Locale.ROOT)));
     }
 
     /** An arrow's press: the field stepped by its own amount, remembered and sent. */
     private void stepField(String key, int step, JsonObject quest) {
+        // Read once, so the quest whose pending value is accumulated *from* and the quest the result is
+        // sent *to* cannot be two answers. They were: the draft was one value for the whole screen, so the
+        // accumulate read whatever the last quest had left and the send went to this one -- which wrote
+        // quest A's geometry into quest B's file. See `SettingsDraft`.
+        String target = editTarget();
+        if (target == null) {
+            return;
+        }
         if (key.equals("rotation")) {
             // Fifteen degrees an arrow: fine enough to phase a gear off the grid, coarse enough to
             // reach an angle without a drag. The track is there for anything finer.
-            int current = settingsDraft.rotation(intField(quest, key, 0));
+            int current = settingsDraft.rotation(target, intField(quest, key, 0));
             int next = Math.floorMod(current + step * 15, 360);
-            settingsDraft.rotation(next, revision());
-            sendField(editTarget(), key, new JsonPrimitive((long) next));
+            settingsDraft.rotation(target, next, revision());
+            sendField(target, key, new JsonPrimitive((long) next));
             return;
         }
         if (key.equals("iconScale")) {
-            double current = settingsDraft.iconScale(doubleField(quest, key, 0.75));
+            double current = settingsDraft.iconScale(target, doubleField(quest, key, 0.75));
             double next = Math.max(QuestShape.MIN_ICON_SCALE,
                     Math.min(QuestShape.MAX_ICON_SCALE, Math.round((current + step * 0.05) * 100) / 100.0));
-            settingsDraft.iconScale(next, revision());
-            sendField(editTarget(), key, new JsonPrimitive(next));
+            settingsDraft.iconScale(target, next, revision());
+            sendField(target, key, new JsonPrimitive(next));
             return;
         }
-        int current = (int) settingsDraft.size(key.equals("size") ? intField(quest, key, 48)
+        int current = (int) settingsDraft.size(target, key.equals("size") ? intField(quest, key, 48)
                 : intField(quest, key, 0));
         int delta = key.equals("x") || key.equals("y") ? 8 : 1;
         int next = current + step * delta;
         if (key.equals("size")) {
             next = Math.max(dev.ellipog.tasked.client.dev.QuestSettingsLayout.MIN_SIZE,
                     Math.min(dev.ellipog.tasked.client.dev.QuestSettingsLayout.MAX_SIZE, next));
-            settingsDraft.size(next, revision());
+            settingsDraft.size(target, next, revision());
         }
         if (key.equals("minRequired")) {
             // Bounded by the list above it: "3 of 2" is not a rule, and a validator that refuses it is
@@ -14221,7 +14313,7 @@ public final class QuestBookScreen extends ArmatureScreen
         else if (key.equals("maxCompletableDependents") || key.equals("invisibleUntilTasks")) {
             next = Math.max(0, Math.min(dev.ellipog.tasked.quest.QuestRules.MAX_COUNT, next));
         }
-        sendField(editTarget(), key, new JsonPrimitive((long) next));
+        sendField(target, key, new JsonPrimitive((long) next));
     }
 
     /**
@@ -14319,14 +14411,21 @@ public final class QuestBookScreen extends ArmatureScreen
         if (draggingSlider == null) {
             return;
         }
+        // The quest the drag belongs to, read here rather than remembered when the drag began: the page
+        // cannot outlive a quest switch with a slider still held, and reading it keeps the stamp and the
+        // eventual commit aimed at the same quest.
+        String target = editTarget();
+        if (target == null) {
+            return;
+        }
         if (draggingSlider.equals("size")) {
-            settingsDraft.size((int) Math.round(draggingValue), revision);
+            settingsDraft.size(target, (int) Math.round(draggingValue), revision);
         }
         else if (draggingSlider.equals("rotation")) {
-            settingsDraft.rotation((int) Math.round(draggingValue), revision);
+            settingsDraft.rotation(target, (int) Math.round(draggingValue), revision);
         }
         else {
-            settingsDraft.iconScale(draggingValue, revision);
+            settingsDraft.iconScale(target, draggingValue, revision);
         }
     }
 
@@ -18051,12 +18150,19 @@ public final class QuestBookScreen extends ArmatureScreen
         // the fill and width counts would each carry a fixed observer's offset for as long as the
         // overlay was up -- which is precisely when they are being read.
         GuiGraphicsRenderer plain = new GuiGraphicsRenderer(graphics);
-        // Counted when the tools are on **or** when an operator has asked for vitals: the overlay's counter
-        // lines can only come from a counting renderer, and an operator watching a chapter's cost should not
-        // have to enter edit mode to get them. See Vitals for why the frame rate is its own switch.
-        GuiRenderer renderer = DevMode.on() || Vitals.showing()
+        // Counted only when an operator has asked for vitals, because the counters are drawn only then: a
+        // counting renderer measures **every** drawing call, and building one for an overlay nobody is
+        // going to see was edit mode paying a per-call cost for a panel it no longer draws. See Vitals for
+        // the switch and `drawDevOverlay` for the drawing.
+        GuiRenderer renderer = Vitals.showing()
                 ? new dev.ellipog.tasked.client.dev.CountingRenderer(plain)
                 : plain;
+        // The cache hit/miss counter is switched by the same gate, and for the same reason: its line is
+        // reported beside this one's, so a client that is not reporting the frame's counters has nothing to
+        // read a cache ratio against. See `CacheHits` for why the ratio is worth a switch of its own --
+        // briefly, a cache that is never consulted and one that is consulted on every call return the same
+        // values, and the ratio is the only thing that tells them apart.
+        dev.ellipog.armature.client.ui.CacheHits.set(Vitals.showing());
 
         // The world behind the book is **dimmed rather than blurred**, and the reason is the frame budget.
         //
@@ -18419,29 +18525,6 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
             }
 
-            // The colour picker, above the book and any card, below the tooltips. Its own fields were
-            // drawn by the widget pass underneath, so they are redrawn here on top of its surface -- the
-            // same arrangement `modalRedraws` uses for a card's controls.
-            if (colourPopover.isOpen()) {
-                pose.pushPose();
-                pose.translate(0F, 0F, MODAL_Z - CHROME_Z);
-                try {
-                    colourPopover.render(renderer, mouseX, mouseY);
-                    for (net.minecraft.client.gui.components.AbstractWidget widget
-                            : colourPopover.widgets()) {
-                        if (widget instanceof dev.ellipog.tasked.client.dev.ScrubField field) {
-                            field.render(renderer, mouseX, mouseY);
-                        }
-                        else if (widget instanceof dev.ellipog.armature.client.ArmatureTextField text) {
-                            text.render(renderer);
-                        }
-                    }
-                }
-                finally {
-                    pose.popPose();
-                }
-            }
-
             // Inside the raised Z as well, and one level above *it* -- not tidiness, and it took a report
             // to learn the size of the step. A tooltip is a panel and some text; an item's own render
             // writes depth, so a box at the same Z as the card's contents can lose to the icon it is
@@ -18521,25 +18604,16 @@ public final class QuestBookScreen extends ArmatureScreen
      * only built when the mode is on.
      */
     private void drawDevOverlay(GuiRenderer r) {
-        // Two switches, and they answer different questions. The **counters** are edit mode's instrument,
-        // and they only exist when a counting renderer was built. The **frame rate** is an operator's, and
-        // it is drawn when they have asked for it — `/tasked vitals` — whether or not they are editing,
-        // which is the whole point of it no longer being a side effect of the tools being on.
-        boolean vitals = Vitals.showing();
-        if (!vitals && !DevMode.on()) {
+        // **One switch, and it is the operator's.** The frame rate and the counters are one instrument now:
+        // `/tasked vitals` draws both, and edit mode draws neither. The counters used to be edit mode's --
+        // they were the whole reason a counting renderer was built whenever the tools were on -- which put a
+        // panel of numbers over the canvas for every author, measuring nothing in particular. See Vitals for
+        // why the switch is an operator's, and why it is re-checked here rather than trusted from the server.
+        if (!Vitals.showing()) {
             return;
         }
-        String[] counted = dev.ellipog.tasked.client.dev.CountingRenderer.summary();
-        String[] lines = new String[(vitals ? 1 : 0) + counted.length];
-        if (vitals) {
-            // The frame rate **and the frame time**, and the second is the one to read. Frames per second is
-            // capped: with vsync on, or a maximum frame rate set, it reports the cap rather than the work, so
-            // a change that halves the frame's cost can leave the number exactly where it was.
-            // `getFrameTimeNs` is the whole frame in milliseconds and has no ceiling.
-            lines[0] = "fps " + minecraft.getFps() + "   " + (minecraft.getFrameTimeNs() / 1_000_000L)
-                    + " ms";
-        }
-        System.arraycopy(counted, 0, lines, vitals ? 1 : 0, counted.length);
+        String[] lines = devOverlayLines(true, dev.ellipog.tasked.client.dev.CountingRenderer.summary(),
+                minecraft.getFps(), minecraft.getFrameTimeNs());
         if (lines.length == 0) {
             return;
         }
@@ -18555,8 +18629,42 @@ public final class QuestBookScreen extends ArmatureScreen
             r.text(lines[i], DEV_OVERLAY_INSET + 5, DEV_OVERLAY_INSET + 3 + i * lineHeight,
                     // The frame rate reads as a heading rather than as one more counter: it is the one line
                     // here that is about the whole client rather than about this screen's drawing.
-                    vitals && i == 0 ? ArmatureTheme.title() : ArmatureTheme.body());
+                    i == 0 ? ArmatureTheme.title() : ArmatureTheme.body());
         }
+    }
+
+    /**
+     * The dev overlay's lines: the frame rate and frame time, then the counters.
+     *
+     * <h2>Why this is a method rather than four lines inside the drawing</h2>
+     *
+     * <p>Because the one thing worth pinning about the overlay is that <b>edit mode alone draws nothing</b>,
+     * and that is a fact about the lines rather than about the panel drawn around them — so it can be
+     * asserted here, with no client, no window and no pixels. The drawing then has one job left: draw what
+     * it is handed, or nothing when it is handed nothing.
+     *
+     * <p>The frame rate comes first because it is the one line about the whole client rather than about this
+     * screen's drawing, and it is drawn even before the first counter report arrives — a frame rate that
+     * appeared a second late would be one you had finished the gesture without.
+     *
+     * @param vitals     whether an operator has asked for the overlay; false returns no lines at all, which
+     *                   is the whole of "edit mode does not draw it"
+     * @param counted    the last reported frame's counters, from {@code CountingRenderer.summary()}
+     * @param fps        {@code Minecraft.getFps()} — the game's own number, not a second answer to it
+     * @param frameNanos the whole frame in nanoseconds, which has no ceiling where the frame rate does
+     */
+    static String[] devOverlayLines(boolean vitals, String[] counted, int fps, long frameNanos) {
+        if (!vitals) {
+            return new String[0];
+        }
+        String[] lines = new String[1 + counted.length];
+        // The frame rate **and the frame time**, and the second is the one to read. Frames per second is
+        // capped: with vsync on, or a maximum frame rate set, it reports the cap rather than the work, so
+        // a change that halves the frame's cost can leave the number exactly where it was.
+        // `getFrameTimeNs` is the whole frame in milliseconds and has no ceiling.
+        lines[0] = "fps " + fps + "   " + (frameNanos / 1_000_000L) + " ms";
+        System.arraycopy(counted, 0, lines, 1, counted.length);
+        return lines;
     }
 
     /**
@@ -19441,8 +19549,12 @@ public final class QuestBookScreen extends ArmatureScreen
         edgeHover.update(hoveredEdge == null ? null : List.of(hoveredEdge[0], hoveredEdge[1]), now);
 
         // Dependency lines first, so nodes draw over them.
+        //
+        // Through the edge's own geometry rather than through `drawStyledPath(path, style, ...)`: the
+        // rectangles and the arrowheads were worked out when this edge was built, so a frame re-issues
+        // them and measures nothing. The origin is still added per fill — see `drawStyledPath`'s overload.
         for (FrameEdge edge : edges) {
-            drawStyledPath(r, edge.path(), edge.style(),
+            drawStyledPath(r, edge.geometry(), edge.path().get(0),
                     lineInk(edge.baseColour(), edge.fromId(), edge.toId(), now));
         }
 
@@ -19788,9 +19900,89 @@ public final class QuestBookScreen extends ArmatureScreen
     /**
      * One line the chapter draws this frame: the two quests it joins, the style it is owed, and its route
      * in screen space — computed once, then read by the drawing, the hover and the handle layer.
+     *
+     * <h2>Why this keeps its rectangles rather than a record</h2>
+     *
+     * <p>Because the memo that holds them is keyed on the <b>route</b>, and the route a caller here has is
+     * absolute while the route the memo wants is relative to the line's own first point. So every call paid
+     * for the key before it could be told the answer was known: {@code LineArt.relative} builds a list and
+     * one {@code Point} per point of the route, {@code List.copyOf} copies it again, and the key's
+     * {@code hashCode} walks all of it — per edge, per frame, for a route that had not moved. The walk and
+     * the stroke were saved; the price of asking was not.
+     *
+     * <p>An edge already lives exactly as long as its route does — {@code stampCanvas} builds one list of
+     * these per canvas and reuses it until something the canvas depends on moves — so it is the right place
+     * to keep the answer. Asking once is then once per <i>canvas</i> rather than once per frame, and a still
+     * canvas re-issues rectangles and does no geometry at all.
+     *
+     * <p>Not a record, because a record's fields are final and this is computed on first use.
      */
-    private record FrameEdge(String fromId, String toId, ClientQuestCache.Entry from, ClientQuestCache.Entry to,
-                             DependencyStyle style, List<LineArt.Point> path, int baseColour) {
+    private static final class FrameEdge {
+
+        private final String fromId;
+        private final String toId;
+        private final ClientQuestCache.Entry from;
+        private final ClientQuestCache.Entry to;
+        private final DependencyStyle style;
+        private final List<LineArt.Point> path;
+        private final int baseColour;
+
+        /** Null until the first draw asks; see the class note. */
+        private LineArt.EdgeGeometry geometry;
+
+        FrameEdge(String fromId, String toId, ClientQuestCache.Entry from, ClientQuestCache.Entry to,
+                  DependencyStyle style, List<LineArt.Point> path, int baseColour) {
+            this.fromId = fromId;
+            this.toId = toId;
+            this.from = from;
+            this.to = to;
+            this.style = style;
+            this.path = path;
+            this.baseColour = baseColour;
+        }
+
+        String fromId() {
+            return fromId;
+        }
+
+        String toId() {
+            return toId;
+        }
+
+        ClientQuestCache.Entry from() {
+            return from;
+        }
+
+        ClientQuestCache.Entry to() {
+            return to;
+        }
+
+        DependencyStyle style() {
+            return style;
+        }
+
+        List<LineArt.Point> path() {
+            return path;
+        }
+
+        int baseColour() {
+            return baseColour;
+        }
+
+        /**
+         * The route's ink and heads, measured from the route's own first point, worked out once.
+         *
+         * <p>The style cannot change under a built edge — {@code stampCanvas} keys on the tree, the draft
+         * and the theme, and the style is a function of all three — so there is nothing to invalidate.
+         */
+        LineArt.EdgeGeometry geometry() {
+            LineArt.EdgeGeometry held = geometry;
+            if (held == null) {
+                held = LineArt.geometry(path, style, LineArt.ArrowSpec.of(style));
+                geometry = held;
+            }
+            return held;
+        }
 
         /** The key the hover and the hit test use: the dependency first, the dependent second. */
         String[] key() {
@@ -20023,13 +20215,13 @@ public final class QuestBookScreen extends ArmatureScreen
     /** One styled line along a path that is already computed, with the arrowhead gaps the caller wants. */
     private static void drawStyledPath(GuiRenderer r, List<LineArt.Point> path, DependencyStyle style,
                                        int fromHalf, int toHalf, int colour) {
-        DependencyStyle.Weight weight = style.weightOr(DependencyStyle.Weight.THIN);
         // Asks for the route **measured from its own first point**, and adds that point back as it draws.
         // A pan moves every edge's endpoints, so the absolute route is a new cache key for every edge on
         // every frame of the gesture; a line's shape is the differences between its points, and those do not
         // move. So panning now costs the path construction and the fills, and none of the walking, merging
         // or allocating that used to happen per edge per frame while the view moved. See LineArt.
         LineArt.Point origin = path.get(0);
+        DependencyStyle.Weight weight = style.weightOr(DependencyStyle.Weight.THIN);
         for (LineArt.Fill fill : LineArt.fillsRelative(path, weight,
                 style.dashOr(DependencyStyle.Dash.SOLID))) {
             r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
@@ -20041,6 +20233,26 @@ public final class QuestBookScreen extends ArmatureScreen
         for (LineArt.Fill fill : LineArt.arrowsRelative(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
                 style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(),
                 fromHalf, toHalf, weight)) {
+            r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
+                    origin.x() + fill.x2(), origin.y() + fill.y2(), colour);
+        }
+    }
+
+    /**
+     * The same, for an edge that has already worked its geometry out.
+     *
+     * <p>The whole of {@link FrameEdge}'s reason for existing: the rectangles are re-issued here and nothing
+     * about the route is measured, copied or hashed. The origin is still added per fill, which is the one
+     * thing that cannot be precomputed — it is what makes a panned line the same memo entry.
+     */
+    private static void drawStyledPath(GuiRenderer r, LineArt.EdgeGeometry geometry,
+                                       LineArt.Point origin, int colour) {
+        for (LineArt.Fill fill : geometry.fills()) {
+            r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
+                    origin.x() + fill.x2(), origin.y() + fill.y2(),
+                    MenuFlyoutArt.ink(fill.tone(), colour));
+        }
+        for (LineArt.Fill fill : geometry.arrows()) {
             r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
                     origin.x() + fill.x2(), origin.y() + fill.y2(), colour);
         }
@@ -20124,10 +20336,14 @@ public final class QuestBookScreen extends ArmatureScreen
         int panX = viewport().offsetX();
         int panY = viewport().offsetY();
         long revision = ClientQuestCache.treeRevision();
+        // The two the geometry also depends on, and they are not optional -- see the note below.
+        long draft = fieldDraft.version();
+        long editors = this.editors.epoch();
         boolean same = !moving && !lastLineHoverMoving
                 && mouseX == lastLineHoverX && mouseY == lastLineHoverY
                 && scale == lastLineHoverScale && panX == lastLineHoverPanX && panY == lastLineHoverPanY
-                && edges.size() == lastLineHoverEdges && revision == lastLineHoverRevision;
+                && edges.size() == lastLineHoverEdges && revision == lastLineHoverRevision
+                && draft == lastLineHoverDraft && editors == lastLineHoverEditors;
         if (same) {
             return lastLineHover;
         }
@@ -20138,6 +20354,8 @@ public final class QuestBookScreen extends ArmatureScreen
         lastLineHoverPanY = panY;
         lastLineHoverEdges = edges.size();
         lastLineHoverRevision = revision;
+        lastLineHoverDraft = draft;
+        lastLineHoverEditors = editors;
         lastLineHoverMoving = moving;
         lastLineHover = LineArt.nearest(frameCandidates(edges), mouseX, mouseY, LINE_HIT);
         return lastLineHover;
@@ -24447,6 +24665,21 @@ public final class QuestBookScreen extends ArmatureScreen
                 commitMove(id, x, y);
                 long revision = ClientQuestCache.treeRevision();
                 for (String moved : dragStarts.keySet()) {
+                    // **Only the ones that are still pending.** `movedX` answers zero for an id it does
+                    // not hold, and this loop used to commit that zero -- so every other selected quest
+                    // was written to (0,0) whenever the pending positions had been dropped between the
+                    // last mouse-move and the release. That is not a rare race: `EditorSession` drops
+                    // them all the moment a tree revision moves, which any other author's edit, a reload
+                    // or a save broadcast does, and the release is the one moment that matters.
+                    //
+                    // A node at (0,0) is a real position, so nothing downstream could tell the difference
+                    // -- the file and the canvas agreed, and the loss was visible only as a diff. The
+                    // read path has always guarded this way; see `nodeX`, whose own note records the same
+                    // fault in the same words: "the first version of the drag read after claiming and
+                    // every commit landed at 0,0".
+                    if (!editors.hasMoved(moved)) {
+                        continue;
+                    }
                     commitMove(moved, (float) editors.movedX(moved), (float) editors.movedY(moved),
                             revision);
                 }
@@ -25825,8 +26058,9 @@ public final class QuestBookScreen extends ArmatureScreen
         if (revision != questPanelRevision || replicaRevision != questReplicaRevision) {
             questPanelRevision = revision;
             questReplicaRevision = replicaRevision;
-            boolean dockPanel = drawerOpen() && toolsTab == ToolsLayout.Tab.CHAPTER
-                    && overlay == PanelKind.NONE;
+            // `drawerInColumn()` rather than a second spelling of it: it is already `overlay == NONE` and the
+            // dock's own state, and the question here is exactly "is the dock the column on screen".
+            boolean dockPanel = drawerInColumn() && toolsTab == ToolsLayout.Tab.CHAPTER;
             // The dock's picker counts as an editor for this purpose: a replica arriving while it is
             // open changes the chapter under the list, and the card's title and the "current" row are
             // read from that chapter. Rebuilding keeps the typed query -- `buildPickerWidgets` carries

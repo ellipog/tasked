@@ -97,8 +97,25 @@ public final class FieldDraft {
 
     private final Map<String, Cached> overlays = new HashMap<>();
 
-    private static String key(String owner, String path) {
-        return owner + "\u0000" + path;
+    /**
+     * One pending value's key: the chapter, the owner and the path.
+     *
+     * <h2>Why the chapter is in it, and what its absence cost</h2>
+     *
+     * <p>It used to be {@code owner\0path} alone, and the two fixed owners — {@link #CHAPTER_OWNER} and
+     * {@link #BOOK_OWNER} — are the <b>same string in every chapter</b>. So chapter A's pending
+     * {@code #chapter} field and chapter B's were one entry: the second write overwrote the first, and the
+     * chapter guard in {@link #value} then reported the overwritten draft as simply <i>absent</i>. A
+     * pending edit that vanishes reads exactly like an edit that was never made, so nothing logged and
+     * nothing looked wrong — the value reverted to the file's and the author's press appeared to do
+     * nothing.
+     *
+     * <p>The chapter has to be here rather than only in the guard because the guard is a <i>filter over a
+     * shared slot</i>, and a filter cannot tell "not mine" from "not there". One key per chapter is what
+     * makes those two different answers.
+     */
+    private static String key(String chapter, String owner, String path) {
+        return chapter + "\u0000" + owner + "\u0000" + path;
     }
 
     /**
@@ -112,13 +129,14 @@ public final class FieldDraft {
         if (chapter == null || owner == null) {
             return;
         }
-        pending.put(key(owner, path), new Pending(chapter, owner, path, value, revision, nowMillis));
+        pending.put(key(chapter, owner, path),
+                new Pending(chapter, owner, path, value, revision, nowMillis));
         version++;
     }
 
     /** The pending value for this field, or null. Only a draft for this chapter and owner answers. */
     public JsonElement value(String chapter, String owner, String path) {
-        Pending entry = pending.get(key(owner, path));
+        Pending entry = pending.get(key(chapter, owner, path));
         return entry != null && Objects.equals(entry.chapter(), chapter) ? entry.value() : null;
     }
 
