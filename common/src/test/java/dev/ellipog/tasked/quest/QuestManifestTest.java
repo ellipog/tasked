@@ -15,6 +15,8 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -309,6 +311,31 @@ class QuestManifestTest {
             assertEquals(ProgressionMode.LINEAR, manifest.progressionMode());
             assertEquals(List.of("punch_a_tree.json", "make_a_table.json", "stone_tools.json"),
                     manifest.quests());
+        }
+
+        @Test
+        @DisplayName("a chapter that declared no icon is told apart from one that declared paper")
+        void anAbsentChapterIconIsNotPaper() {
+            // The property `QuestSync.chapterIcon` rests on, and it is asserted here rather than assumed
+            // because it is a codec's behaviour rather than this project's: `optionalFieldOf` substitutes
+            // the *same instance* when the field is absent, so `==` separates "the file said nothing"
+            // from "the file said paper" -- and comparing by value cannot, because the two are equal.
+            //
+            // What it buys: a chapter that authored no icon sends an empty id, which the client already
+            // reads as "no icon", instead of sending a paper item that draws as a blank white square on
+            // the claim menu's banner. And a chapter that genuinely wants paper keeps it.
+            ChapterManifest absent = decode(ChapterManifest.CODEC, """
+                    { "id": "c", "title": "C", "quests": [] }
+                    """);
+            assertSame(ItemRef.DEFAULT_ICON, absent.icon(),
+                    "an absent icon is the default instance itself, not a copy of it");
+
+            ChapterManifest authored = decode(ChapterManifest.CODEC, """
+                    { "id": "c", "title": "C", "icon": { "item": "minecraft:paper" }, "quests": [] }
+                    """);
+            assertEquals("minecraft:paper", authored.icon().item().toString(), "authored paper is paper");
+            assertNotSame(ItemRef.DEFAULT_ICON, authored.icon(),
+                    "and it is a different instance, which is the only thing that tells the two apart");
         }
 
         @Test

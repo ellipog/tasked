@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.tasked.Constants;
 
 import java.io.IOException;
@@ -229,10 +230,11 @@ public final class DevMode {
             return;
         }
         try {
-            if (file.getParent() != null) {
-                Files.createDirectories(file.getParent());
-            }
-            Files.writeString(file, write(on, snap, progress), StandardCharsets.UTF_8);
+            // Through JsonWrite, which creates the directory and writes by rename -- so a crash mid-save
+            // leaves the previous flags rather than a half-written file the next load has to guess at.
+            // This file's whole contract is that every way of being wrong reads as the safe direction,
+            // and a truncated file is the one way that could not be honoured. See JsonWrite.
+            JsonWrite.atomically(file, write(on, snap, progress));
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: developer mode could not be written to {}", file, e);

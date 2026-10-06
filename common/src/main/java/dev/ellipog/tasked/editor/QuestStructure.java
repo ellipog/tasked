@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import dev.ellipog.armature.api.data.JsonDocument;
+import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.quest.ChapterNaming;
 import dev.ellipog.tasked.quest.QuestFiles;
@@ -638,10 +639,11 @@ public final class QuestStructure {
                         Files.createDirectories(move.to().getParent());
                         Files.move(move.from(), move.to(), StandardCopyOption.REPLACE_EXISTING);
                     }
-                    case Step.Write write -> {
-                        Files.createDirectories(write.path().getParent());
-                        Files.writeString(write.path(), write.content(), StandardCharsets.UTF_8);
-                    }
+                    // Through JsonWrite, not a plain writeString: these steps write whole documents, and
+                    // one of them is a manifest the rest of the tree is read through. A half-written
+                    // manifest is a chapter whose folder no longer says what is in it, and a crash is
+                    // exactly when that would happen -- see JsonWrite for the window it closes.
+                    case Step.Write write -> JsonWrite.atomically(write.path(), write.content());
                     case Step.SetAside setAside -> Files.move(setAside.path(), aside(setAside.path()),
                             StandardCopyOption.REPLACE_EXISTING);
                 }
@@ -684,10 +686,10 @@ public final class QuestStructure {
                     Files.createDirectories(move.to().getParent());
                     Files.move(move.from(), move.to(), StandardCopyOption.REPLACE_EXISTING);
                 }
-                case Step.Write write -> {
-                    Files.createDirectories(write.path().getParent());
-                    Files.writeString(write.path(), write.content(), StandardCharsets.UTF_8);
-                }
+                // The undo half of the same write, and it matters more here than anywhere: this is the
+                // path that restores a manifest after a step that failed part-way, so a write that could
+                // itself be truncated would turn a recoverable mistake into an unrecoverable one.
+                case Step.Write write -> JsonWrite.atomically(write.path(), write.content());
                 case Step.SetAside setAside -> {
                     Path aside = setAside.path().resolveSibling(
                             setAside.path().getFileName() + QuestFiles.DELETED_SUFFIX);

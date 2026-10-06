@@ -8,9 +8,9 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
+import dev.ellipog.armature.api.data.JsonWrite;
+
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -120,10 +120,22 @@ public final class JsonFile {
         return saved == null || !root.equals(saved);
     }
 
-    /** Writes the tree to its file. */
+    /**
+     * Writes the tree to its file.
+     *
+     * <p>Through {@link JsonWrite#atomically}, so the file holds either the tree as it was read or the
+     * tree as it is now, and never a truncated half of either. The reason is the window a plain
+     * {@code Files.writeString} opens: it truncates the file the moment it opens it, so a crash, an
+     * out-of-memory kill or a power cut between that and the last byte leaves an author's chapter as an
+     * empty file with nothing on disk to recover it from. That is the one failure this project cannot
+     * ask an author to work around, because the thing they would work around it with is gone.
+     *
+     * <p>{@link #markSaved()} is called only once the write has actually happened. That is what keeps a
+     * failed save dirty — and therefore retryable — rather than recording a state memory and disk do
+     * not agree on, which is the same fault {@link #replaceWith} documents from the other side.
+     */
     public void write() throws IOException {
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, json(), StandardCharsets.UTF_8);
+        JsonWrite.atomically(file, json());
         markSaved();
     }
 

@@ -836,6 +836,43 @@ class QuestSyncTest {
         }
 
         @Test
+        @DisplayName("a chapter that authored no icon sends an empty id, and the client draws nothing")
+        void anUnauthoredChapterIconTravelsAsAbsent() {
+            // The end-to-end property, and the one that was missing: the codec's "absent is the default
+            // instance" behaviour was asserted in QuestManifestTest, but nothing asserted that
+            // `QuestSync` *acts* on it. A chapter that declares no icon must reach the client as absent
+            // rather than as the model's paper default -- a paper item at eighteen pixels reads as a
+            // blank white square, which is exactly what the claim menu's banner drew for every chapter
+            // that did not author one.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("",
+                    Fixtures.q("a").build()));
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject chapter = root.getAsJsonArray("chapters").get(0).getAsJsonObject();
+
+            assertEquals("", chapter.get("icon").getAsString(),
+                    "an unauthored chapter icon is an empty id, which is this wire's 'no icon'");
+            assertFalse(chapter.has("iconComponents"),
+                    "and an absent icon has no component patch to send either");
+
+            // And the reader agrees: no stack, so nothing is drawn. The banner and the sidebar both read
+            // this pair, and both already treat an empty stack as "nothing to draw".
+            send(index);
+            assertTrue(ClientQuestCache.chapters().get(0).icon().isEmpty(),
+                    "the client resolves an empty id to no icon at all");
+
+            // A chapter that *does* author one still sends it, so this is a distinction rather than a
+            // blanket suppression.
+            QuestIndex authored = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"icon\": { \"item\": \"minecraft:anvil\" },", Fixtures.q("a").build()));
+            JsonObject named = JsonParser.parseString(
+                            new String(QuestSync.treeAsJson(authored), StandardCharsets.UTF_8))
+                    .getAsJsonObject().getAsJsonArray("chapters").get(0).getAsJsonObject();
+            assertEquals("minecraft:anvil", named.get("icon").getAsString(),
+                    "an authored chapter icon still travels");
+        }
+
+        @Test
         @DisplayName("the raw JSON carries the version, the headings and each quest's group")
         void groupFieldsMatch() {
             // The same contract check as `fieldNamesMatch` above, tightened onto the three things

@@ -940,7 +940,10 @@ public final class ClientQuestCache {
      * The quests this player could collect from right now, by chapter id — the sidebar's counts.
      *
      * <p>A quest is counted once however many rewards it holds: a chapter's row answers "how many
-     * quests have something for me", the same question the rewards panel lists.
+     * quests have something for me". The claim menu's banner answers a different question — "how many
+     * rewards are ready in this chapter" — and it counts them from the rows it builds rather than from
+     * a map here, so the badge and the list under it cannot be counted over two different populations.
+     * There was a map for it, and removing it removed that whole class of disagreement.
      */
     public static java.util.Map<String, Integer> claimableByChapter(UUID player) {
         java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
@@ -950,51 +953,6 @@ public final class ClientQuestCache {
             }
         }
         return counts;
-    }
-
-    /**
-     * How much of each chapter is owed, collected, or there at all — the claim menu's banner badge.
-     *
-     * <h2>Why this counts rewards where {@link #claimableByChapter} counts quests</h2>
-     *
-     * <p>Because the two are answering different questions and both are asked on screen at once. A
-     * sidebar row is a <i>chapter</i>, and "how many quests have something for me" is what a player
-     * reads off it — that is {@code claimableByChapter}, and it is unchanged. A claim menu's banner is a
-     * <i>claim</i>, and "3 of these 5 rewards are ready" is what it has to say, which is a count of
-     * rewards. One map that looked like the other would eventually be read for it.
-     *
-     * <p>{@code total} counts every reward of the chapter whether or not this player can take it, so the
-     * badge's denominator is what the chapter holds rather than what is left — a proportion that shrank
-     * as the player collected would read as progress going backwards.
-     */
-    public static java.util.Map<String, RewardInboxLayout.Tally> rewardsByChapter(UUID player) {
-        java.util.Map<String, int[]> tally = new java.util.LinkedHashMap<>();
-        for (Entry entry : entries) {
-            // ready, claimed, total -- in that order, which is the record's.
-            int[] counts = tally.computeIfAbsent(entry.chapterId(), id -> new int[3]);
-            Progress found = progress.get(entry.id());
-            for (int index = 0; index < entry.rewards().size(); index++) {
-                counts[2]++;
-                if (found == null || player == null) {
-                    continue;
-                }
-                // The same two predicates the rows and the buttons read, so the banner cannot count
-                // something the list below it refuses to show.
-                if (found.claimed(player, index, entry.rewards().get(index).team())) {
-                    counts[1]++;
-                }
-                else if (claimable(player, entry, found, index)) {
-                    counts[0]++;
-                }
-            }
-        }
-
-        java.util.Map<String, RewardInboxLayout.Tally> out = new java.util.LinkedHashMap<>();
-        for (java.util.Map.Entry<String, int[]> found : tally.entrySet()) {
-            int[] counts = found.getValue();
-            out.put(found.getKey(), new RewardInboxLayout.Tally(counts[0], counts[1], counts[2]));
-        }
-        return out;
     }
 
     /** The rewards waiting per quest, by quest id — the canvas badges' own count. */

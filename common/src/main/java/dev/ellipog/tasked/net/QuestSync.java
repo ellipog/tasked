@@ -285,8 +285,7 @@ public final class QuestSync {
             // the per-quest field already uses and the sidebar already draws as a root row.
             one.addProperty("groupId", entry.groupId());
             one.addProperty("title", chapter.title().value());
-            one.addProperty("icon", chapter.icon().item().toString());
-            componentsAsJson(chapter.icon(), "iconComponents", one);
+            chapterIcon(chapter, one, "icon", "iconComponents");
             chapters.add(one);
         }
 
@@ -419,15 +418,11 @@ public final class QuestSync {
         json.addProperty("chapterTitle", chapter.title().value());
 
         // The chapter's own icon, on every quest of it for the same reason `chapterTheme` is below: the
-        // client groups entries by `chapterId` and has no chapter record to hang it on. Sent for every
-        // chapter -- the model defaults an absent icon to paper -- because a sidebar row with an icon is
-        // the readable list the toolkit's own note describes, and "the chapter declares none" is a
-        // different fact from "the client was not told".
+        // client groups entries by `chapterId` and has no chapter record to hang it on.
         //
-        // The components ride beside it the same way the quest's own icon's do, so an author who picks a
-        // renamed item for a chapter gets the renamed item in the chapter list.
-        json.addProperty("chapterIcon", chapter.icon().item().toString());
-        componentsAsJson(chapter.icon(), "chapterIconComponents", json);
+        // Sent only when the chapter authored one -- see `chapterIcon` for why a defaulted paper is not
+        // sent as though it were a choice.
+        chapterIcon(chapter, json, "chapterIcon", "chapterIconComponents");
 
         // A chapter may ask to be drawn in a theme of its own, and that rides on every quest in it
         // for the same reason `chapterLinear` does: the client groups entries by `chapterId` and has
@@ -665,6 +660,39 @@ public final class QuestSync {
             array.add(entry);
         }
         json.add("conditions", array);
+    }
+
+    /**
+     * A chapter's icon and its component patch, or an empty id when the chapter authored none.
+     *
+     * <h2>Why a defaulted icon is not sent as though it were a choice</h2>
+     *
+     * <p>{@code Chapter.icon} defaults to {@link ItemRef#DEFAULT_ICON}, which is
+     * {@code minecraft:paper} — so a chapter that declares no icon was reaching the client as a
+     * deliberate-looking paper item, and a paper item at eighteen pixels reads as a blank white square.
+     * On the claim menu's banner, which is the one row that draws a chapter's icon large, every
+     * unauthored chapter looked like a missing texture.
+     *
+     * <p>The wire already has the distinction this needs: an <b>empty id</b> means "no icon" and a
+     * non-empty id with an empty stack means "a missing item", which is what the sidebar's rows and the
+     * banner both read. So an unauthored chapter sends nothing rather than sending paper.
+     *
+     * <h2>How "authored" is decided, and why identity is the right test</h2>
+     *
+     * <p>{@code optionalFieldOf("icon", ItemRef.DEFAULT_ICON)} substitutes that <b>same instance</b>
+     * when the field is absent, so {@code ==} separates "the file said nothing" from "the file said
+     * paper" — and the second is preserved, because a chapter that genuinely wants paper keeps it.
+     * Comparing by value would not work: an authored paper is equal to the default. The behaviour this
+     * rests on is asserted in {@code QuestSyncTest} rather than assumed, because it is a property of a
+     * codec in a library this project does not own.
+     */
+    private static void chapterIcon(Chapter chapter, JsonObject json, String idField, String componentsField) {
+        if (chapter.icon() == ItemRef.DEFAULT_ICON) {
+            json.addProperty(idField, "");
+            return;
+        }
+        json.addProperty(idField, chapter.icon().item().toString());
+        componentsAsJson(chapter.icon(), componentsField, json);
     }
 
     /**

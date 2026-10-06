@@ -45,8 +45,14 @@ import java.util.Objects;
  */
 public final class RewardInboxLayout {
 
-    /** A chapter's banner: the fold marker, the chapter's icon and title, its badge, and Claim Chapter. */
-    public static final int CHAPTER_HEIGHT = 22;
+    /**
+     * A chapter's banner: the fold marker, the chapter's icon and title, its badge, and Claim Chapter.
+     *
+     * <p>Taller than the action it carries, deliberately — see {@link #ACTION_HEIGHT}. At 22 it was the
+     * same height as the button, so the button filled the row edge to edge and the banner read as a
+     * button with a title beside it rather than as a section heading with a button in it.
+     */
+    public static final int CHAPTER_HEIGHT = 26;
 
     /** A quest's header row: chevron, icon, title, and the strip's Claim Quest. */
     public static final int HEADER_HEIGHT = 18;
@@ -70,17 +76,35 @@ public final class RewardInboxLayout {
     public static final int ACTION_WIDTH = 96;
     public static final int STRIP_INSET = 2;
 
+    /**
+     * How tall a row's action is, whatever the row's own height.
+     *
+     * <h2>Why the action does not inherit its row's height</h2>
+     *
+     * <p>It did, and that is invisible on a row that is the same height as a button — a quest's row and
+     * its Claim are both 18, so the button filling it looks right. On the chapter's banner it was not:
+     * the banner is taller, so the button grew with it and filled the banner edge to edge, and a section
+     * heading whose whole height is a button is a heading that reads as a button.
+     *
+     * <p>So the action has one height and is centred in whatever row carries it. That also makes every
+     * button in the menu the same size, which is what "standardised Claim action buttons" means once it
+     * is drawn rather than described: the same control, at the same height, on a banner and on a row.
+     */
+    public static final int ACTION_HEIGHT = 18;
+
     /** Air between two columns, so a long title cannot run into the count beside it. */
     public static final int COLUMN_GAP = 6;
 
     /**
      * How wide the reward-details column is: three icons with their counts, then a "+N".
      *
-     * <p>Widened from 150 when the progression column went, and the width it took is most of what this
-     * column gained. It is the widest cell in the row by design: it holds the reward icons for a quest,
-     * the badge for a chapter, and it is the one column a reader scans down.
+     * <p>It was widened to 200 for a chapter badge that stated a fraction — "52/1116 ready to claim" —
+     * and the badge is a bare count now, so the width went back to what the reward cells need. The fifty
+     * pixels it gave up went to the context column, which is where a reader spends them: they are the
+     * difference between a truncated quest title and a whole one, and the difference between a reward
+     * group that floats in the middle of the row and one that sits near the button claiming it.
      */
-    public static final int REWARDS_WIDTH = 200;
+    public static final int REWARDS_WIDTH = 150;
 
     /** The key a chapter's banner is placed and found by. */
     public static String chapterKey(String chapterId) {
@@ -339,11 +363,18 @@ public final class RewardInboxLayout {
      * <p>The row slot is narrowed by its insets, so the action is <i>outside</i> the slot's right edge
      * — the placement {@code ToolsLayout.strip} uses, and the one every row control in this UI reads
      * as: a button at the list's edge, with the label owning what is left of the line.
+     *
+     * <p>Its height is {@link #ACTION_HEIGHT} and it is centred in the row, so a banner taller than a
+     * button has the button in the middle of it rather than filling it. A row shorter than the action
+     * clamps it instead of overflowing — which cannot happen at today's metrics, and would be a button
+     * drawn over its neighbours if it ever did.
      */
     public static Slot strip(Slot row) {
         Objects.requireNonNull(row, "row");
         int width = Math.min(ACTION_WIDTH, Math.max(0, row.width()));
-        return new Slot(row.key(), row.right() + STRIP_INSET, row.y(), width, row.height());
+        int height = Math.min(ACTION_HEIGHT, row.height());
+        return new Slot(row.key(), row.right() + STRIP_INSET, row.y() + (row.height() - height) / 2,
+                width, height);
     }
 
     /**

@@ -14,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,18 +42,16 @@ class RewardInboxLayoutTest {
 
     private static final Measure MEASURE = Measure.monospace(6, 9);
 
-    /** A column wide enough for four cells, so the arithmetic has room to be wrong in. */
+    /** A column wide enough for three cells, so the arithmetic has room to be wrong in. */
     private static final int COLUMN = 600;
 
-    private static final ChapterProgress DONE = new ChapterProgress(4, 6);
-
     private static RewardInboxLayout.Row chapter(String chapterId) {
-        return RewardInboxLayout.Row.chapter(chapterId, "1 \u00b7 The Basics", DONE,
-                new RewardInboxLayout.Tally(3, 1, 5), RewardInboxLayout.Status.READY);
+        return RewardInboxLayout.Row.chapter(chapterId, "1 \u00b7 The Basics", 3,
+                RewardInboxLayout.Status.READY);
     }
 
     private static RewardInboxLayout.Row quest(String chapterId, String questId) {
-        return RewardInboxLayout.Row.quest(chapterId, questId, "A Quest", 2, DONE,
+        return RewardInboxLayout.Row.quest(chapterId, questId, "A Quest", 2,
                 RewardInboxLayout.Status.READY);
     }
 
@@ -109,12 +108,12 @@ class RewardInboxLayoutTest {
     }
 
     @Nested
-    @DisplayName("the four columns")
+    @DisplayName("the three columns")
     class Columns {
 
         /**
-         * The invariant: an indented reward row's progression, reward and action cells are the
-         * <b>same rectangles</b> as its unindented header's, and only the context cell moves.
+         * The invariant: an indented reward row's reward and action cells are the <b>same rectangles</b>
+         * as its unindented header's, and only the context cell moves.
          *
          * <p>This is the whole reason the columns are measured from the right. Measured from the left
          * they would shift by the indent, and a column of reward icons would step sideways down the
@@ -128,8 +127,8 @@ class RewardInboxLayoutTest {
             Slot head = layout.slot(RewardInboxLayout.questKey("a"));
             Slot child = layout.slot(RewardInboxLayout.rewardKey("a", 0));
 
-            for (RewardInboxLayout.Column which : List.of(RewardInboxLayout.Column.PROGRESS,
-                    RewardInboxLayout.Column.REWARDS, RewardInboxLayout.Column.ACTION)) {
+            for (RewardInboxLayout.Column which : List.of(RewardInboxLayout.Column.REWARDS,
+                    RewardInboxLayout.Column.ACTION)) {
                 // x and width, not the whole slot: the two rows are on different lines by definition,
                 // and the claim is about the axis they share rather than about being the same rectangle.
                 Slot onHead = RewardInboxLayout.column(head, which);
@@ -151,15 +150,64 @@ class RewardInboxLayoutTest {
             Slot row = layout.slot(RewardInboxLayout.chapterKey("basics"));
 
             Slot context = RewardInboxLayout.column(row, RewardInboxLayout.Column.CONTEXT);
-            Slot progress = RewardInboxLayout.column(row, RewardInboxLayout.Column.PROGRESS);
             Slot rewards = RewardInboxLayout.column(row, RewardInboxLayout.Column.REWARDS);
             Slot action = RewardInboxLayout.column(row, RewardInboxLayout.Column.ACTION);
 
-            assertTrue(context.right() <= progress.x(), "the context cell ends before the progression one");
-            assertTrue(progress.right() <= rewards.x(), "the progression cell ends before the reward one");
+            assertTrue(context.right() <= rewards.x(), "the context cell ends before the reward one");
             assertTrue(rewards.right() <= action.x(), "the reward cell ends before the action one");
-            assertEquals(row.y(), action.y(), "every cell shares its row's line");
-            assertEquals(row.height(), action.height(), "and its height");
+            assertEquals(row.y(), context.y(), "the drawn cells share their row's line");
+            assertEquals(row.y(), rewards.y(), "and so does the reward cell");
+            assertEquals(row.height(), context.height(), "the drawn cells are their row's height");
+        }
+
+        /**
+         * The banner is taller than the button it carries, and the button is centred in it.
+         *
+         * <p>This is the property that was wrong and that a screenshot showed: the action inherited its
+         * row's height, so on the banner — the one row taller than a button — the button filled the row
+         * edge to edge, and a section heading whose whole height is a button reads as a button with a
+         * title beside it.
+         */
+        @Test
+        @DisplayName("leave a banner taller than its button, with the button centred in it")
+        void theBannerIsTallerThanItsButton() {
+            Layout layout = RewardInboxLayout.build(List.of(chapter("basics")), COLUMN, MEASURE);
+            Slot row = layout.slot(RewardInboxLayout.chapterKey("basics"));
+            Slot action = RewardInboxLayout.column(row, RewardInboxLayout.Column.ACTION);
+
+            assertEquals(RewardInboxLayout.ACTION_HEIGHT, action.height(),
+                    "a row's action is one height, whatever its row is");
+            assertTrue(row.height() > action.height(),
+                    "and a banner is taller than the button in it: " + row.height() + " against "
+                            + action.height());
+            assertEquals(row.y() + (row.height() - action.height()) / 2, action.y(),
+                    "with the button centred rather than pinned to the top");
+            assertTrue(action.y() > row.y() && action.bottom() < row.bottom(),
+                    "so there is air above and below it: " + action + " in " + row);
+        }
+
+        /**
+         * The cell the badge is drawn in must be wide enough for the longest badge this menu can state,
+         * which is what stops the collision the screenshots showed.
+         *
+         * <p>It is a real invariant rather than a nicety: the badge is right-aligned in this cell, and a
+         * string wider than its cell starts at the cell's left edge and runs into whatever is beside it.
+         * The figure that did that was "%s/%s ready to claim" over a chapter's whole reward count — four
+         * digits and fifteen words in a 150-pixel column. The badge is now a bare count, and this is the
+         * assertion that it fits.
+         */
+        @Test
+        @DisplayName("hold the longest badge the banner can state")
+        void theRewardCellHoldsTheBadge() {
+            Layout layout = RewardInboxLayout.build(List.of(chapter("basics")), COLUMN, MEASURE);
+            Slot row = layout.slot(RewardInboxLayout.chapterKey("basics"));
+            Slot rewards = RewardInboxLayout.column(row, RewardInboxLayout.Column.REWARDS);
+
+            // "1116 ready" -- a count in the thousands, which is what the screenshots' pack holds.
+            int longest = MEASURE.width("1116 ready");
+            assertTrue(rewards.width() >= longest,
+                    "the reward cell is " + rewards.width() + " wide and the longest badge is " + longest
+                            + "; a badge wider than its cell runs into the context column beside it");
         }
 
         @Test
@@ -181,7 +229,7 @@ class RewardInboxLayoutTest {
         }
 
         @Test
-        @DisplayName("clamp rather than going negative when the row has no room for four cells")
+        @DisplayName("clamp rather than going negative when the row has no room for the cells")
         void narrowRowsClamp() {
             int narrow = RewardInboxLayout.ACTION_WIDTH + RewardInboxLayout.STRIP_INSET * 2 + 4;
             Layout layout = RewardInboxLayout.build(List.of(quest("basics", "a")), narrow, MEASURE);
@@ -212,10 +260,14 @@ class RewardInboxLayoutTest {
         Layout layout = RewardInboxLayout.build(List.of(chapter("basics")), COLUMN, MEASURE);
         Slot row = layout.slot(RewardInboxLayout.chapterKey("basics"));
         Slot body = RewardInboxLayout.body(row);
+        Slot strip = RewardInboxLayout.strip(row);
 
         assertEquals(row.x(), body.x());
         assertEquals(row.right(), body.right());
-        assertFalse(RewardInboxLayout.strip(row).contains(body.right() - 1, body.y() + 1),
+        // Tested at the strip's own line rather than the row's top, because the action is centred in a
+        // banner: a point at the row's top is above the button and would pass this without proving
+        // anything about where the button is.
+        assertFalse(strip.contains(body.right() - 1, strip.y() + strip.height() / 2),
                 "the body ends where the action begins, so the row's press and its button's cannot "
                         + "overlap -- a click on Claim Chapter must never also fold the row");
     }
@@ -223,7 +275,7 @@ class RewardInboxLayoutTest {
     @Test
     @DisplayName("a single row is a quest's shape, does not fold, and carries the reward's own index")
     void singleRowsDoNotFold() {
-        RewardInboxLayout.Row single = RewardInboxLayout.Row.single("basics", "a", "A Quest", 0, 3, DONE,
+        RewardInboxLayout.Row single = RewardInboxLayout.Row.single("basics", "a", "A Quest", 0, 3,
                 RewardInboxLayout.Status.READY);
         Layout layout = RewardInboxLayout.build(List.of(single), COLUMN, MEASURE);
 
@@ -254,7 +306,7 @@ class RewardInboxLayoutTest {
     }
 
     @Test
-    @DisplayName("a row's status decides whether it can be pressed, and a press in flight reads collected")
+    @DisplayName("a row's status decides whether it can be pressed, and a banner carries its ready count")
     void keysAndStatuses() {
         assertTrue(reward("a", 0).pressable(), "a ready row has something to take");
         assertTrue(quest("basics", "a").pressable(), "and a listed header's claim is live");
@@ -262,11 +314,11 @@ class RewardInboxLayoutTest {
                 RewardInboxLayout.Status.LOCKED).pressable(), "a gated row does not");
         assertFalse(RewardInboxLayout.Row.reward("basics", "a", 0, "x", 1,
                 RewardInboxLayout.Status.CLAIMED).pressable(), "nor a collected one");
-        assertTrue(RewardInboxLayout.Row.reward("basics", "a", 0, "x", 1,
-                RewardInboxLayout.Status.PENDING).collected(),
-                "and a press still in flight reads as collected, which is the optimistic half");
         assertTrue(chapter("basics").isChapter(), "a banner knows it is one");
         assertFalse(reward("a", 0).isChapter(), "and a reward does not");
+        assertEquals(3, chapter("basics").count(),
+                "a banner's count is the number of its rewards that are ready, which is what its badge "
+                        + "states and what its press would hand over");
     }
 
     @Nested
@@ -302,43 +354,35 @@ class RewardInboxLayoutTest {
         }
 
         @Test
-        @DisplayName("Claimed admits only what this player has collected")
-        void claimedAdmitsOnlyWhatWasCollected() {
-            for (RewardInboxLayout.Status status : STATUSES) {
-                boolean admitted = RewardInboxLayout.State.CLAIMED.accepts(status, true);
-                assertEquals(status == RewardInboxLayout.Status.CLAIMED
-                                || status == RewardInboxLayout.Status.PENDING, admitted,
-                        "a history holds what was collected, and a press in flight reads collected: "
-                                + status);
-            }
-        }
-
-        @Test
-        @DisplayName("no view admits a locked reward, and every view admits something")
+        @DisplayName("no view admits a locked or collected reward, and every view admits something")
         void lockedIsNeverAdmitted() {
             for (RewardInboxLayout.State state : RewardInboxLayout.State.values()) {
                 for (boolean choice : new boolean[] {true, false}) {
                     assertFalse(state.accepts(RewardInboxLayout.Status.LOCKED, choice),
                             state + " admits a locked reward, which the server would refuse");
+                    assertFalse(state.accepts(RewardInboxLayout.Status.CLAIMED, choice),
+                            state + " admits a collected reward, and no view here is a history");
                 }
                 // Each view holds at least one of the two things it is about, or it would be a toggle
                 // that always empties the list -- a control promising a view that cannot exist.
                 boolean aboutChoices = state == RewardInboxLayout.State.CHOICES;
-                assertTrue(state.accepts(RewardInboxLayout.Status.READY, aboutChoices)
-                                || state.accepts(RewardInboxLayout.Status.CLAIMED, aboutChoices),
+                assertTrue(state.accepts(RewardInboxLayout.Status.READY, aboutChoices),
                         state + " admits nothing at all, so its view is always empty");
             }
         }
 
         @Test
-        @DisplayName("the sweep follows the view, and the history has nothing to sweep")
+        @DisplayName("the sweep follows the view, and every view has one")
         void theSweepFollowsTheView() {
             assertEquals(ClaimFilter.ALL, RewardInboxLayout.State.READY.filter(),
                     "a view of everything outstanding sweeps everything outstanding");
             assertEquals(ClaimFilter.CHOICES, RewardInboxLayout.State.CHOICES.filter(),
                     "a view of questions sweeps questions, which is what its label promises");
-            assertNull(RewardInboxLayout.State.CLAIMED.filter(),
-                    "and a view of what has been collected draws no sweep at all");
+            for (RewardInboxLayout.State state : RewardInboxLayout.State.values()) {
+                assertNotNull(state.filter(),
+                        state + " has no sweep, and every view here is about something still owed -- "
+                                + "whether the button is drawn is the screen's question, not this one's");
+            }
         }
     }
 }

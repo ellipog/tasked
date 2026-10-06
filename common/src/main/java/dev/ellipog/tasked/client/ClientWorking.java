@@ -3,6 +3,7 @@ package dev.ellipog.tasked.client;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.tasked.Constants;
 
 import java.io.IOException;
@@ -201,10 +202,11 @@ public final class ClientWorking {
             return;
         }
         try {
-            if (file.getParent() != null) {
-                Files.createDirectories(file.getParent());
-            }
-            Files.writeString(file, write(lastTable, section, drawerTab), StandardCharsets.UTF_8);
+            // Through JsonWrite, which creates the directory and writes by rename. Where the player was
+            // is small and re-derivable, so the stakes are lower than a chapter's -- but a file that
+            // parses to nothing is worse than one that is merely out of date, and the guard is the same
+            // one either way. See JsonWrite.
+            JsonWrite.atomically(file, write(lastTable, section, drawerTab));
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: where you were could not be written to {}", file, e);

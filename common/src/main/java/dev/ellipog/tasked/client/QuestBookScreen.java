@@ -329,6 +329,16 @@ public final class QuestBookScreen extends ArmatureScreen
     private static final int REWARDS_BODY_TOP = 62;
 
     /**
+     * How much body an empty view reserves for its one line of explanation.
+     *
+     * <p>Named because the card's floor is {@code MIN_MODAL_HEIGHT} (120) and the band plus the footer's
+     * chrome is 118 — so an empty card that asked for no body at all got <b>two pixels</b> of one, and
+     * the hint was drawn outside it. A line of text is eight pixels tall; ten leaves it a pixel clear of
+     * the footer band above and below.
+     */
+    private static final int EMPTY_HINT_HEIGHT = 10;
+
+    /**
      * The height of one state toggle, and the air between the band's rule and it.
      *
      * <p>Declared rather than written at the two sites that need them, because the band's height, the
@@ -338,6 +348,9 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private static final int STATE_CHIP_HEIGHT = 16;
     private static final int STATE_CHIP_GAP = 6;
+
+    /** The gap between a row's fold marker and whatever it draws next. */
+    private static final int MARKER_GAP = 4;
 
     /** The gap between two reward cells in the details column. */
     private static final int REWARD_CELL_GAP = 8;
@@ -1606,8 +1619,7 @@ public final class QuestBookScreen extends ArmatureScreen
      * "what is waiting" for the canvas and the sidebar at once, and both are read every frame.
      */
     private record RewardCounts(long progress, long tree, java.util.UUID player,
-                                Map<String, Integer> byQuest, Map<String, Integer> byChapter,
-                                Map<String, RewardInboxLayout.Tally> rewardsByChapter) {
+                                Map<String, Integer> byQuest, Map<String, Integer> byChapter) {
     }
 
     private RewardCounts rewardCounts;
@@ -1623,15 +1635,8 @@ public final class QuestBookScreen extends ArmatureScreen
             return current;
         }
         rewardCounts = new RewardCounts(progress, tree, self,
-                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self),
-                ClientQuestCache.rewardsByChapter(self));
+                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self));
         return rewardCounts;
-    }
-
-    /** A chapter's banner badge, or the empty tally for a chapter the walk has not reached. */
-    private RewardInboxLayout.Tally tallyOf(String chapterId) {
-        return rewardCounts().rewardsByChapter()
-                .getOrDefault(chapterId, RewardInboxLayout.Tally.EMPTY);
     }
 
     /**
@@ -19168,8 +19173,15 @@ public final class QuestBookScreen extends ArmatureScreen
             ordinal++;
             String chapterId = chapter.getKey();
             List<RewardInboxLayout.Row> inside = new ArrayList<>();
+            int ready = 0;
             if (self != null) {
-                for (ClientQuestCache.Entry entry : questsIn(chapterId)) {
+                List<ClientQuestCache.Entry> quests = questsIn(chapterId);
+                // A chapter can hold two quests with one title -- "Make a Table" is the one every pack
+                // has twice -- so a repeated title is numbered by its position in the chapter. Computed
+                // over this chapter's own list, so the number is stable for as long as the chapter is.
+                Set<String> repeated = repeatedTitles(quests);
+                for (int at = 0; at < quests.size(); at++) {
+                    ClientQuestCache.Entry entry = quests.get(at);
                     if (entry.rewards().isEmpty()) {
                         continue;
                     }
@@ -19181,15 +19193,20 @@ public final class QuestBookScreen extends ArmatureScreen
                     }
                     questRewardCells.put(entry.id(), leaves);
                     rewardListed += leaves.size();
-                    inside.addAll(questRows(chapterId, entry, leaves));
+                    ready += leaves.size();
+                    inside.addAll(questRows(chapterId, entry, leaves, questLabel(entry, at, repeated)));
                 }
             }
             if (inside.isEmpty()) {
                 continue;
             }
+            // The badge's number is the rows this walk just admitted, not a second count of the
+            // chapter's rewards. That is deliberate: a count taken from somewhere else could disagree
+            // with the list under it, and the first version of this did -- it counted every reward the
+            // chapter defined, including quests this player cannot reach, beside a completion figure
+            // counted over visible quests only.
             rows.add(RewardInboxLayout.Row.chapter(chapterId,
-                    chapterLabel(ordinal, chapterId, chapter.getValue()), chapterProgress(chapterId),
-                    tallyOf(chapterId),
+                    chapterLabel(ordinal, chapterId, chapter.getValue()), ready,
                     containerStatus(RewardInboxLayout.chapterKey(chapterId), inside)));
             if (expandedChapters.contains(chapterId)) {
                 rows.addAll(inside);
@@ -19200,8 +19217,11 @@ public final class QuestBookScreen extends ArmatureScreen
         int cardWidth = geometry().wideModalFramed(0, REWARDS_CARD_WIDTH).width();
         rewardLayout = RewardInboxLayout.build(rewardRows, rewardBodyWidth(cardWidth),
                 Measure.monospace(6, 9));
-        rewardCard = geometry().wideModalFramed(REWARDS_BODY_TOP + rewardLayout.height(),
-                REWARDS_CARD_WIDTH);
+        // An empty view still reserves a line for its explanation, or the card floors at a height that
+        // leaves the hint nowhere to go. See EMPTY_HINT_HEIGHT.
+        int contentHeight = REWARDS_BODY_TOP
+                + (rewardRows.isEmpty() ? EMPTY_HINT_HEIGHT : rewardLayout.height());
+        rewardCard = geometry().wideModalFramed(contentHeight, REWARDS_CARD_WIDTH);
         Viewport body = rewardBody();
 
         rewardView.clear();
@@ -19225,11 +19245,12 @@ public final class QuestBookScreen extends ArmatureScreen
         buildRewardStateChips();
 
         // The footer: the sweep where the reader's Submit sits, Back where every card's does, and the
-        // sweep's label and reach follow the active state. `hasSubmit` is true only while there is
-        // something a sweep could take -- the Claimed view is a history, and a sweep over it would be a
-        // button whose only answer is no, drawn where every other card puts its primary action.
+        // sweep's label and reach follow the active state. `hasSubmit` is true only while the view holds
+        // something, because a sweep reaches exactly what the view shows: an empty choices view offering
+        // a primary "Choose all" beside a line saying nothing needs choosing is the card disagreeing
+        // with itself.
         Map<String, BookGeometry.Rect> controls =
-                geometry().questFooter(rewardCard, rewardState.filter() != null);
+                geometry().questFooter(rewardCard, rewardListed > 0);
         ArmatureButton all = control(controls.get("submit"), footerClaimLabel(),
                 () -> claimAllRewards(rewardState.filter()));
         if (all != null) {
@@ -19255,24 +19276,57 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <p>Empty when nothing inside the quest belongs in the current view, which is what makes a chapter
      * of untouched quests contribute no rows rather than a run of headers with nothing under them.
+     *
+     * <p>{@code label} is the quest's title, already numbered if its chapter uses that title twice —
+     * composed by the caller because the numbering is a property of the chapter's list rather than of
+     * one quest. See {@link #questLabel}.
      */
     private List<RewardInboxLayout.Row> questRows(String chapterId, ClientQuestCache.Entry entry,
-                                                  List<RewardInboxLayout.Row> leaves) {
+                                                  List<RewardInboxLayout.Row> leaves, String label) {
         if (entry.rewards().size() == 1) {
             // One reward in the definition: one row, the reward in the details column, one Claim. Never
             // decided from what is left outstanding -- a row that collapsed to a single line the moment
             // a child was claimed would move every row below it under the player's pointer.
-            return List.of(singleRow(chapterId, entry, leaves.get(0).status()));
+            return List.of(singleRow(chapterId, entry, label, leaves.get(0).status()));
         }
 
         List<RewardInboxLayout.Row> out = new ArrayList<>();
-        out.add(RewardInboxLayout.Row.quest(chapterId, entry.id(), titleOf(entry), leaves.size(),
-                questProgress(entry.id()),
+        out.add(RewardInboxLayout.Row.quest(chapterId, entry.id(), label, leaves.size(),
                 containerStatus(RewardInboxLayout.questKey(entry.id()), leaves)));
         if (expandedQuests.contains(entry.id())) {
             out.addAll(leaves);
         }
         return out;
+    }
+
+    /**
+     * The titles a chapter uses more than once, so a repeated one can be numbered.
+     *
+     * <p>A set rather than a count, because the caller only ever asks "is this title ambiguous" — and
+     * one pass over the chapter's own list is what makes the numbering stable for that chapter.
+     */
+    private static Set<String> repeatedTitles(List<ClientQuestCache.Entry> quests) {
+        Set<String> seen = new HashSet<>();
+        Set<String> repeated = new HashSet<>();
+        for (ClientQuestCache.Entry entry : quests) {
+            if (!seen.add(entry.title())) {
+                repeated.add(entry.title());
+            }
+        }
+        return repeated;
+    }
+
+    /**
+     * A quest's row label, numbered only when its chapter uses that title twice.
+     *
+     * <p>Two quests called "Make a Table" in one chapter are indistinguishable on screen, which is the
+     * duplicate-name problem the chapter banner only solves <i>between</i> chapters. The number is the
+     * quest's position in its chapter, and it is drawn <b>only</b> for a title that actually repeats —
+     * numbering every row would put a number on the ninety per cent of rows that do not need one.
+     */
+    private static String questLabel(ClientQuestCache.Entry entry, int at, Set<String> repeated) {
+        String title = titleOf(entry);
+        return repeated.contains(entry.title()) ? (at + 1) + " \u00b7 " + title : title;
     }
 
     /**
@@ -19329,17 +19383,6 @@ public final class QuestBookScreen extends ArmatureScreen
             case QUEST -> () -> claimQuestFromInbox(row.questId());
             case SINGLE, REWARD -> () -> claimReward(row.questId(), row.rewardIndex());
         };
-    }
-
-    /** A quest's own progression: how many of its tasks are done, over how many it asks for. */
-    private static ChapterProgress questProgress(String questId) {
-        return new ChapterProgress(ClientQuestCache.tasksComplete(questId),
-                ClientQuestCache.tasksTotal(questId));
-    }
-
-    /** A chapter's completion, from the cache the sidebar's ring and the header's summary share. */
-    private ChapterProgress chapterProgress(String chapterId) {
-        return chapterCounts().byChapter().getOrDefault(chapterId, ChapterProgress.EMPTY);
     }
 
     /**
@@ -19427,7 +19470,7 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * How wide one state toggle is: the longest of the three labels, plus its padding.
+     * How wide one state toggle is: the longest of the labels, plus its padding.
      *
      * <p>Measured rather than picked, which is the rule the rest of this file's chips arrived at the
      * hard way: a fixed width that happens to fit "Choices" truncates "Choices pending", and a truncated
@@ -19458,17 +19501,10 @@ public final class QuestBookScreen extends ArmatureScreen
         return Component.translatable(switch (state) {
             case READY -> "tasked.screen.rewards.state_ready";
             case CHOICES -> "tasked.screen.rewards.state_choices";
-            case CLAIMED -> "tasked.screen.rewards.state_claimed";
         });
     }
 
-    /**
-     * The footer button's label, which says exactly what the press will reach.
-     *
-     * <p>Two arms rather than three, and that is the state enum's doing rather than an omission: a sweep
-     * exists only in the views that have something to sweep, so the Claimed view draws no footer button
-     * at all and there is no third label to write.
-     */
+    /** The footer button's label, which says exactly what the press will reach. */
     private Component footerClaimLabel() {
         return Component.translatable(rewardState == RewardInboxLayout.State.CHOICES
                 ? "tasked.screen.rewards.choose_all" : "tasked.screen.rewards.claim_all");
@@ -19543,7 +19579,6 @@ public final class QuestBookScreen extends ArmatureScreen
         Constants.LOG.debug("tasked: asked the server for every reward in chapter {}", chapterId);
     }
 
-    /** The one row of a quest whose definition holds exactly one reward. */
     /**
      * The one row of a quest whose definition holds exactly one reward.
      *
@@ -19552,12 +19587,11 @@ public final class QuestBookScreen extends ArmatureScreen
      * ("5 XP").
      */
     private RewardInboxLayout.Row singleRow(String chapterId, ClientQuestCache.Entry entry,
-                                            RewardInboxLayout.Status status) {
+                                            String label, RewardInboxLayout.Status status) {
         int index = 0;
         ClientQuestCache.RewardEntry reward = entry.rewards().get(index);
         int count = reward.hasItem() ? reward.count() : 0;
-        return RewardInboxLayout.Row.single(chapterId, entry.id(), titleOf(entry), index, count,
-                questProgress(entry.id()), status);
+        return RewardInboxLayout.Row.single(chapterId, entry.id(), label, index, count, status);
     }
 
     /** One reward's menu row, with the status this player's copy of it is in. */
@@ -19743,7 +19777,7 @@ public final class QuestBookScreen extends ArmatureScreen
         r.fill(left + 1, top + REWARDS_BODY_TOP, left + w - 1, top + REWARDS_BODY_TOP + 1,
                 ArmatureTheme.panelEdge());
 
-        int listed = listedRewards();
+        int listed = rewardListed;
         int textX = left + 14;
         r.text(Component.translatable("tasked.screen.rewards.title").getString(), textX, top + 12,
                 ArmatureTheme.title());
@@ -19755,14 +19789,19 @@ public final class QuestBookScreen extends ArmatureScreen
         Viewport body = rewardBody();
         rewardView.apply(rewardLayout, body.viewWidth());
         if (rewardRows.isEmpty()) {
-            // Nothing waiting is a sentence rather than an empty card, and it says what puts something
-            // here: an empty list with no explanation reads as a list that failed to load. Which
-            // sentence depends on the view, because "finish a quest" is the wrong advice to give
-            // somebody looking at what they have already collected.
-            r.text(Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
-                            ? "tasked.screen.rewards.claimed_none"
-                            : "tasked.screen.rewards.none_hint").getString(),
-                    body.originX() + 4, body.originY() + 4, ArmatureTheme.faint());
+            // Nothing to show is a sentence rather than an empty card, and it says what would put
+            // something here. Which sentence depends on the view, because "finish a quest" is the wrong
+            // advice to give somebody who came to answer a choice.
+            //
+            // Drawn inside the body's own clip, and that is a fix rather than a flourish: the card's
+            // floor is MIN_MODAL_HEIGHT, which is only two pixels more than this band plus the footer's
+            // chrome, so a hint drawn at the body's origin without a clip lands in the footer's gap. It
+            // looked deliberate at one line and would have collided with the buttons at two.
+            try (GuiRenderer.Scoped clip = r.clip(body.originX(), body.originY(),
+                    body.originX() + body.viewWidth(), body.originY() + body.viewHeight())) {
+                r.text(emptyHint().getString(), body.originX() + 4, body.originY() + 1,
+                        ArmatureTheme.faint());
+            }
         }
         else {
             drawRewardInboxRows(r, body, mouseX, mouseY);
@@ -19770,24 +19809,27 @@ public final class QuestBookScreen extends ArmatureScreen
         drawBar(r, rewardView.bar(), mouseX, mouseY);
     }
 
-    /**
-     * How many rewards the view is listing — the count the card's second line states.
-     *
-     * <p>Counted in the build, not from the rows: a folded quest's rewards are not rows but they are
-     * still in the view, and a subtitle that disagreed with the badges above it would be the card
-     * contradicting itself. See {@link #rewardListed}.
-     */
-    private int listedRewards() {
-        return rewardListed;
+    /** What an empty view says, in the words the active view is using. */
+    private Component emptyHint() {
+        return Component.translatable(rewardState == RewardInboxLayout.State.CHOICES
+                ? "tasked.screen.rewards.choices_none_hint"
+                : "tasked.screen.rewards.none_hint");
     }
 
-    /** The card's second line, which says what the view is showing and how much of it there is. */
+    /**
+     * The card's second line, which says what the view is showing and how much of it there is.
+     *
+     * <p>Both halves follow the view, and the first version of this did not: the empty line said
+     * "Nothing is waiting" in every state, so the choices view announced that nothing was waiting while
+     * its own hint asked the player to finish a quest.
+     */
     private Component subtitle(int listed) {
         if (listed == 0) {
-            return Component.translatable("tasked.screen.rewards.none");
+            return Component.translatable(rewardState == RewardInboxLayout.State.CHOICES
+                    ? "tasked.screen.rewards.choices_none" : "tasked.screen.rewards.none");
         }
-        return Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
-                ? "tasked.screen.rewards.claimed_count" : "tasked.screen.rewards.waiting", listed);
+        return Component.translatable(rewardState == RewardInboxLayout.State.CHOICES
+                ? "tasked.screen.rewards.choices_waiting" : "tasked.screen.rewards.waiting", listed);
     }
 
     /**
@@ -19845,40 +19887,40 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
         Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
-        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
         Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
 
-        String done = row.progress().isEmpty() ? ""
-                : Component.translatable("tasked.screen.chapter_progress", row.progress().done(),
-                        row.progress().total()).getString();
-        // The live badge the banner exists for: how much of this chapter is ready, or -- in the view
-        // that lists what was collected -- how much of it is done with. One sentence over one tally.
-        RewardInboxLayout.Tally tally = row.tally();
-        String badge = tally.total() == 0 ? ""
-                : Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
-                                ? "tasked.screen.rewards.chapter_claimed"
-                                : "tasked.screen.rewards.chapter_ready",
-                        rewardState == RewardInboxLayout.State.CLAIMED ? tally.claimed() : tally.ready(),
-                        tally.total()).getString();
+        // The live badge the banner exists for: how many of this chapter's rewards are ready.
+        //
+        // A count and not a proportion, and that is the fix rather than a preference. The fraction it
+        // used to be was counted over every reward the chapter *defines*, including quests this player
+        // cannot reach, so it read "52/1116" — implying 95% of the chapter was untouched when 1064 of
+        // those were simply locked. There is no denominator to get wrong now, and the number is the rows
+        // the build admitted rather than a second count taken from somewhere else.
+        String badge = Component.translatable("tasked.screen.rewards.chapter_ready", row.count())
+                .getString();
+        // Clamped to its cell, because the first version of this drew it unclamped and a badge wider
+        // than its column ran straight into the figure beside it -- which is what "complete52/1116" on
+        // the banner was. A count that does not fit is dropped rather than truncated: "52 rea…" reads as
+        // a broken number, the row's own hover still carries it, and the button beside it already says
+        // what the press does.
+        String shown = r.textWidth(badge) <= rewards.width() ? badge : "";
+        int badgeX = rewards.x() + Math.max(0, rewards.width() - r.textWidth(shown));
 
-        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
-        int badgeX = rewards.x() + Math.max(0, rewards.width() - r.textWidth(badge));
-        int contentRight = Math.max(badgeX + r.textWidth(badge), doneX + r.textWidth(done));
-
-        rowWash(r, slot, Math.max(contentRight, context.x() + 40), hover);
+        rowWashFull(r, slot, Math.max(badgeX + r.textWidth(shown), context.x() + 40), hover);
 
         int x = context.x();
         r.text(marker, x, textY, ArmatureTheme.faint());
-        x += r.textWidth(marker) + 4;
+        x += markerRoom(r);
         ItemStack icon = chapterIcon(row.chapterId());
         if (!icon.isEmpty() && r.icon(icon, x, iconY, ROW_ICON)) {
             x += ROW_ICON + 5;
         }
-        int room = Math.max(0, progress.x() - 6 - x);
+        int room = Math.max(0, rewards.x() - RewardInboxLayout.COLUMN_GAP - x);
         r.text(Measure.truncate(row.label(), room, textMeasure(r)), x, textY, ArmatureTheme.title());
-        r.text(done, doneX, textY, ArmatureTheme.faint());
-        r.text(badge, badgeX, textY,
-                tally.ready() > 0 ? ArmatureTheme.inProgress() : ArmatureTheme.faint());
+        // The "you may take this" colour rather than inProgress(), which this theme also uses as its
+        // danger ink: a badge that counts something the player *can* have should not borrow the colour
+        // the UI reserves for caution.
+        r.text(shown, badgeX, textY, ArmatureTheme.available());
 
         if (slot.contains(mouseX, mouseY)) {
             rowTooltips.add(new RowTooltip(slot, List.of(
@@ -19890,23 +19932,30 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * A container row's hover: how much is inside it, in the words the active view is using.
+     * A container row's hover: how much is inside it.
      *
-     * <p>The count on a banner or a quest header is the number of rewards the fold would reveal, so the
-     * sentence has to follow the view: "to collect" beside a list of what is owed, "collected" beside
-     * the history. It is the same number either way, which is why it is one call with two words.
-     *
-     * <p>A string rather than a {@code Component}, because a row's hover is a list of lines the screen
-     * draws itself — see {@link RowTooltip} — and the resolved words are what that list holds.
+     * <p>The count on a banner or a quest header is the number of rewards the fold would reveal, and the
+     * hover is where it is stated in words — which is also why a badge that does not fit its cell can be
+     * dropped without losing the number. A string rather than a {@code Component}, because a row's hover
+     * is a list of lines the screen draws itself — see {@link RowTooltip}.
      */
     private String countLine(RewardInboxLayout.Row row) {
-        return Component.translatable(rewardState == RewardInboxLayout.State.CLAIMED
-                ? "tasked.screen.rewards.header_claimed" : "tasked.screen.rewards.header_count",
-                row.count()).getString();
+        return Component.translatable("tasked.screen.rewards.header_count", row.count()).getString();
     }
 
     /**
-     * A quest's row: its fold marker, icon and title, its task completion, its rewards, and its action.
+     * The room a row's fold marker occupies, reserved by every row whether or not it draws one.
+     *
+     * <p>One expression rather than three, because the whole point of reserving it is that the icons
+     * after it land on one axis — and two rows computing "how wide is a marker" separately is how that
+     * stops being true the day a marker changes.
+     */
+    private int markerRoom(GuiRenderer r) {
+        return r.textWidth("\u25bc") + MARKER_GAP;
+    }
+
+    /**
+     * A quest's row: its fold marker, icon and title, its rewards, and its action.
      *
      * <p>The details column is filled whether or not the quest is open — it is the same walk the fold
      * lists, so a player reads what a quest gives without unfolding it, and the icons above cannot
@@ -19924,33 +19973,26 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
         Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
-        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
         Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
 
-        String done = row.progress().isEmpty() ? ""
-                : Component.translatable("tasked.screen.rewards.tasks_done", row.progress().done(),
-                        row.progress().total()).getString();
-        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
-
         int x = context.x();
-        int markerRoom = r.textWidth(marker) + 4;
+        int markerWidth = markerRoom(r);
         ItemStack icon = entry.icon();
         int iconRoom = icon.isEmpty() ? 0 : ROW_ICON + 5;
-        int titleRoom = Math.max(0, progress.x() - 6 - (x + markerRoom + iconRoom));
+        int titleRoom = Math.max(0,
+                rewards.x() - RewardInboxLayout.COLUMN_GAP - (x + markerWidth + iconRoom));
         String title = Measure.truncate(row.label(), titleRoom, textMeasure(r));
-        int contentRight = Math.max(doneX + r.textWidth(done),
-                x + markerRoom + iconRoom + r.textWidth(title));
+        int contentRight = x + markerWidth + iconRoom + r.textWidth(title);
 
-        rowWash(r, slot, contentRight, hover);
+        rowWashFull(r, slot, contentRight, hover);
 
         r.text(marker, x, textY, ArmatureTheme.faint());
-        x += markerRoom;
+        x += markerWidth;
         if (iconRoom > 0) {
             r.icon(icon, x, iconY, ROW_ICON);
             x += iconRoom;
         }
         r.text(title, x, textY, ArmatureTheme.title());
-        r.text(done, doneX, textY, ArmatureTheme.faint());
         drawRewardCells(r, rewards, questRewardCells.getOrDefault(row.questId(), List.of()), textY,
                 iconY);
 
@@ -20002,8 +20044,14 @@ public final class QuestBookScreen extends ArmatureScreen
         }
 
         int left = cells.size() - drawn;
-        if (left > 0 && x + r.textWidth("+00") <= column.right()) {
-            r.text("+" + left, x, textY, ArmatureTheme.faint());
+        if (left > 0) {
+            // The overflow measured from the string it will draw, not from a three-character stand-in:
+            // "+7" and "+107" are different widths, and the stand-in was wrong for anything over two
+            // digits -- the one case where the count is most likely to overflow in the first place.
+            String more = "+" + left;
+            if (x + r.textWidth(more) <= column.right()) {
+                r.text(more, x, textY, ArmatureTheme.faint());
+            }
         }
     }
 
@@ -20053,27 +20101,25 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
         Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
-        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
         Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
 
-        String done = row.progress().isEmpty() ? ""
-                : Component.translatable("tasked.screen.rewards.tasks_done", row.progress().done(),
-                        row.progress().total()).getString();
-        int doneX = progress.x() + Math.max(0, progress.width() - r.textWidth(done));
-
+        // The marker's room is reserved even though this row has no marker, so the icon column is
+        // straight: a single row and a quest row are the same kind of row to a reader, and an icon that
+        // sits ten pixels left of its neighbours reads as a misaligned column rather than as a fold
+        // that is not there.
+        int markerWidth = markerRoom(r);
         ItemStack questIcon = entry.icon();
-        int textX = context.x() + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
-        String title = Measure.truncate(row.label(), Math.max(0, progress.x() - 6 - textX),
-                textMeasure(r));
-        int contentRight = Math.max(doneX + r.textWidth(done), textX + r.textWidth(title));
+        int textX = context.x() + markerWidth + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
+        String title = Measure.truncate(row.label(),
+                Math.max(0, rewards.x() - RewardInboxLayout.COLUMN_GAP - textX), textMeasure(r));
+        int contentRight = textX + r.textWidth(title);
 
-        rowWash(r, slot, contentRight, hover);
+        rowWashFull(r, slot, contentRight, hover);
 
         if (!questIcon.isEmpty()) {
-            r.icon(questIcon, context.x(), iconY, ROW_ICON);
+            r.icon(questIcon, context.x() + markerWidth, iconY, ROW_ICON);
         }
         r.text(title, textX, textY, ArmatureTheme.title());
-        r.text(done, doneX, textY, ArmatureTheme.faint());
         drawRewardCells(r, rewards, List.of(row), textY, iconY);
 
         if (slot.contains(mouseX, mouseY)) {
@@ -20087,12 +20133,19 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * One reward under its quest: its name, its status, its icon and count, and its own Claim.
+     * One reward under its quest: its icon, name, count, and its own Claim.
+     *
+     * <h2>Why this row has no details cell</h2>
+     *
+     * <p>It had one, and the icon and the sentence appeared twice on the row — once in the context cell
+     * and again in the details cell — because a reward row's context <i>is</i> its reward. That reads as
+     * a duplicate rather than as two facts, so the details cell is gone on this kind and the count moved
+     * beside the name, where it was before the menu had columns at all. A quest's row keeps its details
+     * cell: there the context is the quest and the cell is what it gives, so the two are different
+     * things and the reward icons line up down the column.
      *
      * <p>The viewer's reward row, one list over — the icon, the sentence and the count are the same
-     * facts drawn the same way, so a reward reads the same wherever it appears. What is added is the
-     * status, which sits in the progression column so that column holds one axis down the whole list
-     * rather than being blank on every other row.
+     * facts drawn the same way, so a reward reads the same wherever it appears.
      */
     private void drawRewardInboxReward(GuiRenderer r, RewardInboxLayout.Row row, Slot slot, float hover,
                                        int mouseX, int mouseY) {
@@ -20105,24 +20158,21 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconY = slot.y() + (slot.height() - ROW_ICON) / 2;
 
         Slot context = RewardInboxLayout.column(slot, RewardInboxLayout.Column.CONTEXT);
-        Slot progress = RewardInboxLayout.column(slot, RewardInboxLayout.Column.PROGRESS);
-        Slot rewards = RewardInboxLayout.column(slot, RewardInboxLayout.Column.REWARDS);
-
-        String state = switch (row.status()) {
-            case LOCKED -> Component.translatable("tasked.viewer.locked").getString();
-            case CLAIMED, PENDING -> Component.translatable("tasked.viewer.claimed").getString();
-            case READY -> Component.translatable("tasked.viewer.ready").getString();
-        };
-        int stateX = progress.x() + Math.max(0, progress.width() - r.textWidth(state));
+        Slot action = RewardInboxLayout.column(slot, RewardInboxLayout.Column.ACTION);
 
         boolean missingItem = !reward.hasItem() && !reward.itemId().isEmpty();
         boolean shut = !row.pressable();
-        String shown = Measure.truncate(row.label(), Math.max(0, progress.x() - 6 - context.x()),
-                textMeasure(r));
-        int contentRight = Math.max(stateX + r.textWidth(state),
-                context.x() + ROW_ICON + 5 + r.textWidth(shown));
+        String count = reward.hasItem() && row.count() > 1 ? "x" + row.count() : "";
+        int textX = context.x() + ROW_ICON + 5;
+        // The name owns everything up to the action's own edge now that there is no cell between them,
+        // less the count it has to leave room for.
+        int room = Math.max(0, action.x() - RewardInboxLayout.COLUMN_GAP - textX
+                - (count.isEmpty() ? 0 : 5 + r.textWidth(count)));
+        String shown = Measure.truncate(row.label(), room, textMeasure(r));
+        int contentRight = textX + r.textWidth(shown)
+                + (count.isEmpty() ? 0 : 5 + r.textWidth(count));
 
-        rowWash(r, slot, contentRight, hover);
+        rowWashFull(r, slot, contentRight, hover);
 
         if (missingItem) {
             drawItemPlaceholder(r, context.x(), iconY, ROW_ICON);
@@ -20130,12 +20180,11 @@ public final class QuestBookScreen extends ArmatureScreen
         else {
             r.icon(reward.hasItem() ? reward.item() : reward.icon(), context.x(), iconY, ROW_ICON);
         }
-        r.text(shown, context.x() + ROW_ICON + 5, textY,
+        r.text(shown, textX, textY,
                 missingItem || shut ? ArmatureTheme.blocked() : ArmatureTheme.body());
-        r.text(state, stateX, textY,
-                row.status() == RewardInboxLayout.Status.READY
-                        ? ArmatureTheme.faint() : ArmatureTheme.blocked());
-        drawRewardCells(r, rewards, List.of(row), textY, iconY);
+        if (!count.isEmpty()) {
+            r.text(count, textX + r.textWidth(shown) + 5, textY, ArmatureTheme.faint());
+        }
 
         if (slot.contains(mouseX, mouseY)) {
             rowTooltips.add(new RowTooltip(slot, rewardTooltipLines(row.questId(), row.rewardIndex())));
@@ -21003,14 +21052,47 @@ public final class QuestBookScreen extends ArmatureScreen
      * it</b> — so washing the whole slot puts the highlight two pixels into the row below and leaves
      * it sitting low under the icon. This brackets the icon instead: symmetric about it, and unable to
      * reach a neighbour even during a crossfade where two washes are on screen at once.
+     *
+     * <p>A caller whose rows are exactly as tall as they look wants {@link #rowWashFull} instead.
      */
     private static void rowWash(GuiRenderer r, Slot slot, int contentRight, float hover) {
+        wash(r, slot, contentRight, hover, slot.y() - 2, slot.y() + ROW_ICON + 2);
+    }
+
+    /**
+     * The wash behind a hovered row whose slot <b>is</b> the row — the claim menu's, and only its.
+     *
+     * <h2>Why the height is not bracketed here</h2>
+     *
+     * <p>{@link #rowWash} brackets the icon because the rows it was written for are {@code ROW_ADVANCE}
+     * tall: the icon's box plus the gap beneath it, so a wash to the slot's bottom would bleed into the
+     * row below. A claim menu row has no such gap — its slot is exactly its height, and the air between
+     * rows is a gap <i>between</i> slots — so the wash can be the row and cannot reach a neighbour.
+     *
+     * <p>And it has to be, which is the fault this fixes: the wash's height was a constant, so a banner
+     * taller than the button inside it drew a grey band exactly as tall as that button. The row was
+     * taller and the highlight was not, so the highlight is what the row looked like — a heading that
+     * reads as no taller than its own action. **The band is the row, to a reader**, and a band with a
+     * height of its own is a second answer to how tall a row is.
+     */
+    private static void rowWashFull(GuiRenderer r, Slot slot, int contentRight, float hover) {
+        wash(r, slot, contentRight, hover, slot.y(), slot.bottom());
+    }
+
+    /**
+     * The wash itself, from two vertical stops the caller chooses.
+     *
+     * <p>One method for the horizontal arithmetic, because that part is the same either way and was the
+     * half that took the work: the row's left edge to just past what it draws. The vertical stops are
+     * the only thing the two callers disagree about, so they are the only thing they pass.
+     */
+    private static void wash(GuiRenderer r, Slot slot, int contentRight, float hover, int top,
+                             int bottom) {
         if (hover <= 0F) {
             return;
         }
         int right = Math.min(slot.right() + 3, contentRight + 6);
-        r.fill(slot.x() - 3, slot.y() - 2, right, slot.y() + ROW_ICON + 2,
-                Colour.translucent(ArmatureTheme.rowHover(), hover));
+        r.fill(slot.x() - 3, top, right, bottom, Colour.translucent(ArmatureTheme.rowHover(), hover));
     }
 
     /**

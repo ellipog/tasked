@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.JsonParseException;
+import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.quest.QuestFiles;
@@ -913,7 +914,12 @@ public final class QuestEditor {
                     Files.move(deleted, entry.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
                 else {
-                    Files.writeString(entry.getKey(), entry.getValue(), StandardCharsets.UTF_8);
+                    // The snapshot's text, verbatim, through JsonWrite rather than a plain writeString.
+                    // An undo is the one moment an author is already recovering from something, so a
+                    // restore that could itself be cut short would turn a mistake they can undo into one
+                    // they cannot -- and the bytes are identical either way, so the byte-for-byte promise
+                    // this path makes to QuestEditorTest is unchanged.
+                    JsonWrite.atomically(entry.getKey(), entry.getValue());
                 }
             }
             catch (IOException e) {
@@ -1031,18 +1037,20 @@ public final class QuestEditor {
             catch (IOException e) {
                 // Reported as a refusal, not only logged. `SaveResult.ok()` is `refused.isEmpty()`, so a
                 // swallowed IOException told the player their edit had landed while the file was not
-                // written -- and `JsonFile.write` uses `Files.writeString`, which truncates before it
-                // writes, so a failure part-way through can leave the file shorter than it was. Silence
-                // is the one answer that is wrong here: the author is about to close the editor.
+                // written. Silence is the one answer that is wrong here: the author is about to close the
+                // editor.
                 //
-                // The edit is not lost -- the tree in memory is still dirty, so a second save retries it
-                // -- and the sentence says so, because "could not be written" on its own reads as
-                // "your work is gone".
+                // What a failed write now means is narrower than it was, and the message says the
+                // narrower thing. `JsonFile.write` goes through `JsonWrite`, so the target is either its
+                // old content or its new one and never a prefix of either -- a failure leaves the file
+                // exactly as it was, rather than truncated as it would have been when this wrote through
+                // a plain `Files.writeString`. The edit is not lost either: the tree in memory is still
+                // dirty, so a second save retries it.
                 Constants.LOG.warn("tasked: {} could not be written.", path, e);
                 failures.add(new DataProblem(root.relativize(path).toString(), 1, 1, "$",
                         DataProblem.Severity.ERROR, "could not be written: " + e
-                        + "\n    the edit is still in memory, so saving again retries it; the file on"
-                        + " disk may be incomplete until then"));
+                        + "\n    nothing on disk was changed, and the edit is still in memory, so saving"
+                        + " again retries it"));
             }
         }
         return new SaveResult(written, List.copyOf(failures));

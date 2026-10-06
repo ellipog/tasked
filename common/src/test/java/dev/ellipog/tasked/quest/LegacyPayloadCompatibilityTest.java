@@ -7,7 +7,9 @@ import com.mojang.serialization.JsonOps;
 
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.editor.JsonFile;
+import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
 import dev.ellipog.tasked.quest.condition.Conditions;
 import dev.ellipog.tasked.quest.condition.QuestCondition;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -554,6 +557,54 @@ class LegacyPayloadCompatibilityTest {
                 "the tag's own spelling must survive a decode and an encode");
     }
 
+    @Test
+    @DisplayName("an unknown task reaches the client as a labelled, inert row")
+    void anUnknownTaskReachesTheClientAsALabelledRow() {
+        // The other half of node-level isolation, and the half no test covered: the placeholder exists
+        // on the *server* (above), and this asks whether it survives the trip to a client that has never
+        // heard of the type either. `QuestSync` writes each task as hand-built JSON -- nothing in the
+        // compiler connects that writer to `ClientQuestCache`'s reader -- so a field that stopped
+        // travelling would parse cleanly and show a blank row, which is the fault QuestSyncTest exists
+        // for and the reason this is asserted on the wire rather than on the model.
+        //
+        // It cannot be covered by the panel tests: QuestPanelLayoutTest and EntryFormLayoutTest lay out
+        // an unknown type from a hand-built JsonObject, so they prove the *drawing* is right and say
+        // nothing about whether a decoded placeholder ever gets there.
+        QuestIndex index = Fixtures.indexOf("""
+                { "version": 1, "chapterGroups": [ { "id": "g", "title": "G", "chapters": [
+                    { "id": "c", "title": "C", "quests": [
+                        { "id": "one", "title": "One",
+                          "tasks": [ { "type": "someothermod:reticulate", "splines": 4 } ] } ] } ] } ] }""");
+
+        byte[] wire = QuestSync.treeAsJson(index);
+        JsonElement task = JsonParser.parseString(new String(wire, StandardCharsets.UTF_8))
+                .getAsJsonObject()
+                .getAsJsonArray("quests").get(0).getAsJsonObject()
+                .getAsJsonArray("tasks").get(0);
+
+        assertEquals("someothermod:reticulate", task.getAsJsonObject().get("type").getAsString(),
+                "the client is told which type it does not have, which is the sentence an author needs");
+        assertEquals("Unknown task type: someothermod:reticulate",
+                task.getAsJsonObject().get("labelFallback").getAsString(),
+                "and the row says so in words, rather than drawing nothing");
+        assertEquals("minecraft:paper", task.getAsJsonObject().get("icon").getAsString(),
+                "with the fallback icon, since the type's own is the thing this build does not have");
+        assertFalse(task.getAsJsonObject().get("manual").getAsBoolean(),
+                "and no Submit button: a control on a task nothing can evaluate does nothing");
+        assertEquals(1, task.getAsJsonObject().get("count").getAsInt(),
+                "one, so the row reads as not done rather than as a count nobody can reach");
+
+        // And the client takes it without complaint, and knows the quest -- which is the risk on this
+        // side: a node whose shape the reader did not expect is a parse that dies or a quest that
+        // vanishes from the book, and neither would be visible from the server.
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), wire);
+        assertNotNull(ClientQuestCache.entry("one"),
+                "the client parsed the tree: an unknown task must not break its reader");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("one"),
+                "and offers no Submit button on a task nothing can evaluate, since `manual` travelled "
+                        + "as false -- a button there would be a press the server refuses");
+    }
+
     // ------------------------------------------------------------------
     // 3. An unknown field is still an error, deliberately
     // ------------------------------------------------------------------
@@ -614,6 +665,28 @@ class LegacyPayloadCompatibilityTest {
         // nothing else. This is what keeps a Git history readable.
         String again = JsonFile.parse(file, written).json();
         assertEquals(written, again, "two saves of one file must produce identical bytes");
+    }
+
+    @Test
+    @DisplayName("a save leaves one file behind, not a temporary one as well")
+    void aSaveLeavesNoTemporaryFile() throws IOException {
+        // The editor writes through JsonWrite, which puts the text in a `_<name>.tmp` sibling and
+        // renames it over the target. That is what makes a crash mid-save leave the old file rather
+        // than a truncated one -- and it is also a new way to leave litter, in a directory the loader
+        // walks. So the directory is asserted whole rather than by looking for a name: a file the
+        // author never asked for is exactly the fault QuestLoaderTest's directory snapshot exists for,
+        // and it would be just as unwelcome here.
+        Path file = temp.resolve("one.json");
+
+        JsonFile parsed = JsonFile.parse(file, "{\"id\": \"one\", \"title\": \"One\"}");
+        parsed.setText("title", "Renamed");
+        parsed.write();
+
+        try (var stream = Files.list(temp)) {
+            assertEquals(List.of(file), stream.toList(),
+                    "the directory holds the file and nothing else - a leftover _one.json.tmp would be "
+                            + "a name the loader has to be taught to skip and git shows as a change");
+        }
     }
 
     @Test
