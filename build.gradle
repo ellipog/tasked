@@ -18,7 +18,6 @@ def archivePrefix = mod_id
 
 def registerDeploy = { String taskName, String subproject, String jarTask, String dirProperty ->
     def configured = project.findProperty(dirProperty)
-    def modsDir = configured == null ? null : project.file(configured)
     def sub = project.project(":${subproject}")
 
     tasks.register(taskName) {
@@ -27,9 +26,16 @@ def registerDeploy = { String taskName, String subproject, String jarTask, Strin
         dependsOn "${subproject}:${jarTask}"
 
         doLast {
-            if (modsDir == null) {
+            if (configured == null) {
                 throw new GradleException("${dirProperty} is not set in gradle.properties")
             }
+
+            // Resolved here rather than where the task is registered, and that is not tidiness. This
+            // is a path on *this* machine, and `project.file()` on a Windows path containing a space
+            // throws URISyntaxException -- on Linux, during *configuration*, which fails every task
+            // in the build rather than only this one. See armature/build.gradle, where the same line
+            // cost a CI run: "Tasked Fabric" has a space in it and the runner could not configure.
+            def modsDir = project.file(configured)
 
             def built = sub.tasks.named(jarTask).get().archiveFile.get().asFile
             if (!built.exists()) {
