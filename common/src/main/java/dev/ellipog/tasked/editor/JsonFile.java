@@ -137,6 +137,10 @@ public final class JsonFile {
      */
     public void write() throws IOException {
         JsonWrite.atomically(file, json());
+        // Counted here rather than at the apply path, because this is the only place that knows a write
+        // actually happened: an op whose save refused writes nothing, and a count taken from the request
+        // would report a burst as fifty writes when the disk saw none. See `EditPhases`.
+        EditPhases.wrote();
         // The loader's read cache forgets this file, and this is the only place that can say so: a
         // modification time is not a reliable enough answer on every file system for a write made a
         // moment ago (see ParsedFiles), and this class is what every content write goes through --

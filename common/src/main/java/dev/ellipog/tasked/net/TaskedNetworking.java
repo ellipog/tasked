@@ -715,13 +715,25 @@ public final class TaskedNetworking {
      * coordinate nudge used to cost every player a full progress sync.
      */
     public static void refreshTree(MinecraftServer server, TreeRefresh.Touch touch) {
+        // The flush's own timing, around the two halves `QuestLoader`'s phase line cannot see: the reload
+        // as a whole (its split has its own line) and the broadcast. Gated before the first clock read, for
+        // the reason `handleEditorOp` gives.
+        boolean timing = dev.ellipog.tasked.editor.EditPhases.on();
+        long reloadStarted = timing ? System.nanoTime() : 0L;
         if (touch.scope() == TreeRefresh.Touch.Scope.TABLES) {
             TaskedQuests.reloadTables();
         }
         else {
             TaskedQuests.reload();
         }
+        long reloadNanos = timing ? System.nanoTime() - reloadStarted : 0L;
+        int players = server.getPlayerList().getPlayers().size();
         sendTreeToAll(server, touch.progress());
+        if (timing) {
+            QuestSync.WireTiming wire = QuestSync.drainWireTiming();
+            dev.ellipog.tasked.editor.EditPhases.flushed(reloadNanos, wire.encodeNanos(),
+                    wire.deflateNanos(), players);
+        }
     }
 
     /**
@@ -1031,7 +1043,16 @@ public final class TaskedNetworking {
             return;
         }
 
+        // Timed around the apply, which is the model change *and* the save -- see `EditPhases` for why the
+        // two are one number from here. The gate is checked **before** the clock is read, so a server with
+        // the counter off pays one static-boolean branch and no `nanoTime` call at all; that is the contract
+        // every instrument in this codebase keeps, and it is what lets one sit on an apply path.
+        boolean timing = dev.ellipog.tasked.editor.EditPhases.on();
+        long applyStarted = timing ? System.nanoTime() : 0L;
         EditorOps.Applied applied = TaskedQuests.editors().apply(payload.chapter(), op);
+        if (timing) {
+            dev.ellipog.tasked.editor.EditPhases.applied(System.nanoTime() - applyStarted);
+        }
         if (applied.ok()) {
             // The reload and the all-player tree broadcast are coalesced to one per server tick -- see
             // TreeRefresh -- so a burst of edits pays for them once. The reply below stays per op, so

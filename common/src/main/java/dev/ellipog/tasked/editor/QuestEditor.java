@@ -1066,11 +1066,17 @@ public final class QuestEditor {
      */
     public SaveResult save() {
         Problems problems = new Problems();
-        List<Path> toWrite = new ArrayList<>();
+        // **The files themselves, not paths to be looked up again.** This list held `Path`s and the write
+        // loop turned each one back into a quest with `quests.get(idOf(path))` — a lookup in the manifest's
+        // vocabulary (file names) against a map keyed in the tree's (declared ids). Where the two differ,
+        // which is every quest of a pack a tool named, the lookup missed, the loop skipped the file, and the
+        // reply said the edit had been applied. Carrying the file removes the second vocabulary rather than
+        // reconciling it, which is the same shape `reloadQuests` and `pathOf` already take.
+        List<JsonFile> toWrite = new ArrayList<>();
 
         validate(manifest.file().getFileName().toString(), manifest.json(), DocumentKind.CHAPTER, problems);
         if (manifest.dirty()) {
-            toWrite.add(manifest.file());
+            toWrite.add(manifest);
         }
 
         // The group's file, when this chapter has one. Validated against the group's own rules -- the
@@ -1079,14 +1085,16 @@ public final class QuestEditor {
         if (group != null) {
             validate(root.relativize(group.file()).toString(), group.json(), DocumentKind.GROUP, problems);
             if (group.dirty()) {
-                toWrite.add(group.file());
+                toWrite.add(group);
             }
         }
 
-        for (Map.Entry<String, JsonFile> entry : quests.entrySet()) {
-            validate(entry.getKey() + SUFFIX, entry.getValue().json(), DocumentKind.QUEST, problems);
-            if (entry.getValue().dirty()) {
-                toWrite.add(entry.getValue().file());
+        for (JsonFile quest : quests.values()) {
+            // The file's own name rather than the declared id plus `.json`: a refusal has to name a file the
+            // author can go and open, and for a converted pack those are two different strings.
+            validate(quest.file().getFileName().toString(), quest.json(), DocumentKind.QUEST, problems);
+            if (quest.dirty()) {
+                toWrite.add(quest);
             }
         }
 
@@ -1099,14 +1107,9 @@ public final class QuestEditor {
 
         int written = 0;
         List<DataProblem> failures = new ArrayList<>();
-        for (Path path : toWrite) {
+        for (JsonFile file : toWrite) {
+            Path path = file.file();
             try {
-                JsonFile file = path.equals(manifest.file()) ? manifest
-                        : group != null && path.equals(group.file()) ? group
-                        : quests.get(idOf(path));
-                if (file == null) {
-                    continue;
-                }
                 file.write();
                 written++;
             }
@@ -1193,11 +1196,6 @@ public final class QuestEditor {
         // before it was found here, which is the wrong order for a two-line bug.
         String prefix = chapters.substring(0, slash + 1);
         return prefix + QUEST_FILE;
-    }
-
-    private String idOf(Path path) {
-        String name = path.getFileName().toString();
-        return name.endsWith(SUFFIX) ? name.substring(0, name.length() - SUFFIX.length()) : name;
     }
 
     /** The shapes a quest node can be drawn as, for a control that cycles them. */

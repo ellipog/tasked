@@ -108,6 +108,17 @@ public final class TaskedCommand {
                         .then(Commands.argument("arm", IntegerArgumentType.integer(0, 3))
                                 .executes(TaskedCommand::iconMode)))
 
+                // What one editing gesture costs on the server, as a debug log line. Server-side, so unlike
+                // `vitals` it needs no player and works from the console -- and it has to work from the
+                // console, because the question it answers is about a server's cost rather than a client's.
+                .then(Commands.literal("editcost")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(context -> editCost(context, Optional.empty()))
+                        .then(Commands.literal("on")
+                                .executes(context -> editCost(context, Optional.of(true))))
+                        .then(Commands.literal("off")
+                                .executes(context -> editCost(context, Optional.of(false)))))
+
                 .then(Commands.literal("quest")
                         .then(Commands.argument("id", StringArgumentType.word())
                                 .executes(TaskedCommand::quest)))
@@ -292,6 +303,38 @@ public final class TaskedCommand {
         context.getSource().sendSuccess(() -> Component.literal(
                 "Vitals overlay " + (on ? "on" : "off") + " for " + player.getGameProfile().getName()
                         + ". It shows the frame rate and frame time, and the frame's counters."), false);
+        return 1;
+    }
+
+    /**
+     * The edit-cost counter: what one editing gesture costs on the server, once a second to the log.
+     *
+     * <h2>Why this is not {@code vitals}</h2>
+     *
+     * <p>Because it is the opposite side of the same question. {@code vitals} is a <b>client</b> instrument —
+     * a frame rate and a frame's counters, drawn by a player who has to be there to see them — and it
+     * refuses from the console for that reason. This measures the <b>server's</b> half of an edit: the apply,
+     * the save, the writes, the fsyncs and the coalesced flush. So it needs no player, and it deliberately
+     * works from the console, because the server whose cost is in question is often a dedicated one nobody is
+     * sitting in front of.
+     *
+     * <h2>Why a command rather than always on</h2>
+     *
+     * <p>Because it is a diagnostic, and a diagnostic that is always on is a permanent cost for a temporary
+     * question. Off, every entry point is one static-boolean branch and no clock read at all — see
+     * {@code EditPhases} — so the switch is what makes it acceptable to have the call sites on the apply
+     * path. Session-only: nothing is written to disk, so a restart forgets, and a preference that outlives a
+     * session is a different feature.
+     */
+    private static int editCost(CommandContext<CommandSourceStack> context, Optional<Boolean> wanted) {
+        boolean on = dev.ellipog.tasked.editor.EditPhases.on();
+        boolean next = wanted.orElse(!on);
+        dev.ellipog.tasked.editor.EditPhases.set(next);
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Edit cost " + (next ? "on" : "off") + ". " + (next
+                        ? "Once a second, at debug level: ops, applyMs, writes and syncs, plus a line per"
+                                + " coalesced flush with the reload, encode and deflate."
+                        : "The counter is off and holds nothing.")), false);
         return 1;
     }
 

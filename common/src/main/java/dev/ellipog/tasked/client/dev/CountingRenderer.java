@@ -176,6 +176,34 @@ public final class CountingRenderer implements GuiRenderer {
                 "liveicons/s " + planned.live(),
                 "submits " + switches,
                 "linewalk " + walkPoints};
+        reportCacheHits();
+    }
+
+    /**
+     * The toolkit's cache ratios, as their own line rather than appended to the frame's.
+     *
+     * <h2>Why a second line, when every other counter was appended</h2>
+     *
+     * <p>Because the frame line's shape is a contract — {@code TESTING.md} greps for
+     * {@code book frame -- N fill(s)} — and because these are not frame counters. They are <b>ratios</b>,
+     * and a ratio answers a different question from a count: `fills 119` says what the frame drew, while
+     * `plans 1940/60 (97%)` says whether the table that frame drew <i>through</i> is being consulted or
+     * merely built. Appending a ratio to a list of counts invites it to be read as one.
+     *
+     * <p>And it is the number that would have caught the fault this project already had once: a plan table
+     * keyed on a shape's identity, with {@code inner()} returning a fresh object per call, so every entry
+     * was built and then unreachable. Every count on the frame line was <i>correct</i> while that was true,
+     * and so were the pixels. A ratio near zero is the only thing that says it.
+     *
+     * <p>Logged only when something was asked: a client whose screen draws no shapes in a second would
+     * otherwise get a line saying nothing, which reads as a measurement of zero rather than as an absence.
+     */
+    private static void reportCacheHits() {
+        java.util.Map<String, int[]> ratios = dev.ellipog.armature.client.ui.CacheHits.drain();
+        String line = dev.ellipog.armature.client.ui.CacheHits.describe(ratios);
+        if (!line.isEmpty()) {
+            Constants.LOG.info("tasked: cache hits -- {}", line);
+        }
     }
 
     /** The last reported frame, as short lines for the dev HUD. Empty before the first report. */

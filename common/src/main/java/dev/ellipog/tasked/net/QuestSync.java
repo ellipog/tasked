@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.editor.EditPhases;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
 import dev.ellipog.tasked.progress.QuestClaims;
@@ -1071,7 +1072,21 @@ public final class QuestSync {
      * a tree delta would have to carry removals to say so.
      */
     public static void sendTreeTo(ServerPlayer player, QuestIndex index) {
-        byte[] packed = SyncWire.pack(treeAsJson(index));
+        // The two halves of the broadcast that are worth separating: building the JSON is a walk of every
+        // quest, and deflating it is the other half of the same cost. They are timed separately because the
+        // remedies differ -- one is a data-shape problem and the other is a compression-level one -- and
+        // because the whole point of the measurement is that **this runs per player**: P editors cost P
+        // encodes and P deflates of byte-identical bytes, which is a claim only a per-recipient number can
+        // settle. See `WireTiming`.
+        boolean timing = EditPhases.on();
+        long encodeStarted = timing ? System.nanoTime() : 0L;
+        byte[] json = treeAsJson(index);
+        long encodedAt = timing ? System.nanoTime() : 0L;
+        byte[] packed = SyncWire.pack(json);
+        if (timing) {
+            WIRE_ENCODE_NANOS += encodedAt - encodeStarted;
+            WIRE_DEFLATE_NANOS += System.nanoTime() - encodedAt;
+        }
         List<byte[]> parts = SyncWire.chunk(packed);
         int transferId = SyncWire.newTransferId();
 
@@ -1090,6 +1105,31 @@ public final class QuestSync {
             Constants.LOG.debug("tasked: sent the tree for {} quest(s) in {} chunk(s)",
                     index.questCount(), parts.size());
         }
+    }
+
+    /** One flush's broadcast cost, summed over its recipients. See {@link #drainWireTiming}. */
+    public record WireTiming(long encodeNanos, long deflateNanos) {
+    }
+
+    /** Accumulated by {@link #sendTreeTo} while {@link EditPhases#on()}, and read once per flush. */
+    private static long WIRE_ENCODE_NANOS;
+    private static long WIRE_DEFLATE_NANOS;
+
+    /**
+     * The broadcast cost since the last drain, and a reset.
+     *
+     * <p>Drained rather than read, because the numbers belong to <b>one flush</b>: they are summed over
+     * that flush's recipients and then reported, and a counter that kept accumulating would report the
+     * cost of every broadcast the session had ever made under the name of the latest one.
+     *
+     * <p>Server-thread only, like every other field on this path — see the class note on {@code SENT} for
+     * why that is the whole of the synchronisation story here.
+     */
+    public static WireTiming drainWireTiming() {
+        WireTiming taken = new WireTiming(WIRE_ENCODE_NANOS, WIRE_DEFLATE_NANOS);
+        WIRE_ENCODE_NANOS = 0L;
+        WIRE_DEFLATE_NANOS = 0L;
+        return taken;
     }
 
     /**

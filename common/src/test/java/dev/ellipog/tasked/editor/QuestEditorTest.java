@@ -530,4 +530,50 @@ class QuestEditorTest {
         assertNotNull(byName, "the manifest's vocabulary must reach the same quest");
         assertSame(editor.quest("58b556d40904e3b3"), byName, "and it is one file, not two");
     }
+
+    @Test
+    @DisplayName("and a save writes that file, rather than reporting an edit it never made")
+    void aQuestThatNamesItselfIsWritten(@TempDir Path dir) throws IOException {
+        // **The half the test above cannot see.** That one asserts how a quest is *reached*; this one
+        // asserts what a save *writes*, and the two disagreed: `save()` collected `Path`s and turned each
+        // back into a quest with `quests.get(idOf(path))` -- the manifest's vocabulary against a map keyed
+        // in the tree's. For a file whose name is not its id the lookup missed, the loop skipped it, and
+        // `SaveResult(0, no refusals)` read as a success, so the reply said "applied" over a file that was
+        // never touched. A player sees a press that does nothing and a log that says it worked.
+        Path root = dir.resolve("quests");
+        Path group = root.resolve("pack");
+        Path folder = group.resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(group.resolve("group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"first_tree.json\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("first_tree.json"),
+                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        assertTrue(editor.set("58b556d40904e3b3", "title", "Renamed"));
+        assertTrue(editor.set("58b556d40904e3b3", "dependsOn", java.util.List.of("one")),
+                "a dependency is a list of ids, which is the edit the card's own rows make");
+
+        QuestEditor.SaveResult result = editor.save();
+
+        assertTrue(result.ok(), () -> "refused: " + result.messages());
+        assertEquals(1, result.written(), "the one changed quest is the one file written");
+        assertFalse(editor.dirty(), "and nothing is left owing a write");
+
+        String onDisk = Files.readString(folder.resolve("first_tree.json"), StandardCharsets.UTF_8);
+        assertTrue(onDisk.contains("Renamed"), () -> "the title reached the file: " + onDisk);
+        assertTrue(onDisk.contains("dependsOn"), () -> "and so did the dependency: " + onDisk);
+
+        // One file for one quest. A write that took the declared id at face value would have created
+        // `58b556d40904e3b3.json` beside it -- the quiet version of the same fault, and worse.
+        try (var entries = Files.list(folder)) {
+            assertEquals(java.util.List.of("chapter.json", "first_tree.json"),
+                    entries.map(path -> path.getFileName().toString()).sorted().toList());
+        }
+    }
 }
