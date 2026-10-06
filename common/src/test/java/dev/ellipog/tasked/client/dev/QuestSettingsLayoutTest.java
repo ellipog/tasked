@@ -98,6 +98,179 @@ class QuestSettingsLayoutTest {
                     frame.controls().width(), Measure.monospace(6, 9));
             assertTrue(built.height() >= 0, "the rows measured negative at the minimum size");
         }
+
+        @Test
+        @DisplayName("the fields win the width, and the preview folds rather than squeezing them")
+        void theFieldsWinTheWidth() {
+            // Swept, because this is a rule about every width rather than about one: the fields claim what
+            // they need first, the preview takes the remainder, and a remainder too small to be a picture is
+            // dropped so the fields take everything.
+            for (int width = 0; width <= 800; width += 3) {
+                BookGeometry.Rect body = BookGeometry.Rect.at(10, 20, width, 200);
+                QuestSettingsLayout.Frame frame = QuestSettingsLayout.Frame.of(body);
+
+                assertTrue(frame.controls().width()
+                                >= Math.min(QuestSettingsLayout.MIN_CONTROLS_WIDTH, width),
+                        "at body " + width + " the fields were squeezed to " + frame.controls().width());
+                assertTrue(frame.preview().width() == 0
+                                || frame.preview().width() >= QuestSettingsLayout.PREVIEW_MIN_WIDTH,
+                        "at body " + width + " the preview was a " + frame.preview().width()
+                                + "-pixel picture instead of folding away");
+                assertTrue(frame.preview().width() == 0
+                                || frame.preview().width() <= QuestSettingsLayout.PREVIEW_WIDTH,
+                        "and it never takes more than its own width");
+                assertTrue(frame.preview().right() <= frame.controls().x(),
+                        "the two columns overlap at body " + width);
+            }
+        }
+
+        @Test
+        @DisplayName("a narrow column folds the preview away; a docked one keeps both at their minimums")
+        void thePreviewFoldsWhenItWouldBeTooSmall() {
+            // A 340 rail's body: both columns survive, with the fields given exactly what they need.
+            QuestSettingsLayout.Frame docked = QuestSettingsLayout.Frame.of(
+                    BookGeometry.Rect.at(0, 0, 304, 284));
+            assertTrue(docked.preview().width() >= QuestSettingsLayout.PREVIEW_MIN_WIDTH,
+                    "a docked column still has room for a picture of the node");
+            assertTrue(docked.controls().width() >= QuestSettingsLayout.MIN_CONTROLS_WIDTH,
+                    "and the fields are never squeezed below what they need");
+
+            // The panel's own minimum: the remainder would not be a picture, so the fields take the width.
+            QuestSettingsLayout.Frame narrow = QuestSettingsLayout.Frame.of(
+                    BookGeometry.Rect.at(0, 0, 204, 284));
+            assertEquals(0, narrow.preview().width(),
+                    "a picture too small to read is not worth a page of labels one letter each");
+            assertEquals(204, narrow.controls().width(),
+                    "so the fields take the body, with no gap left for a column that is not there");
+
+            QuestSettingsLayout.Frame card = QuestSettingsLayout.Frame.of(BODY);
+            assertEquals(QuestSettingsLayout.PREVIEW_WIDTH, card.preview().width(),
+                    "and on a wide card the preview is what it always was");
+        }
+    }
+
+    @Nested
+    @DisplayName("the label's room")
+    class Labels {
+
+        @Test
+        @DisplayName("the label keeps its room and the control strip gives way")
+        void theLabelKeepsItsRoom() {
+            // The fault this exists for: the strip took its whole width out of the row whatever the row had,
+            // so a 148-pixel controls column left the label 16 of them -- one glyph of "Min required".
+            for (int width = 0; width <= 400; width += 5) {
+                Slot row = new Slot("row", 0, 0, width, QuestSettingsLayout.ROW_HEIGHT);
+                // The widest strip there is, which is the case the floor has to hold for.
+                Slot strip = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER, row);
+                int label = strip.x() - row.x();
+
+                assertTrue(label >= Math.min(QuestSettingsLayout.LABEL_MIN, width),
+                        "at row " + width + " the label was given " + label + " pixels");
+                assertTrue(strip.width() >= 0 && strip.right() <= row.right(),
+                        "the strip ran outside its row at " + width);
+            }
+        }
+
+        @Test
+        @DisplayName("a strip at a comfortable width is still the width it always was")
+        void aComfortableRowIsUnchanged() {
+            Slot row = new Slot("row", 0, 0, QuestSettingsLayout.MIN_CONTROLS_WIDTH, QuestSettingsLayout.ROW_HEIGHT);
+            assertEquals(QuestSettingsLayout.LABEL_MIN,
+                    QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER, row).x(),
+                    "the label takes its room and no more");
+            assertEquals(QuestSettingsLayout.STRIP_WIDTH,
+                    QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER, row).width(),
+                    "and the control keeps the strip it was drawn for");
+        }
+
+        @Test
+        @DisplayName("the narrower the control, the more the label keeps — a toggle does not need a slider's room")
+        void narrowControlsHandTheRoomBack() {
+            // At the width a docked column actually produces. Before this rule every row reserved the
+            // slider's 132 pixels, so a switch row — and five of the page's rows are switches — left its
+            // label 56 for "Hide details until startable", and four rows truncated to the same "Hide ..."
+            // prefix: rows an author cannot tell apart, which is worse than rows that are merely narrow.
+            int width = QuestSettingsLayout.MIN_CONTROLS_WIDTH;
+            int switchLabel = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SWITCH, rowAt(width)).x();
+            int numberLabel = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.NUMBER, rowAt(width)).x();
+            int sliderLabel = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER, rowAt(width)).x();
+
+            assertTrue(switchLabel > numberLabel && numberLabel > sliderLabel,
+                    "the narrower the control, the more the label keeps: " + switchLabel + " / "
+                            + numberLabel + " / " + sliderLabel);
+            assertTrue(sliderLabel >= QuestSettingsLayout.LABEL_MIN,
+                    "and even the widest control keeps the label's floor");
+            assertTrue(switchLabel >= 160,
+                    "a switch's label has room for its sentence, not a prefix: " + switchLabel);
+            assertTrue(numberLabel >= 100,
+                    "and a number's has room for its name: " + numberLabel);
+        }
+
+        private static Slot rowAt(int width) {
+            return new Slot("row", 0, 0, width, QuestSettingsLayout.ROW_HEIGHT);
+        }
+
+        @Test
+        @DisplayName("a measured label hands its spare room to a control that can use it, and takes room back when it needs it")
+        void theControlWidthFollowsTheMeasure() {
+            // A row's control, measured rather than assumed: `stripWidth(kind)` is the least it is drawn
+            // from, and what the label actually needs decides between them.
+            int column = 400;
+            var measure = Measure.monospace(6, 9);
+            java.util.function.Function<String, String> labels = key -> switch (key) {
+                case "short" -> "Size";
+                case "long" -> "Hide details until startable";
+                default -> "Visible after tasks";
+            };
+
+            // A slider's label is short, so the track grows into the room the name does not want.
+            int grown = QuestSettingsLayout.controlWidth(
+                    new QuestSettingsLayout.Row("short", QuestSettingsLayout.Row.Kind.SLIDER, "short"),
+                    column, measure, labels);
+            assertTrue(grown > QuestSettingsLayout.stripWidth(QuestSettingsLayout.Row.Kind.SLIDER),
+                    "a slider beside a short label did not grow: " + grown);
+
+            // A switch's does not: a wider toggle is not a better toggle, so the extra room stays the label's.
+            assertEquals(QuestSettingsLayout.stripWidth(QuestSettingsLayout.Row.Kind.SWITCH),
+                    QuestSettingsLayout.controlWidth(
+                            new QuestSettingsLayout.Row("short", QuestSettingsLayout.Row.Kind.SWITCH, "short"),
+                            column, measure, labels),
+                    "a switch grew into room it cannot use");
+
+            // And a long label takes room back -- down to the control's own least, never below it.
+            int squeezed = QuestSettingsLayout.controlWidth(
+                    new QuestSettingsLayout.Row("long", QuestSettingsLayout.Row.Kind.SWITCH, "long"),
+                    QuestSettingsLayout.MIN_CONTROLS_WIDTH, measure, labels);
+            assertEquals(QuestSettingsLayout.stripWidth(QuestSettingsLayout.Row.Kind.SWITCH), squeezed,
+                    "a switch gave up room it is drawn from");
+
+            // The whole page in one pass, which is how the screen asks: one entry per row, in order.
+            var widths = QuestSettingsLayout.controlWidths(QuestSettingsLayout.rows(),
+                    QuestSettingsLayout.MIN_CONTROLS_WIDTH, measure, labels);
+            assertEquals(QuestSettingsLayout.rows().size(), widths.size(),
+                    "every row has a width, or a control would be placed with none");
+            for (int width : widths.values()) {
+                assertTrue(width >= 0, "a control was given a negative width");
+            }
+        }
+
+        @Test
+        @DisplayName("the unmeasured answer is the kind's own strip, which is what a tool with no language uses")
+        void theUnmeasuredAnswer() {
+            // Two answers for two situations: the screen resolves labels through the game's language and
+            // measures them, while a dump or a still has no language at all (`Labels.of` throws headless), so
+            // it keeps this one. The label's floor holds in both.
+            Slot row = rowAt(QuestSettingsLayout.MIN_CONTROLS_WIDTH);
+            for (QuestSettingsLayout.Row.Kind kind : List.of(QuestSettingsLayout.Row.Kind.SWITCH,
+                    QuestSettingsLayout.Row.Kind.NUMBER, QuestSettingsLayout.Row.Kind.SLIDER,
+                    QuestSettingsLayout.Row.Kind.FIELD)) {
+                Slot strip = QuestSettingsLayout.strip(kind, row);
+                assertEquals(QuestSettingsLayout.stripWidth(kind), strip.width(),
+                        kind + " is not drawn at the width its own kind asks for, unmeasured");
+                assertTrue(strip.x() >= QuestSettingsLayout.LABEL_MIN,
+                        kind + " left the label less than its floor");
+            }
+        }
     }
 
     @Nested
@@ -122,7 +295,7 @@ class QuestSettingsLayoutTest {
                         || row.kind() == QuestSettingsLayout.Row.Kind.SHAPE_GRID) {
                     continue;
                 }
-                Slot strip = QuestSettingsLayout.strip(slot);
+                Slot strip = QuestSettingsLayout.strip(row.kind(), slot);
                 assertTrue(inside(box(slot), box(strip)), row.key() + "'s strip is not inside its row");
                 assertTrue(strip.width() > 0, row.key() + "'s strip has no room");
             }
@@ -284,8 +457,9 @@ class QuestSettingsLayoutTest {
             column.bounds(frame.controls().x(), frame.controls().y(), frame.controls().width(),
                     frame.controls().height());
             BookGeometry.Rect track = QuestSettingsLayout.track(
-                    QuestSettingsLayout.strip(dev.ellipog.armature.client.ui.inspect.InspectLayout
-                            .onScreen(column, row)));
+                    QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER,
+                            dev.ellipog.armature.client.ui.inspect.InspectLayout
+                                    .onScreen(column, row)));
             assertTrue(track.width() > 10, "fixture sanity: the track has room to point at");
 
             assertEquals(QuestSettingsLayout.MIN_SIZE,

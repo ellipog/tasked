@@ -288,7 +288,7 @@ public final class QuestSettingsPanel {
     /** A slider: label, the track with its knob, the value, and the exact-value steppers. */
     private static void drawSlider(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row, View view,
                                    boolean hovered, double mouseX, double mouseY) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         drawRowLabel(r, slot, strip, row.label());
 
         boolean size = row.key().equals("size");
@@ -343,13 +343,18 @@ public final class QuestSettingsPanel {
     /** A switch: the label, and a track whose knob is at one end or the other. */
     private static void drawSwitch(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row, boolean on,
                                    boolean hovered) {
-        Slot strip = QuestSettingsLayout.strip(slot);
-        // The state is composed here from the live flag, not baked into the row: the row is built once
-        // and the tree can change under it -- a press writes a draft the server has not answered yet --
-        // so a label that carried the state would be a switch whose word and knob disagree. The two
-        // suffixes are keys of their own, separator included, so a language can move or drop the dot.
-        drawRowLabel(r, slot, strip, Labels.of(row.label())
-                + Labels.of(on ? "tasked.dev.switch_on" : "tasked.dev.switch_off"));
+        Slot strip = QuestSettingsLayout.strip(row, slot);
+        // **The knob is the state, so the label does not repeat it.** It used to read "Hide text until
+        // done · off" beside a knob that said exactly that — the same fact twice, and the repeat was
+        // charged to the label's room: at a docked column's width that suffix was the difference between
+        // "Hide details until startable" fitting and being cut to "Hide det…". The knob is a switch drawn
+        // at one end or the other; a word beside it says nothing a reader cannot see, and takes the room
+        // of the name they cannot.
+        //
+        // The state is still read from the live flag rather than baked into the row — the row is built once
+        // and the tree can change under it, a press writing a draft the server has not answered — which is
+        // why the *track* below is composed here and `QuestSettingsLayout.rows()` says nothing about it.
+        drawRowLabel(r, slot, strip, Labels.of(row.label()));
         BookGeometry.Rect track = QuestSettingsLayout.switchTrack(strip);
         ArmatureTheme.panel(r, track.x(), track.y(), track.width(), track.height(),
                 on ? ArmatureTheme.available()
@@ -364,7 +369,7 @@ public final class QuestSettingsPanel {
     /** A field's label: the box itself is a widget, and it draws in the strip. */
     private static void drawFieldLabel(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
                                        JsonObject quest, Measure measure) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         drawRowLabel(r, slot, strip, row.label());
         if (row.key().equals("exclusiveGroup") || row.key().equals("prerequisiteMode")) {
             // Shown under the field as a faint hint of what is stored, because both are optional and an
@@ -380,7 +385,7 @@ public final class QuestSettingsPanel {
     /** A read-only row: the label, and the value after it. */
     private static void drawValue(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
                                   JsonObject quest, Measure measure) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         drawRowLabel(r, slot, strip, row.label());
         String value = displayValue(quest, row.key());
         r.text(Measure.truncate(value, strip.width(), measure), strip.x(),
@@ -397,7 +402,7 @@ public final class QuestSettingsPanel {
      */
     private static void drawChoice(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
                                    JsonObject quest, View view, boolean hovered) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         drawRowLabel(r, slot, strip, row.label());
         String value = displayValue(quest, row.key());
         // The auto-claim row defers to the chapter rather than to a mode, so its unset label is not the
@@ -423,7 +428,7 @@ public final class QuestSettingsPanel {
      */
     private static void drawDependency(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
                                        Measure measure) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         int room = Math.max(0, strip.x() - slot.x() - 6);
         // The label is a quest's own title, or its id when the client has never heard of it -- content
         // rather than prose, so `Labels.of` passes it through; the equality checks below read the raw
@@ -448,7 +453,7 @@ public final class QuestSettingsPanel {
     /** A row that is a button: the strip is the button, and its label is centred in it. */
     private static void drawAction(GuiRenderer r, Slot slot, QuestSettingsLayout.Row row,
                                    boolean hovered) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(row, slot);
         BookGeometry.Rect button = QuestSettingsLayout.actionBox(strip);
         // "Add selected" with no selection is drawn dimmed, and its press is refused: a button that
         // looks live and does nothing is the thing this page keeps being fixed for. Which of the two
@@ -470,7 +475,7 @@ public final class QuestSettingsPanel {
 
     /** The icon row: the item itself, and a button that opens the picker. */
     private static void drawIconRow(GuiRenderer r, Slot slot, View view, boolean hovered) {
-        Slot strip = QuestSettingsLayout.strip(slot);
+        Slot strip = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.ICON, slot);
         drawRowLabel(r, slot, strip, "tasked.dev.quest.icon");
         BookGeometry.Rect button = iconButton(strip);
         ArmatureTheme.panel(r, button.x(), button.y(), button.width(), button.height(),

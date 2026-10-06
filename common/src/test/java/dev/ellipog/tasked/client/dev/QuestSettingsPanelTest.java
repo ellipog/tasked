@@ -3,8 +3,11 @@ package dev.ellipog.tasked.client.dev;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
+import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
+import dev.ellipog.armature.client.ui.kit.Slot;
+import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
 import dev.ellipog.tasked.quest.QuestShape;
 
@@ -14,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -131,11 +135,44 @@ class QuestSettingsPanelTest {
     }
 
     @Test
-    @DisplayName("a switch says which way it is, from the tree rather than from a cached label")
+    @DisplayName("a switch says which way it is with its knob, not with a word beside it")
     void switchesSayTheirState() {
+        // The state used to be a suffix on the label — "Show title · on" — and the assertion was on the
+        // text. That suffix is gone: the knob is a switch drawn at one end or the other, and the words cost
+        // the label the room it needed for its own name. So what is asserted moved with the state: the two
+        // knobs are on opposite ends of their tracks, read from the tree rather than from anything cached.
         RecordingRenderer r = draw(view(QuestShape.ROUNDED, null));
-        assertTrue(r.wrote("Show title \u00b7 on"), "the showTitle switch is not drawn as on: " + r.describe());
-        assertTrue(r.wrote("Repeatable \u00b7 off"), "the repeatable switch is not drawn as off: " + r.describe());
+        QuestSettingsLayout.Frame frame = QuestSettingsLayout.Frame.of(BODY);
+        List<QuestSettingsLayout.Row> rows = QuestSettingsLayout.rows();
+        Layout layout = QuestSettingsLayout.build(rows, frame.controls().width(),
+                Measure.monospace(6, 9));
+        Viewport column = columnOf(frame);
+
+        assertTrue(r.wrote("Show title"), "the switch's own label is not drawn: " + r.describe());
+        assertFalse(r.wrote("Show title \u00b7 on"),
+                "the state is still spelled out beside the knob: " + r.describe());
+
+        BookGeometry.Rect on = track(layout, column, "showTitle");
+        BookGeometry.Rect off = track(layout, column, "repeatable");
+        // The knob is the one fill in the `title` ink, one pixel inside whichever end it sits at.
+        assertTrue(knobAt(r, on, true), "the showTitle switch (true) is not drawn on: " + r.describe());
+        assertTrue(knobAt(r, off, false), "the repeatable switch (false) is not drawn off: "
+                + r.describe());
+    }
+
+    /** A switch's track on screen, through the same viewport and strip the drawing uses. */
+    private static BookGeometry.Rect track(Layout layout, Viewport column, String key) {
+        Slot strip = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SWITCH,
+                dev.ellipog.armature.client.ui.inspect.InspectLayout.onScreen(column, layout.slot(key)));
+        return QuestSettingsLayout.switchTrack(strip);
+    }
+
+    /** Whether a knob in the switch's own ink sits in the half of the track the state names. */
+    private static boolean knobAt(RecordingRenderer r, BookGeometry.Rect track, boolean on) {
+        int middle = track.x() + track.width() / 2;
+        return r.fills().stream().anyMatch(fill -> fill.argb() == ArmatureTheme.title()
+                && fill.top() >= track.y() && fill.bottom() <= track.bottom()
+                && (on ? fill.left() >= middle : fill.right() <= middle));
     }
 
     @Test
@@ -176,7 +213,7 @@ class QuestSettingsPanelTest {
         // the layout's slot is the column's coordinates, so the expected x has to be placed too.
         var slot = dev.ellipog.armature.client.ui.inspect.InspectLayout.onScreen(columnOf(frame),
                 layout.slot("size"));
-        var strip = QuestSettingsLayout.strip(slot);
+        var strip = QuestSettingsLayout.strip(QuestSettingsLayout.Row.Kind.SLIDER, slot);
         var track = QuestSettingsLayout.track(strip);
         int knobX = QuestSettingsLayout.knobX(track, 96, QuestSettingsLayout.MIN_SIZE,
                 QuestSettingsLayout.MAX_SIZE, true);
@@ -202,7 +239,8 @@ class QuestSettingsPanelTest {
         RecordingRenderer r = draw(view(QuestShape.ROUNDED, null));
 
         List<String> labels = List.of("Shape", "Size and icon", "Size", "Icon scale", "Icon",
-                "Show title · on", "Placement", "Rules", "Identity extras",
+                // The switch row's label and nothing else: the knob is the state, so "· on" is not drawn.
+                "Show title", "Placement", "Rules", "Identity extras",
                 "rounded", "square", "circle", "diamond", "heart");
         for (String label : labels) {
             assertTrue(r.texts().stream().anyMatch(drawn -> drawn.text().equals(label)

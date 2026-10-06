@@ -13,8 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Whether this client is in developer mode: the switch that lets a screen carry controls which are tools
- * rather than content.
+ * This client's own preferences: whether tools may be drawn, and how the book prefers to be shaped.
  *
  * <h2>Why a mode rather than a set of buttons</h2>
  *
@@ -41,6 +40,17 @@ import java.nio.file.Path;
  * because a file was unreadable. Beside it ride two on-by-default switches: the editor's snap, which
  * changes where a dragged node lands, and the sidebar's chapter progress bars, which change what a
  * chapter row shows. Both are the tidy direction, so a file that does not name them leaves them on.
+ *
+ * <h2>Three later settings, and why they are here rather than in a file of their own</h2>
+ *
+ * <p>The side panels -- whether they are used at all, how wide the column is, and whether the second
+ * column folds -- are the same kind of thing the two switches above are: a preference about how this
+ * client draws, read before anything can draw it. <b>None of the three is gated on {@link #on()}</b>,
+ * which is the rule {@code snap} and {@code progress} already follow and which is worth keeping: a
+ * player who never turns developer mode on still has a layout, and it is theirs rather than the pack's.
+ * The layout flag defaults <b>off</b>, because a second presentation of the same content should never
+ * arrive because a file was unreadable or absent -- the centred card is what everybody gets until they
+ * ask otherwise.
  */
 public final class DevMode {
 
@@ -50,19 +60,27 @@ public final class DevMode {
     private static boolean on;
     private static boolean snap = true;
     private static boolean progress = true;
+    private static boolean panels;
+    private static int panelWidth = PanelStack.WIDTH;
+    private static PanelStack.Fold panelFold = PanelStack.Fold.AUTO;
     private static Path file;
 
     /**
-     * What one file says, as two flags.
+     * What one file says, as every flag it holds.
      *
-     * <p>A record rather than two parses of one file: {@code load} reads once and takes both answers
-     * from the same tree, so the two fields cannot disagree about what was on disk.
+     * <p>A record rather than several parses of one file: {@code load} reads once and takes every answer
+     * from the same tree, so the fields cannot disagree about what was on disk.
      *
      * @param dev  whether tools may be drawn
      * @param snap whether a dragged node lands on the grid; a file that does not say says yes
      * @param progress whether chapter rows draw their completion bar; likewise yes by default
+     * @param panels whether an overlay is docked in a side column rather than centred as a card; no by
+     *               default, since the card is what everyone gets until they ask
+     * @param panelWidth how wide that column is, in GUI pixels; clamped on the way in
+     * @param panelFold what the player asked the second column to do
      */
-    public record Parsed(boolean dev, boolean snap, boolean progress) {
+    public record Parsed(boolean dev, boolean snap, boolean progress, boolean panels, int panelWidth,
+            PanelStack.Fold panelFold) {
     }
 
     private DevMode() {
@@ -124,6 +142,61 @@ public final class DevMode {
     }
 
     // ------------------------------------------------------------------
+    // The side panels
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether an overlay is drawn in the docked side column rather than as a centred card.
+     *
+     * <p><b>Off</b> unless a file says otherwise: the card is the presentation this mod shipped with, and
+     * a second one is a choice rather than an upgrade that arrives uninvited.
+     */
+    public static boolean panels() {
+        return panels;
+    }
+
+    /** Turns the docked presentation on or off and writes the choice. */
+    public static void setPanels(boolean next) {
+        panels = next;
+        save();
+    }
+
+    /** The same, answering with the state it left behind, so a switch can label itself from one call. */
+    public static boolean togglePanels() {
+        setPanels(!panels);
+        return panels;
+    }
+
+    /**
+     * How wide the column is, in GUI pixels.
+     *
+     * <p>Clamped to what any panel may legally be ({@link PanelStack#clampStoredWidth}) rather than to
+     * what one kind wants, because this is the player's remembered width and may have been chosen for a
+     * rewards inbox. What a <i>particular</i> kind is allowed is the drag's question, and it asks
+     * {@link PanelStack#clampWidth}.
+     */
+    public static int panelWidth() {
+        return panelWidth;
+    }
+
+    /** Remembers a width and writes it, clamped to something a panel can be. */
+    public static void setPanelWidth(int next) {
+        panelWidth = PanelStack.clampStoredWidth(next);
+        save();
+    }
+
+    /** What the player asked the second column to do. */
+    public static PanelStack.Fold panelFold() {
+        return panelFold;
+    }
+
+    /** Remembers that choice and writes it. */
+    public static void setPanelFold(PanelStack.Fold next) {
+        panelFold = next == null ? PanelStack.Fold.AUTO : next;
+        save();
+    }
+
+    // ------------------------------------------------------------------
     // Persistence
     // ------------------------------------------------------------------
 
@@ -157,6 +230,9 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
+        panels = false;
+        panelWidth = PanelStack.WIDTH;
+        panelFold = PanelStack.Fold.AUTO;
 
         if (Files.isRegularFile(path)) {
             try {
@@ -164,6 +240,9 @@ public final class DevMode {
                 on = read.dev();
                 snap = read.snap();
                 progress = read.progress();
+                panels = read.panels();
+                panelWidth = PanelStack.clampStoredWidth(read.panelWidth());
+                panelFold = read.panelFold() == null ? PanelStack.Fold.AUTO : read.panelFold();
             }
             catch (IOException | RuntimeException e) {
                 Constants.LOG.warn("tasked: {} could not be read, so developer mode is off. Deleting the"
@@ -173,13 +252,14 @@ public final class DevMode {
     }
 
     /**
-     * Parses the file's text into both flags.
+     * Parses the file's text into every flag.
      *
      * <p>Tolerant rather than strict, and for a stronger reason than Appearance's: this file is a
      * developer's, so it will be hand-edited, and a typo in it should cost a mode that stays off rather
      * than a client that will not start. An unknown field is ignored; a missing one takes its default —
      * which for {@code snap} and {@code progress} is on, so a file written before either existed reads
-     * as the behaviour it was already getting.
+     * as the behaviour it was already getting, and which for the three panel settings is the presentation
+     * this mod shipped with.
      *
      * @throws com.google.gson.JsonSyntaxException if the text is not JSON at all; {@link #load} catches it
      */
@@ -188,20 +268,29 @@ public final class DevMode {
         return new Parsed(
                 root.has("dev") && root.get("dev").getAsBoolean(),
                 !root.has("snap") || root.get("snap").getAsBoolean(),
-                !root.has("progress") || root.get("progress").getAsBoolean());
+                !root.has("progress") || root.get("progress").getAsBoolean(),
+                root.has("panels") && root.get("panels").getAsBoolean(),
+                root.has("panelWidth") ? root.get("panelWidth").getAsInt() : PanelStack.WIDTH,
+                root.has("panelFold")
+                        ? PanelStack.foldOf(root.get("panelFold").getAsString())
+                        : PanelStack.Fold.AUTO);
     }
 
-    /** Whether the mode flag alone is set. See {@link #parse} for both. */
+    /** Whether the mode flag alone is set. See {@link #parse} for every field. */
     public static boolean read(String json) {
         return parse(json).dev();
     }
 
     /** Writes the file. Answer given rather than the default so a test can assert the format. */
-    public static String write(boolean dev, boolean snap, boolean progress) {
+    public static String write(boolean dev, boolean snap, boolean progress, boolean panels, int panelWidth,
+            PanelStack.Fold fold) {
         JsonObject root = new JsonObject();
         root.addProperty("dev", dev);
         root.addProperty("snap", snap);
         root.addProperty("progress", progress);
+        root.addProperty("panels", panels);
+        root.addProperty("panelWidth", panelWidth);
+        root.addProperty("panelFold", PanelStack.foldWord(fold));
         return root.toString();
     }
 
@@ -220,6 +309,9 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
+        panels = false;
+        panelWidth = PanelStack.WIDTH;
+        panelFold = PanelStack.Fold.AUTO;
         file = null;
     }
 
@@ -234,7 +326,7 @@ public final class DevMode {
             // leaves the previous flags rather than a half-written file the next load has to guess at.
             // This file's whole contract is that every way of being wrong reads as the safe direction,
             // and a truncated file is the one way that could not be honoured. See JsonWrite.
-            JsonWrite.atomically(file, write(on, snap, progress));
+            JsonWrite.atomically(file, write(on, snap, progress, panels, panelWidth, panelFold));
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: developer mode could not be written to {}", file, e);

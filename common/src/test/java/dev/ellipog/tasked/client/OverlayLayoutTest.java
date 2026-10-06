@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.TextArea;
 import dev.ellipog.armature.client.ui.kit.TextWrap;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -648,5 +649,31 @@ class OverlayLayoutTest {
                 () -> new OverlayLayout.Prose(List.of("one"), 20, 0));
         assertThrows(IllegalArgumentException.class,
                 () -> new OverlayLayout.Prose(List.of(), 20));
+    }
+
+    @Test
+    @DisplayName("the prerequisite bar spans the body and is never empty, whatever it is given")
+    void theDependencyBarAnswers() {
+        // One function for the rectangle a prerequisite row draws as and answers to, because the drawn one
+        // and the pressed one were two expressions and disagreed -- see `OverlayLayout.dependencyBar`. The
+        // property that broke is asserted first: a bar of no width is a row that answers nothing.
+        Slot row = new Slot("requires:0", 120, 40, 180, 14);
+
+        Slot wide = OverlayLayout.dependencyBar(row, 400);
+        assertTrue(wide.width() > 0, "a bar with a body to its right has a width: " + wide);
+        assertEquals(400, wide.right(), "and reaches the body's edge, which is what 'the whole bar' means");
+        assertTrue(wide.contains(row.x(), row.y() + 1), "a press on the row's own box lands in it");
+        assertTrue(wide.contains(400 - 1, row.y() + 1), "and so does one on its last pixel inside the edge");
+        assertEquals(row.height() + 2, wide.height(), "its height is the row's, with a pixel either side");
+
+        // **The fault that shipped**: a body edge at or left of the row -- which is what a *content*
+        // coordinate produced -- must still leave a bar that answers, at least as wide as the row itself.
+        for (int bodyRight : List.of(0, 60, row.right(), 4000)) {
+            Slot bar = OverlayLayout.dependencyBar(row, bodyRight);
+            assertTrue(bar.width() >= row.width(),
+                    () -> "body right " + bodyRight + " collapsed the bar: " + bar);
+            assertTrue(bar.contains(row.x() + row.width() / 2, row.y() + 1),
+                    () -> "body right " + bodyRight + " left the row's middle dead: " + bar);
+        }
     }
 }

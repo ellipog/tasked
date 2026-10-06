@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -480,5 +481,53 @@ class QuestEditorTest {
         assertTrue(editor.set("one", "title", "After"));
         assertTrue(editor.undo());
         assertEquals("One", editor.quest("one").text("title", ""));
+    }
+
+    @Test
+    @DisplayName("a quest that declares its own id is keyed by it, and still written to its own file")
+    void aQuestThatNamesItselfIsEditable(@TempDir Path dir) throws IOException {
+        // **The shape no fixture in this repository had.** Every example here names its file after its id, so
+        // the editor's key and the tree's key were the same string and the difference could not show. A pack
+        // whose files are named by a tool assigns its own ids -- `first_tree.json` declaring
+        // `58b556d40904e3b3` -- and the quest card then asked the replica for an id it did not hold: "the
+        // chapter's copy has not arrived yet", with the copy in hand. See `QuestEditor.reloadQuests`,
+        // `QuestEditor.pathOf` and `ServerEditors.replica`.
+        Path root = dir.resolve("quests");
+        Path group = root.resolve("pack");
+        Path folder = group.resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(group.resolve("group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"first_tree.json\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("first_tree.json"),
+                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+
+        // The declared id is the key, which is the whole fix: the loader, the canvas, every reference and the
+        // client's own `editTarget()` name this quest by the id in its file.
+        assertNotNull(editor.quest("58b556d40904e3b3"),
+                "the declared id is how every other part of the program names this quest");
+        assertEquals("First Tree", editor.quest("58b556d40904e3b3").text("title", ""));
+
+        // And a write still lands on the file that already exists rather than creating a second one beside
+        // it -- the id is not the file name, and `pathOf` is the one place the two are reconciled. Its quiet
+        // failure is worse than the loud one: two files for one quest.
+        assertEquals(folder.resolve("first_tree.json"), editor.pathOf("58b556d40904e3b3"));
+        assertEquals("first_tree", editor.stemOf("58b556d40904e3b3"));
+        assertEquals(folder.resolve("first_tree.json"), editor.pathOf("first_tree"),
+                "and a file name still resolves to its own file");
+
+        // **And the file name is still a way to reach it**, which is the half that was missing: the chapter's
+        // manifest lists names while the tree, the card and every op use declared ids, and the replica is
+        // built by walking one and read by the other. One file, both vocabularies -- the absence of this
+        // assertion is what let a converted pack's replica go out carrying no quests at all.
+        JsonFile byName = editor.quest("first_tree");
+        assertNotNull(byName, "the manifest's vocabulary must reach the same quest");
+        assertSame(editor.quest("58b556d40904e3b3"), byName, "and it is one file, not two");
     }
 }

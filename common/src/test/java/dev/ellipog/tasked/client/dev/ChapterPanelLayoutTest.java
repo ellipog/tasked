@@ -3,8 +3,6 @@ package dev.ellipog.tasked.client.dev;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-import dev.ellipog.armature.client.ui.inspect.InspectRow;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +48,7 @@ class ChapterPanelLayoutTest {
                 """).getAsJsonObject();
     }
 
-    private static InspectRow row(List<InspectRow> rows, String key) {
+    private static ToolsLayout.Action row(List<ToolsLayout.Action> rows, String key) {
         return rows.stream().filter(candidate -> candidate.key().equals(key)).findFirst()
                 .orElseThrow(() -> new AssertionError("no row keyed " + key + " in " + rows.size() + " rows"));
     }
@@ -58,11 +56,11 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("the sections are there, in order, and every key is the path it commits to")
     void sectionsInOrder() {
-        List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
 
         assertEquals(List.of(ChapterPanelLayout.IDENTITY, ChapterPanelLayout.RULES,
                         ChapterPanelLayout.QUESTS),
-                rows.stream().filter(InspectRow::isHeading).map(InspectRow::key).toList(),
+                rows.stream().filter(ToolsLayout.Action::isHeading).map(ToolsLayout.Action::key).toList(),
                 "one heading per section, in the order an author reads them");
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
@@ -71,7 +69,7 @@ class ChapterPanelLayoutTest {
                         "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight"),
                 rows.stream().filter(row -> !row.isHeading()
                                 && !row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:"))
-                        .map(InspectRow::key).toList(),
+                        .map(ToolsLayout.Action::key).toList(),
                 "the paths the ops go to, under the headings that own them");
     }
 
@@ -81,7 +79,7 @@ class ChapterPanelLayoutTest {
         // The report: in a 180-pixel panel, side-by-side rows spent 96 pixels on the control and the
         // label truncated -- "Default Prerequisite Mode" became "Default Prereq...". The mode is the
         // main fix; these names are the other half, and a name that grows back to a sentence undoes it.
-        List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
 
         assertEquals("tasked.dev.chapter.progression", row(rows, "progressionMode").label());
         assertEquals("tasked.dev.chapter.prerequisite", row(rows, "defaultPrerequisiteMode").label());
@@ -96,15 +94,21 @@ class ChapterPanelLayoutTest {
     }
 
     @Test
-    @DisplayName("the toggle's label carries the state, so the row says what the flag is")
-    void theToggleSaysItsState() {
-        List<InspectRow> on = ChapterPanelLayout.rows(chapter(), Set.of());
-        assertEquals("tasked.dev.chapter.consume_on", row(on, "defaultConsumeItems").label());
+    @DisplayName("a switch row names the setting, and its button carries the state")
+    void theToggleNamesTheSettingAndTheButtonSaysItsState() {
+        // The tools panel's own convention, which the chapter's two flags follow now: the row's *label* is
+        // the name of the setting -- it does not change when the flag does -- and the button beside it says
+        // on or off. The label used to be the state ("Consume items · on"), which meant the name of the
+        // flag was nowhere on screen and a rebuild was the only way the row could be read.
+        List<ToolsLayout.Action> on = ChapterPanelLayout.rows(chapter(), Set.of());
+        assertEquals("tasked.dev.chapter.consume", row(on, "defaultConsumeItems").label());
+        assertEquals(ToolsLayout.ON, row(on, "defaultConsumeItems").buttonLabel());
 
         JsonObject off = chapter();
         off.addProperty("defaultConsumeItems", false);
-        assertEquals("tasked.dev.chapter.consume_off",
-                row(ChapterPanelLayout.rows(off, Set.of()), "defaultConsumeItems").label());
+        ToolsLayout.Action offRow = row(ChapterPanelLayout.rows(off, Set.of()), "defaultConsumeItems");
+        assertEquals("tasked.dev.chapter.consume", offRow.label(), "the name is the name either way");
+        assertEquals(ToolsLayout.OFF, offRow.buttonLabel(), "and the state is the button's");
     }
 
     // ------------------------------------------------------------------
@@ -114,7 +118,7 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("a cycling row carries the value in force, and an absent axis reads as unset")
     void theChoiceRowsCarryTheirValues() {
-        List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
         assertEquals("linear", row(rows, "progressionMode").value());
         assertEquals("one_completed", row(rows, "defaultPrerequisiteMode").value());
         assertEquals("", row(rows, "dependencyStyle.form").value(),
@@ -141,7 +145,7 @@ class ChapterPanelLayoutTest {
         legacy.add("dependencyStyle",
                 JsonParser.parseString("{\"arrows\":\"many\"}").getAsJsonObject());
 
-        List<InspectRow> rows = ChapterPanelLayout.rows(legacy, Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(legacy, Set.of());
         assertEquals("chevron", row(rows, "dependencyStyle.arrowHead").value());
         assertEquals("stream", row(rows, "dependencyStyle.arrowPlace").value());
         assertEquals("", row(rows, "dependencyStyle.arrowDensity").value(),
@@ -155,26 +159,30 @@ class ChapterPanelLayoutTest {
     }
 
     @Test
-    @DisplayName("the picker cycles the closed set and wraps, the unset state included")
-    void thePickerCyclesAndWraps() {
+    @DisplayName("a chooser row offers the closed set, the unset state included, in one list")
+    void thePickerOffersTheWholeSet() {
+        // The row is the drawer's own chooser now, so there is no step to assert and no wrap to get wrong:
+        // the menu offers `choiceValues` in this order and the author picks from it. That is the whole of
+        // what the arrows used to make a puzzle of -- a value four positions away needed four presses, and
+        // the order was the only thing that said where the presses were going.
         assertEquals(List.of("", "flexible", "linear"),
                 ChapterPanelLayout.choiceValues(ChapterPanelLayout.PROGRESSION));
-        assertEquals("linear", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.PROGRESSION, "", -1),
-                "down from the unset state wraps to the last value");
-        assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.PROGRESSION, "linear", 1),
-                "up from the last value wraps back to unset");
-        assertEquals("curved",
-                ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_FORM, "straight", 1),
-                "the step past straight is the bow the vocabulary ends on");
-        assertEquals("enabled", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.AUTO_CLAIM, "disabled", 1),
-                "the auto-claim ring follows the same order as the reward-level modes");
         assertEquals("Default (pack setting)",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.AUTO_CLAIM, ""),
                 "and the unset state names what it defers to, like every other row");
-        assertEquals("none", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_ARROW_HEAD, "", -1),
-                "down from unset wraps to the last head value");
-        assertEquals("", ChapterPanelLayout.cycleChoice(ChapterPanelLayout.LINE_WEIGHT, "not_a_weight", 0),
-                "an unknown value the file holds starts the cycle from unset");
+        assertEquals("curved", ChapterPanelLayout.choiceLabel(ChapterPanelLayout.LINE_FORM, "curved"));
+        for (ChapterPanelLayout.Choice choice : ChapterPanelLayout.CHOICES) {
+            List<String> values = ChapterPanelLayout.choiceValues(choice);
+            assertTrue(values.get(0).isEmpty(),
+                    () -> "the unset state is not the menu's first entry: " + choice.key());
+            assertTrue(ChapterPanelLayout.choiceLabel(choice, "")
+                            .contains(choice.fallback().replace('_', ' ')),
+                    () -> "the unset entry does not name the value it defers to: " + choice.key()
+                            + " says " + choice.fallback() + " and draws "
+                            + ChapterPanelLayout.choiceLabel(choice, ""));
+            assertTrue(ChapterPanelLayout.isChoiceKey(choice.key()),
+                    () -> "a row in the list that the rows do not treat as a choice: " + choice.key());
+        }
     }
 
     @Test
@@ -260,7 +268,7 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("the quest list is in the authored order, numbered, and its ids lose the .json")
     void theQuestListIsInOrder() {
-        List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
 
         List<String> quests = rows.stream()
                 .filter(row -> row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:"))
@@ -273,7 +281,7 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("folding a section takes its rows and leaves its heading")
     void foldingLeavesTheHeading() {
-        List<InspectRow> folded = ChapterPanelLayout.rows(chapter(), Set.of(ChapterPanelLayout.RULES));
+        List<ToolsLayout.Action> folded = ChapterPanelLayout.rows(chapter(), Set.of(ChapterPanelLayout.RULES));
 
         assertTrue(folded.stream().anyMatch(row -> row.key().equals(ChapterPanelLayout.RULES)),
                 "the folded section's heading is still drawn, so it can be unfolded");
@@ -296,10 +304,10 @@ class ChapterPanelLayoutTest {
     @Test
     @DisplayName("without edit mode the tab names the state, and the instruction names the button")
     void notEditing() {
-        List<InspectRow> rows = ChapterPanelLayout.notEditing();
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.notEditing();
 
         assertEquals(1, rows.size(), "one line, and nothing to press: " + rows);
-        assertEquals(InspectRow.Kind.VALUE, rows.get(0).kind(),
+        assertEquals(ToolsLayout.Action.Kind.VALUE, rows.get(0).kind(),
                 "a value row, so the screen builds no widget that could look live and do nothing");
         assertEquals("tasked.dev.chapter.chapter", rows.get(0).label(),
                 "the row's label is a key; the screen resolves it");
@@ -313,7 +321,7 @@ class ChapterPanelLayoutTest {
         // Not editing: nothing was ever asked for, and the tab says what to do about it.
         String notEditing = ChapterPanelLayout.notEditing().get(0).value();
         // In edit mode with no copy: the request is in flight, or the server said no.
-        List<InspectRow> waiting = ChapterPanelLayout.rows(new JsonObject(), Set.of());
+        List<ToolsLayout.Action> waiting = ChapterPanelLayout.rows(new JsonObject(), Set.of());
         assertEquals(1, waiting.size());
         String missing = waiting.get(0).value();
 
@@ -361,21 +369,23 @@ class ChapterPanelLayoutTest {
         ChapterPanelLayout.GroupInfo group =
                 new ChapterPanelLayout.GroupInfo("getting_started", "Getting Started",
                         "minecraft:anvil", true);
-        List<InspectRow> rows = ChapterPanelLayout.rows(chapter(), group, Set.of());
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), group, Set.of());
 
         assertEquals(List.of(ChapterPanelLayout.IDENTITY, ChapterPanelLayout.RULES,
                         ChapterPanelLayout.GROUP, ChapterPanelLayout.QUESTS),
-                rows.stream().filter(InspectRow::isHeading).map(InspectRow::key).toList(),
+                rows.stream().filter(ToolsLayout.Action::isHeading).map(ToolsLayout.Action::key).toList(),
                 "the group's section sits between the rules and the quest list, ahead of the scroll");
         assertEquals(List.of("group.title", "group.icon.item", "group.collapsedByDefault"),
                 rows.stream()
                         .filter(row -> row.key().startsWith(ChapterPanelLayout.GROUP_PREFIX))
-                        .map(InspectRow::key).toList(),
+                        .map(ToolsLayout.Action::key).toList(),
                 "title, icon and the collapsed flag, all pointed at the group's own file");
         assertEquals("Getting Started", row(rows, "group.title").value());
         assertEquals("minecraft:anvil", row(rows, "group.icon.item").value(),
                 "the authored icon, which is what tells the row apart from the sidebar's fallback");
-        assertEquals("tasked.dev.chapter.collapsed_on", row(rows, "group.collapsedByDefault").label());
+        assertEquals("tasked.dev.chapter.collapsed", row(rows, "group.collapsedByDefault").label());
+        assertEquals(ToolsLayout.ON, row(rows, "group.collapsedByDefault").buttonLabel(),
+                "and the flag itself is the button's, as every switch in this drawer is");
     }
 
     @Test
@@ -392,8 +402,12 @@ class ChapterPanelLayoutTest {
         assertEquals("", row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
                         "group.icon.item").value(),
                 "a group with no icon of its own says so with an empty value, not the chapter's");
-        assertEquals("tasked.dev.chapter.collapsed_off",
+        assertEquals("tasked.dev.chapter.collapsed",
                 row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
                 "group.collapsedByDefault").label());
+        assertEquals(ToolsLayout.OFF,
+                row(ChapterPanelLayout.rows(chapter(), inherited, Set.of()),
+                "group.collapsedByDefault").buttonLabel(),
+                "an inherited group that starts open says so on the button");
     }
 }

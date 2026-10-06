@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.client.dev;
 
 import dev.ellipog.armature.client.ui.CanvasBackground;
+import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -240,5 +242,71 @@ class ToolsPanelTest {
         assertEquals("Image", ToolsPanel.patternLabel(CanvasBackground.Kind.IMAGE));
         assertEquals(Labels.of("tasked.dev.canvas.pattern_image"),
                 ToolsPanel.patternLabel(CanvasBackground.Kind.IMAGE));
+    }
+
+    @Test
+    @DisplayName("a read-only row draws its label and its value, because nothing else can")
+    void valueRowsAreDrawn() {
+        // The chapter tab's own read-only rows: a description, and the quests the chapter lists. Nothing
+        // is placed for them -- they are the one kind with no control -- so if the panel does not draw
+        // them, nobody does, and the row is a rectangle that shows nothing while still taking the height
+        // the layout gave it.
+        List<ToolsLayout.Action> rows = List.of(
+                ToolsLayout.Action.value("v:description", "Description", "A chapter's own words"));
+        BookGeometry.Rect listRect = BookGeometry.Rect.at(10, 20, 300, 200);
+        Viewport list = Viewport.fixed().bounds(listRect.x(), listRect.y(), listRect.width(),
+                listRect.height());
+        Layout layout = ToolsLayout.build(rows, listRect.width(), MEASURE);
+        RecordingRenderer r = new RecordingRenderer();
+
+        ToolsPanel.drawRows(r, listRect, list, layout, rows, state(CanvasBackground.NONE, 51), 0, 0);
+
+        Slot slot = layout.slot("v:description");
+        Slot onScreen = new Slot("v:description", listRect.x() + slot.x(), listRect.y() + slot.y(),
+                slot.width(), slot.height());
+        assertTrue(r.wroteWithin("Description", onScreen.x(), onScreen.y(), onScreen.right(),
+                onScreen.bottom()), () -> "the read-only row's label is missing: " + r.describe());
+        assertTrue(r.wroteWithin("A chapter's own words", onScreen.x(), onScreen.y(), onScreen.right(),
+                onScreen.bottom()), () -> "the read-only row's value is missing: " + r.describe());
+    }
+
+    @Test
+    @DisplayName("stacked, a field's label is drawn whole in its own band instead of cut to a strip")
+    void stackedRowsDrawTheirLabelInTheLabelBand() {
+        // The composition exists for exactly one row: a label longer than the room a control's box leaves
+        // in a narrow dock. So the assertion is the pair -- side by side the same label is truncated,
+        // stacked it is drawn whole -- because either half alone would pass on a drawing that ignored the
+        // mode, and the pair is also the statement of what stacking buys.
+        String wordy = "Default Prerequisite Mode";
+        List<ToolsLayout.Action> rows = List.of(ToolsLayout.Action.choice("progression", wordy));
+        // 180, which is the narrow dock this composition was chosen for: wide enough for the stacked label
+        // and not for the side-by-side one beside a control's box.
+        BookGeometry.Rect listRect = BookGeometry.Rect.at(10, 20, 180, 200);
+        Viewport list = Viewport.fixed().bounds(listRect.x(), listRect.y(), listRect.width(),
+                listRect.height());
+
+        Layout stacked = ToolsLayout.build(rows, listRect.width(), MEASURE, InspectLayout.Mode.STACKED);
+        RecordingRenderer r = new RecordingRenderer();
+        ToolsPanel.drawRows(r, listRect, list, stacked, rows, state(CanvasBackground.NONE, 51), 0, 0,
+                InspectLayout.Mode.STACKED);
+
+        Slot slot = stacked.slot("progression");
+        Slot band = InspectLayout.labelBand(slot);
+        Slot onScreen = new Slot("progression", listRect.x() + band.x(), listRect.y() + band.y(),
+                band.width(), band.height());
+        assertTrue(r.wroteWithin(wordy, onScreen.x(), onScreen.y(), onScreen.right(), onScreen.bottom()),
+                () -> "the stacked label is not drawn whole in its own band: " + r.describe());
+
+        Layout sideBySide = ToolsLayout.build(rows, listRect.width(), MEASURE);
+        RecordingRenderer flat = new RecordingRenderer();
+        ToolsPanel.drawRows(flat, listRect, list, sideBySide, rows, state(CanvasBackground.NONE, 51),
+                0, 0);
+        Slot flatSlot = sideBySide.slot("progression");
+        Slot flatOnScreen = new Slot("progression", listRect.x() + flatSlot.x(),
+                listRect.y() + flatSlot.y(), flatSlot.width(), flatSlot.height());
+        assertFalse(flat.wroteWithin(wordy, flatOnScreen.x(), flatOnScreen.y(), flatOnScreen.right(),
+                        flatOnScreen.bottom()),
+                () -> "side by side this label does not fit the room left of the control, which is the "
+                        + "fault the stacked composition answers: " + flat.describe());
     }
 }

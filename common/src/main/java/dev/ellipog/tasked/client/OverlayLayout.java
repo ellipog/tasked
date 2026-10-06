@@ -331,6 +331,37 @@ public final class OverlayLayout {
         return "requires:" + index;
     }
 
+    /**
+     * The bar a prerequisite row draws as and answers to: the row's own box, widened to the body's edge.
+     *
+     * <h2>Why this is a function with a test rather than two expressions inline</h2>
+     *
+     * <p>Because it was two expressions inline and they disagreed. The wash was drawn to
+     * {@code Viewport.visibleRight()} — a <b>content</b> coordinate — while the press tested the layout's
+     * inset row, so the bar looked narrower than it was and the pixels it did cover were half of them dead.
+     * Pointing the press at the same rectangle made it worse rather than better: a content coordinate on
+     * that card came out <i>left</i> of the row, the width clamped to zero, and every row stopped
+     * answering. One function means the drawn bar and the pressed bar cannot be two rectangles again, and
+     * the test below asserts the property that broke — that it is never empty, at any body width.
+     *
+     * <p>Full width on purpose: the whole bar is the target, which is what "anywhere on it" means. The
+     * locate icon inside it is checked first by the press, so widening the bar does not take that gesture
+     * away.
+     *
+     * @param row       the row's own box, in screen coordinates
+     * @param bodyRight the body's right edge in <b>screen</b> coordinates
+     */
+    public static Slot dependencyBar(Slot row, int bodyRight) {
+        int left = row.x() - BAR_BLEED;
+        // Never narrower than the row it is derived from: a body edge left of the row (a scrolled or
+        // re-laid-out card) must not be able to produce a bar that answers nowhere.
+        int right = Math.max(bodyRight, row.right());
+        return new Slot(row.key(), left, row.y() - 1, Math.max(0, right - left), row.height() + 2);
+    }
+
+    /** How far the bar reaches past the row it belongs to, left and right. */
+    public static final int BAR_BLEED = 3;
+
     // ------------------------------------------------------------------
     // The composition
     // ------------------------------------------------------------------

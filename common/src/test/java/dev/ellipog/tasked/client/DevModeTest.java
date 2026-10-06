@@ -26,6 +26,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * tolerance is therefore asserted rather than assumed: no file, empty file, not JSON, wrong type and an
  * unknown field all end at "off, and the client still runs", which is the direction that cannot lie
  * about what is on screen.
+ *
+ * <p>It holds three settings that are <b>not</b> gated on the mode -- snap, the sidebar's bars, and the
+ * side panels -- and that is asserted here too, because a preference that silently required developer
+ * mode would be a switch nobody could find the effect of.
  */
 @DisplayName("Developer mode")
 class DevModeTest {
@@ -42,37 +46,76 @@ class DevModeTest {
         assertFalse(DevMode.on());
         assertTrue(DevMode.snap(), "the grid is the default, and is not gated on the mode");
         assertTrue(DevMode.progress(), "and so are the sidebar's chapter progress bars");
+        assertFalse(DevMode.panels(), "the centred card is what everyone gets until they ask otherwise");
+        assertEquals(PanelStack.WIDTH, DevMode.panelWidth(), "and the column opens at its ordinary width");
+        assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
         assertNull(DevMode.file(), "and no file has been read yet");
     }
 
     @Test
-    @DisplayName("reading, writing and reading back all three flags")
+    @DisplayName("reading, writing and reading back every flag")
     void roundTrip(@TempDir Path dir) throws IOException {
         Path file = dir.resolve(DevMode.FILE_NAME);
 
-        assertEquals("{\"dev\":true,\"snap\":true,\"progress\":true}", DevMode.write(true, true, true),
+        assertEquals("{\"dev\":true,\"snap\":true,\"progress\":true,\"panels\":true,\"panelWidth\":340,"
+                        + "\"panelFold\":\"auto\"}",
+                DevMode.write(true, true, true, true, PanelStack.WIDTH, PanelStack.Fold.AUTO),
                 "the format, stated once");
-        assertEquals("{\"dev\":false,\"snap\":false,\"progress\":false}", DevMode.write(false, false, false));
+        assertEquals("{\"dev\":false,\"snap\":false,\"progress\":false,\"panels\":false,\"panelWidth\":240,"
+                        + "\"panelFold\":\"off\"}",
+                DevMode.write(false, false, false, false, PanelStack.MIN_WIDTH, PanelStack.Fold.NEVER));
 
-        Files.writeString(file, DevMode.write(true, true, true), StandardCharsets.UTF_8);
+        Files.writeString(file,
+                DevMode.write(true, true, true, true, PanelStack.WIDTH, PanelStack.Fold.AUTO),
+                StandardCharsets.UTF_8);
         DevMode.load(file);
         assertEquals(file, DevMode.file(), "the file it read is the file it will write");
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap());
         assertTrue(DevMode.progress());
+        assertTrue(DevMode.panels());
+        assertEquals(PanelStack.WIDTH, DevMode.panelWidth());
+        assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold());
 
         // And the other direction, which is the one a toggle takes.
         DevMode.setOn(false);
         DevMode.setSnap(false);
         DevMode.setProgress(false);
+        DevMode.setPanels(false);
+        DevMode.setPanelWidth(PanelStack.SECOND_WIDTH);
+        DevMode.setPanelFold(PanelStack.Fold.ALWAYS);
         assertFalse(DevMode.on());
         assertFalse(DevMode.snap());
         assertFalse(DevMode.progress());
+        assertFalse(DevMode.panels());
         String written = Files.readString(file, StandardCharsets.UTF_8);
         assertFalse(DevMode.read(written), "what was written is what is read");
         DevMode.load(file);
         assertFalse(DevMode.snap(), "and the snap flag round-trips through the same file");
         assertFalse(DevMode.progress(), "and so does the bars' switch");
+        assertFalse(DevMode.panels(), "and so does the layout's");
+        assertEquals(PanelStack.SECOND_WIDTH, DevMode.panelWidth(), "and the width");
+        assertEquals(PanelStack.Fold.ALWAYS, DevMode.panelFold(), "and which way the fold was asked for");
+    }
+
+    @Test
+    @DisplayName("the layout's switch toggles on its own, without developer mode")
+    void theLayoutSwitchIsItsOwn(@TempDir Path dir) throws IOException {
+        // The rule snap and the bars already follow: a player who never opens developer mode still has a
+        // layout, and it is theirs rather than the pack's.
+        assertFalse(DevMode.on());
+        assertTrue(DevMode.togglePanels(), "the toggle answers with the state it left behind");
+        assertTrue(DevMode.panels());
+        assertFalse(DevMode.on(), "and it did not turn developer mode on to do it");
+        assertFalse(DevMode.togglePanels());
+        assertFalse(DevMode.panels());
+
+        // A width outside every range is clamped on the way in rather than stored as nonsense.
+        DevMode.setPanelWidth(-100);
+        assertEquals(PanelStack.MIN_WIDTH, DevMode.panelWidth());
+        DevMode.setPanelWidth(PanelStack.WIDE_WIDTH + 5_000);
+        assertEquals(PanelStack.WIDE_WIDTH, DevMode.panelWidth(),
+                "the stored width may be a wide kind's, so it is not clamped to a prose column");
     }
 
     @Test
@@ -84,6 +127,40 @@ class DevModeTest {
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap(), "a missing field takes its default, which is on for the grid");
         assertTrue(DevMode.progress(), "and for the progress bars");
+        assertFalse(DevMode.panels(),
+                "and the layout stays as it was: a file written before panels existed drew cards");
+        assertEquals(PanelStack.WIDTH, DevMode.panelWidth(), "at the ordinary width");
+        assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
+    }
+
+    @Test
+    @DisplayName("a width that is not a number discards the file, like any other unreadable one")
+    void aWrongTypedWidthIsABadFile(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(DevMode.FILE_NAME);
+        Files.writeString(file, "{\"dev\":true,\"panels\":true,\"panelWidth\":\"wide\"}",
+                StandardCharsets.UTF_8);
+        DevMode.load(file);
+
+        // The whole file goes, which is the rule every other wrong type already follows -- and it is the
+        // safe direction: a client that cannot read the file draws what it shipped with.
+        assertFalse(DevMode.on());
+        assertFalse(DevMode.panels());
+        assertEquals(PanelStack.WIDTH, DevMode.panelWidth());
+    }
+
+    @Test
+    @DisplayName("a fold word nobody knows means the window decides, rather than a discarded file")
+    void anUnknownFoldWordIsAuto(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(DevMode.FILE_NAME);
+        Files.writeString(file, "{\"dev\":true,\"panels\":true,\"panelFold\":\"sometimes\"}",
+                StandardCharsets.UTF_8);
+        DevMode.load(file);
+
+        // Unlike a wrong *type*, an unknown word is a preference this build does not have a name for, and
+        // the rest of the file is perfectly readable -- so only that one setting falls back.
+        assertTrue(DevMode.on(), "the file was read, because nothing in it was the wrong shape");
+        assertTrue(DevMode.panels());
+        assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold());
     }
 
     @Test

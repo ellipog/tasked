@@ -14,8 +14,10 @@ import dev.ellipog.tasked.quest.QuestLayout;
 import dev.ellipog.tasked.quest.QuestShape;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Function;
 
 /**
@@ -85,6 +87,49 @@ public final class QuestSettingsLayout {
     public static final int ARROW_WIDTH = 16;
     public static final int ARROW_HEIGHT = 14;
     public static final int VALUE_WIDTH = 34;
+
+    /**
+     * The room a row's label keeps, whatever its control strip would like.
+     *
+     * <p>Fifty-six is about nine characters at this UI's font — "Min requi…" — which is the difference
+     * between a label and a letter. Before this existed, {@link #strip} took {@link #STRIP_WIDTH} of
+     * whatever the row had, so a controls column of 148 pixels left the label <b>16</b> of them: the report
+     * was a page of rows whose labels read "t", "A", "R", "H". A control narrower than its strip draws
+     * smaller; a label narrower than a word says nothing, and the second is worse.
+     */
+    public static final int LABEL_MIN = 56;
+
+    /**
+     * What a switch's control needs: the toggle itself and the air either side of it.
+     *
+     * <p>The narrowest strip on the page, and the reason the per-kind widths exist at all: five of the
+     * visibility rows and four of the rules rows are switches, and every one of them was paying for a
+     * slider's room.
+     */
+    public static final int SWITCH_STRIP = 22;
+
+    /**
+     * What a number's control needs: the value slot with a stepper arrow either side of it.
+     *
+     * <p>Derived from the three constants the stepper is drawn with rather than chosen, so a wider value box
+     * moves this with it — the same rule {@code MIN_CONTROLS_WIDTH} follows below.
+     */
+    public static final int NUMBER_STRIP = VALUE_WIDTH + ARROW_WIDTH * 2 + STRIP_INSET * 2;
+
+    /**
+     * What the controls column needs to be usable: a label's room with a control strip beside it.
+     *
+     * <p>The width the fields claim before the preview is given anything — see {@link Frame#of}.
+     */
+    public static final int MIN_CONTROLS_WIDTH = LABEL_MIN + STRIP_WIDTH;
+
+    /**
+     * Below this the preview is not a picture of anything, so it is dropped and the fields take the width.
+     *
+     * <p>The fold this page has instead of a scrollbar: a node drawn four pixels wide says less than the
+     * rows that would have to shrink to make room for it.
+     */
+    public static final int PREVIEW_MIN_WIDTH = 96;
 
     /** How much padding the node keeps inside the preview pane. */
     public static final int PREVIEW_PAD = 12;
@@ -186,7 +231,19 @@ public final class QuestSettingsLayout {
      * screen builds a widget for the ones that need one, and the hit test asks it whether a press is the
      * row's business. {@code label} is the words beside the control.
      */
-    public record Row(String key, Kind kind, String label) {
+    public record Row(String key, Kind kind, String label, int controlWidth) {
+
+    /**
+     * A row whose control takes the width its kind is drawn from.
+     *
+     * <p>The three-argument form, kept because it is what every row is built with and because it is the
+     * honest default: with nothing measured, a control is exactly as wide as its own kind needs. The screen
+     * replaces the rows with measured ones ({@link #controlWidths}) once it has a language to measure in;
+     * a dump or a still never does, and gets this.
+     */
+    public Row(String key, Kind kind, String label) {
+        this(key, kind, label, stripWidth(kind));
+    }
 
         public enum Kind {
             /** A section's name; nothing to press. */
@@ -351,14 +408,33 @@ public final class QuestSettingsLayout {
                     Math.max(0, body.width()), helpHeight);
 
             int tall = Math.max(0, body.height() - helpHeight - 2);
-            int previewWidth = Math.min(PREVIEW_WIDTH, Math.max(0, (body.width() - COLUMN_GAP) / 2));
+
+            // **The fields win the width, and the preview folds away rather than squeezing them.**
+            //
+            // The two columns used to split the body in half, which at a docked column's width left the
+            // controls about 148 pixels and the label column 16 of them. So the controls are given what they
+            // need first, the preview takes what is left, and below `PREVIEW_MIN_WIDTH` the preview is
+            // dropped altogether — a four-pixel node is not a picture, and the fields then take the whole
+            // width. That is the fold, and it is why this is a rule rather than a second number.
+            int room = Math.max(0, body.width() - COLUMN_GAP);
+            int controlsWidth = Math.min(room, Math.max(MIN_CONTROLS_WIDTH, room - PREVIEW_WIDTH));
+            int previewWidth = room - controlsWidth;
+            int gap = COLUMN_GAP;
+            if (previewWidth < PREVIEW_MIN_WIDTH) {
+                previewWidth = 0;
+                controlsWidth = Math.max(0, body.width());
+                // No column, no gap: the fields start at the body's own edge rather than eight pixels in
+                // from nothing.
+                gap = 0;
+            }
+
             int captionHeight = Math.min(CAPTION_HEIGHT, Math.max(0, tall - 24));
             BookGeometry.Rect caption = BookGeometry.Rect.at(body.x(),
                     body.y() + tall - captionHeight, previewWidth, captionHeight);
             BookGeometry.Rect preview = BookGeometry.Rect.at(body.x(), body.y(), previewWidth,
                     Math.max(0, tall - captionHeight - 2));
-            BookGeometry.Rect controls = BookGeometry.Rect.at(body.x() + previewWidth + COLUMN_GAP,
-                    body.y(), Math.max(0, body.width() - previewWidth - COLUMN_GAP), tall);
+            BookGeometry.Rect controls = BookGeometry.Rect.at(body.x() + previewWidth + gap,
+                    body.y(), Math.max(0, body.width() - previewWidth - gap), tall);
             return new Frame(preview, caption, controls, help);
         }
     }
@@ -387,10 +463,132 @@ public final class QuestSettingsLayout {
         return stack.build(Math.max(0, width), measure);
     }
 
-    /** Where a row's control goes: in the room at the right of its row, against the column's edge. */
-    public static Slot strip(Slot row) {
-        int width = Math.min(STRIP_WIDTH, Math.max(0, row.width() - STRIP_INSET));
+    /**
+     * How wide one row's control is, from the label it must fit beside.
+     *
+     * <h2>What the measurement adds</h2>
+     *
+     * <p>{@link #strip}'s answer is the control's <i>least</i>: what it is drawn from. That is the right
+     * answer when nothing has been measured, and it is one number short of the right one when something has:
+     * a short label — "Size", "X" — leaves room that a slider can be longer in or a field wider for, and a
+     * long one should take that room back rather than being truncated while a control sits in space it does
+     * not use. So the label is measured and the control takes what is left, within two limits: it never goes
+     * below its kind's least, and it only grows where a wider control is a better one ({@link #grows}).
+     *
+     * <p><b>Where the measurement comes from is the caller's business</b>, and that is deliberate: the screen
+     * resolves labels through the game's language and measures them once per rebuild ({@link #controlWidths}),
+     * while the still-and-dump tools have no language to resolve in at all — {@code Labels.of} throws headless
+     * — so they keep the unmeasured answer. Two answers for two situations rather than one that quietly means
+     * "the font, which I could not read".
+     *
+     * @param row         the row whose label and control are being placed
+     * @param columnWidth the whole column the row sits in
+     * @param measure     what draws text, for the label's own width
+     * @param resolve     the row's label as a sentence: its key is not what is on screen
+     */
+    public static int controlWidth(Row row, int columnWidth, Measure measure,
+            Function<String, String> resolve) {
+        int room = Math.max(0, columnWidth);
+        int least = Math.min(stripWidth(row.kind()), room);
+        int floor = Math.min(LABEL_MIN, room);
+        String label = resolve == null ? null : resolve.apply(row.label());
+        int wanted = label == null ? 0 : Math.max(0, measure.width(label));
+
+        if (wanted + least <= room) {
+            // It fits beside the control's least. The control keeps that much, and takes the rest only where
+            // more room is a better control rather than a wider empty box beside a word.
+            return grows(row.kind()) ? Math.max(least, room - Math.max(floor, wanted)) : least;
+        }
+        // It does not fit, so the control gives way — as far as its least, and no further than the label's own
+        // floor allows. Past that the label truncates, which is what a narrow column means.
+        return Math.min(least, Math.max(0, room - floor));
+    }
+
+    /**
+     * Every row's control width, measured in one pass.
+     *
+     * <p>Asked once per rebuild, never on the frame path: the labels are fixed strings and the answers are
+     * four hundred small integers, so the cost is paid where the layout is already being built and nowhere
+     * else. {@code Measure.cached} is the kit's own facility if a caller ever needs this per frame.
+     *
+     * @return one width per row key, in the order the rows came in
+     */
+    public static Map<String, Integer> controlWidths(List<Row> rows, int columnWidth, Measure measure,
+            Function<String, String> resolve) {
+        Map<String, Integer> widths = new LinkedHashMap<>();
+        for (Row row : rows) {
+            widths.put(row.key(), controlWidth(row, columnWidth, measure, resolve));
+        }
+        return Map.copyOf(widths);
+    }
+
+    /**
+     * Whether a wider control is a better one.
+     *
+     * <p>A slider is dragged and a field is typed into, so both use whatever room they are given. A switch, a
+     * stepper, a choice and a button are drawn at their own size against the right edge: giving them more
+     * would be a wider empty rectangle beside the label, which is the space the label wanted. That is a
+     * statement about the controls rather than a preference, so it is one function rather than a flag on
+     * every row.
+     */
+    public static boolean grows(Row.Kind kind) {
+        return kind == Row.Kind.SLIDER || kind == Row.Kind.FIELD;
+    }
+
+    /**
+     * Where a row's control goes: in the room at the right of its row, against the column's edge.
+     *
+     * <p>This is the answer when nothing has been measured — see {@link #controlWidth} for the other one and
+     * for why both exist. It is what a still, a dump and any caller with no language to resolve in use.
+     */
+    public static Slot strip(Row.Kind kind, Slot row) {
+        // **The label keeps its room, the control gives way, and each kind of control gives way differently.**
+        //
+        // Two faults met here. The strip took `STRIP_WIDTH` of whatever the row had, so a narrow column left
+        // the label a single glyph; and it took that *same* 132 pixels for every kind of control, so a switch
+        // row handed 132 pixels of room to a 22-pixel toggle and charged the label for it. At a docked
+        // column's width that left five rows reading "Hide " and nothing else — and a page of rows an author
+        // cannot tell apart is worse than a page of narrow ones. A control that does not use the room is room
+        // the label should have.
+        return strip(stripWidth(kind), row);
+    }
+
+    /**
+     * Where a row's control goes, at the width that row carries.
+     *
+     * <p>The row rather than its kind, because a measured width belongs to the row: two switches on the page
+     * have labels of different lengths, so one may keep more room than the other. A row built without a
+     * measurement carries its kind's own width — see {@link Row}'s three-argument constructor — so this
+     * answers exactly what {@link #strip(Row.Kind, Slot)} answers until the screen has measured.
+     */
+    public static Slot strip(Row row, Slot slot) {
+        return strip(row.controlWidth(), slot);
+    }
+
+    /** The same, from a width a caller has already measured or chosen. */
+    public static Slot strip(int controlWidth, Slot row) {
+        int width = Math.min(Math.max(0, controlWidth), Math.max(0, row.width()));
+        // The label keeps its floor even here: a control is never given room the label needs, whatever a
+        // caller passes, because that would be the fault this pair exists to prevent.
+        width = Math.min(width, Math.max(0, row.width() - Math.min(LABEL_MIN, row.width())));
         return new Slot(row.key(), row.right() - width, row.y(), width, row.height());
+    }
+
+    /**
+     * How much room a row's control needs, by kind.
+     *
+     * <p>The three numbers are what the controls themselves are drawn from — a toggle's own width, a value
+     * with its two arrows, and the room a slider needs to be draggable or a field to be typed into — so this
+     * is a reading of {@link QuestSettingsPanel} rather than a preference. A kind that is not listed takes
+     * the widest, which is the safe direction: a control given more than it needs is a narrower label, and
+     * one given less is a control drawn outside its own rectangle.
+     */
+    public static int stripWidth(Row.Kind kind) {
+        return switch (kind) {
+            case SWITCH -> SWITCH_STRIP;
+            case NUMBER -> NUMBER_STRIP;
+            default -> STRIP_WIDTH;
+        };
     }
 
     // ------------------------------------------------------------------
@@ -502,7 +700,9 @@ public final class QuestSettingsLayout {
      */
     public static int valueAtScreen(Slot layoutSlot, Viewport column, double mouseX, int min, int max,
                                     boolean logarithmic) {
-        Slot onScreen = InspectLayout.onScreen(column, strip(layoutSlot));
+        // A slider's own kind, because that is the only control this can be asked about: the track and the
+        // knob are the slider's, and naming the kind here keeps the one strip width rule in one place.
+        Slot onScreen = InspectLayout.onScreen(column, strip(Row.Kind.SLIDER, layoutSlot));
         return valueAt(track(onScreen), mouseX, min, max, logarithmic);
     }
 

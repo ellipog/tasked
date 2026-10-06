@@ -19,6 +19,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
@@ -256,5 +257,41 @@ class ServerEditorsTest {
         assertFalse(applied.ok());
         assertTrue(applied.messages().toString().contains("chapter"),
                 "the refusal names what is missing: " + applied.messages());
+    }
+
+    @Test
+    @DisplayName("a replica of a pack whose files are named differently from their ids carries them anyway")
+    void theReplicaSpeaksBothVocabularies(@TempDir Path dir) throws IOException {
+        // **The converted pack.** A pack from FTB Quests keeps FTB's hex ids in the files while the converter
+        // names the files after the quests' titles, so the manifest's vocabulary and the tree's are different
+        // strings for the same quest. Building the replica by walking the manifest and looking each name up in
+        // an editor keyed by declared ids returned **nothing**, and the panel -- which asks by the tree's id --
+        // read an empty copy as "the copy has not arrived". Both keys, one file, and the size of the map is
+        // the assertion that would have caught it.
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("pack").resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(root.resolve("pack").resolve("group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"first_tree.json\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("first_tree.json"),
+                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+
+        ServerEditors converted = new ServerEditors(() -> root);
+        var all = converted.replica("first_steps");
+
+        assertFalse(all == null || all.isEmpty(),
+                "an empty replica is what the panel reports as a copy that never arrived");
+        var byId = all.getAsJsonObject("58b556d40904e3b3");
+        assertNotNull(byId, "the id the tree, the card and every op use");
+        assertEquals("First Tree", byId.get("title").getAsString());
+        var byName = all.getAsJsonObject("first_tree");
+        assertNotNull(byName, "and the file name the chapter's own manifest lists");
+        assertEquals("First Tree", byName.get("title").getAsString(),
+                "the same quest under both keys, not two quests");
     }
 }

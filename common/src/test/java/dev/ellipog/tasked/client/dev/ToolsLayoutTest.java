@@ -10,6 +10,7 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
+import dev.ellipog.tasked.client.PanelLayout;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -357,22 +358,79 @@ class ToolsLayoutTest {
     }
 
     @Test
-    @DisplayName("the panel floats inside the canvas it is docked to, and leaves it most of its width")
-    void thePanelIsInsideTheCanvas() {
-        BookGeometry.Rect canvas = BookGeometry.Rect.at(150, 30, 800, 500);
-        ToolsLayout.Frame frame = ToolsLayout.frame(canvas);
+    @DisplayName("the dock's bands are the shared frame's, and its controls sit in the footer band")
+    void theDockUsesTheSharedBands() {
+        // **The point of the move.** The dock had a band arithmetic of its own -- six-pixel insets, a strip at
+        // the panel's top, an actions row measured up from the floor. The three bands are the shared ones now,
+        // so this asserts the *shared* constants rather than figures of this file's: the list is
+        // `PanelLayout`'s body, the actions band is its footer, and the strip is inside its header.
+        BookGeometry.Rect rail = BookGeometry.Rect.at(500, 40,
+                dev.ellipog.tasked.client.PanelStack.WIDTH, 500);
+        ToolsLayout.Frame book = ToolsLayout.frame(rail, ToolsLayout.Tab.BOOK);
+        ToolsLayout.Frame chapter = ToolsLayout.frame(rail, ToolsLayout.Tab.CHAPTER);
+        PanelLayout.Frame shared = PanelLayout.frame(rail, false, BookGeometry.MODAL_FOOTER_HEIGHT);
+        PanelLayout.Frame bare = PanelLayout.frame(rail, false, 0);
 
-        assertTrue(frame.panel().right() <= canvas.right() && frame.panel().x() >= canvas.x(),
-                () -> "the panel is not inside the canvas: " + frame.panel() + " in " + canvas);
-        assertTrue(frame.panel().width() <= ToolsLayout.WIDTH, "never wider than it was designed");
-        assertTrue(frame.panel().width() >= ToolsLayout.MIN_WIDTH, "and never uselessly narrow");
-        assertTrue(canvas.width() - frame.panel().width() >= 100,
-                "the panel leaves room to see the graph beside it, which is why it is a panel");
+        assertEquals(rail, book.panel(), "the panel is the rail it was given");
+        assertEquals(shared.body(), book.list(), "the list *is* the shared body on the book tab");
+        assertEquals(bare.body(), chapter.list(),
+                "and on the chapter tab, whose frame reserves no footer at all");
+        assertEquals(shared.footer(), book.actions(), "the book tab's controls band is the shared footer");
+        assertEquals(0, chapter.actions().height(), "and the chapter tab reserves no band");
 
-        // A canvas too small for the panel: it clamps rather than disappearing.
-        ToolsLayout.Frame tiny = ToolsLayout.frame(BookGeometry.Rect.at(0, 0, 120, 60));
-        assertTrue(tiny.panel().width() >= 0 && tiny.panel().height() >= 0, "a tiny canvas is not inverted");
-        assertTrue(tiny.panel().x() >= 0, "and the panel is not placed off the left edge");
+        // The strip lives in the header band and is centred in it, which is the one judgement this step made:
+        // a two-tab strip is what names the panel, so it reads as that band's title rather than as a card
+        // header with its title missing.
+        BookGeometry.Rect header = shared.header();
+        assertTrue(book.tabs().isInside(header), () -> "the strip left the header: " + book.tabs());
+        assertEquals(ToolsLayout.TAB_HEIGHT, book.tabs().height(), "and keeps its own height");
+        assertEquals(header.y() + header.height() / 2, book.tabs().y() + book.tabs().height() / 2,
+                "centred in the band, at an odd height as well");
+
+        // Revert and Save are controls *in* that band rather than the band itself: an ordinary control's
+        // height, the panels' insets, and a gap between them.
+        BookGeometry.Rect revert = ToolsLayout.revert(book.actions());
+        BookGeometry.Rect save = ToolsLayout.save(book.actions());
+        assertEquals(BookGeometry.OVERLAY_CONTROL_HEIGHT, revert.height(), "a control's height, not a band's");
+        assertEquals(BookGeometry.MODAL_INSET, revert.x() - book.actions().x(), "inset as every footer is");
+        assertEquals(BookGeometry.MODAL_INSET, book.actions().right() - save.right());
+        assertEquals(BookGeometry.MODAL_FOOTER_GAP, revert.y() - book.actions().y(),
+                "and sitting where a footer's controls sit");
+        assertTrue(revert.isInside(book.actions()) && save.isInside(book.actions()),
+                () -> "a control left its band: " + revert + " / " + save);
+        assertFalse(revert.intersects(save), "the two do not meet");
+    }
+
+    @Test
+    @DisplayName("the frame bands the rail it is given, and leaves every band inside it")
+    void theFrameBandsTheRailItWasGiven() {
+        // The rail is the caller's now: the screen asks `BookGeometry.panelRail` for it, which is the same
+        // expression a docked column is anchored by, so the drawer and a column cannot disagree about the
+        // edge they share. What this class owns is the bands *inside* it -- and the one rule those keep is
+        // that none of them leaves it, because a band placed past its own surface is a press that answers
+        // where nothing is drawn.
+        BookGeometry.Rect rail = BookGeometry.Rect.at(150, 30,
+                dev.ellipog.tasked.client.PanelStack.WIDTH, 500);
+        ToolsLayout.Frame frame = ToolsLayout.frame(rail, ToolsLayout.Tab.BOOK);
+
+        assertEquals(rail, frame.panel(), "the panel is the rail it was given, not one computed inside it");
+        for (BookGeometry.Rect band : List.of(frame.tabs(), frame.list(), frame.actions())) {
+            assertTrue(band.isInside(rail), () -> "a band left its rail: " + band + " in " + rail);
+        }
+
+        // A rail too small for its own chrome collapses its bands rather than inverting them. Bands of no
+        // size are allowed to sit at a corner of a panel of no size -- there is nothing to press there --
+        // so containment is asserted only where a band has an area to be contained.
+        for (BookGeometry.Rect small : List.of(BookGeometry.Rect.at(0, 0, 120, 60),
+                BookGeometry.Rect.at(0, 0, 0, 0))) {
+            ToolsLayout.Frame tiny = ToolsLayout.frame(small, ToolsLayout.Tab.BOOK);
+            assertTrue(tiny.list().width() >= 0 && tiny.list().height() >= 0,
+                    () -> "a tiny rail inverted a band: " + tiny.list());
+            if (tiny.list().width() > 0 && tiny.list().height() > 0) {
+                assertTrue(tiny.list().isInside(small),
+                        () -> "a tiny rail put its list outside itself: " + tiny.list() + " in " + small);
+            }
+        }
     }
 
 
@@ -419,21 +477,74 @@ class ToolsLayoutTest {
     }
 
     @Test
-    @DisplayName("folds names the five foldable sections, and nothing else")
-    void foldsCoversTheFiveSections() {
+    @DisplayName("every section of both tabs folds, and nothing else does")
+    void foldsCoversEverySection() {
         // The predicate both the drawing and the widget pass read. It was a hand-written list of three
         // at the widget site once, and the Canvas and Quest Book headings were drawn promising a fold
-        // with nothing behind them -- so this is asserted as an exact set, not a "contains".
+        // with nothing behind them -- so the tool rows' half is asserted as an exact set, not a "contains".
         Set<String> foldable = everyRow().stream().map(ToolsLayout.Action::key)
                 .filter(ToolsLayout::folds).collect(java.util.stream.Collectors.toSet());
         assertEquals(Set.of(ToolsLayout.APPEARANCE_SECTION, ToolsLayout.BOOK_SECTION,
                         ToolsLayout.CANVAS_SECTION, ToolsLayout.COLOUR_SECTION,
                         ToolsLayout.PALETTE_SECTION),
-                foldable, "the five sections, exactly -- an extra key would be a heading with a widget "
+                foldable, "the five book sections, exactly -- an extra key would be a heading with a widget "
                         + "the panel does not mark, and a missing one a marker with no widget behind it");
+
+        // And the chapter's four, which are not in those rows: one predicate for both tabs, because a
+        // heading folds when it is a section whichever file the section is about. The chapter tab's
+        // headings get their widget from the screen's own loop, so a key here that the screen did not
+        // place would be a section drawn with a rule and no press -- which is the fault this list is for.
+        for (String section : List.of(ToolsLayout.CHAPTER_IDENTITY, ToolsLayout.CHAPTER_RULES,
+                ToolsLayout.CHAPTER_GROUP, ToolsLayout.CHAPTER_QUESTS)) {
+            assertTrue(ToolsLayout.folds(section), section + " is a section and must fold");
+        }
         assertFalse(ToolsLayout.folds(ToolsLayout.SHAPE_SECTION),
                 "Shape is a heading but not a fold: it has nothing to put away");
         assertFalse(ToolsLayout.folds(null), "and no key at all folds");
+    }
+
+    @Test
+    @DisplayName("the stacked composition gives a control's row the label's band and the control's")
+    void theStackedCompositionIsTaller() {
+        // The chapter tab is one file's labels at the dock's width, and its longest is longer than any
+        // strip this panel reserves -- so its rows stack, and this is the arithmetic that has to survive
+        // the move onto the tools rows. The heights are the kit's own (`InspectLayout`), read here rather
+        // than restated: a second copy of them would be a second answer to "how tall is a stacked row",
+        // and the drawing and the widget placement would then be able to disagree about where the line
+        // between the two bands is.
+        List<ToolsLayout.Action> rows = List.of(
+                ToolsLayout.Action.heading(ToolsLayout.CHAPTER_RULES, "Rules"),
+                ToolsLayout.Action.field("defaultPrerequisiteMode", "Prereq Mode"),
+                ToolsLayout.Action.choice("progression", "Progression"),
+                ToolsLayout.Action.toggle("group.collapsedByDefault", "Collapsed", "Off"),
+                ToolsLayout.Action.value("v:description", "Description", "A chapter's own words"),
+                ToolsLayout.Action.row("v:quest:a", "1. a_quest"));
+
+        Layout sideBySide = ToolsLayout.build(rows, 200, MEASURE);
+        Layout stacked = ToolsLayout.build(rows, 200, MEASURE, InspectLayout.Mode.STACKED);
+
+        assertEquals(ToolsLayout.ROW_HEIGHT, sideBySide.slot("progression").height(),
+                "side by side, a field, a choice and a row are one row tall");
+        assertEquals(InspectLayout.STACKED_ROW_HEIGHT, stacked.slot("progression").height(),
+                "stacked, a choice gets the label's band and the control's beneath it");
+        assertEquals(InspectLayout.STACKED_ROW_HEIGHT, stacked.slot("defaultPrerequisiteMode").height(),
+                "and so does a field -- which is the row that needed the composition");
+        assertEquals(InspectLayout.STACKED_ROW_HEIGHT, stacked.slot("group.collapsedByDefault").height(),
+                "and a switch, whose button spans the band instead of sitting in a strip");
+        assertEquals(ToolsLayout.ROW_HEIGHT, stacked.slot("v:description").height(),
+                "while a read-only row is one line in either composition: it has no control to band");
+        assertEquals(ToolsLayout.ROW_HEIGHT, stacked.slot("v:quest:a").height(),
+                "and so is a row that *is* the control -- its widget draws its own label, so a label band "
+                        + "above it would print the same name twice");
+
+        Slot choice = stacked.slot("progression");
+        Slot label = InspectLayout.labelBand(choice);
+        Slot control = InspectLayout.controlBand(choice);
+        assertEquals(InspectLayout.STACKED_LABEL_HEIGHT, label.height());
+        assertEquals(InspectLayout.STACKED_CONTROL_HEIGHT, control.height());
+        assertEquals(choice.height(), label.height() + control.height(),
+                "the two bands tile the row exactly once, with nothing left over and nothing shared");
+        assertTrue(label.bottom() <= control.y(), "and the label's band ends where the control's starts");
     }
 
     @Test

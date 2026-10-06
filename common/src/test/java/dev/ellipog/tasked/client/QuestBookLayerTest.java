@@ -42,4 +42,18 @@ class QuestBookLayerTest {
         assertTrue(QuestBookScreen.CHROME_Z < QuestBookScreen.MODAL_Z);
         assertTrue(QuestBookScreen.MODAL_Z < QuestBookScreen.TOOLTIP_Z);
     }
+
+    @Test
+    @DisplayName("the chrome band clears the canvas's own item layer, which is what a docked column needs")
+    void theChromeClearsTheCanvasItems() {
+        // The fact a docked column rests on, and the one this pair of tests was missing. A node's item icon
+        // is rendered at Z = 150 *and writes depth*, so the column that floats over the graph has to clear
+        // that layer by depth rather than by draw order -- which is why the graph can be drawn at all with a
+        // column open, and why it is hidden only for a modal card.
+        //
+        // Without this, the two assertions above would still pass while a change to CHROME_Z quietly made a
+        // column trade places with the node icons underneath it.
+        assertTrue(QuestBookScreen.CHROME_Z > ITEM_Z,
+                "the chrome band (the docked column, the tools panel) must clear the canvas's item icons");
+    }
 }

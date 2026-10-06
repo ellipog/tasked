@@ -178,10 +178,23 @@ public final class ServerEditors {
             open.put(chapter, editor);
         }
         com.google.gson.JsonObject all = new com.google.gson.JsonObject();
-        for (String id : editor.questIds()) {
+        // **The editor's own entries, not the manifest's names.** Iterating `questIds()` meant this loop spoke
+        // the manifest's vocabulary (file names) while `quest()` answers to the declared ids -- so for a pack
+        // whose two differ, every lookup missed and the replica went out carrying *nothing*, which the panel
+        // can only read as "the copy has not arrived". Reading the entries the editor holds removes the
+        // question entirely: there is no second vocabulary to agree with.
+        for (String id : editor.declaredIds()) {
             JsonFile quest = editor.quest(id);
             if (quest != null) {
-                all.add(id, quest.root().deepCopy());
+                // **Both keys, one file.** Its two readers speak different vocabularies: the quest card reads
+                // the tree's declared ids, and the chapter tab lists the manifest's file names and looks those
+                // up. One copy under two keys, so neither has to translate.
+                com.google.gson.JsonObject copy = quest.root().deepCopy();
+                all.add(id, copy);
+                String stem = editor.stemOf(id);
+                if (!stem.equals(id)) {
+                    all.add(stem, copy);
+                }
             }
         }
         return all;

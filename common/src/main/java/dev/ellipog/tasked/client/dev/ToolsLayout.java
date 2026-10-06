@@ -2,6 +2,7 @@ package dev.ellipog.tasked.client.dev;
 
 import dev.ellipog.armature.client.ui.CanvasBackground;
 import dev.ellipog.armature.client.ui.ThemeToken;
+import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.kit.Insets;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
@@ -9,6 +10,7 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.client.BookGeometry;
+import dev.ellipog.tasked.client.PanelLayout;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -52,14 +54,14 @@ public final class ToolsLayout {
     // Metrics
     // ------------------------------------------------------------------
 
-    /** The panel's width. Narrow enough to leave most of a canvas, wide enough for a name and a hex. */
-    public static final int WIDTH = 300;
-
-    /** Between the panel and the canvas' edges, and between the panel's own bands. */
+    /**
+     * Between the panel and the canvas' edges, and between the panel's own bands.
+     *
+     * <p>The same number as {@code BookGeometry.PANEL_GAP}, and the same reason: the dock takes the rail
+     * every column takes, so its gap is that rail's gap. It is a separate constant because it also spaces
+     * this panel's own bands, which the rail knows nothing about.
+     */
     public static final int GAP = 6;
-
-    /** The narrowest panel worth drawing. Below this the canvas keeps its room and the panel clamps. */
-    public static final int MIN_WIDTH = 180;
 
     /** The tab strip: the Book panel and the Chapter panel, side by side above the list. */
     public static final int TAB_HEIGHT = 16;
@@ -203,6 +205,22 @@ public final class ToolsLayout {
     public static final String COLOUR_SECTION = "section:colours";
 
     /**
+     * The chapter tab's four sections, in the order the file reads: what the chapter is, its rules, its
+     * group, and the quests it lists.
+     *
+     * <h2>Why the panel owns these keys rather than the chapter's own layout</h2>
+     *
+     * <p>Because a section key is a fact about <b>this panel</b> -- what folds, in which band, drawn with
+     * which rule -- and the chapter's rows are this panel's rows now. The chapter's layout keeps the keys
+     * that name a <i>field</i> (its own {@code title}, {@code aliases}, the group's prefixed ones), because
+     * those are the paths a commit goes to; these four name nothing in the file, only a fold.
+     */
+    public static final String CHAPTER_IDENTITY = "h:identity";
+    public static final String CHAPTER_RULES = "h:rules";
+    public static final String CHAPTER_GROUP = "h:group";
+    public static final String CHAPTER_QUESTS = "h:quests";
+
+    /**
      * Whether a heading is one that folds — the predicate both the panel and the screen must read.
      *
      * <h2>Why this is a predicate and not a comment</h2>
@@ -213,11 +231,17 @@ public final class ToolsLayout {
      * could fold it, and the Quest Book heading was the same. One predicate, used by the drawing and by
      * the widget pass and asserted to cover every section, is what makes the next heading unable to
      * repeat it.
+     *
+     * <p><b>Nine keys now, and the four chapter ones are the same rule one tab over.</b> A heading folds
+     * when it is a section, whichever file the section is about; the panel draws the rule for all nine and
+     * the screen gives all nine a widget, which is what {@code ToolsLayoutTest} asserts by name.
      */
     public static boolean folds(String key) {
         return APPEARANCE_SECTION.equals(key) || BOOK_SECTION.equals(key)
                 || CANVAS_SECTION.equals(key) || COLOUR_SECTION.equals(key)
-                || PALETTE_SECTION.equals(key);
+                || PALETTE_SECTION.equals(key)
+                || CHAPTER_IDENTITY.equals(key) || CHAPTER_RULES.equals(key)
+                || CHAPTER_GROUP.equals(key) || CHAPTER_QUESTS.equals(key);
     }
 
     /**
@@ -290,6 +314,23 @@ public final class ToolsLayout {
      */
     public static Hovered helpAt(List<Action> rows, Layout layout, Viewport view,
                                  int mouseX, int mouseY) {
+        return helpAt(rows, layout, view, mouseX, mouseY, ToolsLayout::help);
+    }
+
+    /**
+     * The same, with the sentences supplied by the caller.
+     *
+     * <h2>Why there are two help tables</h2>
+     *
+     * <p>Because the chapter tab's rows are a file's rows, and the sentences that explain a file's fields
+     * live with the rows that name them ({@code ChapterPanelLayout.help}). Copying them into this class's
+     * table would put every chapter sentence in a second place, and leave the class that owns them unable to
+     * change one on its own. So the table is a parameter, and the one-table caller passes nothing.
+     */
+    public static Hovered helpAt(List<Action> rows, Layout layout, Viewport view,
+                                 int mouseX, int mouseY,
+                                 java.util.function.Function<String, String> help) {
+        Objects.requireNonNull(help, "help");
         if (rows == null || layout == null || view == null) {
             return null;
         }
@@ -298,9 +339,9 @@ public final class ToolsLayout {
             if (slot == null) {
                 continue;
             }
-            String help = help(row.key());
-            if (help != null && onScreen(view, slot).contains(mouseX, mouseY)) {
-                return new Hovered(row.key(), help);
+            String sentence = help.apply(row.key());
+            if (sentence != null && onScreen(view, slot).contains(mouseX, mouseY)) {
+                return new Hovered(row.key(), sentence);
             }
         }
         return null;
@@ -366,7 +407,17 @@ public final class ToolsLayout {
     }
 
     /**
-     * The frame, from the rail the panel floats in, shaped by the tab it is for.
+     * The frame, from the rail the dock occupies, shaped by the tab it is for.
+     *
+     * <h2>The rail is the caller's, and it is the same rail a docked panel gets</h2>
+     *
+     * <p>{@code rail} is a {@code BookGeometry.panelRail(...)} -- the canvas's right edge, one
+     * {@code PANEL_GAP} in, as tall as the canvas -- which is the rectangle every docked column is anchored
+     * by. This class used to compute its own panel inside a rail that started below the author's pills,
+     * which was true while the pills floated over this corner: the drawer and a column shared one column of
+     * the arrangement but not one edge, so swapping between them moved the panel's top by the pill band.
+     * The pills are in the canvas's other corner now, so the drawer takes the column's rail and the two
+     * line up to the pixel.
      *
      * <h2>Four bands, and the list is what is left</h2>
      *
@@ -377,67 +428,32 @@ public final class ToolsLayout {
      * rows". The one asymmetry left is the actions row, which is the book tab's alone: Revert and Save
      * write the player's own theme file, and a chapter's edits are the chapter file's own, undone with
      * the editor's undo.
-     *
-     * <p>The rail, not the canvas: the drawer starts below the author's pills (see
-     * {@code BookGeometry.authorRail}), so the pills never move when it opens and the drawer's first row
-     * is not under a control floating over it.
      */
     public static Frame frame(BookGeometry.Rect rail, Tab tab) {
-        // Wide as designed, narrow rather than absent on a rail with no room for it, and never wider
-        // than the rail it is docked to -- a panel hanging off the left edge of a small window is what
-        // the first version of this did, and its own test said so.
-        int width = Math.min(Math.min(WIDTH, Math.max(MIN_WIDTH, rail.width() - 40)),
-                Math.max(0, rail.width()));
-        int height = Math.max(0, rail.height() - GAP * 2);
-        BookGeometry.Rect panel = BookGeometry.Rect.at(
-                Math.max(rail.x(), rail.right() - width - GAP), rail.y() + GAP, width, height);
+        // **The shared frame, with the one thing this dock decides for itself: whether it has a footer.**
+        // Revert and Save are the Book tab's, and a chapter's edits are committed as they are made, so the
+        // Chapter tab reserves a band for nothing -- which is why the height is an argument rather than the
+        // card's constant. See `PanelLayout.frame`, which owns the three bands for every column now.
+        PanelLayout.Frame bands = PanelLayout.frame(rail, false,
+                tab == Tab.BOOK ? BookGeometry.MODAL_FOOTER_HEIGHT : 0);
 
-        // **One pass, top to bottom, each band taking what is left.** It was two stacks -- the header
-        // downward and the band upward -- which is fine on a tall panel and wrong on a short one: the two
-        // met in the middle and overlapped, and a rail too small for the panel's own chrome is a
-        // perfectly ordinary thing to open (a small window, a resized game). Here every band is placed
-        // after the one above it and clamped to the panel, so the order is a property of the code rather
-        // than of the numbers -- and a band with no room left collapses to nothing instead of landing on
-        // top of another.
-        int inner = Math.max(0, width - GAP * 2);
-        int x = panel.x() + GAP;
-        int cursor = panel.y() + GAP;
-        int floor = panel.bottom() - GAP;
+        // The tab strip, **centred in the header**: that band is this panel's title band, and the strip is
+        // what names it. Pinned to the top it read as a card's header with its title missing -- the band's
+        // own height is the card's, because a panel that renamed it would be a panel with a second frame.
+        BookGeometry.Rect header = bands.header();
+        int tabsTop = header.y() + Math.max(0, (header.height() - TAB_HEIGHT) / 2);
+        BookGeometry.Rect tabs = BookGeometry.Rect.at(header.x() + BookGeometry.MODAL_INSET, tabsTop,
+                Math.max(0, header.width() - BookGeometry.MODAL_INSET * 2),
+                Math.min(TAB_HEIGHT, header.height()));
 
-        BookGeometry.Rect tabs = take(x, cursor, inner, TAB_HEIGHT, floor);
-        cursor = tabs.bottom();
-
-        // No status line under the strip: every message that used to land there also goes to a toast
-        // (see `QuestBookScreen.status`), so the band was a second copy of a thing the player had
-        // already been told.
-        int listTop = cursor + SECTION_GAP;
-        BookGeometry.Rect actions = empty(x, cursor);
-        int listFloor = floor;
-        if (tab == Tab.BOOK) {
-            actions = take(x, floor - ACTION_ROW, inner, ACTION_ROW, floor);
-            listFloor = Math.max(listTop, actions.y() - GAP);
-        }
-        BookGeometry.Rect list = take(x, listTop, inner, Math.max(0, listFloor - listTop), floor);
-        return new Frame(panel, tabs, list, actions);
+        return new Frame(bands.rail(), tabs, bands.body(), bands.footer());
     }
 
-    /** An empty band: inside whatever rectangle it is asked for, and holding nothing. */
-    private static BookGeometry.Rect empty(int x, int y) {
-        return BookGeometry.Rect.at(x, y, 0, 0);
-    }
+    // (`empty` and `take` stood here: the two helpers the dock's own band arithmetic walked top to bottom,
+    // clamping each band into the panel. They are gone with it -- `PanelLayout.frame` owns that walk for every
+    // column now, and leaves this class the one thing it still decides, which is whether it has a footer at
+    // all. A second arithmetic beside the shared one is what this round existed to delete.)
 
-    /**
-     * A band, given the cursor and how tall it would like to be: never past the panel's floor.
-     *
-     * <p>The <b>y</b> is clamped as well as the height, and that is not belt and braces: once a panel is
-     * too short for the bands above it, the cursor walks past the floor, and a zero-height band placed
-     * there is a rectangle outside its own container -- which is exactly what the band test found on an
-     * 80x60 canvas. Two clamps, one invariant: every band is inside the panel.
-     */
-    private static BookGeometry.Rect take(int x, int y, int width, int wanted, int floor) {
-        int at = Math.min(y, floor);
-        return BookGeometry.Rect.at(x, at, width, Math.max(0, Math.min(wanted, floor - at)));
-    }
 
     // ------------------------------------------------------------------
     // The rows
@@ -481,8 +497,15 @@ public final class ToolsLayout {
      * is a colour as an inline swatch whose press opens the picker. None of them is pressed by being
      * selected, which is what the old {@code ROW} meant for colours -- the redesign's whole point is that
      * the control is at the row rather than in a footer under it.
+     *
+     * <p><b>And a {@code value} is the one kind with no control at all</b>: a label and a fact the panel
+     * itself draws, which is what the chapter tab needs for a file's description and for the quests the
+     * chapter lists. It arrived with that tab, and it is the kind that makes "every row is a control" a
+     * describable exception rather than an assumption: a reader of the dispatch below can see that one kind
+     * is drawn and never pressed.
      */
-    public record Action(String key, String label, String buttonLabel, Kind kind, Action right) {
+    public record Action(String key, String label, String buttonLabel, Kind kind, Action right,
+                         String value) {
 
         public enum Kind {
             /** A label with a button in the strip at its right. */
@@ -498,24 +521,76 @@ public final class ToolsLayout {
             /** A label and a value chosen from a short list. */
             CHOICE,
             /** A label and an inline colour chip. */
-            CHIP
+            CHIP,
+            /**
+             * A label and a text box: the chapter tab's fields, and the book's name.
+             *
+             * <p>The book's two text rows were built by key inside the screen's own loop, because a field
+             * in this panel used to mean a <i>number</i> ({@code FIELD}, a {@code ScrubField}). A word is
+             * not a number, so a word's row is a kind of its own -- and the chapter tab, which is four
+             * text fields, is what made that worth saying rather than special-casing twice more.
+             */
+            TEXT,
+            /**
+             * A label and a button that opens something: the chapter's item pickers, which show the item
+             * they name and open a card when pressed.
+             *
+             * <p>Distinct from {@link #SWITCH}, whose button states a condition and changes it in place,
+             * and from {@link #ROW}, which <i>is</i> the control and so has no label of its own.
+             */
+            BUTTON,
+            /**
+             * A label and a value the panel draws, with no widget.
+             *
+             * <p>Nothing is placed for it, so a press it answers is one the <i>screen</i> hit-tests from
+             * the row's own rectangle -- which the chapter tab's quest rows do, because their press is a
+             * reorder drag. A widget there would take the press first and leave the drag nothing to grab,
+             * which is why "pressable but widgetless" is this kind rather than {@link #ROW}.
+             */
+            VALUE
         }
 
         public static Action toggle(String key, String label, String buttonLabel) {
-            return new Action(key, label, buttonLabel, Kind.SWITCH, null);
+            return new Action(key, label, buttonLabel, Kind.SWITCH, null, null);
         }
 
         public static Action row(String key, String label) {
-            return new Action(key, label, null, Kind.ROW, null);
+            return new Action(key, label, null, Kind.ROW, null, null);
         }
 
         public static Action heading(String key, String label) {
-            return new Action(key, label, null, Kind.HEADING, null);
+            return new Action(key, label, null, Kind.HEADING, null, null);
         }
 
         /** A numeric row: its label, and a field across the row's own width. */
         public static Action field(String key, String label) {
-            return new Action(key, label, null, Kind.FIELD, null);
+            return new Action(key, label, null, Kind.FIELD, null, null);
+        }
+
+        /**
+         * A text row: its label, and the word the field is holding.
+         *
+         * <p>The value rides here for the same reason a read-only row's does -- it is a fact about a file,
+         * and the alternative is every text field's key in a second table inside the screen.
+         */
+        public static Action text(String key, String label, String value) {
+            return new Action(key, label, null, Kind.TEXT, null, value == null ? "" : value);
+        }
+
+        /** A row whose button opens something, labelled with what it currently names. */
+        public static Action button(String key, String label, String value) {
+            return new Action(key, label, null, Kind.BUTTON, null, value == null ? "" : value);
+        }
+
+        /**
+         * A read-only row: its label, and the fact the panel draws beside it.
+         *
+         * <p>The value rides in the record rather than being looked up from the key, because the two rows
+         * that want it are facts about a file -- a description's text, a quest's position and id -- and a
+         * table of those would be a second copy of the file.
+         */
+        public static Action value(String key, String label, String value) {
+            return new Action(key, label, null, Kind.VALUE, null, value == null ? "" : value);
         }
 
         /**
@@ -529,17 +604,30 @@ public final class ToolsLayout {
         public static Action pair(Action left, Action right) {
             Objects.requireNonNull(left, "left");
             Objects.requireNonNull(right, "right");
-            return new Action(left.key(), left.label(), null, Kind.PAIR, right);
+            return new Action(left.key(), left.label(), null, Kind.PAIR, right, null);
         }
 
         /** A label and a value chosen from a list. The screen supplies the options. */
         public static Action choice(String key, String label) {
-            return new Action(key, label, null, Kind.CHOICE, null);
+            return new Action(key, label, null, Kind.CHOICE, null, null);
+        }
+
+        /**
+         * The same, with the value the file holds for it.
+         *
+         * <p>A choice's current value is normally the screen's to find ({@code choiceLabel}), because the
+         * value is in the draft the screen is editing. The chapter tab's choices are the exception that
+         * proves the shape: their vocabulary is the <i>file's</i> -- nine axes with their own names and
+         * their own unset state -- so the layout that reads the file states the word, and the screen only
+         * has to name it.
+         */
+        public static Action choice(String key, String label, String value) {
+            return new Action(key, label, null, Kind.CHOICE, null, value == null ? "" : value);
         }
 
         /** A label and an inline colour chip. */
         public static Action chip(String key, String label) {
-            return new Action(key, label, null, Kind.CHIP, null);
+            return new Action(key, label, null, Kind.CHIP, null, null);
         }
 
         public boolean hasButton() {
@@ -938,28 +1026,75 @@ public final class ToolsLayout {
 
     /** The list as an unbuilt stack. See {@code DevLayout.stack} for why the gaps go before each row. */
     public static Stack stack(List<Action> rows) {
+        return stack(rows, InspectLayout.Mode.SIDE_BY_SIDE);
+    }
+
+    /**
+     * The same stack, composed the way the tab asked for it.
+     *
+     * <h2>Why the mode reaches this far down</h2>
+     *
+     * <p>Because the two tabs of one panel are two widths of problem. The book tab's rows are switches,
+     * chips and numbers at the dock's own width; the chapter tab's are a file's labelled fields, and its
+     * longest label is longer than any strip this panel reserves -- which is why {@code ChapterPanelLayout}
+     * shortened its words <i>and then</i> stacked them, in that order, and why the stacking is what has to
+     * survive the move onto these rows. It is the kit's own idea and the kit's own numbers
+     * ({@link InspectLayout.Mode}), so this reads that vocabulary rather than inventing a second one: a
+     * stacked row gets the label's band and the control's band beneath it, which is what
+     * {@link InspectLayout#labelBand} and {@link InspectLayout#controlBand} hand out to the drawing and to
+     * whoever places the widget, so the two cannot disagree about where the line between them is.
+     */
+    public static Stack stack(List<Action> rows, InspectLayout.Mode mode) {
         Objects.requireNonNull(rows, "rows");
+        boolean stacked = mode == InspectLayout.Mode.STACKED;
 
         Stack stack = Stack.stack();
         for (int i = 0; i < rows.size(); i++) {
             Action row = rows.get(i);
             if (i > 0) {
-                stack.gap(row.isHeading() ? SECTION_GAP : ROW_GAP);
+                // The stacked composition breathes more between its rows, because a stacked row is two
+                // bands and the label above the next control would otherwise read as part of the control
+                // above it. Both numbers are the inspector's, which is where the composition came from.
+                stack.gap(row.isHeading()
+                        ? (stacked ? InspectLayout.STACKED_SECTION_GAP : SECTION_GAP)
+                        : (stacked ? InspectLayout.STACKED_ROW_GAP : ROW_GAP));
             }
             switch (row.kind()) {
                 case HEADING -> stack.row(row.key(), HEADING_HEIGHT);
-                case SWITCH -> stack.row(row.key(), SWITCH_HEIGHT, stripRoom());
-                // Every other kind is one row tall: a field (or a pair of them sharing the line), a
-                // choice, a chip.
-                case ROW, FIELD, PAIR, CHOICE, CHIP -> stack.row(row.key(), ROW_HEIGHT);
+                case SWITCH -> {
+                    if (stacked) {
+                        // The button spans the control band instead of sitting in a strip: there is no
+                        // strip in this composition, and a switch that kept one would be a 40-pixel button
+                        // under a label written for the whole width.
+                        stack.row(row.key(), InspectLayout.STACKED_ROW_HEIGHT);
+                    }
+                    else {
+                        stack.row(row.key(), SWITCH_HEIGHT, stripRoom());
+                    }
+                }
+                // Every other kind that carries a control *beside* its label: one row tall side by side, or
+                // the label's band and the control's band beneath it when stacked. A pair is one widget in
+                // either composition -- see `pairLeft`, which splits the row it is given.
+                case FIELD, PAIR, CHOICE, CHIP, TEXT, BUTTON -> stack.row(row.key(),
+                        stacked ? InspectLayout.STACKED_ROW_HEIGHT : ROW_HEIGHT);
+                // And the two kinds that are one line in both compositions, for the same reason: a row that
+                // *is* the control draws its own label, so there is no second band for it to stack into --
+                // a label drawn above a widget that prints the same name is the duplicate-string fault
+                // `drawRow`'s note records -- and a read-only row has no control at all.
+                case ROW, VALUE -> stack.row(row.key(), ROW_HEIGHT);
             }
         }
         return stack;
     }
 
     public static Layout build(List<Action> rows, int width, Measure measure) {
+        return build(rows, width, measure, InspectLayout.Mode.SIDE_BY_SIDE);
+    }
+
+    /** The same, composed the way the tab asked for it. See {@link #stack(List, InspectLayout.Mode)}. */
+    public static Layout build(List<Action> rows, int width, Measure measure, InspectLayout.Mode mode) {
         Objects.requireNonNull(measure, "measure");
-        return stack(rows).build(Math.max(0, width), measure);
+        return stack(rows, mode).build(Math.max(0, width), measure);
     }
 
     /** How wide a switch's button is, and its inset from the row's right edge. */
@@ -997,15 +1132,18 @@ public final class ToolsLayout {
         return dev.ellipog.armature.client.ui.inspect.InspectLayout.onScreen(view, slot);
     }
 
-    /** Revert and Save, side by side in the actions row. */
-    public static BookGeometry.Rect revert(BookGeometry.Rect actions) {
-        return BookGeometry.Rect.at(actions.x(), actions.y(), Math.max(0, (actions.width() - GAP) / 2),
-                actions.height());
+    /** Revert, in the footer band: the panels' own insets, and an ordinary control's height. */
+    public static BookGeometry.Rect revert(BookGeometry.Rect footer) {
+        return BookGeometry.Rect.at(footer.x() + BookGeometry.MODAL_INSET,
+                footer.y() + BookGeometry.MODAL_FOOTER_GAP,
+                Math.max(0, (footer.width() - BookGeometry.MODAL_INSET * 2 - GAP) / 2),
+                Math.min(BookGeometry.OVERLAY_CONTROL_HEIGHT, footer.height()));
     }
 
-    public static BookGeometry.Rect save(BookGeometry.Rect actions) {
-        BookGeometry.Rect revert = revert(actions);
-        return BookGeometry.Rect.at(revert.right() + GAP, actions.y(),
-                Math.max(0, actions.right() - revert.right() - GAP), actions.height());
+    public static BookGeometry.Rect save(BookGeometry.Rect footer) {
+        BookGeometry.Rect revert = revert(footer);
+        return BookGeometry.Rect.at(revert.right() + GAP, revert.y(),
+                Math.max(0, footer.right() - BookGeometry.MODAL_INSET - revert.right() - GAP),
+                revert.height());
     }
 }

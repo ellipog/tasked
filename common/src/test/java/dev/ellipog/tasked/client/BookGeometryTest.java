@@ -927,11 +927,22 @@ class BookGeometryTest {
                 "the pill's mat is painted outside the canvas it sits on");
         assertTrue(geometry.pillMat().height() > BookGeometry.ROW_HEIGHT,
                 "the mat exists to make the pill read as a control: " + geometry.pillMat());
-        // And the drawer's rail starts below the pill: the editor writes chapter appearance into this
-        // panel, and a rail running up through the band would put its first row under a floating control.
-        assertTrue(geometry.authorRail().y() >= geometry.pillMat().bottom(),
-                "the inspector's rail starts through the pill band rather than under it: "
-                        + geometry.authorRail() + " vs " + geometry.pillMat());
+        // The drawer's rail is a column's rail now: anchored to the canvas's right edge, one gap in, and
+        // starting at the canvas's own top edge -- the band that used to be reserved under the pills is
+        // gone with their move to the other corner. **The two are not asserted apart**, deliberately: a
+        // column may cover the canvas, and on a window too narrow for a 300-pixel dock and two pills they
+        // overlap, which is what a narrow window means. That the rail is inside the canvas, inset by the
+        // gap, is asserted for every width in the docked-column sweep above, where the arithmetic lives.
+        for (int[] size : sizes()) {
+            BookGeometry window = new BookGeometry(size[0], size[1]);
+            Rect rail = window.panelRail(PanelStack.WIDTH);
+            String at = " at " + size[0] + "x" + size[1];
+
+            assertEquals(window.canvas().y() + BookGeometry.PANEL_GAP, rail.y(),
+                    () -> "the drawer's rail does not start at the canvas's own top edge" + at);
+            assertEquals(window.canvas().right() - BookGeometry.PANEL_GAP, rail.right(),
+                    () -> "and it is not anchored to the canvas's right edge" + at);
+        }
     }
 
     @Test
@@ -959,6 +970,28 @@ class BookGeometryTest {
         assertTrue(edit.isInside(geometry.pillMat()),
                 "the Edit pill is outside the mat drawn behind it: " + edit + " vs "
                         + geometry.pillMat());
+
+        // And where the pair sits: in the view cluster's corner, anchored *on* the cluster rather than on
+        // the canvas's right edge. One EDGE of air control to control, and the two mats closer than that by
+        // VIEW_MAT -- which is the seam that keeps the clusters reading as two groups rather than one long
+        // strip of five controls. Swept over the window sizes, because the canvas's width is what the pair
+        // has to fit inside and the narrow canvas is the case that would put a pill over a map button.
+        for (int[] size : sizes()) {
+            BookGeometry window = new BookGeometry(size[0], size[1]);
+            Rect cluster = window.viewControls();
+            Rect assetsHere = window.assetsPill();
+            String at = " at " + size[0] + "x" + size[1];
+
+            assertEquals(cluster.right() + BookGeometry.EDGE, assetsHere.x(),
+                    () -> "the pills no longer start one EDGE from the cluster" + at);
+            assertFalse(cluster.intersects(assetsHere),
+                    () -> "the Assets pill is over the view cluster" + at);
+            assertTrue(window.pillMat().x() >= cluster.right()
+                            + BookGeometry.EDGE - BookGeometry.VIEW_MAT,
+                    () -> "the two mats are closer than the seam the clusters keep" + at);
+            assertTrue(window.editPill().right() <= window.canvas().right(),
+                    () -> "the pair runs off the canvas it is drawn on" + at);
+        }
     }
 
     @Test
@@ -1048,5 +1081,169 @@ class BookGeometryTest {
                 List.of("close", "rewards", "party", "settings", "editPill", "assetsPill",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
+    }
+
+    // ------------------------------------------------------------------
+    // The docked column
+    // ------------------------------------------------------------------
+
+    /** Widths to sweep a column at: degenerate, the three the kinds ask for, and absurd. */
+    private static int[] columnWidths() {
+        return new int[] {0, 1, -50, 100, PanelStack.MIN_WIDTH, PanelStack.SECOND_WIDTH,
+                PanelStack.WIDTH, PanelStack.MAX_WIDTH, PanelStack.WIDE_MIN_WIDTH, PanelStack.WIDE_WIDTH,
+                5_000};
+    }
+
+    @Nested
+    @DisplayName("the docked column")
+    class Docked {
+
+        @Test
+        @DisplayName("it is inside the canvas, inset by the gap, at every window size and width")
+        void itIsInsideTheCanvas() {
+            for (int[] size : sizes()) {
+                BookGeometry window = new BookGeometry(size[0], size[1]);
+                Rect canvas = window.canvas();
+                for (int width : columnWidths()) {
+                    Rect rail = window.panelRail(width);
+                    String at = " at " + size[0] + "x" + size[1] + ", width " + width;
+
+                    assertTrue(rail.width() >= 0 && rail.height() >= 0,
+                            () -> "a column of negative size is a crash waiting for a caller" + at);
+                    assertTrue(rail.x() >= canvas.x(), () -> "the column reached the chapter list" + at);
+                    assertTrue(rail.right() <= canvas.right(),
+                            () -> "the column ran off the canvas's outer edge" + at);
+                    assertEquals(canvas.right() - BookGeometry.PANEL_GAP, rail.right(),
+                            () -> "the column is anchored to the canvas's outer edge, one gap in" + at);
+
+                    if (canvas.width() >= BookGeometry.PANEL_GAP * 2
+                            && canvas.height() >= BookGeometry.PANEL_GAP * 2) {
+                        assertTrue(rail.isInside(canvas), () -> "the column left the canvas" + at);
+                        assertEquals(canvas.height() - BookGeometry.PANEL_GAP * 2, rail.height(),
+                                () -> "and keeps the same gap above and below" + at);
+                    }
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("a column wider than the canvas is clamped, not allowed to run off it")
+        void theWidthIsClampedToTheCanvas() {
+            for (int[] size : sizes()) {
+                BookGeometry window = new BookGeometry(size[0], size[1]);
+                Rect canvas = window.canvas();
+                Rect absurd = window.panelRail(5_000);
+
+                assertTrue(absurd.width() <= Math.max(0, canvas.width() - BookGeometry.PANEL_GAP * 2),
+                        "the widest a column gets leaves a gap on both sides of the canvas");
+                assertEquals(window.panelRail(canvas.width() - BookGeometry.PANEL_GAP * 2), absurd,
+                        "and asking for more than that is the same as asking for the cap");
+            }
+        }
+
+        @Test
+        @DisplayName("a window too small for a kind's floor draws the column at the canvas, and that is the rule")
+        void theCanvasWinsOverTheKindsFloor() {
+            // Two floors meet here and only one of them can win. `PanelStack.minimumWidth` is what the *drag*
+            // and a kind's own request are held to; the canvas is what the *drawing* is held to, because a
+            // column is anchored inside the canvas and may never reach the chapter list -- hiding the
+            // navigation to show a panel is the trade nobody asked for. On a window too small for the floor
+            // the canvas therefore wins, and the column is drawn narrower than its kind asked for. Written
+            // down because the alternative was a rule that lived in nobody's comment: the floor and the clamp
+            // are in two classes, and this is the one place that says which of them has the last word.
+            for (int[] size : new int[][] {{400, 300}, {320, 200}}) {
+                BookGeometry window = new BookGeometry(size[0], size[1]);
+                Rect rail = window.panelRail(PanelStack.WIDE_WIDTH);
+                String at = " at " + size[0] + "x" + size[1];
+
+                assertTrue(rail.width() < PanelStack.WIDE_MIN_WIDTH,
+                        () -> "a wide kind cannot keep its floor on a window this small" + at);
+                assertEquals(Math.max(0, window.canvas().width() - BookGeometry.PANEL_GAP * 2),
+                        rail.width(), () -> "the column is the canvas it was given and nothing else" + at);
+                assertTrue(rail.x() >= window.canvas().x(),
+                        () -> "and it still has not touched the chapter list" + at);
+            }
+        }
+
+        @Test
+        @DisplayName("a width of zero or less is a column of no width, never of negative width")
+        void aWidthOfNothingIsNothing() {
+            BookGeometry window = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
+            for (int width : new int[] {0, -1, Integer.MIN_VALUE}) {
+                assertEquals(0, window.panelRail(width).width(), "width " + width + " is no column at all");
+            }
+        }
+
+        @Test
+        @DisplayName("the second column sits one gap inside the first, and the two never overlap")
+        void theSecondColumnSitsInsideTheFirst() {
+            for (int[] size : sizes()) {
+                BookGeometry window = new BookGeometry(size[0], size[1]);
+                Rect canvas = window.canvas();
+                for (int firstWidth : new int[] {PanelStack.WIDTH, PanelStack.WIDE_WIDTH}) {
+                    Rect first = window.panelRail(firstWidth);
+                    for (int secondWidth : columnWidths()) {
+                        Rect second = window.panelRail2(secondWidth, firstWidth);
+                        String at = " at " + size[0] + "x" + size[1] + ", " + firstWidth + "+"
+                                + secondWidth;
+
+                        assertFalse(first.intersects(second),
+                                () -> "the two columns overlap" + at);
+                        assertTrue(second.width() >= 0, () -> "a negative second column" + at);
+                        assertEquals(first.x() - BookGeometry.PANEL_GAP, second.right(),
+                                () -> "the second column is one gap inside the first" + at);
+                        assertTrue(second.x() >= canvas.x(),
+                                () -> "the pair reached the chapter list" + at);
+                        assertTrue(second.isInside(canvas), () -> "it left the canvas" + at);
+                    }
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("with no room left, the second column is of no width rather than of negative width")
+        void noRoomMeansNoSecondColumn() {
+            // A narrow canvas: 240 of first column leaves nothing for a second one.
+            BookGeometry window = new BookGeometry(160, 300);
+            Rect first = window.panelRail(PanelStack.WIDE_WIDTH);
+            Rect second = window.panelRail2(PanelStack.SECOND_WIDTH, PanelStack.WIDE_WIDTH);
+
+            assertEquals(0, second.width(), "there is nowhere for it to go, so it is nothing");
+            assertEquals(first.x() - BookGeometry.PANEL_GAP, second.x(),
+                    "and it is placed where it would have been, rather than at the canvas's left edge");
+        }
+
+        @Test
+        @DisplayName("the handle is the column's inner edge, and is inside the column at every size")
+        void theHandleIsInsideTheColumn() {
+            for (int[] size : sizes()) {
+                BookGeometry window = new BookGeometry(size[0], size[1]);
+                for (int width : columnWidths()) {
+                    Rect rail = window.panelRail(width);
+                    Rect handle = BookGeometry.panelHandle(rail);
+                    String at = " at " + size[0] + "x" + size[1] + ", width " + width;
+
+                    assertTrue(handle.isInside(rail) || rail.width() == 0,
+                            () -> "the grab strip left the column" + at);
+                    assertEquals(rail.x(), handle.x(), () -> "it is on the inner edge" + at);
+                    assertEquals(Math.min(BookGeometry.PANEL_HANDLE, rail.width()), handle.width(),
+                            () -> "and is the handle's width, or the whole column when it is narrower"
+                                    + at);
+                    assertEquals(rail.height(), handle.height(),
+                            () -> "the whole height of the column is grabbable" + at);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("a wider column is never further right, and the anchor does not move")
+        void theAnchorDoesNotMove() {
+            BookGeometry window = new BookGeometry(900, 500);
+            Rect narrow = window.panelRail(PanelStack.MIN_WIDTH);
+            Rect wide = window.panelRail(PanelStack.WIDE_WIDTH);
+
+            assertEquals(narrow.right(), wide.right(), "both are anchored to the same edge");
+            assertTrue(wide.x() <= narrow.x(), "so a wider column grows towards the canvas");
+        }
     }
 }

@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ui.Theme;
 import dev.ellipog.armature.client.ui.ThemeToken;
 import dev.ellipog.armature.client.ui.Themes;
 import dev.ellipog.armature.client.ui.art.CanvasBackgroundArt;
+import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
@@ -109,6 +110,19 @@ public final class ToolsPanel {
      */
     public static void drawRows(GuiRenderer r, BookGeometry.Rect listRect, Viewport list, Layout layout,
                                 List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY) {
+        drawRows(r, listRect, list, layout, rows, state, mouseX, mouseY, InspectLayout.Mode.SIDE_BY_SIDE);
+    }
+
+    /**
+     * The same rows, composed the way the tab asked for it.
+     *
+     * <p>See {@link ToolsLayout#stack(List, InspectLayout.Mode)} for why the mode reaches the drawing at
+     * all: a stacked row's label sits in its own band, above the control's, and the band comes from the
+     * same {@code InspectLayout} call whoever places the widget makes.
+     */
+    public static void drawRows(GuiRenderer r, BookGeometry.Rect listRect, Viewport list, Layout layout,
+                                List<ToolsLayout.Action> rows, State state, int mouseX, int mouseY,
+                                InspectLayout.Mode mode) {
         Measure measure = textMeasure(r);
         try (GuiRenderer.Scoped clip = r.clip(listRect.x(), listRect.y(), listRect.right(),
                 listRect.bottom())) {
@@ -140,11 +154,38 @@ public final class ToolsPanel {
                 // next kind added cannot quietly become a label.
                 switch (row.kind()) {
                     case HEADING -> drawHeading(r, row, slot, onScreen, measure);
-                    case ROW -> drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
-                    case SWITCH -> drawSwitchLabel(r, row, slot, onScreen, measure);
+                    case ROW -> {
+                        // A row that is itself the control. Its *name* is the widget's in both
+                        // compositions -- see the note on `drawRow` -- so what is here is what the name
+                        // cannot say (a palette's four swatches, a colour's hex). Stacked, the widget simply
+                        // gets the whole row rather than a band beneath a label, which is why this needs no
+                        // stacked arm: there is nothing extra to draw.
+                        if (mode != InspectLayout.Mode.STACKED) {
+                            drawRow(r, row, slot, onScreen, measure, state, mouseX, mouseY);
+                        }
+                    }
+                    case SWITCH -> {
+                        if (mode == InspectLayout.Mode.STACKED) {
+                            drawStackedLabel(r, row, slot, list, measure);
+                        }
+                        else {
+                            drawSwitchLabel(r, row, slot, onScreen, measure);
+                        }
+                    }
                     // A field's label, and a choice's: the control beside it is a widget, so this is
-                    // the label and nothing else.
-                    case FIELD, CHOICE -> drawRowLabel(r, row, slot, onScreen, measure);
+                    // the label and nothing else -- and stacked, the label has the whole band, because
+                    // there is no box beside it to leave room for. A text row and a row whose button opens
+                    // something are the same shape: a label, and a control the screen places.
+                    case FIELD, CHOICE, TEXT, BUTTON -> {
+                        if (mode == InspectLayout.Mode.STACKED) {
+                            drawStackedLabel(r, row, slot, list, measure);
+                        }
+                        else {
+                            drawRowLabel(r, row, slot, onScreen, measure);
+                        }
+                    }
+                    // The one kind with no control: both lines are the panel's, in either composition.
+                    case VALUE -> drawValue(r, row, slot, onScreen, measure);
                     case PAIR -> {
                         // Two labels, one per half, from the same split the pair widget uses -- see
                         // `ToolsLayout.pairLeft`.
@@ -251,12 +292,54 @@ public final class ToolsPanel {
      */
     private static void drawRowLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
                                      Measure measure) {
-        int room = row.kind() == ToolsLayout.Action.Kind.CHOICE
-                ? ToolsLayout.LABEL_ROOM
-                : Math.min(ScrubField.BOX_WIDTH, Math.max(0, slot.width() / 2));
+        // The room the control leaves. A chooser, a text box and a picker button are all placed by
+        // `ToolsLayout.valueField(slot, LABEL_ROOM)` -- the same number the layout reserved -- while a
+        // numeric field's box is right-aligned at its own width (`ScrubField.BOX_WIDTH`).
+        int room = switch (row.kind()) {
+            case CHOICE, TEXT, BUTTON -> ToolsLayout.LABEL_ROOM;
+            default -> Math.min(ScrubField.BOX_WIDTH, Math.max(0, slot.width() / 2));
+        };
         int width = Math.max(0, slot.width() - room - 6);
         r.text(Measure.truncate(Labels.of(row.label()), width, measure), onScreen.x() + 2,
                 textY(slot, onScreen, r), ArmatureTheme.body());
+    }
+
+    /**
+     * A row's label in the stacked composition: its own band, and the whole width of it.
+     *
+     * <p>There is no strip to stop short of, which is the whole of what stacking buys a narrow dock -- the
+     * label gets the row's width instead of what a control's box leaves, so a long field name
+     * ("Default Prerequisite Mode") is drawn rather than truncated. The band is
+     * {@link InspectLayout#labelBand}, the same call whoever places the widget makes, so the label and the
+     * control cannot disagree about where the line between them is.
+     */
+    private static void drawStackedLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Viewport list,
+                                         Measure measure) {
+        Slot band = InspectLayout.onScreen(list, InspectLayout.labelBand(slot));
+        r.text(Measure.truncate(Labels.of(row.label()), band.width(), measure), band.x(),
+                textY(band, band, r), ArmatureTheme.body());
+    }
+
+    /**
+     * A read-only row: its label at the left, and the fact it carries from the middle.
+     *
+     * <p>The one kind with no control and no widget to place. The value is drawn from the row's middle to
+     * its right edge and in the faint ink a secondary fact takes -- the arrangement the inspector's
+     * read-only rows already use, kept because these are the same rows: a chapter's description, and the
+     * quests it lists. Both halves are truncated, since both are a file's own text.
+     */
+    private static void drawValue(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                  Measure measure) {
+        int half = Math.max(0, slot.width() / 2);
+        r.text(Measure.truncate(Labels.of(row.label()), Math.max(0, half - 4), measure), onScreen.x(),
+                textY(slot, onScreen, r), ArmatureTheme.body());
+        String value = row.value();
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        int valueX = onScreen.x() + half;
+        r.text(Measure.truncate(value, Math.max(0, onScreen.right() - valueX), measure), valueX,
+                textY(slot, onScreen, r), ArmatureTheme.faint());
     }
 
     /**

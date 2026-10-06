@@ -387,12 +387,15 @@ public final class BookGeometry {
      * Enough canvas for the graph, the view cluster and the author's pills side by side.
      *
      * <p>It was "enough canvas to be worth showing beside the sidebar" -- 80, a judgement -- and the two
-     * floating clusters have made it an arithmetic term instead. The cluster occupies
-     * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the pills
-     * occupy {@code EDIT_PILL_WIDTH + EDGE} at its right, and one {@link #EDGE} between them is the least
-     * this can honestly call a canvas. What is left for the graph is the remainder, and it is written
-     * from the constants the clusters are placed with rather than measured by eye -- which is how the
-     * width that used to be a judgement became something a test can sweep.
+     * floating clusters have made it an arithmetic term instead. Both clusters are on the canvas's left
+     * now, so the term is that band read left to right: the view cluster occupies
+     * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the author's
+     * pills occupy {@code ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH} immediately right of it, one
+     * {@link #EDGE} is the air between the two, and the last {@link #EDGE} is the air at the canvas's right
+     * edge -- which is not spare: the tools dock and a docked column float there. What is left for the graph
+     * is the remainder, and it is written from the constants the clusters are placed with rather than
+     * measured by eye -- which is how the width that used to be a judgement became something a test can
+     * sweep.
      */
     public static final int MIN_CANVAS_WIDTH =
             (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + ASSETS_PILL_WIDTH + PILL_GAP
@@ -409,17 +412,23 @@ public final class BookGeometry {
     /**
      * The narrowest the panel gets.
      *
-     * <p>Two terms, and the canvas decides it now: the header's run of controls -- Close, Rewards,
-     * Party, Settings -- plus {@link #HEADER_TITLE_ROOM} for the book's own name, against
-     * {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}, which is what the two floating clusters need.
+     * <p>Two terms, and the canvas decides it: the header's run of controls -- Close, Rewards, Party,
+     * Settings -- plus {@link #HEADER_TITLE_ROOM} for the book's own name, against
+     * {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}, which is what the two floating clusters need. The
+     * canvas's term is <b>332</b> (156 of sidebar and 176 of canvas: the view cluster, the two author
+     * pills and the edges between them) and the header's is <b>238</b>, so the canvas is what binds.
      *
      * <p>The author's controls used to be two more terms in the header's sum, and that sum was the
-     * binding one -- 336. They float over the canvas instead now (see {@link #editPill()}), which takes
-     * them out of the row that measures the panel but adds them to the canvas term, and the minimum
-     * <i>falls</i> to 257: the header had been paying for controls that were only ever drawn over the
-     * graph. Both sums are still written from the constants the controls are placed with, so widening
+     * binding one at <b>336</b>. They float over the canvas instead now (see {@link #editPill()}), which
+     * takes them out of the row that measures the panel but adds them to the canvas term -- so the
+     * minimum fell, and the assets pill has since carried it back up from the 257 this note used to
+     * claim. Both sums are still written from the constants the controls are placed with, so widening
      * one moves this with it -- the header's own test caught exactly that when the rewards button
      * arrived, which is the drift it exists to catch.
+     *
+     * <p>The three figures above are prose, and no test reads them: the <i>sums</i> below are asserted
+     * and the sentence about them is not, which is how a stale 257 sat here unnoticed. Anyone who needs
+     * the number should read it off the two sums rather than trust this paragraph.
      */
     public static final int MIN_PANEL_WIDTH = Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
             HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
@@ -556,6 +565,34 @@ public final class BookGeometry {
      */
     public static final int MODAL_FOOTER_HEIGHT =
             MODAL_FOOTER_GAP + OVERLAY_CONTROL_HEIGHT + MODAL_INSET;
+
+    // --- the docked side panel -----------------------------------------------
+
+    /**
+     * The air around a docked column, and between two of them.
+     *
+     * <p>The tools dock's own {@code ToolsLayout.GAP}, and the same number for the same reason: a column
+     * touching the canvas's edge would read as a canvas that had been re-laid-out rather than as
+     * something floating over it. It costs six pixels of graph on each side, which is the trade the dock
+     * already makes.
+     */
+    public static final int PANEL_GAP = 6;
+
+    /**
+     * How wide the strip is that a press drags a column by.
+     *
+     * <p>On the column's <b>inner</b> edge and inside it, so the grab band is a pixel the column owns. A
+     * band reaching past that edge into the canvas would be a press that either resizes or answers the
+     * graph, and which of the two it was would come down to a rounding — the fault {@code ToolsLayout}
+     * records about its own clamp.
+     *
+     * <p><b>Deliberately narrower than {@link #MODAL_INSET}</b>, which is the inset every body already
+     * uses: the handle owns the outermost pixels of the column and no content may be drawn there, so the
+     * relation between the two numbers is what keeps a text field's first pixel from being a resize. It
+     * is asserted in {@code PanelLayoutTest} rather than left to be noticed — the same treatment the
+     * panel's minimum width gets.
+     */
+    public static final int PANEL_HANDLE = 5;
 
     // --- the full-screen overlay ---------------------------------------------
 
@@ -935,6 +972,69 @@ public final class BookGeometry {
     }
 
     // ------------------------------------------------------------------
+    // The docked column
+    // ------------------------------------------------------------------
+
+    /**
+     * The column a docked panel occupies: inside the canvas, against its right edge, never off the book.
+     *
+     * <h2>Why the width is a parameter rather than a constant here</h2>
+     *
+     * <p>Because it is the player's. Every other rectangle in this class follows from the window; this one
+     * follows from the window <i>and</i> a width the player drags and the settings file remembers, so it
+     * is the one position that cannot be a field. The arithmetic is still this class's, which is the point
+     * — {@code BookGeometryTest} sweeps window sizes and widths together, and the width a drag writes is
+     * the width the column draws at, because there is only one expression.
+     *
+     * <h2>The canvas is what it covers, and it never covers the sidebar</h2>
+     *
+     * <p>A column is anchored to the canvas's right edge and may cover the whole of it — that is what "the
+     * panel wins" means — but the cap is the canvas less a {@link #PANEL_GAP} on each side, so it can
+     * never reach the chapter list. Hiding the navigation to show a quest would be a trade nobody asked
+     * for: the list is how the reader gets anywhere else.
+     *
+     * <p>At the cap the column is the canvas minus a hair on each side, which reads as a full-page panel
+     * rather than as a slab pinned to one edge. A width of zero or less, or a canvas with no room at all,
+     * gives a zero-width rectangle rather than a negative one: a caller drawing nothing is a caller whose
+     * bug is visible, and a caller drawing a rectangle of negative width is a crash.
+     */
+    public Rect panelRail(int width) {
+        int limit = Math.max(0, canvas.width() - PANEL_GAP * 2);
+        int w = Math.max(0, Math.min(width, limit));
+        int h = Math.max(0, canvas.height() - PANEL_GAP * 2);
+        return Rect.at(canvas.right() - PANEL_GAP - w, canvas.y() + PANEL_GAP, w, h);
+    }
+
+    /**
+     * The second column: the same rail, one gap to the left of the first.
+     *
+     * <p>Anchored to the first rather than to the canvas, so the pair keeps their gap whatever the first
+     * column's width is — dragging the outer column moves the inner one, which is what makes the two read
+     * as one dock. The room it has is what is left of the canvas to the left of the first column, and it
+     * is <b>zero-width when there is none</b>: whether to fold instead is {@code PanelLayout}'s question,
+     * and it answers it before asking for this rectangle. Answering it here as null would give every
+     * caller a second thing to check for the same fact.
+     */
+    public Rect panelRail2(int width2, int width1) {
+        Rect first = panelRail(width1);
+        int limit = Math.max(0, first.x() - canvas.x() - PANEL_GAP * 2);
+        int w = Math.max(0, Math.min(width2, limit));
+        return Rect.at(first.x() - PANEL_GAP - w, first.y(), w, first.height());
+    }
+
+    /**
+     * The strip a press drags a column by: its inner edge, inside it.
+     *
+     * <p>Static, and takes the column, because it is a function of one rectangle and no window — the same
+     * shape {@link #modalBody} has, and for the same reason: a caller holding a column should be able to
+     * ask where its handle is without holding the geometry that produced it.
+     */
+    public static Rect panelHandle(Rect rail) {
+        return Rect.at(rail.x(), rail.y(), Math.min(PANEL_HANDLE, Math.max(0, rail.width())),
+                rail.height());
+    }
+
+    // ------------------------------------------------------------------
     // The positions that the drawing and the controls both need
     // ------------------------------------------------------------------
 
@@ -1103,36 +1203,39 @@ public final class BookGeometry {
     }
 
     /**
-     * The author's pills, in the canvas's top-right corner: a column, mirroring the view cluster.
+     * The author's pills, in the canvas's top-left corner: one row, beside the view cluster.
      *
      * <h2>Why the corner</h2>
      *
      * <p>The header belongs to the book and every player reads it, so the author's control left it for
-     * the corner that is already a control strip -- the view cluster's mirror on the far side. There is
-     * one pill, not a column: the Tools menu it used to open held only actions that are already keys
-     * (Undo, Redo, Snapping's switch, Alt+click's straighten), so it was retired rather than kept as a
-     * second floating control.
+     * the corner that is already a control strip -- and that strip is the <b>same</b> one the view cluster
+     * holds: the author's two controls sit immediately right of the three map buttons, in one row, rather
+     * than mirrored on the far side of the canvas. There is one pill, not a column: the Tools menu it used
+     * to open held only actions that are already keys (Undo, Redo, Snapping's switch, Alt+click's
+     * straighten), so it was retired rather than kept as a second floating control.
      *
-     * <p>Right-aligned on the canvas edge: the pill is the only one, and a pill that hugged the middle
-     * to reserve a slot for an absent neighbour would be exactly the dead space the split header was
-     * retired to remove.
+     * <p><b>Read left to right, the two clusters are one band</b> -- which is why {@link #MIN_CANVAS_WIDTH}
+     * is written as that band: the cluster's mat, {@link #EDGE} of air, the pills' own row, and {@link #EDGE}
+     * of air at the canvas's right edge, where the tools dock and a docked column float. Moving the pills
+     * from the right edge to here is therefore a placement with no arithmetic behind it: the sum it used to
+     * be read from is the sum it is now read from, in the other order.
      */
-    public Rect editPill() {
-        return Rect.at(canvas.right() - EDGE - EDIT_PILL_WIDTH, canvas.y() + EDGE,
-                EDIT_PILL_WIDTH, ROW_HEIGHT);
+    public Rect assetsPill() {
+        // One EDGE clear of the view cluster's own right edge, control to control: the mats then sit
+        // VIEW_MAT closer than that, which is the seam the two clusters keep.
+        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
     }
 
     /**
-     * The Assets pill, immediately left of Edit — the pairing the author's row now reads as.
+     * The Edit pill, immediately right of Assets — the pairing the author's row now reads as.
      *
-     * <p>Edit keeps the corner it has always had, so nothing that was true about that control's position
-     * stops being true; the new pill extends the row leftward. Wider than Edit's by a word rather than by
-     * taste: "Assets" is six characters to "Edit"'s four, and a pill that truncated its own label would be
-     * a control whose name depends on the font.
+     * <p>The order is the one the pair has always had (Assets left of Edit); what moved is the pair. Wider
+     * than Edit's by a word rather than by taste: "Assets" is six characters to "Edit"'s four, and a pill
+     * that truncated its own label would be a control whose name depends on the font.
      */
-    public Rect assetsPill() {
-        return Rect.at(editPill().x() - PILL_GAP - ASSETS_PILL_WIDTH, canvas.y() + EDGE,
-                ASSETS_PILL_WIDTH, ROW_HEIGHT);
+    public Rect editPill() {
+        return Rect.at(assetsPill().right() + PILL_GAP, canvas.y() + EDGE,
+                EDIT_PILL_WIDTH, ROW_HEIGHT);
     }
 
     /**
@@ -1147,26 +1250,13 @@ public final class BookGeometry {
                 editPill().right() - assetsPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
     }
 
-    /**
-     * The band the pill occupies at the top of the canvas, from the canvas edge to the bottom of its
-     * mat.
-     *
-     * <p>{@code (EDGE - VIEW_MAT) + ROW_HEIGHT + VIEW_MAT * 2}: the mat's overhang, the pill, and the mat
-     * again. The drawer beneath it is laid out from the rail this defines, so its first row is never
-     * under the control floating over it.
-     */
-    public static final int AUTHOR_PILL_BAND = (EDGE - VIEW_MAT) + ROW_HEIGHT + VIEW_MAT * 2;
-
-    /**
-     * The canvas minus the pill band, for the inspector drawer.
-     *
-     * <p>The drawer is the author's too, and it starts below the pills: a rail that ran up to the
-     * canvas's top edge would put its first row under a control floating over it.
-     */
-    public Rect authorRail() {
-        return Rect.at(canvas.x(), canvas.y() + AUTHOR_PILL_BAND, canvas.width(),
-                canvas.height() - AUTHOR_PILL_BAND);
-    }
+    // (`AUTHOR_PILL_BAND` and `authorRail()` stood here, and they are gone with the reason for them.)
+    //
+    // The inspector drawer used to be laid out from a canvas that started below the pills, because the
+    // pills floated over the canvas's top-RIGHT corner -- exactly where the drawer docks -- so a rail
+    // running to the canvas's top edge would have put its first row under a control. Moving the pills to
+    // the top-left removed that: the drawer's corner is empty, and it takes the same rail every docked
+    // panel takes (`panelRail`), which is what lines the two up when an author swaps between them.
 
     /**
      * The backing panel behind the three view buttons.
@@ -1238,14 +1328,16 @@ public final class BookGeometry {
         // the player's own settings.
         out.put("settings", settingsButton());
 
-        // The author's pill, over the canvas's top-right corner. Always in the map and drawn only for a
-        // player who may edit: geometry is what the overlap sweep checks, and a control that appeared in
-        // the map only sometimes would be a control the sweep tests in one build and not the next. It is
-        // placed here rather than with the view cluster below so that the map's source order still reads
-        // as the header first, then the canvas furniture -- the slot the old header pair occupied.
+        // The author's pill, in the canvas's top-left corner beside the view cluster. Always in the map and
+        // drawn only for a player who may edit: geometry is what the overlap sweep checks, and a control that
+        // appeared in the map only sometimes would be a control the sweep tests in one build and not the
+        // next. It is placed here rather than with the view cluster below so that the map's source order
+        // still reads as the header first, then the canvas furniture -- the slot the old header pair
+        // occupied.
         out.put("editPill", editPill());
         // And the Assets pill beside it, by the same convention and for the same reason: always in the map
-        // (so the overlap sweep tests it in every build) and drawn only for a player who may edit.
+        // (so the overlap sweep tests it in every build) and drawn only for a player who may edit. It is the
+        // one that sits nearest the cluster, so the pair reads left to right as Assets then Edit.
         out.put("assetsPill", assetsPill());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
@@ -1318,11 +1410,26 @@ public final class BookGeometry {
      * @return the bar's rectangle, or null when the footer has no Back to place it against
      */
     public Rect editorBar() {
-        Rect back = overlayControls(false).get("back");
+        return editorBar(modal());
+    }
+
+    /**
+     * The same bar, inside a surface the caller supplies.
+     *
+     * <h2>Why the surface became a parameter</h2>
+     *
+     * <p>Because the editor is drawn in a docked column as well as on a card, and the bar's whole rule is
+     * that it spans from the surface's inset to just short of Back — so a bar computed from the card while
+     * the editor sat in a column would have run past the column's edge on one side and stopped short of
+     * Back on the other. {@code questFooter} has taken its rectangle from the caller since the two cards
+     * were found to disagree about one panel; this is that same seam, one method further in.
+     */
+    public Rect editorBar(Rect surface) {
+        Rect back = questFooter(surface, false).get("back");
         if (back == null) {
             return null;
         }
-        int left = modal().x() + MODAL_INSET;
+        int left = surface.x() + MODAL_INSET;
         return Rect.at(left, back.y(), Math.max(0, back.x() - ROW_GAP * 2 - left), back.height());
     }
 

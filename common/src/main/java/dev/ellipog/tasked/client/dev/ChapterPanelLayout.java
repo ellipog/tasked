@@ -4,14 +4,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
-import dev.ellipog.armature.client.ui.inspect.InspectLayout;
-import dev.ellipog.armature.client.ui.inspect.InspectRow;
-import dev.ellipog.armature.client.ui.kit.Slot;
-import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tasked.quest.DependencyStyle;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -111,7 +106,7 @@ public final class ChapterPanelLayout {
     }
 
     /** The whole panel for one chapter's tree. */
-    public static List<InspectRow> rows(JsonObject chapter, Set<String> folded) {
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, Set<String> folded) {
         return rows(chapter, null, folded);
     }
 
@@ -126,7 +121,7 @@ public final class ChapterPanelLayout {
      * chapter's, which is what lets the two be set to different items rather than one inheriting the
      * other.
      */
-    public static List<InspectRow> rows(JsonObject chapter, GroupInfo group, Set<String> folded) {
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded) {
         return rows(chapter, group, folded, null);
     }
 
@@ -140,38 +135,44 @@ public final class ChapterPanelLayout {
      *
      * <p>Only reachable in edit mode now: without it the tab takes {@link #notEditing()} instead, so
      * every "has not arrived" here is about a request that really was made.
+     *
+     * <h2>These are the drawer's rows now, not the inspector's</h2>
+     *
+     * <p>{@code ToolsLayout.Action}, drawn by {@code ToolsPanel} -- the same record and the same drawer as
+     * the Book tab beside it. They were {@code InspectRow}s, drawn by {@code QuestPanel.drawRows}, with the
+     * cycling rows' arrows drawn by a third class and hit-tested by the screen: one tab of one panel built
+     * three ways, and the two halves of it could not be changed together. The keys and the values are
+     * unchanged, which is what kept the commits -- every one of them keyed by string -- untouched.
      */
-    public static List<InspectRow> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
-                                        String missingNote) {
-        List<InspectRow> rows = new ArrayList<>();
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
+                                                String missingNote) {
+        List<ToolsLayout.Action> rows = new ArrayList<>();
         if (chapter == null || chapter.isEmpty()) {
             String why = missingNote == null || missingNote.isBlank()
                     ? Labels.of("tasked.dev.chapter.missing_copy")
                     : Labels.of("tasked.dev.chapter.missing_copy_said", missingNote);
-            rows.add(InspectRow.value(VALUE_PREFIX + "none", "tasked.dev.chapter.chapter", why));
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "none", "tasked.dev.chapter.chapter", why));
             return List.copyOf(rows);
         }
 
-        rows.add(InspectRow.heading(IDENTITY,
-                (folded.contains(IDENTITY) ? "› " : "▼ ")
-                        + "tasked.dev.chapter.identity"));
+        rows.add(section(IDENTITY, "tasked.dev.chapter.identity", folded));
         if (!folded.contains(IDENTITY)) {
-            rows.add(InspectRow.field("title", "tasked.dev.chapter.title", text(chapter, "title", "")));
-            rows.add(InspectRow.field("subtitle", "tasked.dev.chapter.subtitle",
+            rows.add(ToolsLayout.Action.text("title", "tasked.dev.chapter.title",
+                    text(chapter, "title", "")));
+            rows.add(ToolsLayout.Action.text("subtitle", "tasked.dev.chapter.subtitle",
                     text(chapter, "subtitle", "")));
-            rows.add(InspectRow.field(ICON, "tasked.dev.chapter.icon", iconId(chapter)));
-            rows.add(InspectRow.value(VALUE_PREFIX + "description", "tasked.dev.chapter.description",
+            rows.add(ToolsLayout.Action.button(ICON, "tasked.dev.chapter.icon", iconId(chapter)));
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "description", "tasked.dev.chapter.description",
                     description(chapter)));
-            rows.add(InspectRow.field("aliases", "tasked.dev.chapter.aliases",
+            rows.add(ToolsLayout.Action.text("aliases", "tasked.dev.chapter.aliases",
                     String.join(", ", QuestPanelLayout.strings(chapter, "aliases"))));
         }
 
-        rows.add(InspectRow.heading(RULES,
-                (folded.contains(RULES) ? "› " : "▼ ")
-                        + "tasked.dev.chapter.rules"));
+        rows.add(section(RULES, "tasked.dev.chapter.rules", folded));
         if (!folded.contains(RULES)) {
             rows.add(choiceRow(chapter, PROGRESSION));
-            rows.add(toggle(chapter, "defaultConsumeItems"));
+            rows.add(ToolsLayout.Action.toggle("defaultConsumeItems", "tasked.dev.chapter.consume",
+                    flagOn(chapter, "defaultConsumeItems") ? ToolsLayout.ON : ToolsLayout.OFF));
             rows.add(choiceRow(chapter, PREREQUISITE));
             rows.add(choiceRow(chapter, AUTO_CLAIM));
             rows.add(choiceRow(chapter, LINE_FORM));
@@ -186,32 +187,50 @@ public final class ChapterPanelLayout {
             // Before the quest list, not after it: a chapter with twenty quests would push the group's
             // own fields below a scroll nobody makes, and the group is the thing this section exists to
             // make reachable.
-            rows.add(InspectRow.heading(GROUP,
-                    (folded.contains(GROUP) ? "› " : "▼ ")
-                            + "tasked.dev.chapter.group"));
+            rows.add(section(GROUP, "tasked.dev.chapter.group", folded));
             if (!folded.contains(GROUP)) {
-                rows.add(InspectRow.field(GROUP_PREFIX + "title", "tasked.dev.chapter.title",
+                rows.add(ToolsLayout.Action.text(GROUP_PREFIX + "title", "tasked.dev.chapter.title",
                         group.title()));
-                rows.add(InspectRow.field(GROUP_PREFIX + ICON, "tasked.dev.chapter.icon",
+                rows.add(ToolsLayout.Action.button(GROUP_PREFIX + ICON, "tasked.dev.chapter.icon",
                         group.iconId()));
-                rows.add(InspectRow.toggle(GROUP_PREFIX + "collapsedByDefault",
-                        group.collapsedByDefault() ? "tasked.dev.chapter.collapsed_on"
-                                : "tasked.dev.chapter.collapsed_off"));
+                rows.add(ToolsLayout.Action.toggle(GROUP_PREFIX + "collapsedByDefault",
+                        "tasked.dev.chapter.collapsed",
+                        group.collapsedByDefault() ? ToolsLayout.ON : ToolsLayout.OFF));
             }
         }
 
-        rows.add(InspectRow.heading(QUESTS,
-                (folded.contains(QUESTS) ? "› " : "▼ ")
-                        + "tasked.dev.chapter.quests"));
+        rows.add(section(QUESTS, "tasked.dev.chapter.quests", folded));
         if (!folded.contains(QUESTS)) {
             List<String> quests = QuestPanelLayout.strings(chapter, "quests");
             for (int i = 0; i < quests.size(); i++) {
                 String name = quests.get(i);
                 String id = name.endsWith(".json") ? name.substring(0, name.length() - 5) : name;
-                rows.add(InspectRow.value(VALUE_PREFIX + "quest:" + id, (i + 1) + ".", id));
+                // A read-only row: it holds no widget, and the press it does answer is the *drag* the
+                // screen hit-tests from these same rectangles (`chapterQuestRowRects`), which is why it
+                // stays a value row rather than becoming one whose widget is the row -- a widget would
+                // take the press first and the reorder would have nothing to grab.
+                rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "quest:" + id, (i + 1) + ".", id));
             }
         }
         return List.copyOf(rows);
+    }
+
+    /**
+     * One foldable section's heading: the marker, then the key the panel resolves.
+     *
+     * <p>The marker is part of the drawn string rather than a decoration the panel adds, because the
+     * layout is handed the fold state and the marker is part of the label's own width -- the convention
+     * {@code Labels.of} documents, and the one the Book tab's headings already follow.
+     */
+    private static ToolsLayout.Action section(String key, String label, Set<String> folded) {
+        return ToolsLayout.Action.heading(key, (folded.contains(key) ? "\u203a " : "\u25bc ") + label);
+    }
+
+    /** Whether one of the chapter's flags is on, as the file holds it. */
+    private static boolean flagOn(JsonObject chapter, String path) {
+        JsonElement found = chapter == null ? null : chapter.get(path);
+        return found != null && found.isJsonPrimitive() && found.getAsJsonPrimitive().isBoolean()
+                && found.getAsBoolean();
     }
 
     /**
@@ -228,8 +247,8 @@ public final class ChapterPanelLayout {
      * <p>A {@code VALUE} row deliberately: the screen builds no widget for one, so the not-editing tab
      * cannot show a field, a toggle or an arrow that looks pressable and silently does nothing.
      */
-    public static List<InspectRow> notEditing() {
-        return List.of(InspectRow.value(VALUE_PREFIX + "notEditing", "tasked.dev.chapter.chapter",
+    public static List<ToolsLayout.Action> notEditing() {
+        return List.of(ToolsLayout.Action.value(VALUE_PREFIX + "notEditing", "tasked.dev.chapter.chapter",
                 Labels.of("tasked.dev.chapter.not_editing")));
     }
 
@@ -405,22 +424,18 @@ public final class ChapterPanelLayout {
         };
     }
 
-    /** A row's values as the picker cycles them: the unset state first, then the file's own names. */
+    /**
+     * A row's values as its menu offers them: the unset state first, then the file's own names.
+     *
+     * <p>This is what the picker shows, in this order. It was the ring a pair of arrows stepped around --
+     * {@code cycleChoice} said where one press landed -- and the arrows are gone: the chooser opens the
+     * list and the author takes the value they want, which is the same control the book tab's choices use.
+     */
     public static List<String> choiceValues(Choice choice) {
         List<String> all = new ArrayList<>();
         all.add("");
         all.addAll(choice.values());
         return List.copyOf(all);
-    }
-
-    /** The value a step lands on, wrapping at both ends. Empty is the unset state. */
-    public static String cycleChoice(Choice choice, String current, int step) {
-        List<String> all = choiceValues(choice);
-        int at = all.indexOf(current == null ? "" : current.toLowerCase(Locale.ROOT));
-        if (at < 0) {
-            at = 0;
-        }
-        return all.get(Math.floorMod(at + step, all.size()));
     }
 
     /** A value as a person reads it; the unset state names the fallback it falls back to. */
@@ -465,73 +480,16 @@ public final class ChapterPanelLayout {
         return new Edit(DEPENDENCY_STYLE, style.isEmpty() ? null : style);
     }
 
-    /** One cycling row: a FIELD, which is what gives it a label band and a full-width control band. */
-    private static InspectRow choiceRow(JsonObject chapter, Choice choice) {
-        return InspectRow.field(choice.key(), choice.label(), choiceValue(chapter, choice));
-    }
-
-    // ------------------------------------------------------------------
-    // The picker's arrows: drawn and pressed from the same boxes
-    // ------------------------------------------------------------------
-
-    /** One arrow's size: the strip arrows' own, because it is the same gesture. */
-    public static final int CHOICE_ARROW_WIDTH = 16;
-    public static final int CHOICE_ARROW_HEIGHT = 14;
-    private static final int CHOICE_INSET = 2;
-
     /**
-     * A cycling row's two arrows, in the control band they are drawn in: down (the previous value) at
-     * the band's left edge, up (the next) at its right, and the value between them.
+     * One cycling row: a choice, which is what gives it a label and the chooser the drawer's other
+     * choices have.
      *
-     * <p>Derived from the band rather than stored, so the drawing and the press read one set of
-     * rectangles; see {@link #choiceStepAt}.
+     * <p>The value rides on the row because the vocabulary is the <i>file's</i> -- nine axes, each with
+     * its own names and its own unset state -- so the class that reads the file states the word and the
+     * screen only names it. See {@code ChapterPanelLayout.choiceLabel}.
      */
-    public static Map<String, Slot> choiceArrows(Slot band) {
-        int y = band.y() + (band.height() - CHOICE_ARROW_HEIGHT) / 2;
-        Map<String, Slot> arrows = new LinkedHashMap<>();
-        arrows.put("down", new Slot("down", band.x() + CHOICE_INSET, y,
-                CHOICE_ARROW_WIDTH, CHOICE_ARROW_HEIGHT));
-        arrows.put("up", new Slot("up",
-                Math.max(band.x() + CHOICE_INSET, band.right() - CHOICE_INSET - CHOICE_ARROW_WIDTH), y,
-                CHOICE_ARROW_WIDTH, CHOICE_ARROW_HEIGHT));
-        return arrows;
-    }
-
-    /** Where a cycling row's value is drawn: between the arrows, clear of both. */
-    public static Slot choiceValueSlot(Slot band) {
-        Map<String, Slot> arrows = choiceArrows(band);
-        Slot down = arrows.get("down");
-        Slot up = arrows.get("up");
-        return new Slot("value", down.right() + 4, band.y(),
-                Math.max(0, up.x() - down.right() - 8), band.height());
-    }
-
-    /**
-     * Which way a press at a screen point steps a cycling row: -1, +1, or null for a miss.
-     *
-     * <p>The caller maps the row and hands it over; the panel calls {@link #choiceArrows} with the band
-     * it is drawing. One derivation, so what is drawn is what is pressed -- the rule the tools panel's
-     * radius stepper learned first.
-     */
-    public static Integer choiceStepAt(Viewport view, Slot row, double mouseX, double mouseY) {
-        if (row == null) {
-            return null;
-        }
-        Slot band = InspectLayout.onScreen(view, InspectLayout.controlBand(row));
-        Map<String, Slot> arrows = choiceArrows(band);
-        for (String way : List.of("down", "up")) {
-            if (arrows.get(way).contains((int) mouseX, (int) mouseY)) {
-                return way.equals("down") ? -1 : 1;
-            }
-        }
-        return null;
-    }
-
-    private static InspectRow toggle(JsonObject chapter, String path) {
-        boolean on = chapter.has(path) && chapter.get(path).isJsonPrimitive()
-                && chapter.get(path).getAsJsonPrimitive().isBoolean() && chapter.get(path).getAsBoolean();
-        return InspectRow.toggle(path, on ? "tasked.dev.chapter.consume_on"
-                : "tasked.dev.chapter.consume_off");
+    private static ToolsLayout.Action choiceRow(JsonObject chapter, Choice choice) {
+        return ToolsLayout.Action.choice(choice.key(), choice.label(), choiceValue(chapter, choice));
     }
 
     private static String text(JsonObject object, String member, String fallback) {
