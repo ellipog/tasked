@@ -34,6 +34,20 @@ repositories {
         content { includeGroup('dev.ellipog') }
     }
 
+    // The same artefacts as everybody else gets them. Armature's release workflow publishes to
+    // https://maven.ellipog.dev on every tag, so this repo builds from a clone and nothing else --
+    // no sibling checkout to find, nothing to publish first, and no way for the two to disagree
+    // about which Armature is being compiled against.
+    //
+    // Declared *after* ArmatureLocal on purpose: a locally published version still wins during
+    // development, which is what makes it possible to build against an Armature change before that
+    // change has been released at all.
+    maven {
+        name = 'Ellipog'
+        url = 'https://maven.ellipog.dev'
+        content { includeGroup('dev.ellipog') }
+    }
+
     // https://docs.gradle.org/current/userguide/declaring_repositories.html#declaring_content_exclusively_found_in_one_repository
     exclusiveContent {
         forRepository {

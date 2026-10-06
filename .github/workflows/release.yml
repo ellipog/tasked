@@ -5,8 +5,9 @@
 # pre-release for now -- `prerelease: true` below is the single line to flip when a stable release
 # is wanted.
 #
-# Armature has to be released before this runs: Tasked compiles against Armature's published
-# artifact, and the step below checks out the Armature tag that matches `armature_version`.
+# Armature has to be released before this runs: Tasked compiles against the artefact Armature's own
+# release workflow publishes to maven.ellipog.dev, and this checks that `armature_version` is there
+# before building rather than letting it fail later as an unresolved coordinate.
 name: Build and Release
 
 on:
@@ -55,12 +56,17 @@ jobs:
           read_version() { sed -n "s/^$1=//p" gradle.properties | tr -d '\r' | head -n 1; }
           version="$(read_version version)"
           armature_version="$(read_version armature_version)"
+          minecraft_version="$(read_version minecraft_version)"
           if [ -z "$version" ]; then
             echo "::error::no version= line in gradle.properties"
             exit 1
           fi
           if [ -z "$armature_version" ]; then
             echo "::error::no armature_version= line in gradle.properties"
+            exit 1
+          fi
+          if [ -z "$minecraft_version" ]; then
+            echo "::error::no minecraft_version= line in gradle.properties"
             exit 1
           fi
           tag="v$version"
@@ -70,31 +76,34 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "armature_version=$armature_version" >> "$GITHUB_OUTPUT"
+          echo "minecraft_version=$minecraft_version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # Tasked compiles against the *published* Armature artifact, not its source tree, and resolves
-      # it only from Maven local (the `ArmatureLocal` repository in this repo's
-      # buildSrc/src/main/groovy/multiloader-common.gradle) -- so a clean runner has nothing to
-      # resolve without this. Both repos are public, so the default token can read Armature. The ref
-      # is the tag matching `armature_version`, which is why Armature is tagged first: if that tag
-      # does not exist this fails with "couldn't find remote ref refs/tags/v0.1.0".
-      - name: Check out Armature at the version Tasked compiles against
-        uses: actions/checkout@v7
-        with:
-          repository: ellipog/armature
-          ref: v${{ steps.version.outputs.armature_version }}
-          path: armature
-          fetch-depth: 1
-
-      - name: Publish Armature to the local Maven repository
-        working-directory: armature
+      # Tasked compiles against a *published* Armature, not its source tree, so the version this repo
+      # declares has to exist on the repository -- otherwise the failure arrives much later as a
+      # resolution error naming a coordinate, which does not say that the version was never released.
+      # One request, and it names which of the two numbers is wrong.
+      - name: Check Armature is published at the version Tasked compiles against
+        env:
+          BASE: https://maven.ellipog.dev
         run: |
-          set -o pipefail
-          chmod +x gradlew
-          ./gradlew :common:publishToMavenLocal --console=plain 2>&1 | tee "$RUNNER_TEMP/armature.log"
+          set -euo pipefail
+          version='${{ steps.version.outputs.armature_version }}'
+          mc='${{ steps.version.outputs.minecraft_version }}'
+          url="$BASE/dev/ellipog/armature-common-${mc}/${version}/armature-common-${mc}-${version}.pom"
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")" || {
+            echo "::error::could not reach $url (curl exit $?)"
+            exit 1
+          }
+          if [ "$code" != "200" ]; then
+            echo "::error::Armature $version is not published (HTTP $code at $url)"
+            echo "Release Armature first: bump its version, push the tag, and let its workflow publish."
+            exit 1
+          fi
+          echo "Armature $version is published: $url"
 
       # `build` includes `check` includes `test`, so the suite runs here without being named and a
       # failing test stops the release -- the same rule the local deploy script follows. The log is
