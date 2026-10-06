@@ -121,6 +121,15 @@ jobs:
           RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
           set -euo pipefail
+          # Secrets are pasted, and a pasted value carries a trailing space or newline often enough to
+          # plan for. One did: the account id arrived with a trailing space, which made the endpoint
+          # `https://<id> .r2.cloudflarestorage.com` and produced "Custom endpoint ... was not a valid
+          # URI" -- a message that reads as a wrong key rather than as a stray space. Trimmed here, so
+          # a whitespace-only value is also caught by the emptiness check below rather than surviving
+          # it as a malformed URL.
+          export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$(printf '%s' "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}" | tr -d '[:space:]')"
+          export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$(printf '%s' "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}" | tr -d '[:space:]')"
+          export RCLONE_CONFIG_R2_ENDPOINT="$(printf '%s' "${RCLONE_CONFIG_R2_ENDPOINT:-}" | tr -d '[:space:]')"
           missing=0
           for name in RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY RCLONE_CONFIG_R2_ENDPOINT; do
             if [ -z "${!name:-}" ]; then
@@ -275,7 +284,11 @@ jobs:
         run: |
           set -euo pipefail
           # rclone was installed by the credentials check above, which is why this does not install it
-          # a second time.
+          # a second time. The credentials are trimmed for the same reason they are there (see that
+          # step): a trailing space in a pasted secret is an invalid URI, not a wrong key.
+          export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$(printf '%s' "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}" | tr -d '[:space:]')"
+          export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$(printf '%s' "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}" | tr -d '[:space:]')"
+          export RCLONE_CONFIG_R2_ENDPOINT="$(printf '%s' "${RCLONE_CONFIG_R2_ENDPOINT:-}" | tr -d '[:space:]')"
           #
           # `copy`, never `sync`. Sync deletes whatever is at the destination and is not in the
           # source -- which here is every version ever published, Armature's included, because both
