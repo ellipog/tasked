@@ -480,7 +480,7 @@ class BookGeometryTest {
          * rather than a judgement.
          */
         private static final Set<String> CANVAS_CONTROLS =
-                Set.of("zoomIn", "zoomOut", "centre", "editPill", "assetsPill");
+                Set.of("zoomIn", "zoomOut", "centre", "panelsPill", "assetsPill", "editPill");
 
         @Test
         @DisplayName("every control is inside the surface it belongs to")
@@ -868,8 +868,17 @@ class BookGeometryTest {
         assertTrue(oldOpen.intersects(oldDone),
                 "the old placement should overlap, or this regression test proves nothing: Open "
                         + oldOpen + " vs Done " + oldDone);
-        assertEquals(SCREENSHOT_WIDTH - 2 * BookGeometry.PANEL_MARGIN, panel.width(),
-                "fixture sanity: this is the window the bug was photographed in, at the panel size it had");
+        // **The fixture is a window whose panel is clamped to the minimum now.** This panel used to be the
+        // window less its two margins -- 427 - 40 = 387 -- because the minimum was 332. The three author
+        // pills raised `MIN_CANVAS_WIDTH`, and with it `MIN_PANEL_WIDTH` to 407, so the photographed window
+        // is now one the minimum sizes. That is worth asserting rather than working around: the sentence
+        // says which of the two it expects, so a change to either term reports itself here.
+        //
+        // What the reconstruction proves does not depend on it, and that is why the fixture survives: both
+        // old expressions are anchored to the panel's own edges -- `oldOpen` to its right edge, `oldDone` to
+        // the same edge less 68 -- so their overlap is a property of the pair rather than of the size.
+        assertEquals(BookGeometry.MIN_PANEL_WIDTH, panel.width(),
+                "fixture sanity: the pills' minimum is what sizes the panel at this window now");
 
         // And nothing is drawn where either of them was, which is the only form this assertion can
         // take now: both controls are gone (Open with the strip, Done replaced by Close), so there is
@@ -946,51 +955,52 @@ class BookGeometryTest {
     }
 
     @Test
-    @DisplayName("the two author pills sit PILL_GAP apart, and the mat behind them covers both")
+    @DisplayName("the three author pills sit PILL_GAP apart, and the mat behind them covers all of them")
     void theAuthorPillsReadAsOneRow() {
         // The seam is the one part of this cluster a person can measure, and it is the part a playtest
-        // reported as a pixel too wide. It is asserted rather than described because `assetsPill` is
-        // placed *from* the constant: a change to either the constant or the placement that stopped the
-        // two agreeing would otherwise draw a gap nobody could point at a number for.
+        // reported as a pixel too wide. It is asserted rather than described because each pill is placed
+        // *from* the constant: a change to either the constant or the placement that stopped the two
+        // agreeing would otherwise draw a gap nobody could point at a number for.
         BookGeometry geometry = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
+        Rect panels = geometry.panelsPill();
         Rect assets = geometry.assetsPill();
         Rect edit = geometry.editPill();
 
+        assertEquals(BookGeometry.PILL_GAP, assets.x() - panels.right(),
+                "the seam between Panels and Assets is not PILL_GAP: " + panels + " and " + assets);
         assertEquals(BookGeometry.PILL_GAP, edit.x() - assets.right(),
-                "the seam between the pills is not PILL_GAP: " + assets + " and " + edit);
-        assertEquals(assets.y(), edit.y(), "the two pills are one row: " + assets + " and " + edit);
-        assertEquals(assets.height(), edit.height(), "a row of two different heights is not one row");
+                "the seam between Assets and Edit is not PILL_GAP: " + assets + " and " + edit);
+        assertEquals(panels.y(), edit.y(), "the three pills are one row: " + panels + " and " + edit);
+        assertEquals(panels.height(), edit.height(), "a row of different heights is not one row");
 
-        // And the mat really does back both, which is the whole reason the seam is a constant rather than
-        // a judgement: a mat that covered one pill and stopped short of the other would make the seam a
-        // hard edge in the middle of what is meant to read as one control.
-        assertTrue(assets.isInside(geometry.pillMat()),
-                "the Assets pill is outside the mat drawn behind it: " + assets + " vs "
-                        + geometry.pillMat());
-        assertTrue(edit.isInside(geometry.pillMat()),
-                "the Edit pill is outside the mat drawn behind it: " + edit + " vs "
-                        + geometry.pillMat());
+        // And the mat really does back all three, which is the whole reason the seam is a constant rather
+        // than a judgement: a mat that covered two and stopped short of the third would make the seam a hard
+        // edge in the middle of what is meant to read as one control.
+        for (Rect pill : List.of(panels, assets, edit)) {
+            assertTrue(pill.isInside(geometry.pillMat()),
+                    "a pill is outside the mat drawn behind it: " + pill + " vs " + geometry.pillMat());
+        }
 
-        // And where the pair sits: in the view cluster's corner, anchored *on* the cluster rather than on
-        // the canvas's right edge. One EDGE of air control to control, and the two mats closer than that by
+        // And where the row sits: in the view cluster's corner, anchored *on* the cluster rather than on the
+        // canvas's right edge. One EDGE of air control to control, and the two mats closer than that by
         // VIEW_MAT -- which is the seam that keeps the clusters reading as two groups rather than one long
-        // strip of five controls. Swept over the window sizes, because the canvas's width is what the pair
-        // has to fit inside and the narrow canvas is the case that would put a pill over a map button.
+        // strip of six controls. Swept over the window sizes, because the canvas's width is what the row has
+        // to fit inside and the narrow canvas is the case that would put a pill over a map button.
         for (int[] size : sizes()) {
             BookGeometry window = new BookGeometry(size[0], size[1]);
             Rect cluster = window.viewControls();
-            Rect assetsHere = window.assetsPill();
+            Rect first = window.panelsPill();
             String at = " at " + size[0] + "x" + size[1];
 
-            assertEquals(cluster.right() + BookGeometry.EDGE, assetsHere.x(),
+            assertEquals(cluster.right() + BookGeometry.EDGE, first.x(),
                     () -> "the pills no longer start one EDGE from the cluster" + at);
-            assertFalse(cluster.intersects(assetsHere),
-                    () -> "the Assets pill is over the view cluster" + at);
+            assertFalse(cluster.intersects(first),
+                    () -> "the Panels pill is over the view cluster" + at);
             assertTrue(window.pillMat().x() >= cluster.right()
                             + BookGeometry.EDGE - BookGeometry.VIEW_MAT,
                     () -> "the two mats are closer than the seam the clusters keep" + at);
             assertTrue(window.editPill().right() <= window.canvas().right(),
-                    () -> "the pair runs off the canvas it is drawn on" + at);
+                    () -> "the row runs off the canvas it is drawn on" + at);
         }
     }
 
@@ -1074,11 +1084,11 @@ class BookGeometryTest {
         // The source order in `controls()` is: close, the rewards button, the party button, the settings
         // button, the author's pills, the sidebar's two add buttons, then the view cluster. The chapter
         // rows were ahead of close and are gone; the two appearance rows were between close and the
-        // cluster and are gone -- see the note in that method for why each went. The author's pair keeps
-        // the slot it had in this list (after settings), even though it is drawn on a different surface
-        // now; a reader comparing orders across the change should know that was deliberate.
+        // cluster and are gone -- see the note in that method for why each went. The author's pills keep
+        // the slot they had in this list (after settings), even though they are drawn on a different
+        // surface now, and they read in the order the row does: Panels, Assets, Edit.
         assertEquals(
-                List.of("close", "rewards", "party", "settings", "editPill", "assetsPill",
+                List.of("close", "rewards", "party", "settings", "panelsPill", "assetsPill", "editPill",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }

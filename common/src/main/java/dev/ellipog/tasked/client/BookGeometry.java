@@ -144,6 +144,16 @@ public final class BookGeometry {
     public static final int ASSETS_PILL_WIDTH = 72;
 
     /**
+     * The Panels pill's width.
+     *
+     * <p>The same figure as Assets', and it is a measurement rather than a reuse: "Panels" and "Assets" are
+     * both six characters, so a width that fits one fits the other. Kept as its own constant so that changing
+     * one label cannot silently resize the other — see {@link #editPill} for why a pill's width follows its
+     * own word.
+     */
+    public static final int PANELS_PILL_WIDTH = 72;
+
+    /**
      * The party button's width, in the header.
      *
      * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
@@ -390,16 +400,16 @@ public final class BookGeometry {
      * floating clusters have made it an arithmetic term instead. Both clusters are on the canvas's left
      * now, so the term is that band read left to right: the view cluster occupies
      * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the author's
-     * pills occupy {@code ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH} immediately right of it, one
-     * {@link #EDGE} is the air between the two, and the last {@link #EDGE} is the air at the canvas's right
-     * edge -- which is not spare: the tools dock and a docked column float there. What is left for the graph
-     * is the remainder, and it is written from the constants the clusters are placed with rather than
-     * measured by eye -- which is how the width that used to be a judgement became something a test can
-     * sweep.
+     * pills occupy {@code PANELS_PILL_WIDTH + PILL_GAP + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH}
+     * immediately right of it, one {@link #EDGE} is the air between the two, and the last {@link #EDGE} is
+     * the air at the canvas's right edge -- which is not spare: the dock and a docked column float there.
+     * What is left for the graph is the remainder, and it is written from the constants the clusters are
+     * placed with rather than measured by eye -- which is how the width that used to be a judgement became
+     * something a test can sweep.
      */
     public static final int MIN_CANVAS_WIDTH =
-            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + ASSETS_PILL_WIDTH + PILL_GAP
-                    + EDIT_PILL_WIDTH + EDGE;
+            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + PANELS_PILL_WIDTH + PILL_GAP
+                    + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH + EDGE;
 
     /**
      * The room the header's title needs, left of the controls: the inset it starts at and a word.
@@ -415,20 +425,21 @@ public final class BookGeometry {
      * <p>Two terms, and the canvas decides it: the header's run of controls -- Close, Rewards, Party,
      * Settings -- plus {@link #HEADER_TITLE_ROOM} for the book's own name, against
      * {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}, which is what the two floating clusters need. The
-     * canvas's term is <b>332</b> (156 of sidebar and 176 of canvas: the view cluster, the two author
+     * canvas's term is <b>407</b> (156 of sidebar and 251 of canvas: the view cluster, the three author
      * pills and the edges between them) and the header's is <b>238</b>, so the canvas is what binds.
      *
      * <p>The author's controls used to be two more terms in the header's sum, and that sum was the
      * binding one at <b>336</b>. They float over the canvas instead now (see {@link #editPill()}), which
      * takes them out of the row that measures the panel but adds them to the canvas term -- so the
-     * minimum fell, and the assets pill has since carried it back up from the 257 this note used to
-     * claim. Both sums are still written from the constants the controls are placed with, so widening
-     * one moves this with it -- the header's own test caught exactly that when the rewards button
-     * arrived, which is the drift it exists to catch.
+     * minimum fell, and the pills have since carried it back up: the assets pill from the 257 this note
+     * used to claim, and then the Panels pill by its own width and its seam. Both sums are still written
+     * from the constants the controls are placed with, so widening one moves this with it -- the header's
+     * own test caught exactly that when the rewards button arrived, which is the drift it exists to catch.
      *
-     * <p>The three figures above are prose, and no test reads them: the <i>sums</i> below are asserted
-     * and the sentence about them is not, which is how a stale 257 sat here unnoticed. Anyone who needs
-     * the number should read it off the two sums rather than trust this paragraph.
+     * <p>The figures above are prose, and no test reads them: the <i>sums</i> below are asserted and the
+     * sentence about them is not, which is how a stale 257 sat here unnoticed. Anyone who needs the number
+     * should read it off the two sums rather than trust this paragraph -- and that applies to the 407 and
+     * the 251 above too, which is why they are written beside the sums they came from.
      */
     public static final int MIN_PANEL_WIDTH = Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
             HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
@@ -1207,31 +1218,44 @@ public final class BookGeometry {
      *
      * <h2>Why the corner</h2>
      *
-     * <p>The header belongs to the book and every player reads it, so the author's control left it for
+     * <p>The header belongs to the book and every player reads it, so the author's controls left it for
      * the corner that is already a control strip -- and that strip is the <b>same</b> one the view cluster
-     * holds: the author's two controls sit immediately right of the three map buttons, in one row, rather
-     * than mirrored on the far side of the canvas. There is one pill, not a column: the Tools menu it used
-     * to open held only actions that are already keys (Undo, Redo, Snapping's switch, Alt+click's
+     * holds: the author's three controls sit immediately right of the three map buttons, in one row, rather
+     * than mirrored on the far side of the canvas. There is one row, not a column: the Tools menu that used
+     * to hang off it held only actions that are already keys (Undo, Redo, Snapping's switch, Alt+click's
      * straighten), so it was retired rather than kept as a second floating control.
      *
      * <p><b>Read left to right, the two clusters are one band</b> -- which is why {@link #MIN_CANVAS_WIDTH}
      * is written as that band: the cluster's mat, {@link #EDGE} of air, the pills' own row, and {@link #EDGE}
-     * of air at the canvas's right edge, where the tools dock and a docked column float. Moving the pills
+     * of air at the canvas's right edge, where the dock and a docked column float. Moving the pills
      * from the right edge to here is therefore a placement with no arithmetic behind it: the sum it used to
      * be read from is the sum it is now read from, in the other order.
+     *
+     * <h2>Three pills, and the one that was not a pill's business</h2>
+     *
+     * <p>Panels, Assets and Edit, in that order. The dock was the last thing to get a control of its own: it
+     * used to be a side effect of edit mode, which is why the Edit pill had to double as "close the panel so
+     * the dock comes back" — see {@code QuestBookScreen.pressEditPill}, where that second meaning is gone.
+     * The order is the author's own reading order: the surfaces they work in first, the mode last.
      */
-    public Rect assetsPill() {
+    public Rect panelsPill() {
         // One EDGE clear of the view cluster's own right edge, control to control: the mats then sit
         // VIEW_MAT closer than that, which is the seam the two clusters keep.
-        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
+        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, PANELS_PILL_WIDTH, ROW_HEIGHT);
+    }
+
+    /** The Assets pill, immediately right of Panels. */
+    public Rect assetsPill() {
+        return Rect.at(panelsPill().right() + PILL_GAP, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
     }
 
     /**
-     * The Edit pill, immediately right of Assets — the pairing the author's row now reads as.
+     * The Edit pill, immediately right of Assets — the pairing the row has always ended with.
      *
-     * <p>The order is the one the pair has always had (Assets left of Edit); what moved is the pair. Wider
-     * than Edit's by a word rather than by taste: "Assets" is six characters to "Edit"'s four, and a pill
-     * that truncated its own label would be a control whose name depends on the font.
+     * <p>Wider than Edit's by a word rather than by taste: "Assets" is six characters to "Edit"'s four, and a
+     * pill that truncated its own label would be a control whose name depends on the font. Each pill's width
+     * follows its own word for that reason, which is why adding Panels added a constant rather than a share
+     * of one.
      */
     public Rect editPill() {
         return Rect.at(assetsPill().right() + PILL_GAP, canvas.y() + EDGE,
@@ -1242,12 +1266,12 @@ public final class BookGeometry {
      * The backing panel behind the pills, drawn so they read as controls rather than as floating fragments
      * of text.
      *
-     * <p>Behind <b>both</b> pills and the gap between them, so the author's row reads as one cluster. The
-     * screen draws it only when it draws a pill, so a player who may not edit is shown neither.
+     * <p>Behind <b>all three</b> pills and the gaps between them, so the author's row reads as one cluster.
+     * The screen draws it only when it draws a pill, so a player who may not edit is shown none of them.
      */
     public Rect pillMat() {
-        return Rect.at(assetsPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
-                editPill().right() - assetsPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
+        return Rect.at(panelsPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
+                editPill().right() - panelsPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
     }
 
     // (`AUTHOR_PILL_BAND` and `authorRail()` stood here, and they are gone with the reason for them.)
@@ -1328,17 +1352,18 @@ public final class BookGeometry {
         // the player's own settings.
         out.put("settings", settingsButton());
 
-        // The author's pill, in the canvas's top-left corner beside the view cluster. Always in the map and
+        // The author's pills, in the canvas's top-left corner beside the view cluster. Always in the map and
         // drawn only for a player who may edit: geometry is what the overlap sweep checks, and a control that
         // appeared in the map only sometimes would be a control the sweep tests in one build and not the
-        // next. It is placed here rather than with the view cluster below so that the map's source order
+        // next. They are placed here rather than with the view cluster below so that the map's source order
         // still reads as the header first, then the canvas furniture -- the slot the old header pair
         // occupied.
-        out.put("editPill", editPill());
-        // And the Assets pill beside it, by the same convention and for the same reason: always in the map
-        // (so the overlap sweep tests it in every build) and drawn only for a player who may edit. It is the
-        // one that sits nearest the cluster, so the pair reads left to right as Assets then Edit.
+        out.put("panelsPill", panelsPill());
+        // Then Assets, by the same convention and for the same reason: always in the map (so the overlap
+        // sweep tests it in every build) and drawn only for a player who may edit.
         out.put("assetsPill", assetsPill());
+        // And Edit last, so the row reads left to right as Panels, Assets, Edit.
+        out.put("editPill", editPill());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
         // only for an author -- the same convention as `edit` and `tools` above, and for the same

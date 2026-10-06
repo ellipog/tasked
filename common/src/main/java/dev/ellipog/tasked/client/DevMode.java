@@ -48,9 +48,9 @@ import java.nio.file.Path;
  * client draws, read before anything can draw it. <b>None of the three is gated on {@link #on()}</b>,
  * which is the rule {@code snap} and {@code progress} already follow and which is worth keeping: a
  * player who never turns developer mode on still has a layout, and it is theirs rather than the pack's.
- * The layout flag defaults <b>off</b>, because a second presentation of the same content should never
- * arrive because a file was unreadable or absent -- the centred card is what everybody gets until they
- * ask otherwise.
+ * The layout flag defaults <b>on</b>: the panels round converted every kind, so the docked column is
+ * what a player gets, and Ctrl+P -- or a false in this file -- is how they ask for the centred card
+ * instead. It was off only while the conversion was incomplete, which is the only reason it was ever off.
  */
 public final class DevMode {
 
@@ -60,7 +60,7 @@ public final class DevMode {
     private static boolean on;
     private static boolean snap = true;
     private static boolean progress = true;
-    private static boolean panels;
+    private static boolean panels = true;
     private static int panelWidth = PanelStack.WIDTH;
     private static PanelStack.Fold panelFold = PanelStack.Fold.AUTO;
     private static Path file;
@@ -74,8 +74,8 @@ public final class DevMode {
      * @param dev  whether tools may be drawn
      * @param snap whether a dragged node lands on the grid; a file that does not say says yes
      * @param progress whether chapter rows draw their completion bar; likewise yes by default
-     * @param panels whether an overlay is docked in a side column rather than centred as a card; no by
-     *               default, since the card is what everyone gets until they ask
+     * @param panels whether an overlay is docked in a side column rather than centred as a card; yes by
+     *               default, since that is the presentation every kind has been converted to
      * @param panelWidth how wide that column is, in GUI pixels; clamped on the way in
      * @param panelFold what the player asked the second column to do
      */
@@ -230,7 +230,7 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
-        panels = false;
+        panels = true;
         panelWidth = PanelStack.WIDTH;
         panelFold = PanelStack.Fold.AUTO;
 
@@ -269,7 +269,7 @@ public final class DevMode {
                 root.has("dev") && root.get("dev").getAsBoolean(),
                 !root.has("snap") || root.get("snap").getAsBoolean(),
                 !root.has("progress") || root.get("progress").getAsBoolean(),
-                root.has("panels") && root.get("panels").getAsBoolean(),
+                !root.has("panels") || root.get("panels").getAsBoolean(),
                 root.has("panelWidth") ? root.get("panelWidth").getAsInt() : PanelStack.WIDTH,
                 root.has("panelFold")
                         ? PanelStack.foldOf(root.get("panelFold").getAsString())
@@ -309,7 +309,7 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
-        panels = false;
+        panels = true;
         panelWidth = PanelStack.WIDTH;
         panelFold = PanelStack.Fold.AUTO;
         file = null;

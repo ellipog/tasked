@@ -14,6 +14,12 @@ import net.minecraft.client.Minecraft;
  * questline — and it vanished the moment they left edit mode to play. The two are different questions. Edit
  * mode asks "may this player change the files"; this asks "does this player want to watch the frame".
  *
+ * <p><b>The counters came with it, and they were the other half of the fault.</b> They are the ten lines
+ * under the frame rate, and they were drawn whenever the tools were on — which meant a counting renderer,
+ * and its per-drawing-call measurement, was built for every author whether or not they were measuring
+ * anything. One switch draws the whole overlay now: edit mode draws none of it and counts none of it, and
+ * `/tasked vitals` draws the frame rate and the counters together.
+ *
  * <h2>And why it is still gated</h2>
  *
  * <p>Because it is an instrument, and an instrument that any player can switch on is a way to see the

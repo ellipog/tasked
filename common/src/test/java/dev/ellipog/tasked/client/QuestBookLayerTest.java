@@ -3,6 +3,8 @@ package dev.ellipog.tasked.client;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -55,5 +57,46 @@ class QuestBookLayerTest {
         // column trade places with the node icons underneath it.
         assertTrue(QuestBookScreen.CHROME_Z > ITEM_Z,
                 "the chrome band (the docked column, the tools panel) must clear the canvas's item icons");
+    }
+
+    // ------------------------------------------------------------------
+    // The dev overlay: whose instrument it is
+    // ------------------------------------------------------------------
+
+    /**
+     * The rule these pin, and why it is asserted rather than looked at.
+     *
+     * <p>The overlay was edit mode's for as long as the tools existed, and the frame rate was separated from
+     * it first -- which left the ten counter lines still appearing for every author, and a counting renderer
+     * measuring every drawing call to produce them. One switch draws the whole overlay now, and "edit mode
+     * alone draws nothing" is a fact about {@code devOverlayLines} rather than about the panel drawn around
+     * it, so it can be asserted here with no client, no window and no pixels. Nothing else in this repository
+     * can instantiate the screen.
+     */
+
+    @Test
+    @DisplayName("edit mode alone draws no overlay, whatever has been counted")
+    void editModeDrawsNoOverlay() {
+        String[] counters = { "fills 41", "texts 12" };
+        assertEquals(0, QuestBookScreen.devOverlayLines(false, counters, 144, 6_000_000L).length,
+                "without the operator's switch there is nothing to draw -- the counters are not edit mode's");
+    }
+
+    @Test
+    @DisplayName("the command draws the frame rate first, then every counter in its own order")
+    void theCommandDrawsTheFrameRateAndTheCounters() {
+        String[] counters = { "fills 41", "texts 12" };
+        assertArrayEquals(new String[] { "fps 144   6 ms", "fills 41", "texts 12" },
+                QuestBookScreen.devOverlayLines(true, counters, 144, 6_000_000L));
+    }
+
+    @Test
+    @DisplayName("and the frame rate is drawn before the first counter report has arrived")
+    void theFrameRateArrivesBeforeTheCounters() {
+        // The counters are written once a second by a counting renderer; the frame rate is the game's own
+        // and is there on the first frame. An overlay that waited for the counters would appear a second
+        // after the gesture that asked for it.
+        assertArrayEquals(new String[] { "fps 60   16 ms" },
+                QuestBookScreen.devOverlayLines(true, new String[0], 60, 16_500_000L));
     }
 }

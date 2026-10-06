@@ -46,7 +46,7 @@ class DevModeTest {
         assertFalse(DevMode.on());
         assertTrue(DevMode.snap(), "the grid is the default, and is not gated on the mode");
         assertTrue(DevMode.progress(), "and so are the sidebar's chapter progress bars");
-        assertFalse(DevMode.panels(), "the centred card is what everyone gets until they ask otherwise");
+        assertTrue(DevMode.panels(), "the docked column is the default: every kind has been converted");
         assertEquals(PanelStack.WIDTH, DevMode.panelWidth(), "and the column opens at its ordinary width");
         assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
         assertNull(DevMode.file(), "and no file has been read yet");
@@ -104,11 +104,14 @@ class DevModeTest {
         // The rule snap and the bars already follow: a player who never opens developer mode still has a
         // layout, and it is theirs rather than the pack's.
         assertFalse(DevMode.on());
-        assertTrue(DevMode.togglePanels(), "the toggle answers with the state it left behind");
-        assertTrue(DevMode.panels());
+        // The default is the docked column now, so this asserts the property rather than a starting state:
+        // the toggle flips whatever is there, and answers with what it left behind.
+        boolean before = DevMode.panels();
+        assertEquals(!before, DevMode.togglePanels(), "the toggle answers with the state it left behind");
+        assertEquals(!before, DevMode.panels());
         assertFalse(DevMode.on(), "and it did not turn developer mode on to do it");
-        assertFalse(DevMode.togglePanels());
-        assertFalse(DevMode.panels());
+        assertEquals(before, DevMode.togglePanels());
+        assertEquals(before, DevMode.panels());
 
         // A width outside every range is clamped on the way in rather than stored as nonsense.
         DevMode.setPanelWidth(-100);
@@ -127,8 +130,7 @@ class DevModeTest {
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap(), "a missing field takes its default, which is on for the grid");
         assertTrue(DevMode.progress(), "and for the progress bars");
-        assertFalse(DevMode.panels(),
-                "and the layout stays as it was: a file written before panels existed drew cards");
+        assertTrue(DevMode.panels(), "and a file written before the key existed gets the default, which is the column now");
         assertEquals(PanelStack.WIDTH, DevMode.panelWidth(), "at the ordinary width");
         assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
     }
@@ -144,7 +146,7 @@ class DevModeTest {
         // The whole file goes, which is the rule every other wrong type already follows -- and it is the
         // safe direction: a client that cannot read the file draws what it shipped with.
         assertFalse(DevMode.on());
-        assertFalse(DevMode.panels());
+        assertTrue(DevMode.panels(), "a refused file leaves the defaults, and the default is the column");
         assertEquals(PanelStack.WIDTH, DevMode.panelWidth());
     }
 
