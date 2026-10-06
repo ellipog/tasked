@@ -3,10 +3,11 @@
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
 
-> **Status: 1.0.0 — the first release.** The quest format and its validator, the
-> progression engine, server-authoritative sync, the quest book and the in-game editor all work on
-> both loaders. Tasked ships no quests of its own: it is an engine, and the worked questline in
-> `tools/quests/` is what an author reads to learn the format.
+> **Status: 0.1.0 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
+> the progression engine, server-authoritative sync, the quest book and the in-game editor all work
+> on both loaders, but the version is below 1.0 on purpose: a break in the quest format needs only a
+> minor bump, so read the release notes before upgrading. Tasked ships no quests of its own: it is an
+> engine, and the worked questline in `tools/quests/` is what an author reads to learn the format.
 
 ## What it does
 
@@ -77,7 +78,7 @@ their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked al
 | Java | 21 |
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
-| Armature | 1.0.0+, required on both loaders |
+| Armature | 0.1.0+, required on both loaders |
 | KubeJS | optional, NeoForge only, 2101.7.2+ |
 
 Tasked is built on **Armature**, a standalone library and UI toolkit. Both metadata files declare
@@ -98,7 +99,7 @@ gradlew build
 ```
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-1.0.0.jar`) — the `-sources` jars are not mods. The test
+(`tasked-fabric-1.21.1-0.1.0.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile

@@ -6,11 +6,12 @@ as done — the client renders what it is told and nothing more, so no player ca
 editing their own game.
 
 > [!NOTE]
-> **Tasked is at 1.0.0, and everything these pages describe works on both loaders — except where a
-> page says otherwise** (the KubeJS binding is NeoForge-only, and its page says so). The quest folder
-> format and its [[validator]], the progression engine, server-authoritative sync, the quest book and
-> its in-game editor are all built. 1.0.0 is the promise that the format is stable; where a subject is
-> unfinished, the page says so rather than describing what is planned.
+> **Tasked is at 0.1.0 — pre-1.0 — and everything these pages describe works on both loaders, except
+> where a page says otherwise** (the KubeJS binding is NeoForge-only, and its page says so). The
+> quest folder format and its [[validator]], the progression engine, server-authoritative sync, the
+> quest book and its in-game editor are all built, but the version is below 1.0 on purpose: a break
+> in the format needs only a minor bump. Where a subject is unfinished, the page says so rather than
+> describing what is planned.
 
 ## What it needs
 
@@ -19,7 +20,7 @@ editing their own game.
 | Minecraft | 1.21.1, on Fabric or NeoForge |
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
-| Armature | 1.0.0+, required on both loaders — [[armature:index]] is the library Tasked is built on |
+| Armature | 0.1.0+, required on both loaders — [[armature:index]] is the library Tasked is built on |
 | KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tasked:authoring/kubejs]] |
 
 Tasked ships no questlines of its own. It is an engine, and installing it does not put somebody else's
