@@ -154,7 +154,11 @@ class SyncWiringTest {
                 "tasked:table_replica",
                 "tasked:table_replica_request",
                 "tasked:table_roll",
-                "tasked:table_roll_request"), declared,
+                "tasked:table_roll_request",
+                // Not a viewer message: the vitals overlay's switch, which is an operator's command
+                // answering back to the one client that asked. It carries no content — one boolean — and
+                // it is here so that the question this list exists to force was asked and answered.
+                "tasked:vitals"), declared,
                 "the payload set moved; a viewer integration must not add a message");
     }
 

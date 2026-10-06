@@ -20,6 +20,7 @@ import dev.ellipog.armature.client.ui.CanvasBackground;
 import dev.ellipog.armature.client.ui.art.CanvasBackgroundArt;
 import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
 import dev.ellipog.armature.client.render.GuiRenderer;
+import dev.ellipog.armature.client.render.TextEpoch;
 import dev.ellipog.armature.client.ui.inspect.InspectField;
 import dev.ellipog.armature.client.ui.inspect.InspectLayout;
 import dev.ellipog.armature.client.ui.inspect.InspectRow;
@@ -112,6 +113,7 @@ import net.minecraft.world.item.ItemStack;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -151,6 +153,13 @@ import java.util.UUID;
  * text — which is why the text was soft as well as the world. Overriding {@code renderBackground} to
  * do nothing is the whole fix, and it is one method — which now lives on {@code ArmatureScreen}, so
  * that the next panel cannot forget it: the developer screen did, and shipped washed out.
+ *
+ * <p><b>And the blur is not drawn on an ordinary frame at all.</b> With vanilla's suppressed, the only
+ * blur left was this screen's own, once a frame, and it was the largest single cost in the frame: six
+ * full-screen post-process passes at the window's resolution, whether the canvas held one node or a
+ * thousand — which is why a blank canvas was not fast. The idle case now draws the theme's dim wash
+ * instead, which is one quad, and the blur is kept for an open modal, where it is what makes the card
+ * readable. See the two call sites in {@code render} for the measurements behind that.
  *
  * <h2>Three ways to look around</h2>
  *
@@ -2983,7 +2992,26 @@ public final class QuestBookScreen extends ArmatureScreen
     // Content
     // ------------------------------------------------------------------
 
+    /**
+     * Every chapter the book can show, by id, in the order the sidebar draws them.
+     *
+     * <h2>Why this is remembered rather than rebuilt</h2>
+     *
+     * <p>Because it is not a small map: it walks every chapter <b>and every quest</b>, and the frame path
+     * asks for it constantly — {@link #effectiveChapter()} is that map's first key, and it is read by the
+     * drawing, the theme lookups, the draft reconciliation and every panel, several times a frame. On a
+     * nine-hundred-quest pack that was nine hundred map insertions per call, twenty-odd times a frame, for
+     * an answer that cannot change until the tree does.
+     *
+     * <p>The tree revision is the whole of the key: both inputs are the cache's chapter list and its
+     * entries, and neither moves without a tree arriving. Progress is deliberately not in it — a quest
+     * completing cannot rename a chapter.
+     */
     private static Map<String, String> chapters() {
+        long revision = ClientQuestCache.treeRevision();
+        if (chaptersHeld != null && chaptersRevision == revision) {
+            return chaptersHeld;
+        }
         Map<String, String> chapters = new LinkedHashMap<>();
         // The explicit list first, then the quests: the same merge, in the same order, as the sidebar's
         // own build. An empty chapter has to be selectable here too, or the book would draw a row for it
@@ -2995,8 +3023,14 @@ public final class QuestBookScreen extends ArmatureScreen
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             chapters.putIfAbsent(entry.chapterId(), entry.chapterTitle());
         }
+        chaptersHeld = chapters;
+        chaptersRevision = revision;
         return chapters;
     }
+
+    /** The chapter map as it was last built, and the tree it was built from. See {@link #chapters}. */
+    private static Map<String, String> chaptersHeld;
+    private static long chaptersRevision = Long.MIN_VALUE;
 
     private static String effectiveChapter() {
         Map<String, String> chapters = chapters();
@@ -3017,7 +3051,22 @@ public final class QuestBookScreen extends ArmatureScreen
         // `drawNode` marks the ones the reader would not see; the reader's own book hides them, which
         // is the whole point of the flags.
         boolean authoring = mayEditNow();
-        return ClientQuestCache.entries().stream()
+
+        // Built once per (chapter, tree, progress, draft, authoring) rather than once per call, and the
+        // calls are per frame and per press: the canvas asks what to draw, the hover asks what was
+        // drawn, and a click asks again -- each one a walk of every quest in the pack with a visibility
+        // rule per entry. The five inputs are every one of the walk's, so a cache that misses one is a
+        // canvas drawing the wrong chapter rather than a canvas that is slow.
+        long tree = ClientQuestCache.treeRevision();
+        long progress = ClientQuestCache.progressRevision();
+        long draft = fieldDraft.version();
+        if (questsInHeld != null && java.util.Objects.equals(questsInChapter, chapterId)
+                && questsInTree == tree && questsInProgress == progress && questsInDraft == draft
+                && questsInAuthoring == authoring) {
+            return questsInHeld;
+        }
+
+        List<ClientQuestCache.Entry> built = ClientQuestCache.entries().stream()
                 .filter(entry -> entry.chapterId().equals(chapterId))
                 // Hidden quests are filtered out rather than withheld: every flag travels with the tree,
                 // so a quest that becomes visible because it was completed -- or because a prerequisite
@@ -3025,7 +3074,22 @@ public final class QuestBookScreen extends ArmatureScreen
                 // where a test can hold them; this only asks.
                 .filter(entry -> authoring || questVisible(entry.id()))
                 .toList();
+        questsInHeld = built;
+        questsInChapter = chapterId;
+        questsInTree = tree;
+        questsInProgress = progress;
+        questsInDraft = draft;
+        questsInAuthoring = authoring;
+        return built;
     }
+
+    /** The chapter's quests as they were last built, and every input they were built from. */
+    private List<ClientQuestCache.Entry> questsInHeld;
+    private String questsInChapter;
+    private long questsInTree = Long.MIN_VALUE;
+    private long questsInProgress = Long.MIN_VALUE;
+    private long questsInDraft = Long.MIN_VALUE;
+    private boolean questsInAuthoring;
 
     /**
      * Whether a quest is drawn at all: {@code QuestVisibility}'s rules, read off the client's cache.
@@ -3036,10 +3100,36 @@ public final class QuestBookScreen extends ArmatureScreen
      * many of its tasks have any progress.
      */
     private static boolean questVisible(String id) {
-        return dev.ellipog.tasked.client.dev.QuestVisibility.visible(id, VISIBILITY_LOOKUP,
+        // Remembered per tree and per progress, and those two are the whole of the answer's inputs: the
+        // rules read the quest's own flags (the tree), its state, its prerequisite rule and how many of its
+        // tasks have progress (progress). Nothing here reads a draft or the view.
+        //
+        // It is worth remembering because `drawNode` asks it for **every node it draws**, every frame, in
+        // edit mode — and each call is a recursive walk of the prerequisite chain that allocates a deque
+        // before it starts. At nine hundred nodes that is nine hundred graph walks a frame to decide whether
+        // to draw a dashed "hidden" mark.
+        long tree = ClientQuestCache.treeRevision();
+        long progress = ClientQuestCache.progressRevision();
+        if (visibleCache == null || visibleTree != tree || visibleProgress != progress) {
+            visibleCache = new HashMap<>();
+            visibleTree = tree;
+            visibleProgress = progress;
+        }
+        Boolean known = visibleCache.get(id);
+        if (known != null) {
+            return known;
+        }
+        boolean answer = dev.ellipog.tasked.client.dev.QuestVisibility.visible(id, VISIBILITY_LOOKUP,
                 ClientQuestCache::stateOf, QuestBookScreen::prerequisiteRuleMet,
                 QuestBookScreen::tasksWithProgress);
+        visibleCache.put(id, answer);
+        return answer;
     }
+
+    /** The visibility answers for one tree and one progress revision. See {@link #questVisible}. */
+    private static Map<String, Boolean> visibleCache;
+    private static long visibleTree = Long.MIN_VALUE;
+    private static long visibleProgress = Long.MIN_VALUE;
 
     /** The cache's answer to the visibility rules' questions, for any quest id -- other chapters too. */
     private static final dev.ellipog.tasked.client.dev.QuestVisibility.Lookup VISIBILITY_LOOKUP =
@@ -7876,8 +7966,15 @@ public final class QuestBookScreen extends ArmatureScreen
         dragRowSlots.clear();
         // The reader's rectangles are stale while the editor draws: a press on the raw description must open
         // the field, not follow a link that is no longer on screen.
+        //
+        // And the reader's card's layout goes with them. That is not tidiness: the layout is remembered
+        // between frames and the parsed prose is remembered *with* it, so clearing the prose behind the
+        // cache's back would leave a later hit handing back a layout whose description has nothing to
+        // draw. One assignment here is what makes the cache's one invariant true — nothing touches the
+        // prose without touching the key.
         readerProse.clear();
         linkRects.clear();
+        readerCard = null;
         // The header is the reader's, already drawn above this call -- text, state tag, chapter line
         // and all. This adds only the marks and the targets: drawing the title again here is how the
         // subtitle line came out garbled, two texts on top of each other.
@@ -7915,15 +8012,17 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
 
-        List<String> description = shownDescription(entry, quest);
-        // Per-entry line counts, not a count: an entry whose controls wrap is taller, and the layout
-        // has to place the rows below it against the height the drawing will use.
-        List<Integer> taskLines = entryLineCounts("tasks", quest, body.viewWidth());
-        List<Integer> rewardLines = entryLineCounts("rewards", quest, body.viewWidth());
-        List<String> dependencies = QuestPanelLayout.strings(quest, "dependsOn");
-        Layout layout = OverlayLayout.stack(editorProse(r, description, body.viewWidth()),
-                        taskLines, rewardLines, dependencies.size(), true)
-                .build(body.viewWidth(), textMeasure(r));
+        // The layout, and the four things the drawing below reads from the same build: the prose, the
+        // per-entry line counts and the prerequisites. Cached together because they *are* one answer --
+        // the line counts size the rows the layout places, and the prose is what the layout was wrapped
+        // from, so a cached layout without its prose is a card that draws nothing where its description
+        // should be. See `editorCard`.
+        EditorCard editorFields = editorCard(r, entry, quest, body);
+        Layout layout = editorFields.layout();
+        List<String> description = editorFields.description();
+        List<Integer> taskLines = editorFields.taskLines();
+        List<Integer> rewardLines = editorFields.rewardLines();
+        List<String> dependencies = editorFields.dependencies();
         overlayView.apply(layout, body.viewWidth());
 
         try (GuiRenderer.Scoped clip = r.clip(body)) {
@@ -11296,9 +11395,14 @@ public final class QuestBookScreen extends ArmatureScreen
      * player's. The count comes from one walk per revision (see {@link #rewardCounts}), and the
      * badge's own art and anchoring are {@link RewardBadge}'s.
      */
-    private void drawRewardBadges(GuiRenderer r, List<ClientQuestCache.Entry> visible) {
+    private void drawRewardBadges(GuiRenderer r, List<ClientQuestCache.Entry> visible, CanvasDetail detail) {
         Map<String, Integer> waiting = rewardCounts().byQuest();
         if (waiting.isEmpty()) {
+            return;
+        }
+        if (!detail.badges()) {
+            // A badge is a disc with a number in it, drawn against the node's own outline: at this zoom
+            // the number is unreadable and the disc is larger than the node it sits on. See CanvasDetail.
             return;
         }
         for (ClientQuestCache.Entry quest : visible) {
@@ -16788,22 +16892,57 @@ public final class QuestBookScreen extends ArmatureScreen
         //
         // And the tooltip is drawn last of all, after the controls, which is the whole of the fix for
         // a tooltip that appeared *underneath* the button it described.
-        GuiRenderer renderer = DevMode.on()
-                ? new dev.ellipog.tasked.client.dev.CountingRenderer(new GuiGraphicsRenderer(graphics))
-                : new GuiGraphicsRenderer(graphics);
+        // The plain renderer is kept as well as the counting one, and the dev overlay below draws
+        // through *this* one. That is not tidiness: an overlay measured by the counters it reports
+        // would add its own seven measurements and its own panel to the very numbers it is showing, so
+        // the fill and width counts would each carry a fixed observer's offset for as long as the
+        // overlay was up -- which is precisely when they are being read.
+        GuiGraphicsRenderer plain = new GuiGraphicsRenderer(graphics);
+        // Counted when the tools are on **or** when an operator has asked for vitals: the overlay's counter
+        // lines can only come from a counting renderer, and an operator watching a chapter's cost should not
+        // have to enter edit mode to get them. See Vitals for why the frame rate is its own switch.
+        GuiRenderer renderer = DevMode.on() || Vitals.showing()
+                ? new dev.ellipog.tasked.client.dev.CountingRenderer(plain)
+                : plain;
 
-        // The world behind the book, softened before the book is drawn over it -- the same look a
-        // vanilla menu has, and the thing that stops an open book from looking like a window cut into a
-        // live world. `blur` restores the pipeline afterwards, so the book itself is drawn crisp.
+        // The world behind the book is **dimmed rather than blurred**, and the reason is the frame budget.
         //
-        // Only when no modal is open, and that is the whole of the placement: with a card up, the blur
-        // below runs once over the world *and* the book, and blurring here as well would put the world
-        // through two passes while the book got one -- a seam at the card's edge that nothing explains.
+        // This was `renderer.blur(partialTick)` on every frame, which is
+        // `gameRenderer.processBlurEffect` — and that chain is six full-screen box-blur passes at the
+        // **window's** resolution, alternating between the main target and a swap target
+        // (`assets/minecraft/shaders/post/blur.json`; the six passes are H/V at three radius
+        // multipliers). At 1080p with the default menu blurriness that is about twelve million fragments
+        // through forty-odd filtered taps each, every frame, whether the book is drawing one node or a
+        // thousand. Measured against the drawing code it is the frame's dominant fixed cost, and it is
+        // the reason a blank canvas was not fast: nothing about it scales with the canvas.
+        //
+        // A fill is one quad. `ArmatureTheme.dim()` is the token for exactly this — Theme describes it as
+        // "the wash behind a whole screen, over the world" — and the modal path below already draws it,
+        // so using it here keeps the reading the blur was there for at none of the cost.
+        //
+        // The modal case still blurs, and there it earns its cost: a card is read over whatever is behind
+        // it, and softening that is what makes it legible. That blur runs once, over the world *and* the
+        // book, further down this frame.
         if (overlay == Overlay.NONE) {
-            renderer.blur(partialTick);
+            renderer.fill(0, 0, width, height, ArmatureTheme.dim());
         }
 
-        renderWith(renderer, mouseX, mouseY, partialTick);
+        // One region for the whole of the book's own drawing — its panels, its surfaces, its header, the
+        // canvas and the chrome it draws itself.
+        //
+        // Without it, every fill and every label in there is its own GPU submission: `GuiGraphics.fill`
+        // and `GuiGraphics.drawString` both end in `flushIfUnmanaged`, so in an unmanaged context a frame
+        // of chrome is hundreds of `endBatch` calls, each with the state setup that goes with one. That is
+        // the half of the cost that does not care how many nodes are on the canvas — and it is why the
+        // canvas alone being batched was never going to be enough.
+        //
+        // The regions nest harmlessly: `GuiGraphicsRenderer.batched` counts its depth, because
+        // `drawManaged` ends whatever region it is inside. The canvas's own region and the controls' are
+        // now inner ones and cost nothing extra.
+        renderer.batched(() -> {
+            renderWith(renderer, mouseX, mouseY, partialTick);
+            return null;
+        });
 
 
         // Everything from here on is the **chrome layer**, and it is drawn at a raised Z. Read the
@@ -16941,16 +17080,24 @@ public final class QuestBookScreen extends ArmatureScreen
             // chrome layer below, which now draws them through the widget's own `render`.
             try (GuiRenderer.Scoped clip = renderer.clip(book.x(), geometry().chapterListTop(),
                     book.right(), book.bottom())) {
-                super.render(graphics, mouseX, mouseY, partialTick);
-                // The chapter rows' progress bars and reward counts, over the rows they belong to and
-                // inside the same clip: a mark drawn outside the list would be a mark over the header.
-                drawSidebarChapterProgress(renderer, mouseX, mouseY);
-                // The drag's own marks, above the rows it is about and inside the clip for the same
-                // reason the rows are: a seam line that escaped the list would draw into the header.
-                drawSidebarDrag(renderer);
-                // And the menu, which is outside the rows' clip only in the sense that it overhangs
-                // them -- it belongs to the list, and it is drawn after it so nothing paints over it.
-                drawMenu(renderer, mouseX, mouseY);
+                // The whole widget pass in one region, and the clip above is what makes that safe rather
+                // than a problem: a scissor change flushes a managed batch *itself* before the scissor
+                // moves — `GuiGraphics.applyScissor` calls `flushIfManaged` — which is the invariant that
+                // would otherwise forbid a batch spanning a clip. The text fields in this pass open clips
+                // of their own, and that is exactly the case this relies on.
+                renderer.batched(() -> {
+                    super.render(graphics, mouseX, mouseY, partialTick);
+                    // The chapter rows' progress bars and reward counts, over the rows they belong to and
+                    // inside the same clip: a mark drawn outside the list would be a mark over the header.
+                    drawSidebarChapterProgress(renderer, mouseX, mouseY);
+                    // The drag's own marks, above the rows it is about and inside the clip for the same
+                    // reason the rows are: a seam line that escaped the list would draw into the header.
+                    drawSidebarDrag(renderer);
+                    // And the menu, which is outside the rows' clip only in the sense that it overhangs
+                    // them -- it belongs to the list, and it is drawn after it so nothing paints over it.
+                    drawMenu(renderer, mouseX, mouseY);
+                    return null;
+                });
             }
 
             // Close, drawn by hand rather than by the widget pass above.
@@ -17162,6 +17309,85 @@ public final class QuestBookScreen extends ArmatureScreen
         // The frame is over: the counting renderer (dev mode only) logs its totals at most once a second.
         // Here rather than anywhere earlier because the tooltips above are the last thing a frame draws.
         dev.ellipog.tasked.client.dev.CountingRenderer.endFrame(renderer);
+
+        // And the overlay, after that call and through the plain renderer: after, so this frame's
+        // numbers are the frame's own; through the plain one, so the overlay is not counted by the
+        // instrument it exists to display. Its own Z, because the header can carry a pack icon and a
+        // fill at Z = 0 loses the depth test wherever an icon wrote depth 150.
+        pose.pushPose();
+        pose.translate(0F, 0F, TOOLTIP_Z);
+        drawDevOverlay(plain);
+        pose.popPose();
+    }
+
+    /** How far the dev overlay's panel sits from the frame's top-left corner. */
+    private static final int DEV_OVERLAY_INSET = 4;
+
+    /**
+     * The dev overlay: the frame rate, then the counting renderer's last report, over the top-left corner.
+     *
+     * <h2>Why an overlay rather than only the log line</h2>
+     *
+     * <p>Because the numbers describe a frame, and the frame a person needs to read them on is the one
+     * they are changing: zoom a canvas in, pan it, drag a node. Reading a log line after each of those
+     * and holding four numbers in your head to compare them is a feedback loop nobody completes, and
+     * the two decisions this instrument was added for — whether the canvas's batching holds at high
+     * zoom, and whether a measurement cache would have anything to hit — are exactly the kind that are
+     * answered by watching a number move while you do the thing.
+     *
+     * <h2>The frame rate, and whose number it is</h2>
+     *
+     * <p>{@code Minecraft.getFps()} rather than a counter of this screen's own. The game already measures
+     * it once a second for the debug screen, so this is a read of that rather than a second answer to the
+     * same question — and a second answer is one that <i>disagrees</i> with F3, which makes both numbers
+     * suspect. It is also the number that matters while authoring: not how long this screen took, but
+     * whether the client is still smooth with the book open.
+     *
+     * <p>It is drawn whether or not there is anything counted yet, which is what the first line of the
+     * overlay is for. The counters arrive a second into the frame after the first, and a frame rate that
+     * appeared a second late would be one you had already finished the gesture without.
+     *
+     * <p>That is also the whole of its cost on a client with the mode off: this returns immediately, and
+     * nothing else here is built — the summary is only ever written by a counting renderer, and one is
+     * only built when the mode is on.
+     */
+    private void drawDevOverlay(GuiRenderer r) {
+        // Two switches, and they answer different questions. The **counters** are edit mode's instrument,
+        // and they only exist when a counting renderer was built. The **frame rate** is an operator's, and
+        // it is drawn when they have asked for it — `/tasked vitals` — whether or not they are editing,
+        // which is the whole point of it no longer being a side effect of the tools being on.
+        boolean vitals = Vitals.showing();
+        if (!vitals && !DevMode.on()) {
+            return;
+        }
+        String[] counted = dev.ellipog.tasked.client.dev.CountingRenderer.summary();
+        String[] lines = new String[(vitals ? 1 : 0) + counted.length];
+        if (vitals) {
+            // The frame rate **and the frame time**, and the second is the one to read. Frames per second is
+            // capped: with vsync on, or a maximum frame rate set, it reports the cap rather than the work, so
+            // a change that halves the frame's cost can leave the number exactly where it was.
+            // `getFrameTimeNs` is the whole frame in milliseconds and has no ceiling.
+            lines[0] = "fps " + minecraft.getFps() + "   " + (minecraft.getFrameTimeNs() / 1_000_000L)
+                    + " ms";
+        }
+        System.arraycopy(counted, 0, lines, vitals ? 1 : 0, counted.length);
+        if (lines.length == 0) {
+            return;
+        }
+
+        int lineHeight = r.lineHeight();
+        int width = 0;
+        for (String line : lines) {
+            width = Math.max(width, r.textWidth(line));
+        }
+        ArmatureTheme.panel(r, DEV_OVERLAY_INSET, DEV_OVERLAY_INSET, width + 10,
+                lines.length * lineHeight + 6, ArmatureTheme.panel(), ArmatureTheme.panelEdge());
+        for (int i = 0; i < lines.length; i++) {
+            r.text(lines[i], DEV_OVERLAY_INSET + 5, DEV_OVERLAY_INSET + 3 + i * lineHeight,
+                    // The frame rate reads as a heading rather than as one more counter: it is the one line
+                    // here that is about the whole client rather than about this screen's drawing.
+                    vitals && i == 0 ? ArmatureTheme.title() : ArmatureTheme.body());
+        }
     }
 
     /**
@@ -18007,6 +18233,10 @@ public final class QuestBookScreen extends ArmatureScreen
         // camera moves in, and this is the only drawing the move can be seen in -- the canvas is not
         // drawn while a card is up.
         advanceGlide(now);
+        // The frame's canvas — its edges and its on-canvas nodes — rebuilt only if something it is drawn
+        // from has moved. Stamped here rather than earlier because the glide above moves the camera, and
+        // this is the first point at which the viewport is the one the frame will draw with.
+        stampCanvas(quests);
         r.fill(canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), ArmatureTheme.canvas());
         // The chapter's surface over its colour, inside the same batch and the same theme scope as
         // everything else on the canvas -- so a chapter that names a patterned theme gets it here,
@@ -18023,7 +18253,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // Every line the chapter draws, this frame: endpoints, style and route computed **once**. The
         // drawing, the hover and the handle layer all read this list -- they used to each rebuild every
         // path, which is up to three full walks of every curve per frame, the CPU half of the zoom cost.
-        List<FrameEdge> edges = frameEdges(quests);
+        // And "once" is now once per *canvas*, not once per frame: see stampCanvas.
+        List<FrameEdge> edges = canvasEdges;
 
         // The line hover, recomputed only when the pointer or the view moved: a still pointer over a
         // still canvas cannot change which line is nearest, and the walk it would redo is every pixel
@@ -18045,23 +18276,29 @@ public final class QuestBookScreen extends ArmatureScreen
         // rather than like flicker. See Hover for why both halves have to ease.
         nodeHover.update(hovered == null ? null : hovered.id(), now);
 
+        // How far out this frame is, once, for everything below it. Zooming out is what puts the most
+        // nodes on screen at once, and it is also where the fine detail stops being readable -- so the
+        // tier is read here rather than decided per drawing. See CanvasDetail for the tiers and for why
+        // both thresholds sit below the zoom the project's pictures are taken at.
+        CanvasDetail detail = CanvasDetail.of(viewport().scale());
+
         // Only the nodes the canvas can show. The scissor already hides the rest, but a clipped fill is
         // still a fill that was built, transformed and submitted -- and at high zoom most of a chapter is
-        // off-canvas, which is why this is the node half of the zoom fix.
-        List<ClientQuestCache.Entry> visible = quests.stream().filter(this::nodeVisible).toList();
+        // off-canvas, which is why this is the node half of the zoom fix. Culled by stampCanvas.
+        List<ClientQuestCache.Entry> visible = canvasVisible;
         for (ClientQuestCache.Entry quest : visible) {
             float flash = quest.id().equals(flashQuest)
                     ? CanvasReveal.flash(now - flashStart, CanvasReveal.FLASH_MILLIS) : 0F;
-            drawNode(r, quest, nodeHover.amount(quest.id(), now), flash);
+            drawNode(r, quest, nodeHover.amount(quest.id(), now), flash, detail);
         }
         // Titles in their own pass, after every node, so a label can see the other nodes -- see the
         // comment on drawLabels for what happened when it could not. Fed the visible list, because the
         // overlap it tests for is a collision with a node that was *drawn*.
-        drawLabels(r, visible);
+        drawLabels(r, visible, detail);
         // The reward badges last of the node furniture: a title's backdrop is opaque and reaches the
         // corner on a long name, so a badge drawn with the nodes would vanish exactly when the chapter
         // is busiest.
-        drawRewardBadges(r, visible);
+        drawRewardBadges(r, visible, detail);
 
         // The handle layer **after the nodes**, deliberately: a dot that overlaps a node -- an anchor
         // dragged round to its far side -- has to be on top of it, or the thing in your hand disappears.
@@ -18140,7 +18377,8 @@ public final class QuestBookScreen extends ArmatureScreen
     // asked to solve a rendering problem. Two layers of forwarding around one pose-stack manipulation,
     // and the manipulation is the only part that had anything to say.
 
-    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover, float flash) {
+    private void drawNode(GuiRenderer r, ClientQuestCache.Entry entry, float hover, float flash,
+                          CanvasDetail detail) {
         QuestState state = ClientQuestCache.stateOf(entry.id());
         int size = nodeSize(entry);
         int x = nodeScreenX(entry);
@@ -18180,6 +18418,12 @@ public final class QuestBookScreen extends ArmatureScreen
                     ? ArmatureTheme.selectedRing()
                     : Colour.translucent(ArmatureTheme.hoverRing(), hover);
         }
+        if (!detail.rings()) {
+            // A one-pixel ring round a twelve-pixel node is a thicker border rather than a cue, and the
+            // selection is still legible as the node's own ink. The flash goes with it: it answers
+            // "where did that quest go", and at this zoom every node looks the same anyway.
+            ring = 0;
+        }
 
         // The wash FOLLOWS THE SHAPE, and that is the whole point of drawing it here rather than with a
         // `fill` rectangle over the icon's box -- see `QuestNodeArt` for the drawing and for why it is
@@ -18199,6 +18443,10 @@ public final class QuestBookScreen extends ArmatureScreen
         boolean draftedLook = drawnShape != entry.shape() || drawnRotation != entry.rotation();
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, drawnShape,
                 draftedLook ? ClientQuestCache.geometry(drawnShape, drawnRotation) : entry.geometry(),
+                // The icon is always offered, and the node's own box decides whether it is drawn. The zoom
+                // used to decide, through the detail tier — and that was the wrong question twice over: it
+                // refused an icon on a landmark node that had room to spare, and the refusal showed as an
+                // empty outline. See CanvasSettings and QuestNodeArt.
                 entry.icon(),
                 fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
                 edge, ring, wash));
@@ -18232,17 +18480,17 @@ public final class QuestBookScreen extends ArmatureScreen
      * Drawing labels inside the node loop is what produced the garbled text in the screenshot — each
      * label knew only about its own node, so three of them were drawn straight through each other.
      */
-    private void drawLabels(GuiRenderer r, List<ClientQuestCache.Entry> quests) {
-        // Only the quests that asked for a name. The rest are named on hover, which the caption below
-        // the canvas does for every node -- so nothing is unreachable, and the canvas is not a wall of
-        // text.
-        //
-        // The room is measured from *these* nodes, not from every node, which is a real difference:
-        // a named quest next to an unnamed one has the whole gap to itself, because the unnamed one
-        // draws nothing there to collide with.
-        List<ClientQuestCache.Entry> named = quests.stream()
-                .filter(e -> fieldDraft.flag(e.chapterId(), e.id(), "showTitle", e.showTitle()))
-                .toList();
+    private void drawLabels(GuiRenderer r, List<ClientQuestCache.Entry> quests, CanvasDetail detail) {
+        if (!detail.labels()) {
+            // Zoomed far enough out that a title is unreadable at any length: measuring and drawing them
+            // is work whose only product is a smudge. The hover caption still names whatever the pointer
+            // is over. See CanvasDetail.
+            return;
+        }
+        // Only the quests that asked for a name, and the room measured from *these* nodes rather than from
+        // every node — a named quest next to an unnamed one has the whole gap to itself, because the unnamed
+        // one draws nothing there to collide with. Both are built by `stampCanvas` now: see the note there.
+        List<ClientQuestCache.Entry> named = canvasNamed;
         if (named.isEmpty()) {
             return;
         }
@@ -18255,16 +18503,26 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
 
+        // One box per node on the canvas, and the index that finds a node's own box — built once per
+        // canvas, not once per frame. See LabelOverlap for the collision test itself, which also stops
+        // looking at boxes that cannot reach the label's rows.
+        List<LabelOverlap.Box> boxes = canvasBoxes;
+        Map<String, Integer> boxOf = canvasBoxOf;
+        LabelOverlap overlap = canvasOverlap;
+
         for (ClientQuestCache.Entry entry : named) {
-            int size = nodeSize(entry);
-            int x = nodeScreenX(entry);
-            int y = nodeScreenY(entry);
+            // The box rather than the getters again, so the label's placement and the collision test
+            // cannot disagree about where its node is.
+            int owner = boxOf.get(entry.id());
+            LabelOverlap.Box box = boxes.get(owner);
+            int size = box.size();
+            int y = box.y();
 
             String shown = Measure.truncate(titleOf(entry), room, textMeasure(r));
             int width = r.textWidth(shown);
             // Clamped inward so a label on the edge node is not half off the canvas, but never so far
             // that it slides away from the node it belongs to.
-            int textX = Mth.clamp(x + size / 2 - width / 2, canvasLeft() + 2,
+            int textX = Mth.clamp(box.x() + size / 2 - width / 2, canvasLeft() + 2,
                     visibleCanvasRight() - width - 2);
             int textY = y + size + LABEL_GAP;
 
@@ -18276,7 +18534,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // over a named node, and the unnamed node is still there on the screen. Passing `named`
             // here was a regression introduced with the default, and it would have shown up as a label
             // sitting across a neighbour's icon in exactly the chapters that opt in to names.
-            if (textY + 9 > canvasBottom() || overlapsAnotherNode(quests, entry, textX, textY, width)) {
+            if (textY + 9 > canvasBottom() || overlap.over(owner, textX, textY, width)) {
                 // A label drawn over the node below it, or out of the canvas, is worse than no label.
                 continue;
             }
@@ -18313,22 +18571,10 @@ public final class QuestBookScreen extends ArmatureScreen
         return BookGeometry.labelRoom(columns, LABEL_GAP, MAX_LABEL_WIDTH);
     }
 
-    /** Whether a label's box would be drawn over a node that is not the one it belongs to. */
-    private boolean overlapsAnotherNode(List<ClientQuestCache.Entry> quests, ClientQuestCache.Entry owner,
-                                        int textX, int textY, int width) {
-        for (ClientQuestCache.Entry other : quests) {
-            if (other.id().equals(owner.id())) {
-                continue;
-            }
-            int size = nodeSize(other);
-            int x = nodeScreenX(other);
-            int y = nodeScreenY(other);
-            if (textX < x + size && textX + width > x && textY < y + size && textY + 9 > y) {
-                return true;
-            }
-        }
-        return false;
-    }
+    // `overlapsAnotherNode` used to live here: a scan of every node, per label, recomputing each
+    // candidate's size and screen position inside the loop. It is `LabelOverlap` now — one set of boxes
+    // for the frame and a window search rather than a full scan — which is also what makes the rule
+    // assertable without a canvas: `LabelOverlapTest` sweeps it against the scan it replaced.
 
     // trimToWidth(Font, String, int) used to live here, and it is now `Measure.truncate`.
     //
@@ -18388,6 +18634,95 @@ public final class QuestBookScreen extends ArmatureScreen
      * a clipped fill is still a fill that was built and submitted, and at high zoom most of a chapter is
      * off-canvas.
      */
+    /**
+     * The chapter's edges and its on-canvas nodes, as they were last built, and the frame state they were
+     * built from.
+     *
+     * <h2>Why this exists at all, when the individual reads are cheap</h2>
+     *
+     * <p>Because there are so many of them and they are re-done every frame. Building the edges alone costs
+     * a hash map of every quest in the chapter, a dependency read per quest, two rim searches per edge and a
+     * list per edge; culling the nodes costs a lookup and a viewport mapping each. None of that scales with
+     * what is on screen — only with how big the chapter is — which is exactly the shape of the report that
+     * prompted this: a nine-hundred-node chapter at 20 fps while an empty one ran at the refresh rate.
+     *
+     * <h2>The key, and why every field is in it</h2>
+     *
+     * <p>A node's screen position depends on the tree (its own coordinates), the draft (a position or size
+     * being edited), the editor session's pending moves, the node being dragged right now, and the viewport;
+     * an edge's colour depends on progress and on the theme; and the cull depends on the canvas rectangle
+     * and which chapter is on screen. Anything left out would show as a node, a line or a colour that is one
+     * gesture behind — so all of it is in, and the epoch is what makes the live drags expressible at all.
+     *
+     * <p><b>Including whether this client may edit</b>, which is not a detail: an author sees every quest,
+     * hidden flags and all, and a reader sees only the visible ones — that filter is what
+     * {@code questsIn(chapter)} applies. Leaving it out of the key would leave the reader's node set on
+     * screen after switching into edit mode, until something else happened to move the canvas. It was left
+     * out of the first version of this record, and an outside review found it.
+     *
+     * <p>Stamped **after** the locate glide has advanced the camera, because that moves the viewport: a key
+     * taken before it would describe the position the frame started at rather than the one it draws.
+     */
+    private record CanvasState(long tree, long progress, long draft, long editors, String dragging,
+                               float dragX, float dragY, float scale, int offsetX, int offsetY,
+                               int left, int top, int right, int bottom, String chapter, Object theme,
+                               boolean authoring) {
+    }
+
+    private CanvasState canvasState;
+    private List<FrameEdge> canvasEdges;
+    private List<ClientQuestCache.Entry> canvasVisible;
+    private List<ClientQuestCache.Entry> canvasNamed = List.of();
+    private List<LabelOverlap.Box> canvasBoxes = List.of();
+    private Map<String, Integer> canvasBoxOf = Map.of();
+    private LabelOverlap canvasOverlap;
+
+    /** Rebuilds the frame's canvas if anything it is drawn from has moved. See {@link CanvasState}. */
+    private void stampCanvas(List<ClientQuestCache.Entry> quests) {
+        CanvasState key = new CanvasState(ClientQuestCache.treeRevision(),
+                ClientQuestCache.progressRevision(), fieldDraft.version(), editors.epoch(), draggedNode,
+                dragNodeX, dragNodeY, viewport().scale(), viewport().offsetX(), viewport().offsetY(),
+                canvasLeft(), canvasTop(), canvasRight(), canvasBottom(), effectiveChapter(),
+                ArmatureTheme.current(), mayEditNow());
+        if (key.equals(canvasState)) {
+            return;
+        }
+        canvasEdges = frameEdges(quests);
+        canvasVisible = quests.stream().filter(this::nodeVisible).toList();
+
+        // The label pass's inputs, which are the same kind of thing and were rebuilt every frame: the named
+        // quests (a draft flag lookup per quest in the chapter), a box per node, the index that finds a
+        // node's own box, and the sorted structures the collision test needs. All of it from state this
+        // record already names — positions, draft, tree, progress, the chapter and the viewport — so a still
+        // canvas pays for it once instead of sixty times a second.
+        if (CanvasDetail.of(viewport().scale()).labels()) {
+            List<ClientQuestCache.Entry> named = new ArrayList<>();
+            for (ClientQuestCache.Entry entry : quests) {
+                if (fieldDraft.flag(entry.chapterId(), entry.id(), "showTitle", entry.showTitle())) {
+                    named.add(entry);
+                }
+            }
+            List<LabelOverlap.Box> boxes = new ArrayList<>(quests.size());
+            Map<String, Integer> boxOf = new HashMap<>(quests.size() * 2);
+            for (ClientQuestCache.Entry entry : quests) {
+                boxOf.put(entry.id(), boxes.size());
+                boxes.add(new LabelOverlap.Box(nodeScreenX(entry), nodeScreenY(entry), nodeSize(entry)));
+            }
+            canvasNamed = List.copyOf(named);
+            canvasBoxes = List.copyOf(boxes);
+            canvasBoxOf = Map.copyOf(boxOf);
+            canvasOverlap = new LabelOverlap(canvasBoxes);
+        }
+        else {
+            // Zoomed far enough out that no title is drawn: the boxes would be work for nothing.
+            canvasNamed = List.of();
+            canvasBoxes = List.of();
+            canvasBoxOf = Map.of();
+            canvasOverlap = null;
+        }
+        canvasState = key;
+    }
+
     private List<FrameEdge> frameEdges(List<ClientQuestCache.Entry> quests) {
         // An id-keyed map for the lookups, so the loops below are linear rather than a scan of every
         // quest per dependency -- the same O(E*N) scan the drawing used to do per frame.
@@ -18513,16 +18848,25 @@ public final class QuestBookScreen extends ArmatureScreen
     private static void drawStyledPath(GuiRenderer r, List<LineArt.Point> path, DependencyStyle style,
                                        int fromHalf, int toHalf, int colour) {
         DependencyStyle.Weight weight = style.weightOr(DependencyStyle.Weight.THIN);
-        for (LineArt.Fill fill : LineArt.fills(path, weight,
+        // Asks for the route **measured from its own first point**, and adds that point back as it draws.
+        // A pan moves every edge's endpoints, so the absolute route is a new cache key for every edge on
+        // every frame of the gesture; a line's shape is the differences between its points, and those do not
+        // move. So panning now costs the path construction and the fills, and none of the walking, merging
+        // or allocating that used to happen per edge per frame while the view moved. See LineArt.
+        LineArt.Point origin = path.get(0);
+        for (LineArt.Fill fill : LineArt.fillsRelative(path, weight,
                 style.dashOr(DependencyStyle.Dash.SOLID))) {
-            r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), MenuFlyoutArt.ink(fill.tone(), colour));
+            r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
+                    origin.x() + fill.x2(), origin.y() + fill.y2(),
+                    MenuFlyoutArt.ink(fill.tone(), colour));
         }
         // The head is drawn at the line's own weight: a six-pixel conduit ending in a hairline arrow was
         // the report, and the head's standoff and reach grow with the weight so it still clears its node.
-        for (LineArt.Fill fill : LineArt.arrows(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
+        for (LineArt.Fill fill : LineArt.arrowsRelative(path, style.headOr(DependencyStyle.ArrowHead.CHEVRON),
                 style.placeOr(DependencyStyle.ArrowPlace.TARGET), style.arrowSpacing(),
                 fromHalf, toHalf, weight)) {
-            r.fill(fill.x1(), fill.y1(), fill.x2(), fill.y2(), colour);
+            r.fill(origin.x() + fill.x1(), origin.y() + fill.y1(),
+                    origin.x() + fill.x2(), origin.y() + fill.y2(), colour);
         }
     }
 
@@ -18695,6 +19039,17 @@ public final class QuestBookScreen extends ArmatureScreen
         for (int i = quests.size() - 1; i >= 0; i--) {
             ClientQuestCache.Entry entry = quests.get(i);
             int size = nodeSize(entry);
+            int x = nodeScreenX(entry);
+            int y = nodeScreenY(entry);
+            // The bounding box first, and it is a **filter rather than the test**: a shape's spans never
+            // leave its own square, so a pointer outside the square cannot be inside the shape. That makes
+            // this free of any change in what a click does, and it skips the span lookup for every node
+            // the pointer is not in — at nine hundred nodes, nine hundred integer comparisons instead of
+            // nine hundred table walks. The note below is not arguing against this: the box decides
+            // whether to ask, and the shape decides the answer.
+            if (mouseX < x || mouseX >= x + size || mouseY < y || mouseY >= y + size) {
+                continue;
+            }
             // The shape's own test, not a bounding box. A circle's corners are outside it, so a
             // bounding-box hit test would let a click land on a node's transparent corner -- and with
             // two diagonal neighbours 34 pixels apart, that click belongs to neither of them.
@@ -18704,7 +19059,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // The rotated geometry, so a click lands on the node as it is drawn: the same table the
             // renderer walked, which is the whole of "a click lands on exactly the pixels that were
             // drawn".
-            if (entry.geometry().contains(mouseX, mouseY, nodeScreenX(entry), nodeScreenY(entry), size)) {
+            if (entry.geometry().contains(mouseX, mouseY, x, y, size)) {
                 return entry;
             }
         }
@@ -20596,12 +20951,94 @@ public final class QuestBookScreen extends ArmatureScreen
                 .showsText(entry.hideTextUntilComplete(), state);
         boolean details = dev.ellipog.tasked.client.dev.QuestVisibility
                 .showsDetails(entry.hideDetailsUntilStartable(), state);
-        return OverlayLayout.stack(
+
+        // Everything the layout below is built from, as one value. Rebuilt only when one of these moves,
+        // which is not an optimisation to be sprinkled: the markdown is parsed and wrapped here, every
+        // task and reward's label is measured for its line count, and the whole element stack is laid
+        // out — per frame, for a card that usually changes only when the reader does something.
+        //
+        // `progress` is in the key because two of the four inputs above come from the quest's *state*:
+        // a quest that becomes startable reveals its details, which is a taller card. `textEpoch` is the
+        // font and the player's text scale, the same pair that invalidates a measured width.
+        ReaderCardKey key = new ReaderCardKey(entry.id(), ClientQuestCache.treeRevision(),
+                ClientQuestCache.progressRevision(), body.viewWidth(), TextEpoch.now());
+        if (readerCard != null && key.equals(readerCardKey)) {
+            return readerCard;
+        }
+
+        Layout built = OverlayLayout.stack(
                         readerProse(r, text ? entry.description() : List.of(), body.viewWidth()),
                         entry.tasks().size(), entry.rewards().size(), dependenciesOf(entry).size(), false,
                         new OverlayLayout.Reveal(text, details))
                 .build(body.viewWidth(), textMeasure(r));
+        readerCard = built;
+        readerCardKey = key;
+        return built;
     }
+
+    /** What the reader's card was built from. See {@link #overlayLayout}. */
+    private record ReaderCardKey(String questId, long tree, long progress, int width, long text) {
+    }
+
+    /** The reader's card, as it was last built, and the key it was built from. */
+    private Layout readerCard;
+    private ReaderCardKey readerCardKey;
+
+    /**
+     * The editor's card: the layout, and the four things the drawing reads from the same build.
+     *
+     * <h2>Why the four are cached with it</h2>
+     *
+     * <p>Because they are one answer rather than five. The per-entry line counts are what <i>size</i> the
+     * rows the layout places, so a layout without them is a card whose rows are in the wrong place; the
+     * prose is what the layout was wrapped from and what the body draws. Caching the layout alone would
+     * mean recomputing all four anyway — which is the work — or drawing a card from last frame's shape.
+     *
+     * <h2>The key, and the one input that is not a revision</h2>
+     *
+     * <p>{@code draft} is {@link dev.ellipog.tasked.client.dev.FieldDraft#version}: a stepper press
+     * writes a draft and does not move the tree or the replica, so without it a card would keep showing
+     * the shape it had before the press. {@code text} is the font and the player's text scale, which
+     * change how wide every string is without changing any of them.
+     */
+    private EditorCard editorCard(GuiRenderer r, ClientQuestCache.Entry entry, JsonObject quest,
+                                  Viewport body) {
+        ClientChapterReplica.Copy copy = ClientChapterReplica.of(entry.chapterId());
+        EditorCardKey key = new EditorCardKey(entry.id(), ClientQuestCache.treeRevision(),
+                copy == null ? 0L : copy.revision(), fieldDraft.version(), body.viewWidth(),
+                TextEpoch.now());
+        if (editorCard != null && key.equals(editorCardKey)) {
+            return editorCard;
+        }
+
+        List<String> description = shownDescription(entry, quest);
+        // Per-entry line counts, not a count: an entry whose controls wrap is taller, and the layout
+        // has to place the rows below it against the height the drawing will use.
+        List<Integer> taskLines = entryLineCounts("tasks", quest, body.viewWidth());
+        List<Integer> rewardLines = entryLineCounts("rewards", quest, body.viewWidth());
+        List<String> dependencies = QuestPanelLayout.strings(quest, "dependsOn");
+        Layout layout = OverlayLayout.stack(editorProse(r, description, body.viewWidth()),
+                        taskLines, rewardLines, dependencies.size(), true)
+                .build(body.viewWidth(), textMeasure(r));
+
+        EditorCard built = new EditorCard(layout, description, taskLines, rewardLines, dependencies);
+        editorCard = built;
+        editorCardKey = key;
+        return built;
+    }
+
+    /** What the editor's card was built from. See {@link #editorCard}. */
+    private record EditorCardKey(String questId, long tree, long replica, long draft, int width,
+                                 long text) {
+    }
+
+    /** The editor's card, and the four things its drawing reads beside the layout. */
+    private record EditorCard(Layout layout, List<String> description, List<Integer> taskLines,
+                              List<Integer> rewardLines, List<String> dependencies) {
+    }
+
+    private EditorCard editorCard;
+    private EditorCardKey editorCardKey;
 
     /**
      * The reader's description as markdown: every element parsed into blocks, every block wrapped through
@@ -21025,10 +21462,34 @@ public final class QuestBookScreen extends ArmatureScreen
      * site: this pane draws a line of body text every {@link OverlayLayout#LINE_HEIGHT} pixels, and a
      * layout measuring at the font's own height over a drawing advancing by ten is short by a line per
      * paragraph — which arrives as a scrollbar that stops early with nothing anywhere reporting it.
+     *
+     * <h2>One measure for the screen, and why it does not bind a renderer</h2>
+     *
+     * <p>This used to build a fresh measure per call, and its callers are per <i>row</i>: a truncated
+     * label walks its own string a character at a time, so a canvas of labelled nodes measured
+     * thousands of prefixes per frame and measured the same thousands again on the next one. The memo
+     * in {@link Measure#cached} is what makes that free, and it only works if the measure <b>outlives
+     * the frame</b> — which means it cannot be built from the frame's renderer.
+     *
+     * <p>So the measure is built once and reads whichever renderer is in force, through
+     * {@link #measuring}. That field is set on every call rather than the measure being rebuilt, which
+     * is the whole of the change: the same object answers every frame, so the widths it has already
+     * been asked for are still there.
      */
-    private static Measure textMeasure(GuiRenderer r) {
-        return Measure.of(r::textWidth, OverlayLayout.LINE_HEIGHT);
+    private Measure textMeasure(GuiRenderer r) {
+        measuring = r;
+        if (measure == null) {
+            measure = Measure.cached(Measure.of(text -> measuring.textWidth(text), OverlayLayout.LINE_HEIGHT),
+                    TextEpoch::now);
+        }
+        return measure;
     }
+
+    /** The renderer the measure in force is measuring with. See {@link #textMeasure}. */
+    private GuiRenderer measuring;
+
+    /** The measure in force. See {@link #textMeasure}. */
+    private Measure measure;
 
     /**
      * The wash behind a hovered row.

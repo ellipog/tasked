@@ -503,11 +503,10 @@ public final class TaskedReiPlugin implements REIClientPlugin, RecipeLookups.Loo
                     : content.index().questsAwarding(item);
             List<QuestDisplay> out = new ArrayList<>(refs.size());
             for (QuestRef ref : refs) {
-                for (QuestPage page : content.pages()) {
-                    if (page.quest().id().equals(ref.id())) {
-                        out.add(new QuestDisplay(page, identifier, entry));
-                        break;
-                    }
+                // One lookup per ref rather than a walk of every page per ref; see QuestContent.page.
+                QuestPage page = content.page(ref.id());
+                if (page != null) {
+                    out.add(new QuestDisplay(page, identifier, entry));
                 }
             }
             return out.isEmpty() ? Optional.empty() : Optional.of(out);

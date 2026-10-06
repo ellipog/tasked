@@ -24,6 +24,36 @@ import java.util.UUID;
  * in the tens of thousands of fills; with it, the same fills arrive in one batched region per frame,
  * which is the number that matters — the fills still exist, the <i>submissions</i> do not.
  *
+ * <h2>Widths, and why they are counted</h2>
+ *
+ * <p>Because measuring text is the other half of what a frame costs, and the fill count cannot see it:
+ * every truncated label measures its own string once per character, and a card that re-wraps its prose
+ * measures every line of it again. {@code widths} is that number — a proxy, and the honest one this
+ * seam can offer, because it can see the ask and not the font call behind it. It is what says whether a
+ * measurement cache would have anything to hit.
+ *
+ * <h2>Flushes, and the submission count that used not to be visible from here</h2>
+ *
+ * <p>{@code flushes} counts the calls this seam makes to {@link GuiRenderer#flush} — the canvas's own
+ * drain, and the blur when a modal is open. <b>That is all it counts, and the number is small: one or
+ * two on an ordinary frame.</b> It is not the submission count and must not be read as one. Every
+ * {@code fill}'s own flush happens inside {@code GuiGraphics}, below this interface, and so does every
+ * render-type change — a label, an icon, a texture — which ends a batch just as surely.
+ *
+ * <p><b>{@code switches} is that submission count, and it is the reason this class exists in its current
+ * shape.</b> It counts the points at which the drawing has to stop being one batch and become another:
+ * a change of render type (a fill after a label, a label after an icon), a clip, and a flush. That is
+ * what a frame costs on the CPU side, because each of those ends a {@code endBatch} and starts a new
+ * one with its own state setup — and it is the number that a batching change has to move. It counts
+ * every drawing call in the frame, batched or not, which is why it is meaningful before and after: the
+ * <i>fills</i> are the same either way, and the <i>boundaries</i> are not.
+ *
+ * <p>It undercounts two things, both deliberately: the extra passes inside {@code renderItem} (an item
+ * with a glint or a translucent layer submits more than once, and that is below this interface), and
+ * the second scissor change a clip makes when it closes. Both mean the real figure is a little higher
+ * than this — which is the honest direction for a proxy to be wrong in, since the claim it supports is
+ * that the frame submits far too many times.
+ *
  * <p>It is a decorator rather than a second implementation, and it counts in the same call that draws,
  * so nothing can be drawn without being counted. Off, it costs one branch at the call site that builds
  * the renderer.
@@ -32,12 +62,62 @@ public final class CountingRenderer implements GuiRenderer {
 
     private static long lastReportNanos;
 
+    /**
+     * The last report, as short lines for the dev HUD. Empty until a frame has been reported.
+     *
+     * <p>Published as one array rather than as six numbers a reader assembles, so nobody can see half
+     * of one frame's totals beside half of another's. Written and read on the client thread where the
+     * drawing happens; the volatile is there for the same reason every other one in this mod is — it
+     * costs nothing and it stops the question being asked twice.
+     */
+    private static volatile String[] summary = new String[0];
+
     private final GuiRenderer delegate;
     private int fills;
     private int texts;
+    private int widths;
     private int icons;
     private int textures;
+    private int flushes;
     private int batches;
+    private int switches;
+
+    /** Nothing drawn yet, or a boundary has just ended whatever was. See {@link #drew}. */
+    private static final int NONE = 0;
+    private static final int FILL = 1;
+    private static final int TEXT = 2;
+    private static final int ICON = 3;
+    private static final int TEXTURE = 4;
+
+    /** The kind of the last thing drawn, so a change of kind can be counted as the boundary it is. */
+    private int lastKind;
+
+    /**
+     * Records that something of this kind is being drawn, counting a submission when the kind changes.
+     *
+     * <p>A change of render type is a boundary below this interface — text is `RenderType.text` where a
+     * fill is `RenderType.gui`, so one cannot continue the other's batch — and so is the first drawing
+     * call of a frame, which is why {@link #NONE} is a kind like any other here.
+     */
+    private void drew(int kind) {
+        if (lastKind != kind) {
+            switches++;
+            lastKind = kind;
+        }
+    }
+
+    /**
+     * Records a boundary that is not itself a drawing call: a clip, a flush, or the blur.
+     *
+     * <p>Each of those ends whatever batch was open, so the next thing drawn starts a new submission.
+     * Setting the kind back to {@link #NONE} is what makes that next call count.
+     */
+    private void boundary() {
+        if (lastKind != NONE) {
+            switches++;
+            lastKind = NONE;
+        }
+    }
 
     public CountingRenderer(GuiRenderer delegate) {
         this.delegate = delegate;
@@ -62,35 +142,88 @@ public final class CountingRenderer implements GuiRenderer {
             return;
         }
         lastReportNanos = now;
-        Constants.LOG.info("tasked: book frame -- {} fill(s), {} text(s), {} icon(s), {} texture(s), {} batched region(s)",
-                fills, texts, icons, textures, batches);
+        // The icon split, drained rather than read: it is the number that says whether the flat-sprite
+        // path is doing anything with this client's content, and a cumulative total could not answer
+        // that. Draining here also means the arithmetic has one reader, so a second one cannot disagree
+        // about where a second begins.
+        //
+        // **And it is per second, which the name has to say.** It was labelled `lives` — a word that reads
+        // as "live objects" and was taken for a count of quests being scanned across the whole project, in
+        // an audit that then proposed scoping a scan that does not exist. The figure is item-icon decisions
+        // over the last second: at 122 fps, `19434` is the 156 icons of one frame, a hundred and twenty-two
+        // times over. An instrument whose name invites a wrong diagnosis costs more than it saves.
+        dev.ellipog.armature.client.render.IconPlan.Counts planned =
+                dev.ellipog.armature.client.render.IconPlan.drain();
+        // The line layer's own number, and the one that says whether a still canvas is still paying for
+        // its edges: a route that has not moved is remembered, so this is near zero while the canvas is
+        // being read and spikes only while it is being panned, zoomed or edited.
+        long walkPoints = LineArt.drainWalked();
+        // The line keeps the shape TESTING.md greps for -- `book frame -- N fill(s)` -- so everything
+        // newer than that is appended rather than inserted among the older counts.
+        Constants.LOG.info("tasked: book frame -- {} fill(s), {} text(s), {} icon(s), {} texture(s),"
+                        + " {} batched region(s), {} width(s), {} flush(es), {} flat icon(s)/s,"
+                        + " {} live icon(s)/s, {} submission(s), {} line walk point(s)",
+                fills, texts, icons, textures, batches, widths, flushes, planned.flat(), planned.live(),
+                switches, walkPoints);
+        summary = new String[] {
+                "fills " + fills,
+                "texts " + texts,
+                "widths " + widths,
+                "icons " + icons,
+                "flushes " + flushes,
+                "batches " + batches,
+                "flats/s " + planned.flat(),
+                "liveicons/s " + planned.live(),
+                "submits " + switches,
+                "linewalk " + walkPoints};
+    }
+
+    /** The last reported frame, as short lines for the dev HUD. Empty before the first report. */
+    public static String[] summary() {
+        return summary;
+    }
+
+    /**
+     * How many submissions this frame's drawing needs, as counted so far.
+     *
+     * <p>Exposed because the rules that produce it are arithmetic with three ways to be wrong — the first
+     * call of a frame, a change of kind, and a boundary that is not a drawing call — and a report that can
+     * only be read once a second cannot be asserted in a test. See {@link #drew} and {@link #boundary}.
+     */
+    public int submissions() {
+        return switches;
     }
 
     @Override
     public void fill(int left, int top, int right, int bottom, int argb) {
         fills++;
+        drew(FILL);
         delegate.fill(left, top, right, bottom, argb);
     }
 
     @Override
     public void text(String text, int x, int y, int argb) {
         texts++;
+        drew(TEXT);
         delegate.text(text, x, y, argb);
     }
 
     @Override
     public void styledText(java.util.List<StyledRun> runs, int x, int y, int argb) {
         texts++;
+        drew(TEXT);
         delegate.styledText(runs, x, y, argb);
     }
 
     @Override
     public int styledWidth(String text, boolean bold, boolean italic, float scale) {
+        widths++;
         return delegate.styledWidth(text, bold, italic, scale);
     }
 
     @Override
     public int textWidth(String text) {
+        widths++;
         return delegate.textWidth(text);
     }
 
@@ -102,18 +235,21 @@ public final class CountingRenderer implements GuiRenderer {
     @Override
     public boolean icon(ItemStack stack, int boxX, int boxY, int box) {
         icons++;
+        drew(ICON);
         return delegate.icon(stack, boxX, boxY, box);
     }
 
     @Override
     public boolean face(UUID player, int boxX, int boxY, int box) {
         icons++;
+        drew(ICON);
         return delegate.face(player, boxX, boxY, box);
     }
 
     @Override
     public void texture(ResourceLocation texture, int x, int y, int width, int height) {
         textures++;
+        drew(TEXTURE);
         delegate.texture(texture, x, y, width, height);
     }
 
@@ -140,6 +276,7 @@ public final class CountingRenderer implements GuiRenderer {
                        float u, float v, int sourceWidth, int sourceHeight,
                        int textureWidth, int textureHeight, int argb) {
         textures++;
+        drew(TEXTURE);
         if (delegate != null) {
             delegate.scaled(texture, x, y, width, height, u, v, sourceWidth, sourceHeight,
                     textureWidth, textureHeight, argb);
@@ -148,11 +285,16 @@ public final class CountingRenderer implements GuiRenderer {
 
     @Override
     public boolean blur(float partialTick) {
+        // A post-process, so a boundary and not a drawing call: it drains everything drawn so far and
+        // leaves the pipeline restored, which means whatever is drawn next is a new submission.
+        boundary();
         return delegate.blur(partialTick);
     }
 
     @Override
     public void flush() {
+        flushes++;
+        boundary();
         delegate.flush();
     }
 
@@ -164,6 +306,11 @@ public final class CountingRenderer implements GuiRenderer {
 
     @Override
     public Scoped clip(int left, int top, int right, int bottom) {
+        // A scissor change ends the batch whether the context is managed or not -- `applyScissor` calls
+        // `flushIfManaged` -- so it is a boundary here for the same reason a render-type change is. The
+        // `close` is not counted: it is the same change in the other direction, and one clip is one
+        // interruption.
+        boundary();
         return delegate.clip(left, top, right, bottom);
     }
 }

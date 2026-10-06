@@ -46,6 +46,24 @@ public interface QuestContent {
     /** Every quest page, as of the last snapshot. Safe to read from any thread. */
     List<QuestPage> pages();
 
+    /**
+     * The page for one quest id, or null — for a viewer that has ids from somewhere else.
+     *
+     * <h2>Why this is not "walk {@link #pages} and compare"</h2>
+     *
+     * <p>Because two adapters would write that walk, and both would write it the expensive way round: a
+     * lookup answers with the pages for the refs an item index returned, so walking every page per ref is
+     * O(pages × refs) for a question whose answer is in a map. That is the same argument
+     * {@link ItemQuestIndex} makes for existing at all, one lookup further along — so the map is built
+     * where the pages are, and an adapter asks for one.
+     *
+     * <p>Null is the answer for an id the snapshot does not carry, which is not an error: a ref can name
+     * a quest whose page was never built, because a quest with no item rows has no page.
+     *
+     * <p>Safe to read from any thread, like {@link #pages()} — it is part of the same snapshot.
+     */
+    QuestPage page(String questId);
+
     /** A task row with its numbers as they are now. Client thread only. */
     QuestRow liveTask(String questId, int index);
 

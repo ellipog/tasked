@@ -144,6 +144,18 @@ public final class TaskedNetworking {
                 // instead of a packet per second.
                 payload -> acceptProgress(payload),
                 null));
+
+        // --- the vitals overlay, server to client ---
+
+        // One boolean, and it is the *server's* answer: `/tasked vitals` is an operator's command, so the
+        // client is told what to draw rather than deciding for itself. See VitalsPayload for why the switch
+        // has to travel through the server at all.
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                VitalsPayload.TYPE,
+                VitalsPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                payload -> dev.ellipog.tasked.client.Vitals.set(payload.on()),
+                null));
         // --- submitting a task, client to server ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -649,24 +661,44 @@ public final class TaskedNetworking {
                 .toList();
     }
 
-    /** Pushes the tree to every connected player, then their progress. Called after a reload. */
+    /** Pushes the tree to every connected player, then their progress in full. Called after a reload. */
     public static void sendTreeToAll(MinecraftServer server) {
-        sendTreeToAll(server, true);
+        sendTreeToAll(server, TreeRefresh.Touch.Progress.FULL);
     }
 
     /**
-     * The same, optionally leaving progress alone.
+     * The same, with the progress channel the caller owes.
      *
-     * <p>For a table edit: the tree carries the tables' summaries and must go out, but a full progress
-     * sync re-serialises every quest's resolved state for every player, and a reward table cannot have
-     * changed any of it. The progress a player sees is the same progress.
+     * <h2>What the three answers mean, and why this is not a boolean any more</h2>
+     *
+     * <p>The tree always goes out — every client draws it. What differs is progress, and the three
+     * cases are genuinely different things rather than degrees of one:
+     *
+     * <ul>
+     *   <li>{@code NONE}: no player's resolved state can have moved. A table edit, and a node nudge.</li>
+     *   <li>{@code DELTA}: states may have moved, but no row's <i>position</i> has, so the delta is
+     *       keyed by quest id and recomputes every state before sending what differs — the same message
+     *       a quest completing sends.</li>
+     *   <li>{@code FULL}: a row's position may have moved under a stored count, so every player is
+     *       re-sent the whole of it. See {@code TreeRefresh.Touch} for the rule.</li>
+     * </ul>
+     *
+     * <p>The reasons travel with the messages rather than being invented here: {@code REASON_CHANGED}
+     * is what the progress channel already treats as "sent relative to what this player has", and
+     * {@code REASON_RELOAD} is what it already treats as "the whole of it".
      */
-    public static void sendTreeToAll(MinecraftServer server, boolean withProgress) {
+    public static void sendTreeToAll(MinecraftServer server, TreeRefresh.Touch.Progress progress) {
         QuestIndex index = TaskedQuests.index();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             QuestSync.sendTreeTo(player, index);
-            if (withProgress) {
-                QuestSync.sendProgress(server, player, ProgressSyncPayload.REASON_RELOAD);
+            switch (progress) {
+                case NONE -> {
+                    // Nothing about a player has moved. The tree above is the whole of the message.
+                }
+                case DELTA -> QuestSync.sendProgress(server, player,
+                        ProgressSyncPayload.REASON_CHANGED);
+                case FULL -> QuestSync.sendProgress(server, player,
+                        ProgressSyncPayload.REASON_RELOAD);
             }
         }
     }
@@ -677,10 +709,19 @@ public final class TaskedNetworking {
      * <p>Called by the tick flush rather than per operation — see {@link TreeRefresh} — so a burst of
      * edits pays for one reload and one broadcast. The op itself is still applied synchronously by
      * {@link #handleEditorOp}, and its reply is still immediate.
+     *
+     * <p>What it re-reads and what it re-sends are both the touch's answer, and handing the touch on
+     * rather than deciding here is deliberate: the caller that decided this for itself is the reason a
+     * coordinate nudge used to cost every player a full progress sync.
      */
-    public static void refreshTree(MinecraftServer server) {
-        TaskedQuests.reload();
-        sendTreeToAll(server);
+    public static void refreshTree(MinecraftServer server, TreeRefresh.Touch touch) {
+        if (touch.scope() == TreeRefresh.Touch.Scope.TABLES) {
+            TaskedQuests.reloadTables();
+        }
+        else {
+            TaskedQuests.reload();
+        }
+        sendTreeToAll(server, touch.progress());
     }
 
     /**
@@ -690,8 +731,7 @@ public final class TaskedNetworking {
      * See {@code TreeRefresh.Touch} for why the two refreshes exist.
      */
     public static void refreshTables(MinecraftServer server) {
-        TaskedQuests.reloadTables();
-        sendTreeToAll(server, false);
+        refreshTree(server, TreeRefresh.Touch.TABLES);
     }
 
     /**
@@ -996,7 +1036,11 @@ public final class TaskedNetworking {
             // The reload and the all-player tree broadcast are coalesced to one per server tick -- see
             // TreeRefresh -- so a burst of edits pays for them once. The reply below stays per op, so
             // the author hears about every operation immediately.
-            TreeRefresh.request();
+            //
+            // Armed with what *this op* can have moved rather than with "something happened", which is
+            // the whole point of the reach: a drag sends one op per tick, and the old flag made every
+            // one of them owe a full progress sync to every connected player.
+            TreeRefresh.request(EditorOps.reachOf(op));
         }
         reply(sender, payload.chapter(), applied.ok(),
                 applied.questId() == null ? "" : applied.questId(),
@@ -1445,5 +1489,45 @@ public final class TaskedNetworking {
             }
         }
         return members;
+    }
+
+    // ------------------------------------------------------------------
+    // The vitals overlay
+    // ------------------------------------------------------------------
+
+    /**
+     * The players who asked for the vitals overlay, for this session.
+     *
+     * <p>Server-side state, and it has to be: the client cannot be told "toggle" without being asked what it
+     * currently shows, and a client answering that question is a client deciding whether it may have the
+     * instrument. So the server remembers, the command flips it, and the client is told the result.
+     *
+     * <p>Session-only, deliberately: nothing is written to disk, so a restart forgets. Persisting it is a
+     * per-player record and a hook on join, which is a bigger change than the switch is worth today — and
+     * the join case is the one that would need it, since a client that has never been told draws nothing.
+     */
+    private static final java.util.Set<UUID> VITALS = new java.util.HashSet<>();
+
+    /** Whether this player's client has been asked to draw vitals. */
+    public static boolean vitals(ServerPlayer player) {
+        return VITALS.contains(player.getUUID());
+    }
+
+    /**
+     * Turns the vitals overlay on or off for one player and tells their client.
+     *
+     * <p>The answer is returned rather than assumed on the caller's side, so the command that flips it
+     * reports what actually happened — including the case where the player has disconnected between the
+     * command and the send, which {@link #send} drops.
+     */
+    public static boolean setVitals(ServerPlayer player, boolean on) {
+        if (on) {
+            VITALS.add(player.getUUID());
+        }
+        else {
+            VITALS.remove(player.getUUID());
+        }
+        send(player, new VitalsPayload(on));
+        return on;
     }
 }

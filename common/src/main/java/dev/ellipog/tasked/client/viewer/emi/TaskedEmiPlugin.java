@@ -10,6 +10,7 @@ import dev.ellipog.tasked.client.viewer.QuestPage;
 import dev.ellipog.tasked.client.viewer.QuestRow;
 import dev.ellipog.tasked.client.viewer.QuestPageLayout;
 import dev.ellipog.tasked.client.viewer.RecipeLookups;
+import dev.ellipog.tasked.client.viewer.ViewerReloadWatch;
 import dev.ellipog.tasked.client.viewer.Viewers;
 
 import net.minecraft.client.Minecraft;
@@ -68,12 +69,35 @@ public final class TaskedEmiPlugin implements dev.emi.emi.api.EmiPlugin, Integra
     private static final int WIDTH = 134;
 
     /**
-     * The revision the last successful registration built its pages from, and the one a reload has
-     * been requested for. Static, because EMI constructs its own plugin instance and the holder
-     * constructs another — the two must agree about what is registered.
+     * The revision the last successful registration built its pages from. Static, because EMI constructs
+     * its own plugin instance and the holder constructs another — the two must agree about what is
+     * registered.
+     *
+     * <p>Written by {@link #register}, which EMI runs on <b>its own reload worker</b>, and read by
+     * {@link #tick} on the client thread — which is why it is volatile and why it is the one piece of
+     * this state the watch does not hold: the watch is asked a question, and this is the half of the
+     * answer that arrives from somewhere else.
+     *
+     * <p>The revision a rebuild has been <i>asked</i> for is not kept here. It was, and it is the
+     * watch's now — keeping a copy would be a second description of one fact, and the failure it invites
+     * is the quiet kind: the two drifting apart and the debounce asking twice for one revision, or not
+     * at all.
      */
     private static volatile long registeredRevision = -1L;
-    private static volatile long requestedRevision = -1L;
+
+    /**
+     * The debounce, and the reason it exists is worth reading before changing the number.
+     *
+     * <p>A rebuild here is <b>every recipe in the game</b>: EMI hands over a registry and expects every
+     * category filled, not only this mod's pages. The content moves per <i>edit</i> — a dragged node, a
+     * held count stepper, a field's commit — so one rebuild per revision is one rebuild per keystroke,
+     * and the player paying for it is doing something else. Twelve client ticks is 600 ms: long enough
+     * that a gesture settling between presses asks once, short enough that an author who edits and
+     * immediately looks at the viewer does not feel they are waiting for it.
+     *
+     * <p>Static with the revisions above, for the same reason: two plugin instances, one viewer.
+     */
+    private static final ViewerReloadWatch WATCH = new ViewerReloadWatch(12);
 
     @Override
     public void register(dev.emi.emi.api.EmiRegistry registry) {
@@ -129,13 +153,14 @@ public final class TaskedEmiPlugin implements dev.emi.emi.api.EmiPlugin, Integra
         if (!dev.emi.emi.runtime.EmiReloadManager.isLoaded()) {
             return;
         }
-        long revision = content.revision();
-        if (revision == registeredRevision || revision == requestedRevision) {
+        // The decision itself is the watch's, and game-free, so the rule can be asserted at a settle of
+        // two rather than waited out at twelve. What stays here is what needs this client: the guards
+        // above, and the call into EMI. The watch records the request before returning true — a reload
+        // that fails must not be retried every tick forever, and the next tree change is the honest
+        // retry point.
+        if (!WATCH.due(registeredRevision, content.revision())) {
             return;
         }
-        // One request per revision, recorded before the call: a reload that fails must not be
-        // retried every tick forever, and the next tree change is the honest retry point.
-        requestedRevision = revision;
         dev.emi.emi.runtime.EmiReloadManager.reload();
     }
 
@@ -440,9 +465,18 @@ public final class TaskedEmiPlugin implements dev.emi.emi.api.EmiPlugin, Integra
          * other call into that package, and one file wide.
          */
         private boolean isPinned() {
+            // The id is built once here rather than once per favourite: `getId` assembles a
+            // ResourceLocation, so the loop as it was written allocated one per pin to compare against
+            // — every frame, because this is drawn. One allocation per favourite remains, and it comes
+            // from the *other* recipe's id, which is not ours to hoist.
+            //
+            // Still a walk, and deliberately not a cached answer keyed on the recipe: the list is a
+            // player's own pins — tens at most, usually empty — so there is nothing here to cache, and
+            // a cache would need invalidating against EMI's favourites, which is one more thing to keep
+            // in step with a version this file already pins for other reasons.
+            var id = recipe.getId();
             for (dev.emi.emi.runtime.EmiFavorite favourite : dev.emi.emi.runtime.EmiFavorites.favorites) {
-                if (favourite.getRecipe() != null
-                        && recipe.getId().equals(favourite.getRecipe().getId())) {
+                if (favourite.getRecipe() != null && id.equals(favourite.getRecipe().getId())) {
                     return true;
                 }
             }

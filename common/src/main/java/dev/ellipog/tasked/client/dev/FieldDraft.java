@@ -358,6 +358,19 @@ public final class FieldDraft {
     }
 
     /**
+     * How many times this draft has been written to, as one number.
+     *
+     * <p>Exposed because a caller that builds something expensive from a drafted value needs to know when
+     * to build it again, and the draft is the only thing that knows: the card's layout is built from the
+     * quest's fields with the draft laid over them, so a stepper press has to rebuild it — and the tree
+     * revision does not move for a write still in flight. The counter only ever goes up, so a caller may
+     * snapshot it and compare.
+     */
+    public long version() {
+        return version;
+    }
+
+    /**
      * The same, for one owner, against the copy that owner's values actually come from.
      *
      * <p>For a panel whose file is not the chapter's: a reward table's own file, or an inline table

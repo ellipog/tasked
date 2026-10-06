@@ -9,6 +9,7 @@ import dev.ellipog.armature.api.data.JsonParseException;
 import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.Constants;
+import dev.ellipog.tasked.quest.ParsedFiles;
 import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.QuestShape;
 import dev.ellipog.tasked.quest.QuestValidator;
@@ -898,6 +899,10 @@ public final class QuestEditor {
      * memory is what makes the canvas, the loader and the files agree after an undo.
      */
     private void restore(Snapshot snapshot) {
+        // Everything, not one file: an undo puts a whole chapter back, which can have moved, renamed,
+        // recreated or set aside any of its files -- so what is on disk afterwards is a different *set*
+        // of files rather than different contents in the ones that were read. See ParsedFiles.
+        ParsedFiles.clear();
         Map<Path, String> files = snapshot.files();
 
         for (Map.Entry<Path, String> entry : files.entrySet()) {

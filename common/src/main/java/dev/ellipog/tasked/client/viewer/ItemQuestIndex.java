@@ -53,14 +53,19 @@ public final class ItemQuestIndex {
     }
 
     private static final ItemQuestIndex EMPTY =
-            new ItemQuestIndex(Map.of(), Set.of());
+            new ItemQuestIndex(Map.of(), Set.of(), Set.of(), Set.of());
 
     private final Map<ResourceLocation, List<Entry>> byItem;
     private final Set<ResourceLocation> items;
+    private final Set<ResourceLocation> required;
+    private final Set<ResourceLocation> awarded;
 
-    private ItemQuestIndex(Map<ResourceLocation, List<Entry>> byItem, Set<ResourceLocation> items) {
+    private ItemQuestIndex(Map<ResourceLocation, List<Entry>> byItem, Set<ResourceLocation> items,
+                           Set<ResourceLocation> required, Set<ResourceLocation> awarded) {
         this.byItem = byItem;
         this.items = items;
+        this.required = required;
+        this.awarded = awarded;
     }
 
     /** The index with nothing in it -- what an adapter reads before the tree has arrived. */
@@ -81,14 +86,43 @@ public final class ItemQuestIndex {
         return items;
     }
 
+    /**
+     * Whether any quest requires this item, or awards it — asked without building anything.
+     *
+     * <h2>Why a boolean is not a short {@link #questsUsing}</h2>
+     *
+     * <p>Because the callers that want a boolean want it in bulk. A viewer asks "does anything use
+     * this" once per ingredient it is about to show a tab for, so an answer that allocates a list, a
+     * set and a copy is three collections per ingredient — and the answer is almost always "no", which
+     * is the cheapest possible question to ask badly.
+     *
+     * <p>Membership rather than an emptiness test on the collected list, so these two read the same
+     * entries the lists do: a set cannot disagree with the list it was built from, because both come
+     * out of one walk over one {@code byItem} map.
+     */
+    public boolean uses(ResourceLocation item) {
+        return required.contains(item);
+    }
+
+    /** The awarding half of {@link #uses}, and asked the same way. */
+    public boolean awards(ResourceLocation item) {
+        return awarded.contains(item);
+    }
+
+    /**
+     * The quests that award the item, in insertion order, each once.
+     *
+     * <p>Includes a quest that requires it too. That is the correct reading of "awards" and it is worth
+     * stating, because the version this replaced answered "awards and does not require" — see
+     * {@code pass} for what that cost.
+     */
+    public List<QuestRef> questsAwarding(ResourceLocation item) {
+        return collect(item, false);
+    }
+
     /** The quests that require the item, in insertion order, each once. */
     public List<QuestRef> questsUsing(ResourceLocation item) {
         return collect(item, true);
-    }
-
-    /** The quests that award the item, in insertion order, each once. */
-    public List<QuestRef> questsAwarding(ResourceLocation item) {
-        return collect(item, false);
     }
 
     /**
@@ -121,7 +155,15 @@ public final class ItemQuestIndex {
 
     private static void pass(List<Entry> hits, boolean required, Set<String> seen, List<QuestRef> out) {
         for (Entry entry : hits) {
-            if (entry.required() == required && seen.add(entry.quest().id())) {
+            // The role that was asked about, not "is it not the other one". Those two are the same
+            // question only while no entry has both roles, and one can: a quest that hands in eight
+            // logs and gives back a stack of them is an entry that requires *and* awards. Filtering the
+            // awarding pass on `!required` therefore dropped it from every viewer's output side -- the
+            // quest was unfindable from the item it pays out -- while `questsFor` happened to stay
+            // right, because the required pass had already added it. Found by a test asserting the two
+            // answers agree; see ItemQuestIndexTest.
+            boolean inRole = required ? entry.required() : entry.awarded();
+            if (inRole && seen.add(entry.quest().id())) {
                 out.add(entry.quest());
             }
         }
@@ -132,6 +174,11 @@ public final class ItemQuestIndex {
 
         private final Map<ResourceLocation, List<Entry>> byItem = new HashMap<>();
         private final Set<ResourceLocation> items = new LinkedHashSet<>();
+        // The two roles, accumulated as the entries arrive rather than derived at build time: the
+        // entries are already being walked here, and a second walk to sort them into two sets would be
+        // the same work done twice for the same answer.
+        private final Set<ResourceLocation> required = new LinkedHashSet<>();
+        private final Set<ResourceLocation> awarded = new LinkedHashSet<>();
 
         private Builder() {
         }
@@ -140,6 +187,12 @@ public final class ItemQuestIndex {
             Objects.requireNonNull(entry, "entry");
             byItem.computeIfAbsent(entry.item(), key -> new ArrayList<>(2)).add(entry);
             items.add(entry.item());
+            if (entry.required()) {
+                required.add(entry.item());
+            }
+            if (entry.awarded()) {
+                awarded.add(entry.item());
+            }
             return this;
         }
 
@@ -155,7 +208,9 @@ public final class ItemQuestIndex {
             Map<ResourceLocation, List<Entry>> frozen = new HashMap<>(byItem.size());
             byItem.forEach((item, entries) -> frozen.put(item, List.copyOf(entries)));
             return new ItemQuestIndex(Collections.unmodifiableMap(frozen),
-                    Collections.unmodifiableSet(new LinkedHashSet<>(items)));
+                    Collections.unmodifiableSet(new LinkedHashSet<>(items)),
+                    Collections.unmodifiableSet(new LinkedHashSet<>(required)),
+                    Collections.unmodifiableSet(new LinkedHashSet<>(awarded)));
         }
     }
 }

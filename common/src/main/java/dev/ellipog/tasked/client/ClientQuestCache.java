@@ -472,6 +472,46 @@ public final class ClientQuestCache {
     private static volatile List<Entry> entries = List.of();
 
     /**
+     * The list the id index was built from, and the index itself.
+     *
+     * <h2>Why an index, and why it is derived rather than published</h2>
+     *
+     * <p>{@link #entry} used to scan the list, which is O(quests) per call — and its callers are per
+     * <i>row</i>: the rewards inbox draws a row per reward, the choice overlay a row per entry, and a
+     * viewer page a row per task. So a lookup made per row was a scan per row, which is the shape of
+     * cost that does not show up in a screenshot and does in a large pack.
+     *
+     * <p>Derived from the list rather than stored beside it, and that is the part worth stating: two
+     * volatile fields can be seen out of step, so a reader could hold a new list and an old index. Keyed
+     * on the list's own <b>identity</b> there is nothing to be out of step with — the index a reader
+     * gets is always the one built from the list it just read — and every assignment to {@code entries}
+     * is a fresh instance, so a change is always a change of identity. A rebuild is idempotent, so even
+     * two threads racing here can only produce the same map twice.
+     *
+     * <p>{@code putIfAbsent}, because the scan it replaces returns the <b>first</b> match and a plain
+     * {@code put} would keep the last: with two quests sharing an id — which the loader reports as an
+     * error and does not refuse outright — the two would disagree about which quest a click opens.
+     */
+    private static volatile List<Entry> indexedFor;
+    private static volatile Map<String, Entry> byId = Map.of();
+
+    private static Map<String, Entry> byId() {
+        List<Entry> current = entries;
+        if (current != indexedFor) {
+            Map<String, Entry> built = new java.util.HashMap<>(Math.max(16, current.size() * 2));
+            for (Entry entry : current) {
+                built.putIfAbsent(entry.id(), entry);
+            }
+            // The map before the key that says it is current, and both volatile: a reader that sees
+            // `indexedFor == current` then sees the map built for `current` rather than one built for
+            // the list before it. That ordering is what makes the claim above true rather than likely.
+            byId = Map.copyOf(built);
+            indexedFor = current;
+        }
+        return byId;
+    }
+
+    /**
      * The group headings, in the order the server declared them.
      *
      * <p>Empty for a server that predates groups, and that is not a case needing its own handling: the
@@ -967,14 +1007,19 @@ public final class ClientQuestCache {
         return counts;
     }
 
-    /** The tree entry for a quest id, or null. */
+    /**
+     * The tree entry for a quest id, or null.
+     *
+     * <p>Through the index: see {@link #byId()} for why it is derived from the list rather than kept
+     * beside it, and for the first-match rule it has to preserve.
+     *
+     * <p>Matched <b>exactly</b>, and that is a contract rather than a detail: the server's own
+     * identifier lookup is a plain map keyed the same way, so a client that folded case would resolve
+     * an id the tree does not hold. Null in, null out — not a crash, and the same answer the scan gave
+     * when it asked a string it did not hold whether it equalled each id in turn.
+     */
     public static Entry entry(String questId) {
-        for (Entry entry : entries) {
-            if (entry.id().equals(questId)) {
-                return entry;
-            }
-        }
-        return null;
+        return questId == null ? null : byId().get(questId);
     }
 
     /**
@@ -1145,6 +1190,10 @@ public final class ClientQuestCache {
         catch (RuntimeException e) {
             Constants.LOG.error("tasked: the server sent progress this client could not read", e);
             progress = Map.of();
+            // And nothing is named, as the whole of it: the cache has just been emptied, so a reader
+            // holding a baseline is looking at a tree that says nothing rather than at a delta that
+            // named a few quests. See ProgressTouch.
+            lastTouch = ProgressTouch.nothing;
             // The team is forgotten too, and that is the important half: leaving it set would make the
             // *next* delta look applicable, and it would be applied onto the empty map this catch just
             // left behind. Clearing it means the next message has to be a full sync to be accepted,
@@ -1172,6 +1221,10 @@ public final class ClientQuestCache {
         tables = List.of();
         refusedTables = List.of();
         progress = Map.of();
+        // And what the last message named goes with it. A reader comparing samples holds a baseline of
+        // quests; after a clear there are none, and telling it "a delta named nothing" would leave it
+        // holding the last server's states to compare the next server's tree against. See ProgressTouch.
+        lastTouch = ProgressTouch.nothing;
         teamId = null;
         questCount = 0;
         chapterCount = 0;
@@ -1602,15 +1655,23 @@ public final class ClientQuestCache {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         Map<String, Progress> next = full ? new LinkedHashMap<>() : new LinkedHashMap<>(progress);
 
+        // What this message named: the ids it carried, and the ids it took away. A removal counts,
+        // because to a reader comparing two samples "gone" is a change like any other -- and absence
+        // cannot say it, since absence is also what unchanged looks like.
+        Set<String> touched = new java.util.LinkedHashSet<>();
+
         if (root.has("removed")) {
             for (JsonElement gone : root.getAsJsonArray("removed")) {
-                next.remove(gone.getAsString());
+                String id = gone.getAsString();
+                next.remove(id);
+                touched.add(id);
             }
         }
 
         if (root.has("quests")) {
             for (Map.Entry<String, JsonElement> entry : root.getAsJsonObject("quests").entrySet()) {
                 JsonObject one = entry.getValue().getAsJsonObject();
+                touched.add(entry.getKey());
 
                 List<Integer> tasks = new ArrayList<>();
                 if (one.has("tasks")) {
@@ -1690,7 +1751,43 @@ public final class ClientQuestCache {
             }
         }
         progress = Map.copyOf(next);
+        lastTouch = new ProgressTouch(full, touched);
         progressRevision++;
+    }
+
+    /**
+     * What the last progress message named: whether it was the whole of the server's progress, and the
+     * quest ids it carried or removed.
+     *
+     * <h2>Why this is published rather than recomputed</h2>
+     *
+     * <p>Because the message is the only thing that knows what changed, and it is thrown away one line
+     * after it arrives: a delta says "these quests are now thus", and the code that reads it walks
+     * exactly those keys and then drops them. A reader that wants to know what moved has no way to ask
+     * afterwards — it would have to compare the whole cache against a remembered copy, which is the
+     * expensive thing this exists to let that reader stop doing.
+     *
+     * <p>{@code full} is carried rather than inferred, and it is the half that matters most to a reader
+     * comparing two samples: a <b>delta's</b> ids are the only quests that moved, while a <b>full</b>
+     * message says nothing about what moved — it is the whole of the server's answer, and a reader
+     * holding a baseline has to treat every quest in it as possibly new. A reader that treated a full
+     * as a delta would keep every unchanged quest's stale baseline and miss the next change to it.
+     */
+    public record ProgressTouch(boolean full, Set<String> ids) {
+
+        public ProgressTouch {
+            ids = Set.copyOf(ids);
+        }
+
+        /** Nothing named, as the whole of it: what a cache that has just been emptied holds. */
+        public static final ProgressTouch nothing = new ProgressTouch(true, Set.of());
+    }
+
+    private static volatile ProgressTouch lastTouch = ProgressTouch.nothing;
+
+    /** What the last progress message named. See {@link ProgressTouch} for why it is kept. */
+    public static ProgressTouch lastProgressTouch() {
+        return lastTouch;
     }
 
     /** A task position from the wire, or -1 for one that is not a position. */

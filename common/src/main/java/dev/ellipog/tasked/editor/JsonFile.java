@@ -9,6 +9,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 
 import dev.ellipog.armature.api.data.JsonWrite;
+import dev.ellipog.tasked.quest.ParsedFiles;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -136,6 +137,12 @@ public final class JsonFile {
      */
     public void write() throws IOException {
         JsonWrite.atomically(file, json());
+        // The loader's read cache forgets this file, and this is the only place that can say so: a
+        // modification time is not a reliable enough answer on every file system for a write made a
+        // moment ago (see ParsedFiles), and this class is what every content write goes through --
+        // a save, a create, a duplicate, a paste. Forgetting it here rather than at each of those call
+        // sites is what stops the next reload serving the file as it was before the edit.
+        ParsedFiles.forget(file);
         markSaved();
     }
 

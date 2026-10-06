@@ -252,18 +252,33 @@ public final class TaskedJeiPlugin implements IModPlugin, RecipeLookups.Lookup {
          * The tallest page this category can currently be asked to draw.
          *
          * <p>JEI takes the page size from the category, not the recipe, so anything less than the
-         * tallest page would clip the last rows of a long quest. Computed from the live snapshot
-         * rather than cached: the cost is one scan of the pages, and the alternative is a category
-         * one tree-change out of date.
+         * tallest page would clip the last rows of a long quest.
+         *
+         * <h2>Measured once per snapshot rather than once per call</h2>
+         *
+         * <p>It was recomputed on every call, on the argument that one scan of the pages is cheap — and
+         * the scan is, but "every call" is JEI's business rather than ours: this is one of the hooks a
+         * recipe layout consults, so a page being built can ask for it more than once. The revision is
+         * the honest cache key, because the snapshot cannot change without moving it — see
+         * {@code QuestViewerContent.tick} — so the memo cannot be a tree-change stale.
          */
         @Override
         public int getHeight() {
-            int tallest = QuestPageLayout.HEADER_HEIGHT;
-            for (QuestPage page : content.pages()) {
-                tallest = Math.max(tallest, layout.height(page));
+            long revision = content.revision();
+            if (revision != measuredRevision) {
+                int tallest = QuestPageLayout.HEADER_HEIGHT;
+                for (QuestPage page : content.pages()) {
+                    tallest = Math.max(tallest, layout.height(page));
+                }
+                measuredHeight = tallest;
+                measuredRevision = revision;
             }
-            return tallest;
+            return measuredHeight;
         }
+
+        /** The height as it was measured, and the snapshot it was measured from. See {@link #getHeight}. */
+        private int measuredHeight = QuestPageLayout.HEADER_HEIGHT;
+        private long measuredRevision = Long.MIN_VALUE;
 
         @Override
         public int getWidth() {
@@ -446,13 +461,15 @@ public final class TaskedJeiPlugin implements IModPlugin, RecipeLookups.Lookup {
         @Override
         public boolean isHandledInput(ITypedIngredient<?> ingredient) {
             ResourceLocation item = itemOf(ingredient);
-            return item != null && !content.index().questsUsing(item).isEmpty();
+            // Membership rather than "is the collected list empty": JEI asks this per ingredient as it
+            // decides what to show, and the old form built a list, a set and a copy to answer it.
+            return item != null && content.index().uses(item);
         }
 
         @Override
         public boolean isHandledOutput(ITypedIngredient<?> ingredient) {
             ResourceLocation item = itemOf(ingredient);
-            return item != null && !content.index().questsAwarding(item).isEmpty();
+            return item != null && content.index().awards(item);
         }
 
         @Override
@@ -473,13 +490,14 @@ public final class TaskedJeiPlugin implements IModPlugin, RecipeLookups.Lookup {
         }
 
         private List<QuestPage> pagesFor(List<QuestRef> refs) {
+            // One lookup per ref rather than one walk of every page per ref: the answer is in a map the
+            // content publishes, and this used to be the nesting that made a common item's lookup
+            // quadratic. See QuestContent.page.
             List<QuestPage> out = new ArrayList<>(refs.size());
-            for (QuestPage page : content.pages()) {
-                for (QuestRef ref : refs) {
-                    if (page.quest().id().equals(ref.id())) {
-                        out.add(page);
-                        break;
-                    }
+            for (QuestRef ref : refs) {
+                QuestPage page = content.page(ref.id());
+                if (page != null) {
+                    out.add(page);
                 }
             }
             return out;

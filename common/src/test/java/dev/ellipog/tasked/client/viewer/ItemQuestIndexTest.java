@@ -61,6 +61,33 @@ class ItemQuestIndexTest {
         assertEquals(List.of("b"), index.questsAwarding(DIAMOND).stream().map(QuestRef::id).toList());
     }
 
+    /**
+     * The case that was broken, and the way it was found.
+     *
+     * <p>The awarding list used to be built by a pass that kept entries whose {@code required} was
+     * <b>false</b>, which reads "awards and does not require" — so a quest that hands in eight logs and
+     * gives back a stack of them was missing from the output side of every viewer, which is the one
+     * place a player looks for what an item leads to. Nothing else caught it because the combined
+     * {@code questsFor} happened to stay right: its required pass had already added the quest.
+     *
+     * <p>It surfaced from a test asserting the boolean pair agreed with the lists — a test written for a
+     * different reason entirely, which is the argument for asserting agreement rather than each answer
+     * on its own.
+     */
+    @Test
+    @DisplayName("a quest that both requires and awards an item is on both sides, and once in the combined list")
+    void aQuestWithBothRolesIsOnBothSides() {
+        ItemQuestIndex index = ItemQuestIndex.builder()
+                .add(STONE, quest("both"), true, true)
+                .build();
+
+        assertEquals(List.of("both"), index.questsUsing(STONE).stream().map(QuestRef::id).toList());
+        assertEquals(List.of("both"), index.questsAwarding(STONE).stream().map(QuestRef::id).toList(),
+                "the awarding pass kept 'awards and does not require', so this quest had no output side");
+        assertEquals(List.of("both"), index.questsFor(STONE).stream().map(QuestRef::id).toList(),
+                "and the combined list still names it once");
+    }
+
     @Test
     @DisplayName("questsFor puts the required quests first and never lists one twice")
     void forIsRequiredFirstAndDeduped() {
@@ -98,5 +125,51 @@ class ItemQuestIndexTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new ItemQuestIndex.Entry(STONE, quest("a"), false, false),
                 "an entry that neither requires nor awards would only ever answer 'no quests'");
+    }
+
+    /**
+     * The boolean pair a viewer asks in bulk.
+     *
+     * <h2>What these have to agree with, and why that is the whole test</h2>
+     *
+     * <p>{@code uses} and {@code awards} answer the same question the collected lists do, asked without
+     * building anything — a viewer asks once per ingredient it is deciding whether to show a tab for.
+     * The two answers are derived from one walk of one map, so the risk is not that they disagree with
+     * each other but that they drift from the lists: a set that said yes where the list said no would
+     * offer a player a tab that opens onto nothing.
+     */
+    @Test
+    @DisplayName("the boolean pair agrees with the lists, for every case the lists have")
+    void membershipAgreesWithTheLists() {
+        ItemQuestIndex index = ItemQuestIndex.builder()
+                .add(STONE, quest("both"), true, true)
+                .add(STONE, quest("uses"), true, false)
+                .add(DIAMOND, quest("awards"), false, true)
+                .build();
+
+        assertTrue(index.uses(STONE), "STONE is required by two quests");
+        assertTrue(index.awards(STONE), "and awarded by the one that does both -- the case a viewer's "
+                + "two tabs both have to light up for");
+        assertFalse(index.uses(DIAMOND), "the diamond is only ever awarded");
+        assertTrue(index.awards(DIAMOND));
+
+        assertEquals(!index.questsUsing(STONE).isEmpty(), index.uses(STONE));
+        assertEquals(!index.questsAwarding(STONE).isEmpty(), index.awards(STONE));
+        assertEquals(!index.questsUsing(DIAMOND).isEmpty(), index.uses(DIAMOND));
+        assertEquals(!index.questsAwarding(DIAMOND).isEmpty(), index.awards(DIAMOND));
+    }
+
+    @Test
+    @DisplayName("an item nobody references answers no to both, and the empty index answers no to everything")
+    void membershipOfNothing() {
+        ItemQuestIndex index = ItemQuestIndex.builder()
+                .add(STONE, quest("a"), true, false)
+                .build();
+        ResourceLocation unknown = ResourceLocation.parse("minecraft:iron_ingot");
+
+        assertFalse(index.uses(unknown), "the common case, and the one worth never allocating for");
+        assertFalse(index.awards(unknown));
+        assertFalse(ItemQuestIndex.empty().uses(STONE), "an adapter reads this before the tree arrives");
+        assertFalse(ItemQuestIndex.empty().awards(STONE));
     }
 }

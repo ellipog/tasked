@@ -148,11 +148,21 @@ public final class QuestLoader {
         // decided by QuestFiles, which is the one description of the folder rules. This method's job from
         // here is to decode what was found and assemble it, and it holds no opinion about where anything
         // sits on disk.
+
+        // Phase timings, and they are kept because the load's cost was the one number nobody could
+        // answer: an edit burst reloads the whole pack, and whether that reload is spent on the disk,
+        // on decoding, or on the graph passes decides which of the three is worth making cheaper. At
+        // debug level, because a reload is rare and this exists to settle an argument rather than to be
+        // watched continuously.
+        long readStarted = System.nanoTime();
         QuestFiles.Discovery found = QuestFiles.discover(directory);
+        long readDone = System.nanoTime();
         problems.addAll(found.problems().all());
 
         QuestTree tree = assemble(found.declarations(), problems);
+        long assembled = System.nanoTime();
         QuestIndex index = QuestIndex.assemble(tree, problems);
+        long indexed = System.nanoTime();
 
         // Cycle detection, after the index is built because a cycle can run across files -- a
         // dependency in one file pointing at a quest in another, which points back. Checked here
@@ -170,6 +180,7 @@ public final class QuestLoader {
                     "circular dependency: " + chain
                             + "\n    no quest in this loop can ever be unlocked. Break it by removing one dependsOn."));
         }
+        long checked = System.nanoTime();
 
         // The reward tables, which live beside the book rather than inside it. Read after the tree
         // because the checks run both ways: a table entry may point at another table, and a quest's
@@ -185,6 +196,7 @@ public final class QuestLoader {
                 checkTableId(ref, entry.document(), tables.loaded(), tables.refused(), problems);
             }
         }
+        long tabled = System.nanoTime();
 
         // How many files have at least one error against them, whatever stage found it. Counted from
         // the problems rather than tracked alongside, so a check added later is counted automatically
@@ -208,8 +220,45 @@ public final class QuestLoader {
                 .filter(display -> !problems.hasErrorsIn(display))
                 .count();
 
+        reportPhases(readStarted, readDone, assembled, indexed, checked, tabled, found.filesExamined());
+
         return new Result(index, problems, found.filesExamined(), filesDecoded, filesWithErrors,
                 tables.loaded(), tables.refused());
+    }
+
+    /**
+     * The load's own cost, phase by phase, at debug.
+     *
+     * <h2>What each phase is, in the terms the question is asked in</h2>
+     *
+     * <p>{@code read+decode} is {@link QuestFiles#discover}: the directory walk and every file's bytes
+     * parsed, validated and decoded. {@code assemble} is the tree built from those declarations,
+     * {@code index} the cross-file pass that catches duplicate ids and dangling dependencies, and
+     * {@code cycles} the graph walk over the result. {@code tables} is the reward tables read and then
+     * every quest's reward references checked against them.
+     *
+     * <p>The split is the point: <b>the answers to "is this disk, decode or graph?" are different
+     * fixes</b>, and a single total cannot tell them apart. A load dominated by {@code read+decode}
+     * wants a per-file cache keyed on what changed; one dominated by the graph passes would mean the
+     * passes themselves are the cost, which is a different change with a different risk. Reading the
+     * total and guessing which half it was is how a fix gets written for the wrong phase.
+     *
+     * <p>The timers are taken unconditionally — six clock reads on a load — and only the <i>line</i> is
+     * conditional on the level. A branch saving six {@code nanoTime} calls on an operation that reads
+     * every file in the pack would be a branch that costs more to read than it saves.
+     */
+    private static void reportPhases(long started, long readDone, long assembled, long indexed,
+                                     long checked, long tabled, int filesExamined) {
+        Constants.LOG.debug("Tasked: load phases -- {} file(s) examined; read+decode {} ms, assemble {} ms,"
+                        + " index {} ms, cycles {} ms, tables {} ms, total {} ms",
+                filesExamined, millis(started, readDone), millis(readDone, assembled),
+                millis(assembled, indexed), millis(indexed, checked), millis(checked, tabled),
+                millis(started, tabled));
+    }
+
+    /** Whole milliseconds between two {@code nanoTime} readings. */
+    private static long millis(long from, long to) {
+        return (to - from) / 1_000_000L;
     }
 
     /**

@@ -23,10 +23,12 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -174,6 +176,33 @@ class QuestViewerContentTest {
                 ResourceLocation.parse("minecraft:birch_log"));
     }
 
+    /** Two tasks gated on one tag, which is what makes the expansion worth doing once. */
+    private static final String TWO_TAG_TASKS = """
+            {"id": "paired", "title": "Two of a kind", "tasks": [
+              {"type": "tasked:item_tag", "tag": "minecraft:logs", "count": 2},
+              {"type": "tasked:item_tag", "tag": "minecraft:logs", "count": 4}],
+             "rewards": [{"type": "tasked:item", "item": "minecraft:diamond", "count": 1}]}
+            """;
+
+    @Test
+    @DisplayName("a tag is expanded once per rebuild, whatever names it twice")
+    void aTagIsExpandedOncePerRebuild() {
+        accept(TWO_TAG_TASKS);
+        QuestViewerContent content = new QuestViewerContent();
+        Map<String, Integer> asks = new java.util.HashMap<>();
+
+        content.rebuild(ClientQuestCache.treeRevision(), tag -> {
+            asks.merge(tag.location().toString(), 1, Integer::sum);
+            return expanded(tag);
+        });
+
+        assertEquals(1, asks.get("minecraft:logs"),
+                "two tasks name the same tag, and the answer cannot differ inside one walk");
+        assertEquals(List.of("paired"),
+                ids(content.index().questsUsing(ResourceLocation.parse("minecraft:oak_log"))),
+                "and both members are still indexed, so the saving is not a lost expansion");
+    }
+
     @Test
     @DisplayName("live reads follow the progress, by source index")
     void liveReadsFollowProgress() {
@@ -288,5 +317,26 @@ class QuestViewerContentTest {
         assertEquals("Ready", content.rewardStatusLabel(QuestContent.RewardStatus.READY).getString());
         assertEquals("Locked", content.rewardStatusLabel(QuestContent.RewardStatus.LOCKED).getString());
         assertEquals("Claimed", content.rewardStatusLabel(QuestContent.RewardStatus.CLAIMED).getString());
+    }
+
+    @Test
+    @DisplayName("a page resolves by id, and an id with no page resolves to nothing")
+    void pagesResolveById() {
+        // Two adapters used to answer this by walking every page per ref, which is quadratic for a
+        // lookup whose answer is a map. The map is the content's now; what this asserts is that it
+        // agrees with the list, case for case.
+        accept(ONE_QUEST, TEXT_ONLY);
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+
+        assertFalse(content.pages().isEmpty(), "the fixture has a quest with item rows");
+        for (QuestPage page : content.pages()) {
+            assertSame(page, content.page(page.quest().id()),
+                    "the map and the list must agree about every page");
+        }
+        assertNull(content.page("talk"),
+                "a quest whose rows are all text has no page, so an id from a ref is not always a page");
+        assertNull(content.page("nothing_like_this"), "an id the snapshot does not carry");
+        assertNull(content.page(null), "a null id is not a crash");
     }
 }

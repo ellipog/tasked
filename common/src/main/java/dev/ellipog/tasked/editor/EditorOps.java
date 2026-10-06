@@ -5,10 +5,13 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
+import dev.ellipog.tasked.quest.TreeRefresh;
+
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Writing an {@link EditorOp} down, reading one back, and applying it.
@@ -460,6 +463,126 @@ public final class EditorOps {
             case EditorOp.DeleteGroup ignored -> "deleting a group";
             default -> "one of those edits";
         };
+    }
+
+    // ------------------------------------------------------------------
+    // What an edit owes the tree
+    // ------------------------------------------------------------------
+
+    /**
+     * The fields an edit can change without moving anything a player has: where a node is, what it looks
+     * like, what it is called.
+     *
+     * <h2>Why this list is here rather than shared with the panel's own</h2>
+     *
+     * <p>Because the two are different questions that happen to share some names.
+     * {@code QuestPanelLayout.FIELD_LABELS} is a <b>client</b> class — a screen's caption table, in the
+     * package the server must not load — and this is a server-side decision about a reload. So they are
+     * two lists, and the thing worth writing down is which way a disagreement between them falls:
+     * <b>an unlisted field is {@link TreeRefresh.Touch#CONTENT}</b>, which is correct and merely costs a
+     * progress delta on an edit nobody makes often. A field wrongly <i>listed</i> here would be the
+     * dangerous direction, so the list holds only names whose whole effect is what a screen draws.
+     *
+     * <p>A path through {@code tasks} or {@code rewards} is never display-only, even when it lands on a
+     * label: those arrays are what progress is stored <b>against</b>, so a rule that classified one of
+     * them by its last step would be one edit away from a wrong answer. That is why the check is on the
+     * whole path and not on its tail.
+     */
+    private static final Set<String> DISPLAY_ONLY = Set.of(
+            // Where a node sits and how it is drawn, which is a drag and therefore a burst.
+            "x", "y", "size", "shape", "rotation", "iconScale",
+            // And what it is labelled with.
+            "title", "subtitle", "description", "showTitle", "icon",
+            // Flags about drawing and about what a screen decides to show, and the per-line styles a
+            // dependency is drawn with. The two visibility flags belong here for the same reason the
+            // theme does: what they change is derived on the client from the tree it has just been sent
+            // -- see QuestVisibility -- so no player's stored progress is involved.
+            "invisible", "hideUntilDependenciesVisible", "hideDependencyLines", "dependencyLines",
+            // A chapter's and a group's own appearance, and the book's name and icon.
+            "theme", "collapsedByDefault", "bookTitle", "bookIcon");
+
+    /**
+     * What one edit owes: the flag the next flush should be armed with.
+     *
+     * <h2>The rule, in one sentence</h2>
+     *
+     * <p>A full progress sync is owed where an <b>existing quest's task or reward positions</b> can
+     * move, because a player's stored counts are read by position; everything else that touches the
+     * quests is a delta, which is keyed by id and recomputes every state before sending what differs.
+     *
+     * <p>That second half is worth stating because it is where this is <i>cheaper</i> than the obvious
+     * reading: creating, duplicating, pasting and deleting a quest all move <b>ids</b> rather than
+     * positions, and a delta handles a new id by seeding it and a deleted one by naming it in
+     * {@code removed}. The same goes for every chapter and group edit — renaming, moving, copying and
+     * deleting a chapter change which chapter a quest is in, not where its rows sit. So the heavy
+     * constant is owed by four kinds and not by the dozen a cautious list would have given it to.
+     *
+     * <p>Written as a switch over the op, like {@link #joinable}, so a new kind has to be classified by
+     * hand rather than defaulting into whichever answer happens to sit in a {@code default} arm.
+     */
+    public static TreeRefresh.Touch reachOf(EditorOp op) {
+        return switch (op) {
+            case EditorOp.Move ignored -> TreeRefresh.Touch.COSMETIC;
+            case EditorOp.SetField field -> reachOfPath(field.path());
+            case EditorOp.SetChapter chapter -> reachOfPath(chapter.path());
+            case EditorOp.SetGroup group -> reachOfPath(group.path());
+            case EditorOp.SetIndex index -> reachOfPath(index.key());
+
+            // Ids move, or a quest arrives or leaves: a delta is keyed by id and names its removals.
+            case EditorOp.Create ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.Duplicate ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.Paste ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.Delete ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.MoveChapter ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.MoveGroup ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.CreateChapter ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.CreateGroup ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.RenameChapter ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.RenameGroup ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.DuplicateChapter ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.DuplicateGroup ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.DeleteChapter ignored -> TreeRefresh.Touch.CONTENT;
+            case EditorOp.DeleteGroup ignored -> TreeRefresh.Touch.CONTENT;
+
+            // A row's position moves, or a snapshot rolls one back to somewhere unknown.
+            case EditorOp.Insert ignored -> TreeRefresh.Touch.FULL;
+            case EditorOp.Remove ignored -> TreeRefresh.Touch.FULL;
+            case EditorOp.MoveEntry ignored -> TreeRefresh.Touch.FULL;
+            case EditorOp.Undo ignored -> TreeRefresh.Touch.FULL;
+            case EditorOp.Redo ignored -> TreeRefresh.Touch.FULL;
+
+            // The gesture's own answer: whichever of its elements owes the most.
+            case EditorOp.Batch batch -> strongestOf(batch.ops());
+        };
+    }
+
+    /**
+     * What one field's edit owes, from its path.
+     *
+     * <p>Two outcomes rather than three, deliberately: every path that is not display-only lands on
+     * {@link TreeRefresh.Touch#CONTENT}, because a delta is the honest answer for a field whose meaning
+     * this class cannot bound — the server recomputes every quest's resolved state and sends what
+     * differs, so an unrecognised field is covered by construction rather than by being guessed at.
+     */
+    private static TreeRefresh.Touch reachOfPath(String path) {
+        if (path == null || path.isEmpty()) {
+            return TreeRefresh.Touch.CONTENT;
+        }
+        for (String step : path.split("\\.")) {
+            if (step.equals("tasks") || step.equals("rewards")) {
+                return TreeRefresh.Touch.CONTENT;
+            }
+        }
+        return DISPLAY_ONLY.contains(path) ? TreeRefresh.Touch.COSMETIC : TreeRefresh.Touch.CONTENT;
+    }
+
+    /** The heaviest touch one batch owes. Empty for a batch of nothing, which owes nothing either. */
+    private static TreeRefresh.Touch strongestOf(List<EditorOp> ops) {
+        TreeRefresh.Touch owed = TreeRefresh.Touch.NONE;
+        for (EditorOp op : ops) {
+            owed = owed.strongest(reachOf(op));
+        }
+        return owed;
     }
 
     /**

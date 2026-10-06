@@ -7,6 +7,7 @@ import dev.ellipog.armature.api.data.JsonDocument;
 import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.quest.ChapterNaming;
+import dev.ellipog.tasked.quest.ParsedFiles;
 import dev.ellipog.tasked.quest.QuestFiles;
 import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestValidator;
@@ -633,6 +634,12 @@ public final class QuestStructure {
         }
 
         private static String run(Step step) {
+            // One step of a structural edit, and every one of those can change what is *on disk* rather
+            // than what is in one file: a folder moves, a manifest is written, a folder is set aside. So
+            // the loader's read cache is emptied rather than asked to forget one path -- there is no
+            // single path that describes what just happened. See ParsedFiles; the ordinary edit takes the
+            // precise path instead, because it writes one file and happens hundreds of times a session.
+            ParsedFiles.clear();
             try {
                 switch (step) {
                     case Step.Move move -> {

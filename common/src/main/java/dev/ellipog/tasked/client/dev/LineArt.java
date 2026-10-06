@@ -301,30 +301,130 @@ public final class LineArt {
         if (path.size() < 2) {
             return List.of();
         }
-        List<Point> walk = walk(path);
-        if (walk.size() < 2) {
-            return List.of();
-        }
         DependencyStyle.Dash pattern = dash == null ? DependencyStyle.Dash.SOLID : dash;
         DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
-        List<Fill> out = new ArrayList<>();
-        if (pattern == DependencyStyle.Dash.DOUBLE) {
-            // Two hairlines rather than one thick one: that is the look, and it is why this pattern
-            // ignores the weight axis. A single-pixel run, drawn twice a pixel either side of itself.
-            List<Fill> single = new ArrayList<>();
-            stroke(path, DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN, single);
-            for (Fill fill : single) {
-                out.add(shifted(fill, -1));
-                out.add(shifted(fill, 1));
-            }
-            return out;
+
+        // Remembered against the route itself, because this is a **pure function of it**: the same points,
+        // weight and dash always give the same rectangles, so there is nothing to invalidate and no
+        // revision to key on — a moved node is a different route and therefore a different key, all by
+        // itself. A canvas being *read* rather than moved therefore pays for its lines once and afterwards
+        // only re-issues rectangles: no walk, no sort, and none of the per-pixel objects a walk allocates.
+        // See `walk` for why that is the difference between a chapter at 20 fps and one at 120.
+        FillsKey key = new FillsKey(List.copyOf(path), ink, pattern);
+        List<Fill> cached = FILLS.get(key);
+        if (cached != null) {
+            return cached;
         }
-        stroke(path, pattern, ink, out);
-        if (pattern == DependencyStyle.Dash.HAZARD) {
-            barbs(path, ink, out);
+
+        List<Fill> out = new ArrayList<>();
+        // The walk is computed **once** here and handed to the stroker, which used to walk the same route
+        // a second time. Two walks of every edge every frame is two lists of one object per pixel of ink.
+        List<Point> walk = walk(path);
+        if (walk.size() >= 2) {
+            if (pattern == DependencyStyle.Dash.DOUBLE) {
+                // Two hairlines rather than one thick one: that is the look, and it is why this pattern
+                // ignores the weight axis. A single-pixel run, drawn twice a pixel either side of itself.
+                List<Fill> single = new ArrayList<>();
+                stroke(walk, DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN, single);
+                for (Fill fill : single) {
+                    out.add(shifted(fill, -1));
+                    out.add(shifted(fill, 1));
+                }
+            }
+            else {
+                stroke(walk, pattern, ink, out);
+                if (pattern == DependencyStyle.Dash.HAZARD) {
+                    barbs(path, ink, out);
+                }
+            }
+        }
+        return remember(key, out);
+    }
+
+    /** The most routes whose rectangles are remembered. Past it the map is emptied, not trimmed. */
+    private static final int FILL_CACHE_LIMIT = 4096;
+
+    /**
+     * The rectangles for a route, measured **from the route's own first point**.
+     *
+     * <h2>Why a route has two coordinate systems</h2>
+     *
+     * <p>Because the drawing is what moves and the shape is what does not. A pan changes every edge's screen
+     * endpoints, so the absolute route is a new key for every edge and every frame of the gesture — which is
+     * why moving the canvas was the slowest thing it did. But a line's shape is the <i>differences</i> between
+     * its points: `orthogonal` puts its middle at {@code from.y() + (to.y() - from.y())/2}, `steps` walks
+     * {@code dx} and {@code dy}, `curve` bows perpendicular to the chord, and {@link #mergeRows} groups by
+     * equal `y` and compares spans — all of which survive a translation unchanged. So the same edge dragged
+     * across the screen is the same key here, and a pan costs one subtraction per point.
+     *
+     * <p>The caller adds the origin back as it draws: {@code origin.x() + fill.x1()}. That is deliberately
+     * the caller's job rather than a copy made here, because copying the rectangles to move them would cost
+     * exactly the allocation this exists to avoid.
+     */
+    public static List<Fill> fillsRelative(List<Point> path, DependencyStyle.Weight weight,
+                                           DependencyStyle.Dash dash) {
+        return fills(relative(path), weight, dash);
+    }
+
+    /** The same, for the heads, at a hairline's weight. See {@link #fillsRelative}. */
+    public static List<Fill> arrowsRelative(List<Point> path, DependencyStyle.ArrowHead head,
+                                            DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
+                                            int toHalf) {
+        return arrowsRelative(path, head, place, spacing, fromHalf, toHalf, DependencyStyle.Weight.THIN);
+    }
+
+    /** The same, for the heads. See {@link #fillsRelative}. */
+    public static List<Fill> arrowsRelative(List<Point> path, DependencyStyle.ArrowHead head,
+                                            DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
+                                            int toHalf, DependencyStyle.Weight weight) {
+        return arrows(relative(path), head, place, spacing, fromHalf, toHalf, weight);
+    }
+
+    /**
+     * The route with every point measured from its first.
+     *
+     * <p>Returns the route itself when it already starts at the origin, which is the case for the arrows'
+     * own two-point strokes — they are built from a tip and a wing and are drawn where they are made.
+     */
+    private static List<Point> relative(List<Point> path) {
+        Point origin = path.get(0);
+        if (origin.x() == 0 && origin.y() == 0) {
+            return path;
+        }
+        List<Point> out = new ArrayList<>(path.size());
+        for (Point point : path) {
+            out.add(new Point(point.x() - origin.x(), point.y() - origin.y()));
         }
         return out;
     }
+
+    /** The route, weight and dash that a set of rectangles was computed from. */
+    private record FillsKey(List<Point> path, DependencyStyle.Weight weight, DependencyStyle.Dash dash) {
+    }
+
+    /**
+     * The rectangles for a route, remembered.
+     *
+     * <p>Correct without any invalidation because {@link #fills} is pure: it reads the route and the style
+     * and returns rectangles, and nothing else in the frame can change what those should be. The one thing
+     * that has to be true is that a key cannot drift from the value it is keyed by, which is why the route
+     * is copied into the key rather than held — a caller reusing one mutable list for every edge would
+     * otherwise poison every entry with the last route it drew.
+     *
+     * <p>Emptied rather than trimmed on overflow, matching {@code Shapes.Tables} and {@code CachedMeasure}:
+     * every entry is the same kind of thing, so there is no better half to keep.
+     */
+    private static List<Fill> remember(FillsKey key, List<Fill> out) {
+        List<Fill> answer = List.copyOf(out);
+        if (FILLS.size() >= FILL_CACHE_LIMIT) {
+            FILLS.clear();
+        }
+        FILLS.put(key, answer);
+        return answer;
+    }
+
+    /** The remembered rectangles, by route. See {@link #fills}. */
+    private static final Map<FillsKey, List<Fill>> FILLS = new HashMap<>();
 
     /**
      * The ink of a stroke of this weight along a route: the stroke's own region, filled a row at a time.
@@ -363,9 +463,16 @@ public final class LineArt {
      * work that asks is skipped entirely for every other weight. At width one there is no width to fill
      * and the band is the walk itself, byte for byte what it always was.
      */
-    private static void stroke(List<Point> route, DependencyStyle.Dash pattern,
+    /**
+     * The ink of a stroke of this weight along a route **that has already been walked**, one band per "on"
+     * stretch.
+     *
+     * <p>The argument is the walk rather than the route, and that is deliberate: this used to walk the
+     * route itself, so every edge was walked twice per frame — once by the caller that needed the pixel
+     * count for its dashes and once here. The caller that has already paid for the walk hands it over.
+     */
+    private static void stroke(List<Point> walk, DependencyStyle.Dash pattern,
                                DependencyStyle.Weight weight, List<Fill> out) {
-        List<Point> walk = walk(route);
         if (walk.size() < 2) {
             return;
         }
@@ -657,8 +764,12 @@ public final class LineArt {
      * it read as a pipe.
      */
     private static void mergeRows(List<Point> pixels, Tone tone, List<Fill> out) {
-        List<Point> sorted = new ArrayList<>(pixels);
-        sorted.sort(java.util.Comparator.comparingInt(Point::y).thenComparingInt(Point::x));
+        // The copy and the sort are most of what this costs, and on the commonest line in the mod they are
+        // not needed at all: an axis-aligned run arrives in route order, which *is* (y, x) order for a
+        // horizontal or a vertical stretch. One linear scan decides that, and a scan costs a fraction of a
+        // sort — so the sort is kept for the case that needs it (a diagonal, whose route order interleaves
+        // its rows) and skipped for the case that does not, which is every orthogonal route's every band.
+        List<Point> sorted = ordered(pixels) ? pixels : sortedCopy(pixels);
         List<Fill> spans = new ArrayList<>();
         int index = 0;
         while (index < sorted.size()) {
@@ -709,11 +820,39 @@ public final class LineArt {
     }
 
     /**
+     * Whether these pixels are already in the {@code (y, x)} order the merge needs.
+     *
+     * <p>A walk is in *route* order, and route order is row-major for any run along an axis — which is
+     * every band of an orthogonal route, and therefore most of the ink this canvas draws.
+     */
+    private static boolean ordered(List<Point> pixels) {
+        for (int i = 1; i < pixels.size(); i++) {
+            Point previous = pixels.get(i - 1);
+            Point point = pixels.get(i);
+            if (point.y() < previous.y() || (point.y() == previous.y() && point.x() < previous.x())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** A copy in {@code (y, x)} order, for a run whose route order interleaves its rows. */
+    private static List<Point> sortedCopy(List<Point> pixels) {
+        List<Point> sorted = new ArrayList<>(pixels);
+        sorted.sort(java.util.Comparator.comparingInt(Point::y).thenComparingInt(Point::x));
+        return sorted;
+    }
+
+    /**
      * The path with one point per pixel: every segment walked with {@link #steps}, each following
      * segment's first point dropped because it is the point before it.
      *
-     * <p>Public because it is the shape a test can assert against â€” "every walk point is covered by
+     * <p>Public because it is the shape a test can assert against — "every walk point is covered by
      * exactly one fill" is the statement that solid means solid, and it needs the walk to say so.
+     *
+     * <p>And it is the expensive half of drawing a line: one object per pixel of the route's length, per
+     * edge, per frame. A chapter of a few hundred edges is tens of thousands of these every frame, which
+     * is why {@link #fills} remembers its answer against the route — see the cache there.
      */
     public static List<Point> walk(List<Point> path) {
         List<Point> out = new ArrayList<>();
@@ -723,7 +862,30 @@ public final class LineArt {
                 out.add(segment.get(j));
             }
         }
+        walked += out.size();
         return dedupe(out);
+    }
+
+    /**
+     * Walk points computed since the last {@link #drainWalked}, frozen.
+     *
+     * <p>Written on the client thread only, like every other counter here, so a plain long is enough.
+     */
+    private static long walked;
+
+    /**
+     * How many walk points the lines have produced since this was last asked, and resets the count.
+     *
+     * <p><b>This is the falsifier for the frame's line cost.</b> A walk makes one object per pixel of a
+     * route per edge per frame, so a chapter of a few hundred edges allocated tens of thousands of them
+     * every frame — and the fix is that a route which has not moved is remembered, so the second frame
+     * onwards computes <i>none</i>. A number that collapses to zero while the canvas is still is the
+     * proof; a number that stays in the tens of thousands is the defect, still there.
+     */
+    public static long drainWalked() {
+        long total = walked;
+        walked = 0;
+        return total;
     }
 
     /**
@@ -780,7 +942,7 @@ public final class LineArt {
             double angle = tangentAt(path, at) + Math.PI / 4;
             Point end = new Point((int) Math.round(point.x() + Math.cos(angle) * barb),
                     (int) Math.round(point.y() + Math.sin(angle) * barb));
-            stroke(List.of(point, end), DependencyStyle.Dash.SOLID, weight, out);
+            stroke(walk(List.of(point, end)), DependencyStyle.Dash.SOLID, weight, out);
         }
     }
 
@@ -818,6 +980,37 @@ public final class LineArt {
             return List.of();
         }
         DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
+
+        // Remembered for the same reason `fills` is, and by the same argument: the heads are a pure
+        // function of the route and the style. Without this the heads are the *last* per-edge walk left in
+        // a still frame -- every chevron samples the route to place itself -- so a chapter's arrows would
+        // have gone on allocating one object per pixel of every line while the lines themselves stopped.
+        ArrowsKey key = new ArrowsKey(List.copyOf(path), head, place, spacing, fromHalf, toHalf, ink);
+        List<Fill> cached = ARROWS.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<Fill> answer = List.copyOf(arrowsUncached(path, head, place, spacing, fromHalf, toHalf, ink));
+        if (ARROWS.size() >= FILL_CACHE_LIMIT) {
+            ARROWS.clear();
+        }
+        ARROWS.put(key, answer);
+        return answer;
+    }
+
+    /** The route, style and geometry a set of heads was computed from. */
+    private record ArrowsKey(List<Point> path, DependencyStyle.ArrowHead head,
+                             DependencyStyle.ArrowPlace place, int spacing, int fromHalf, int toHalf,
+                             DependencyStyle.Weight weight) {
+    }
+
+    /** The remembered heads, by route and style. See the seven-argument {@link #arrows}. */
+    private static final Map<ArrowsKey, List<Fill>> ARROWS = new HashMap<>();
+
+    /** The heads themselves, computed. Split out so the memo above has one place to remember them. */
+    private static List<Fill> arrowsUncached(List<Point> path, DependencyStyle.ArrowHead head,
+                                             DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
+                                             int toHalf, DependencyStyle.Weight ink) {
         int width = ink.width();
         double total = length(path);
         // Each end uses **its own** node's half-size: one shared figure pushed a small node's head away
@@ -1053,7 +1246,7 @@ public final class LineArt {
                     (int) Math.round(tip.y() + Math.sin(wing) * ARROW_LENGTH));
             // A walked stroke, not rounded dots: a wing is continuous at every angle instead of a dotted
             // line on the diagonals.
-            stroke(List.of(tip, wingEnd), DependencyStyle.Dash.SOLID, weight, out);
+            stroke(walk(List.of(tip, wingEnd)), DependencyStyle.Dash.SOLID, weight, out);
         }
     }
 

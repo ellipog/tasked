@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -156,6 +157,82 @@ class QuestNotificationsTest {
             List<Notice> notices = diff.sample(List.of(
                     quest("a", QuestState.STARTED), quest("b", QuestState.COMPLETED)));
             assertTrue(notices.isEmpty(), "a quest first seen complete is not a completion");
+        }
+    }
+
+    /**
+     * The partial sample, which is what a delta is read with.
+     *
+     * <h2>Why these are separate cases rather than a shorter list</h2>
+     *
+     * <p>A delta names the quests that moved. Reading it with the whole-cache method would <b>forget
+     * every quest it did not name</b> — and this diff only announces a transition it has a previous
+     * sample for, so a forgotten quest can never be announced again. That is the failure these cases
+     * exist to catch, and it is silent: no exception, no log line, just a completion that never makes
+     * a sound.
+     */
+    @Nested
+    @DisplayName("the partial sample a delta is read with")
+    class Partial {
+
+        @Test
+        @DisplayName("a quest the delta named announces its completion")
+        void aNamedQuestAnnounces() {
+            diff.sample(List.of(quest("a", QuestState.STARTED), quest("b", QuestState.STARTED)));
+
+            assertEquals(List.of(new Notice(Kind.COMPLETED, "a")),
+                    diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.COMPLETED))));
+        }
+
+        @Test
+        @DisplayName("a quest the delta did not name keeps the sample it had")
+        void anUnnamedQuestKeepsItsBaseline() {
+            diff.sample(List.of(quest("a", QuestState.STARTED), quest("b", QuestState.STARTED)));
+
+            // A delta about 'a' that changes nothing about it. The whole-cache method would forget 'b'
+            // here, and the cost of that is the next assertion rather than this one.
+            assertEquals(List.of(), diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.STARTED))));
+
+            assertEquals(List.of(new Notice(Kind.COMPLETED, "b")),
+                    diff.sampleSome(Set.of("b"), List.of(quest("b", QuestState.COMPLETED))),
+                    "'b' was not named by the earlier delta, which is not the same as it being gone");
+        }
+
+        @Test
+        @DisplayName("a partial sample of nothing is not a reset")
+        void anEmptyPartialIsNotAReset() {
+            diff.sample(List.of(quest("a", QuestState.STARTED)));
+
+            // The full method reads an empty sample as "the cache is empty, forget everything". A delta
+            // that named nothing is a message about nothing, and the baseline has to survive it.
+            assertEquals(List.of(), diff.sampleSome(Set.of(), List.of()));
+
+            assertEquals(List.of(new Notice(Kind.COMPLETED, "a")),
+                    diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.COMPLETED))));
+        }
+
+        @Test
+        @DisplayName("an id the message named and the tree no longer holds is forgotten")
+        void aNamedButAbsentIdIsForgotten() {
+            diff.sample(List.of(quest("a", QuestState.STARTED)));
+
+            // The delta named 'a' and the tree has no picture of it: a removal, said the only way a
+            // delta can say one.
+            assertEquals(List.of(), diff.sampleSome(Set.of("a"), List.of()));
+
+            assertEquals(List.of(), diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.STARTED))),
+                    "it comes back and is seeded again, rather than compared with what it was before");
+            assertEquals(List.of(new Notice(Kind.COMPLETED, "a")),
+                    diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.COMPLETED))));
+        }
+
+        @Test
+        @DisplayName("a claim is announced through a delta as well as through a full sync")
+        void aClaimAnnouncesThroughADelta() {
+            diff.sample(List.of(claimable("a")));
+
+            assertEquals(List.of(new Notice(Kind.CLAIMED, "a")),
+                    diff.sampleSome(Set.of("a"), List.of(quest("a", QuestState.COMPLETED))));
         }
     }
 }

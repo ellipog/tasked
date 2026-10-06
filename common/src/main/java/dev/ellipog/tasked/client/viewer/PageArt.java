@@ -1,6 +1,8 @@
 package dev.ellipog.tasked.client.viewer;
 
 import dev.ellipog.armature.client.render.GuiRenderer;
+import dev.ellipog.armature.client.render.TextEpoch;
+import dev.ellipog.armature.client.ui.kit.Measure;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -32,17 +34,49 @@ public final class PageArt {
      *
      * <p>ASCII ellipsis deliberately: the font's coverage is measured, and a codepoint outside it is
      * a box rather than a character.
+     *
+     * <h2>The measurement is memoized, and the rule is not</h2>
+     *
+     * <p>This rule is <b>not</b> {@code Measure.truncate}, and that is on purpose: the two differ in
+     * their ellipsis (this one is ASCII for the font's sake) and that difference was decided, not
+     * inherited. What is shared is the cost: this walks a label a character at a time asking how wide
+     * each prefix is, and a viewer redraws its rows every frame with the labels they had last frame. So
+     * the measuring goes through a memo and the shrinking stays here, which is the seam that lets the
+     * one rule each keep its own answer while both stop paying for the same question.
+     *
+     * <p>{@link #measuring} is set per call rather than the memo being rebuilt — a memo built per call
+     * would be empty every time — and the epoch is what stops a remembered width outliving the font or
+     * the player's text scale. See {@link TextEpoch}.
      */
     public static String fit(GuiRenderer renderer, String text, int width) {
-        if (width <= 0 || renderer.textWidth(text) <= width) {
+        measuring = renderer;
+        if (width <= 0 || FIT.width(text) <= width) {
             return width <= 0 ? "" : text;
         }
         String cut = text;
-        while (!cut.isEmpty() && renderer.textWidth(cut + "...") > width) {
+        while (!cut.isEmpty() && FIT.width(cut + "...") > width) {
             cut = cut.substring(0, cut.length() - 1);
         }
         return cut.isEmpty() ? "" : cut + "...";
     }
+
+    /**
+     * The renderer the memo is measuring with. See {@link #fit}.
+     *
+     * <p>Static and mutable, which is worth naming rather than leaving to be discovered: a viewer's rows
+     * are drawn on the client's render thread — EMI registers its recipes on a worker, but nothing there
+     * measures text — so there is one writer and one reader, and the alternative (a memo per renderer)
+     * would be a memo per frame with nothing in it.
+     */
+    private static GuiRenderer measuring;
+
+    /**
+     * The memo. Its line height is the font's own and is never read — {@code fit} asks only how wide a
+     * string is — but the interface needs a number for the question, and a caller that one day does ask
+     * should get a sensible answer rather than a zero.
+     */
+    private static final Measure FIT =
+            Measure.cached(Measure.of(text -> measuring.textWidth(text), 9), TextEpoch::now);
 
     /** How wide a pill is for this word. */
     public static int pillWidth(GuiRenderer renderer, String text) {

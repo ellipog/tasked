@@ -231,8 +231,10 @@ public final class Tasked {
         if (server == null) {
             return;
         }
-        TreeRefresh.flush(() -> TaskedNetworking.refreshTree(server),
-                () -> TaskedNetworking.refreshTables(server));
+        // Handed the touch rather than two runnables, and that is the fix rather than tidiness: the
+        // version with two had already decided that a quest edit owes a full progress sync, for every
+        // kind of quest edit there is. See TreeRefresh.Touch.
+        TreeRefresh.flush(touch -> TaskedNetworking.refreshTree(server, touch));
     }
 
     /**

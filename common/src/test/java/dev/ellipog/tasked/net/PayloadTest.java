@@ -138,7 +138,8 @@ class PayloadTest {
                 "tasked:table_replica",
                 "tasked:table_replica_request",
                 "tasked:table_roll",
-                "tasked:table_roll_request"), ids);
+                "tasked:table_roll_request",
+                "tasked:vitals"), ids);
     }
 
     @Test
@@ -462,6 +463,23 @@ class PayloadTest {
 
         assertEquals(dev.ellipog.tasked.progress.ClaimFilter.CHOICES,
                 ClaimAllPayload.CODEC.decode(buffer).filter());
+    }
+
+    @Test
+    @DisplayName("the vitals switch is one boolean, both ways")
+    void vitalsRoundTrip() {
+        // One byte, and it has to carry both answers: "off" is a value, not the absence of a message — a
+        // client that is not told anything keeps whatever it had, so an operator turning the overlay off
+        // must be told exactly as clearly as one turning it on.
+        for (boolean on : new boolean[] {true, false}) {
+            FriendlyByteBuf plain = new FriendlyByteBuf(Unpooled.buffer());
+            RegistryFriendlyByteBuf buffer =
+                    RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY).apply(plain);
+
+            VitalsPayload.CODEC.encode(buffer, new VitalsPayload(on));
+            assertEquals(1, buffer.writerIndex(), "one boolean, and nothing else on the wire");
+            assertEquals(on, VitalsPayload.CODEC.decode(buffer).on());
+        }
     }
 
     @Test

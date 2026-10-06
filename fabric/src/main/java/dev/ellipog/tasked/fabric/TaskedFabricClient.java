@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.ArmatureScreens;
 import dev.ellipog.tasked.client.viewer.Integrations;
 import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.Tasked;
+import dev.ellipog.tasked.client.CanvasSettings;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientTableOpen;
 import dev.ellipog.tasked.client.ClientTableReplica;
@@ -80,6 +81,10 @@ public final class TaskedFabricClient implements ClientModInitializer {
         // same reason the two above are: a panel opened in the first second of a session must not open on
         // a default because the file had not been read yet.
         ClientWorking.loadFromConfig();
+        // And the canvas's own thresholds: how much of it to draw, and from how far out. Read here for the
+        // same reason as the rest — a canvas drawn in the first second must not be drawn at the mod's
+        // defaults because the file had not been read. See CanvasSettings.
+        CanvasSettings.loadFromConfig();
 
         // The recipe-viewer seam: the content goes in as soon as the client exists, and whichever
         // viewer is installed reads it when it registers. No viewer is named here -- the seam is this

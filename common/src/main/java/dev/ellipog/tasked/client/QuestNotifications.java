@@ -91,8 +91,82 @@ public final class QuestNotifications {
             return List.of();
         }
 
-        List<Notice> notices = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        List<Notice> notices = compare(now, seen);
+        // A quest the tree no longer carries is forgotten rather than kept: a reload that removes one
+        // must not leave its id behind to announce on a later reappearance, and an unbounded map of
+        // every id a long session has ever seen is a leak with no reader.
+        last.keySet().retainAll(seen);
+        return List.copyOf(notices);
+    }
+
+    /**
+     * The notices for a sample that names only <b>some</b> of the quests — the ids one delta carried.
+     *
+     * <h2>Why this is not {@link #sample} with a shorter list</h2>
+     *
+     * <p>Because of what the two do with the ids they were <i>not</i> given, and the two answers are
+     * opposites rather than variations:
+     *
+     * <ul>
+     *   <li>The full sample <b>forgets</b> every quest it does not name, because it is a statement about
+     *       the whole cache: a quest the tree no longer carries must not be left behind to announce on
+     *       a later reappearance.</li>
+     *   <li>A partial sample must <b>keep</b> every quest it does not name, because those quests did
+     *       not move. Forgetting them is not a tidy-up, it is a blindness: this diff only announces a
+     *       transition it has a previous sample for, so a quest dropped from the baseline can never be
+     *       announced again — a completion would arrive and be compared against nothing.</li>
+     * </ul>
+     *
+     * <p>And an <b>empty</b> partial sample means the opposite of an empty full one. The full reading is
+     * "the cache is empty, forget it"; this reading is "the message named nothing, so nothing
+     * happened", which is a delta about a quest that turned out to be unchanged. Both are pinned in
+     * {@code QuestNotificationsTest}, because the two methods differ in exactly the places where being
+     * wrong is silent.
+     *
+     * <h2>What a partial sample still cannot see</h2>
+     *
+     * <p>It forgets the ids <b>the message named</b> that the tree no longer holds, which is everything
+     * a delta can say about a removal. A quest removed by a <i>tree</i> edit, with no progress message
+     * naming it, keeps its baseline until the next full sync — a join or a reload, both of which send
+     * one. That is a bounded residue rather than a leak: it is at most the ids this session has been
+     * told about, and it is cleared by the first full sample after it. Stated here rather than left to
+     * be discovered, because a baseline kept for a quest that no longer exists is exactly the kind of
+     * thing that announces a completion nobody just made.
+     *
+     * @param named the ids the message named — a delta's keys plus anything it removed
+     * @param some  the pictures taken for those of them the tree still holds
+     */
+    public List<Notice> sampleSome(Set<String> named, List<Snapshot> some) {
+        // What the message named and the tree no longer holds. The full sample forgets these by
+        // omission — it walks the tree, so a quest that is not there is not in its sample — and a
+        // partial one has to be told, because the ids it was given came from the message rather than
+        // from the tree.
+        Set<String> pictured = new HashSet<>();
+        for (Snapshot snapshot : some) {
+            pictured.add(snapshot.questId());
+        }
+        for (String id : named) {
+            if (!pictured.contains(id)) {
+                last.remove(id);
+            }
+        }
+        if (some.isEmpty()) {
+            return List.of();
+        }
+        // The set is filled and dropped: pruning is the full sample's business, and passing it here is
+        // the price of one comparison rule rather than two.
+        return List.copyOf(compare(some, new HashSet<>()));
+    }
+
+    /**
+     * The transitions, in one place: what each named quest is now against what it was, with every
+     * snapshot becoming the new baseline as it is compared.
+     *
+     * @param seen filled with every id this sample names, for a caller that prunes afterwards
+     */
+    private List<Notice> compare(List<Snapshot> now, Set<String> seen) {
+        List<Notice> notices = new ArrayList<>();
         for (Snapshot snapshot : now) {
             seen.add(snapshot.questId());
             Sample was = last.put(snapshot.questId(),
@@ -109,11 +183,7 @@ public final class QuestNotifications {
                 notices.add(new Notice(Kind.CLAIMED, snapshot.questId()));
             }
         }
-        // A quest the tree no longer carries is forgotten rather than kept: a reload that removes one
-        // must not leave its id behind to announce on a later reappearance, and an unbounded map of
-        // every id a long session has ever seen is a leak with no reader.
-        last.keySet().retainAll(seen);
-        return List.copyOf(notices);
+        return notices;
     }
 
     /** Forgets everything: a disconnect, or a change of team. */

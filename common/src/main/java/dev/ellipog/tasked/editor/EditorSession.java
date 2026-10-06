@@ -29,10 +29,29 @@ public final class EditorSession {
     /** The tree revision the pending positions were recorded at, or -1 when there are none. */
     private long movedAtRevision = -1;
 
+    /**
+     * Bumped whenever the positions this session answers can have changed.
+     *
+     * <h2>Why a reader needs this and {@code movedAtRevision} is not it</h2>
+     *
+     * <p>Because {@code movedAtRevision} is the *tree's* revision, recorded beside the position — it does
+     * not move while an author drags a node, which is exactly when these positions change fastest. A cache
+     * keyed on the tree revision alone would therefore hand back a node's old position for the whole of a
+     * drag. This is the honest signal for "ask again": it moves on every recorded position and on the
+     * clear, and nothing else in the client has to know how the positions are stored.
+     */
+    private long epoch;
+
+    /** How many times the pending positions have changed. See {@link #epoch}'s note. */
+    public long epoch() {
+        return epoch;
+    }
+
     /** Remembers where a node was moved to, until a tree arrives that says the same thing. */
     public void moved(String id, double x, double y, long revision) {
         moved.put(id, new double[] {x, y});
         movedAtRevision = revision;
+        epoch++;
     }
 
     public boolean hasMoved(String id) {
@@ -61,6 +80,9 @@ public final class EditorSession {
         if (movedAtRevision >= 0 && revision != movedAtRevision) {
             moved.clear();
             movedAtRevision = -1;
+            // The clear is a change of answer like any other: without this, whatever the clear made the
+            // positions *become* would answer from a cache that was stamped while they were still pending.
+            epoch++;
         }
     }
 }

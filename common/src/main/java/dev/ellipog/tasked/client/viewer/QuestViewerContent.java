@@ -71,6 +71,7 @@ public final class QuestViewerContent implements QuestContent {
 
     private volatile ItemQuestIndex index = ItemQuestIndex.empty();
     private volatile List<QuestPage> pages = List.of();
+    private volatile java.util.Map<String, QuestPage> byId = java.util.Map.of();
     private volatile long builtRevision = -1L;
 
     @Override
@@ -95,6 +96,11 @@ public final class QuestViewerContent implements QuestContent {
     @Override
     public List<QuestPage> pages() {
         return pages;
+    }
+
+    @Override
+    public QuestPage page(String questId) {
+        return questId == null ? null : byId.get(questId);
     }
 
     @Override
@@ -203,18 +209,32 @@ public final class QuestViewerContent implements QuestContent {
     void rebuild(long revision, Function<TagKey<Item>, List<ResourceLocation>> tagItems) {
         ItemQuestIndex.Builder index = ItemQuestIndex.builder();
         List<QuestPage> built = new ArrayList<>();
+        // One expansion per tag per rebuild. A pack that gates several quests behind `#c:ingots/iron`
+        // otherwise reads the registry once per task, and the answer cannot differ inside one walk of
+        // one tree -- so the second read is the same question asked again. A resolver that answers null
+        // is not remembered, which is what `computeIfAbsent` does with a null mapping: the miss is
+        // retried rather than cached as an absence.
+        java.util.Map<TagKey<Item>, List<ResourceLocation>> expansions = new java.util.HashMap<>();
+        Function<TagKey<Item>, List<ResourceLocation>> once =
+                tag -> expansions.computeIfAbsent(tag, tagItems::apply);
+        // The id index, built here because this is the only walk of the pages that has to happen at all
+        // — see QuestContent.page for why an adapter must not write its own.
+        java.util.Map<String, QuestPage> byQuest = new java.util.HashMap<>();
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             QuestRef ref = new QuestRef(entry.id(), entry.title(), entry.chapterTitle(),
                     entry.icon(), entry.iconId());
-            List<QuestRow> tasks = taskRows(entry, ref, index, tagItems);
+            List<QuestRow> tasks = taskRows(entry, ref, index, once);
             List<QuestRow> rewards = rewardRows(entry, ref, index);
             if (!tasks.isEmpty() || !rewards.isEmpty()) {
                 // A page with nothing to show is one a player could never be led to by an item, and a
                 // blank page is worse than no page.
-                built.add(new QuestPage(ref, tasks, rewards));
+                QuestPage page = new QuestPage(ref, tasks, rewards);
+                built.add(page);
+                byQuest.put(entry.id(), page);
             }
         }
         pages = List.copyOf(built);
+        byId = java.util.Map.copyOf(byQuest);
         this.index = index.build();
         builtRevision = revision;
     }

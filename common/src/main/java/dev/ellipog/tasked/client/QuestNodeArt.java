@@ -39,7 +39,12 @@ public final class QuestNodeArt {
      * reads as a rendering fault. Twelve because an item is sixteen pixels wide at full size and a
      * three-quarter box is twelve.
      */
-    public static final int MIN_ITEM_BOX = 12;
+    /**
+     * The default smallest an item's box may be. The value in force is the client's own
+     * ({@code canvas.json}'s {@code iconMinBox}, see {@link CanvasSettings}), and this is what it defaults
+     * to.
+     */
+    public static final int MIN_ITEM_BOX = CanvasSettings.DEFAULT_ICON_MIN_BOX;
 
     private QuestNodeArt() {
     }
@@ -72,7 +77,6 @@ public final class QuestNodeArt {
     public static void draw(GuiRenderer r, int x, int y, Look look) {
         int size = look.size();
         Shape geometry = look.geometry();
-        ArmatureTheme.Spans spans = geometry::spans;
 
         // The hover and selection ring, drawn FIRST and one pixel larger, so the node's own panel
         // covers all but its outer edge. What shows is a one-pixel ring that follows the shape.
@@ -92,9 +96,11 @@ public final class QuestNodeArt {
         // halo instead, and that closing paints over the panel's gaps -- the space between two gear
         // teeth, a tome's notch -- leaving the ring broken and fill colour outside the outline.
         if (look.ring() != 0) {
-            ArmatureTheme.fillShape(r, x - 1, y - 1, size + 2, look.ring(),
-                    geometry.outer()::spans);
-            ArmatureTheme.fillShape(r, x, y, size, ArmatureTheme.nodeFill(), geometry::spans);
+            // The shapes themselves rather than their row lookups: `fillShape` remembers a shape's
+            // rectangles by the shape and the size, so passing the layer is what makes them findable
+            // again next frame. See Plans.
+            ArmatureTheme.fillShape(r, x - 1, y - 1, size + 2, look.ring(), geometry.outer());
+            ArmatureTheme.fillShape(r, x, y, size, ArmatureTheme.nodeFill(), geometry);
         }
 
         // The panel, in the node's own shape. A shape is a row-to-span lookup and nothing else, so the
@@ -104,7 +110,9 @@ public final class QuestNodeArt {
         // `none` is the one shape that draws no panel: its node is its icon, and the square its
         // geometry describes is for the hit test and the icon's fit. See `QuestShape.drawsPanel`.
         if (look.shape().drawsPanel()) {
-            ArmatureTheme.shapePanel(r, x, y, size, ArmatureTheme.nodeFill(), look.edge(), spans);
+            // The shape, not its span lookup: `shapePanel` asks the shape for its own eroded layer, and
+            // a layer is a table once it has been asked for a size. See ArmatureTheme.shapePanel.
+            ArmatureTheme.shapePanel(r, x, y, size, ArmatureTheme.nodeFill(), look.edge(), geometry);
         }
 
         // The icon's corner and its size, from ONE inset -- `iconBox`, not two numbers here.
@@ -115,8 +123,12 @@ public final class QuestNodeArt {
         // colliding buttons and the label and its room -- one value, two places -- and the fix is the
         // same: compute the pair together, somewhere a caller cannot take one and invent the other.
         int[] iconBox = look.geometry().iconBox(x, y, size, look.iconScale());
+        // The node's **own box** decides, measured from its own outline, and the threshold is the client's.
+        // A landmark has room at any zoom; a small node runs out of room at a specific *size*. Asking the
+        // zoom instead is what drew a large gear node as an empty outline with a stand-in block — the box is
+        // the honest question and it was already being asked. See CanvasSettings.
         boolean drewItem = look.icon() != null && !look.icon().isEmpty()
-                && iconBox[2] >= MIN_ITEM_BOX
+                && iconBox[2] >= CanvasSettings.iconMinBox()
                 && r.icon(look.icon(), iconBox[0], iconBox[1], iconBox[2]);
 
         if (!drewItem) {
@@ -126,7 +138,7 @@ public final class QuestNodeArt {
             // block is the panel's own outline inset by the same amount, for the reason the fill is.
             int inset = Math.max(1, size / 4);
             ArmatureTheme.fillShape(r, x + inset, y + inset, size - inset * 2,
-                    (look.edge() & 0x00FFFFFF) | 0xB0000000, geometry.inner(inset)::spans);
+                    (look.edge() & 0x00FFFFFF) | 0xB0000000, geometry.inner(inset));
         }
 
         // The state, as a wash over the node. It used to be a chip with a cross in the node's
@@ -149,7 +161,7 @@ public final class QuestNodeArt {
             // The table is the panel's own, one pixel in -- `geometry.inner()` -- rather than the shape
             // sampled at `size - 2`, which is what used to let a wash spill past the outline it is meant
             // to be dimming.
-            ArmatureTheme.fillShape(r, x + 1, y + 1, size - 2, look.wash(), geometry.inner()::spans);
+            ArmatureTheme.fillShape(r, x + 1, y + 1, size - 2, look.wash(), geometry.inner());
         }
     }
 

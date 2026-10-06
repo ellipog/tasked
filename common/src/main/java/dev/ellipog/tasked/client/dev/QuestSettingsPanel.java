@@ -274,7 +274,7 @@ public final class QuestSettingsPanel {
             else {
                 ArmatureTheme.shapePanel(r, x, y, swatch, ArmatureTheme.nodeFill(),
                         selected ? ArmatureTheme.available() : ArmatureTheme.controlEdge(),
-                        shape::spans);
+                        shape.geometry());
             }
 
             String name = shape.name().toLowerCase(java.util.Locale.ROOT);

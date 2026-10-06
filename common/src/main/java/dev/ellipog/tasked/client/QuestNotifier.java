@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.client;
 
+import dev.ellipog.tasked.client.dev.QuestWalks;
 import dev.ellipog.tasked.client.dev.ToastStack;
 import dev.ellipog.tasked.quest.reward.RewardAutoClaim;
 
@@ -12,6 +13,7 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -78,7 +80,15 @@ public final class QuestNotifier {
             DIFF.reset();
         }
 
-        List<QuestNotifications.Notice> notices = DIFF.sample(snapshots());
+        // What the message named decides how much of the cache this sample has to look at, and the two
+        // paths differ in more than size: a delta names the quests that moved, so only those need a
+        // picture taken, while a full sync is the whole of the server's answer and says nothing about
+        // what moved. See ProgressTouch for why the flag travels with the ids, and the diff's
+        // sampleSome for why a partial sample must not be pruned like a whole one.
+        ClientQuestCache.ProgressTouch touch = ClientQuestCache.lastProgressTouch();
+        List<QuestNotifications.Notice> notices = touch.full()
+                ? DIFF.sample(snapshots())
+                : DIFF.sampleSome(touch.ids(), snapshotsOf(touch.ids()));
         if (notices.isEmpty()) {
             return;
         }
@@ -90,18 +100,56 @@ public final class QuestNotifier {
 
     /** The cache, as the diff reads it: identity, state, what is waiting, and the author's silence. */
     private static List<QuestNotifications.Snapshot> snapshots() {
-        Minecraft minecraft = Minecraft.getInstance();
-        UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
+        UUID self = selfId();
         List<QuestNotifications.Snapshot> snapshots = new ArrayList<>();
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
-            RewardAutoClaim mode = entry.effectiveAutoClaim();
-            snapshots.add(new QuestNotifications.Snapshot(
-                    entry.id(),
-                    ClientQuestCache.stateOf(entry.id()),
-                    self != null && ClientQuestCache.canClaimFor(self, entry.id()),
-                    mode.automatic() && !mode.notifies()));
+            snapshots.add(snapshotOf(entry, self));
         }
+        // Counted with the observation tick's own walk, because both are the same defect measured on
+        // two paths: one sample per progress change is fine, and one whole-cache sample per change is a
+        // number that should fall to the handful of quests the message actually named.
+        QuestWalks.walked("notifier", snapshots.size());
         return snapshots;
+    }
+
+    /**
+     * The same picture, for the ids one message named — which is the whole point of
+     * {@link ClientQuestCache.ProgressTouch}: a delta about one quest's counter used to take a picture
+     * of every quest in the pack, calling {@code canClaimFor} once per quest to do it.
+     *
+     * <p>An id the tree does not hold is skipped rather than pictured as unknown. That is the same
+     * answer the whole-cache sample gives it — an entry is what the loop above walks — and the
+     * difference matters for a removal: a quest the server has just removed is one the diff should
+     * forget, which it does by not being named in the next sample rather than by being named with a
+     * state it does not have.
+     */
+    private static List<QuestNotifications.Snapshot> snapshotsOf(Set<String> ids) {
+        UUID self = selfId();
+        List<QuestNotifications.Snapshot> snapshots = new ArrayList<>(ids.size());
+        for (String id : ids) {
+            ClientQuestCache.Entry entry = ClientQuestCache.entry(id);
+            if (entry != null) {
+                snapshots.add(snapshotOf(entry, self));
+            }
+        }
+        QuestWalks.walked("notifier", snapshots.size());
+        return snapshots;
+    }
+
+    /** One entry as the diff needs it — the one description of what a snapshot is. */
+    private static QuestNotifications.Snapshot snapshotOf(ClientQuestCache.Entry entry, UUID self) {
+        RewardAutoClaim mode = entry.effectiveAutoClaim();
+        return new QuestNotifications.Snapshot(
+                entry.id(),
+                ClientQuestCache.stateOf(entry.id()),
+                self != null && ClientQuestCache.canClaimFor(self, entry.id()),
+                mode.automatic() && !mode.notifies());
+    }
+
+    /** The local player's id, or null where there is none to be had. */
+    private static UUID selfId() {
+        Minecraft minecraft = Minecraft.getInstance();
+        return minecraft.player == null ? null : minecraft.player.getUUID();
     }
 
     /** Says one notice the way its moment asks for. */

@@ -792,6 +792,32 @@ public final class QuestFiles {
     }
 
     private static Optional<JsonDocument> parse(Path path, String display, Problems problems) {
+        // A file this process has already read and that has not changed since: the document and the
+        // messages it produced, replayed rather than derived again. See ParsedFiles -- including why the
+        // messages are the half that must not be skipped.
+        ParsedFiles.Stamp stamp = ParsedFiles.stamp(path);
+        if (stamp != null) {
+            ParsedFiles.Held held = ParsedFiles.held(path, stamp);
+            if (held != null) {
+                problems.addAll(held.problems());
+                return held.document();
+            }
+        }
+
+        // This file's own messages, collected apart from the load's so that they can be held with it.
+        // A `Problems` is keyed by file name, so replaying them adds nothing to the total that a cold
+        // load would not also have added.
+        Problems mine = new Problems();
+        Optional<JsonDocument> document = read(path, display, mine);
+        problems.addAll(mine.all());
+        if (stamp != null) {
+            ParsedFiles.hold(path, stamp, document, mine.all());
+        }
+        return document;
+    }
+
+    /** The read and the parse themselves, with their messages going to the caller's own list. */
+    private static Optional<JsonDocument> read(Path path, String display, Problems problems) {
         String text;
         try {
             text = Files.readString(path, StandardCharsets.UTF_8);

@@ -86,6 +86,28 @@ public final class TaskedCommand {
                 .then(Commands.literal("quests")
                         .executes(TaskedCommand::quests))
 
+                // The frame rate, as its own operator switch rather than a side effect of edit mode. Bare,
+                // it flips; with an argument it says which way, because a script or a habit that expects one
+                // state should not have to know what the last one was.
+                .then(Commands.literal("vitals")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(context -> vitals(context, Optional.empty()))
+                        .then(Commands.literal("on")
+                                .executes(context -> vitals(context, Optional.of(true))))
+                        .then(Commands.literal("off")
+                                .executes(context -> vitals(context, Optional.of(false)))))
+
+                // The flat-icon experiment, and it is temporary by design: four ways to draw an icon whose
+                // model is one textured quad, so the arm that actually shows the item names the cause of the
+                // one that did not. It sets a **system property** rather than a payload because the point is
+                // to flip it in a running game and read the screen, and because singleplayer — where this is
+                // being diagnosed — runs the server in the client's own JVM. On a dedicated server it would
+                // set a property on the server's JVM and do nothing visible, which is why it says so.
+                .then(Commands.literal("iconmode")
+                        .requires(QuestAuthority.mayEdit())
+                        .then(Commands.argument("arm", IntegerArgumentType.integer(0, 3))
+                                .executes(TaskedCommand::iconMode)))
+
                 .then(Commands.literal("quest")
                         .then(Commands.argument("id", StringArgumentType.word())
                                 .executes(TaskedCommand::quest)))
@@ -242,6 +264,62 @@ public final class TaskedCommand {
         catch (RuntimeException e) {
             return "<config directory unavailable>";
         }
+    }
+
+    /**
+     * The vitals overlay: the frame rate and the frame's counters, on this operator's client.
+     *
+     * <h2>Why this is a command rather than a button</h2>
+     *
+     * <p>Because it is an instrument, and the people who want it are the people diagnosing a frame — an
+     * operator with a slow chapter, not every player. A button in the tools panel would put it behind edit
+     * mode again (which is what this replaces) and would be reachable by whoever the book lets edit; a
+     * command is gated by the one permission the server actually owns, and it can be typed from anywhere,
+     * including on a client that has no quest book open.
+     *
+     * <p>The reply names the state rather than saying "done", because the interesting case is a client that
+     * did not get the message — a disconnect between the command and the send — and a reply that only said
+     * "ok" would look identical.
+     */
+    private static int vitals(CommandContext<CommandSourceStack> context, Optional<Boolean> wanted) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) {
+            context.getSource().sendFailure(Component.literal(
+                    "The vitals overlay is drawn by a client, so this has to be run by a player."));
+            return 0;
+        }
+        boolean on = TaskedNetworking.setVitals(player, wanted.orElse(!TaskedNetworking.vitals(player)));
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Vitals overlay " + (on ? "on" : "off") + " for " + player.getGameProfile().getName()
+                        + ". It shows the frame rate and frame time, and the frame's counters."), false);
+        return 1;
+    }
+
+    /**
+     * The flat-icon experiment: which of four ways an icon that is one textured quad is drawn.
+     *
+     * <p>Four arms, and each answers a different question — the plain blit that drew nothing, the blit that
+     * writes a per-vertex colour, the blit bracketed by flushes so it is submitted immediately as
+     * {@code renderItem} gets for free, and the pipeline itself as the control. Whichever arm shows the items
+     * names the cause; the whole command goes away with the answer.
+     *
+     * <p>It sets a **system property**, and that is deliberate: the property is read by the drawing each
+     * call, so a flip takes effect on the next frame without a reload, and singleplayer — where this is being
+     * diagnosed — runs the server in the client's own JVM. On a dedicated server the property is set on the
+     * server and nothing visible happens, which the reply says.
+     */
+    private static int iconMode(CommandContext<CommandSourceStack> context) {
+        int arm = IntegerArgumentType.getInteger(context, "arm");
+        System.setProperty("armature.iconmode", Integer.toString(arm));
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Icon drawing arm " + arm + " (" + switch (arm) {
+                    case 1 -> "plain blit";
+                    case 2 -> "blit with a per-vertex colour";
+                    case 3 -> "blit with a flush either side";
+                    default -> "the pipeline, which is the correct one";
+                } + "). Temporary diagnostic: it only affects a client sharing this JVM, so singleplayer."),
+                false);
+        return 1;
     }
 
     private static int reload(CommandContext<CommandSourceStack> context) {

@@ -13,6 +13,7 @@ import dev.ellipog.armature.client.ui.kit.Layout;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
+import dev.ellipog.armature.client.ui.shape.Shape;
 import dev.ellipog.tasked.client.BookGeometry;
 import dev.ellipog.tasked.quest.QuestShape;
 import net.minecraft.resources.ResourceLocation;
@@ -446,12 +447,15 @@ public final class ToolsPanel {
 
     /** One node: fill, an edge in the state's colour, and a ring when it is the hovered one. */
     private static void node(GuiRenderer r, BookGeometry.Rect rect, int edge, int ringColour) {
+        // The shape rather than its span lookup, so the panel's own layer is the one the shape keeps:
+        // see ArmatureTheme.shapePanel. `QuestShape.ROUNDED.geometry()` is a field, not a construction.
+        Shape rounded = QuestShape.ROUNDED.geometry();
         if (ringColour != 0) {
             ArmatureTheme.shapePanel(r, rect.x() - 1, rect.y() - 1, rect.width() + 2,
-                    ArmatureTheme.nodeFill(), ringColour, QuestShape.ROUNDED::spans);
+                    ArmatureTheme.nodeFill(), ringColour, rounded);
         }
         ArmatureTheme.shapePanel(r, rect.x(), rect.y(), rect.width(), ArmatureTheme.nodeFill(), edge,
-                QuestShape.ROUNDED::spans);
+                rounded);
     }
 
 
