@@ -125,6 +125,7 @@ class PayloadTest {
                 "tasked:claim_summary",
                 "tasked:dimension_sync",
                 "tasked:edit_history",
+                "tasked:edit_problems",
                 "tasked:editor_op",
                 "tasked:editor_reply",
                 "tasked:party_sync",
@@ -252,6 +253,31 @@ class PayloadTest {
         EditHistoryPayload sent = roundTrip(EditHistoryPayload.CODEC, new EditHistoryPayload(true));
 
         assertTrue(sent.discarded(), "the notice arrived saying the opposite of what it meant");
+    }
+
+    @Test
+    @DisplayName("the reload's problems survive the wire, count and lines both")
+    void editProblemsRoundTrip() {
+        // The count is the part that matters when the list is long: it is what lets a truncated report say
+        // how many it is not showing rather than reading as the whole of it.
+        EditProblemsPayload sent = roundTrip(EditProblemsPayload.CODEC,
+                new EditProblemsPayload(3, "quests/a/one.json: dangling dependsOn \"gone\"\n"
+                        + "quests/b/two.json: cycle one -> two -> one"));
+
+        assertEquals(3, sent.lines(), "the count is what says the list was cut short");
+        assertEquals(List.of("quests/a/one.json: dangling dependsOn \"gone\"",
+                "quests/b/two.json: cycle one -> two -> one"), sent.problems(),
+                "and the lines are what the author reads");
+    }
+
+    @Test
+    @DisplayName("a report with no problems round-trips as none, not as one empty line")
+    void editProblemsEmpty() {
+        // `split("\n")` on the empty string answers `[""]` -- one empty line -- which would be a toast with
+        // nothing in it on every coalesced edit that found nothing wrong.
+        EditProblemsPayload sent = roundTrip(EditProblemsPayload.CODEC, new EditProblemsPayload(0, ""));
+
+        assertTrue(sent.problems().isEmpty(), "an empty report is no problems, not a blank one");
     }
 
     @Test

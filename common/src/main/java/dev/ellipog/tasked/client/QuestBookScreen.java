@@ -26145,6 +26145,21 @@ public final class QuestBookScreen extends ArmatureScreen
             report("The server reloaded, so the undo history was discarded");
         }
 
+        // What the reload found wrong with the pack -- a dangling dependency, a cycle between files, an id in
+        // two chapters. None of them is visible to the per-file validator that guards a save, so before this
+        // the edit succeeded, the fault was written, and only the server log knew. Reported after the tree, so
+        // the canvas is already drawing the pack these problems are about.
+        for (ClientEditProblems.Report report : ClientEditProblems.drain()) {
+            for (String line : report.lines()) {
+                Constants.LOG.info("tasked: the pack has a problem: {}", line);
+                toast(line, true);
+            }
+            int hidden = report.count() - report.lines().size();
+            if (hidden > 0) {
+                toast(hidden + " more problem(s) in the server log", true);
+            }
+        }
+
         // Every answer nobody has read yet, oldest first. A burst of quick edits -- spamming a stepper
         // -- puts several between two ticks, and the store used to keep only the last, so a refusal in
         // the middle was lost. A refusal also drops that chapter's pending values: the edit did not

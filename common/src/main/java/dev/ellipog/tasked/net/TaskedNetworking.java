@@ -169,6 +169,19 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_CLIENT,
                 payload -> dev.ellipog.tasked.client.ClientEditHistory.discard(),
                 null));
+
+        // --- the reload's cross-file problems, server to client ---
+
+        // The per-file validator inside `QuestEditor.save` sees one file at a time, so a dangling dependency,
+        // a cycle between files and an id declared in two chapters are all invisible to it and were written
+        // silently with only the server log knowing. They are faults of the *pack*, so only the index that
+        // reads them all can find them -- and this carries its answer to the authors.
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                EditProblemsPayload.TYPE,
+                EditProblemsPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                payload -> dev.ellipog.tasked.client.ClientEditProblems.accept(payload.lines(), payload.text()),
+                null));
         // --- submitting a task, client to server ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -699,6 +712,44 @@ public final class TaskedNetworking {
     }
 
     /**
+     * Tells every connected player what the reload found wrong with the pack.
+     *
+     * <p>Called after the tree goes out, and only when there is something to say. The faults it carries are the
+     * ones a single file cannot show — a {@code dependsOn} naming a quest that is not there, a cycle between
+     * files, an id declared in two chapters — and before this they were written silently with only the server
+     * log knowing, so the author's quest was quietly missing from the tree or unreachable.
+     *
+     * <p>To everyone rather than to whoever edited: the faults belong to the pack, and an author who is not the
+     * one who caused one still has to work with the tree it describes.
+     */
+    public static void sendProblemsToAll(MinecraftServer server,
+                                         dev.ellipog.armature.api.data.Problems problems) {
+        if (problems == null || problems.isEmpty()) {
+            return;
+        }
+        java.util.List<dev.ellipog.armature.api.data.DataProblem> all = problems.all();
+        StringBuilder text = new StringBuilder();
+        int shown = 0;
+        for (dev.ellipog.armature.api.data.DataProblem problem : all) {
+            String line = problem.renderWithPath();
+            // The count travels separately, so a list cut short here says how many it is not showing rather
+            // than reading as the whole of it.
+            if (text.length() + line.length() + 1 > EditProblemsPayload.MAX_CHARS) {
+                break;
+            }
+            if (shown > 0) {
+                text.append('\n');
+            }
+            text.append(line);
+            shown++;
+        }
+        EditProblemsPayload payload = new EditProblemsPayload(all.size(), text.toString());
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            ArmatureNetwork.sendToPlayer(player, payload);
+        }
+    }
+
+    /**
      * The same, with the progress channel the caller owes.
      *
      * <h2>What the three answers mean, and why this is not a boolean any more</h2>
@@ -752,15 +803,25 @@ public final class TaskedNetworking {
         // the reason `handleEditorOp` gives.
         boolean timing = dev.ellipog.tasked.editor.EditPhases.on();
         long reloadStarted = timing ? System.nanoTime() : 0L;
+        // Kept rather than discarded: its problems are the cross-file faults nothing else can see, and they
+        // are only knowable here -- the op was applied and answered synchronously, before this reload ran.
+        dev.ellipog.tasked.quest.QuestLoader.Result reloaded;
         if (touch.scope() == TreeRefresh.Touch.Scope.TABLES) {
             TaskedQuests.reloadTables();
+            reloaded = null;
         }
         else {
-            TaskedQuests.reload();
+            reloaded = TaskedQuests.reload();
         }
         long reloadNanos = timing ? System.nanoTime() - reloadStarted : 0L;
         int players = server.getPlayerList().getPlayers().size();
         sendTreeToAll(server, touch.progress());
+        // After the tree, so a client that reads both in one frame draws the pack before being told what is
+        // wrong with it -- and only when there is something to say, because an empty report would be a
+        // message about nothing on every coalesced edit.
+        if (reloaded != null) {
+            sendProblemsToAll(server, reloaded.problems());
+        }
         if (timing) {
             QuestSync.WireTiming wire = QuestSync.drainWireTiming();
             dev.ellipog.tasked.editor.EditPhases.flushed(reloadNanos, wire.encodeNanos(),

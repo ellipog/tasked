@@ -144,6 +144,9 @@ class SyncWiringTest {
                 // sends because the client's undo *button* is drawn from counters of its own and would
                 // otherwise keep offering an undo over a history the server had thrown away.
                 "tasked:edit_history",
+                // The reload's cross-file faults, which a per-file validator cannot see and which the server
+                // log was the only place to learn about.
+                "tasked:edit_problems",
                 "tasked:editor_op",
                 "tasked:editor_reply",
                 "tasked:party_sync",
