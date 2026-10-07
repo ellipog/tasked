@@ -28,12 +28,14 @@ So there are two ways to get a pristine copy, and neither is silent: delete the 
 again, or pass `--force`. `--force` names each file it replaces, so a replace is never something that
 happened while you were not looking.
 
-**One file is merged rather than replaced, even under `--force`: a group manifest.** `group.json` is
-not only an example file -- the editor writes to it too, adding a folder to `chapters` when a chapter
-is created -- and the loader refuses the whole group when a folder is present and unlisted, which
-loads as an empty book with the reason one line up. Replacing the list would orphan the author's
-chapters, so a forced copy keeps the destination's own entries alongside the shipped ones. See
-`merge_group_chapters`.
+**Two files are merged rather than replaced, even under `--force`: the two manifests the editor also
+writes.** `group.json` gains a folder in `chapters` when a chapter is created, and `chapter.json` gains a
+file in `quests` when a quest is duplicated or pasted. The loader refuses the whole group when a folder is
+present and unlisted, and refuses a chapter when a quest file is present and unlisted -- both reading as a
+broken pack rather than as a stale list. Replacing either would orphan the author's own entries, so a forced
+copy keeps the destination's own alongside the shipped ones. See `merge_group_chapters` and
+`merge_chapter_quests`; the second was added after a forced refresh orphaned 280 copied quests in one
+chapter and the book loaded 211 of 213 files.
 
 `--reset` is the third way, and the loudest: it deletes everything in each target's quest directory
 -- every file and folder, not only the ones this script wrote -- and then copies the examples in
@@ -227,11 +229,15 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = 
             kept += 1
             continue
 
-        # The group manifest is the one example file the editor also writes to. See the docstring and
-        # `merge_group_chapters`: replacing its `chapters` list with the shipped one would orphan the
-        # author's own chapters, and one unlisted folder makes the loader refuse the whole group.
-        merged = merge_group_chapters(source, destination) \
-            if relative.name == GROUP_MANIFEST else None
+        # The two manifests are the example files the editor also writes to. See the docstring,
+        # `merge_group_chapters` and `merge_chapter_quests`: replacing either list with the shipped one
+        # orphans the author's own entries, and the loader refuses an unlisted file or folder.
+        if relative.name == GROUP_MANIFEST:
+            merged = merge_group_chapters(source, destination)
+        elif relative.name == CHAPTER_MANIFEST:
+            merged = merge_chapter_quests(source, destination)
+        else:
+            merged = None
 
         if not dry_run:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -243,7 +249,7 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = 
         verb = "~" if existed else "+"
         note = "  [replaced]" if existed else ""
         if merged is not None:
-            note += "  [kept the author's chapters: " + ", ".join(merged[1]) + "]"
+            note += kept_note(merged[1])
         print(f"  {verb} {relative.as_posix()}  ({source.stat().st_size} bytes){note}")
 
         if existed:
@@ -285,6 +291,88 @@ def merge_group_chapters(source: pathlib.Path, destination: pathlib.Path):
     if not kept:
         return None
     ours["chapters"] = listed + kept
+    return ours, kept
+
+
+def kept_note(kept):
+    """
+    The "[kept the author's ...]" note, as a count with a sample rather than the whole list.
+
+    ## Why this is not the full list any more
+
+    It was, and a chapter with 280 recovered quests printed all 280 on one line -- several thousand
+    characters, wrapped over the terminal, burying the line it was attached to. The note exists to say *that*
+    the author's entries survived and roughly how many; the names are on disk and in the manifest, and a
+    reader who wants them can open the file. A summary that cannot be read is not a summary.
+    """
+    if len(kept) <= 4:
+        return "  [kept the author's: " + ", ".join(kept) + "]"
+    return f"  [kept the author's: {len(kept)}, e.g. " + ", ".join(kept[:3]) + ", ...]"
+
+
+def merge_chapter_quests(source: pathlib.Path, destination: pathlib.Path):
+    """
+    A chapter manifest with the destination's own quest list folded into the source's.
+
+    ## Why this file is merged too, and what it cost not to
+
+    `group.json` was the only manifest this script merged, and that was half the rule. `chapter.json` is
+    the other one the editor writes -- **duplicating or pasting a quest adds its file to `quests`** -- and
+    the loader refuses a chapter when a quest file is present and unlisted:
+
+        the quest file "the_triumph_copy.json" is here, and this chapter's "quests" list does not mention
+        it - so it will never load.
+
+    So a `--force` that replaced this list with the shipped one did not merely lose the author's order: it
+    orphaned **every quest they had made a copy of**. On the profile this was found on, 280 files went
+    unlisted in one chapter and the book loaded 211 of 213 files with 281 errors -- for a refresh flag
+    that is supposed to be the safe way to bring the examples up to date.
+
+    The union is what the format asks for, exactly as it is for a group: every quest file is listed, or
+    `_`-prefixed to be deliberately out of the way. The shipped names keep their order and the author's go
+    after them, because the shipped list is the example's sequence and an appended copy has no place in it.
+
+    Returns `(manifest, kept)`, or None when the destination is absent, unreadable, or added nothing.
+    """
+    if not destination.exists():
+        return None
+    try:
+        theirs = json.loads(destination.read_text(encoding="utf-8"))
+        ours = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    listed = list(ours.get("quests", []))
+    kept = [quest for quest in theirs.get("quests", [])
+            if isinstance(quest, str) and quest not in listed]
+
+    # **And the files on disk that neither list mentions**, which is the repair rather than the guard.
+    #
+    # The guard above only helps while the destination still remembers its own list. A `--force` run by a
+    # build of this script that replaced the list instead of merging destroyed it: the author's quests are
+    # still on disk and now in no list at all, so there is nothing left to merge and the next run would
+    # happily write the shipped list again. That is exactly the state this was found in -- 280 copied quest
+    # files unlisted in one chapter -- and a guard that cannot repair the damage it was added to prevent is
+    # half a fix.
+    #
+    # The directory is the record: a `*.json` in the chapter's own folder is a quest, whatever any list
+    # says. `chapter.json` is the manifest itself and the `_` prefix means deliberately out of the way, so
+    # both are left out, which is the same rule the loader applies. Sorted, because the order of a repair
+    # is not the author's order and a stable one is worth more than an arbitrary one.
+    known = set(listed) | set(kept)
+    try:
+        on_disk = sorted(entry.name for entry in destination.parent.iterdir()
+                         if entry.is_file()
+                         and entry.name.endswith(".json")
+                         and entry.name != destination.name
+                         and not entry.name.startswith("_"))
+    except OSError:
+        on_disk = []
+    recovered = [name for name in on_disk if name not in known]
+    kept = kept + recovered
+
+    if not kept:
+        return None
+    ours["quests"] = listed + kept
     return ours, kept
 
 
