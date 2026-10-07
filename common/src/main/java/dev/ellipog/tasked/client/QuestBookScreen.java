@@ -20121,6 +20121,11 @@ public final class QuestBookScreen extends ArmatureScreen
             canvasOverlap = null;
         }
         canvasState = key;
+        // What this rebuild produced, for the overlay. Published here rather than per frame because these
+        // describe the canvas's *contents*, which only move when it is rebuilt -- and because `rebuilds` is
+        // the number that says a drag is re-stamping, which no frame counter can show. See `CanvasStats`.
+        dev.ellipog.tasked.client.dev.CanvasStats.published(
+                quests.size(), canvasEdges.size(), canvasNamed.size(), canvasVisible.size());
     }
 
     private List<FrameEdge> frameEdges(List<ClientQuestCache.Entry> quests) {

@@ -129,6 +129,10 @@ public final class TaskedFabricClient implements ClientModInitializer {
             ClientPartyCache.clear();
             // And the edit answers in flight for a world being left: the next screen must not report them.
             ClientEditReplies.clear();
+            // And what the canvas held, including its rebuild count: that one is cumulative, so a count
+            // carried into the next world would read as a canvas that had been churning when nothing had
+            // happened yet. See `CanvasStats`.
+            dev.ellipog.tasked.client.dev.CanvasStats.clear();
             // The half-counted observations go with the tree they were counted against.
             ObservationWatcher.reset();
             // And the completion diff, or the next server's progress would be read against this one's

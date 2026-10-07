@@ -175,7 +175,18 @@ public final class CountingRenderer implements GuiRenderer {
                 "flats/s " + planned.flat(),
                 "liveicons/s " + planned.live(),
                 "submits " + switches,
-                "linewalk " + walkPoints};
+                "linewalk " + walkPoints,
+                // What was *there*, which no count above says. A reading of `fills 4034` cannot be compared
+                // with another until the node count is known, and the baseline table exists to compare
+                // readings. `visible` is the cull's own answer and `named` the label pass's input, so the
+                // three together say what the frame was actually drawing through.
+                "nodes " + dev.ellipog.tasked.client.dev.CanvasStats.nodes()
+                        + "  visible " + dev.ellipog.tasked.client.dev.CanvasStats.visible()
+                        + "  lines " + dev.ellipog.tasked.client.dev.CanvasStats.edges()
+                        + "  named " + dev.ellipog.tasked.client.dev.CanvasStats.named(),
+                // Cumulative, and the one number that shows a drag re-stamping the canvas every frame: the
+                // frame counters look much the same whether it was built once or sixty times.
+                "rebuilds " + dev.ellipog.tasked.client.dev.CanvasStats.rebuilds()};
         reportCacheHits();
     }
 
