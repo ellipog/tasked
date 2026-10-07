@@ -25,13 +25,29 @@ import net.minecraft.resources.ResourceLocation;
  * @param ok       whether it was applied and written
  * @param questId  the quest a create or a duplicate made, or "" when the op made none
  * @param messages the refusal's reasons, one per line, or "" when there were none
+ * @param requestId which request this answers, or <b>0</b> when the server does not know
+ *
+ * <h2>Why a request id, when position matching worked</h2>
+ *
+ * <p>Because position matching only works while the two ends agree about how many requests are in flight, and
+ * they cannot. The client's marker queue is bounded, so a burst that outruns the answers either drops a
+ * marker — which mis-aligns every answer after it, silently — or refuses to send, which loses an edit. And a
+ * reply that carries a chapter's <i>problems</i> (a dangling dependency, a cycle) has to be matched to the
+ * request that asked rather than to whichever request is next in a queue.
+ *
+ * <p><b>Zero means "no id"</b> rather than an optional field: a stream codec's optional costs a boolean on the
+ * wire and a generic argument at every use, and this payload already sends its absent values as empty strings
+ * for the same reason. A zero is never a real id, because the client's ids start at one.
  */
-public record EditorReplyPayload(String chapter, boolean ok, String questId, String messages)
+public record EditorReplyPayload(String chapter, boolean ok, String questId, String messages, long requestId)
         implements CustomPacketPayload {
 
     /** The payload's id. The constructor, not {@code createType} — see {@link QuestSyncPayload#TYPE}. */
     public static final CustomPacketPayload.Type<EditorReplyPayload> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("tasked", "editor_reply"));
+
+    /** A reply to a request that carried no id, which is what a server that does not echo one produces. */
+    public static final long NO_REQUEST = 0L;
 
     public static final StreamCodec<? super RegistryFriendlyByteBuf, EditorReplyPayload> CODEC =
             StreamCodec.composite(
@@ -41,7 +57,19 @@ public record EditorReplyPayload(String chapter, boolean ok, String questId, Str
                     // A validator can produce a paragraph of messages; one string with newlines, because the
                     // feedback line shows one and the chat shows them one after another.
                     ByteBufCodecs.stringUtf8(4096), EditorReplyPayload::messages,
+                    ByteBufCodecs.VAR_LONG, EditorReplyPayload::requestId,
                     EditorReplyPayload::new);
+
+    /**
+     * The same reply with no request id, for a caller that has none to give.
+     *
+     * <p>Kept so the two-argument-and-two-string shape stays readable at the call sites that answer a
+     * broadcast rather than a request — a refusal nobody asked for is still news, and it is matched by
+     * position as it always was.
+     */
+    public EditorReplyPayload(String chapter, boolean ok, String questId, String messages) {
+        this(chapter, ok, questId, messages, NO_REQUEST);
+    }
 
     /** The messages as a list, which is how both readers of them want them. */
     public java.util.List<String> lines() {

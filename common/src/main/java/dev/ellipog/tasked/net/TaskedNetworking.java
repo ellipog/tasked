@@ -1015,7 +1015,8 @@ public final class TaskedNetworking {
             // Refused, not ignored, and with the level named: an author whose permissions are short needs to
             // know that is the reason rather than watching an edit do nothing.
             reply(sender, payload.chapter(), false, "",
-                    "You may not edit the questline (permission level " + QuestAuthority.EDIT_LEVEL + ")");
+                    "You may not edit the questline (permission level " + QuestAuthority.EDIT_LEVEL + ")",
+                    payload.requestId());
             return;
         }
 
@@ -1033,13 +1034,14 @@ public final class TaskedNetworking {
             }
             reply(sender, payload.chapter(), applied.ok(),
                     applied.questId() == null ? "" : applied.questId(),
-                    String.join("\n", applied.messages()));
+                    String.join("\n", applied.messages()), payload.requestId());
             return;
         }
 
         EditorOp op = EditorOps.read(json);
         if (op == null) {
-            reply(sender, payload.chapter(), false, "", "that is not an edit this version knows");
+            reply(sender, payload.chapter(), false, "", "that is not an edit this version knows",
+                    payload.requestId());
             return;
         }
 
@@ -1065,7 +1067,7 @@ public final class TaskedNetworking {
         }
         reply(sender, payload.chapter(), applied.ok(),
                 applied.questId() == null ? "" : applied.questId(),
-                String.join("\n", applied.messages()));
+                String.join("\n", applied.messages()), payload.requestId());
     }
 
     /**
@@ -1199,9 +1201,24 @@ public final class TaskedNetworking {
         }
     }
 
+    /**
+     * The server's answer to one request, carrying that request's id back.
+     *
+     * <p>The id is a parameter rather than a field read here because a handler answers more than one request
+     * in a single pass — a bulk op replies once per quest it touched — and every one of those answers belongs
+     * to the same request. Threading it makes each handler name the request it is answering, which is exactly
+     * what the client matches on.
+     */
+    private static void reply(ServerPlayer sender, String chapter, boolean ok, String questId,
+                              String messages, long requestId) {
+        ArmatureNetwork.sendToPlayer(sender,
+                new EditorReplyPayload(chapter, ok, questId, messages, requestId));
+    }
+
+    /** An answer to a request that carried no id, matched by position as it always was. */
     private static void reply(ServerPlayer sender, String chapter, boolean ok, String questId,
                               String messages) {
-        ArmatureNetwork.sendToPlayer(sender, new EditorReplyPayload(chapter, ok, questId, messages));
+        reply(sender, chapter, ok, questId, messages, EditorReplyPayload.NO_REQUEST);
     }
 
     /**
@@ -1237,8 +1254,14 @@ public final class TaskedNetworking {
         ArmatureNetwork.sendToServer(new ReplicaRequestPayload(chapter));
     }
 
+    public static void sendEditorOp(String chapter, EditorOp op, long requestId) {
+        ArmatureNetwork.sendToServer(
+                new EditorOpPayload(chapter, EditorOps.write(op).toString(), requestId));
+    }
+
+    /** The same, with no request id: matched by position, as it was before the id existed. */
     public static void sendEditorOp(String chapter, EditorOp op) {
-        ArmatureNetwork.sendToServer(new EditorOpPayload(chapter, EditorOps.write(op).toString()));
+        sendEditorOp(chapter, op, EditorReplyPayload.NO_REQUEST);
     }
 
     /**
@@ -1248,9 +1271,14 @@ public final class TaskedNetworking {
      * rather than a chapter's — but it is still an argument rather than a second payload, because the
      * two are the same message with different subjects and the client already has one channel for it.
      */
-    public static void sendEditorOp(String chapter, dev.ellipog.tasked.editor.TableOp op) {
+    public static void sendEditorOp(String chapter, dev.ellipog.tasked.editor.TableOp op, long requestId) {
         ArmatureNetwork.sendToServer(new EditorOpPayload(chapter,
-                dev.ellipog.tasked.editor.TableOps.write(op).toString()));
+                dev.ellipog.tasked.editor.TableOps.write(op).toString(), requestId));
+    }
+
+    /** The same, with no request id. */
+    public static void sendEditorOp(String chapter, dev.ellipog.tasked.editor.TableOp op) {
+        sendEditorOp(chapter, op, EditorReplyPayload.NO_REQUEST);
     }
 
     /**

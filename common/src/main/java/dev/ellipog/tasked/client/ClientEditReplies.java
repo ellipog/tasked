@@ -62,13 +62,32 @@ public final class ClientEditReplies {
      * <p>Reading consumes, like the replies: a marker nobody pops is a marker that mis-aligns everything
      * after it. Bounded like the replies, and cleared with them when the client leaves the world.
      */
-    private static final Deque<String> sent = new ArrayDeque<>();
+    private static final Deque<Request> sent = new ArrayDeque<>();
 
     private ClientEditReplies() {
     }
 
     /**
-     * Records that one request went out, so its answer can be matched to it.
+     * One recorded request: the id the reply will echo, and the marker the reply loop reads.
+     *
+     * <p>Both, rather than the marker alone, because the two must be written together — an op that carries an
+     * id the queue never recorded is answered by a reply matched to the wrong request, and a marker recorded
+     * for an op that was never sent mis-aligns the next one.
+     */
+    public record Request(long id, String marker) {
+    }
+
+    /**
+     * The next request id. Starts at one, so zero can mean "no id" on the wire.
+     *
+     * <p>Monotonic rather than reused: an id that came round again while its first request was still in
+     * flight would match the wrong entry, which is the fault this whole mechanism exists to remove. A `long`
+     * at a few requests a second does not run out.
+     */
+    private static long nextId = 1L;
+
+    /**
+     * Records that one request went out, and gives it the id its answer will carry.
      *
      * <p>Called where the request is sent — an op, a replica fetch, a test roll. The empty string is a
      * quest op's marker and a table op records its own kind, which is what the reply loop reads to decide
@@ -83,21 +102,45 @@ public final class ClientEditReplies {
      * replica's to a table op, and a refusal would clear the wrong field's draft — none of which reports
      * anything, because every individual step looks like a normal answer.
      *
-     * <p>So a full queue <b>refuses</b> the new marker and says so, and the caller does not send. That
+     * <p>So a full queue <b>refuses</b> the new request and says so, and the caller does not send. That
      * leaves the requests already in flight correctly aligned, which is the property worth keeping: losing
      * one edit the author can repeat beats silently mis-attributing every later one. The bound is high
      * enough (see {@link #MAX}) that reaching it means a client that has stopped draining replies, which is
      * a book closed mid-burst rather than a person clicking.
      *
-     * @return whether the marker was recorded. <b>False means do not send</b> — an op whose marker was
-     *         refused would be answered by a reply that matched the request before it.
+     * <p><b>The ids are what make this bound safe.</b> While correlation was positional the queue could not
+     * drop an entry at all; with an id on every request a dropped entry costs one unmatched answer rather
+     * than a shift, which is what {@link #takeById} exists for.
+     *
+     * @return the recorded request, or <b>null</b> when the queue is full — and null means do not send, since
+     *         an op whose request was refused would be answered by a reply matched to the request before it.
      */
-    public static synchronized boolean noteSent(String marker) {
+    public static synchronized Request noteSent(String marker) {
         if (sent.size() >= MAX) {
-            return false;
+            return null;
         }
-        sent.addLast(marker == null ? "" : marker);
-        return true;
+        Request request = new Request(nextId++, marker == null ? "" : marker);
+        sent.addLast(request);
+        return request;
+    }
+
+    /**
+     * Consumes the recorded request with this id, or null when nothing here has it.
+     *
+     * <p>Null is a normal answer rather than a fault: a broadcast nobody asked for carries no id, a request
+     * the server refused before reading it may answer with zero, and an entry the queue had to drop is gone.
+     * The reply loop treats an unmatched answer as news about a copy, which is what it did before ids
+     * existed.
+     */
+    public static synchronized Request takeById(long id) {
+        for (java.util.Iterator<Request> each = sent.iterator(); each.hasNext(); ) {
+            Request request = each.next();
+            if (request.id() == id) {
+                each.remove();
+                return request;
+            }
+        }
+        return null;
     }
 
     /**
@@ -116,9 +159,15 @@ public final class ClientEditReplies {
      * <p>Null rather than an exception: a payload answered by something that never pushed a marker — a
      * broadcast nobody asked for — is normal, and the reply loop treats an unknown answer as news about a
      * copy rather than as an op's result.
+     *
+     * <p><b>The positional read is now the fallback, not the mechanism.</b> It is what answers a reply that
+     * carries no id — a broadcast, or a server that answered before reading one — and the reply loop prefers
+     * {@link #takeById} whenever an id is present. Both doors consume from one queue, so a request matched by
+     * id is not then matched again by position.
      */
     public static synchronized String takeSent() {
-        return sent.pollFirst();
+        Request oldest = sent.pollFirst();
+        return oldest == null ? null : oldest.marker();
     }
 
     /** Called by the payload handler. */

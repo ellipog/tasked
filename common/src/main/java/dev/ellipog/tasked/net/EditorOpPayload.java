@@ -20,10 +20,11 @@ import net.minecraft.resources.ResourceLocation;
  * code that reads it back: the two ends cannot disagree about what an op is, because there is one description
  * of it in the mod and this payload only carries the bytes.
  *
- * @param chapter the chapter's id, as the loader names it
- * @param op      the operation, as {@code EditorOps.write} produced it
+ * @param chapter   the chapter's id, as the loader names it
+ * @param op        the operation, as {@code EditorOps.write} produced it
+ * @param requestId which request this is, echoed in the reply, or <b>0</b> when the caller has none
  */
-public record EditorOpPayload(String chapter, String op) implements CustomPacketPayload {
+public record EditorOpPayload(String chapter, String op, long requestId) implements CustomPacketPayload {
 
     /** The payload's id. The constructor, not {@code createType} — see {@link QuestSyncPayload#TYPE}. */
     public static final CustomPacketPayload.Type<EditorOpPayload> TYPE =
@@ -37,7 +38,17 @@ public record EditorOpPayload(String chapter, String op) implements CustomPacket
                     // is a legitimate op, and the old 8 KiB ceiling threw on encode, which is a click that
                     // dies with no message anywhere. 256 KiB holds any single field a person could type.
                     ByteBufCodecs.stringUtf8(262144), EditorOpPayload::op,
+                    // The id the reply echoes, or 0 for a caller with none. It travels with the op rather
+                    // than beside it because the two have to be written together: an op whose id was
+                    // recorded but not sent -- or sent but not recorded -- is answered by a reply matched
+                    // to the wrong request. See `EditorReplyPayload.requestId`.
+                    ByteBufCodecs.VAR_LONG, EditorOpPayload::requestId,
                     EditorOpPayload::new);
+
+    /** The same op with no request id, for a caller that has none to give. */
+    public EditorOpPayload(String chapter, String op) {
+        this(chapter, op, EditorReplyPayload.NO_REQUEST);
+    }
 
     @Override
     public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {

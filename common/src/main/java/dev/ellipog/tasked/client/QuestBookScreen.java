@@ -7262,15 +7262,15 @@ public final class QuestBookScreen extends ArmatureScreen
         JsonElement value = patch.isEmpty() ? null : patch;
         fieldDraft.set(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
                 "themePatch", value, ClientQuestCache.treeRevision(), Util.getMillis());
-        // A marker per request, like every other send: a refusal arrives as an edit reply and the reply
-        // loop matches answers to requests in order, so an unmasked send mis-aligns the ones after it --
-        // and a marker the queue refused means this op must not go, or it would be answered by a reply
-        // that matched the request before it. See `ClientEditReplies.noteSent`.
-        if (!ClientEditReplies.noteSent("")) {
+        // A request per send, like every other: the reply carries its id back and is matched to it, and a
+        // request the queue refused means this op must not go -- an op sent without one would be answered
+        // by a reply matched to the request before it. See `ClientEditReplies.noteSent`.
+        ClientEditReplies.Request request = ClientEditReplies.noteSent("");
+        if (request == null) {
             return;
         }
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter,
-                new EditorOp.SetChapter("themePatch", value));
+                new EditorOp.SetChapter("themePatch", value), request.id());
     }
 
     /** The selected colour's value, as the field should show it — from the palette being edited. */
@@ -14700,10 +14700,11 @@ public final class QuestBookScreen extends ArmatureScreen
         // The marker goes first and the op only if it was taken: a refused marker means the queue is full,
         // and an op sent without one is answered by a reply matched to the request before it -- which for a
         // table op is what applies the wrong kind to the table panel's undo budget.
-        if (!ClientEditReplies.noteSent(op.getClass().getSimpleName())) {
+        ClientEditReplies.Request request = ClientEditReplies.noteSent(op.getClass().getSimpleName());
+        if (request == null) {
             return;
         }
-        TaskedNetworking.sendEditorOp("", op);
+        TaskedNetworking.sendEditorOp("", op, request.id());
     }
 
     /**
@@ -15442,7 +15443,7 @@ public final class QuestBookScreen extends ArmatureScreen
                     // A refused marker means the queue is full, so the request is not sent -- and the
                     // claim is left standing, so the next frame asks again rather than the panel going
                     // permanently empty. See `ClientEditReplies.noteSent`.
-                    if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                    if (ClientEditReplies.noteSent(REPLICA_SENTINEL) != null) {
                         replicaAskedFor = named.id();
                         ArmatureNetwork.sendToServer(
                                 new dev.ellipog.tasked.net.TableReplicaRequestPayload(named.id()));
@@ -15451,7 +15452,7 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> {
                 if (ClientChapterReplica.claim(quest.chapter(), revision, now)
-                        && ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                        && ClientEditReplies.noteSent(REPLICA_SENTINEL) != null) {
                     ArmatureNetwork.sendToServer(
                             new dev.ellipog.tasked.net.ReplicaRequestPayload(quest.chapter()));
                 }
@@ -17386,14 +17387,14 @@ public final class QuestBookScreen extends ArmatureScreen
                 // one it would consume the next edit's -- misattributing every reply after it.
                 // An import is answered by an edit reply whatever happens -- `handleTableImport` replies
                 // on success and on refusal -- so its marker is consumed by the reply loop, like an op's.
-                if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                if (ClientEditReplies.noteSent(REPLICA_SENTINEL) != null) {
                     ArmatureNetwork.sendToServer(
                             new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, false));
                 }
             }
             case TABLE_IMPORT_CHEST -> {
                 tableImportOpen = false;
-                if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                if (ClientEditReplies.noteSent(REPLICA_SENTINEL) != null) {
                     ArmatureNetwork.sendToServer(
                             new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, true));
                 }
@@ -17410,7 +17411,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 rollBody.setScrollY(0);
                 // The panel only flips to the roll when the request can actually be sent: showing a roll
                 // nobody asked for would be a panel describing a question that was never put.
-                if (!ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                if (ClientEditReplies.noteSent(REPLICA_SENTINEL) == null) {
                     return;
                 }
                 tableShowRoll = true;
@@ -19256,7 +19257,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // no faster than its retry window -- so a refusal or an empty answer is retried rather than
         // leaving the panel stuck, without turning a broken chapter into a request flood.
         if (mayEditNow() && ClientChapterReplica.claim(effectiveChapter(), revision, Util.getMillis())
-                && ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                && ClientEditReplies.noteSent(REPLICA_SENTINEL) != null) {
             TaskedNetworking.requestReplica(effectiveChapter());
         }
 
@@ -25608,15 +25609,17 @@ public final class QuestBookScreen extends ArmatureScreen
         // payload: a gesture that becomes several payloads gets several answers, in order.
         //
         // **Every op in the book goes through here**, so this one guard is what keeps the queue and the
-        // wire in step: a marker the queue refused means this op is not sent, and the requests already in
-        // flight stay matched to their own answers. See `ClientEditReplies.noteSent`.
-        if (!ClientEditReplies.noteSent("")) {
+        // wire in step: a request the queue refused means this op is not sent, and the requests already in
+        // flight stay matched to their own answers. The id minted here is what the reply echoes, so the
+        // answer is matched to this op however many others are in flight. See `ClientEditReplies.noteSent`.
+        ClientEditReplies.Request request = ClientEditReplies.noteSent("");
+        if (request == null) {
             return;
         }
         // Empty rather than null when the book has no chapters yet. The payload's chapter is the
         // session a structural edit is recorded on, and "no session" is the empty string the server
         // reads the same way -- which is what lets an empty pack make its first chapter.
-        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, op);
+        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, op, request.id());
     }
 
     /**
@@ -25702,11 +25705,13 @@ public final class QuestBookScreen extends ArmatureScreen
                 ClientQuestCache.treeRevision(), Util.getMillis());
         // The draft is stamped whether or not the op goes: it is the *preview*, and a value the author
         // asked for should show even if the request could not be sent. What must not happen is an op
-        // without its marker, so the send is what the refused marker stops.
-        if (!ClientEditReplies.noteSent("")) {
+        // without its request, so the send is what a refused one stops.
+        ClientEditReplies.Request request = ClientEditReplies.noteSent("");
+        if (request == null) {
             return;
         }
-        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, new EditorOp.SetField(quest, path, value));
+        TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter,
+                new EditorOp.SetField(quest, path, value), request.id());
     }
 
     /**
@@ -26131,9 +26136,19 @@ public final class QuestBookScreen extends ArmatureScreen
         // the middle was lost. A refusal also drops that chapter's pending values: the edit did not
         // stick, and the copy's own answer is the truth.
         for (EditorReplyPayload reply : ClientEditReplies.drain()) {
-            // Which op this answers, and what it means for the table panel. The kinds are matched in
-            // send order, which is the order replies arrive in on one channel.
-            String answered = ClientEditReplies.takeSent();
+            // Which request this answers, and what it means for the table panel. **The id is preferred and
+            // the position is the fallback**, not the other way round: an answer naming its request is
+            // matched to that request however many others are in flight, and only an answer carrying no id
+            // -- a broadcast, or a server that replied before reading one -- is matched to the oldest.
+            //
+            // Both doors consume from one queue, so a request matched by id is not then matched again by
+            // position. That is why this is a choice between two calls rather than two lookups.
+            ClientEditReplies.Request matched = reply.requestId() == EditorReplyPayload.NO_REQUEST
+                    ? null
+                    : ClientEditReplies.takeById(reply.requestId());
+            String answered = reply.requestId() == EditorReplyPayload.NO_REQUEST
+                    ? ClientEditReplies.takeSent()
+                    : (matched == null ? null : matched.marker());
             boolean replicaAnswer = REPLICA_SENTINEL.equals(answered);
             if (answered != null && !answered.isEmpty() && !replicaAnswer) {
                 applyTableReply(answered, reply);
