@@ -104,6 +104,13 @@ ITEMS = (
 TASK_KINDS = ("item", "xp", "statistic", "kill")
 
 
+#: How far apart the nodes sit, on the 32-unit grid the format uses. **One default node wide**, which is as
+#: tight as a pack can be without overlapping: a quest with no `size` is `QuestLayout.DEFAULT_SIZE` = 48, so
+#: 48 units is nodes touching edge to edge. It was 96, and at a thousand nodes that made a block so wide that
+#: any usable zoom showed a corner of it -- which measures the cull rather than the graph.
+SPACING = 48
+
+
 def item_ref(item):
     """An `itemRef`: the object form the schema requires, not a bare string."""
     return {"item": item}
@@ -159,13 +166,14 @@ def quest_for(rng, chapter_index, quest_index, dependency_ids, mode, grid_column
         "id": qid,
         "title": f"Stress {chapter_index:02d}-{quest_index:03d}",
         "icon": item_ref(item),
-        # A **near-square** grid rather than a wide one, because with a thousand nodes the shape of the
-        # block decides what the canvas looks like at a given zoom: a wide block needs a wide canvas and
-        # puts most of the pack off-screen at any usable scale, which measures the cull rather than the
-        # graph. 96 units apart on the 32-unit grid, so the widest outline has room and nodes never
-        # overlap at 100% -- and it is a function of the index, so the layout is identical on every run.
-        "x": (quest_index % grid_columns) * 96,
-        "y": (quest_index // grid_columns) * 96,
+        # A **near-square, tightly packed** block. Near-square because with a thousand nodes the shape of the
+        # block decides what the canvas looks like at a given zoom: a wide ribbon needs a wide canvas and puts
+        # most of the pack off-screen at any usable scale, which measures the cull rather than the graph. Tight
+        # because the point of the pack is the *graph* -- its fan-in, its cross-links, its routes -- and the
+        # further apart the nodes sit the more of it is off-screen at once. See `SPACING`. It is a function of
+        # the index, so the layout is identical on every run.
+        "x": (quest_index % grid_columns) * SPACING,
+        "y": (quest_index // grid_columns) * SPACING,
         "shape": SHAPES[(chapter_index + quest_index) % len(SHAPES)],
         "iconScale": round(0.25 + 0.75 * ((chapter_index * 3 + quest_index) % 5) / 4, 2),
     }
