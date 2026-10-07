@@ -154,7 +154,11 @@ public final class EditPhases {
         if (!on) {
             return;
         }
-        Constants.LOG.debug(
+        // **Info, like the tally line, and this one was missed when the others were fixed.** It was debug
+        // while the mod has no way to raise the log level, so the flush's own phases -- the reload as a
+        // whole, the encode and the deflate -- had never been written either. Gated on `on()` above, so at
+        // info it prints only while an operator has asked for the counter.
+        Constants.LOG.info(
                 "tasked: edit flush -- reload {} ms, encode {} ms, deflate {} ms, {} player(s)",
                 reloadNanos / 1_000_000L, encodeNanos / 1_000_000L, deflateNanos / 1_000_000L, players);
     }

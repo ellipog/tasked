@@ -37,15 +37,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class InstrumentedLinesTest {
 
     /**
-     * The four lines the baseline table names, each with the file that writes it.
+     * The lines the baseline table names, each with the file that writes it.
      *
-     * <p>Hard-coded rather than discovered, and deliberately: the point is that these four specific lines are
+     * <p>Hard-coded rather than discovered, and deliberately: the point is that these specific lines are
      * readable, and a scan that found "some line somewhere" would pass while one of them regressed.
+     *
+     * <p><b>`edit flush` is the fifth and it was added after the first four were fixed</b>, which is the
+     * whole argument for listing them: the sweep that corrected `edit cost` and `load phases` walked the
+     * four lines the table's *log-lines* list names and did not walk the tally line's own companion. A later
+     * session found it still at debug, having never once been written.
      */
     private static final String[][] LINES = {
         {"tasked: cache walks", "common/src/main/java/dev/ellipog/tasked/client/dev/QuestWalks.java"},
         {"tasked: cache hits", "common/src/main/java/dev/ellipog/tasked/client/dev/CountingRenderer.java"},
         {"tasked: edit cost", "common/src/main/java/dev/ellipog/tasked/editor/EditPhases.java"},
+        {"tasked: edit flush", "common/src/main/java/dev/ellipog/tasked/editor/EditPhases.java"},
         {"Tasked: load phases", "common/src/main/java/dev/ellipog/tasked/quest/QuestLoader.java"},
     };
 
