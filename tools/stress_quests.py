@@ -98,10 +98,14 @@ ITEMS = (
     "minecraft:carrot", "minecraft:potato", "minecraft:honeycomb", "minecraft:slime_ball",
 )
 
-#: Task kinds to cycle through. Kept to the ones with a single required field so the generator stays
-#: readable; the worked example is where the exotic task types are exercised, and this is where the
-#: *count* is.
-TASK_KINDS = ("item", "xp", "statistic", "kill")
+#: Task kinds to cycle through, with the fields each one actually declares.
+#:
+#: **Every one of these was guessed wrong once**, and it cost a 1034-file pack that loaded 98 of them:
+#: `tasked:xp` takes `value` and not `amount`, and the statistic task is `tasked:stat` -- not
+#: `tasked:statistic` -- whose fields are `stat` and `value`. The schemas do not catch it, because they
+#: validate the *envelope* and cannot know what a codec wants. So these names come from the task classes
+#: themselves (`quest/task/*.java`, each declaring a `TYPE` and a `FIELDS` set) rather than from the schema.
+TASK_KINDS = ("item", "xp", "stat", "kill")
 
 
 #: How far apart the nodes sit, on the 32-unit grid the format uses. **One default node wide**, which is as
@@ -109,6 +113,34 @@ TASK_KINDS = ("item", "xp", "statistic", "kill")
 #: 48 units is nodes touching edge to edge. It was 96, and at a thousand nodes that made a block so wide that
 #: any usable zoom showed a corner of it -- which measures the cull rather than the graph.
 SPACING = 48
+
+
+#: What each **task** type accepts, read from the classes that declare them.
+#:
+#: **The schemas cannot check this and that is the whole reason these tables are here.** They validate the
+#: *envelope* — a `type` string and a bag of fields — and have no way to know that `tasked:xp` wants `value`
+#: while `tasked:item` wants `count`. A generated pack that gets it wrong passes every schema and then loads
+#: 98 files out of 1034, with `these fields do not form a tasked:xp` as the only clue.
+#:
+#: **Tasks and rewards are separate tables because the ids collide.** `tasked:xp` is a task *and* a reward,
+#: in two registries, with two codecs — the task counts by `value` and the reward by `amount`. One table keyed
+#: on the id could only be right for one of them, which is exactly the trap: a name that is correct on the
+#: task side is a refusal on the reward side.
+#:
+#: Kept deliberately small: only the types this generator emits. A type that is not here is not checked,
+#: which is honest — this is a guard on what the script writes, not a second copy of the mod's registry.
+TASK_FIELDS = {
+    "tasked:item": {"item", "count", "consumeItems", "match", "onlyFromCrafting"},
+    "tasked:xp": {"value", "points"},
+    "tasked:stat": {"stat", "value"},
+    "tasked:kill": {"entity", "entityTypeTag", "customName", "nbtFilter", "count"},
+}
+
+#: What each **reward** type accepts. See `TASK_FIELDS` on why this is not one table.
+REWARD_FIELDS = {
+    "tasked:item": {"item", "count", "match", "components"},
+    "tasked:xp": {"amount", "levels"},
+}
 
 
 def item_ref(item):
@@ -130,15 +162,19 @@ def task_for(kind, item, count):
     if kind == "item":
         return {"type": "tasked:item", "item": item, "count": count, "consumeItems": False}
     if kind == "xp":
-        return {"type": "tasked:xp", "amount": count * 10}
-    if kind == "statistic":
-        return {"type": "tasked:statistic", "statistic": "minecraft:mine_block", "count": count}
+        # `value`, not `amount` -- and the codec clamps it to 1..100000.
+        return {"type": "tasked:xp", "value": count * 10}
+    if kind == "stat":
+        # `tasked:stat`, not `tasked:statistic`, and its fields are `stat` and `value`.
+        return {"type": "tasked:stat", "stat": "minecraft:mine_block", "value": count}
     return {"type": "tasked:kill", "entity": "minecraft:zombie", "count": count}
 
 
 def reward_for(index, item):
     """A reward, alternating between the two kinds that need one field."""
     if index % 3 == 0:
+        # `amount`, **not** the `value` the xp *task* takes: the two registries share the id `tasked:xp` and
+        # have separate codecs, so a name that is right on the task side is a refusal here.
         return {"type": "tasked:xp", "amount": 25}
     return {"type": "tasked:item", "item": item}
 
@@ -467,6 +503,22 @@ def verify_pack(target):
                                 f"{chapter_dir.name}/{name} (progress would land on the wrong one)")
             else:
                 ids[qid] = f"{chapter_dir.name}/{name}"
+            # **The check the schema cannot make.** A `type` the mod does not register, or a field its codec
+            # does not declare, is refused by the loader as "these fields do not form a tasked:xp" -- which
+            # says neither which field is wrong nor what it should be. Tasks and rewards go through their own
+            # tables, because the same id means different fields in each registry.
+            for kind, fields_of in (("tasks", TASK_FIELDS), ("rewards", REWARD_FIELDS)):
+                for entry in quest.get(kind, []):
+                    declared = entry.get("type")
+                    if declared not in fields_of:
+                        problems.append(f"{chapter_dir.name}/{name}: {kind} type {declared!r} is not one "
+                                        f"this generator knows the fields of")
+                        continue
+                    allowed = fields_of[declared]
+                    for field in entry:
+                        if field != "type" and field not in allowed:
+                            problems.append(f"{chapter_dir.name}/{name}: {kind} {declared} has no field "
+                                            f"{field!r} (it declares {sorted(allowed)})")
             quest_files.append(quest)
 
     # Every reference resolving, which no single file can answer.
