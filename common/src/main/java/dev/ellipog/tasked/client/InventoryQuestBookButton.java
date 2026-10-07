@@ -19,7 +19,7 @@ import net.minecraft.world.item.ItemStack;
  *
  * <h2>Where it is</h2>
  *
- * <p>Four pixels in from the window's corner, which is where it ships and where {@link HudSettings} keeps it
+ * <p>Two pixels in from the window's corner, which is where it ships and where {@link HudSettings} keeps it
  * until a player moves it in the HUD editor. That corner is contested by the recipe viewers -- JEI lays its
  * bookmarks out across the strip left of a container panel, and EMI's default left sidebar is its favourites
  * page -- and the answer to that is the editor and the switch rather than a different corner: a player can
@@ -56,7 +56,9 @@ public final class InventoryQuestBookButton extends ArmatureButton {
 
     private InventoryQuestBookButton(int x, int y, Component label) {
         super(x, y, ELEMENT.width(), ELEMENT.height(), label, InventoryQuestBookButton::open);
-        icon(new ItemStack(QuestBook.ITEM));
+        // The same icon at the same inset the editor's preview draws, both taken from the element's own
+        // entry: the box is the table's, so the sprite that fills it has to be the table's too.
+        icon(new ItemStack(QuestBook.ITEM)).iconInset(ELEMENT.iconInset());
         setTooltip(Tooltip.create(label));
     }
 

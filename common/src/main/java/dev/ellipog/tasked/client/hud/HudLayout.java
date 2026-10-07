@@ -105,6 +105,35 @@ public final class HudLayout {
     }
 
     /**
+     * Where a drag puts one coordinate: <b>the pointer, less the offset the press took hold of it by.</b>
+     *
+     * <h2>Why this is not the pointer's movement added to where the element was</h2>
+     *
+     * <p>Because that is a sum of rounded numbers and this is one. {@code dragX} and {@code dragY} reach a
+     * widget from {@code MouseHandler.handleAccumulatedMovement}, which the game calls <b>once per
+     * frame</b>, as the whole frame's mouse movement scaled into GUI pixels -- a fraction. Adding
+     * {@code Math.round(dragX)} to the position discards that fraction every frame, so the element falls
+     * behind by up to half a pixel a frame, all drag long; and at a GUI scale of two or more a slow drag
+     * rounds to <b>zero</b> every frame, which is an element that does not move while the cursor does. It
+     * was reported as exactly that: "it follows but drifts, moves the wrong distance".
+     *
+     * <p>Reading the pointer's own position cannot drift, because nothing accumulates: the grab offset is
+     * taken once, at the press, and every later frame is the same subtraction. The rounding that remains
+     * is the one an integer position has to do somewhere, and it does not compound.
+     *
+     * <p>The same shape the book's canvas drag uses -- a grab recorded at the press, the pointer read per
+     * event -- and the same clamp, so a drag cannot put an element anywhere a later frame would refuse to
+     * draw it.
+     *
+     * @param pointer the pointer, in the window's own pixels
+     * @param grab    where inside the element the press took hold of it, from {@code pointer - position}
+     * @param limit   the largest coordinate the element may take, which is the window less its own size
+     */
+    public static int dragged(double pointer, double grab, int limit) {
+        return placed((int) Math.round(pointer - grab), limit);
+    }
+
+    /**
      * An element's box: where it is, pulled onto the window.
      *
      * <p>What a drop asks -- the pointer put the box <i>here</i>, so what is written is where the element

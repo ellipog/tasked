@@ -26,6 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       have, because a default is what somebody sees before they have moved anything.</li>
  * </ul>
  *
+ * <p>And the drag's own arithmetic, which is the fourth: it is the pointer less the grab the press took, so
+ * it cannot drift. The rule that was there — the element's position plus the frame's rounded mouse movement
+ * — is written out longhand below as the thing this is not, because that gap is invisible in one screenshot
+ * and grows all drag long.
+ *
  * <p>The windows swept are the ones a client can actually have: 176x120 GUI pixels at the smallest -- a
  * window narrower and shorter than any container panel -- up to 1920x1080.
  *
@@ -144,6 +149,85 @@ class HudLayoutTest {
                 assertFalse(overlaps(HudLayout.done(chrome), HudLayout.move(index, chrome)),
                         "Done collides with a row's Move at " + rows + " rows");
             }
+        }
+    }
+
+    @Test
+    @DisplayName("a drag is the pointer less the grab, so the element keeps the offset it was grabbed by")
+    void aDragIsThePointerLessTheGrab() {
+        double grab = 6.4;
+        // Every pointer that leaves the element on the window: its edge is the pointer less the grab, to the
+        // pixel, and the offset it was grabbed by does not change from one end of the drag to the other.
+        for (double pointer = grab; pointer <= 400; pointer += 0.25) {
+            int at = HudLayout.dragged(pointer, grab, 1000);
+            assertEquals(pointer - grab, at, 0.5,
+                    "the pointer at " + pointer + " with a grab of " + grab);
+        }
+        // And the two ends, through the same clamp every other position here goes through.
+        assertEquals(0, HudLayout.dragged(0, grab, 1000), "a pointer left of the grab parks at the edge");
+        assertEquals(1000, HudLayout.dragged(5000, grab, 1000), "and one past the far end parks at the limit");
+        assertEquals(0, HudLayout.dragged(grab, grab, 1000), "a pointer on the grab lands the edge on the pointer");
+    }
+
+    @Test
+    @DisplayName("a drag that arrives in small steps lands where the last pointer says, and the deltas do not")
+    void manySmallDragsLandWhereThePointerIs() {
+        // The rule this replaced, written out: the element's position plus the frame's rounded movement.
+        // The game hands a widget one delta per frame, already scaled into GUI pixels -- so at a GUI scale
+        // of three, ten window pixels of movement is 3.333 GUI pixels, which rounds to three. That is a
+        // third of a pixel lost every frame of the drag, and a slow drag rounds to nothing at all: an
+        // element that sits still while the cursor moves. It was reported as "it follows but drifts".
+        int byDeltas = 0;
+        double pointer = 0;
+        for (int frame = 0; frame < 60; frame++) {
+            double next = pointer + 10.0 / 3.0;
+            byDeltas += (int) Math.round(next - pointer);
+            pointer = next;
+        }
+
+        assertEquals(200, HudLayout.dragged(pointer, 0, 1000),
+                "the pointer has travelled two hundred pixels, and the element is there");
+        assertEquals(180, byDeltas, "while the sum of the rounded deltas is twenty pixels short");
+        assertTrue(byDeltas < HudLayout.dragged(pointer, 0, 1000),
+                "which is the whole of the drift: a gap that only ever grows");
+    }
+
+    @Test
+    @DisplayName("a drag past an edge parks the element on the window, and the grab survives it")
+    void aDragIsClampedAtEveryEdge() {
+        HudElement element = HudElement.INVENTORY_BUTTON;
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                int xLimit = Math.max(0, width - element.width());
+                int yLimit = Math.max(0, height - element.height());
+                for (double pointer : new double[] {-400, -0.5, 0, 33.5, 5000}) {
+                    int x = HudLayout.dragged(pointer, 6.0, xLimit);
+                    int y = HudLayout.dragged(pointer, 6.0, yLimit);
+                    assertTrue(x >= 0 && x + element.width() <= Math.max(width, element.width()),
+                            "a drag to " + pointer + " left the element at " + x + " on a " + width
+                                    + "-wide window");
+                    assertTrue(y >= 0 && y + element.height() <= Math.max(height, element.height()),
+                            "a drag to " + pointer + " left the element at " + y + " on a " + height
+                                    + "-tall window");
+                }
+                // The offset is kept rather than forgotten: the element is parked at the edge and comes back
+                // with the pointer, where adding deltas to a clamped position would have made it stick.
+                assertEquals(xLimit, HudLayout.dragged(5000, 0, xLimit), "the far edge is reachable");
+                assertEquals(xLimit, HudLayout.dragged(5000, 6.0, xLimit),
+                        "and a grab cannot push it past the edge either");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("every element's sprite fits inside its box, inset on every side")
+    void everySpriteFitsItsBox() {
+        for (HudElement element : HudElement.values()) {
+            assertTrue(element.iconInset() > 0,
+                    element + " has no inset, so its sprite would touch its own edge");
+            assertTrue(element.iconInset() * 2 <= Math.min(element.width(), element.height()),
+                    element + " draws a " + (element.width() - element.iconInset() * 2) + "-pixel sprite in a "
+                            + element.width() + "-pixel box");
         }
     }
 

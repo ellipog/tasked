@@ -35,21 +35,23 @@ package dev.ellipog.tasked.client.hud;
 public enum HudElement {
 
     /** The quest book's button, in the window's top-left corner. */
-    INVENTORY_BUTTON("inventory_button", 4, 4, 20, 20, true);
+    INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true);
 
     private final String id;
     private final int defaultX;
     private final int defaultY;
     private final int width;
     private final int height;
+    private final int iconInset;
     private final boolean defaultOn;
 
-    HudElement(String id, int defaultX, int defaultY, int width, int height, boolean defaultOn) {
+    HudElement(String id, int defaultX, int defaultY, int width, int height, int iconInset, boolean defaultOn) {
         this.id = id;
         this.defaultX = defaultX;
         this.defaultY = defaultY;
         this.width = width;
         this.height = height;
+        this.iconInset = iconInset;
         this.defaultOn = defaultOn;
     }
 
@@ -76,6 +78,21 @@ public enum HudElement {
     /** The same, vertically. */
     public int height() {
         return height;
+    }
+
+    /**
+     * How far this element's sprite sits inside its box, on every side.
+     *
+     * <h2>Why the box and its sprite's inset are one entry</h2>
+     *
+     * <p>Because the editor's preview and the real control both fill the box the table gives them, and a
+     * sprite drawn at one inset in the editor and another in the inventory is the fault this table exists
+     * to prevent -- two descriptions of one appearance. It is also what decides how much of a small
+     * element the sprite fills: a 16-pixel button with an inset of two draws a 12-pixel sprite, which is
+     * the size a 16-pixel slot's item wants.
+     */
+    public int iconInset() {
+        return iconInset;
     }
 
     /** Whether it is drawn before anybody switches it off. */

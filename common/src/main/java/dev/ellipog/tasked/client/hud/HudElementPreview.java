@@ -4,7 +4,6 @@ import dev.ellipog.armature.client.ArmatureButton;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.tasked.QuestBook;
-import dev.ellipog.tasked.client.BookGeometry;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -27,6 +26,16 @@ import net.minecraft.world.item.ItemStack;
  * but {@code Screen} focuses the child that consumed a press, and {@code ContainerEventHandler} then hands
  * that child every drag and the release. So moving an element is the ordinary widget path, and the only
  * thing the screen does is decide where a resting element draws.
+ *
+ * <h2>Why the drag reads the pointer rather than the movement</h2>
+ *
+ * <p>Because the movement arrives rounded. The game calls {@code MouseHandler.handleAccumulatedMovement}
+ * once per frame with the whole frame's mouse delta in GUI pixels -- a fraction -- and adding its rounded
+ * value to the position loses that fraction every frame: the element trails the cursor by up to half a
+ * pixel a frame, and at a GUI scale of two or more a slow drag rounds to nothing at all and the element
+ * sits still while the cursor moves. So the press records where inside the element it took hold, and every
+ * drag is that one subtraction against the pointer; see {@link HudLayout#dragged}. Nothing accumulates,
+ * so nothing drifts.
  */
 public final class HudElementPreview extends ArmatureButton {
 
@@ -36,6 +45,16 @@ public final class HudElementPreview extends ArmatureButton {
     /** Whether this gesture has actually moved it, so a click that never moved is not written to the file. */
     private boolean moved;
 
+    /**
+     * Where inside the element the press took hold of it, as {@code pointer - position}.
+     *
+     * <p>Doubles, because the pointer is one: rounding the grab once at the press and then working in whole
+     * pixels is the same drift in a smaller place. Taken in {@link #mouseClicked} and read by every drag
+     * until the release, which is the whole of the state a drag needs.
+     */
+    private double grabX;
+    private double grabY;
+
     HudElementPreview(HudElement element, HudEditScreen screen) {
         super(0, 0, element.width(), element.height(), Component.translatable(element.labelKey()),
                 button -> screen.select(element));
@@ -43,9 +62,10 @@ public final class HudElementPreview extends ArmatureButton {
         this.screen = screen;
 
         // The one place that knows what an element looks like before anything draws it, and it borrows the
-        // real control's own icon rather than describing one. Pinning adds its own arm here.
+        // real control's own icon rather than describing one. Pinning adds its own arm here. The inset is
+        // the element's, so the preview and the button in the inventory fill their boxes the same way.
         if (element == HudElement.INVENTORY_BUTTON) {
-            icon(new ItemStack(QuestBook.ITEM));
+            icon(new ItemStack(QuestBook.ITEM)).iconInset(element.iconInset());
         }
     }
 
@@ -75,23 +95,47 @@ public final class HudElementPreview extends ArmatureButton {
     }
 
     /**
+     * The press that takes hold of the element, and where it took hold.
+     *
+     * <p>Recorded here rather than at the first drag because this is the only moment that knows: a drag
+     * event says where the pointer is now and nothing about where it met the control. Also the press that
+     * puts an <i>armed</i> element down, so an element picked up by {@code Move} -- which follows the
+     * pointer by its middle -- carries that middle grab into the drag that follows.
+     *
+     * <p>Only when the base class took the press: an inactive or hidden control records nothing, and a
+     * press outside the element is not this widget's at all.
+     */
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        boolean taken = super.mouseClicked(mouseX, mouseY, button);
+        if (taken) {
+            grabX = mouseX - getX();
+            grabY = mouseY - getY();
+        }
+        return taken;
+    }
+
+    /**
      * Deliberately not {@code super}: a carried element stays lit while it is carried.
      *
      * <p>{@code ArmatureButton.onDrag} exists to cancel a press that has wandered off the control, so that
      * letting go elsewhere does nothing. A carried HUD element is the opposite case -- the pointer is off the
      * control because the control is following it -- so cancelling would make the thing flicker out from
      * under the cursor.
+     *
+     * <p>The movement this is handed -- {@code dragX} and {@code dragY}, vanilla's own parameter names --
+     * is deliberately unused: adding it up is the drift {@link HudLayout#dragged} exists to remove, and the
+     * parameters cannot be renamed away because the signature is the base class's.
      */
     @Override
     protected void onDrag(double mouseX, double mouseY, double dragX, double dragY) {
         moved = true;
-        int nextX = getX() + (int) Math.round(dragX);
-        int nextY = getY() + (int) Math.round(dragY);
         // Clamped against the window as it is now -- `screen.width`/`height` are read here, per drag event,
         // not remembered from when the widget was built -- and by the same rule the resting position uses, so
-        // a drag cannot put the element anywhere a later frame would refuse to draw it.
-        setX(HudLayout.placed(nextX, screen.width - width));
-        setY(HudLayout.placed(nextY, screen.height - height));
+        // a drag cannot put the element anywhere a later frame would refuse to draw it. The grab survives a
+        // clamp, so an element dragged past an edge comes back with the pointer rather than sticking to it.
+        setX(HudLayout.dragged(mouseX, grabX, screen.width - width));
+        setY(HudLayout.dragged(mouseY, grabY, screen.height - height));
     }
 
     @Override
