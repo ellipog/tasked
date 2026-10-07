@@ -13,6 +13,14 @@
         "sources": "https://github.com/ellipog/tasked",
         "issues": "https://github.com/ellipog/tasked/issues"
     },
+    "custom": {
+        "modmenu": {
+            "links": {
+                "modmenu.wiki": "https://ellipog.dev/docs/tasked/",
+                "modmenu.discord": "https://discord.gg/nA6pm9JHd6"
+            }
+        }
+    },
     "license": "${license}",
     "environment": "*",
     "entrypoints": {
