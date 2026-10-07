@@ -24704,7 +24704,12 @@ public final class QuestBookScreen extends ArmatureScreen
                 // guard for a node whose pending position has been dropped lives inside that call: `movedX`
                 // answers zero for an id it does not hold, and committing that zero wrote every other
                 // selected quest to (0,0). See `commitMoveBatch`.
-                commitMoveBatch(new ArrayList<>(dragStarts.keySet()), x, y,
+                // **`id` is passed rather than read from the field, and that is the whole of a bug this had.**
+                // `draggedNode` was cleared nine lines above, so a callee that reached for it found null: the
+                // dragged node never entered the id list, never got recorded, and no op was sent -- the node
+                // snapped back on the next frame with nothing in any log. The locals above exist for exactly
+                // this, which is why `x` and `y` were already arguments.
+                commitMoveBatch(id, new ArrayList<>(dragStarts.keySet()), x, y,
                         ClientQuestCache.treeRevision());
                 dragStarts.clear();
             }
@@ -25809,18 +25814,19 @@ public final class QuestBookScreen extends ArmatureScreen
      * batch, which is the rule {@code sendBulk} follows and for the same reason: a gesture with one node in
      * this chapter is one edit.
      */
-    private void commitMoveBatch(List<String> moved, float dragX, float dragY, long revision) {
+    private void commitMoveBatch(String draggedId, List<String> moved, float dragX, float dragY,
+                                 long revision) {
         if (!mayEditNow()) {
             return;
         }
         // The dragged node first, then the rest of the selection, so the batch reads in the order the gesture
         // happened and the node the author is holding is the one the server applies first.
         List<String> ids = new ArrayList<>();
-        if (draggedNode != null) {
-            ids.add(draggedNode);
+        if (draggedId != null) {
+            ids.add(draggedId);
         }
         for (String id : moved) {
-            if (!id.equals(draggedNode)) {
+            if (!id.equals(draggedId)) {
                 ids.add(id);
             }
         }
@@ -25837,7 +25843,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // reads as an edit that undid itself.
         for (List<String> inChapter : byChapter.values()) {
             for (String id : inChapter) {
-                if (id.equals(draggedNode)) {
+                if (id.equals(draggedId)) {
                     recordMove(id, dragX, dragY, revision);
                 }
                 else if (editors.hasMoved(id)) {
