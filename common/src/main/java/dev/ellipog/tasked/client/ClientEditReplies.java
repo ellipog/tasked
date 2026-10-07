@@ -34,6 +34,17 @@ public final class ClientEditReplies {
     /** Plenty for any human burst; a bound so a never-drained queue cannot grow without limit. */
     private static final int MAX = 64;
 
+    /**
+     * The marker a replica fetch, a table import and a test roll record instead of an op's own kind.
+     *
+     * <p>They are not ops, and the reply loop has to tell them apart from one: a table op's answer moves
+     * the table panel's undo budget and a quest op's does not, and a replica answered through its own
+     * payload has already consumed its marker by the time a reply could arrive. The marker is the only
+     * thing that carries that distinction, so it belongs here beside the queue that holds it rather than on
+     * the screen — and the payload handlers, which have no screen, are the other door that reads it.
+     */
+    public static final String REPLICA_SENTINEL = "#replica";
+
     private static final Deque<EditorReplyPayload> replies = new ArrayDeque<>();
 
     /**
@@ -62,12 +73,41 @@ public final class ClientEditReplies {
      * <p>Called where the request is sent — an op, a replica fetch, a test roll. The empty string is a
      * quest op's marker and a table op records its own kind, which is what the reply loop reads to decide
      * whether an answer moves the table panel's undo budget.
+     *
+     * <h2>Why this refuses rather than drops, which is the fault it had</h2>
+     *
+     * <p>It used to evict the <b>oldest</b> marker once the queue was full, and that is worse than losing
+     * one request: the queue is matched by <i>position</i>. Evicting the oldest shifts every marker after
+     * it, so the next answer is matched to the request before the one it belongs to, and every answer after
+     * that is off by one for the rest of the session. A table op's reply would be applied to a quest op, a
+     * replica's to a table op, and a refusal would clear the wrong field's draft — none of which reports
+     * anything, because every individual step looks like a normal answer.
+     *
+     * <p>So a full queue <b>refuses</b> the new marker and says so, and the caller does not send. That
+     * leaves the requests already in flight correctly aligned, which is the property worth keeping: losing
+     * one edit the author can repeat beats silently mis-attributing every later one. The bound is high
+     * enough (see {@link #MAX}) that reaching it means a client that has stopped draining replies, which is
+     * a book closed mid-burst rather than a person clicking.
+     *
+     * @return whether the marker was recorded. <b>False means do not send</b> — an op whose marker was
+     *         refused would be answered by a reply that matched the request before it.
      */
-    public static synchronized void noteSent(String marker) {
+    public static synchronized boolean noteSent(String marker) {
         if (sent.size() >= MAX) {
-            sent.removeFirst();
+            return false;
         }
         sent.addLast(marker == null ? "" : marker);
+        return true;
+    }
+
+    /**
+     * How many requests are waiting for an answer.
+     *
+     * <p>For the tests, and for a diagnostic that wants to say the queue is not draining. Not a count of
+     * replies: those are drained by the screen each frame and this is the other queue.
+     */
+    public static synchronized int pending() {
+        return sent.size();
     }
 
     /**

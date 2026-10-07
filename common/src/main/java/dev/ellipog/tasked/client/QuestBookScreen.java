@@ -909,9 +909,10 @@ public final class QuestBookScreen extends ArmatureScreen
      * request is not always answered by an edit reply: a replica fetch and a test roll answer with their
      * own payloads when they succeed and with an edit reply when they are refused. Both doors consume
      * one marker, and the marker has to be somewhere the payload handlers can reach -- they have no
-     * screen.
+     * screen. The sentinel moved there with it, for the same reason: the marker is the queue's own
+     * contract rather than the screen's.
      */
-    private static final String REPLICA_SENTINEL = "#replica";
+    private static final String REPLICA_SENTINEL = ClientEditReplies.REPLICA_SENTINEL;
 
     /** Whether the picker on screen was opened by the table editor, so it closes back into it. */
     private boolean tablePickReturn;
@@ -7262,8 +7263,12 @@ public final class QuestBookScreen extends ArmatureScreen
         fieldDraft.set(chapter, dev.ellipog.tasked.client.dev.FieldDraft.CHAPTER_OWNER,
                 "themePatch", value, ClientQuestCache.treeRevision(), Util.getMillis());
         // A marker per request, like every other send: a refusal arrives as an edit reply and the reply
-        // loop matches answers to requests in order, so an unmasked send mis-aligns the ones after it.
-        ClientEditReplies.noteSent("");
+        // loop matches answers to requests in order, so an unmasked send mis-aligns the ones after it --
+        // and a marker the queue refused means this op must not go, or it would be answered by a reply
+        // that matched the request before it. See `ClientEditReplies.noteSent`.
+        if (!ClientEditReplies.noteSent("")) {
+            return;
+        }
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter,
                 new EditorOp.SetChapter("themePatch", value));
     }
@@ -14691,7 +14696,13 @@ public final class QuestBookScreen extends ArmatureScreen
     private void sendTableOp(dev.ellipog.tasked.editor.TableOp op) {
         // The payload's chapter is unused by a table op -- a table is a file, not a chapter's -- so it
         // is sent empty rather than as a chapter that has nothing to do with the edit.
-        ClientEditReplies.noteSent(op.getClass().getSimpleName());
+        //
+        // The marker goes first and the op only if it was taken: a refused marker means the queue is full,
+        // and an op sent without one is answered by a reply matched to the request before it -- which for a
+        // table op is what applies the wrong kind to the table panel's undo budget.
+        if (!ClientEditReplies.noteSent(op.getClass().getSimpleName())) {
+            return;
+        }
         TaskedNetworking.sendEditorOp("", op);
     }
 
@@ -15427,15 +15438,20 @@ public final class QuestBookScreen extends ArmatureScreen
                     // consumed the next edit's sentinel: the reply that followed was matched to the
                     // wrong op, the undo budget counted the wrong kind, and a refusal discarded the
                     // optimistic values of an edit that was never refused.
-                    ClientEditReplies.noteSent(REPLICA_SENTINEL);
-                    replicaAskedFor = named.id();
-                    ArmatureNetwork.sendToServer(
-                            new dev.ellipog.tasked.net.TableReplicaRequestPayload(named.id()));
+                    //
+                    // A refused marker means the queue is full, so the request is not sent -- and the
+                    // claim is left standing, so the next frame asks again rather than the panel going
+                    // permanently empty. See `ClientEditReplies.noteSent`.
+                    if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                        replicaAskedFor = named.id();
+                        ArmatureNetwork.sendToServer(
+                                new dev.ellipog.tasked.net.TableReplicaRequestPayload(named.id()));
+                    }
                 }
             }
             case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> {
-                if (ClientChapterReplica.claim(quest.chapter(), revision, now)) {
-                    ClientEditReplies.noteSent(REPLICA_SENTINEL);
+                if (ClientChapterReplica.claim(quest.chapter(), revision, now)
+                        && ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
                     ArmatureNetwork.sendToServer(
                             new dev.ellipog.tasked.net.ReplicaRequestPayload(quest.chapter()));
                 }
@@ -17370,15 +17386,17 @@ public final class QuestBookScreen extends ArmatureScreen
                 // one it would consume the next edit's -- misattributing every reply after it.
                 // An import is answered by an edit reply whatever happens -- `handleTableImport` replies
                 // on success and on refusal -- so its marker is consumed by the reply loop, like an op's.
-                ClientEditReplies.noteSent(REPLICA_SENTINEL);
-                ArmatureNetwork.sendToServer(
-                        new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, false));
+                if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                    ArmatureNetwork.sendToServer(
+                            new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, false));
+                }
             }
             case TABLE_IMPORT_CHEST -> {
                 tableImportOpen = false;
-                ClientEditReplies.noteSent(REPLICA_SENTINEL);
-                ArmatureNetwork.sendToServer(
-                        new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, true));
+                if (ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                    ArmatureNetwork.sendToServer(
+                            new dev.ellipog.tasked.net.TableImportRequestPayload(tableAddress, true));
+                }
             }
             case TABLE_ROLL -> {
                 // One button, two meanings, and the label says which: over the entries it rolls, over the
@@ -17390,8 +17408,12 @@ public final class QuestBookScreen extends ArmatureScreen
                     return;
                 }
                 rollBody.setScrollY(0);
+                // The panel only flips to the roll when the request can actually be sent: showing a roll
+                // nobody asked for would be a panel describing a question that was never put.
+                if (!ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
+                    return;
+                }
                 tableShowRoll = true;
-                ClientEditReplies.noteSent(REPLICA_SENTINEL);
                 // The reading the author has selected travels as it stands. It used to travel as a
                 // derived `includeEmpty` flag, which the server turned back into one of two modes --
                 // so "All once" and "Choice" came back as weighted rolls of a table whose own panel
@@ -19233,8 +19255,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // keeps this from being one request per frame: it says yes only while no usable copy exists, and
         // no faster than its retry window -- so a refusal or an empty answer is retried rather than
         // leaving the panel stuck, without turning a broken chapter into a request flood.
-        if (mayEditNow() && ClientChapterReplica.claim(effectiveChapter(), revision, Util.getMillis())) {
-            ClientEditReplies.noteSent(REPLICA_SENTINEL);
+        if (mayEditNow() && ClientChapterReplica.claim(effectiveChapter(), revision, Util.getMillis())
+                && ClientEditReplies.noteSent(REPLICA_SENTINEL)) {
             TaskedNetworking.requestReplica(effectiveChapter());
         }
 
@@ -25584,7 +25606,13 @@ public final class QuestBookScreen extends ArmatureScreen
         // answer in order, and a table's answer carries a table id in the field a quest's carries a
         // quest id. See the reply loop for what each kind does to the table panel. One marker per
         // payload: a gesture that becomes several payloads gets several answers, in order.
-        ClientEditReplies.noteSent("");
+        //
+        // **Every op in the book goes through here**, so this one guard is what keeps the queue and the
+        // wire in step: a marker the queue refused means this op is not sent, and the requests already in
+        // flight stay matched to their own answers. See `ClientEditReplies.noteSent`.
+        if (!ClientEditReplies.noteSent("")) {
+            return;
+        }
         // Empty rather than null when the book has no chapters yet. The payload's chapter is the
         // session a structural edit is recorded on, and "no session" is the empty string the server
         // reads the same way -- which is what lets an empty pack make its first chapter.
@@ -25672,7 +25700,12 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         fieldDraft.set(chapter, quest, path, value,
                 ClientQuestCache.treeRevision(), Util.getMillis());
-        ClientEditReplies.noteSent("");
+        // The draft is stamped whether or not the op goes: it is the *preview*, and a value the author
+        // asked for should show even if the request could not be sent. What must not happen is an op
+        // without its marker, so the send is what the refused marker stops.
+        if (!ClientEditReplies.noteSent("")) {
+            return;
+        }
         TaskedNetworking.sendEditorOp(chapter == null ? "" : chapter, new EditorOp.SetField(quest, path, value));
     }
 
