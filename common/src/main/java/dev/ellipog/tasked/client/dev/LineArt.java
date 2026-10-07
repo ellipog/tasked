@@ -214,20 +214,47 @@ public final class LineArt {
      *
      * <p>Deduplicated and always including the exact endpoints, so the path a hit test is measured
      * against begins and ends where the line is drawn to.
+     *
+     * <h2>Deduplicated as it goes, rather than afterwards</h2>
+     *
+     * <p>This used to build every step and hand the list to {@link #dedupe}, which allocated a <b>second
+     * list</b> over the same points — and the points it exists to remove had already been constructed. On a
+     * diagonal, consecutive steps round onto the same pixel repeatedly, so the duplicates were paid for
+     * before being discarded.
+     *
+     * <p>Comparing against the previous <b>value</b> before allocating removes both: a repeated point is
+     * never built, and there is one list rather than two. The contract is unchanged — the same points, in the
+     * same order, deduplicated the same way — which is what lets the walk, the stroke and every one of this
+     * class's `Point`-shaped methods stay exactly as they are. See `LineArtWalkCostTest` for the properties
+     * that pin it: the walk is contiguous, and its length is one point per pixel.
      */
     public static List<Point> steps(Point from, Point to) {
         int dx = to.x() - from.x();
         int dy = to.y() - from.y();
         int count = Math.max(Math.abs(dx), Math.abs(dy));
+        // Sized as before: the walk cannot produce more points than there are steps, and the endpoints are
+        // the first and last of them.
         List<Point> points = new ArrayList<>(count + 1);
         for (int i = 0; i <= count; i++) {
             int x = count == 0 ? from.x() : from.x() + Math.round((float) dx * i / count);
             int y = count == 0 ? from.y() : from.y() + Math.round((float) dy * i / count);
-            points.add(new Point(x, y));
+            // The endpoints are the caller's own points, so the path begins and ends exactly where the line
+            // is drawn to rather than at a rounded copy of it.
+            Point point = i == 0 ? from : i == count ? to : new Point(x, y);
+            // `dedupe`'s rule, applied as the list is built: a point equal to the one before it is dropped.
+            // At `i == 0` there is nothing before it, and at the last step the endpoint is always kept --
+            // which is the `set` the previous version ended with.
+            if (points.isEmpty() || !points.get(points.size() - 1).equals(point)) {
+                points.add(point);
+            }
         }
-        points.set(0, from);
-        points.set(points.size() - 1, to);
-        return dedupe(points);
+        // The exact endpoint, whatever the rounding did: a degenerate route (count == 0) has one point and
+        // the loop already kept it, and a real one whose last step rounded onto the second-to-last point
+        // would otherwise end a pixel short of the node.
+        if (!points.get(points.size() - 1).equals(to)) {
+            points.set(points.size() - 1, to);
+        }
+        return points;
     }
 
     /**
