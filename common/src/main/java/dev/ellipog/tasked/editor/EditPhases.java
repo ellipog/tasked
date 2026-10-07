@@ -188,7 +188,12 @@ public final class EditPhases {
         if (TALLY.isEmpty()) {
             return;
         }
-        Constants.LOG.debug("tasked: edit cost -- {}", describe());
+        // **Info and not debug, which is what this was and why the reading could not be taken.** The line was
+        // emitted at debug while the mod has no way to raise the log level, so `grep` over a full session
+        // found *zero* occurrences of it -- an instrument that cannot be read is not an instrument. It is
+        // already behind two gates (the switch in `on()`, and the empty-tally check above), so at info it
+        // prints only while an operator has asked for it and only when something happened.
+        Constants.LOG.info("tasked: edit cost -- {}", describe());
         TALLY.clear();
     }
 

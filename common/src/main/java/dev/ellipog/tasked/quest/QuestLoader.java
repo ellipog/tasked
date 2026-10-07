@@ -249,7 +249,13 @@ public final class QuestLoader {
      */
     private static void reportPhases(long started, long readDone, long assembled, long indexed,
                                      long checked, long tabled, int filesExamined) {
-        Constants.LOG.debug("Tasked: load phases -- {} file(s) examined; read+decode {} ms, assemble {} ms,"
+        // **Info, and the trade is stated rather than hidden.** This was debug, and the mod has no way to
+        // raise the log level, so the line had never once been written -- an instrument nothing can read.
+        // Unlike the other three it has no switch of its own (see the note above on why the timers are
+        // unconditional), so at info it prints on every reload. A reload is coalesced to one per server tick
+        // and is already the moment a burst of edits becomes one, so that is one line per tick while
+        // somebody is editing and nothing at all otherwise -- which is the cost of the reading existing.
+        Constants.LOG.info("Tasked: load phases -- {} file(s) examined; read+decode {} ms, assemble {} ms,"
                         + " index {} ms, cycles {} ms, tables {} ms, total {} ms",
                 filesExamined, millis(started, readDone), millis(readDone, assembled),
                 millis(assembled, indexed), millis(indexed, checked), millis(checked, tabled),
