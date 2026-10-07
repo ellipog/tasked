@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * What the reload found wrong with the pack, waiting for whoever is editing to read it.
@@ -23,8 +24,10 @@ import java.util.List;
  * it rather than a repeat of it. Keeping them in order means an author who made two edits sees both, and the
  * bound is there so a client that never drains cannot grow without limit.
  *
- * <p>Reading consumes, like the replies: these are news rather than state, and a problem reported again on the
- * next frame reads as a repeating error.
+ * <p>Reading consumes, like the replies: the <i>queue</i> is news rather than state, and a problem reported
+ * again on the next frame reads as a repeating error. The newest report is kept beside it as state — see
+ * {@link #current} — because the Chapter tab's badge has to survive the toast being read, and a badge that
+ * vanished when the author read the message would be a badge for people who already knew.
  */
 public final class ClientEditProblems {
 
@@ -37,6 +40,22 @@ public final class ClientEditProblems {
 
     private static final Deque<Report> reports = new ArrayDeque<>();
 
+    /**
+     * The newest report, whether or not it has been read.
+     *
+     * <h2>Why this is not the queue's tail</h2>
+     *
+     * <p>Because reading consumes: {@link #drain} empties the queue, so a badge derived from it would go
+     * blank the moment the author read the toast — the opposite of what a persistent surface is for. So
+     * there are two fields and not one, and they are different things: the queue is the <b>news</b> that a
+     * report arrived, and this is the <b>state</b> of the pack as the last load described it.
+     *
+     * <p>Replaced rather than accumulated, which is the other difference. A set of faults is not a sequence
+     * of statements: the newest report is the whole truth about the pack, and a fault the previous report
+     * listed and this one does not has been fixed.
+     */
+    private static volatile Report current;
+
     private ClientEditProblems() {
     }
 
@@ -45,13 +64,15 @@ public final class ClientEditProblems {
         List<String> lines = text == null || text.isEmpty()
                 ? List.of()
                 : List.of(text.split("\n"));
+        Report report = new Report(count, lines);
         if (reports.size() >= MAX) {
             // The oldest goes, and unlike the marker queue that is safe here: these are independent
             // statements rather than a sequence matched to something, so losing one costs one message and
             // does not shift what the others mean.
             reports.removeFirst();
         }
-        reports.addLast(new Report(count, lines));
+        reports.addLast(report);
+        current = report;
     }
 
     /** Every report nobody has read yet, oldest first. Reading them consumes them. */
@@ -61,8 +82,21 @@ public final class ClientEditProblems {
         return out;
     }
 
+    /**
+     * The newest report, or empty when nothing has been reported since the client joined.
+     *
+     * <p>Read on the render path, which is why it is a volatile reference rather than a synchronized
+     * accessor: the badge asks once a frame, and taking the lock a frame at a time to read one field is
+     * cost for nothing. The reference is either null or a complete report — {@link Report} is immutable —
+     * so there is no half-built state to see.
+     */
+    public static Optional<Report> current() {
+        return Optional.ofNullable(current);
+    }
+
     /** Forgets everything: called when the client leaves the world it was editing. */
     public static synchronized void clear() {
         reports.clear();
+        current = null;
     }
 }

@@ -4,46 +4,73 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Which overlays occupy which columns, and what each kind is worth in width — the book's own rules,
- * with no client and no rectangles in them.
+ * Which panel occupies which column, and what each kind is worth in width — the book's own rules, with no
+ * client and no rectangles in them.
  *
- * <h2>Two presentations, one set of rules</h2>
+ * <h2>Three rails: the dock, what you opened, and what that opened</h2>
  *
- * <p>A {@link PanelKind} says <i>what</i> is open. This says where it goes: a centred card holds one kind
- * at a time, and a docked side column can hold two — the thing you asked for, and the thing that thing
- * opened. Both presentations read these rules, so neither can invent its own answer to "what happens when
- * a picker opens over a quest".
+ * <p>The right of the canvas carries at most three things, and the order they are anchored in is the whole
+ * of the arrangement. {@code dock} is the author's own tools, pinned to the canvas's right edge whenever the
+ * Author pill is latched. {@code left} is the panel the player asked for — a quest, the rewards inbox, the
+ * pack's files — and {@code right} is the child that panel opened: a picker, a texture list, a table. Each
+ * sits one {@code PANEL_GAP} to the left of the one before it, so the dock is always outermost and a child
+ * always innermost.
+ *
+ * <h2>The dock invariant, which is what this class now exists for</h2>
+ *
+ * <p><b>No transition may empty the dock, hide it, or fold it.</b> It was the fallback occupant of the first
+ * column before this — {@code overlay == NONE && dockOpen} — so opening a panel took its rail and closing
+ * that panel gave the rail back, and the author watched their tools disappear and reappear in the same
+ * rectangle. That is the fault this shape fixes: the dock is written by {@link #withDock} and by nothing
+ * else, every other transition carries {@code now.dock()} through untouched, and {@link #presented} appends
+ * it last whatever the fold says. A reader never sees it at all, because a reader has no edit permission and
+ * so never latches the pill.
  *
  * <h2>The depth rule, in one place</h2>
  *
- * <p><b>Column 1 is what you clicked; column 2 is what it opened.</b> A {@linkplain #isRoot root} — a
- * quest, the rewards inbox, the pack's assets, the settings card, a naming card — replaces column 1 and
- * empties column 2, because asking for one of those is asking to move on. A {@linkplain #isChild child} —
- * a picker, a table — fills column 2, and a further child replaces it rather than growing a third column:
- * a stack of columns would need a stack of scroll positions, and the back arrow already answers "where did
- * I come from".
+ * <p><b>Column 1 is what you clicked; column 2 is what it opened.</b> Asking for a panel — a quest, the
+ * rewards inbox, the pack's assets, the settings card, a naming card, a table — replaces column 1 and
+ * empties column 2, because asking for one of those is asking to move on. A {@linkplain #isChild child}
+ * fills column 2 when there is already a panel for it to belong to, and a further child replaces it rather
+ * than growing a fourth rail: a stack of columns would need a stack of scroll positions, and the back arrow
+ * already answers "where did I come from".
  *
- * <p>A node click is its own case: it swaps column 1 and <b>empties column 2</b>. The child belonged to
- * the quest that was open, and leaving it there would point it at a quest it was never about.
+ * <p><b>A child with no panel under it is not a child.</b> A picker opened from the dock's Chapter tab has
+ * nothing to belong to, so it takes column 1 and sits beside the dock — which is also what stops it folding
+ * the dock away, since there is no pair to fold. That is why {@link #afterOpen} asks whether column 1 holds
+ * anything rather than whether the kind is a child.
+ *
+ * <p>A node click is its own case: it swaps column 1 and <b>empties column 2</b>. The child belonged to the
+ * quest that was open, and leaving it there would point it at a quest it was never about.
  *
  * <h2>Folding, and why the fold is a preference rather than a fact</h2>
  *
- * <p>Two columns of sensible width do not fit in a reader's book — 340 plus 260 plus the gap is 612, and
- * the canvas beside a 156-pixel sidebar leaves at most 644 — so folding is the <i>common</i> case, not an
- * edge one. {@link Fold} is what the player asked for; {@code PanelLayout} decides what the window
- * actually allows, and {@link #presented} is the one answer both the drawing and the widget build read,
- * so a folded rail cannot have a column's controls registered behind the column that is showing.
+ * <p>Two columns of sensible width do not fit in a reader's book — 340 plus 260 plus the gap is 612, and the
+ * canvas beside a 156-pixel sidebar leaves at most 644 — so folding is the <i>common</i> case, not an edge
+ * one. {@link Fold} is what the player asked for; {@code PanelLayout} decides what the window actually
+ * allows, and {@link #presented} is the one answer both the drawing and the widget build read, so a folded
+ * rail cannot have a column's controls registered behind the column that is showing.
+ *
+ * <p><b>Folding pages a child into its parent, and never touches the dock.</b> The fold is about the pair
+ * "the panel you opened and the thing it opened"; the dock is not part of that pair, so it is drawn whether
+ * the pair is folded or not. Folding one panel away is a page turn, not a panel hidden behind another.
+ *
+ * <h2>One presentation, and therefore no switch</h2>
+ *
+ * <p>There used to be two: a centred card and this column, chosen by a client setting and flipped by Ctrl+P.
+ * The card is gone — every kind occupies a rail now, including the reward question, which is why
+ * {@link #isChild} is the only classification left and {@code isDocked} is not a question at all.
  *
  * <h2>What is deliberately not here</h2>
  *
- * <p>The subjects. Which quest a card is about, which table a panel is editing, what a picker is picking
- * for — those stay the screen's typed fields, because they are per-kind state with per-kind types and
- * folding them into one record would make every reader of one kind carry the others.
+ * <p>The subjects. Which quest a panel is about, which table it is editing, what a picker is picking for —
+ * those stay the screen's typed fields, because they are per-kind state with per-kind types and folding them
+ * into one record would make every reader of one kind carry the others.
  */
 public final class PanelStack {
 
     /**
-     * What the player asked for the second column to do.
+     * What the player asked a panel's second column to do.
      *
      * <p>Three states rather than a boolean, and the third is the point: {@link #AUTO} is the default and
      * means "whenever the window has room", which is a question only the layout can answer. A switch with
@@ -60,16 +87,28 @@ public final class PanelStack {
     }
 
     /**
-     * What occupies each column.
+     * What occupies each rail.
      *
-     * <p>{@link PanelKind#NONE} is "nothing", and both columns holding it is the book with no panel open.
-     * The fold travels with the columns because it is a property of the arrangement rather than of either
+     * <p>{@link PanelKind#NONE} is "nothing", and every rail holding it is the book with no panel open at
+     * all. The fold travels with the rails because it is a property of the arrangement rather than of any
      * occupant: switching which quest is shown must not lose the player's choice about the column.
+     *
+     * <p><b>{@code dock} is {@link PanelKind#TOOLS} or nothing</b>, and that is the only value it ever
+     * holds: the dock is not a kind that can appear in either panel column, and a panel column is not a
+     * thing that can appear in the dock's rail. Keeping it a {@code PanelKind} rather than a boolean is what
+     * lets {@link #presented} name what is on screen as one list of kinds — the drawing, the widget build
+     * and the press dispatch all walk that list and none of them has to know which rail a kind came from.
      */
-    public record Columns(PanelKind left, PanelKind right, Fold fold) {
+    public record Columns(PanelKind dock, PanelKind left, PanelKind right, Fold fold) {
 
-        /** No panel open, and the window deciding the fold. */
-        public static final Columns EMPTY = new Columns(PanelKind.NONE, PanelKind.NONE, Fold.AUTO);
+        /** Nothing open anywhere, and the window deciding the fold. */
+        public static final Columns EMPTY =
+                new Columns(PanelKind.NONE, PanelKind.NONE, PanelKind.NONE, Fold.AUTO);
+
+        /** The arrangement with no dock, which is every reader's and most tests'. */
+        public static Columns of(PanelKind left, PanelKind right, Fold fold) {
+            return new Columns(PanelKind.NONE, left, right, fold);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -77,14 +116,15 @@ public final class PanelStack {
     // ------------------------------------------------------------------
 
     /**
-     * An ordinary root's default width, and the one the drag starts from.
+     * An ordinary panel's default width, and the one the drag starts from.
      *
-     * <p>340 rather than the tools dock's 300: this column carries prose -- a description, a task list --
-     * and the reading card's own comfortable width is wider than a list of colour swatches.
+     * <p>340 rather than the tools dock's old 300: this column carries prose -- a description, a task list --
+     * and the reading card's own comfortable width is wider than a list of colour swatches. The dock takes it
+     * too: its rows are labelled fields and switches rather than prose, and it shares every panel's floor.
      */
     public static final int WIDTH = 340;
 
-    /** A child's default width. Narrower: a picker's list is names and icons, not sentences. */
+    /** A list's default width: a picker's rows are names and icons, not sentences. */
     public static final int SECOND_WIDTH = 260;
 
     /** The narrowest any panel is drawn, whatever the drag asks for. */
@@ -111,9 +151,10 @@ public final class PanelStack {
      * <p><b>What this floor binds, and what it does not.</b> It binds the drag ({@link #clampWidth}) and the
      * width a kind asks for, which is what a player's own hand and a remembered preference are held to. It
      * does not bind the drawing: a column is anchored inside the canvas and may never reach the chapter list,
-     * so a window too small for the floor gets a column the width of its canvas rather than a panel that
-     * covers the navigation. Two classes, two questions, one answer each — and {@code BookGeometryTest}
-     * asserts the drawing's half, because the arithmetic that hid it was a floor nobody applied.
+     * nor step over the dock beside it, so a window too small for the floor gets a column the width of what
+     * is left rather than a panel that covers the navigation. Two classes, two questions, one answer each --
+     * and {@code BookGeometryTest} asserts the drawing's half, because the arithmetic that hid it was a floor
+     * nobody applied.
      */
     public static final int WIDE_MIN_WIDTH = 420;
 
@@ -125,23 +166,13 @@ public final class PanelStack {
     // ------------------------------------------------------------------
 
     /**
-     * Whether this kind is something the player asked for, rather than something opened from it.
-     *
-     * <p>The roots are the quest, the rewards inbox, the pack's assets, the settings card and a naming
-     * card. Every one of them is reachable from the book's own chrome or its canvas, which is what makes
-     * them roots: nothing has to be open for them to be asked for.
-     */
-    public static boolean isRoot(PanelKind kind) {
-        return kind == PanelKind.QUEST || kind == PanelKind.TOOLS || kind == PanelKind.PARTY
-                || kind == PanelKind.REWARDS || kind == PanelKind.ASSETS || kind == PanelKind.SETTINGS
-                || kind == PanelKind.NAMING;
-    }
-
-    /**
      * Whether this kind is opened <i>from</i> something: a picker, or a table.
      *
      * <p>All four are lists of the pack's or the registry's things rather than the thing itself, and every
      * one of them has somewhere to return to -- which is why they can be emptied without losing anything.
+     * It is the only classification left, and it answers exactly one question: does this kind fill column 2
+     * when column 1 already holds a panel, or does it take column 1 itself. {@link #afterOpen} states why
+     * that question is about the arrangement and not only about the kind.
      */
     public static boolean isChild(PanelKind kind) {
         return kind == PanelKind.PICKER || kind == PanelKind.TEXTURE
@@ -163,62 +194,10 @@ public final class PanelStack {
     }
 
     /**
-     * Whether this kind has been converted to the docked presentation.
-     *
-     * <h2>Why the list is here rather than in the screen</h2>
-     *
-     * <p>Because it is this mode's one safety-critical fact. A kind that is presented in a column but is not
-     * on this list would draw its <i>card</i> inside a column's frame — a crisp card over a crisp book, with
-     * its footer controls placed in a column that is not there — and in the screen that list is unreachable
-     * by any test. Here it is asserted, including the assertion that matters most: {@link PanelKind#CHOICE}
-     * and {@link PanelKind#PARTY} are never on it. Both ask the player a question, both arrive on their own
-     * rather than being asked for, and neither belongs beside a canvas.
-     *
-     * <h2>What "converted" means, and where the list stands</h2>
-     *
-     * <p>A kind is converted when the rectangle it draws itself into comes from {@code surfaceCard}, so that
-     * the same drawing serves a card and a column: the two pickers take their body from {@code overlayBody},
-     * the two tables read one expression ({@code tableBody}) for their bodies, their clips, their hints and
-     * their hit tests, and the five roots — the quest, the rewards inbox, the settings card, a naming card and
-     * the pack's assets — all ask for the surface being drawn. <b>Everything but the two questions is on this
-     * list</b>, and it got there one kind at a time, each addition being that kind's own work.
-     *
-     * <p><b>This list is a fact about kinds, not about the client.</b> It says a kind <i>can</i> live in a
-     * column; whether columns are in force is the player's switch, and the two must not be confused — see
-     * {@link #afterOpen}, which takes the mode as a parameter for exactly that reason.
-     */
-    public static boolean isDocked(PanelKind kind) {
-        return kind == PanelKind.QUEST
-                || kind == PanelKind.TOOLS
-                || kind == PanelKind.PARTY
-                || kind == PanelKind.REWARDS
-                || kind == PanelKind.SETTINGS
-                || kind == PanelKind.NAMING
-                || kind == PanelKind.ASSETS
-                || isChild(kind);
-    }
-
-    /**
-     * Whether this kind is in a column whatever the player's switch says, because it has no card form.
-     *
-     * <h2>The one kind that is not the switch's business</h2>
-     *
-     * <p>The mode decides how an <i>overlay</i> is presented: a card is the default and a column is the other
-     * shape the same thing can take. The author's dock is neither — it is a panel that exists while edit mode
-     * is on, and a "tools screen" was tried first and rejected, because the tool exists to watch the canvas it
-     * floats over. So the switch must not be able to turn it into a centred card, and this is the predicate
-     * that says so. It is asked twice: by {@link #afterOpen} when a child wants to sit beside a dock, and by
-     * the screen when it decides whether a kind is presented in a column.
-     *
-     * <p>One kind, and {@code PanelStackTest} asserts it against every other kind — so a kind added later
-     * cannot quietly claim an exemption from the switch.
-     */
-    public static boolean isAlwaysDocked(PanelKind kind) {
-        return kind == PanelKind.TOOLS;
-    }
-
-    /**
      * Whether a second column is showing, which is what Escape's first press peels.
+     *
+     * <p>The dock is not part of this question. It is a column of its own, so Escape's first press on a
+     * folded pair turns the page and the dock stays where it was.
      */
     public static boolean hasChild(Columns now) {
         return now.right() != PanelKind.NONE;
@@ -231,56 +210,44 @@ public final class PanelStack {
     /**
      * Opens one kind, following the depth rule.
      *
-     * <p><b>A child fills column 2 — but only over a panel that can hold it; everything else replaces
-     * column 1.</b> Written as "a child is the exception" rather than "a root is the rule", because the
-     * classification is not exhaustive and must not need to be: {@link PanelKind#PARTY} and
-     * {@link PanelKind#CHOICE} are neither a root nor a child (both are questions the player is asked
-     * rather than places they went), and asking for one of those plainly means "show me this instead".
+     * <p><b>A child fills column 2 — but only under a panel; everything else replaces column 1.</b> Written
+     * as "a child is the exception" rather than "a panel is the rule", because the classification is not
+     * exhaustive and must not need to be: {@link PanelKind#CHOICE} is neither a child nor a panel you asked
+     * for (it is a question the player is asked rather than a place they went), and asking for one of those
+     * plainly means "show me this instead".
      *
-     * <p>And "can hold it" is {@link #isDocked}, which is not a formality: a kind that still draws a card is
-     * drawn <i>instead of</i> the columns, so a picker filed beside one would be in no picture at all —
-     * invisible, and answering presses that the card behind it would also answer. So a child over a card
-     * replaces it, exactly as it did before there were columns, and a child over a docked panel sits beside
-     * it.
-     *
-     * <h2>Whether a column is in force is the caller's fact, and it has to be passed in</h2>
-     *
-     * <p>{@link #isDocked} answers "can this kind live in a column", which is a fact about the kind and
-     * nothing else. It is <b>not</b> the same question as "is a column in force", which only the client's
-     * own switch can answer -- and the two were confused here once, with the consequence the class comment
-     * warns about: with the mode off, a child was filed beside a panel that was drawing its <i>card</i>, so
-     * it was in no picture at all and its Escape had nothing to peel. A rule that read a preference would
-     * stop being a rule a test can run without a client, so the preference arrives as a parameter, and the
-     * two-argument overload -- every rule, as if the columns were in force -- stays for those tests.
+     * <p><b>And "under a panel" is asked of the arrangement, not of the kind.</b> A picker opened from the
+     * dock's Chapter tab has no panel under it, so it takes column 1: filed into column 2 over the dock it
+     * would be a child of the author's tools, and folding the pair would take the dock away — the one thing
+     * this class now forbids.
      *
      * <p>{@link PanelKind#NONE} is not an opening — it is the absence of one — so it changes nothing;
      * closing goes through {@link #afterClose} or {@link #afterNodeClick}.
      */
     public static Columns afterOpen(Columns now, PanelKind opened) {
-        return afterOpen(now, opened, true);
-    }
-
-    /**
-     * The same, told whether the docked presentation is in force on this client.
-     *
-     * @param panelsOn whether this client is presenting panels in columns at all. False means every kind
-     *                 draws its card, so a child has nowhere to sit and takes the first column instead --
-     *                 which is exactly what it did before there were columns.
-     */
-    public static Columns afterOpen(Columns now, PanelKind opened, boolean panelsOn) {
         if (opened == PanelKind.NONE) {
             return now;
         }
-        // **"Can hold it" is the mode, and only the mode.** A kind that is always docked is a column whatever
-        // the switch says -- but that is about *its own* presentation, and a child is not it: the child has a
-        // card, the switch decides whether a card is what an opened overlay gets, and with the switch off a
-        // child over the author's dock therefore replaces it and is drawn as the card it has always been.
-        // Reading `isAlwaysDocked` here as well was the tempting mistake: it would have put a picker into a
-        // column on a client that had never turned columns on.
-        if (isChild(opened) && panelsOn && isDocked(now.left())) {
-            return new Columns(now.left(), opened, now.fold());
+        if (opened == PanelKind.TOOLS) {
+            // The dock is a rail rather than a panel column, so "open the dock" is the dock's own transition.
+            // Written as a delegation rather than as a special case at each caller, because the alternative is
+            // a `TOOLS` in a panel column -- two rails holding the author's tools, one of them drawn under a
+            // panel -- and because it makes this function total: every kind may be asked for here.
+            return withDock(now, true);
         }
-        return new Columns(opened, PanelKind.NONE, now.fold());
+        if (opened == now.left() || opened == now.right()) {
+            // **Asking for what is already open changes nothing**, and this is a fix rather than a
+            // formality. A pick is armed again while its own panel is column 1 -- the dock's picker opened
+            // twice, or a field re-picked before the first list is closed -- and the rule below would have
+            // filed the same kind into column 2 as well: `presented` would name it twice, so two surfaces
+            // would be drawn in one rail and both would answer one press. The arrangement cannot hold a kind
+            // twice, so this is the line that keeps it from having to.
+            return now;
+        }
+        if (isChild(opened) && now.left() != PanelKind.NONE) {
+            return new Columns(now.dock(), now.left(), opened, now.fold());
+        }
+        return new Columns(now.dock(), opened, PanelKind.NONE, now.fold());
     }
 
     /**
@@ -293,22 +260,31 @@ public final class PanelStack {
      * reward's table chip, the pack's assets panel) arrive with no parent at all, and they must replace the
      * arrangement rather than be filed into a second column by a rule that only knows their class.
      *
-     * <p>It is the transition every opening of a root already was, written once so that the screen's
+     * <p>It is the transition every opening of a panel already was, written once so that the screen's
      * branches can stop assigning the fields directly -- two writers of one arrangement is how a stale
-     * second column outlives the panel that owned it.
+     * second column outlives the panel that owned it. {@link PanelKind#NONE} closes both panel columns and
+     * keeps the dock, which is what makes "close the panel" and "put the dock away" two different acts.
      */
     public static Columns asRoot(Columns now, PanelKind opened) {
         if (opened == PanelKind.NONE) {
             return afterClose(now, false);
         }
-        return new Columns(opened, PanelKind.NONE, now.fold());
+        if (opened == PanelKind.TOOLS) {
+            // The same delegation {@link #afterOpen} makes, and for the same reason: `TOOLS` is a rail rather
+            // than a panel, so a caller reaching here with it means "give me the dock", not "put the dock in a
+            // panel column". Nothing in the screen does -- the Author pill calls {@link #withDock} -- and this
+            // is what makes the pair of transitions total rather than a pair of caller contracts.
+            return withDock(now, true);
+        }
+        return new Columns(now.dock(), opened, PanelKind.NONE, now.fold());
     }
 
     /**
      * What a node click does: the quest takes column 1 and the second column is emptied.
      *
      * <p>The child was opened from the quest that was showing, so it cannot survive the swap -- a picker
-     * left open would be picking for a quest nobody is looking at. The fold is the player's and stays.
+     * left open would be picking for a quest nobody is looking at. The fold is the player's and stays, and
+     * so is the dock: an author clicking through a chapter keeps their tools.
      */
     public static Columns afterNodeClick(Columns now) {
         return asRoot(now, PanelKind.QUEST);
@@ -319,41 +295,43 @@ public final class PanelStack {
      *
      * <p>{@code child} is {@code true} for the outermost press -- Escape, the X, the fold's breadcrumb --
      * which drops the second column and, with it, the fold: the child is what was showing, so closing it
-     * shows the parent again. {@code false} closes the first column, and both go with it, because a second
-     * column is always something the first one opened.
+     * shows the parent again. {@code false} closes the first column, and the second goes with it, because a
+     * second column is always something the first one opened. <b>Neither touches the dock</b>, which is why
+     * this is not the transition a blank-canvas click reaches for the dock with: putting the tools away is
+     * {@link #withDock}, and it is a press on the Author pill, the X or Escape.
      */
     public static Columns afterClose(Columns now, boolean child) {
         if (child) {
-            return new Columns(now.left(), PanelKind.NONE, now.fold());
+            return new Columns(now.dock(), now.left(), PanelKind.NONE, now.fold());
         }
-        return new Columns(PanelKind.NONE, PanelKind.NONE, now.fold());
+        return new Columns(now.dock(), PanelKind.NONE, PanelKind.NONE, now.fold());
     }
 
     /**
-     * The same arrangement, read by the other presentation.
+     * The author's dock, on or off — the one transition that writes that rail.
      *
-     * <h2>Into a card: the child is promoted, and nothing is lost</h2>
+     * <h2>Why this is a transition rather than a field the screen owns</h2>
      *
-     * <p>A card holds one kind, so something has to give, and the answer is the innermost thing the author
-     * was on -- which is what they were looking at. The way back is not a stack of our own: every child
-     * kind already has its own return path (a picker knows the field it was opened for, a table knows the
-     * reward it came from), and those paths are what the card's Back arrow and its closers use.
+     * <p>Because it is part of the arrangement, and the arrangement has one writer ({@code applyColumns} in
+     * the screen). A latch the screen toggled directly was how a second writer appeared the last time, and
+     * the cost of a second writer is a stale rail: the drawing, the widget build and the press dispatch all
+     * walk {@link #presented}, so a dock that left the record without leaving the field was a column drawn
+     * with no controls, or controls with no column.
      *
-     * <h2>Into a panel: the card's kind becomes column 1</h2>
-     *
-     * <p>Column 2 starts empty either way: a mode flip is a fresh single-column arrangement rather than a
-     * rearrangement of a stack that the other presentation could not have been holding.
+     * <p>Putting the dock away is <b>not</b> closing a panel: the panel arrangement is carried through
+     * untouched, so an author who puts their tools away while reading a quest gets the quest back at the
+     * same width and the same scroll.
      */
-    public static Columns afterModeFlip(Columns now, boolean toPanels) {
-        PanelKind carried = toPanels || !hasChild(now) ? now.left() : now.right();
-        return new Columns(carried, PanelKind.NONE, now.fold());
+    public static Columns withDock(Columns now, boolean open) {
+        return new Columns(open ? PanelKind.TOOLS : PanelKind.NONE, now.left(), now.right(), now.fold());
     }
 
     /**
-     * Which kind a single rail shows: the child if there is one, else the parent.
+     * Which kind a single folded rail shows: the child if there is one, else the parent.
      *
      * <p>Only meaningful while folded -- see {@link #presented} for what is drawn when it is not -- and it
-     * is the answer the folded header's breadcrumb has to name.
+     * is the answer the folded header's breadcrumb has to name. The dock is never this answer: it is not one
+     * of the folded pair.
      */
     public static PanelKind shown(Columns now) {
         return hasChild(now) ? now.right() : now.left();
@@ -362,26 +340,43 @@ public final class PanelStack {
     /**
      * What is on screen, in <b>draw order</b>, which is the order both callers depend on.
      *
-     * <p>Two columns draw the second first, so the first column's edge and its rounded corners sit over
-     * it -- the same reasoning that puts a card above the book. One column when folded, and that one is
-     * {@link #shown}: the parent is not drawn behind it, which is the whole reason a folded rail cannot
-     * have a hidden column's controls answering the pointer, taking the keyboard or appearing in the
-     * narration order.
+     * <h2>Right to left, so each rail's edge sits over the one inside it</h2>
+     *
+     * <p>The list is innermost first: the child, then the panel it belongs to, then the dock. Each is
+     * anchored one gap to the left of the one after it, so drawing in this order puts the outer rail's edge
+     * and its rounded corners over the inner one's -- the same reasoning that puts a panel above the book.
+     *
+     * <h2>The dock is appended whatever the fold says</h2>
+     *
+     * <p>Two things follow, and both are the point of this round. <b>Folding cannot hide the dock</b>, so
+     * the fold stays what it says it is -- a page turn between a panel and the child it opened -- rather
+     * than becoming a way to take the author's tools away. And <b>a folded rail shows one panel</b>: the
+     * parent is not drawn behind the child, which is the whole reason a folded rail cannot have a hidden
+     * column's controls answering the pointer, taking the keyboard or appearing in the narration order.
      *
      * <p>Empty rather than a list holding {@link PanelKind#NONE}: a caller that has to skip the absence of
      * a panel is a caller that can forget to.
      */
     public static List<PanelKind> presented(Columns now, boolean folded) {
+        List<PanelKind> order = new ArrayList<>(3);
         if (folded) {
             PanelKind only = shown(now);
-            return only == PanelKind.NONE ? List.of() : List.of(only);
+            if (only != PanelKind.NONE) {
+                order.add(only);
+            }
         }
-        List<PanelKind> order = new ArrayList<>(2);
-        if (hasChild(now)) {
-            order.add(now.right());
+        else {
+            if (now.right() != PanelKind.NONE) {
+                order.add(now.right());
+            }
+            if (now.left() != PanelKind.NONE) {
+                order.add(now.left());
+            }
         }
-        if (now.left() != PanelKind.NONE) {
-            order.add(now.left());
+        // Last, and unconditionally: outermost, and never a thing a transition may take away. See the class
+        // comment's dock invariant.
+        if (now.dock() != PanelKind.NONE) {
+            order.add(now.dock());
         }
         return List.copyOf(order);
     }
@@ -390,20 +385,35 @@ public final class PanelStack {
     // Width policy
     // ------------------------------------------------------------------
 
-    /** What this kind wants in column 1. */
-    public static int preferredWidth(PanelKind kind) {
+    /**
+     * What this kind opens at, before the player has dragged anything.
+     *
+     * <h2>Why this is per kind, and what the one number used to cost</h2>
+     *
+     * <p>There was one remembered width for every panel, and it was column 1's: column 2 took its kind's
+     * fixed preferred width and a drag of its edge was deliberately forgotten. That made a wide panel's
+     * width and a list's width fight over one number -- drag the rewards inbox wide, open a picker, and the
+     * picker's rail was 260 because the picker is not a thing you read. Per kind is the honest shape: each
+     * panel comes back at the width it was last given, and its own floor and ceiling still have the last
+     * word through {@link #clampWidth}.
+     *
+     * <p>The defaults are the numbers the layouts were drawn against: a list is a list, a table is a table,
+     * and everything that carries prose takes {@link #WIDTH}. The dock is one of those -- its rows are
+     * labelled fields and switches -- which is also why it shares every panel's floor.
+     *
+     * <p><b>The browser is a list rather than a wide kind</b>, which is the one entry worth reading twice.
+     * {@link #isWide} excludes it -- it is rows of table names with three small controls on each row, not
+     * columns of entries -- and as a child it was always drawn at {@link #SECOND_WIDTH}. Now that its width
+     * is its own rather than its column's, the default has to say the same thing the column used to.
+     */
+    public static int defaultWidth(PanelKind kind) {
         if (kind == PanelKind.NONE) {
             return 0;
+        }
+        if (kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER) {
+            return SECOND_WIDTH;
         }
         return isWide(kind) ? WIDE_WIDTH : WIDTH;
-    }
-
-    /** What this kind wants in column 2. A wide child wants its full width, and folds when it cannot. */
-    public static int secondPreferredWidth(PanelKind kind) {
-        if (kind == PanelKind.NONE) {
-            return 0;
-        }
-        return isWide(kind) ? WIDE_WIDTH : SECOND_WIDTH;
     }
 
     /** The narrowest this kind may be drawn. */
@@ -416,22 +426,14 @@ public final class PanelStack {
      *
      * <p>One function rather than a floor and a ceiling at the call site: a drag that clamped to the wrong
      * pair would let a rewards inbox shrink into a column that cannot hold its four columns, and the fault
-     * would look like a broken layout rather than like a drag.
+     * would look like a broken layout rather than like a drag. It is also what a width read from the
+     * settings file goes through, because that file is hand-editable and a remembered number is only as
+     * legal as this function makes it.
      */
     public static int clampWidth(int wanted, PanelKind kind) {
         int least = minimumWidth(kind);
         int most = isWide(kind) ? WIDE_WIDTH : MAX_WIDTH;
         return Math.max(least, Math.min(most, wanted));
-    }
-
-    /**
-     * The clamp for a width with no kind behind it, which is the one read from the settings file.
-     *
-     * <p>Wider than any ordinary panel: the player's remembered width may have been chosen for a rewards
-     * inbox, and clamping it to a prose column on the way in would silently change what they chose.
-     */
-    public static int clampStoredWidth(int wanted) {
-        return Math.max(MIN_WIDTH, Math.min(WIDE_WIDTH, wanted));
     }
 
     /**
@@ -483,26 +485,19 @@ public final class PanelStack {
     /**
      * The width one column is actually drawn at.
      *
-     * <h2>One stored number, and which column owns it</h2>
+     * <p>{@code stored} is the player's for this kind — the width the drag writes and the file remembers —
+     * and the kind has the last word through {@link #clampWidth}: a rewards inbox opened at somebody's
+     * 260-pixel prose preference is drawn at {@link #WIDE_MIN_WIDTH} instead, which is the whole reason the
+     * clamp is per kind rather than one range for everything.
      *
-     * <p>{@code storedWidth} is the player's — the width the drag writes and the file remembers — and it
-     * is <b>column 1's</b>, because column 1 is the thing the player was reading. Column 2 is transient:
-     * it is a picker or a table opened from a field, its width is a property of what it holds, and a
-     * second remembered number would be a second thing to explain and a second thing to get out of step.
-     *
-     * <p>Either way the kind has the last word, through {@link #clampWidth}: a rewards inbox opened at
-     * somebody's 260-pixel prose preference is drawn at {@link #WIDE_MIN_WIDTH} instead, which is the
-     * whole reason the clamp is per kind rather than one range for everything.
-     *
-     * @param kind        what the column holds
-     * @param root        whether this is column 1 — the one the stored width belongs to
-     * @param storedWidth the player's width, as the settings file holds it
+     * <p>Nothing has no width, and a caller asking for one is asking a question with no answer rather than
+     * a very small one.
      */
-    public static int columnWidth(PanelKind kind, boolean root, int storedWidth) {
+    public static int columnWidth(PanelKind kind, int stored) {
         if (kind == PanelKind.NONE) {
             return 0;
         }
-        return clampWidth(root ? storedWidth : secondPreferredWidth(kind), kind);
+        return clampWidth(stored, kind);
     }
 
     // ------------------------------------------------------------------

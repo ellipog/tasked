@@ -97,6 +97,65 @@ open. They may live in other files, and a reference that resolves to nothing is 
 `minRequired` replaces the *count*, not the *bar*: the mode still decides what each one must reach, so
 `one_started` with `minRequired: 2` means "any two of these, started".
 
+### A chapter's own dependencies
+
+A chapter can wait on other chapters, the same way a quest waits on quests. Until its rule is met,
+**every quest inside it is locked** — it cannot be started, finished or claimed, whatever its own
+`dependsOn` says — and by default the chapter is listed, dimmed, with what it is waiting for on hover.
+
+```json
+{
+  "id": "the_deep",
+  "title": "The Deep",
+  "dependsOn": ["first_steps"],
+  "prerequisiteMode": "all_completed",
+  "completesWhen": ["the_festival"],
+  "hideUntilDependenciesComplete": true
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `dependsOn` | — | Chapter ids or aliases this chapter waits on, in any group. A reference that resolves to nothing is an [error](validation.md), because the chapter could then never be opened. |
+| `prerequisiteMode` | `all_completed` | The rule over *this chapter's* `dependsOn` — the same four values a quest uses. **Not** `defaultPrerequisiteMode`, which is the mode a quest in this chapter inherits. |
+| `minRequired` | `0` | How many of `dependsOn` must be satisfied, replacing the mode's own count: "any two of these three chapters". May not exceed the list. |
+| `completesWhen` | — | The quests, in any chapter, that finish this one. The chapter reports **completed** once every one of them is; a repeatable quest counts from its first completion. Empty means the chapter never reports completed. |
+| `hideUntilDependenciesComplete` | `false` | Leave the chapter out of the book entirely until its gate is met. Off, it is listed dimmed. Authors always see it, or the flag could not be authored. |
+| `defaultHideUntilDependenciesComplete` | `false` | What **the quests in this chapter** do about their own prerequisites unless a quest says otherwise: on, a quest here is hidden until its own rule is met. A quest writes `false` to opt out. |
+| `defaultHideUntilDependenciesVisible` | `false` | The same default for the reveal that waits on a prerequisite being *visible*. |
+
+Note the pair of similar names, because they are the ones an author mixes up:
+`hideUntilDependenciesComplete` withholds **this chapter's row** until its own gate is met, while
+`defaultHideUntilDependencies*` decide what its **quests** do about their own dependencies. The editor
+labels them "Hide until open" and "Hide quests until done" for that reason.
+
+A chapter with nothing to show is also left out of a reader's book on its own: if every quest in it is
+hidden — by these defaults, by the flags below, or because the chapter holds no quests — the sidebar
+row goes with them, and returns the moment one quest is visible. That is what makes a chapter of fifty
+unrevealed quests behave like a chapter that has not started yet rather than a door into an empty
+canvas. An author in edit mode sees it either way.
+
+A chapter's state is **locked → open → started → completed**:
+
+- **locked** — its `dependsOn` rule is unmet.
+- **open** — the rule is met, and nothing inside it is done.
+- **started** — any quest in it has progress or is finished.
+- **completed** — every quest in `completesWhen` is done.
+
+A chapter with no `completesWhen` therefore never reports *completed*, which is a real state: a
+chapter only ever waited on as "started" needs no completion to declare. A chapter that another
+chapter waits on as completed **must** declare one, and the loader reports the pair that does not —
+that combination is a chapter that can never be opened.
+
+The two graphs are checked separately: a **quest** cycle is refused, and so is a **chapter** cycle,
+including the one that is easy to miss — chapter A waits on chapter B, and B is finished by a quest
+inside A. Both are reported with the chain, because a loop like that is otherwise a chapter that
+simply never opens.
+
+Hiding is only how a gated chapter is *presented*. The gate itself is enforced by the server whatever
+`hideUntilDependenciesComplete` says, so a command or a script cannot complete a quest in a chapter
+that is not open.
+
 ### Drawing the lines
 
 The chapter's `dependencyStyle` sets how its lines look; `dependencyLines` overrides one dependency's
@@ -159,8 +218,8 @@ loads, still counts for progress, and is always shown to the editor.
 |---|---|---|
 | `invisible` | `false` | The whole quest, until it is completed. |
 | `invisibleUntilTasks` | `0` | With `invisible` set: also unhide once this many tasks have any progress. The easter-egg case — a quest nobody can see until they stumble onto part of it. Without `invisible` it does nothing. |
-| `hideUntilDependenciesComplete` | `false` | Until the prerequisite *rule* is satisfied — the same rule the card's "2 of 3 met" counts, so `minRequired` and the started-based modes are honoured. |
-| `hideUntilDependenciesVisible` | `false` | Until at least one prerequisite is itself visible. Recursive, so a chain reveals itself one link at a time from its first visible end. |
+| `hideUntilDependenciesComplete` | the chapter's | Until the prerequisite *rule* is satisfied — the same rule the card's "2 of 3 met" counts, so `minRequired` and the started-based modes are honoured. Three states: leave it out and the chapter's `defaultHideUntilDependenciesComplete` decides, `true` forces it on, and `false` opts out of a chapter that hides its quests by default. |
+| `hideUntilDependenciesVisible` | the chapter's | Until at least one prerequisite is itself visible. Recursive, so a chain reveals itself one link at a time from its first visible end. The same three states as the row above. A quest with **no** prerequisites is visible: an empty rule is met. |
 | `hideDependencyLines` | `false` | The lines arriving at this quest. The quest itself is unaffected, and quests that depend on it still draw their lines to it. |
 | `hideTextUntilComplete` | `false` | The description, until the quest is completed — for a quest whose text would give away what it asks for. |
 | `hideDetailsUntilStartable` | `false` | Task and reward details, until the quest can be started. The prerequisites stay: they are what tells the reader how to unlock it. |
@@ -182,6 +241,12 @@ scripts — see [[tasked:authoring/kubejs]].
 > Nothing validates that a stage exists, because a stage exists by being granted: there is no list to
 > check against. A typo is therefore not reported — it shows up as a quest nobody can ever open.
 
+A stage is the gate for **one player**, and it is the wrong tool for "this chapter follows that one":
+repeating it on every quest in the chapter is worse than one `dependsOn` on the chapter, which is
+checked and cannot be missed on a quest somebody adds later. Reach for a stage when the gate really is
+per player — "this is the tutorial, and only the person who did it may see this" — and for a chapter
+gate use the chapter's own fields above.
+
 ## What a quest inherits
 
 These live on the chapter manifest and apply to its quests unless a quest overrides them:
@@ -190,6 +255,8 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 |---|---|---|
 | `defaultPrerequisiteMode` | `all_completed` | The `prerequisiteMode` a quest uses unless it says otherwise. |
 | `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. |
+| `defaultHideUntilDependenciesComplete` | `false` | Whether the chapter's quests are hidden until their own prerequisite rule is met — the reveal flag below, set once for a whole chapter. A quest writes `false` to opt out. |
+| `defaultHideUntilDependenciesVisible` | `false` | The same, for the reveal that waits on a prerequisite being visible. |
 | `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tasked:authoring/rewards]]. |
 | `dependencyStyle` | built-ins | The drawing defaults for the chapter's lines. |
 | `theme` | — | A palette the chapter asks to be drawn in. A client concept: the catalogue lives on the client, so the name is a plain string here, and a client that cannot resolve it says so. |

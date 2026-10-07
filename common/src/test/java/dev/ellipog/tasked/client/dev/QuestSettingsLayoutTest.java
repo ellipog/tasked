@@ -13,7 +13,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -598,10 +601,53 @@ class QuestSettingsLayoutTest {
                 at = QuestSettingsLayout.cycleRequirement(at, 1);
             }
             assertEquals("", at, "stepping past the last value should come back to the default");
-            assertEquals(choices.get(choices.size() - 1), QuestSettingsLayout.cycleRequirement("", -1),
+
+        assertEquals(choices.get(choices.size() - 1), QuestSettingsLayout.cycleRequirement("", -1),
                     "stepping back from the default should wrap to the last value");
             assertEquals("", QuestSettingsLayout.cycleRequirement("nonsense", 0),
                     "a value the client does not know should read as the default, not throw");
+        }
+
+        @Test
+        @DisplayName("a reveal flag's picker offers three states, and writes a boolean or nothing")
+        void theRevealPickerHasThreeStates() {
+            // Three, not two, and that is the whole reason these rows are pickers: a chapter can turn the
+            // behaviour on for every quest in it, and one quest -- the hub, the one that shows the road
+            // ahead -- has to be able to say "no, not me". A switch cannot write that, because off and
+            // unsaid are the same word in the file.
+            List<String> states = QuestSettingsLayout.triStateChoices();
+            assertEquals("", states.get(0), "the chapter's default is the first state, as it is everywhere");
+            assertEquals(3, states.size(), "the default, on and off, and nothing else");
+            String at = "";
+            for (int step = 0; step < states.size(); step++) {
+                at = QuestSettingsLayout.cycleTriState(at, 1);
+            }
+            assertEquals("", at, "the cycle came back to where it started");
+            assertEquals(states.get(states.size() - 1), QuestSettingsLayout.cycleTriState("", -1),
+                    "and backwards from the default wraps to the last state");
+
+            // The unset label has to say which way the chapter goes, or "Chapter default" sends an author to
+            // another tab to find out. Asserted as a difference rather than as English, because a language
+            // is not guaranteed to be installed in the test JVM.
+            String unsetOn = QuestSettingsLayout.triStateLabel("", true);
+            String unsetOff = QuestSettingsLayout.triStateLabel("", false);
+            assertNotEquals(unsetOn, unsetOff, "the unset label must name the chapter's own state");
+            assertFalse(unsetOn.equals("tasked.dev.quest.chapter_default"),
+                    "and it is resolved rather than left as a key: " + unsetOn);
+            assertNotEquals(unsetOn, QuestSettingsLayout.triStateLabel("true", true),
+                    "a quest that says yes is not the same state as a quest that says nothing");
+
+            // And what a chosen state is written as: absent for the default, a real boolean otherwise. The
+            // difference matters twice over -- the string "true" would be a file the codec refuses, and a
+            // written false would pin the chapter's default the moment somebody looked at the quest.
+            assertNull(QuestSettingsLayout.triStateValue(""), "the default is the absence of the field");
+            assertTrue(QuestSettingsLayout.triStateValue("true").getAsJsonPrimitive().isBoolean(),
+                    "a boolean, not the string the picker cycles through");
+            assertFalse(QuestSettingsLayout.triStateValue("false").getAsBoolean());
+            assertTrue(QuestSettingsLayout.isTriStateKey("hideUntilDependenciesComplete"));
+            assertTrue(QuestSettingsLayout.isTriStateKey("hideUntilDependenciesVisible"));
+            assertFalse(QuestSettingsLayout.isTriStateKey("prerequisiteMode"),
+                    "the requirement row is not one of them, and must keep its own vocabulary");
         }
 
         @Test

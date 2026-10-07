@@ -420,6 +420,190 @@ class QuestLoaderTest {
     }
 
     @Test
+    @DisplayName("a folder the group does not list does not cost the chapters it does list")
+    void anUnlistedGroupFolderKeepsTheGroup() throws IOException {
+        // **The same finding one level over, and found the same way: in a pack on disk, not in a fixture.**
+        // A converted pack had a folder copied into itself -- `pack/pack/...`, two complete copies -- and
+        // because the unlisted-folder error was attached to `group.json`, `assemble` refused the group and
+        // threw away all fourteen chapters its list *did* name, plus every quest under them. The author's
+        // whole questline vanished because of one stray folder, and the message said only that the stray
+        // folder would not load. A dropped group never reaches the index, so it also hid every index-level
+        // fault inside it: 135 duplicate ids in that pack were never reported either.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("pack/one"));
+        Files.createDirectories(quests.resolve("pack/stray/one"));
+        Files.writeString(quests.resolve("pack/group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [\"one\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+        // The stray copy, complete enough to be a pack of its own -- which is what makes it invisible.
+        Files.writeString(quests.resolve("pack/stray/group.json"),
+                "{ \"id\": \"stray\", \"title\": \"Stray\", \"chapters\": [\"one\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/stray/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"b.json\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/stray/one/b.json"),
+                "{ \"id\": \"b\", \"title\": \"B\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "the stray folder is still reported:\n" + render(result.problems()));
+        assertTrue(render(result.problems()).contains("stray")
+                        && render(result.problems()).contains("will never load"),
+                "and the message still says what it costs, naming the folder:\n" + render(result.problems()));
+        assertTrue(!filesWithErrors(result).contains("pack/group.json"),
+                "but it is not an error against the group's manifest, which is what dropped the group: "
+                        + filesWithErrors(result));
+        assertEquals(1, result.index().groupCount(), "the group is in the tree");
+        assertEquals(1, result.index().chapterCount(), "so is the chapter its list names");
+        assertEquals(1, result.index().questCount(), "and the quest under it, which used to vanish");
+        assertEquals("a", result.index().quests().get(0).quest().id());
+    }
+
+    @Test
+    @DisplayName("a quest file the chapter does not list does not cost the quests it does list")
+    void anUnlistedQuestFileKeepsTheChapter() throws IOException {
+        // The same shape one level down, and it was left unfixed when the group's was fixed: an unlisted
+        // *quest file* was reported against `chapter.json`, so the chapter was refused and every quest it
+        // listed went with it. A chapter of forty lost to one stray file is the same fault as a group of
+        // fourteen lost to one stray folder, and the fix is the same -- report it against the file.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("pack/one"));
+        Files.writeString(quests.resolve("pack/group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [\"one\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/stray.json"),
+                "{ \"id\": \"b\", \"title\": \"B\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "the stray file is still reported:\n" + render(result.problems()));
+        assertTrue(!filesWithErrors(result).contains("pack/one/chapter.json"),
+                "not against the chapter's manifest, which is what dropped the chapter: "
+                        + filesWithErrors(result));
+        assertEquals(1, result.index().chapterCount(), "the chapter is in the tree");
+        assertEquals(1, result.index().questCount(), "and the quest its list names");
+        assertEquals("a", result.index().quests().get(0).quest().id());
+    }
+
+    @Test
+    @DisplayName("a quest file the chapter lists but which is not there does not cost the quests it does list")
+    void aMissingQuestFileKeepsTheChapter() throws IOException {
+        // The same shape as the unlisted case above, one direction over -- and this is the direction
+        // that actually happens, because deleting a file in Explorer, a rename done in one place, or a
+        // bad merge all leave the manifest naming something the disk no longer has. The failure used to
+        // be filed against `chapter.json`, and a manifest with an error against it is refused, so `a`
+        // and `b` went with `gone` -- two quests lost to one deletion, and a chapter of forty lost to
+        // one file.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("pack/one"));
+        Files.writeString(quests.resolve("pack/group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [\"one\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\", \"gone.json\", \"b.json\"] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/b.json"),
+                "{ \"id\": \"b\", \"title\": \"B\" }", StandardCharsets.UTF_8);
+        // `gone.json` is named by the manifest and deliberately not written: a file deleted by hand.
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "a declared name that resolves to nothing is still an error:\n"
+                + render(result.problems()));
+        assertEquals(List.of("pack/one/gone.json"), filesWithErrors(result),
+                "filed against the name that is not there, and against nothing else:\n"
+                        + render(result.problems()));
+        assertEquals(1, result.index().chapterCount(), "the chapter is in the tree");
+        assertEquals(2, result.index().questCount(),
+                "and both quests the list names and the disk still has");
+        assertTrue(result.index().quest("a").isPresent() && result.index().quest("b").isPresent());
+    }
+
+    @Test
+    @DisplayName("a chapter folder the group lists but which is not there does not cost the chapters it does")
+    void aMissingChapterFolderKeepsTheGroup() throws IOException {
+        // The group level, where the cost was worse: one missing chapter folder took the group and
+        // every chapter its list *did* name, so a group of fourteen lost thirteen to one deletion.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("pack/one"));
+        Files.writeString(quests.resolve("pack/group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [\"one\", \"gone\"] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok());
+        assertEquals(List.of("pack/gone"), filesWithErrors(result),
+                "the folder that is not there is what is blamed:\n" + render(result.problems()));
+        assertEquals(1, result.index().groupCount(), "the group is in the tree");
+        assertEquals(1, result.index().chapterCount(), "so is the chapter its list names");
+        assertEquals(1, result.index().questCount(), "and the quest under it");
+    }
+
+    @Test
+    @DisplayName("a declared name that cannot be used costs that name, not the chapter")
+    void anUnusableDeclaredNameKeepsTheChapter() throws IOException {
+        // A name with a separator in it: a declared name is one segment resolved against its own folder,
+        // so there is no path it could have resolved to, and nothing to blame but the name. It gets its
+        // own token for that reason -- the message quotes it -- because the alternative is that one
+        // slip of a string costs the chapter, which is the fault being fixed here in its purest form.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("pack/one"));
+        Files.writeString(quests.resolve("pack/group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [\"one\"] }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/chapter.json"),
+                "{ \"id\": \"one\", \"title\": \"One\", \"quests\": [\"a.json\", \"sub/b.json\"] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("pack/one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok());
+        assertEquals(List.of("sub/b.json"), filesWithErrors(result),
+                "the name as written is what is blamed:\n" + render(result.problems()));
+        assertTrue(render(result.problems()).contains("path separator"),
+                "and the message says what is wrong with it:\n" + render(result.problems()));
+        assertEquals(1, result.index().chapterCount(), "the chapter still loads");
+        assertEquals(1, result.index().questCount(), "with the quest beside it");
+    }
+
+    @Test
+    @DisplayName("a root chapter declared only by an index.json that will not parse does not load")
+    void aRootChapterNeedsAnIndex() throws IOException {
+        // The one layout the fallback cannot serve, pinned rather than left to be discovered: with the
+        // manifest unreadable there is nothing left that says a root folder is a chapter rather than a
+        // malformed group, so it is reported as one. Reading it as a chapter anyway would make "no
+        // index" mean two different things depending on how the file became unreadable.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("loose"));
+        Files.writeString(quests.resolve("loose/chapter.json"),
+                "{ \"id\": \"loose\", \"title\": \"Loose\", \"quests\": [\"only.json\"] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("loose/only.json"),
+                "{ \"id\": \"only\", \"title\": \"Only\" }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("index.json"), "{ \"entries\": [ ", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok());
+        assertTrue(render(result.problems()).contains("not a chapter group"),
+                "the cost is stated rather than silent:\n" + render(result.problems()));
+        assertEquals(0, result.index().chapterCount(), "and the chapter does not load");
+        assertEquals(0, result.index().questCount());
+    }
+
+    @Test
     @DisplayName("a group whose manifest id disagrees still loads, with the folder name winning")
     void aMismatchedGroupStillLoads() throws IOException {
         // The whole of finding 5: the mismatch was reported as an *error*, and the loader refuses a
@@ -448,6 +632,47 @@ class QuestLoaderTest {
         assertEquals(1, result.index().chapterCount(), "so is its chapter");
         assertEquals(1, result.index().questCount(), "and the quest under it, which used to vanish");
         assertEquals("a", result.index().quests().get(0).quest().id());
+    }
+
+    @Test
+    @DisplayName("a chapter cycle is reported with the chain, naming both ways out of it")
+    void chapterCycleIsReported() throws IOException {
+        // A chapter cycle is the quietest failure a questline has: every file is fine on its own, no
+        // quest refuses to unlock, and the only symptom is a chapter that never opens. So the check is
+        // only worth having if the author is actually told -- which is what this asserts, one level
+        // above the graph pass that finds the loop.
+        Path quests = temp.resolve(QuestLoader.DIRECTORY);
+        Files.createDirectories(quests.resolve("one"));
+        Files.createDirectories(quests.resolve("two"));
+        Files.writeString(quests.resolve("index.json"), """
+                { "entries": [ { "chapter": "one" }, { "chapter": "two" } ] }
+                """, StandardCharsets.UTF_8);
+        // Each waits on the other, and each declares what finishes it -- so the only fault in the pack
+        // is the loop itself, and the message under test is not one of the other chapter checks firing.
+        Files.writeString(quests.resolve("one/chapter.json"), """
+                { "id": "one", "title": "One", "dependsOn": ["two"], "completesWhen": ["b"],
+                  "quests": ["a.json"] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("one/a.json"),
+                "{ \"id\": \"a\", \"title\": \"A\" }", StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("two/chapter.json"), """
+                { "id": "two", "title": "Two", "dependsOn": ["one"], "completesWhen": ["a"],
+                  "quests": ["b.json"] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(quests.resolve("two/b.json"),
+                "{ \"id\": \"b\", \"title\": \"B\" }", StandardCharsets.UTF_8);
+
+        QuestLoader.Result result = QuestLoader.load(temp);
+
+        assertFalse(result.ok(), "a chapter cycle is fatal to the chapters in it");
+        String messages = render(result.problems());
+        assertTrue(messages.contains("circular chapter dependency"),
+                "the loop should be named as one:\n" + messages);
+        assertTrue(messages.contains("one") && messages.contains("two"),
+                "with both chapters in the chain:\n" + messages);
+        assertTrue(messages.contains("completesWhen"),
+                "and the way out that is not a dependsOn, since that is the edge a reader would not "
+                        + "have thought of:\n" + messages);
     }
 
     @Test

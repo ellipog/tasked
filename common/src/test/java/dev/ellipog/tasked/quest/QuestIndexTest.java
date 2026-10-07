@@ -115,15 +115,20 @@ class QuestIndexTest {
      * steps the loader walks, using only public API, and keeps the problems.
      */
     private static Problems problemsOf(String... jsons) {
+        Problems problems = new Problems();
+        indexOf(problems, jsons);
+        return problems;
+    }
+
+    /** The same walk, keeping the index as well — for the tests that assert what the tree holds. */
+    private static QuestIndex indexOf(Problems problems, String... jsons) {
         List<LoadedQuestFile> loaded = new ArrayList<>();
         for (int i = 0; i < jsons.length; i++) {
             String name = "test" + i + ".json";
             JsonDocument document = Fixtures.document(name, jsons[i]);
             loaded.add(new LoadedQuestFile(Path.of(name), name, document, Fixtures.decode(name, document)));
         }
-        Problems problems = new Problems();
-        QuestIndex.build(loaded, problems);
-        return problems;
+        return QuestIndex.build(loaded, problems);
     }
 
     /** Every problem message, joined, for a single containment assertion. */
@@ -168,6 +173,109 @@ class QuestIndexTest {
 
             assertTrue(problems.hasErrors(), "a duplicate id is fatal:" + messages(problems));
             assertMentions(problems, "duplicate quest id \"twice\"");
+        }
+
+        @Test
+        @DisplayName("and only the first is in the tree, because a row no lookup can reach is worse than none")
+        void theLoserIsNotInTheTree() {
+            // **Reported and dropped, which are two different halves.** The index used to add the entry to
+            // its list *before* claiming the id, so a duplicate produced two nodes on the canvas and one
+            // entry in the map: the second drew, could be clicked, and the click opened the first quest.
+            // `ClientQuestCache.byId` keeps the first for the same reason and says so in its own comment --
+            // and a quest that is present but unreachable is worse than an absent one, because nothing
+            // about it looks wrong. The positions tell the two apart, which the titles cannot: the builder
+            // writes the id as the title.
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, Fixtures.file(
+                    q("twice").at(0, 0).build(),
+                    q("twice").at(64, 0).build()));
+
+            assertTrue(problems.hasErrors(), "the duplicate is still fatal:" + messages(problems));
+            assertEquals(1, index.questCount(), "one id, one quest");
+            assertEquals(0, index.quest("twice").orElseThrow().quest().layout().x(),
+                    "and the one the map resolves is the one the tree holds: the first to claim the id");
+        }
+
+        @Test
+        @DisplayName("a dropped subtree's aliases are checked too, though they are never claimed")
+        void aliasesInsideADroppedSubtree() {
+            // The residual the drop left, closed. An alias clash inside a subtree whose parent lost an id
+            // used to be reported one load later -- after the author repaired the parent -- which is two
+            // rounds of fixing one mistake. Checked and not claimed, for the reason the id is: an alias
+            // resolving to a row that is not in the tree is the fault the drop exists to remove.
+            //
+            // The second file's group collides, so its chapter and its quest are both orphaned -- and the
+            // quest's alias is the only thing in that file that could be reported at all.
+            String first = "{ \"version\": 1, \"chapterGroups\": ["
+                    + " { \"id\": \"group\", \"title\": \"Group\", \"chapters\": ["
+                    + Fixtures.chapter("first_steps", q("alpha").alias("shared").build()) + "] }"
+                    + " ] }";
+            String second = "{ \"version\": 1, \"chapterGroups\": ["
+                    + " { \"id\": \"group\", \"title\": \"Group\", \"chapters\": ["
+                    + Fixtures.chapter("first_steps", q("beta").alias("shared").build()) + "] }"
+                    + " ] }";
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, first, second);
+
+            assertMentions(problems, "duplicate chapter group id \"group\"");
+            assertMentions(problems, "the alias \"shared\" is already used by another quest");
+            assertEquals(1, index.questCount(), "and the dropped subtree is still out of the tree");
+            assertNotNull(index.quest("alpha"), "with the quest that claimed the alias");
+        }
+
+        @Test
+        @DisplayName("a duplicate group takes its subtree out of the tree, and still reports every clash in it")
+        void aDuplicateGroupTakesItsSubtree() {
+            // Two whole trees in two files, so every level collides at once -- which is what a pack
+            // half-converted from another mod looks like, and `QuestFormatMigrationTest` pins the case.
+            //
+            // **The two halves pull in opposite directions and both have to hold.** The subtree is not
+            // loaded, because a chapter nobody can open would otherwise leave its quests invisible and
+            // still live: resolving by id, accruing progress, blocking dependencies, on a canvas no row
+            // reaches. And every clash inside it is still reported, because they are separate faults the
+            // author has to fix and hearing about them one load later is two rounds of fixing one mistake.
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems,
+                    Fixtures.file(q("only").build()),
+                    Fixtures.file(q("other").build()));
+
+            assertTrue(problems.hasErrors(), "the duplicates are fatal:" + messages(problems));
+            assertMentions(problems, "duplicate chapter group id \"group\"");
+            // Reported even though its group was dropped: it is a separate fault the author has to fix,
+            // and hearing about it one load later would be two rounds of fixing one mistake.
+            assertMentions(problems, "duplicate chapter id \"chapter\"");
+
+            assertEquals(1, index.groupCount(), "one group, and the first to claim the id is the one kept");
+            assertEquals(1, index.chapterCount(), "and one chapter");
+            assertEquals(1, index.questCount(), "and one quest: the dropped chapter takes its own with it");
+            assertNotNull(index.quest("only"), "the quest of the tree that was kept");
+            assertTrue(index.quest("other").isEmpty(),
+                    "and not the one whose chapter is not in the tree");
+        }
+
+        @Test
+        @DisplayName("two chapters in different groups sharing a name: the second is dropped, not shadowed")
+        void twoChaptersWithOneName() {
+            // **The one that is not exotic.** A chapter's id has to equal its folder name, so two chapters
+            // called `first_steps` means two folders with that name under two different groups -- which is
+            // an ordinary authoring mistake rather than a contrived one. Left in the tree, the second row
+            // draws and cannot be opened: `index.chapter` and `QuestEditor.open` both resolve the id to the
+            // first folder, so the second chapter's quests are unreachable while still counting.
+            String twoGroups = "{ \"version\": 1, \"chapterGroups\": ["
+                    + " { \"id\": \"one\", \"title\": \"One\", \"chapters\": ["
+                    + Fixtures.chapter("first_steps", q("first").build()) + "] },"
+                    + " { \"id\": \"two\", \"title\": \"Two\", \"chapters\": ["
+                    + Fixtures.chapter("first_steps", q("second").build()) + "] }"
+                    + " ] }";
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, twoGroups);
+
+            assertTrue(problems.hasErrors(), "the clash is fatal:" + messages(problems));
+            assertMentions(problems, "duplicate chapter id \"first_steps\"");
+            assertEquals(2, index.groupCount(), "the groups are not duplicates, so both stay");
+            assertEquals(1, index.chapterCount(), "and only one chapter claims the name");
+            assertTrue(index.quest("second").isEmpty(),
+                    "so the shadowed chapter's quest is not in the tree either");
         }
 
         @Test
@@ -776,9 +884,11 @@ class QuestIndexTest {
                         && quest.rules().invisibleUntilTasks() > 0),
                 "no example is an easter egg: `invisible` with `invisibleUntilTasks` is the one way a "
                         + "quest can appear on the canvas with nothing pointing at it");
-        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesComplete()),
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesComplete()
+                        .orElse(false)),
                 "no example is hidden until its prerequisite rule is met");
-        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesVisible()),
+        assertTrue(all.stream().anyMatch(quest -> quest.rules().hideUntilDependenciesVisible()
+                        .orElse(false)),
                 "no example is hidden until a prerequisite is visible, so the recursive reveal -- the "
                         + "one rule in the family that cannot be read off a single file -- has no example");
         assertTrue(all.stream().anyMatch(quest -> quest.rules().hideDependencyLines()),

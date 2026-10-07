@@ -242,8 +242,29 @@ public final class ClientQuestCache {
      *
      * <p>{@code groupId} is empty for a chapter that belongs to no group — the same sentinel a quest's
      * {@code chapterGroupId} uses, and the case the sidebar already draws as a root row.
+     *
+     * <p>The gate fields arrived with version 12. They are what a reader needs to <i>explain</i> a shut
+     * chapter — which chapters it waits on, and whether it is asking for them started or finished — and
+     * how far those have got is not among them: that is {@link #chapterStateOf}, which comes on the
+     * progress channel with every other fact that moves. Whether this chapter is hidden before its gate
+     * is met is {@code hideUntilDependenciesComplete}, authored rather than derived.
+     *
+     * <p>All four are resolved values, and absent keys mean the defaults: an older server sends none of
+     * them, and the honest reading of a chapter it says nothing about is "no gate, shown" — which is
+     * exactly what a version-11 client does with them.
      */
-    public record ChapterEntry(String id, String groupId, String title, ItemStack icon, String iconId) {
+    public record ChapterEntry(String id, String groupId, String title, ItemStack icon, String iconId,
+                               List<String> dependsOn, dev.ellipog.tasked.quest.PrerequisiteMode prerequisiteMode,
+                               int minRequired, boolean hideUntilDependenciesComplete) {
+
+        public ChapterEntry {
+            dependsOn = List.copyOf(dependsOn);
+        }
+
+        /** Whether this chapter waits on anything. False for every chapter of an older server. */
+        public boolean waits() {
+            return !dependsOn.isEmpty();
+        }
     }
 
     /**
@@ -538,6 +559,19 @@ public final class ClientQuestCache {
     private static volatile List<RefusedTable> refusedTables = List.of();
 
     private static volatile Map<String, Progress> progress = Map.of();
+
+    /**
+     * How far each chapter has got, by chapter id, as the server resolved it.
+     *
+     * <p>Beside {@link #progress} rather than inside it because it is a different kind of fact about a
+     * different kind of object — a quest's state is stored and read back, a chapter's is derived on the
+     * server every time — and it arrives on the same message, so the two are always from one moment.
+     *
+     * <p>Empty means "every chapter is open", which is what an older server says by sending nothing, and
+     * the default {@link #chapterStateOf} gives for any id it has not heard about.
+     */
+    private static volatile Map<String, QuestState> chapterStates = Map.of();
+
     private static volatile UUID teamId;
     private static volatile long syncedAt;
     private static volatile int questCount;
@@ -731,6 +765,28 @@ public final class ClientQuestCache {
     public static QuestState stateOf(String questId) {
         Progress found = progress.get(questId);
         return found == null ? QuestState.LOCKED : found.state();
+    }
+
+    /**
+     * How far one chapter has got, by its own id.
+     *
+     * <h2>UNLOCKED for a chapter this client has not been told about</h2>
+     *
+     * <p>Which is the reading that hides least, and the one that makes the field additive: a server
+     * older than chapter gates sends no chapter states at all, and every chapter it describes is drawn
+     * exactly as it is today. The same answer covers a chapter the tree named and the progress message
+     * has not caught up with, where shutting the row would be a claim made on no evidence.
+     *
+     * <p>Computed on the server rather than here, and that is the design rather than an optimisation: a
+     * chapter's completion is declared against quests, a quest's state is the team's, and the client's
+     * own view of the canvas is filtered (an author sees hidden quests, a reader does not) — so a chapter
+     * state derived here would disagree with the server's for the person most likely to notice.
+     */
+    public static QuestState chapterStateOf(String chapterId) {
+        if (chapterId == null) {
+            return QuestState.UNLOCKED;
+        }
+        return chapterStates.getOrDefault(chapterId, QuestState.UNLOCKED);
     }
 
     /** How far along a task is, as the server last reported. Zero for anything unknown. */
@@ -1221,6 +1277,9 @@ public final class ClientQuestCache {
         tables = List.of();
         refusedTables = List.of();
         progress = Map.of();
+        // And the chapter states, which describe a server's progress as surely as the quests do: leaving
+        // them would keep a chapter shut on the next server for a gate that server has never heard of.
+        chapterStates = Map.of();
         // And what the last message named goes with it. A reader comparing samples holds a baseline of
         // quests; after a clear there are none, and telling it "a delta named nothing" would leave it
         // holding the last server's states to compare the next server's tree against. See ProgressTouch.
@@ -1295,12 +1354,35 @@ public final class ClientQuestCache {
         if (root.has("chapters")) {
             for (JsonElement element : root.getAsJsonArray("chapters")) {
                 JsonObject chapter = element.getAsJsonObject();
+                List<String> dependsOn = new ArrayList<>();
+                if (chapter.has("dependsOn")) {
+                    for (JsonElement dependency : chapter.getAsJsonArray("dependsOn")) {
+                        dependsOn.add(dependency.getAsString());
+                    }
+                }
+                // The chapter's own gate rule, as the server resolved it. Absent means no gate, and the
+                // mode defaults to the one that asks the most -- the same pair of readings ChapterRules
+                // gives, so a server that says nothing about a chapter gets the same answer as a file
+                // that says nothing about one.
+                dev.ellipog.tasked.quest.PrerequisiteMode mode =
+                        dev.ellipog.tasked.quest.PrerequisiteMode.ALL_COMPLETED;
+                if (chapter.has("prerequisiteMode")) {
+                    mode = dev.ellipog.tasked.quest.PrerequisiteMode.CODEC
+                            .parse(com.mojang.serialization.JsonOps.INSTANCE,
+                                    chapter.get("prerequisiteMode"))
+                            .result().orElse(dev.ellipog.tasked.quest.PrerequisiteMode.ALL_COMPLETED);
+                }
                 parsedChapters.add(new ChapterEntry(
                         str(chapter, "id"),
                         str(chapter, "groupId"),
                         str(chapter, "title"),
                         stack(str(chapter, "icon"), 1, chapter.get("iconComponents")),
-                        str(chapter, "icon")));
+                        str(chapter, "icon"),
+                        List.copyOf(dependsOn),
+                        mode,
+                        chapter.has("minRequired") ? Math.max(0, chapter.get("minRequired").getAsInt()) : 0,
+                        chapter.has("hideUntilDependenciesComplete")
+                                && chapter.get("hideUntilDependenciesComplete").getAsBoolean()));
             }
         }
 
@@ -1751,6 +1833,19 @@ public final class ClientQuestCache {
             }
         }
         progress = Map.copyOf(next);
+
+        // And how far each chapter has got. Replaced rather than merged, and rejected as a whole if it
+        // is not an object: a half-read chapter map is a chapter drawn shut on no evidence, and the
+        // empty map is the honest reading of a message that did not carry one -- every chapter open,
+        // which is what a version-11 server means.
+        Map<String, QuestState> states = new LinkedHashMap<>();
+        if (root.has("chapters") && root.get("chapters").isJsonObject()) {
+            for (Map.Entry<String, JsonElement> entry : root.getAsJsonObject("chapters").entrySet()) {
+                states.put(entry.getKey(), readChapterState(entry.getValue().getAsString()));
+            }
+        }
+        chapterStates = Map.copyOf(states);
+
         lastTouch = new ProgressTouch(full, touched);
         progressRevision++;
     }
@@ -1851,6 +1946,25 @@ public final class ClientQuestCache {
             // not understand, and showing it as complete would be a lie in the more dangerous
             // direction.
             return QuestState.LOCKED;
+        }
+    }
+
+    /**
+     * A chapter's state, where an unknown name reads the <b>other</b> way.
+     *
+     * <p>Not {@link #readState} with a different caller, because the two questions have opposite safe
+     * answers. A quest is content: drawing one as open when the server has shut it shows a player a
+     * quest they cannot do, so unknown reads LOCKED. A chapter is a <b>door</b>: reading one as shut
+     * hides a whole chapter's worth of content — and, for a chapter the author asked to hide before its
+     * gate is met, hides it permanently — while reading it as open costs one dimmed row that the
+     * server's own refusal corrects. Same class of fact, opposite honest answer.
+     */
+    private static QuestState readChapterState(String raw) {
+        try {
+            return QuestState.valueOf(raw);
+        }
+        catch (IllegalArgumentException e) {
+            return QuestState.UNLOCKED;
         }
     }
 

@@ -808,4 +808,65 @@ class SidebarLayoutTest {
             assertTrue(layout.isExpanded(SidebarLayout.groupKey("wide")));
         }
     }
+
+    // ------------------------------------------------------------------
+    // Chapter gates
+    // ------------------------------------------------------------------
+
+    /**
+     * The two answers a chapter's own gate can give the sidebar: a row that is shut, and a row that is
+     * not there at all.
+     *
+     * <p>Both are decided by the caller — the state comes from the server and the hiding flag from the
+     * file — and both are asserted here rather than in the screen, because "a withheld chapter is not a
+     * row" is the kind of rule a screen cannot be asked about.
+     */
+    @Nested
+    @DisplayName("a chapter's gate")
+    class ChapterGates {
+
+        @Test
+        @DisplayName("a shut chapter is listed, and marked as shut")
+        void lockedRowsAreMarked() {
+            // The default: a gate a reader can see is a map that shows a closed road, and the row is where
+            // the explanation lives on hover.
+            SidebarLayout layout = SidebarLayout.of(List.of(), List.of(
+                    new SidebarLayout.ChapterRow("open", "Open", "", false, false),
+                    new SidebarLayout.ChapterRow("shut", "Shut", "", true, false)));
+
+            assertFalse(row(layout, "chapter:open").locked());
+            assertTrue(row(layout, "chapter:shut").locked(), "the drawing has to know to dim it");
+            assertEquals(List.of("chapter:open", "chapter:shut"), keys(layout),
+                    "and it is still a row: hiding is the author's choice, not the gate's");
+        }
+
+        @Test
+        @DisplayName("a withheld chapter is absent, not a row with a flag on it")
+        void hiddenChaptersAreAbsent() {
+            // The mechanism a collapsed group already uses, and for the same reason: a row that is not in
+            // the list cannot be drawn by a caller that forgot to check a flag. Nothing downstream of
+            // this has to know the chapter exists.
+            SidebarLayout layout = SidebarLayout.of(List.of(), List.of(
+                    new SidebarLayout.ChapterRow("shown", "Shown", "", false, false),
+                    new SidebarLayout.ChapterRow("withheld", "Withheld", "", true, true)));
+
+            assertEquals(List.of("chapter:shown"), keys(layout));
+            assertNull(layout.rows().stream()
+                            .filter(candidate -> candidate.id().equals("withheld")).findFirst().orElse(null),
+                    "a withheld chapter has no row to find");
+        }
+
+        @Test
+        @DisplayName("a group whose every chapter is withheld still draws its heading")
+        void anEmptyGroupStillDraws() {
+            // A heading is a heading whether or not anything under it is showing — the same answer a
+            // group whose chapters are merely collapsed gives, and the alternative (a group vanishing
+            // because its only chapter is gated) would make the book reorder itself as chapters open.
+            SidebarLayout layout = SidebarLayout.of(
+                    List.of(new SidebarLayout.Group("g", "Group", false)),
+                    List.of(new SidebarLayout.ChapterRow("hidden", "Hidden", "g", true, true)));
+
+            assertEquals(List.of("group:g"), keys(layout));
+        }
+    }
 }

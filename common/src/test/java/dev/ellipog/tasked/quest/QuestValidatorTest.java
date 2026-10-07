@@ -1011,6 +1011,71 @@ class QuestValidatorTest {
     }
 
     @Test
+    @DisplayName("a chapter's own gate is checked field by field, at the path the author wrote")
+    void chapterGateFieldsAreChecked() {
+        // The per-file half of the chapter gate: the shape of the five fields, checked where a person can
+        // act on it. What a single file cannot know -- whether a referenced chapter exists, whether a
+        // completion is declared by the chapter a completed edge points at -- is QuestIndex's, and is
+        // asserted in ChapterDependencyTest.
+        Problems clean = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json", """
+                { "id": "first_steps", "title": "First Steps", "quests": [],
+                  "dependsOn": ["prologue"], "prerequisiteMode": "one_started", "minRequired": 1,
+                  "completesWhen": ["the_festival"], "hideUntilDependenciesComplete": true }
+                """), clean);
+        assertTrue(clean.errorCount() == 0,
+                "a well-formed gate has nothing wrong with it, got:" + messages(clean));
+
+        // A mode name no codec knows. The codec would fail with a message at the file root; the validator
+        // names the field and the values, which is the whole reason it checks a closed set itself.
+        Problems badMode = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json", """
+                { "id": "first_steps", "title": "First Steps", "quests": [],
+                  "prerequisiteMode": "all_finished" }
+                """), badMode);
+        assertTrue(containing(badMode, "all_finished").severity() == DataProblem.Severity.ERROR);
+        assertTrue(containing(badMode, "all_finished").path().contains("prerequisiteMode"),
+                "named at its own path: " + containing(badMode, "all_finished").path());
+        assertTrue(containing(badMode, "all_completed").message().contains("all_completed"),
+                "and the message lists the names that would work: "
+                        + containing(badMode, "all_completed").message());
+
+        // A count outside the model's own bounds. The bounds come from the record, so the two cannot
+        // disagree -- the same arrangement the quest-level counted flags already have.
+        Problems badCount = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json", """
+                { "id": "first_steps", "title": "First Steps", "quests": [],
+                  "dependsOn": ["prologue"], "minRequired": 99 }
+                """), badCount);
+        assertTrue(containing(badCount, "minRequired must be between").path().contains("minRequired"));
+
+        // An empty name in either list, and a name that is not an id at all: both are the author's typo,
+        // and neither can be a reference -- one resolves to nothing by construction, and the other cannot
+        // be a folder's name either.
+        Problems badNames = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json", """
+                { "id": "first_steps", "title": "First Steps", "quests": [],
+                  "dependsOn": [""], "completesWhen": ["Not An Id"] }
+                """), badNames);
+        assertTrue(containing(badNames, "a chapter id may not be empty").path().contains("dependsOn"),
+                messages(badNames));
+        assertTrue(containing(badNames, "is not a valid quest id").path().contains("completesWhen"),
+                "the completion list is checked as quest names, which is what it holds: "
+                        + messages(badNames));
+
+        // And the flag is read as a boolean rather than trusted.
+        Problems badFlag = new Problems();
+        QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json", """
+                { "id": "first_steps", "title": "First Steps", "quests": [],
+                  "hideUntilDependenciesComplete": "yes" }
+                """), badFlag);
+        DataProblem wrongType = containing(badFlag, "expected true or false");
+        assertTrue(wrongType.severity() == DataProblem.Severity.ERROR);
+        assertTrue(wrongType.path().contains("hideUntilDependenciesComplete"),
+                "the boolean check points at its own field: " + wrongType.path());
+    }
+
+    @Test
     @DisplayName("an automatic mode on a choice reward warns, because it cannot be honoured")
     void anAutomaticChoiceRewardWarns() {
         // The setting is not an error -- the file loads and the engine leaves the choice outstanding

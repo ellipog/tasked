@@ -431,6 +431,32 @@ class QuestFilesTest {
         }
 
         @Test
+        @DisplayName("and it is reported against the name that is not there, not against the manifest")
+        void aDanglingDeclarationIsReportedAgainstTheChild(@TempDir Path root) throws IOException {
+            // **The assertion the loader's per-file gate rests on.** `QuestLoader.assemble` refuses a
+            // declaration whose own file carries an error -- so if this problem is *filed* against
+            // `g/group.json`, one deleted chapter folder costs the group and every chapter it lists,
+            // and one deleted quest file costs the chapter. Filing it against the child is the whole
+            // fix, it is a single field on the problem, and nothing else in this suite can see it.
+            write(root, "g/group.json", group("g", "[\"one\", \"missing\"]"));
+            write(root, "g/one/chapter.json", chapter("one", "[\"a.json\"]"));
+            write(root, "g/one/a.json", quest("a"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertEquals(List.of("g/missing"), found.problems().all().stream()
+                            .filter(problem -> problem.severity() == DataProblem.Severity.ERROR)
+                            .map(DataProblem::file)
+                            .distinct()
+                            .toList(),
+                    "the error names the folder that is not there, and only that folder. A problem "
+                            + "filed against g/group.json is what drops the group:\n"
+                            + messages(found.problems()));
+            assertEquals(List.of("g/one/a.json"), displays(found, QuestFiles.Kind.QUEST),
+                    "and the chapter that is there is still read");
+        }
+
+        @Test
         @DisplayName("a child present in the tree and absent from the manifest is an error")
         void anUnlistedChildIsAnError(@TempDir Path root) throws IOException {
             // The other direction, and the quieter one: a folder that is *there* and not mentioned. Its
@@ -835,6 +861,105 @@ class QuestFilesTest {
             assertEquals(List.of("live/group.json"), displays(found, QuestFiles.Kind.GROUP));
             assertEquals(List.of("live/kept/chapter.json"), displays(found, QuestFiles.Kind.CHAPTER));
         }
+
+        @Test
+        @DisplayName("an index.json that will not parse is read as if it were absent, and says so")
+        void anUnreadableIndexFallsBackToFolderNames(@TempDir Path root) throws IOException {
+            // **The whole book used to empty here.** Every other file in this loader fails open -- a
+            // broken quest costs that quest, a broken chapter costs that chapter -- and this one file,
+            // whose only job is to declare the order of the root, took every group, every chapter and
+            // every quest with it, live, on the next reload. Absence has always been a supported state
+            // for it: a tree with no index is read by folder name, which is what the shipped example is.
+            write(root, "pack/group.json", group("pack", "[\"one\"]"));
+            write(root, "pack/one/chapter.json", chapter("one", "[\"a.json\"]"));
+            write(root, "pack/one/a.json", quest("a"));
+            write(root, "index.json", "{ \"entries\": [ ");
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(found.ok(), "the file is still reported: " + messages(found.problems()));
+            assertMentions(found.problems(), "read as if it");
+            assertEquals(List.of("pack/group.json"), displays(found, QuestFiles.Kind.GROUP),
+                    "the tree is read by folder name instead of not being read at all");
+            assertEquals(List.of("pack/one/chapter.json"), displays(found, QuestFiles.Kind.CHAPTER));
+            assertEquals(List.of("pack/one/a.json"), displays(found, QuestFiles.Kind.QUEST));
+            assertEquals(1, found.problems().all().stream()
+                            .filter(problem -> problem.file().equals("index.json")
+                                    && problem.severity() == DataProblem.Severity.ERROR)
+                            .count(),
+                    "reported once -- the fallback must not read the same file again as a version-1 "
+                            + "file:\n" + messages(found.problems()));
+        }
+
+        @Test
+        @DisplayName("an entries key that is not a list is the same, because neither says what the root is")
+        void anEntriesThatIsNotAListFallsBack(@TempDir Path root) throws IOException {
+            write(root, "pack/group.json", group("pack", "[]"));
+            write(root, "index.json", index("{}"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(found.ok());
+            assertMentions(found.problems(), "expected a list of entries");
+            assertMentions(found.problems(), "read as if it");
+            assertEquals(List.of("pack/group.json"), displays(found, QuestFiles.Kind.GROUP));
+        }
+
+        @Test
+        @DisplayName("an empty entries list is a declaration, and loads an empty book")
+        void anEmptyEntriesListIsNotAFallback(@TempDir Path root) throws IOException {
+            // The boundary on the other side, and it is deliberate rather than incidental: an empty list
+            // is a *statement* that the book is empty, and reading it as absent would load every folder
+            // the author had just taken out. The folder here is deliberately one the empty list excludes,
+            // so the two answers are distinguishable: the index's own sweep reports it, and it does not
+            // load. (It is an error, which is why this does not assert `found.ok()` -- excluding content
+            // at the root is an error, and that rule is older than this one.)
+            write(root, "pack/group.json", group("pack", "[]"));
+            write(root, "index.json", index("[]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(messages(found.problems()).contains("read as if it"),
+                    "the empty list was believed, so there is nothing to fall back from:\n"
+                            + messages(found.problems()));
+            assertMentions(found.problems(), "index.json does not mention it");
+            assertEquals(List.of(), displays(found, QuestFiles.Kind.GROUP),
+                    "and the folder it left out did not load");
+        }
+
+        @Test
+        @DisplayName("entries that are declared are still in charge, even when every one of them fails")
+        void declaredEntriesDoNotFallBack(@TempDir Path root) throws IOException {
+            // The boundary that must not move. A manifest that *declares* a root is believed, even when
+            // what it declares cannot be resolved -- that is per-entry tolerance, and falling back here
+            // would load every folder the manifest deliberately left out.
+            write(root, "kept/group.json", group("kept", "[]"));
+            write(root, "index.json", index("[{\"group\": \"missing\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertFalse(found.ok());
+            assertMentions(found.problems(), "index.json does not mention it");
+            assertEquals(List.of(), displays(found, QuestFiles.Kind.GROUP),
+                    "the index was in charge, so the folder it left out did not load");
+        }
+
+        @Test
+        @DisplayName("a root chapter needs an index, and the fallback reports it as the not-a-group it is")
+        void aRootChapterNeedsAnIndex(@TempDir Path root) throws IOException {
+            // The one layout the fallback cannot serve, pinned rather than discovered later: with no
+            // readable manifest there is nothing left that says a folder at the root is a chapter rather
+            // than a malformed group. Reading it as a chapter anyway would make "no index" mean two
+            // different things depending on *how* the file became unreadable.
+            write(root, "loose/chapter.json", chapter("loose", "[\"only.json\"]"));
+            write(root, "loose/only.json", quest("only"));
+            write(root, "index.json", "{ \"entries\": [ ");
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertMentions(found.problems(), "is not a chapter group");
+            assertEquals(List.of(), displays(found, QuestFiles.Kind.CHAPTER));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -904,5 +1029,110 @@ class QuestFilesTest {
     /** Asserts a kind produced no declarations at all. */
     private static void assertEmpty(QuestFiles.Discovery found, QuestFiles.Kind kind, String why) {
         assertEquals(List.of(), displays(found, kind), why);
+    }
+
+    // ------------------------------------------------------------------
+    // Every id in the tree, which is not the same question as what will load
+    // ------------------------------------------------------------------
+
+    /**
+     * The id pool an editor mints against.
+     *
+     * <h2>Why these are the tests that matter for it</h2>
+     *
+     * <p>Because the two questions look identical on a well-formed pack and diverge exactly where a pack is
+     * broken — and a broken pack is when a minted id must not collide. Every case below is a file
+     * {@code discover} deliberately does not read, whose id is nonetheless written down and must therefore
+     * be in the pool. The pool being too <i>small</i> is the failure that costs something: two quests under
+     * one id share one progress record, and the second becomes unreachable while still being drawn.
+     */
+    @Nested
+    @DisplayName("every id in the tree")
+    class EveryId {
+
+        private java.util.Set<String> idsOf(Path root) {
+            return QuestFiles.allQuestIds(root, new Problems());
+        }
+
+        @Test
+        @DisplayName("a well-formed tree gives its quest ids, and not the ids of its manifests")
+        void wellFormed(@TempDir Path root) throws IOException {
+            // The manifests are the half worth pinning: `group.json` and `chapter.json` declare an `id`
+            // each, and neither is a quest's. Reading them would reserve a chapter's own name as a quest
+            // name, which is legal today -- the index keeps the three kinds apart on purpose.
+            assertEquals(java.util.Set.of("punch_a_tree"), idsOf(wellFormedTree(root)));
+        }
+
+        @Test
+        @DisplayName("a quest file nothing lists is in the pool, though the loader never reads it")
+        void unlistedAndNested(@TempDir Path root) throws IOException {
+            // Both are reported as errors by the walk and both are invisible to `discover`'s quest list:
+            // an unlisted file is never parsed, and a nested folder is skipped before it is entered. The
+            // author fixing those errors is exactly who must not then find a collision the editor made.
+            write(root, "getting_started/group.json", group("getting_started", "[\"first_steps\"]"));
+            write(root, "getting_started/first_steps/chapter.json",
+                    chapter("first_steps", "[\"listed.json\"]"));
+            write(root, "getting_started/first_steps/listed.json", quest("listed"));
+            write(root, "getting_started/first_steps/unlisted.json", quest("unlisted"));
+            write(root, "getting_started/first_steps/nested/deep.json", quest("deep"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+            assertFalse(found.ok(), "the walk does report both, which is why they are easy to leave broken");
+            assertEquals(List.of("getting_started/first_steps/listed.json"),
+                    displays(found, QuestFiles.Kind.QUEST), "and reads only the listed one");
+
+            assertEquals(java.util.Set.of("listed", "unlisted", "deep"), idsOf(root),
+                    "while the pool holds all three, because all three declare an id on disk");
+        }
+
+        @Test
+        @DisplayName("a version-1 flat file's quests are in the pool, nested as they are")
+        void flatFileQuests(@TempDir Path root) throws IOException {
+            // **The case a converted pack is made of.** A flat file is one whole tree in one document, so
+            // its root declares no id at all -- discovery reports it as a single FLAT_V1 declaration, and
+            // reading only `$.id` would see none of the quests inside it. A pack imported from another mod
+            // is where the flat layout and a freshly minted id meet.
+            write(root, "legacy.json", """
+                    { "version": 1,
+                      "chapterGroups": [
+                        { "id": "group", "title": "Group",
+                          "chapters": [
+                            { "id": "chapter", "title": "Chapter",
+                              "quests": [
+                                { "id": "punch_a_tree", "title": "Punch a Tree" },
+                                { "id": "make_a_table", "title": "Make a Table" }
+                              ] }
+                          ] }
+                      ] }
+                    """);
+
+            assertEquals(java.util.Set.of("punch_a_tree", "make_a_table"), idsOf(root),
+                    "the nested quests, and not the file's own name");
+        }
+
+        @Test
+        @DisplayName("a file with no id is in the pool under its file name")
+        void aFileWithNoId(@TempDir Path root) throws IOException {
+            // The editor keys an id-less file by its stem too -- see `QuestEditor.reloadQuests` -- so a
+            // create that read only declared ids could still land on one.
+            write(root, "getting_started/first_steps/nameless.json", "{ \"title\": \"Nameless\" }");
+
+            assertEquals(java.util.Set.of("nameless"), idsOf(root));
+        }
+
+        @Test
+        @DisplayName("the names the loader skips are skipped here too, and a broken file is not fatal")
+        void skippedNamesAndBrokenFiles(@TempDir Path root) throws IOException {
+            write(root, "_schema/quest.schema.json", quest("a_schema_is_not_a_quest"));
+            write(root, "_notes.json", quest("a_note_is_not_a_quest"));
+            write(root, "reward_tables/loot.json", quest("a_table_is_not_a_quest"));
+            write(root, "getting_started/first_steps/gone.json.deleted", quest("gone"));
+            write(root, "getting_started/first_steps/broken.json", "{ not json at all");
+            write(root, "getting_started/first_steps/real.json", quest("real"));
+
+            assertEquals(java.util.Set.of("real"), idsOf(root),
+                    "a skipped name contributes nothing, and a file that will not parse contributes"
+                            + " nothing rather than failing the scan -- the load reports it at its own line");
+        }
     }
 }

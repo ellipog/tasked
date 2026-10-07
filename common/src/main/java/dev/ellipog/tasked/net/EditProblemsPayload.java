@@ -63,6 +63,45 @@ public record EditProblemsPayload(int lines, String text) implements CustomPacke
                 : java.util.List.of(text.split("\n"));
     }
 
+    /**
+     * The payload for one load's problems, or <b>null</b> when there is nothing to say.
+     *
+     * <h2>Why the rendering lives here and not at the send site</h2>
+     *
+     * <p>Because it is the payload's own shape: the count and the lines are two fields of this record, and
+     * the rule that keeps them consistent — the count is how many there <i>are</i>, the text is as many as
+     * fit — is a fact about this message rather than about the network layer that sends it. It was inline in
+     * {@code TaskedNetworking}, where two senders would each have needed a copy and where no test could
+     * reach it; here the truncation and the count are asserted directly.
+     *
+     * <p>Null rather than an empty payload, because "nothing is wrong" is not a message. Both callers want
+     * to send nothing at all in that case — one to every player, one to a player arriving — and returning a
+     * payload of zero lines would put a report about nothing on the screen of everyone who joins a healthy
+     * server.
+     */
+    public static EditProblemsPayload of(dev.ellipog.armature.api.data.Problems problems) {
+        if (problems == null || problems.isEmpty()) {
+            return null;
+        }
+        java.util.List<dev.ellipog.armature.api.data.DataProblem> all = problems.all();
+        StringBuilder text = new StringBuilder();
+        int shown = 0;
+        for (dev.ellipog.armature.api.data.DataProblem problem : all) {
+            String line = problem.renderWithPath();
+            // The count travels separately, so a list cut short here says how many it is not showing rather
+            // than reading as the whole of it.
+            if (text.length() + line.length() + 1 > MAX_CHARS) {
+                break;
+            }
+            if (shown > 0) {
+                text.append('\n');
+            }
+            text.append(line);
+            shown++;
+        }
+        return new EditProblemsPayload(all.size(), text.toString());
+    }
+
     @Override
     public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return TYPE;

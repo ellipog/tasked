@@ -34,7 +34,7 @@ public record DependencyProgress(PrerequisiteMode mode, int minRequired, List<St
 
     /** The state a dependency must reach for this rule to count it. */
     public QuestState bar() {
-        return mode.countsWhenStarted() ? QuestState.STARTED : QuestState.COMPLETED;
+        return QuestState.bar(mode);
     }
 
     /** How many dependencies must meet the bar. */

@@ -7,10 +7,12 @@ import dev.ellipog.armature.api.data.Problems;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Every loaded quest, indexed, with the cross-file checks done.
@@ -57,10 +59,30 @@ public final class QuestIndex {
      * lists them. That last one is load-bearing rather than cosmetic — a LINEAR chapter's progression
      * <i>is</i> its quest list order — which is why the position is carried on the entry rather than
      * being counted again wherever it is needed. See {@link QuestEntry#orderInChapter}.
+     *
+     * <p>A fourth derived map joined them with chapter dependencies: each chapter's own quests, keyed by
+     * chapter id ({@link #questsIn}). A chapter's state is a question about the quests inside it, and it
+     * is asked once per chapter per pass, so the grouping is built once here rather than filtered out of
+     * the flat list wherever it is wanted — the same argument, one level down.
      */
     private final List<GroupEntry> groups;
     private final List<ChapterEntry> chapters;
     private final List<QuestEntry> quests;
+
+    /**
+     * Each chapter's own quests, in declaration order.
+     *
+     * <p>A fourth derived list, and it earns its place the same way the other three did: a chapter's
+     * state is a question about <i>the quests inside it</i> — is any of them started, are all of the
+     * ones it declares finished — and that answer is asked once per chapter per resolution pass. Built
+     * here rather than filtered out of the flat list at each call site, because four filters is four
+     * descriptions of one fact, which is exactly the fault the three lists above exist to remove.
+     *
+     * <p>Keyed by the chapter's <b>own id</b> and not by an alias: a quest carries the chapter object it
+     * was assembled under, so the id a quest names is always canonical. A chapter that is not in the
+     * tree has no entry here and no quests, which is the honest reading of a chapter that was dropped.
+     */
+    private final Map<String, List<QuestEntry>> questsByChapterId;
 
     private final Map<String, QuestEntry> byIdentifier;
     private final Map<String, ChapterEntry> chaptersByIdentifier;
@@ -119,12 +141,14 @@ public final class QuestIndex {
     private QuestIndex(List<GroupEntry> groups,
                        List<ChapterEntry> chapters,
                        List<QuestEntry> quests,
+                       Map<String, List<QuestEntry>> questsByChapterId,
                        Map<String, QuestEntry> byIdentifier,
                        Map<String, ChapterEntry> chaptersByIdentifier,
                        Map<String, GroupEntry> groupsByIdentifier) {
         this.groups = List.copyOf(groups);
         this.chapters = List.copyOf(chapters);
         this.quests = List.copyOf(quests);
+        this.questsByChapterId = Map.copyOf(questsByChapterId);
         this.byIdentifier = Map.copyOf(byIdentifier);
         this.chaptersByIdentifier = Map.copyOf(chaptersByIdentifier);
         this.groupsByIdentifier = Map.copyOf(groupsByIdentifier);
@@ -170,6 +194,20 @@ public final class QuestIndex {
         Map<String, ChapterEntry> chapters = new LinkedHashMap<>();
         Map<String, GroupEntry> groups = new LinkedHashMap<>();
 
+        // A group or a chapter that lost an id takes its subtree out of the tree, so the walk remembers
+        // which. Leaving the children in would be the same fault one level down and harder to see: a
+        // chapter that cannot be opened is not drawn, so its quests would be invisible and still live --
+        // resolving by id, accruing progress and blocking dependencies on a canvas nobody can reach.
+        //
+        // The pieces arrive depth-first -- a group, then its chapters, then each chapter's quests -- so a
+        // chapter whose group was dropped is recognised by the group id it carries, and a quest whose
+        // chapter was dropped by the chapter object itself. `==` and not `equals` there, and that is the
+        // same identity `Chapter.indexOf` relies on for LINEAR progression: the loader builds each chapter
+        // once and hands the same object to the chapter's piece, to the group's chapter list and to every
+        // quest's back-pointer.
+        String droppedGroup = null;
+        Chapter droppedChapter = null;
+
         for (QuestTree.Piece piece : tree.pieces()) {
             switch (piece) {
                 case QuestTree.Piece.GroupPiece pieceGroup -> {
@@ -177,10 +215,17 @@ public final class QuestIndex {
                     JsonDocument document = pieceGroup.source().document();
                     String path = pieceGroup.source().path();
                     GroupEntry groupEntry = new GroupEntry(group, pieceGroup.source().file(), document, path);
-                    groupList.add(groupEntry);
 
-                    claimIdentifier(groups, quests, chapters, group.id(), groupEntry,
-                            "chapter group", document, path + ".id", problems);
+                    // Claimed before it is listed, and not listed at all if the id was taken. A row the map
+                    // cannot reach is worse than an absent one: it draws, it can be clicked, and the click
+                    // opens whichever group claimed the id first. Its aliases go unclaimed with it, or they
+                    // would point at a row that is not in the tree.
+                    if (!claimIdentifier(groups, quests, chapters, group.id(), groupEntry,
+                            "chapter group", document, path + ".id", problems)) {
+                        droppedGroup = group.id();
+                        continue;
+                    }
+                    groupList.add(groupEntry);
                     for (String alias : group.aliases()) {
                         claimAlias(groups, quests, chapters, alias, groupEntry,
                                 group.id(), "chapter group", document, path + ".aliases", problems);
@@ -193,10 +238,25 @@ public final class QuestIndex {
                     String path = pieceChapter.source().path();
                     ChapterEntry chapterEntry = new ChapterEntry(pieceChapter.groupId(), chapter,
                             pieceChapter.source().file(), document, path);
-                    chapterList.add(chapterEntry);
 
-                    claimIdentifier(groups, quests, chapters, chapter.id(), chapterEntry,
-                            "chapter", document, path + ".id", problems);
+                    if (droppedGroup != null && droppedGroup.equals(pieceChapter.groupId())) {
+                        // Its group is not in the tree, so neither is this -- but its id is still *checked*.
+                        // See `reportTaken`: a clash here is a separate fault the author has to fix, and
+                        // skipping the check would mean hearing about it only on the load after the group
+                        // was repaired, which is two rounds of fixing one mistake.
+                        droppedChapter = chapter;
+                        reportTaken(groups, quests, chapters, chapter.id(), chapterEntry, "chapter",
+                                document, path + ".id", problems);
+                        reportAliases(groups, quests, chapters, chapter.aliases(), chapterEntry, "chapter",
+                                document, path + ".aliases", problems);
+                        continue;
+                    }
+                    if (!claimIdentifier(groups, quests, chapters, chapter.id(), chapterEntry,
+                            "chapter", document, path + ".id", problems)) {
+                        droppedChapter = chapter;
+                        continue;
+                    }
+                    chapterList.add(chapterEntry);
                     for (String alias : chapter.aliases()) {
                         claimAlias(groups, quests, chapters, alias, chapterEntry, chapter.id(),
                                 "chapter", document, path + ".aliases", problems);
@@ -213,10 +273,23 @@ public final class QuestIndex {
                     // description of that number is the dangerous kind of mistake.
                     QuestEntry questEntry = new QuestEntry(pieceQuest.groupId(), pieceQuest.chapter(),
                             quest, pieceQuest.orderInChapter(), pieceQuest.source().file(), document, path);
-                    questList.add(questEntry);
 
-                    claimIdentifier(groups, quests, chapters, quest.id(), questEntry,
-                            "quest", document, path + ".id", problems);
+                    if (droppedChapter != null && pieceQuest.chapter() == droppedChapter) {
+                        reportTaken(groups, quests, chapters, quest.id(), questEntry, "quest",
+                                document, path + ".id", problems);
+                        reportAliases(groups, quests, chapters, quest.aliases(), questEntry, "quest",
+                                document, path + ".aliases", problems);
+                        continue;
+                    }
+                    // The duplicate is reported and the quest is left out, and the checks below are left
+                    // out with it: one mistake, one message. Reporting a lost quest's placement as well
+                    // would bury the sentence that says what to do, and the author has to rename the file
+                    // before the next load can say anything else about it anyway.
+                    if (!claimIdentifier(groups, quests, chapters, quest.id(), questEntry,
+                            "quest", document, path + ".id", problems)) {
+                        continue;
+                    }
+                    questList.add(questEntry);
                     for (String alias : quest.aliases()) {
                         claimAlias(groups, quests, chapters, alias, questEntry, quest.id(),
                                 "quest", document, path + ".aliases", problems);
@@ -228,8 +301,15 @@ public final class QuestIndex {
             }
         }
 
-        QuestIndex index = new QuestIndex(groupList, chapterList, questList, quests, chapters, groups);
+        Map<String, List<QuestEntry>> byChapter = new LinkedHashMap<>();
+        for (QuestEntry entry : questList) {
+            byChapter.computeIfAbsent(entry.chapterId(), id -> new ArrayList<>()).add(entry);
+        }
+
+        QuestIndex index = new QuestIndex(groupList, chapterList, questList, byChapter, quests, chapters,
+                groups);
         index.checkDependencies(problems);
+        index.checkChapterRules(problems);
         index.checkDuplicatePositions(problems);
         // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 64,0
         // are *crowded* -- each is fine on its own and the two together cannot both show a title.
@@ -247,23 +327,68 @@ public final class QuestIndex {
      * <p>The three tables are separate because an id being reused across kinds is fine — a chapter
      * and a quest may both be called {@code stone_age} — while an id being reused within a kind is
      * not. Passing all three keeps that distinction in one place instead of three.
+     *
+     * <p><b>The answer is what decides whether the entry joins the tree</b>, and that is the point of
+     * returning it rather than only reporting. Two quests with one id are two files with one progress
+     * record and one lookup, and the lookup has to resolve somewhere — so the first to claim the id keeps
+     * it and the second is <i>not loaded</i>. Leaving the loser in the list would put a node on the canvas
+     * that no map points at: it draws, it can be clicked, and the click opens the other quest. See
+     * {@code ClientQuestCache.byId}, which keeps the first for the same reason and says so.
+     *
+     * @return whether the entry claimed the identifier, and so whether the caller should list it
      */
-    private static void claimIdentifier(Map<String, GroupEntry> groups,
-                                        Map<String, QuestEntry> quests,
-                                        Map<String, ChapterEntry> chapters,
-                                        String identifier, Object entry, String what,
-                                        JsonDocument document, String path, Problems problems) {
+    private static boolean claimIdentifier(Map<String, GroupEntry> groups,
+                                           Map<String, QuestEntry> quests,
+                                           Map<String, ChapterEntry> chapters,
+                                           String identifier, Object entry, String what,
+                                           JsonDocument document, String path, Problems problems) {
         Object existing = lookup(groups, quests, chapters, kindOf(entry), identifier);
         if (existing == null) {
             put(groups, quests, chapters, kindOf(entry), identifier, entry);
-            return;
+            return true;
         }
         if (existing.equals(entry)) {
             // The same object claimed twice, which cannot happen from a walk over distinct elements.
+            return true;
+        }
+        problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
+                duplicateMessage(what, identifier, existing));
+        return false;
+    }
+
+    /**
+     * Reports an id that is already taken <b>without taking it</b>, for a piece whose parent is not in the
+     * tree.
+     *
+     * <p>A dropped subtree is not loaded, but its files are still the author's and their clashes are still
+     * theirs to fix. Skipping the check would mean a duplicate inside one of them surfaced only on the load
+     * <i>after</i> the parent was repaired — two rounds of fixing one mistake — and the alternative of
+     * claiming it anyway is worse: a lookup resolving to a row that is not in the tree is exactly the fault
+     * the drop exists to remove.
+     *
+     * <p>Aliases are deliberately not checked here, so an alias clash inside a dropped subtree is reported
+     * on the next load. That is the same one-mistake-one-round trade the loader already makes for a chapter
+     * whose manifest will not validate: the chapter's quests are not decoded, and their index-level checks
+     * wait with them.
+     */
+    private static void reportTaken(Map<String, GroupEntry> groups,
+                                    Map<String, QuestEntry> quests,
+                                    Map<String, ChapterEntry> chapters,
+                                    String identifier, Object entry, String what,
+                                    JsonDocument document, String path, Problems problems) {
+        Object existing = lookup(groups, quests, chapters, kindOf(entry), identifier);
+        if (existing == null || existing.equals(entry)) {
             return;
         }
         problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
-                "duplicate " + what + " id \"" + identifier + "\" - already used by " + describe(existing));
+                duplicateMessage(what, identifier, existing));
+    }
+
+    /** The sentence a duplicate id gets, wherever it is noticed. One wording, one place. */
+    private static String duplicateMessage(String what, String identifier, Object existing) {
+        return "duplicate " + what + " id \"" + identifier + "\" - already used by " + describe(existing)
+                + "\n    the first one to claim the id is the one every lookup resolves to, so this one is"
+                + " not loaded: rename it, or give it an alias nothing else uses";
     }
 
     private static void claimAlias(Map<String, GroupEntry> groups,
@@ -278,14 +403,57 @@ public final class QuestIndex {
         }
         if (existing.equals(entry)) {
             problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
-                    "the alias \"" + alias + "\" is declared twice on the same " + what);
+                    aliasTwiceMessage(alias, what));
             return;
         }
         problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
-                "the alias \"" + alias + "\" is already used by another " + what + " ("
-                        + describe(existing) + "). An alias has to be unique within its kind - a lookup of \""
-                        + alias + "\" would otherwise be ambiguous, and player progress could land on the "
-                        + "wrong one.");
+                aliasClashMessage(alias, what, existing));
+    }
+
+    /**
+     * Every alias of a piece whose parent is not in the tree, <b>checked and not claimed</b>.
+     *
+     * <p>The counterpart of {@link #reportTaken}, and it exists for the same reason: dropping a subtree must
+     * not also drop the faults written inside it, or the author hears about them one load later, after
+     * fixing the parent — two rounds for one mistake. What it must not do is claim the alias, because an
+     * alias resolving to a row that is not in the tree is the fault the drop removes.
+     *
+     * <p>The two faults are told apart here by a set of what this entry has already said, rather than by
+     * asking the map: an orphaned entry was never put in it, so a second occurrence of one alias would find
+     * nothing there and the "declared twice" case would go unreported. That is the difference between
+     * checking and claiming, and it is why this is not simply {@code claimAlias} without the put.
+     */
+    private static void reportAliases(Map<String, GroupEntry> groups,
+                                      Map<String, QuestEntry> quests,
+                                      Map<String, ChapterEntry> chapters,
+                                      List<String> aliases, Object entry, String what,
+                                      JsonDocument document, String path, Problems problems) {
+        Set<String> seen = new LinkedHashSet<>();
+        for (String alias : aliases) {
+            if (!seen.add(alias)) {
+                problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
+                        aliasTwiceMessage(alias, what));
+                continue;
+            }
+            Object existing = lookup(groups, quests, chapters, kindOf(entry), alias);
+            if (existing != null && !existing.equals(entry)) {
+                problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
+                        aliasClashMessage(alias, what, existing));
+            }
+        }
+    }
+
+    /** The sentence an alias declared twice on one entry gets. One wording, two places that notice it. */
+    private static String aliasTwiceMessage(String alias, String what) {
+        return "the alias \"" + alias + "\" is declared twice on the same " + what;
+    }
+
+    /** The sentence an alias another thing already holds gets. Likewise. */
+    private static String aliasClashMessage(String alias, String what, Object existing) {
+        return "the alias \"" + alias + "\" is already used by another " + what + " ("
+                + describe(existing) + "). An alias has to be unique within its kind - a lookup of \""
+                + alias + "\" would otherwise be ambiguous, and player progress could land on the "
+                + "wrong one.";
     }
 
     private enum Kind { GROUP, CHAPTER, QUEST }
@@ -351,6 +519,105 @@ public final class QuestIndex {
                                 + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
                                 + "\n    a dependency that resolves to nothing means this quest can never be unlocked");
             }
+        }
+    }
+
+    /**
+     * A chapter's own gate and completion, checked across the whole pack.
+     *
+     * <h2>Four faults, and why each is an error rather than a warning</h2>
+     *
+     * <p>Every one of them produces a chapter that <b>can never be opened</b>, which is the quietest
+     * failure a questline has: nothing is logged while it happens, and the author's only clue is a
+     * chapter that sits there dimmed. So each is reported the way a dangling quest dependency is, with
+     * the consequence spelled out rather than described.
+     *
+     * <p>The last check is the one a hand-written file gets wrong and no single file can see: a chapter
+     * that asks its dependencies to be <b>completed</b> while one of them declares no
+     * {@code completesWhen} — the field that says what finished means. It is counted rather than reported
+     * per edge, because {@code minRequired} makes the honest question "can enough of them ever be
+     * completed", not "can this one".
+     */
+    private void checkChapterRules(Problems problems) {
+        for (ChapterEntry entry : chapters()) {
+            Chapter chapter = entry.chapter();
+            ChapterRules rules = chapter.rules();
+
+            for (ChapterRef dependency : rules.dependsOn()) {
+                if (chapter.matches(dependency.id())) {
+                    problems.error(entry.document(), entry.path() + ".dependsOn",
+                            "this chapter waits on itself (\"" + dependency.id()
+                                    + "\"), so it can never be opened");
+                    continue;
+                }
+                if (chaptersByIdentifier.containsKey(dependency.id())) {
+                    continue;
+                }
+                Optional<String> suggestion = nearest(chaptersByIdentifier.keySet(), dependency.id());
+                problems.error(entry.document(), entry.path() + ".dependsOn",
+                        "no chapter with id or alias \"" + dependency.id() + "\" exists"
+                                + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                + "\n    a chapter dependency that resolves to nothing means this chapter"
+                                + " can never be opened");
+            }
+
+            if (rules.minRequired() > rules.dependsOn().size()) {
+                problems.error(entry.document(), entry.path() + ".minRequired", "minRequired is "
+                        + rules.minRequired() + " but there are only " + rules.dependsOn().size()
+                        + " chapter dependencies, so this chapter can never be opened");
+            }
+
+            for (QuestRef milestone : rules.completesWhen()) {
+                if (byIdentifier.containsKey(milestone.id())) {
+                    continue;
+                }
+                Optional<String> suggestion = nearest(byIdentifier.keySet(), milestone.id());
+                problems.error(entry.document(), entry.path() + ".completesWhen",
+                        "no quest with id or alias \"" + milestone.id() + "\" exists"
+                                + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                + "\n    this chapter is completed when every quest named here is, so a"
+                                + " name that resolves to nothing means it never reports completed");
+            }
+        }
+
+        checkCompletedEdgesHaveCompletions(problems);
+    }
+
+    /**
+     * A dependency that asks for <i>completed</i> needs a chapter that declares what finished means.
+     *
+     * <p>Counted over the edge's own rule rather than per dependency: {@code one_completed} with three
+     * dependencies needs one of them to be completable, and {@code minRequired: 2} of three needs two.
+     * An edge that cannot reach its own count is the fault, and the message names one of the chapters
+     * responsible so the author has somewhere to start.
+     */
+    private void checkCompletedEdgesHaveCompletions(Problems problems) {
+        for (ChapterEntry entry : chapters()) {
+            ChapterRules rules = entry.chapter().rules();
+            // A started-based bar asks for "opened", which every chapter reaches on its own gate, so no
+            // completion has to be declared for it.
+            if (rules.dependsOn().isEmpty() || rules.prerequisiteMode().countsWhenStarted()) {
+                continue;
+            }
+            List<Chapter> withoutCompletion = new ArrayList<>();
+            for (ChapterRef dependency : rules.dependsOn()) {
+                chapter(dependency.id()).map(ChapterEntry::chapter)
+                        .filter(target -> target.rules().completesWhen().isEmpty())
+                        .ifPresent(withoutCompletion::add);
+            }
+            int required = rules.requiredCount();
+            int completable = rules.dependsOn().size() - withoutCompletion.size();
+            if (completable >= required || withoutCompletion.isEmpty()) {
+                continue;
+            }
+            Chapter culprit = withoutCompletion.get(0);
+            problems.error(entry.document(), entry.path() + ".dependsOn",
+                    "this chapter waits on " + required + " of " + rules.dependsOn().size()
+                            + " chapter(s) being completed, but only " + completable + " of them declare a"
+                            + " completesWhen, so it can never be opened"
+                            + "\n    \"" + culprit.id() + "\" declares no completesWhen, so it never reports"
+                            + " completed: give it one, or wait on it with \"one_started\" or"
+                            + " \"all_started\"");
         }
     }
 
@@ -527,9 +794,20 @@ public final class QuestIndex {
 
     /** Levenshtein over the known identifiers, for a "did you mean" on an unresolved dependency. */
     private Optional<String> nearestIdentifier(String missed) {
+        return nearest(byIdentifier.keySet(), missed);
+    }
+
+    /**
+     * The nearest name in one table, for a "did you mean".
+     *
+     * <p>Parameterised by the names rather than by the table because a chapter reference needs the
+     * suggestion as much as a quest one does — the two tables hold different things and the same
+     * arithmetic — and a second copy of this loop is a second answer to "which name did they mean".
+     */
+    private static Optional<String> nearest(java.util.Collection<String> names, String missed) {
         String best = null;
         int bestDistance = 3;
-        for (String candidate : byIdentifier.keySet()) {
+        for (String candidate : names) {
             int distance = editDistance(missed.toLowerCase(Locale.ROOT), candidate.toLowerCase(Locale.ROOT));
             if (distance < bestDistance) {
                 bestDistance = distance;
@@ -604,6 +882,18 @@ public final class QuestIndex {
      */
     public List<QuestEntry> quests() {
         return quests;
+    }
+
+    /**
+     * One chapter's own quests, in declaration order, or an empty list for a chapter with none.
+     *
+     * <p>An empty list covers two cases that read the same to every caller: a chapter that holds no
+     * quests yet — the state between creating it and writing the first file — and a name that is not a
+     * chapter at all. Neither has quests to report, and a caller that had to tell them apart would be
+     * asking a question about the tree rather than about the quests.
+     */
+    public List<QuestEntry> questsIn(String chapterId) {
+        return questsByChapterId.getOrDefault(chapterId, List.of());
     }
 
     public int questCount() {

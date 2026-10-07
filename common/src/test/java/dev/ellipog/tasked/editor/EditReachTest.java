@@ -48,10 +48,15 @@ class EditReachTest {
                 "the canvas drag, which is one op per tick");
         for (String path : List.of("x", "y", "size", "shape", "rotation", "iconScale", "showTitle",
                 "icon", "title", "subtitle", "description", "invisible",
-                "hideUntilDependenciesVisible", "hideDependencyLines", "dependencyLines")) {
+                "hideUntilDependenciesVisible", "hideUntilDependenciesComplete", "hideTextUntilComplete",
+                "hideDetailsUntilStartable", "invisibleUntilTasks", "hideDependencyLines",
+                "dependencyLines")) {
             assertEquals(TreeRefresh.Touch.COSMETIC, field(path), path + " is drawn and nothing else");
         }
         assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetChapter("title", VALUE)));
+        assertEquals(TreeRefresh.Touch.COSMETIC,
+                reach(new EditorOp.SetChapter("hideUntilDependenciesComplete", VALUE)),
+                "the chapter's own hiding flag: what it changes is derived on the client from the tree");
         assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetGroup("collapsedByDefault", VALUE)));
         assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetIndex("bookTitle", VALUE)));
     }
@@ -82,6 +87,20 @@ class EditReachTest {
         assertEquals(TreeRefresh.Touch.CONTENT, field("requiresStage"),
                 "a stage gate is read by the engine, unlike the flags that only decide what is drawn");
         assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetChapter("progressionMode", VALUE)));
+        assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetChapter("dependsOn", VALUE)),
+                "a chapter's own gate moves the states of every quest inside it");
+        assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetChapter("completesWhen", VALUE)),
+                "and so does what finishes the chapter, since a dependency of it asks for completed");
+        assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetChapter("prerequisiteMode", VALUE)));
+        assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetChapter("minRequired", VALUE)));
+        // Not cosmetic despite moving no stored state, and that is worth a case of its own: the two
+        // chapter defaults are resolved per quest by `QuestSync` and sent on the **progress** channel, so a
+        // COSMETIC touch would update the tree and leave every client drawing the old flags until something
+        // unrelated moved. The delta is what re-sends them.
+        assertEquals(TreeRefresh.Touch.CONTENT,
+                reach(new EditorOp.SetChapter("defaultHideUntilDependenciesComplete", VALUE)));
+        assertEquals(TreeRefresh.Touch.CONTENT,
+                reach(new EditorOp.SetChapter("defaultHideUntilDependenciesVisible", VALUE)));
         assertEquals(TreeRefresh.Touch.CONTENT, reach(new EditorOp.SetIndex("stageOverrides", VALUE)));
     }
 

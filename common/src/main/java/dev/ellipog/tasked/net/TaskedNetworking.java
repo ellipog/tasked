@@ -724,27 +724,28 @@ public final class TaskedNetworking {
      */
     public static void sendProblemsToAll(MinecraftServer server,
                                          dev.ellipog.armature.api.data.Problems problems) {
-        if (problems == null || problems.isEmpty()) {
+        EditProblemsPayload payload = EditProblemsPayload.of(problems);
+        if (payload == null) {
             return;
         }
-        java.util.List<dev.ellipog.armature.api.data.DataProblem> all = problems.all();
-        StringBuilder text = new StringBuilder();
-        int shown = 0;
-        for (dev.ellipog.armature.api.data.DataProblem problem : all) {
-            String line = problem.renderWithPath();
-            // The count travels separately, so a list cut short here says how many it is not showing rather
-            // than reading as the whole of it.
-            if (text.length() + line.length() + 1 > EditProblemsPayload.MAX_CHARS) {
-                break;
-            }
-            if (shown > 0) {
-                text.append('\n');
-            }
-            text.append(line);
-            shown++;
-        }
-        EditProblemsPayload payload = new EditProblemsPayload(all.size(), text.toString());
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            ArmatureNetwork.sendToPlayer(player, payload);
+        }
+    }
+
+    /**
+     * The same report, to <b>one</b> player — what a join needs.
+     *
+     * <h2>Why the join does not use the broadcast</h2>
+     *
+     * <p>Because the report is produced by a reload and this is not one. A player arriving has to be told
+     * what the <i>last</i> load found, and re-broadcasting it would repeat the whole report to everyone
+     * already online, once per join, for a pack none of them changed. The faults are the pack's and are the
+     * same for everyone; the <i>telling</i> is per player, because arriving is.
+     */
+    public static void sendProblemsTo(ServerPlayer player, dev.ellipog.armature.api.data.Problems problems) {
+        EditProblemsPayload payload = EditProblemsPayload.of(problems);
+        if (payload != null) {
             ArmatureNetwork.sendToPlayer(player, payload);
         }
     }

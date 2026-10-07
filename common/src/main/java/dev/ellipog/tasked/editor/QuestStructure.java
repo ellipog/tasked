@@ -364,7 +364,7 @@ public final class QuestStructure {
             return Outcome.refused("\"" + newId + "\" is already a folder in that place");
         }
 
-        Set<String> taken = existingIds(root, QuestFiles.Kind.QUEST);
+        Set<String> taken = questIdsInPack(root);
         List<QuestFiles.Declaration> chapterQuests = questsOf(root, folder);
         List<String> names = new ArrayList<>();
         List<ReId> reIds = new ArrayList<>();
@@ -381,7 +381,7 @@ public final class QuestStructure {
         edit.forget(newId);
         edit.creates(copy);
         edit.writeText(copy.resolve(QuestFiles.CHAPTER_MANIFEST),
-                copiedChapterJson(folder, newId, newTitle, names));
+                copiedChapterJson(folder, newId, newTitle, names, reIds, List.of()));
         for (QuestFiles.Declaration quest : chapterQuests) {
             String fileName = quest.path().getFileName().toString();
             String questId = quest.id() == null ? fileName : quest.id();
@@ -417,7 +417,7 @@ public final class QuestStructure {
         }
 
         Set<String> chapterIds = existingIds(root, QuestFiles.Kind.CHAPTER);
-        Set<String> questIds = existingIds(root, QuestFiles.Kind.QUEST);
+        Set<String> questIds = questIdsInPack(root);
         List<String> sourceChapters = groupChapterNames(root, id);
         List<String> newChapters = new ArrayList<>();
         List<Rename> chapterRenames = new ArrayList<>();
@@ -446,7 +446,7 @@ public final class QuestStructure {
                 reIds.add(new ReId(questId, fresh));
             }
             edit.writeText(copy.resolve(rename.to()).resolve(QuestFiles.CHAPTER_MANIFEST),
-                    copiedChapterJson(sourceChapter, rename.to(), rename.to(), names));
+                    copiedChapterJson(sourceChapter, rename.to(), rename.to(), names, reIds, chapterRenames));
             for (QuestFiles.Declaration quest : quests) {
                 String fileName = quest.path().getFileName().toString();
                 String questId = quest.id() == null ? fileName : quest.id();
@@ -799,7 +799,13 @@ public final class QuestStructure {
                 .toList();
     }
 
-    /** Every id of one kind in the tree, from the loader's own walk. */
+    /**
+     * Every id of one kind in the tree, from the loader's own walk.
+     *
+     * <p>For groups and chapters that is the right question and the whole of it: a chapter <i>is</i> a
+     * folder the walk reaches, so a chapter the walk cannot see is one that cannot be opened either. Quests
+     * are the case where it is not — see {@link #questIdsInPack}.
+     */
     private static Set<String> existingIds(Path root, QuestFiles.Kind kind) {
         return QuestFiles.discover(root).of(kind).stream()
                 .map(QuestFiles.Declaration::id)
@@ -818,11 +824,31 @@ public final class QuestStructure {
      * clicked, and its progress is whatever the other one's is.
      *
      * <p>An editor that minted against its own chapter alone therefore produced that state by naming a new
-     * quest {@code quest} while another chapter already had one. The check has to see the pack, and this is
-     * the loader's own walk rather than a second opinion about what is on disk.
+     * quest {@code quest} while another chapter already had one.
+     *
+     * <h2>Why it is the files and not the loader's walk</h2>
+     *
+     * <p>It used to be {@code existingIds(root, QUEST)} — the loader's own discovery — and that is the
+     * wrong set for the key being minted. Discovery reports what the loader <i>will read</i>, so a pack the
+     * loader is unhappy with hides ids that are nonetheless written down: a quest file its chapter's
+     * {@code quests} list does not mention, a folder inside a chapter folder, a whole subtree under a
+     * manifest that will not parse, and every quest inside a version-1 flat file, whose declaration is one
+     * {@code FLAT_V1} entry and not a quest at all. The author fixing those errors later finds a collision
+     * the editor created while it was looking at the same folder. So the scan is
+     * {@link QuestFiles#allQuestIds}, which reads every file the loader <i>would</i> read if the pack were
+     * well-formed.
+     *
+     * <p><b>The loaded index is deliberately not consulted, and neither are the open editors.</b> The disk
+     * is the authority the loader itself reads, and this scan is fresher than the index: a file edited by
+     * hand a moment ago is on disk and not in the index, while the reverse cannot happen. An id an editor
+     * has just minted is on disk and named in its manifest before the op that minted it answers — every
+     * create, duplicate and paste writes both, and saves, inside the op — so a second mint in the same
+     * burst already sees it. Adding the index here would also make this answer depend on a global that
+     * outlives one chapter, and a name refused because another world's questline once held it is a
+     * different bug from the one this prevents.
      */
     public static Set<String> questIdsInPack(Path root) {
-        return existingIds(root, QuestFiles.Kind.QUEST);
+        return QuestFiles.allQuestIds(root, new Problems());
     }
 
     private static int indexOfChapter(Path root, String group, String chapter) {
@@ -848,42 +874,72 @@ public final class QuestStructure {
     }
 
     /**
+     * The root entries read off the disk: group folders and root chapters by name, then flat files.
+     *
+     * <p>Extracted from {@link #readIndex} because it now has two callers, and they are the same
+     * question asked twice: what does the root hold, when no usable manifest says? A tree written
+     * before {@code index.json} existed is the first; a manifest that cannot say what the root is --
+     * because it is unreadable, or because its {@code entries} is not a list -- is the second.
+     *
+     * <p>Both must give the same answer, or the same directory would load one way and be edited
+     * another. The loader makes the same call from the other side: see
+     * {@code QuestFiles.discoverIndexed}'s note on returning whether it read the root.
+     */
+    private static List<Entry> bootEntries(Path root) {
+        List<Entry> boot = new ArrayList<>();
+        for (Path folder : rootFolders(root)) {
+            if (Files.isRegularFile(folder.resolve(QuestFiles.GROUP_MANIFEST))) {
+                boot.add(new Entry("group", folder.getFileName().toString()));
+            }
+            else if (Files.isRegularFile(folder.resolve(QuestFiles.CHAPTER_MANIFEST))) {
+                boot.add(new Entry("chapter", folder.getFileName().toString()));
+            }
+        }
+        try (Stream<Path> files = Files.list(root)) {
+            files.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".json"))
+                    .filter(path -> !path.getFileName().toString().equals(QuestFiles.INDEX_MANIFEST))
+                    .filter(path -> !isSkipped(path.getFileName().toString()))
+                    .sorted()
+                    .forEach(path -> boot.add(new Entry("file", path.getFileName().toString())));
+        }
+        catch (IOException ignored) {
+            // A root that cannot be listed is a root no edit can help; the write below will say so.
+        }
+        return boot;
+    }
+
+    /**
      * The root entries, in order: the manifest's when it exists, the disk's when it does not.
      *
      * <p>The fallback is what makes the first structural edit on an old tree non-destructive: the entry
      * list it writes is the order that tree already loaded in — group folders by name, flat files by
      * name — so gaining an index does not reorder anything.
+     *
+     * <p>And "when it does not exist" is really "when it does not say". A manifest that is there and
+     * cannot declare a usable {@code entries} list is read the same way, for the same reason — see
+     * {@link #bootEntries} — which is the case that used to write an empty list back over the tree's
+     * order.
      */
     private static List<Entry> readIndex(Path root) {
         String text = readText(indexPath(root)).orElse(null);
         if (text == null) {
-            List<Entry> boot = new ArrayList<>();
-            for (Path folder : rootFolders(root)) {
-                if (Files.isRegularFile(folder.resolve(QuestFiles.GROUP_MANIFEST))) {
-                    boot.add(new Entry("group", folder.getFileName().toString()));
-                }
-                else if (Files.isRegularFile(folder.resolve(QuestFiles.CHAPTER_MANIFEST))) {
-                    boot.add(new Entry("chapter", folder.getFileName().toString()));
-                }
-            }
-            try (Stream<Path> files = Files.list(root)) {
-                files.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().endsWith(".json"))
-                        .filter(path -> !path.getFileName().toString().equals(QuestFiles.INDEX_MANIFEST))
-                        .filter(path -> !isSkipped(path.getFileName().toString()))
-                        .sorted()
-                        .forEach(path -> boot.add(new Entry("file", path.getFileName().toString())));
-            }
-            catch (IOException ignored) {
-                // A root that cannot be listed is a root no edit can help; the write below will say so.
-            }
-            return boot;
+            return bootEntries(root);
         }
         JsonFile file = parse(indexPath(root), text);
-        List<Entry> entries = new ArrayList<>();
         JsonElement entriesElement = file.get("entries");
-        JsonArray array = entriesElement != null && entriesElement.isJsonArray()
-                ? entriesElement.getAsJsonArray() : new JsonArray();
+        if (entriesElement == null || !entriesElement.isJsonArray()) {
+            // **A manifest that cannot say what the root is, read as absent rather than as empty.** An
+            // index with a settings block and no `entries`, or with an `entries` that is an object, is a
+            // file somebody has hand-edited -- and treating it as an *empty* entry list is not a harmless
+            // default, because the next structural edit writes that list back: one drag would delete the
+            // root order the tree has, silently, and the loader would then read the book in folder-name
+            // order with a line saying why. The disk is the only remaining record of the order, so the
+            // disk is what answers, exactly as it does when there is no file at all.
+            return bootEntries(root);
+        }
+        List<Entry> entries = new ArrayList<>();
+        JsonArray array = entriesElement.getAsJsonArray();
         for (var element : array) {
             if (!element.isJsonObject()) {
                 continue;
@@ -1177,8 +1233,19 @@ public final class QuestStructure {
         file.setStrings("aliases", aliases);
     }
 
-    /** A copy of a chapter manifest: new id and title, the quest filenames re-id'd, aliases dropped. */
-    private static String copiedChapterJson(Path folder, String newId, String newTitle, List<String> quests) {
+    /**
+     * A copy of a chapter manifest: new id and title, the quest filenames re-id'd, aliases dropped.
+     *
+     * <p>{@code dependsOn}, {@code prerequisiteMode}, {@code minRequired} and
+     * {@code hideUntilDependenciesComplete} travel with the copy untouched, because a copy waits on what
+     * the original waited on — with one exception, which is what {@code chapterRenames} is for: a chapter
+     * copied as part of a <b>duplicated group</b> has its siblings renamed too, and a copy that went on
+     * naming the originals would be two roads that both follow the other pack's chapters instead of one
+     * self-contained copy. {@code completesWhen} is remapped through {@code reIds} for the same reason a
+     * quest's {@code dependsOn} is: a milestone inside the copy is a copy, not the original.
+     */
+    private static String copiedChapterJson(Path folder, String newId, String newTitle, List<String> quests,
+                                            List<ReId> reIds, List<Rename> chapterRenames) {
         Path manifest = folder.resolve(QuestFiles.CHAPTER_MANIFEST);
         JsonFile file = parse(manifest, readText(manifest).orElse("{}"));
         file.setText("id", newId);
@@ -1188,6 +1255,32 @@ public final class QuestStructure {
         // duplicate id by another name -- and an alias list that named somebody else's old name is a
         // reference to a thing this copy is not.
         file.remove("aliases");
+
+        List<String> dependsOn = new ArrayList<>(file.strings("dependsOn"));
+        for (int i = 0; i < dependsOn.size(); i++) {
+            String at = dependsOn.get(i);
+            for (Rename rename : chapterRenames) {
+                if (rename.from().equals(at)) {
+                    dependsOn.set(i, rename.to());
+                }
+            }
+        }
+        if (!dependsOn.isEmpty()) {
+            file.setStrings("dependsOn", dependsOn);
+        }
+
+        List<String> completesWhen = new ArrayList<>(file.strings("completesWhen"));
+        for (int i = 0; i < completesWhen.size(); i++) {
+            String at = completesWhen.get(i);
+            for (ReId reId : reIds) {
+                if (reId.from().equals(at)) {
+                    completesWhen.set(i, reId.to());
+                }
+            }
+        }
+        if (!completesWhen.isEmpty()) {
+            file.setStrings("completesWhen", completesWhen);
+        }
         return file.json();
     }
 

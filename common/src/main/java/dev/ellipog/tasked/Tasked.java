@@ -147,6 +147,12 @@ public final class Tasked {
             // says so, which is indistinguishable from having no quests loaded at all.
             TaskedNetworking.sendEverythingTo(player);
 
+            // And what the last load found wrong with the pack. The report an edit produces reaches
+            // whoever is online for it, and the player arriving now was not -- so a pack with a dangling
+            // dependency looked exactly like one without, to somebody who may be the only one able to fix
+            // it. Sent to this player alone: the faults are the pack's, but the telling is per arrival.
+            TaskedNetworking.sendProblemsTo(player, TaskedQuests.problems());
+
             // Automatic rewards owed from a completion that happened while they were away. A quest
             // finished with the party online hands each member their own copy at completion; this is
             // the member who was not there, collecting on the next join -- as FTBQ's login check does.

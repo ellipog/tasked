@@ -1715,6 +1715,191 @@ class QuestSyncTest {
     }
 
     // ------------------------------------------------------------------
+    // Chapter gates
+    // ------------------------------------------------------------------
+
+    /**
+     * Two chapters, the second waiting on the first and hidden until its gate is met.
+     *
+     * <p>The same shape {@code ChapterDependencyTest} and {@code ProgressionEngineTest} use, built through
+     * the v1 fixture so this file keeps testing the wire rather than the loader — the index is only the
+     * input here, and what is under test is that the gate crosses it.
+     */
+    private static QuestIndex twoGatedChapters() {
+        return Fixtures.indexOf(Fixtures.fileWithChapters(
+                Fixtures.chapterWith("first", "\"completesWhen\": [\"a\"],",
+                        "{\"id\": \"a\", \"title\": \"A\"}"),
+                Fixtures.chapterWith("second",
+                        "\"dependsOn\": [\"first\"], \"prerequisiteMode\": \"one_started\","
+                                + " \"minRequired\": 1, \"hideUntilDependenciesComplete\": true,",
+                        "{\"id\": \"b\", \"title\": \"B\"}")));
+    }
+
+    @Test
+    @DisplayName("a chapter's own gate travels, and the reader holds it under the same names")
+    void chapterGatesTravel() {
+        // The two ends are hand-written, so the field names are exactly what they can disagree about --
+        // which is why this asserts the raw JSON as well as the round trip. A gate that reached the
+        // client as nothing would draw every chapter as open, and the author's hiding flag with it.
+        QuestIndex index = twoGatedChapters();
+        JsonObject root = JsonParser.parseString(
+                new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+        JsonArray chapters = root.getAsJsonArray("chapters");
+
+        JsonObject first = chapters.get(0).getAsJsonObject();
+        assertEquals("first", first.get("id").getAsString());
+        assertFalse(first.has("dependsOn"), "a chapter that waits on nothing sends no list at all");
+        assertEquals("all_completed", first.get("prerequisiteMode").getAsString(),
+                "the gate's mode is always sent: nothing sits above a chapter for it to inherit from");
+        assertEquals(0, first.get("minRequired").getAsInt());
+        assertFalse(first.has("hideUntilDependenciesComplete"),
+                "absent is the ordinary case: shown, and drawable");
+
+        JsonObject second = chapters.get(1).getAsJsonObject();
+        assertEquals("first", second.getAsJsonArray("dependsOn").get(0).getAsString());
+        assertEquals("one_started", second.get("prerequisiteMode").getAsString());
+        assertEquals(1, second.get("minRequired").getAsInt());
+        assertTrue(second.get("hideUntilDependenciesComplete").getAsBoolean(),
+                "the author's hiding flag crosses, or the reader cannot honour it");
+
+        // And the reader. Absent keys read as the same defaults the file gives, so this also pins what a
+        // version-11 tree means.
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        ClientQuestCache.ChapterEntry readFirst = ClientQuestCache.chapters().get(0);
+        assertFalse(readFirst.waits(), "no dependencies, so nothing to wait for");
+        assertEquals(dev.ellipog.tasked.quest.PrerequisiteMode.ALL_COMPLETED, readFirst.prerequisiteMode());
+        assertFalse(readFirst.hideUntilDependenciesComplete());
+
+        ClientQuestCache.ChapterEntry readSecond = ClientQuestCache.chapters().get(1);
+        assertEquals(List.of("first"), readSecond.dependsOn());
+        assertEquals(dev.ellipog.tasked.quest.PrerequisiteMode.ONE_STARTED, readSecond.prerequisiteMode());
+        assertEquals(1, readSecond.minRequired());
+        assertTrue(readSecond.hideUntilDependenciesComplete(), "and the hiding flag survived the trip");
+    }
+
+    @Test
+    @DisplayName("chapter states ride the progress channel, and an unknown chapter reads as open")
+    void chapterStatesArrive() {
+        // The other half of a chapter gate: the tree says what a chapter waits for, and this says how far
+        // it has got. Computed on the server because the client's own view of the canvas is filtered --
+        // an author sees hidden quests and a reader does not -- so a chapter state derived here would
+        // disagree with the server's for the person most likely to notice.
+        QuestIndex index = twoGatedChapters();
+
+        TeamProgress empty = TeamProgress.empty();
+        byte[] full = QuestSync.progressAsJson(ProgressionEngine.resolve(index, empty, NOW), empty, index);
+        String raw = new String(full, StandardCharsets.UTF_8);
+        assertTrue(raw.contains("\"chapters\""),
+                "the chapter states have to be in the message at all: " + raw);
+        JsonObject written = JsonParser.parseString(raw).getAsJsonObject().getAsJsonObject("chapters");
+        assertEquals("UNLOCKED", written.get("first").getAsString(), raw);
+        assertEquals("LOCKED", written.get("second").getAsString(),
+                "the same uppercase spelling the per-quest state beside it uses: " + raw);
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, full, CLIENT_TICK);
+
+        assertEquals(QuestState.UNLOCKED, ClientQuestCache.chapterStateOf("first"),
+                "'a' is not started, so its chapter is open with nothing done");
+        assertEquals(QuestState.LOCKED, ClientQuestCache.chapterStateOf("second"),
+                "and the chapter waiting on it is shut");
+        assertEquals(QuestState.UNLOCKED, ClientQuestCache.chapterStateOf("never_heard_of_it"),
+                "an unknown chapter reads as open, which is the reading that hides least");
+
+        // Starting the milestone moves the chapter, and the chapter's own state follows it in the same
+        // message -- which is what makes the sidebar row appear on the tick the gate is met.
+        TeamProgress touched = TeamProgress.empty()
+                .put(Fixtures.quest(index, "a"), QuestProgress.NONE.recordTask(0, 1));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(ProgressionEngine.resolve(index, touched, NOW), touched, index),
+                CLIENT_TICK);
+
+        assertEquals(QuestState.STARTED, ClientQuestCache.chapterStateOf("first"));
+        assertEquals(QuestState.UNLOCKED, ClientQuestCache.chapterStateOf("second"),
+                "one_started asks for a touch, and it has one");
+    }
+
+    @Test
+    @DisplayName("a version-11 tree and a progress message with no chapters leave every chapter open")
+    void olderServersHideNothing() {
+        // The additive rule, asserted the way it matters: a server that has never heard of chapter gates
+        // sends neither the tree fields nor the progress map, and the honest reading of both silences is
+        // that every chapter is open -- which is exactly what this client did before the feature.
+        ClientQuestCache.acceptTree(1, 1, """
+                {"version":11,"groups":[],"chapters":[{"id":"chapter","groupId":"","title":"Chapter",
+                 "icon":""}],"quests":[]}
+                """.getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(1, ClientQuestCache.chapters().size(), "the chapter list itself still arrives");
+        assertFalse(ClientQuestCache.chapters().get(0).waits(), "and it waits on nothing");
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, """
+                {"version":1,"quests":{}}
+                """.getBytes(StandardCharsets.UTF_8), CLIENT_TICK);
+
+        assertEquals(QuestState.UNLOCKED, ClientQuestCache.chapterStateOf("chapter"),
+                "no chapter map means every chapter is open, not shut");
+    }
+
+    @Test
+    @DisplayName("the chapter's reveal defaults reach the wire as one resolved boolean per quest")
+    void revealDefaultsResolvePerQuest() {
+        // The chapter says what its quests do by default; a quest that says nothing inherits, and a quest
+        // that says `false` really does opt out -- which is the whole reason the two fields are three-state
+        // rather than booleans. Resolved on the side that writes the wire, so the client reads one answer
+        // and owns no ladder of its own.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapters(
+                Fixtures.chapterWith("chapter",
+                        "\"defaultHideUntilDependenciesComplete\": true,"
+                                + " \"defaultHideUntilDependenciesVisible\": true,",
+                        Fixtures.q("silent").build(),
+                        Fixtures.q("opted_out").hideUntilDependenciesComplete(false)
+                                .hideUntilDependenciesVisible(false).build(),
+                        Fixtures.q("opted_in").hideUntilDependenciesComplete(true).build())));
+
+        byte[] tree = QuestSync.treeAsJson(index);
+
+        assertTrue(revealFlag(tree, "silent", "hideUntilDependenciesComplete"),
+                "a quest that says nothing takes the chapter's default");
+        assertTrue(revealFlag(tree, "silent", "hideUntilDependenciesVisible"));
+        assertFalse(revealFlag(tree, "opted_out", "hideUntilDependenciesComplete"),
+                "and one that says false overrides a chapter default of true");
+        assertFalse(revealFlag(tree, "opted_out", "hideUntilDependenciesVisible"));
+        assertTrue(revealFlag(tree, "opted_in", "hideUntilDependenciesComplete"));
+        assertTrue(revealFlag(tree, "opted_in", "hideUntilDependenciesVisible"),
+                "a quest with no opinion on the *other* flag still inherits that one");
+
+        // A chapter that says nothing sends false for both, which is what every pack written before these
+        // fields existed means by saying nothing.
+        byte[] plain = QuestSync.treeAsJson(twoGatedChapters());
+        assertFalse(revealFlag(plain, "b", "hideUntilDependenciesComplete"));
+        assertFalse(revealFlag(plain, "b", "hideUntilDependenciesVisible"));
+
+        // And the chapter's own record does not carry them. They are authoring fields whose only effect is
+        // the per-quest value above, so the tree grows no keys and TREE_VERSION does not move -- if that
+        // ever changes, this fails and whoever changed it has to decide about the version.
+        JsonObject chapter = JsonParser.parseString(new String(tree, StandardCharsets.UTF_8))
+                .getAsJsonObject().getAsJsonArray("chapters").get(0).getAsJsonObject();
+        assertFalse(chapter.has("defaultHideUntilDependenciesComplete"),
+                "the reveal defaults are resolved per quest rather than sent as chapter state");
+        assertFalse(chapter.has("defaultHideUntilDependenciesVisible"));
+        assertEquals(QuestSync.TREE_VERSION, JsonParser.parseString(new String(tree, StandardCharsets.UTF_8))
+                        .getAsJsonObject().get("version").getAsInt(),
+                "fixture sanity: this is the tree this build writes");
+    }
+
+    /** One reveal flag of one quest, off the tree as raw JSON. */
+    private static boolean revealFlag(byte[] tree, String questId, String key) {
+        JsonArray quests = JsonParser.parseString(new String(tree, StandardCharsets.UTF_8))
+                .getAsJsonObject().getAsJsonArray("quests");
+        for (JsonElement element : quests) {
+            JsonObject one = element.getAsJsonObject();
+            if (one.get("id").getAsString().equals(questId)) {
+                return one.get(key).getAsBoolean();
+            }
+        }
+        throw new AssertionError("no quest " + questId + " in the tree");
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 

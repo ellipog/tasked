@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.quest;
 
 import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tasked.editor.QuestEditor;
 import dev.ellipog.tasked.editor.ServerEditors;
 import dev.ellipog.tasked.editor.ServerTables;
@@ -64,6 +65,25 @@ public final class TaskedQuests {
      * see rather than a line in a log they have to go and find.
      */
     private static volatile java.util.Map<String, String> refusedTables = java.util.Map.of();
+
+    /**
+     * What the last full load found wrong, for a player who was not there when it happened.
+     *
+     * <h2>Why it is held rather than derived</h2>
+     *
+     * <p>The same reason {@link #refusedTables} is: the load's problems are thrown away with its result,
+     * and their only other reader is the log. That was enough while the report was something an <i>edit</i>
+     * produced — {@code refreshTree} is the only caller of the sender, so a player who joined after the last
+     * reload was sent the tree and nothing else. A pack with a dangling dependency therefore looked exactly
+     * like a pack without one, to the one person who might be able to fix it.
+     *
+     * <p><b>Set by {@link #reload} and not by {@link #reloadTables}.</b> A full load reads the quests and
+     * the tables, so its problems are the whole set; a table-only reload's are a subset of a set this field
+     * already holds, and replacing it there would drop every quest fault from the report. The cost is
+     * narrow and worth naming: a table fault that is not a refusal — a cycle between tables — reaches the
+     * players who were online for it and not one who joins later.
+     */
+    private static volatile Problems problems = new Problems();
     /**
      * The chapters this server has open for editing.
      *
@@ -119,9 +139,20 @@ public final class TaskedQuests {
         settings = QuestSettings.load(QuestEditor.root(ArmatureApi.platform().configDir()));
         rewardTables = result.rewardTables();
         refusedTables = refusals(result.problems(), result.refusedTables());
+        problems = result.problems();
 
         report(result);
         return result;
+    }
+
+    /**
+     * What the last full load found wrong, or an empty set. Never null.
+     *
+     * <p>For the join path: the report an edit produces reaches whoever is online for it, and this is what
+     * lets the same facts reach a player who arrives afterwards. See {@link #problems}.
+     */
+    public static Problems problems() {
+        return problems;
     }
 
     /**

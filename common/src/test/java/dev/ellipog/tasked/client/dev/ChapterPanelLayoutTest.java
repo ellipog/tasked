@@ -54,6 +54,69 @@ class ChapterPanelLayoutTest {
     }
 
     @Test
+    @DisplayName("the pack's faults come first, carry the count, and cannot be folded away")
+    void thePacksFaultsComeFirst() {
+        // **The one thing on this tab that is not this chapter.** A chapter's copy can have arrived
+        // perfectly and the pack still be broken -- a dangling dependency, a cycle between files, an id in
+        // two chapters -- and those are the faults no single file can show. The report used to be a toast
+        // that scrolled away, so an author who missed it went on working on a pack whose quests were
+        // quietly absent from the tree.
+        ChapterPanelLayout.Problems problems = new ChapterPanelLayout.Problems(3, List.of(
+                "a.json:4:9: error: no quest with id or alias \"gone\" exists",
+                "b.json:1:1: error: circular dependency: p -> q -> p"));
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), null, Set.of(), null, problems);
+
+        assertEquals(ChapterPanelLayout.PROBLEMS, rows.get(0).key(),
+                "above Identity, because it is about the pack rather than about this chapter");
+        assertTrue(rows.get(0).isHeading(), "a heading, so the panel draws it as one");
+        // The label is resolved in the layout rather than at the draw site, because a heading's label is
+        // drawn through `Labels.of` with **no values** and a `%s` left in it would be drawn as one. So what
+        // is asserted is the count having reached the drawn string, and the label not being the bare key --
+        // both of which hold whether or not a language is installed, which the English sentence alone would
+        // not: a test that read "Problems (3)" would pass or fail on what ran before it in the JVM.
+        assertTrue(rows.get(0).label().contains("3"),
+                "the count reached the label: " + rows.get(0).label());
+        assertFalse(rows.get(0).label().equals("tasked.dev.chapter.problems"),
+                "and the label is not the bare key, which is what a no-values resolution would have drawn"
+                        + " if the layout had left the placeholder in it: " + rows.get(0).label());
+
+        // And it does not fold. A folded fault is a hidden one, which is the whole of what it exists to
+        // stop -- the arrangement `SHAPE_SECTION` already has. One predicate decides both the rule the
+        // panel draws and the widget the screen builds, so this assertion covers both.
+        assertFalse(ToolsLayout.folds(ChapterPanelLayout.PROBLEMS), "a fault is not a category to put away");
+
+        // The lines, then how many the payload could not carry -- the count travels separately from the
+        // list precisely so a cut-short report says what it is not showing.
+        assertEquals(List.of(ChapterPanelLayout.VALUE_PREFIX + "problem:0",
+                        ChapterPanelLayout.VALUE_PREFIX + "problem:1",
+                        ChapterPanelLayout.VALUE_PREFIX + "problems:more"),
+                rows.stream().map(ToolsLayout.Action::key)
+                        .filter(key -> key.startsWith(ChapterPanelLayout.VALUE_PREFIX + "problem"))
+                        .toList());
+        assertEquals("b.json:1:1: error: circular dependency: p -> q -> p",
+                row(rows, ChapterPanelLayout.VALUE_PREFIX + "problem:1").value(),
+                "the server's own sentence, not a rewording of it");
+    }
+
+    @Test
+    @DisplayName("nothing wrong, and nothing heard, are both no section at all")
+    void noProblemsIsNoSection() {
+        // The two states draw the same, deliberately: the panel has nothing to say in either case, and a
+        // heading over an empty list would be a line about a load the player was never told about.
+        assertFalse(ChapterPanelLayout.rows(chapter(), Set.of()).stream()
+                        .anyMatch(row -> row.key().equals(ChapterPanelLayout.PROBLEMS)),
+                "the rows built without a report carry no such heading");
+        assertFalse(ChapterPanelLayout.rows(chapter(), null, Set.of(), null, ChapterPanelLayout.Problems.NONE)
+                        .stream().anyMatch(row -> row.key().equals(ChapterPanelLayout.PROBLEMS)),
+                "and neither does an explicit empty one");
+        // And a report whose lines were all cut still shows: the count is the fault, not the list.
+        assertTrue(ChapterPanelLayout.rows(chapter(), null, Set.of(), null,
+                        new ChapterPanelLayout.Problems(4, List.of())).stream()
+                        .anyMatch(row -> row.key().equals(ChapterPanelLayout.PROBLEMS)),
+                "a count with no lines is still a broken pack");
+    }
+
+    @Test
     @DisplayName("the sections are there, in order, and every key is the path it commits to")
     void sectionsInOrder() {
         List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
@@ -65,6 +128,9 @@ class ChapterPanelLayoutTest {
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
                         "progressionMode", "defaultConsumeItems", "defaultPrerequisiteMode", "autoClaim",
+                        "prerequisiteMode", "minRequired", "dependsOn", "completesWhen",
+                        "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
+                        "defaultHideUntilDependenciesVisible",
                         "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
                         "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight"),
                 rows.stream().filter(row -> !row.isHeading()
@@ -84,7 +150,17 @@ class ChapterPanelLayoutTest {
         assertEquals("tasked.dev.chapter.progression", row(rows, "progressionMode").label());
         assertEquals("tasked.dev.chapter.prerequisite", row(rows, "defaultPrerequisiteMode").label());
         assertEquals("tasked.dev.chapter.auto_claim", row(rows, "autoClaim").label());
+        assertEquals("tasked.dev.chapter.gate_mode", row(rows, "prerequisiteMode").label());
+        assertEquals("tasked.dev.chapter.gate_min", row(rows, "minRequired").label());
+        assertEquals("tasked.dev.chapter.depends_on", row(rows, "dependsOn").label());
+        assertEquals("tasked.dev.chapter.completes_when", row(rows, "completesWhen").label());
+        assertEquals("tasked.dev.chapter.hide_until_deps",
+                row(rows, "hideUntilDependenciesComplete").label());
         assertEquals("tasked.dev.chapter.aliases", row(rows, "aliases").label());
+        assertEquals("tasked.dev.chapter.default_hide_deps_complete",
+                row(rows, "defaultHideUntilDependenciesComplete").label());
+        assertEquals("tasked.dev.chapter.default_hide_deps_visible",
+                row(rows, "defaultHideUntilDependenciesVisible").label());
         assertEquals("tasked.dev.chapter.line_form", row(rows, "dependencyStyle.form").label());
         assertEquals("tasked.dev.chapter.line_head", row(rows, "dependencyStyle.arrowHead").label());
         assertEquals("tasked.dev.chapter.line_place", row(rows, "dependencyStyle.arrowPlace").label());
@@ -190,10 +266,83 @@ class ChapterPanelLayoutTest {
     void theUnsetStateNamesItsFallback() {
         assertEquals("Default (all completed)",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.PREREQUISITE, ""));
+        assertEquals("Default (all completed)",
+                ChapterPanelLayout.choiceLabel(ChapterPanelLayout.GATE_MODE, ""),
+                "the gate's own mode falls back to the reading that asks the most");
         assertEquals("Default (chamfered)",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.LINE_FORM, ""));
         assertEquals("dashed",
                 ChapterPanelLayout.choiceLabel(ChapterPanelLayout.LINE_DASH, "dashed"));
+    }
+
+    // ------------------------------------------------------------------
+    // The chapter's own gate
+    // ------------------------------------------------------------------
+
+    /** A chapter that waits on another, finishes on a quest, and hides until then. */
+    private static JsonObject gated() {
+        return JsonParser.parseString("""
+                {
+                  "id": "second_steps",
+                  "title": "Second Steps",
+                  "prerequisiteMode": "one_started",
+                  "minRequired": 1,
+                  "dependsOn": ["first_steps", "prologue"],
+                  "completesWhen": ["the_festival"],
+                  "hideUntilDependenciesComplete": true,
+                  "defaultHideUntilDependenciesComplete": true,
+                  "defaultHideUntilDependenciesVisible": true,
+                  "quests": []
+                }
+                """).getAsJsonObject();
+    }
+
+    @Test
+    @DisplayName("the gate rows show the file's own values, and a chapter that says nothing shows nothing")
+    void theGateRowsReadTheFile() {
+        // Every row here prints what the *file* says rather than the codec's default, which is the rule
+        // the rest of this panel follows: a row that printed the default would make "unset" and "set to
+        // the default" look alike, and the first is what an author resets to.
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(gated(), Set.of());
+
+        assertEquals("one_started", row(rows, "prerequisiteMode").value());
+        assertEquals("1", row(rows, "minRequired").value());
+        assertEquals("first_steps, prologue", row(rows, "dependsOn").value(),
+                "the list reads as a comma list, the shape the aliases row above it uses");
+        assertEquals("the_festival", row(rows, "completesWhen").value());
+        assertEquals(ToolsLayout.ON, row(rows, "hideUntilDependenciesComplete").buttonLabel(),
+                "a switch row's state is its button's, like every other flag on this tab");
+
+        List<ToolsLayout.Action> plain = ChapterPanelLayout.rows(chapter(), Set.of());
+        assertEquals("", row(plain, "prerequisiteMode").value(), "nothing said, nothing shown");
+        assertEquals("", row(plain, "minRequired").value());
+        assertEquals("", row(plain, "dependsOn").value());
+        assertEquals("", row(plain, "completesWhen").value());
+        assertEquals(ToolsLayout.OFF, row(plain, "hideUntilDependenciesComplete").buttonLabel(),
+                "and shown-until-open is what a chapter that says nothing does");
+        assertEquals(ToolsLayout.ON, row(rows, "defaultHideUntilDependenciesComplete").buttonLabel(),
+                "the quests' own default is a switch too, and it reads the file");
+        assertEquals(ToolsLayout.ON, row(rows, "defaultHideUntilDependenciesVisible").buttonLabel());
+        assertEquals(ToolsLayout.OFF, row(plain, "defaultHideUntilDependenciesComplete").buttonLabel(),
+                "a chapter that says nothing hides nothing: the pre-existing behaviour, unchanged");
+        assertEquals(ToolsLayout.OFF, row(plain, "defaultHideUntilDependenciesVisible").buttonLabel());
+    }
+
+    @Test
+    @DisplayName("a gate rule writes itself, and the unset choice removes the field")
+    void theGateRuleWritesItself() {
+        // The same write every other plain rule on this tab makes -- the value, or null for unset -- which
+        // is what keeps the chooser's own edit path from needing a branch per row. The two list fields are
+        // text rows and go through the screen's comma-list commit, which is asserted where that lives.
+        ChapterPanelLayout.Edit set = ChapterPanelLayout.choiceEdit(gated(),
+                ChapterPanelLayout.GATE_MODE, "all_completed");
+        assertEquals("prerequisiteMode", set.path());
+        assertEquals("all_completed", set.value().getAsString());
+
+        ChapterPanelLayout.Edit clear = ChapterPanelLayout.choiceEdit(gated(),
+                ChapterPanelLayout.GATE_MODE, "");
+        assertEquals("prerequisiteMode", clear.path());
+        assertEquals(null, clear.value(), "unset removes the field rather than writing the default");
     }
 
     @Test

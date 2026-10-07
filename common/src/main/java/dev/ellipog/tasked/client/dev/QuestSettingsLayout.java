@@ -196,6 +196,74 @@ public final class QuestSettingsLayout {
         return value.replace('_', ' ');
     }
 
+    // ------------------------------------------------------------------
+    // The two three-state reveal rows
+    // ------------------------------------------------------------------
+
+    /** The rows whose values are a reveal flag's three states rather than a closed set of words. */
+    private static final List<String> TRI_STATE_KEYS = List.of("hideUntilDependenciesComplete",
+            "hideUntilDependenciesVisible");
+
+    /**
+     * Whether this row's values are the three states of a reveal flag.
+     *
+     * <p>Asked by the press path as well as the drawing, so one row cannot offer a vocabulary the other
+     * does not write -- the two would otherwise be a picker whose third state silently did nothing.
+     */
+    public static boolean isTriStateKey(String key) {
+        return TRI_STATE_KEYS.contains(key);
+    }
+
+    /**
+     * The three states of a reveal flag: the chapter's default, on, off.
+     *
+     * <p>Three rather than two, and that is the whole reason these rows exist. A chapter may turn either
+     * behaviour on for every quest in it, and one quest has to be able to opt <b>out</b> -- with a switch
+     * there is no word in the file for "I meant off rather than unspecified", so a chapter's default
+     * would be unopposable.
+     */
+    public static List<String> triStateChoices() {
+        return List.of("", "true", "false");
+    }
+
+    /** The state a step lands on, wrapping at both ends. Empty is the chapter's default. */
+    public static String cycleTriState(String current, int step) {
+        List<String> choices = triStateChoices();
+        int at = choices.indexOf(current == null ? "" : current.toLowerCase(Locale.ROOT));
+        if (at < 0) {
+            at = 0;
+        }
+        return choices.get(Math.floorMod(at + step, choices.size()));
+    }
+
+    /**
+     * A state as a person reads it, with the chapter's default named where it applies.
+     *
+     * <p>The chapter's own value is passed in rather than looked up, because this class holds no cache:
+     * "Chapter default (On)" is only useful if it says which way the chapter goes, and that answer lives
+     * on the chapter the caller is looking at.
+     */
+    public static String triStateLabel(String value, boolean chapterDefault) {
+        if (value == null || value.isEmpty()) {
+            return Labels.of("tasked.dev.quest.chapter_default",
+                    Labels.of(chapterDefault ? ToolsLayout.ON : ToolsLayout.OFF));
+        }
+        return Labels.of("true".equalsIgnoreCase(value) ? ToolsLayout.ON : ToolsLayout.OFF);
+    }
+
+    /**
+     * The value a chosen state is written as: absent for the chapter's default, else a real boolean.
+     *
+     * <p>A {@code JsonPrimitive} rather than a Boolean, because that is what the op carries -- and the
+     * distinction is load-bearing rather than cosmetic: writing the string {@code "true"} would be a
+     * file the codec refuses, and writing {@code false} for the unset state would pin the chapter's
+     * default the moment somebody looked at the quest.
+     */
+    public static com.google.gson.JsonElement triStateValue(String value) {
+        return value == null || value.isEmpty() ? null
+                : new com.google.gson.JsonPrimitive(Boolean.parseBoolean(value));
+    }
+
     /**
      * The auto-claim modes this row cycles, the unset state first.
      *
@@ -354,8 +422,13 @@ public final class QuestSettingsLayout {
         rows.add(new Row("h:visibility", Row.Kind.HEADING, "tasked.dev.quest.visibility"));
         rows.add(switchRow("invisible", "tasked.dev.quest.invisible"));
         rows.add(new Row("invisibleUntilTasks", Row.Kind.NUMBER, "tasked.dev.quest.visible_after_tasks"));
-        rows.add(switchRow("hideUntilDependenciesComplete", "tasked.dev.quest.hide_until_deps_done"));
-        rows.add(switchRow("hideUntilDependenciesVisible", "tasked.dev.quest.hide_until_deps_shown"));
+        // Pickers rather than switches, because each is three states: the chapter's default, on, off. A
+        // chapter can turn either behaviour on for all of its quests, and a single quest -- the hub, the
+        // one that shows the road ahead -- has to be able to opt back out. See `triStateChoices`.
+        rows.add(new Row("hideUntilDependenciesComplete", Row.Kind.CHOICE,
+                "tasked.dev.quest.hide_until_deps_done"));
+        rows.add(new Row("hideUntilDependenciesVisible", Row.Kind.CHOICE,
+                "tasked.dev.quest.hide_until_deps_shown"));
         rows.add(switchRow("hideDependencyLines", "tasked.dev.quest.hide_dependency_lines"));
         rows.add(switchRow("hideTextUntilComplete", "tasked.dev.quest.hide_text_until_done"));
         rows.add(switchRow("hideDetailsUntilStartable", "tasked.dev.quest.hide_details_until_startable"));

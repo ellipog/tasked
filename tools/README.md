@@ -188,8 +188,12 @@ Three rules worth knowing before you edit anything here:
     — which means renaming a group folder can reorder the book, including which chapter you land on.
     Chapters inside a group and quests inside a chapter come from their manifest's list, so that
     order is yours and it is load-bearing: a `LINEAR` chapter's progression **is** its quest list.
-  * **A file nobody lists is an error, not silence.** A chapter folder the group's `chapters` list
-    does not name will never load, and the loader says so rather than skipping it quietly.
+  * **A file nobody lists is an error, not silence — and so is a name with nothing behind it.** A
+    chapter folder the group's `chapters` list does not name will never load, and the loader says so
+    rather than skipping it quietly. The other direction is the same message about the other side: a
+    name in a `chapters` or `quests` list that resolves to no folder or file is an error against *that
+    name*, so deleting a quest file by hand costs that quest and leaves the chapter's other quests
+    loading. A manifest that cannot be read at all is the only thing that costs its own subtree.
 
 `_schema/` holds a JSON Schema per kind — group, chapter, quest, index and reward table — so your
 editor autocompletes every file a pack is made of. The same five are published under

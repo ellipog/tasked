@@ -305,13 +305,17 @@ class BookGeometryTest {
         }
 
         @Test
-        @DisplayName("the overlay's Submit and Back stack rather than collide on a narrow window")
+        @DisplayName("the panel's Submit and Back stack rather than collide on a narrow window")
         void overlayControlsNeverCollide() {
+            // Swept over the panel rail rather than over a card: the rail is what the two controls are
+            // placed in now, and it is the narrower of the two at every size -- so a sweep that used a
+            // card would be the easier case.
             for (int width = 160; width <= 1400; width += 7) {
                 for (int height = 100; height <= 1000; height += 11) {
+                    BookGeometry geometry = new BookGeometry(width, height);
+                    BookGeometry.Rect rail = geometry.panelRail(PanelStack.WIDTH);
                     for (boolean hasSubmit : new boolean[] {true, false}) {
-                        String overlap = firstOverlap(
-                                new BookGeometry(width, height).overlayControls(hasSubmit));
+                        String overlap = firstOverlap(geometry.questFooter(rail, hasSubmit));
                         assertTrue(overlap == null, "overlay at " + width + "x" + height + ": " + overlap);
                     }
                 }
@@ -319,104 +323,10 @@ class BookGeometryTest {
         }
     }
 
-    @Nested
-    @DisplayName("the wide card")
-    class WideCard {
-
-        /**
-         * The claim menu's card, swept over the same sizes as every other layout here.
-         *
-         * <h2>What this exists to prevent</h2>
-         *
-         * <p>The wide card is the first one that is <b>not</b> {@code modal()}, and the fault it can
-         * have is the one this whole class was written for: a footer placed from a rectangle other than
-         * the card it belongs to. So the sweep asks the wide card's own footer for its controls and
-         * asserts they do not collide, that they stay inside the card, and — the property that makes it
-         * wide rather than merely different — that it is never wider than the window that holds it.
-         */
-        @Test
-        @DisplayName("its footer never collides, and never leaves the card")
-        void itsFooterStaysInside() {
-            for (int width = 160; width <= 1400; width += 7) {
-                for (int height = 100; height <= 1000; height += 11) {
-                    BookGeometry geometry = new BookGeometry(width, height);
-                    for (boolean hasSubmit : new boolean[] {true, false}) {
-                        Map<String, Rect> controls = geometry.questFooter(geometry.wideModal(), hasSubmit);
-                        String overlap = firstOverlap(controls);
-                        assertTrue(overlap == null,
-                                "wide card at " + width + "x" + height + ": " + overlap);
-                        for (Map.Entry<String, Rect> control : controls.entrySet()) {
-                            assertTrue(control.getValue().isInside(geometry.wideModal()),
-                                    "the wide card's " + control.getKey() + " " + control.getValue()
-                                            + " left the card " + geometry.wideModal()
-                                            + " at " + width + "x" + height);
-                        }
-                    }
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("is never wider than the window, and never narrower than the modal")
-        void itFitsTheWindow() {
-            for (int width = 160; width <= 1400; width += 7) {
-                for (int height = 100; height <= 1000; height += 11) {
-                    BookGeometry geometry = new BookGeometry(width, height);
-                    Rect wide = geometry.wideModal();
-
-                    assertTrue(wide.width() <= Math.max(BookGeometry.MIN_MODAL_WIDTH,
-                                    width - BookGeometry.MODAL_MARGIN * 2),
-                            "the wide card is wider than the window at " + width + "x" + height
-                                    + ": " + wide);
-                    assertTrue(wide.width() <= BookGeometry.MAX_WIDE_MODAL_WIDTH,
-                            "and no wider than its own cap: " + wide);
-                    // Never narrower than the modal it replaces, so switching cards cannot shrink a
-                    // panel under the content it was already holding.
-                    assertTrue(wide.width() >= geometry.modal().width(),
-                            "the wide card is narrower than the modal at " + width + "x" + height
-                                    + ": " + wide + " against " + geometry.modal());
-                }
-            }
-        }
-
-        @Test
-        @DisplayName("shares the modal's height, centre and floor, so only the width moved")
-        void onlyTheWidthMoved() {
-            for (int[] size : new int[][] {{SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT}, {200, 120},
-                    {160, 100}, {1920, 1080}}) {
-                BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Rect wide = geometry.wideModal();
-                Rect modal = geometry.modal();
-
-                assertEquals(modal.height(), wide.height(),
-                        "the two cards agree about height at " + size[0] + "x" + size[1]);
-                assertEquals(modal.y(), wide.y(), "and about where the top edge is");
-                assertEquals(modal.x() + modal.width() / 2, wide.x() + wide.width() / 2,
-                        "and about the centre they are both placed on");
-            }
-        }
-
-        @Test
-        @DisplayName("the framed form's width does not depend on its height, which its caller relies on")
-        void widthDoesNotDependOnHeight() {
-            // The claim menu builds its rows at the card's width before it can know the card's height --
-            // the invariant `modalFramed` documents, asserted here for the wide pair because the menu is
-            // the caller that depends on it.
-            for (int[] size : new int[][] {{SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT}, {300, 200},
-                    {1600, 900}}) {
-                BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                int width = geometry.wideModalFramed(0, BookGeometry.MAX_WIDE_MODAL_WIDTH).width();
-
-                for (int contentHeight : new int[] {0, 40, 200, 900, 5000}) {
-                    assertEquals(width,
-                            geometry.wideModalFramed(contentHeight,
-                                    BookGeometry.MAX_WIDE_MODAL_WIDTH).width(),
-                            "the wide card's width moved with its content height at "
-                                    + size[0] + "x" + size[1]);
-                }
-            }
-        }
-    }
+    // (`the wide card` stood here: `wideModal`, `wideModalFramed` and the framed invariant, all three of
+    // which described the centred presentation. Every kind is a rail now and its width comes from
+    // `PanelStack`, so the only thing left of that group is `MAX_WIDE_MODAL_WIDTH` -- which is a live number
+    // rather than a dead rectangle, because `PanelStack.WIDE_WIDTH` is it.)
 
     // ------------------------------------------------------------------
     // Everything inside the surface it belongs to
@@ -480,7 +390,7 @@ class BookGeometryTest {
          * rather than a judgement.
          */
         private static final Set<String> CANVAS_CONTROLS =
-                Set.of("zoomIn", "zoomOut", "centre", "panelsPill", "assetsPill", "editPill");
+                Set.of("zoomIn", "zoomOut", "centre", "authorPill", "assetsPill", "editPill");
 
         @Test
         @DisplayName("every control is inside the surface it belongs to")
@@ -962,12 +872,12 @@ class BookGeometryTest {
         // *from* the constant: a change to either the constant or the placement that stopped the two
         // agreeing would otherwise draw a gap nobody could point at a number for.
         BookGeometry geometry = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
-        Rect panels = geometry.panelsPill();
+        Rect panels = geometry.authorPill();
         Rect assets = geometry.assetsPill();
         Rect edit = geometry.editPill();
 
         assertEquals(BookGeometry.PILL_GAP, assets.x() - panels.right(),
-                "the seam between Panels and Assets is not PILL_GAP: " + panels + " and " + assets);
+                "the seam between Author and Assets is not PILL_GAP: " + panels + " and " + assets);
         assertEquals(BookGeometry.PILL_GAP, edit.x() - assets.right(),
                 "the seam between Assets and Edit is not PILL_GAP: " + assets + " and " + edit);
         assertEquals(panels.y(), edit.y(), "the three pills are one row: " + panels + " and " + edit);
@@ -989,13 +899,13 @@ class BookGeometryTest {
         for (int[] size : sizes()) {
             BookGeometry window = new BookGeometry(size[0], size[1]);
             Rect cluster = window.viewControls();
-            Rect first = window.panelsPill();
+            Rect first = window.authorPill();
             String at = " at " + size[0] + "x" + size[1];
 
             assertEquals(cluster.right() + BookGeometry.EDGE, first.x(),
                     () -> "the pills no longer start one EDGE from the cluster" + at);
             assertFalse(cluster.intersects(first),
-                    () -> "the Panels pill is over the view cluster" + at);
+                    () -> "the Author pill is over the view cluster" + at);
             assertTrue(window.pillMat().x() >= cluster.right()
                             + BookGeometry.EDGE - BookGeometry.VIEW_MAT,
                     () -> "the two mats are closer than the seam the clusters keep" + at);
@@ -1008,23 +918,24 @@ class BookGeometryTest {
     @DisplayName("the editor's bar fills the footer's free width and stops short of Back")
     void theEditorBarFits() {
         // The bar the quest editor builds its four controls in -- Delete, Duplicate, Copy and Settings.
-        // It was placed from the reader's Submit slot, which `overlayControls(false)` deliberately does
+        // It was placed from the reader's Submit slot, which `questFooter(rail, false)` deliberately does
         // not have, so the bar was skipped whole and the editor lost the button that opens a node's
         // shape, size, placement and rules. This is the test that would have said so.
         for (int[] size : sizes()) {
             BookGeometry geometry = new BookGeometry(size[0], size[1]);
-            BookGeometry.Rect bar = geometry.editorBar();
-            BookGeometry.Rect back = geometry.overlayControls(false).get("back");
+            BookGeometry.Rect rail = geometry.panelRail(PanelStack.WIDTH);
+            BookGeometry.Rect bar = geometry.editorBar(rail);
+            BookGeometry.Rect back = geometry.questFooter(rail, false).get("back");
             String at = " at " + size[0] + "x" + size[1];
 
             assertNotNull(back, "the editor's footer has no Back to place its bar against" + at);
             assertNotNull(bar, "no bar" + at);
-            assertTrue(bar.isInside(geometry.modal()), "the bar left the card" + at + ": " + bar);
+            assertTrue(bar.isInside(rail), "the bar left the panel" + at + ": " + bar);
             assertEquals(back.y(), bar.y(), "the bar is not in Back's row" + at);
             assertEquals(back.height(), bar.height(), "and not Back's height" + at);
             assertTrue(bar.right() <= back.x(), "the bar runs into Back" + at + ": " + bar);
-            assertEquals(geometry.modal().x() + BookGeometry.MODAL_INSET, bar.x(),
-                    "the bar does not start at the card's own inset" + at);
+            assertEquals(rail.x() + BookGeometry.MODAL_INSET, bar.x(),
+                    "the bar does not start at the panel's own inset" + at);
             assertTrue(bar.width() > 0, "a bar with no width is four controls nobody can press" + at);
         }
     }
@@ -1086,9 +997,9 @@ class BookGeometryTest {
         // rows were ahead of close and are gone; the two appearance rows were between close and the
         // cluster and are gone -- see the note in that method for why each went. The author's pills keep
         // the slot they had in this list (after settings), even though they are drawn on a different
-        // surface now, and they read in the order the row does: Panels, Assets, Edit.
+        // surface now, and they read in the order the row does: Author, Assets, Edit.
         assertEquals(
-                List.of("close", "rewards", "party", "settings", "panelsPill", "assetsPill", "editPill",
+                List.of("close", "rewards", "party", "settings", "authorPill", "assetsPill", "editPill",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
     }

@@ -497,7 +497,17 @@ public final class EditorOps {
             // dependency is drawn with. The two visibility flags belong here for the same reason the
             // theme does: what they change is derived on the client from the tree it has just been sent
             // -- see QuestVisibility -- so no player's stored progress is involved.
-            "invisible", "hideUntilDependenciesVisible", "hideDependencyLines", "dependencyLines",
+            //
+            // `hideUntilDependenciesComplete` is here for that reason too, and its absence until now was
+            // the odd one out rather than a decision: the family is 'what a screen withholds', every
+            // member of it derives on the client, and a member left off this list costs a progress delta
+            // for an edit no player's stored progress can have moved. A chapter's
+            // `hideUntilDependenciesComplete` is the same fact one level up, so it is here as well.
+            // Note what does NOT belong here: `dependsOn`, `completesWhen`, `prerequisiteMode` and
+            // `minRequired` all move a resolved state, which is CONTENT by `reachOfPath`'s default.
+            "invisible", "hideUntilDependenciesVisible", "hideUntilDependenciesComplete",
+            "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "hideDependencyLines",
+            "dependencyLines",
             // A chapter's and a group's own appearance, and the book's name and icon.
             "theme", "collapsedByDefault", "bookTitle", "bookIcon");
 

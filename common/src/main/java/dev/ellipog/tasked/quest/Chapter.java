@@ -93,8 +93,31 @@ public record Chapter(
          * this says — see {@link dev.ellipog.tasked.quest.reward.RewardAutoClaim}.
          */
         dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim,
+        /**
+         * This chapter's own place in the progression: what it waits on, what finishes it, and whether
+         * it is shown before then.
+         *
+         * <p>Grouped into {@link ChapterRules} for the mundane reason that record gives — the codec's
+         * sixteen components — and the real one: these five are about how the chapter relates to the
+         * <i>rest of the questline</i> rather than about what it holds, which is also why the editor
+         * shows them in one section.
+         *
+         * <p>Read {@code rules()} rather than a delegate per field, and note what that avoids: a
+         * {@code prerequisiteMode()} accessor here would sit one letter from
+         * {@link #defaultPrerequisiteMode()}, which means the opposite thing. See {@link ChapterRules}.
+         */
+        ChapterRules rules,
         List<Quest> quests
 ) {
+
+    /**
+     * The fields this chapter declares itself: everything but its gate, which {@link ChapterRules}
+     * declares beside its own codec.
+     */
+    private static final java.util.Set<String> OWN_FIELDS = java.util.Set.of(
+            "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
+            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
+            "quests");
 
     /**
      * The field names this contributes, for the validator to allow.
@@ -103,11 +126,16 @@ public record Chapter(
      * gives at length: a second copy is a second thing to remember, and forgetting it produces a field
      * the codec reads and the validator calls unknown. {@link ChapterManifest} declares the same set,
      * because a chapter manifest and the chapter it becomes describe the same object.
+     *
+     * <p>The gate's five names are <b>taken</b> from {@link ChapterRules#FIELDS} rather than written
+     * again here, which is one copy fewer of a list that would otherwise appear three times — here, in
+     * {@link ChapterManifest} and in the group that owns the fields. The manifest's own copy is
+     * deliberate and pinned by a test; a third inside the record those names are declared in would only
+     * be a third thing to forget.
      */
-    public static final java.util.Set<String> FIELDS = java.util.Set.of(
-            "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
-            "quests");
+    public static final java.util.Set<String> FIELDS = java.util.stream.Stream
+            .concat(OWN_FIELDS.stream(), ChapterRules.FIELDS.stream())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     /** Finds a quest by id or alias. */
     public Optional<Quest> quest(String idOrAlias) {
@@ -158,6 +186,10 @@ public record Chapter(
             dev.ellipog.tasked.quest.reward.RewardAutoClaim.CODEC
                     .optionalFieldOf("autoClaim", dev.ellipog.tasked.quest.reward.RewardAutoClaim.DEFAULT)
                     .forGetter(Chapter::autoClaim),
+            // A MapCodec, so dependsOn/prerequisiteMode/minRequired/completesWhen/
+            // hideUntilDependenciesComplete are flat on the chapter in JSON, as a quest's rules are flat
+            // on the quest.
+            ChapterRules.MAP_CODEC.forGetter(Chapter::rules),
             Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
     ).apply(instance, Chapter::new));
 }

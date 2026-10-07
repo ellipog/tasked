@@ -1,5 +1,6 @@
 package dev.ellipog.tasked.client;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -11,6 +12,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * This client's own preferences: whether tools may be drawn, and how the book prefers to be shaped.
@@ -41,16 +45,26 @@ import java.nio.file.Path;
  * changes where a dragged node lands, and the sidebar's chapter progress bars, which change what a
  * chapter row shows. Both are the tidy direction, so a file that does not name them leaves them on.
  *
- * <h2>Three later settings, and why they are here rather than in a file of their own</h2>
+ * <h2>The panels' own settings, and the one that left</h2>
  *
- * <p>The side panels -- whether they are used at all, how wide the column is, and whether the second
- * column folds -- are the same kind of thing the two switches above are: a preference about how this
- * client draws, read before anything can draw it. <b>None of the three is gated on {@link #on()}</b>,
- * which is the rule {@code snap} and {@code progress} already follow and which is worth keeping: a
- * player who never turns developer mode on still has a layout, and it is theirs rather than the pack's.
- * The layout flag defaults <b>on</b>: the panels round converted every kind, so the docked column is
- * what a player gets, and Ctrl+P -- or a false in this file -- is how they ask for the centred card
- * instead. It was off only while the conversion was incomplete, which is the only reason it was ever off.
+ * <p>How wide each panel is and whether a child folds into its parent are the same kind of thing the two
+ * switches above are: preferences about how this client draws, read before anything can draw it.
+ * <b>Neither is gated on {@link #on()}</b>, which is the rule {@code snap} and {@code progress} already
+ * follow and which is worth keeping: a player who never turns developer mode on still has a layout, and
+ * it is theirs rather than the pack's.
+ *
+ * <p><b>There used to be a third: whether an overlay is a docked column or a centred card.</b> It is gone,
+ * because the card is gone -- every kind occupies a rail now, including the reward question. The key is
+ * still tolerated on read, exactly as any unknown key is: a file written when the switch existed must not
+ * cost the player the settings beside it, and a value that no longer decides anything is safer ignored
+ * than reported. Nothing writes it, so it disappears the first time any setting changes.
+ *
+ * <h2>One width per kind, because one width was two answers</h2>
+ *
+ * <p>{@code panelWidths} is a diff from the defaults rather than a full table: a kind the player has never
+ * dragged has no entry, and a drag back to the default removes the entry it had. That is
+ * {@code ThemeFiles}' own shape and its own reason -- a file that restates every value cannot be read for
+ * what the player changed -- and it means the file grows only where somebody made a choice.
  */
 public final class DevMode {
 
@@ -60,8 +74,7 @@ public final class DevMode {
     private static boolean on;
     private static boolean snap = true;
     private static boolean progress = true;
-    private static boolean panels = true;
-    private static int panelWidth = PanelStack.WIDTH;
+    private static Map<PanelKind, Integer> panelWidths = new EnumMap<>(PanelKind.class);
     private static PanelStack.Fold panelFold = PanelStack.Fold.AUTO;
     private static Path file;
 
@@ -71,16 +84,14 @@ public final class DevMode {
      * <p>A record rather than several parses of one file: {@code load} reads once and takes every answer
      * from the same tree, so the fields cannot disagree about what was on disk.
      *
-     * @param dev  whether tools may be drawn
-     * @param snap whether a dragged node lands on the grid; a file that does not say says yes
-     * @param progress whether chapter rows draw their completion bar; likewise yes by default
-     * @param panels whether an overlay is docked in a side column rather than centred as a card; yes by
-     *               default, since that is the presentation every kind has been converted to
-     * @param panelWidth how wide that column is, in GUI pixels; clamped on the way in
-     * @param panelFold what the player asked the second column to do
+     * @param dev         whether tools may be drawn
+     * @param snap        whether a dragged node lands on the grid; a file that does not say says yes
+     * @param progress    whether chapter rows draw their completion bar; likewise yes by default
+     * @param panelWidths the widths the player has chosen, per kind, keyed only by kinds they have dragged
+     * @param panelFold   what the player asked a panel's second column to do
      */
-    public record Parsed(boolean dev, boolean snap, boolean progress, boolean panels, int panelWidth,
-            PanelStack.Fold panelFold) {
+    public record Parsed(boolean dev, boolean snap, boolean progress,
+            Map<PanelKind, Integer> panelWidths, PanelStack.Fold panelFold) {
     }
 
     private DevMode() {
@@ -108,8 +119,8 @@ public final class DevMode {
     // ------------------------------------------------------------------
 
     /**
-     * Whether the editor snaps a moved node to {@link BookGeometry#SNAP_GRID}. On by default, because
-     * the grid is what keeps a dragged position a number an author would have typed; Alt asks for the
+     * Whether the editor snaps a moved node to {@link BookGeometry#SNAP_GRID}. On by default, because the
+     * grid is what keeps a dragged position a number an author would have typed; Alt asks for the
      * one free placement and does not need a setting flipped to get it.
      */
     public static boolean snap() {
@@ -142,50 +153,58 @@ public final class DevMode {
     }
 
     // ------------------------------------------------------------------
-    // The side panels
+    // The panels
     // ------------------------------------------------------------------
 
     /**
-     * Whether an overlay is drawn in the docked side column rather than as a centred card.
+     * How wide this kind's panel is drawn, in GUI pixels.
      *
-     * <p><b>Off</b> unless a file says otherwise: the card is the presentation this mod shipped with, and
-     * a second one is a choice rather than an upgrade that arrives uninvited.
+     * <p>A kind the player has never dragged answers with {@link PanelStack#defaultWidth}, which is the
+     * width its own layout was drawn against -- a list at 260, a table at 660, everything that carries prose
+     * at 340. The clamp is applied where the value enters the map rather than here, so this is one lookup:
+     * a hand-edited file is made legal once, on the way in, and every later reader gets the same number.
      */
-    public static boolean panels() {
-        return panels;
-    }
-
-    /** Turns the docked presentation on or off and writes the choice. */
-    public static void setPanels(boolean next) {
-        panels = next;
-        save();
-    }
-
-    /** The same, answering with the state it left behind, so a switch can label itself from one call. */
-    public static boolean togglePanels() {
-        setPanels(!panels);
-        return panels;
+    public static int panelWidth(PanelKind kind) {
+        if (kind == null || kind == PanelKind.NONE) {
+            return 0;
+        }
+        return panelWidths.getOrDefault(kind, PanelStack.defaultWidth(kind));
     }
 
     /**
-     * How wide the column is, in GUI pixels.
+     * Remembers a width and writes it.
      *
-     * <p>Clamped to what any panel may legally be ({@link PanelStack#clampStoredWidth}) rather than to
-     * what one kind wants, because this is the player's remembered width and may have been chosen for a
-     * rewards inbox. What a <i>particular</i> kind is allowed is the drag's question, and it asks
-     * {@link PanelStack#clampWidth}.
+     * <p><b>A width back at its default is removed from the map rather than stored beside it</b>, which is
+     * what makes this file a diff: the entry's absence already says "the default", so storing it as well
+     * would be two spellings of one state and the file would grow a line every time somebody dragged a panel
+     * and put it back. See the class comment -- {@code ThemeFiles} is the same shape for the same reason.
      */
-    public static int panelWidth() {
-        return panelWidth;
-    }
-
-    /** Remembers a width and writes it, clamped to something a panel can be. */
-    public static void setPanelWidth(int next) {
-        panelWidth = PanelStack.clampStoredWidth(next);
+    public static void setPanelWidth(PanelKind kind, int next) {
+        if (kind == null || kind == PanelKind.NONE) {
+            return;
+        }
+        int clamped = PanelStack.clampWidth(next, kind);
+        if (clamped == PanelStack.defaultWidth(kind)) {
+            panelWidths.remove(kind);
+        }
+        else {
+            panelWidths.put(kind, clamped);
+        }
         save();
     }
 
-    /** What the player asked the second column to do. */
+    /**
+     * Every width the player has chosen, as the file holds it.
+     *
+     * <p>Exposed because a setting with no way to ask what is in it is a setting that is hard to believe:
+     * the test that asserts the file's format asks here, and so does the screen when it builds a rail. A
+     * lookup per kind is {@link #panelWidth}, which is what a caller with a kind in hand wants.
+     */
+    public static Map<PanelKind, Integer> panelWidths() {
+        return Map.copyOf(panelWidths);
+    }
+
+    /** What the player asked a panel's second column to do. */
     public static PanelStack.Fold panelFold() {
         return panelFold;
     }
@@ -226,13 +245,11 @@ public final class DevMode {
      * one that names it. Neither stops the client, and neither turns the mode on.
      */
     public static void load(Path path) {
+        // Reset first, and the order is not cosmetic: `reset` clears the file as well as the flags, so a
+        // version that assigned the path first and reset after it left this screen holding a path it had
+        // forgotten -- every setting still worked and nothing was ever written.
+        reset();
         file = path;
-        on = false;
-        snap = true;
-        progress = true;
-        panels = true;
-        panelWidth = PanelStack.WIDTH;
-        panelFold = PanelStack.Fold.AUTO;
 
         if (Files.isRegularFile(path)) {
             try {
@@ -240,8 +257,7 @@ public final class DevMode {
                 on = read.dev();
                 snap = read.snap();
                 progress = read.progress();
-                panels = read.panels();
-                panelWidth = PanelStack.clampStoredWidth(read.panelWidth());
+                panelWidths = new EnumMap<>(read.panelWidths());
                 panelFold = read.panelFold() == null ? PanelStack.Fold.AUTO : read.panelFold();
             }
             catch (IOException | RuntimeException e) {
@@ -256,24 +272,81 @@ public final class DevMode {
      *
      * <p>Tolerant rather than strict, and for a stronger reason than Appearance's: this file is a
      * developer's, so it will be hand-edited, and a typo in it should cost a mode that stays off rather
-     * than a client that will not start. An unknown field is ignored; a missing one takes its default —
+     * than a client that will not start. An unknown field is ignored; a missing one takes its default --
      * which for {@code snap} and {@code progress} is on, so a file written before either existed reads
-     * as the behaviour it was already getting, and which for the three panel settings is the presentation
-     * this mod shipped with.
+     * as the behaviour it was already getting.
+     *
+     * <h2>The width table, and the scalar it replaced</h2>
+     *
+     * <p>{@code panelWidths} is read entry by entry, and <b>every way an entry can be wrong costs that
+     * entry and nothing else</b>: a name that is not a kind, a {@code NONE}, a value that is not a number,
+     * and a number outside the kind's own range are each skipped or clamped rather than thrown. A whole
+     * table that cannot be read is therefore the defaults, which is a layout rather than a crash.
+     *
+     * <p>{@code panelWidth} is the one scalar this file used to hold, and it <b>seeds every kind the table
+     * does not name</b> instead of being ignored. That ordering matters and is the only place it does: a
+     * player who had chosen 300 pixels for every panel and then opened a rewards inbox was already getting
+     * the wide kind's own floor rather than 300, and seeding through {@link PanelStack#clampWidth} is what
+     * keeps that true for the kinds the new table has no entry for. Written the other way round -- the table
+     * winning wherever it had anything -- a file that named one kind would quietly reset the rest.
      *
      * @throws com.google.gson.JsonSyntaxException if the text is not JSON at all; {@link #load} catches it
      */
     public static Parsed parse(String json) {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        Map<PanelKind, Integer> widths = new EnumMap<>(PanelKind.class);
+
+        if (root.has("panelWidths") && root.get("panelWidths").isJsonObject()) {
+            for (Map.Entry<String, JsonElement> entry : root.getAsJsonObject("panelWidths").entrySet()) {
+                PanelKind kind = kindNamed(entry.getKey());
+                JsonElement value = entry.getValue();
+                if (kind == null || value == null || !value.isJsonPrimitive()
+                        || !value.getAsJsonPrimitive().isNumber()) {
+                    continue;
+                }
+                widths.put(kind, PanelStack.clampWidth(value.getAsInt(), kind));
+            }
+        }
+
+        if (root.has("panelWidth") && root.get("panelWidth").isJsonPrimitive()) {
+            int legacy = root.get("panelWidth").getAsInt();
+            for (PanelKind kind : PanelKind.values()) {
+                if (kind != PanelKind.NONE && !widths.containsKey(kind)) {
+                    widths.put(kind, PanelStack.clampWidth(legacy, kind));
+                }
+            }
+        }
+
         return new Parsed(
                 root.has("dev") && root.get("dev").getAsBoolean(),
                 !root.has("snap") || root.get("snap").getAsBoolean(),
                 !root.has("progress") || root.get("progress").getAsBoolean(),
-                !root.has("panels") || root.get("panels").getAsBoolean(),
-                root.has("panelWidth") ? root.get("panelWidth").getAsInt() : PanelStack.WIDTH,
+                Map.copyOf(widths),
                 root.has("panelFold")
                         ? PanelStack.foldOf(root.get("panelFold").getAsString())
                         : PanelStack.Fold.AUTO);
+    }
+
+    /**
+     * The kind a key names, or null when it names none this build has.
+     *
+     * <p>Folded to upper case before the lookup, because this file is hand-edited and {@code "quest"} is a
+     * spelling a person will write. {@code NONE} is refused here rather than at the caller: it is the
+     * absence of a panel, so a width for it is not a small number, it is a key with no subject.
+     */
+    private static PanelKind kindNamed(String name) {
+        if (name == null) {
+            return null;
+        }
+        try {
+            PanelKind kind = PanelKind.valueOf(name.trim().toUpperCase(Locale.ROOT));
+            return kind == PanelKind.NONE ? null : kind;
+        }
+        catch (IllegalArgumentException e) {
+            // A kind this build does not have: written by a newer one, or misspelt by hand. It costs that
+            // entry, and the kind keeps its default.
+            return null;
+        }
     }
 
     /** Whether the mode flag alone is set. See {@link #parse} for every field. */
@@ -281,15 +354,33 @@ public final class DevMode {
         return parse(json).dev();
     }
 
-    /** Writes the file. Answer given rather than the default so a test can assert the format. */
-    public static String write(boolean dev, boolean snap, boolean progress, boolean panels, int panelWidth,
-            PanelStack.Fold fold) {
+    /**
+     * Writes the file. Answer given rather than the default so a test can assert the format.
+     *
+     * <p>The width table is written in the enum's own order, so two clients that dragged the same panels
+     * write byte-identical files and a diff of two of them is a diff of the choices rather than of iteration
+     * order. Each width goes through {@link PanelStack#clampWidth} on the way out as well as on the way in,
+     * which is not belt-and-braces: this is a public method taking a map, and a caller that hands it a number
+     * the kind cannot be drawn at would otherwise write a file that reads back as a different number.
+     *
+     * <p>An entry that <i>is</i> its kind's default is written as given rather than dropped: removing it is
+     * {@link #setPanelWidth}'s job, where the caller is a drag that just landed on the default. A file-writing
+     * function that silently edited its argument's meaning would be the wrong place for that rule.
+     */
+    public static String write(boolean dev, boolean snap, boolean progress,
+            Map<PanelKind, Integer> widths, PanelStack.Fold fold) {
         JsonObject root = new JsonObject();
         root.addProperty("dev", dev);
         root.addProperty("snap", snap);
         root.addProperty("progress", progress);
-        root.addProperty("panels", panels);
-        root.addProperty("panelWidth", panelWidth);
+        JsonObject table = new JsonObject();
+        for (PanelKind kind : PanelKind.values()) {
+            Integer width = widths == null ? null : widths.get(kind);
+            if (kind != PanelKind.NONE && width != null) {
+                table.addProperty(kind.name(), PanelStack.clampWidth(width, kind));
+            }
+        }
+        root.add("panelWidths", table);
         root.addProperty("panelFold", PanelStack.foldWord(fold));
         return root.toString();
     }
@@ -309,8 +400,7 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
-        panels = true;
-        panelWidth = PanelStack.WIDTH;
+        panelWidths = new EnumMap<>(PanelKind.class);
         panelFold = PanelStack.Fold.AUTO;
         file = null;
     }
@@ -326,7 +416,7 @@ public final class DevMode {
             // leaves the previous flags rather than a half-written file the next load has to guess at.
             // This file's whole contract is that every way of being wrong reads as the safe direction,
             // and a truncated file is the one way that could not be honoured. See JsonWrite.
-            JsonWrite.atomically(file, write(on, snap, progress, panels, panelWidth, panelFold));
+            JsonWrite.atomically(file, write(on, snap, progress, panelWidths, panelFold));
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: developer mode could not be written to {}", file, e);

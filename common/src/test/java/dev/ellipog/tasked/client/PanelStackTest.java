@@ -13,105 +13,155 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The column rules, without a screen.
+ * The rail rules, without a screen.
  *
  * <h2>What these are for</h2>
  *
  * <p>Every one of them is a rule that would otherwise live in a branch of {@code QuestBookScreen}, where
  * no test can reach it: what a click on a node does to a picker that was open, what Escape peels first,
- * and — the one worth the file — <b>what a folded rail is allowed to have registered</b>. That last rule
- * is asserted here because its failure is invisible in a screenshot: two columns' controls on one
- * rectangle means the hidden one answers the pointer, and nothing about the picture says so.
+ * whether the author's dock survives an opening, and — the one worth the file — <b>what a folded rail is
+ * allowed to have registered</b>. That last rule is asserted here because its failure is invisible in a
+ * screenshot: two rails' controls on one rectangle means the hidden one answers the pointer, and nothing
+ * about the picture says so.
+ *
+ * <h2>And the invariant this file exists for now</h2>
+ *
+ * <p><b>No panel transition may empty, hide or fold the dock.</b> It used to be the fallback occupant of
+ * the first panel column, so opening a panel took its rail and closing that panel gave the rail back — the
+ * author watched their tools disappear and reappear in the same rectangle. Every transition below is
+ * asserted to carry it through untouched, and {@code PanelArrangementTest} sweeps every arrangement there
+ * is for the same property.
  */
-@DisplayName("the side panels' column rules")
+@DisplayName("the side panels' rail rules")
 class PanelStackTest {
 
-    private static final Columns QUEST_OPEN = new Columns(PanelKind.QUEST, PanelKind.NONE, Fold.AUTO);
+    private static final Columns QUEST_OPEN = Columns.of(PanelKind.QUEST, PanelKind.NONE, Fold.AUTO);
+    private static final Columns QUEST_AND_DOCK =
+            new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.NONE, Fold.AUTO);
 
     @Test
-    @DisplayName("every kind is a root, a child, or neither — and none is both")
-    void everyKindIsClassifiedOnce() {
+    @DisplayName("a child is the four lists, and nothing else is")
+    void theChildKinds() {
         for (PanelKind kind : PanelKind.values()) {
-            boolean root = PanelStack.isRoot(kind);
             boolean child = PanelStack.isChild(kind);
-            assertFalse(root && child, kind + " cannot be both something you asked for and something it opened");
-            if (kind == PanelKind.NONE) {
-                assertFalse(root || child, "NONE is the absence of a panel, not a panel");
-            }
-            else if (kind == PanelKind.CHOICE) {
-                assertFalse(root || child,
-                        kind + " stays a centred card in both presentations, so it belongs to no column: it "
-                                + "asks the player a question that interrupts, rather than being a place they "
-                                + "went. (PARTY used to be here beside it and is not any more -- the party is "
-                                + "a place, and the panel now docks. See `theConvertedKinds`.)");
+            if (kind == PanelKind.PICKER || kind == PanelKind.TEXTURE
+                    || kind == PanelKind.TABLE_BROWSER || kind == PanelKind.TABLE_EDITOR) {
+                assertTrue(child, kind + " is a list of things rather than a thing");
             }
             else {
-                assertTrue(root || child, kind + " must be reachable somehow");
+                assertFalse(child, kind + " is a place or a question, not something another panel opened");
             }
         }
+        assertFalse(PanelStack.isChild(PanelKind.NONE), "NONE is the absence of a panel, not a panel");
     }
 
     @Test
-    @DisplayName("a child fills column 2 over a docked panel, and replaces a card")
-    void childrenNeedSomewhereToBeSecond() {
-        // Over a docked panel: beside it.
+    @DisplayName("the dock is the third rail, and the only thing that writes it is withDock")
+    void theDockIsItsOwnRail() {
+        Columns open = PanelStack.withDock(Columns.EMPTY, true);
+        assertEquals(PanelKind.TOOLS, open.dock(), "the dock's rail names the dock");
+        assertEquals(PanelKind.NONE, open.left(), "and nothing else moved");
+        assertEquals(PanelKind.NONE, open.right());
+
+        Columns closed = PanelStack.withDock(QUEST_AND_DOCK, false);
+        assertEquals(PanelKind.NONE, closed.dock());
+        assertEquals(PanelKind.QUEST, closed.left(), "putting the tools away is not closing a panel: the "
+                + "arrangement is carried through untouched");
+        assertEquals(Fold.AUTO, closed.fold());
+    }
+
+    @Test
+    @DisplayName("no opening, closing or node click takes the dock's rail")
+    void theDockSurvivesEveryTransition() {
+        // The invariant, spelled out one transition at a time. Every one of these was a way the dock used
+        // to be displaced, because it *was* the first column rather than a rail of its own.
+        for (PanelKind opened : PanelKind.values()) {
+            assertEquals(PanelKind.TOOLS, PanelStack.afterOpen(QUEST_AND_DOCK, opened).dock(),
+                    "opening " + opened + " over the dock");
+            assertEquals(PanelKind.TOOLS, PanelStack.asRoot(QUEST_AND_DOCK, opened).dock(),
+                    "asking for " + opened + " outright");
+        }
+        assertEquals(PanelKind.TOOLS, PanelStack.afterNodeClick(QUEST_AND_DOCK).dock(), "a node click");
+        assertEquals(PanelKind.TOOLS, PanelStack.afterClose(QUEST_AND_DOCK, true).dock(), "peeling a child");
+        assertEquals(PanelKind.TOOLS, PanelStack.afterClose(QUEST_AND_DOCK, false).dock(), "closing the panel");
+        assertEquals(PanelKind.NONE, PanelStack.afterClose(Columns.EMPTY, false).dock(),
+                "and closing carries whatever the dock's rail held: a close is not a way to open one");
+    }
+
+    @Test
+    @DisplayName("asking for what is already open changes nothing, on either rail")
+    void openingWhatIsAlreadyOpenIsNotAnOpening() {
+        // A pick armed while its own panel is column 1 -- the dock's picker opened twice, or a field re-picked
+        // before the first list is closed -- used to file the same kind into column 2 as well, so `presented`
+        // named it twice and two surfaces answered one press. This is the line that makes that unbuildable.
+        Columns quest = Columns.of(PanelKind.QUEST, PanelKind.NONE, Fold.AUTO);
+        assertEquals(quest, PanelStack.afterOpen(quest, PanelKind.QUEST));
+
+        Columns picker = Columns.of(PanelKind.PICKER, PanelKind.NONE, Fold.AUTO);
+        assertEquals(picker, PanelStack.afterOpen(picker, PanelKind.PICKER),
+                "a pick over itself is the same pick");
+
+        Columns both = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.PICKER, Fold.AUTO);
+        assertEquals(both, PanelStack.afterOpen(both, PanelKind.PICKER),
+                "and a pick that is already the child stays the child rather than replacing its parent");
+    }
+
+    @Test
+    @DisplayName("a child fills column 2 under a panel, and column 1 when there is no panel")
+    void aChildNeedsAPanelToBelongTo() {
         Columns beside = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
-        assertEquals(PanelKind.QUEST, beside.left());
+        assertEquals(PanelKind.QUEST, beside.left(), "the panel it was opened from is untouched");
         assertEquals(PanelKind.PICKER, beside.right());
 
-        // Over a kind that still draws a card: *replaces* it, because a column is not drawn at all while a
-        // card is up -- so a child filed beside one would be in no picture, answering presses the card
-        // behind it also answers. Choice is the example because it is, with Party, the only kind left that
-        // draws a card at all: every root and every child is docked now.
-        Columns overCard = PanelStack.afterOpen(
-                new Columns(PanelKind.CHOICE, PanelKind.NONE, Fold.AUTO), PanelKind.PICKER);
-        assertEquals(PanelKind.PICKER, overCard.left(),
-                "a picker opened over a panel that still draws a card takes its place");
-        assertEquals(PanelKind.NONE, overCard.right(),
-                "rather than being filed in a column that is not drawn");
-    }
+        // **The dock's own picker.** A picker opened from the Chapter tab's icon row has no panel under it,
+        // so it takes column 1 -- which is what stops it being a child of the author's tools and, with that,
+        // what stops the fold taking the dock away.
+        Columns fromDock = PanelStack.afterOpen(PanelStack.withDock(Columns.EMPTY, true), PanelKind.PICKER);
+        assertEquals(PanelKind.PICKER, fromDock.left(), "the dock is not a panel for it to belong to");
+        assertEquals(PanelKind.NONE, fromDock.right(), "so it is the panel rather than a child of nothing");
+        assertEquals(PanelKind.TOOLS, fromDock.dock(), "and the dock stays where it was");
 
-    @Test
-    @DisplayName("a root takes column 1 and empties column 2")
-    void aRootReplacesTheFirstColumn() {
-        Columns withChild = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
-        Columns rewards = PanelStack.afterOpen(withChild, PanelKind.REWARDS);
-
-        assertEquals(PanelKind.REWARDS, rewards.left(), "the thing you asked for is column 1");
-        assertEquals(PanelKind.NONE, rewards.right(),
-                "the picker was opened from the quest, and the quest is no longer showing");
-    }
-
-    @Test
-    @DisplayName("a kind that is neither root nor child still replaces column 1")
-    void anUnclassifiedKindReplacesTheFirstColumn() {
-        // Party and Choice are questions the player is asked, not places they went, so neither is a root --
-        // and writing the rule as "a child is the exception" is what keeps them out of the second column.
-        // Written the other way round, asking for the party panel would have filed it beside the quest.
-        Columns withChild = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
-        for (PanelKind kind : List.of(PanelKind.PARTY, PanelKind.CHOICE)) {
-            Columns after = PanelStack.afterOpen(withChild, kind);
-            assertEquals(kind, after.left(), kind + " is what the player asked for, so it is column 1");
-            assertEquals(PanelKind.NONE, after.right(),
-                    "and the child it was opened over goes with the panel it belonged to");
-        }
-    }
-
-    @Test
-    @DisplayName("a child fills column 2 and a second child replaces it rather than growing a third")
-    void childrenReplaceEachOther() {
-        Columns one = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
-        assertEquals(PanelKind.QUEST, one.left(), "the quest it was opened from is untouched");
-        assertEquals(PanelKind.PICKER, one.right());
-
-        Columns two = PanelStack.afterOpen(one, PanelKind.TABLE_EDITOR);
+        // Two children do not make a third rail: the second replaces the first.
+        Columns two = PanelStack.afterOpen(beside, PanelKind.TABLE_EDITOR);
         assertEquals(PanelKind.QUEST, two.left());
-        assertEquals(PanelKind.TABLE_EDITOR, two.right(), "one child column, not a stack of them");
+        assertEquals(PanelKind.TABLE_EDITOR, two.right(), "one child rail, not a stack of them");
         assertEquals(2, PanelStack.presented(two, false).size(), "and still exactly two things on screen");
     }
 
     @Test
-    @DisplayName("a node click swaps column 1 and empties column 2")
+    @DisplayName("a panel takes column 1 and empties column 2, and the fold is the player's throughout")
+    void aPanelReplacesBothPanelColumns() {
+        Columns withChild = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
+        for (PanelKind panel : List.of(PanelKind.QUEST, PanelKind.TABLE_EDITOR, PanelKind.TABLE_BROWSER,
+                PanelKind.ASSETS, PanelKind.REWARDS, PanelKind.SETTINGS, PanelKind.NAMING,
+                PanelKind.PARTY, PanelKind.CHOICE)) {
+            Columns after = PanelStack.asRoot(withChild, panel);
+            assertEquals(panel, after.left(), panel + " is what the player asked for");
+            assertEquals(PanelKind.NONE, after.right(), "and the child it replaced goes with the parent");
+            assertEquals(PanelKind.TOOLS, after.dock(), "and the dock is not the arrangement's to lose");
+            assertEquals(Fold.ALWAYS, after.fold(), "nor is the player's fold");
+        }
+        assertEquals(PanelKind.NONE, PanelStack.asRoot(withChild, PanelKind.NONE).left(),
+                "closing through a panel kind closes the panel columns rather than naming one");
+        assertEquals(PanelKind.NONE, PanelStack.asRoot(withChild, PanelKind.NONE).right());
+        assertEquals(PanelKind.TOOLS, PanelStack.asRoot(withChild, PanelKind.NONE).dock(),
+                "and it is not a way to put the tools away either");
+    }
+
+    @Test
+    @DisplayName("a kind that is neither a child nor a panel you asked for still replaces column 1")
+    void anUnclassifiedKindReplacesThePanelColumn() {
+        // A question the player is asked rather than a place they went. Writing the rule as "a child is the
+        // exception" rather than "a panel is the rule" is what keeps it out of the second rail.
+        Columns withChild = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
+        Columns after = PanelStack.afterOpen(withChild, PanelKind.CHOICE);
+        assertEquals(PanelKind.CHOICE, after.left(), "it is what the player is being asked, so it is shown");
+        assertEquals(PanelKind.NONE, after.right(),
+                "and the child it was opened over goes with the panel it belonged to");
+    }
+
+    @Test
+    @DisplayName("a node click swaps the panel's rail and empties the child's")
     void aNodeClickClearsTheChild() {
         Columns now = PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER);
         Columns after = PanelStack.afterNodeClick(now);
@@ -129,111 +179,136 @@ class PanelStackTest {
     }
 
     @Test
-    @DisplayName("the fold is the player's, so no transition loses it")
-    void theFoldSurvivesEveryTransition() {
-        Columns folded = new Columns(PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
-
-        assertEquals(Fold.ALWAYS, PanelStack.afterOpen(folded, PanelKind.REWARDS).fold());
-        assertEquals(Fold.ALWAYS, PanelStack.afterNodeClick(folded).fold());
-        assertEquals(Fold.ALWAYS, PanelStack.afterClose(folded, true).fold(),
-                "closing the child shows the parent again; it does not un-ask for folding");
-        assertEquals(Fold.ALWAYS, PanelStack.afterModeFlip(folded, false).fold());
-    }
-
-    @Test
-    @DisplayName("the outer close drops the child, the inner one drops everything")
+    @DisplayName("the outer close drops the child, the inner one drops the panel, and neither drops the dock")
     void closingPeelsOutermostFirst() {
-        Columns two = new Columns(PanelKind.QUEST, PanelKind.TABLE_EDITOR, Fold.AUTO);
+        Columns two = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.TABLE_EDITOR, Fold.AUTO);
 
         Columns childGone = PanelStack.afterClose(two, true);
         assertEquals(PanelKind.QUEST, childGone.left());
         assertEquals(PanelKind.NONE, childGone.right(), "the child goes first, which is what Escape peels");
 
-        Columns allGone = PanelStack.afterClose(two, false);
-        assertEquals(PanelKind.NONE, allGone.left());
-        assertEquals(PanelKind.NONE, allGone.right(),
-                "a second column is always something the first opened, so it cannot outlive it");
+        Columns panelGone = PanelStack.afterClose(two, false);
+        assertEquals(PanelKind.NONE, panelGone.left());
+        assertEquals(PanelKind.NONE, panelGone.right(),
+                "a second rail is always something the first opened, so it cannot outlive it");
+        assertEquals(PanelKind.TOOLS, panelGone.dock(), "and the dock is neither of them");
     }
 
     @Test
-    @DisplayName("a folded rail shows the child, and names its parent")
+    @DisplayName("a folded rail shows the child, and the dock beside it whatever the fold says")
     void foldedShowsTheChild() {
-        Columns two = new Columns(PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
+        Columns two = new Columns(PanelKind.NONE, PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
 
         assertEquals(PanelKind.PICKER, PanelStack.shown(two), "the child is what was being looked at");
         assertEquals(List.of(PanelKind.PICKER), PanelStack.presented(two, true),
                 "one entry, and the parent is not drawn behind it");
+
+        Columns withDock = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
+        assertEquals(List.of(PanelKind.PICKER, PanelKind.TOOLS), PanelStack.presented(withDock, true),
+                "**and the dock is still there**: folding pages a panel and its child, and it is not a way "
+                        + "to take the author's tools away -- which is the fault this round exists to fix");
     }
 
     @Test
-    @DisplayName("folding with nothing open shows the parent, and folding nothing shows nothing")
-    void foldingWithoutAChildShowsTheParent() {
+    @DisplayName("folding with nothing open shows the panel, and folding nothing shows nothing")
+    void foldingWithoutAChildShowsThePanel() {
         assertEquals(List.of(PanelKind.QUEST), PanelStack.presented(QUEST_OPEN, true));
+        assertEquals(List.of(PanelKind.TOOLS), PanelStack.presented(
+                PanelStack.withDock(Columns.EMPTY, true), true), "the dock is not a panel to fold");
         assertEquals(List.of(), PanelStack.presented(Columns.EMPTY, true));
         assertEquals(List.of(), PanelStack.presented(Columns.EMPTY, false));
     }
 
     @Test
-    @DisplayName("two columns are presented child first, which is the draw order")
+    @DisplayName("rails are presented innermost first, which is the draw order")
     void presentedIsDrawOrder() {
-        Columns two = new Columns(PanelKind.QUEST, PanelKind.PICKER, Fold.AUTO);
-        assertEquals(List.of(PanelKind.PICKER, PanelKind.QUEST), PanelStack.presented(two, false),
-                "the first column is drawn last, so its edge and its corners sit over the second's");
+        Columns three = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.PICKER, Fold.AUTO);
+        assertEquals(List.of(PanelKind.PICKER, PanelKind.QUEST, PanelKind.TOOLS),
+                PanelStack.presented(three, false),
+                "the outermost rail is drawn last, so its edge and its corners sit over the inner one's");
+
+        Columns two = new Columns(PanelKind.NONE, PanelKind.QUEST, PanelKind.PICKER, Fold.AUTO);
+        assertEquals(List.of(PanelKind.PICKER, PanelKind.QUEST), PanelStack.presented(two, false));
     }
 
     @Test
-    @DisplayName("NONE is never presented, in either column")
+    @DisplayName("NONE is never presented, on any rail")
     void absenceIsNeverPresented() {
         assertEquals(List.of(PanelKind.QUEST), PanelStack.presented(QUEST_OPEN, false));
         assertEquals(List.of(PanelKind.PICKER),
-                PanelStack.presented(new Columns(PanelKind.NONE, PanelKind.PICKER, Fold.AUTO), false));
+                PanelStack.presented(Columns.of(PanelKind.NONE, PanelKind.PICKER, Fold.AUTO), false),
+                "a child rail with no panel under it is shown rather than dropped: the rules never build "
+                        + "one, and `presented` still has to answer for an arrangement it is given");
+        assertEquals(List.of(PanelKind.TOOLS),
+                PanelStack.presented(PanelStack.withDock(Columns.EMPTY, true), false),
+                "and the dock on its own is the one thing on screen");
     }
 
     @Test
-    @DisplayName("flipping to a card promotes the child; flipping to a panel carries the first column")
-    void theModeFlipKeepsWhatMatters() {
-        Columns two = new Columns(PanelKind.QUEST, PanelKind.TABLE_EDITOR, Fold.AUTO);
-
-        Columns asCard = PanelStack.afterModeFlip(two, false);
-        assertEquals(PanelKind.TABLE_EDITOR, asCard.left(), "the card shows the innermost thing you were on");
-        assertEquals(PanelKind.NONE, asCard.right(), "a card has no second column to leave behind");
-
-        Columns asPanel = PanelStack.afterModeFlip(asCard, true);
-        assertEquals(PanelKind.TABLE_EDITOR, asPanel.left(), "and the panel takes the card's kind back");
-        assertEquals(PanelKind.NONE, asPanel.right());
+    @DisplayName("asking for the dock opens the dock, on either transition")
+    void askingForTheDockIsTheDocksOwnTransition() {
+        // `TOOLS` is a rail rather than a panel column, so both openings delegate rather than filing it into
+        // a panel column -- which would be two rails holding the author's tools, one of them under a panel.
+        assertEquals(PanelKind.TOOLS, PanelStack.afterOpen(Columns.EMPTY, PanelKind.TOOLS).dock());
+        assertEquals(PanelKind.TOOLS, PanelStack.asRoot(Columns.EMPTY, PanelKind.TOOLS).dock());
+        assertEquals(PanelKind.NONE, PanelStack.afterOpen(Columns.EMPTY, PanelKind.TOOLS).left(),
+                "and neither put it where a panel goes");
+        assertEquals(PanelKind.QUEST,
+                PanelStack.afterOpen(QUEST_OPEN, PanelKind.TOOLS).left(),
+                "and asking for it leaves the panel beside it alone");
     }
 
     @Test
-    @DisplayName("flipping with no child keeps the parent, which is the same rule with nothing to promote")
-    void theModeFlipWithoutAChild() {
-        assertEquals(PanelKind.QUEST, PanelStack.afterModeFlip(QUEST_OPEN, false).left());
-        assertEquals(PanelKind.NONE, PanelStack.afterModeFlip(Columns.EMPTY, false).left());
+    @DisplayName("the empty arrangement is nothing open anywhere, and the window deciding")
+    void theEmptyArrangement() {
+        assertEquals(PanelKind.NONE, Columns.EMPTY.dock());
+        assertEquals(PanelKind.NONE, Columns.EMPTY.left());
+        assertEquals(PanelKind.NONE, Columns.EMPTY.right());
+        assertEquals(Fold.AUTO, Columns.EMPTY.fold(),
+                "a player who never opened the file gets the window's answer");
+        assertFalse(PanelStack.hasChild(Columns.EMPTY));
+        assertTrue(PanelStack.hasChild(PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER)));
     }
 
     @Test
-    @DisplayName("a wide kind asks for the card's width and keeps a floor a table can be read at")
-    void wideKindsKeepTheirWidth() {
-        for (PanelKind wide : List.of(PanelKind.REWARDS, PanelKind.TABLE_EDITOR, PanelKind.ASSETS)) {
-            assertEquals(PanelStack.WIDE_WIDTH, PanelStack.preferredWidth(wide), wide + " was drawn wide");
-            assertEquals(PanelStack.WIDE_MIN_WIDTH, PanelStack.minimumWidth(wide),
-                    wide + " below this reads as broken rather than as narrow");
+    @DisplayName("every kind opens at the width its own layout was drawn against")
+    void everyKindHasItsOwnDefaultWidth() {
+        for (PanelKind kind : PanelKind.values()) {
+            int width = PanelStack.defaultWidth(kind);
+            if (kind == PanelKind.NONE) {
+                assertEquals(0, width, "nothing has no width");
+                continue;
+            }
+            assertTrue(width >= PanelStack.minimumWidth(kind) && width <= PanelStack.WIDE_WIDTH,
+                    kind + "'s default must be a width it may legally be drawn at");
+            assertEquals(width, PanelStack.clampWidth(width, kind),
+                    kind + "'s own default must survive its own clamp");
         }
-        assertEquals(PanelStack.WIDTH, PanelStack.preferredWidth(PanelKind.QUEST));
-        assertEquals(PanelStack.MIN_WIDTH, PanelStack.minimumWidth(PanelKind.QUEST));
-        // The dock is an ordinary column width-wise: its rows are labelled fields and switches rather than
-        // prose, so it asks for the same width every root asks for and shares the same floor. What makes it
-        // different is that it has no card form, which the width policy knows nothing about.
-        assertEquals(PanelStack.WIDTH, PanelStack.preferredWidth(PanelKind.TOOLS));
-        assertEquals(PanelStack.MIN_WIDTH, PanelStack.minimumWidth(PanelKind.TOOLS));
-        assertFalse(PanelStack.isWide(PanelKind.TOOLS), "and it is not a wide kind");
+        assertEquals(PanelStack.WIDTH, PanelStack.defaultWidth(PanelKind.QUEST));
+        assertEquals(PanelStack.WIDTH, PanelStack.defaultWidth(PanelKind.TOOLS),
+                "the dock is an ordinary rail width-wise: its rows are labelled fields and switches");
+        for (PanelKind list : List.of(PanelKind.PICKER, PanelKind.TEXTURE, PanelKind.TABLE_BROWSER)) {
+            assertEquals(PanelStack.SECOND_WIDTH, PanelStack.defaultWidth(list),
+                    list + " is a list of names rather than something you read, so it opens narrow");
+        }
+        for (PanelKind wide : List.of(PanelKind.REWARDS, PanelKind.TABLE_EDITOR, PanelKind.ASSETS)) {
+            assertTrue(PanelStack.isWide(wide), wide + " is the wide set");
+            assertEquals(PanelStack.WIDE_WIDTH, PanelStack.defaultWidth(wide), wide + " was drawn wide");
+        }
+        // And nothing else is wide, so the two lists above are the whole of the rule rather than a sample
+        // of it: a kind added later lands in `isWide` or it does not, and either way this catches it.
+        for (PanelKind kind : PanelKind.values()) {
+            if (kind == PanelKind.NONE || list(kind) || PanelStack.isWide(kind)) {
+                continue;
+            }
+            assertEquals(PanelStack.WIDTH, PanelStack.defaultWidth(kind),
+                    kind + " carries prose, so it opens at an ordinary rail's width");
+        }
     }
 
-    @Test
-    @DisplayName("a wide child wants its own width and folds when the pair cannot fit")
-    void aWideChildAsksForTheWideWidth() {
-        assertEquals(PanelStack.SECOND_WIDTH, PanelStack.secondPreferredWidth(PanelKind.PICKER));
-        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.secondPreferredWidth(PanelKind.TABLE_EDITOR),
-                "a table does not reflow into a 260-pixel column, so it asks for its width and folds");
+    /** The kinds whose content is a list of names rather than prose. */
+    private static boolean list(PanelKind kind) {
+        return kind == PanelKind.PICKER || kind == PanelKind.TEXTURE || kind == PanelKind.TABLE_BROWSER;
     }
 
     @Test
@@ -255,39 +330,24 @@ class PanelStackTest {
     }
 
     @Test
-    @DisplayName("a stored width may be a wide kind's, so it is not clamped to a prose column")
-    void theStoredWidthKeepsAWideChoice() {
-        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.clampStoredWidth(PanelStack.WIDE_WIDTH),
-                "the player may have chosen this width for a rewards inbox");
-        assertEquals(PanelStack.MIN_WIDTH, PanelStack.clampStoredWidth(-1));
-        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.clampStoredWidth(99_999));
-    }
-
-    @Test
-    @DisplayName("the stored width is column 1's, and each kind has the last word on its own width")
-    void theDrawnWidths() {
-        assertEquals(300, PanelStack.columnWidth(PanelKind.QUEST, true, 300),
-                "an ordinary root is drawn at the player's width");
-        assertEquals(PanelStack.MIN_WIDTH, PanelStack.columnWidth(PanelKind.QUEST, true, 10),
-                "clamped up to the narrowest a panel may be");
-        assertEquals(PanelStack.MAX_WIDTH, PanelStack.columnWidth(PanelKind.QUEST, true, 900),
+    @DisplayName("a kind has the last word on the width it is drawn at")
+    void theDrawnWidth() {
+        assertEquals(300, PanelStack.columnWidth(PanelKind.QUEST, 300),
+                "an ordinary rail is drawn at the player's width");
+        assertEquals(PanelStack.MIN_WIDTH, PanelStack.columnWidth(PanelKind.QUEST, 10),
+                "clamped up to the narrowest a rail may be");
+        assertEquals(PanelStack.MAX_WIDTH, PanelStack.columnWidth(PanelKind.QUEST, 900),
                 "and down to the widest an ordinary one may be");
 
-        assertEquals(PanelStack.WIDE_MIN_WIDTH, PanelStack.columnWidth(PanelKind.REWARDS, true, 300),
+        assertEquals(PanelStack.WIDE_MIN_WIDTH, PanelStack.columnWidth(PanelKind.REWARDS, 300),
                 "a wide kind opened at a prose width is widened to its own floor instead");
-        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.columnWidth(PanelKind.REWARDS, true, 900),
+        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.columnWidth(PanelKind.REWARDS, 900),
                 "and may use the whole width the centred card gave it");
-
-        assertEquals(PanelStack.SECOND_WIDTH, PanelStack.columnWidth(PanelKind.PICKER, false, 900),
-                "column 2 does not take the player's width: it is about what it holds, not about reading");
-        assertEquals(PanelStack.WIDE_WIDTH, PanelStack.columnWidth(PanelKind.TABLE_EDITOR, false, 300),
-                "a table in column 2 asks for the width a table needs, which is what folds it on any "
-                        + "ordinary window and gives it its columns on a very wide one");
-        assertEquals(0, PanelStack.columnWidth(PanelKind.NONE, true, 300), "and nothing has no width");
+        assertEquals(0, PanelStack.columnWidth(PanelKind.NONE, 300), "and nothing has no width");
     }
 
     @Test
-    @DisplayName("dragging the inner edge left widens the column, and the kind stops it at its own limits")
+    @DisplayName("dragging the inner edge left widens the rail, and the kind stops it at its own limits")
     void theDragArithmetic() {
         // The edge is on the inner side, so the pointer moving left widens -- and the distance travelled
         // is what the width gains, which is what makes the edge follow the hand rather than a formula.
@@ -299,51 +359,12 @@ class PanelStackTest {
                 "and 20 right is 20 narrower");
 
         assertEquals(PanelStack.MIN_WIDTH, PanelStack.widthWhileDragging(340, 500, 5_000, PanelKind.QUEST),
-                "dragged far to the right, an ordinary column stops at the narrowest a panel may be");
+                "dragged far to the right, an ordinary rail stops at the narrowest a rail may be");
         assertEquals(PanelStack.MAX_WIDTH, PanelStack.widthWhileDragging(340, 500, -5_000, PanelKind.QUEST),
                 "and far to the left, at the widest");
         assertEquals(PanelStack.WIDE_WIDTH,
-                PanelStack.widthWhileDragging(PanelStack.WIDE_MIN_WIDTH, 500, -5_000,
-                        PanelKind.REWARDS),
+                PanelStack.widthWhileDragging(PanelStack.WIDE_MIN_WIDTH, 500, -5_000, PanelKind.REWARDS),
                 "a wide kind has further to go, and stops at the width its own layout was drawn for");
-    }
-
-    @Test
-    @DisplayName("the converted kinds are listed, and Choice never is")
-    void theConvertedKinds() {
-        // The mode's safety-critical fact, and the reason this list is in the library rather than in the
-        // screen: a kind presented in a column but not listed here draws its card inside a column's frame.
-        for (PanelKind kind : PanelKind.values()) {
-            if (PanelStack.isDocked(kind)) {
-                assertFalse(kind == PanelKind.CHOICE,
-                        kind + " must never be docked: it asks the player a question that interrupts rather "
-                                + "than being a place they went");
-                assertTrue(PanelStack.isRoot(kind) || PanelStack.isChild(kind),
-                        kind + " is docked, so it must be a root or a child -- a kind neither knows about "
-                                + "has no column rule to follow");
-            }
-        }
-
-        assertTrue(PanelStack.isDocked(PanelKind.QUEST), "the quest is converted");
-        assertTrue(PanelStack.isDocked(PanelKind.PICKER),
-                "and so are the pickers: both take their body from `overlayBody`, so they follow the surface");
-        assertTrue(PanelStack.isDocked(PanelKind.TEXTURE));
-        assertTrue(PanelStack.isDocked(PanelKind.TABLE_EDITOR),
-                "the tables joined once their one body expression started asking the surface being drawn");
-        assertTrue(PanelStack.isDocked(PanelKind.TABLE_BROWSER));
-        for (PanelKind root : List.of(PanelKind.REWARDS, PanelKind.SETTINGS, PanelKind.NAMING,
-                PanelKind.ASSETS, PanelKind.PARTY)) {
-            assertTrue(PanelStack.isDocked(root),
-                    root + " is a root that draws at its own width, and it follows the surface it is given");
-        }
-        // **And it is not wide**: it was, while its two faces sat side by side. Docked, the sidebar has the
-        // canvas's whole height, so the party spends that instead of the width -- its faces stack down one
-        // column. The wide column is for panels that cannot reflow, and this one now does.
-        assertFalse(PanelStack.isWide(PanelKind.PARTY), "the party stacked its faces, so it takes the rail");
-        assertFalse(PanelStack.isDocked(PanelKind.NONE), "and nothing is not a kind that occupies a column");
-        // The one that never joins, and the assertion this whole list exists for: it asks the player a
-        // question rather than being a place they went.
-        assertFalse(PanelStack.isDocked(PanelKind.CHOICE));
     }
 
     @Test
@@ -382,107 +403,5 @@ class PanelStackTest {
         assertEquals(Fold.AUTO, PanelStack.foldOf("sometimes"), "a typo costs a preference, not a client");
         assertEquals(Fold.ALWAYS, PanelStack.foldOf(" ALWAYS "), "the long words are read as well");
         assertEquals(Fold.NEVER, PanelStack.foldOf("never"));
-    }
-
-    @Test
-    @DisplayName("the empty arrangement is nothing open, and the window deciding")
-    void theEmptyArrangement() {
-        assertEquals(PanelKind.NONE, Columns.EMPTY.left());
-        assertEquals(PanelKind.NONE, Columns.EMPTY.right());
-        assertEquals(Fold.AUTO, Columns.EMPTY.fold(), "a player who never opened the file gets the window's answer");
-        assertFalse(PanelStack.hasChild(Columns.EMPTY));
-        assertTrue(PanelStack.hasChild(PanelStack.afterOpen(QUEST_OPEN, PanelKind.PICKER)));
-    }
-
-    @Test
-    @DisplayName("with the columns off, a child has nowhere to sit and takes the first column")
-    void aChildWithNoColumnsTakesTheCard() {
-        // The switch is not a rule this class may read -- it arrives as a parameter -- and this test is the
-        // consequence of getting it wrong, written where it can be run: with the mode off every kind draws its
-        // card, so a picker filed into a second column was in no picture at all and the Escape that should have
-        // closed it had nothing to peel. The whole matrix rather than one example, because the fault was one
-        // arrangement out of many and the ones that worked hid it.
-        for (PanelKind left : PanelKind.values()) {
-            for (PanelKind opened : PanelKind.values()) {
-                Columns with = PanelStack.afterOpen(
-                        new Columns(left, PanelKind.NONE, Fold.AUTO), opened, false);
-                String at = " opening " + opened + " over " + left;
-
-                // No exemption, not even for the kind that is always docked: the switch decides whether an
-                // opened overlay is a card, and the dock's exemption is about the dock's *own* presentation.
-                // A child filed beside the dock on a client with columns off would be drawn in a column
-                // nobody asked for -- see `afterOpen`, which had exactly that bug once.
-                assertEquals(PanelKind.NONE, with.right(),
-                        () -> "a card holds one thing, so nothing may be filed beside it" + at);
-                assertEquals(opened == PanelKind.NONE ? left : opened, with.left(),
-                        () -> "what was asked for takes the first column, and nothing changes nothing" + at);
-            }
-        }
-    }
-
-    @Test
-    @DisplayName("one kind is docked whatever the switch says, and it is the author's dock")
-    void theAlwaysDockedKind() {
-        // The exemption above is one kind wide, and it is the mode's own limit rather than a preference: the
-        // switch decides how an *overlay* is presented, and a kind with no card form has nothing for it to
-        // decide. Asserted against every other kind, so a kind added later cannot quietly claim it -- which
-        // is how a "temporarily" exempt kind becomes a second presentation nobody chose.
-        for (PanelKind kind : PanelKind.values()) {
-            if (kind == PanelKind.TOOLS) {
-                assertTrue(PanelStack.isAlwaysDocked(kind), "the dock has no card form");
-                assertTrue(PanelStack.isDocked(kind), "so it is docked, whatever the mode says");
-                assertTrue(PanelStack.isRoot(kind), "and it is a place the author went: it takes column 1");
-                assertFalse(PanelStack.isChild(kind), "nothing opens the dock from another panel");
-                continue;
-            }
-            assertFalse(PanelStack.isAlwaysDocked(kind),
-                    kind + " must not be exempt from the switch: a card is the default shape for everything "
-                            + "the switch governs, and this dock is the only kind that has no card at all");
-        }
-    }
-
-    @Test
-    @DisplayName("with the columns on, a child still needs a panel that can hold it")
-    void aChildNeedsSomewhereToBeSecondWhenTheModeIsOn() {
-        // The same matrix with the mode on: beside a docked kind, and replacing a card -- which is the rule
-        // the screen's own list of converted kinds feeds in as `isDocked(left)`.
-        for (PanelKind left : PanelKind.values()) {
-            for (PanelKind child : List.of(PanelKind.PICKER, PanelKind.TEXTURE, PanelKind.TABLE_BROWSER,
-                    PanelKind.TABLE_EDITOR)) {
-                Columns with = PanelStack.afterOpen(
-                        new Columns(left, PanelKind.NONE, Fold.AUTO), child, true);
-                String at = " opening " + child + " over " + left;
-
-                if (PanelStack.isDocked(left)) {
-                    assertEquals(left, with.left(), () -> "the panel it was opened from is untouched" + at);
-                    assertEquals(child, with.right(), () -> "and the child sits beside it" + at);
-                }
-                else {
-                    assertEquals(child, with.left(), () -> "a card cannot hold a child, so it is replaced" + at);
-                    assertEquals(PanelKind.NONE, with.right(), () -> "and nothing is left behind it" + at);
-                }
-            }
-        }
-    }
-
-    @Test
-    @DisplayName("a root takes the arrangement outright, whatever its classification")
-    void aRootReplacesBothColumns() {
-        // The two table kinds are children by classification and roots by the road that reaches them -- a
-        // reward's table chip, the pack's assets panel -- which is why the screen needs a transition that
-        // does not consult the classification at all. This is that transition, and the reason it exists:
-        // without it the screen assigned the fields directly, and a second column outlived its parent.
-        Columns two = new Columns(PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
-        for (PanelKind root : List.of(PanelKind.QUEST, PanelKind.TABLE_EDITOR, PanelKind.TABLE_BROWSER,
-                PanelKind.ASSETS, PanelKind.REWARDS, PanelKind.SETTINGS, PanelKind.NAMING)) {
-            Columns after = PanelStack.asRoot(two, root);
-            assertEquals(root, after.left(), root + " is what the player asked for");
-            assertEquals(PanelKind.NONE, after.right(), "and the child it replaced goes with the parent");
-            assertEquals(Fold.ALWAYS, after.fold(), "the player's fold is not the arrangement's to lose");
-        }
-
-        assertEquals(PanelKind.NONE, PanelStack.asRoot(two, PanelKind.NONE).left(),
-                "closing through a root kind closes the arrangement rather than naming a panel");
-        assertEquals(PanelKind.NONE, PanelStack.asRoot(two, PanelKind.NONE).right());
     }
 }

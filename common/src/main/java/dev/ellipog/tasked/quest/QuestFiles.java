@@ -12,8 +12,11 @@ import dev.ellipog.armature.client.ui.kit.DeclaredPaths;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -204,6 +207,141 @@ public final class QuestFiles {
     }
 
     // ------------------------------------------------------------------
+    // Every id in the tree, readable or not
+    // ------------------------------------------------------------------
+
+    /**
+     * Every quest id any file under the root declares, whether or not the loader could read it.
+     *
+     * <h2>Why this is not {@link #discover}</h2>
+     *
+     * <p>Because discovery answers "what will the loader read" and this has to answer "what names are
+     * already taken", and the two differ exactly where a pack is broken — which is when a minted id must
+     * not collide. Discovery never parses a quest file its chapter's {@code quests} list does not mention,
+     * skips a folder inside a chapter folder with an error, never enters a subtree under a manifest that
+     * will not parse, and reports a version-1 flat file as one {@code FLAT_V1} declaration whose quests are
+     * not {@code Kind.QUEST} at all. An editor minting against that set hands a new quest an id an existing
+     * file already declares, and two quests under one id are one progress record shared by both — the first
+     * kept, the second drawn, clickable and never able to advance on its own.
+     *
+     * <h2>What it skips, and which way the trade errs</h2>
+     *
+     * <p>The names the loader skips — {@code _}-prefixed, {@code .deleted}, the reserved
+     * {@code reward_tables} folder — plus the three manifest names, which declare ids of their own and are
+     * not quests. Skipping is the direction that can be wrong: a file left out contributes no id, and a
+     * minted id can then collide with it. So the list is exactly the loader's own, and the one case it
+     * cannot see — a quest file literally named {@code group.json} — is a file the loader reads only if a
+     * chapter's list names it, which is an authoring mistake the load reports.
+     *
+     * <p>A file that cannot be read contributes nothing rather than failing the scan: the caller is minting
+     * a name, and refusing to mint because one file in somebody's pack is unreadable would make the editor
+     * unusable. The problem is reported where every other read problem is, at the load.
+     */
+    public static Set<String> allQuestIds(Path questRoot, Problems problems) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (questRoot == null || !Files.isDirectory(questRoot)) {
+            return ids;
+        }
+        try {
+            Files.walkFileTree(questRoot, new SimpleFileVisitor<Path>() {
+
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+                    if (dir.equals(questRoot)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    String name = dir.getFileName().toString();
+                    return DeclaredPaths.isIgnoredName(name) || isDeletedName(name) || isReservedName(name)
+                            ? FileVisitResult.SKIP_SUBTREE
+                            : FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                    String name = file.getFileName().toString();
+                    if (!attributes.isRegularFile() || !isQuestFile(name) || isDeletedName(name)
+                            || DeclaredPaths.isIgnoredName(name) || isManifestName(name)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    parse(file, display(questRoot, file), problems)
+                            .ifPresent(document -> collectIds(document, name, ids));
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException failure) {
+                    // Unreadable, so it declares nothing this can see. Not reported here: the load reads
+                    // the same file and reports it at its own line, and a second message about one
+                    // unreadable file would be two.
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        }
+        catch (IOException e) {
+            problems.add(display(questRoot, questRoot), new JsonLocation(1, 1, "$"),
+                    DataProblem.Severity.WARNING, "the quest folder could not be walked completely ("
+                            + e.getMessage() + "), so some ids are not known to the editor");
+        }
+        return ids;
+    }
+
+    /**
+     * The quest ids one file declares: its own, or the ones nested inside a version-1 file.
+     *
+     * <p>A version-1 flat file is a whole tree in one document —
+     * {@code chapterGroups[].chapters[].quests[]} — so its root declares no {@code id} at all, and reading
+     * only {@code $.id} would see none of the quests inside it. That is the case that matters most here:
+     * a pack converted from another mod is exactly where the flat layout and a freshly minted id meet. The
+     * paths come from {@link QuestValidator}, which is where this format's paths are written down.
+     */
+    private static void collectIds(JsonDocument document, String fileName, Set<String> ids) {
+        JsonElement groups = document.get("$.chapterGroups").orElse(null);
+        if (groups != null && groups.isJsonArray()) {
+            for (int g = 0; g < groups.getAsJsonArray().size(); g++) {
+                JsonElement chapters = document.get(QuestValidator.groupPath(g) + ".chapters").orElse(null);
+                if (chapters == null || !chapters.isJsonArray()) {
+                    continue;
+                }
+                for (int c = 0; c < chapters.getAsJsonArray().size(); c++) {
+                    JsonElement quests = document.get(QuestValidator.chapterPath(g, c) + ".quests")
+                            .orElse(null);
+                    if (quests == null || !quests.isJsonArray()) {
+                        continue;
+                    }
+                    for (int q = 0; q < quests.getAsJsonArray().size(); q++) {
+                        addId(document.get(QuestValidator.questPath(g, c, q) + ".id").orElse(null), ids);
+                    }
+                }
+            }
+            return;
+        }
+        // A file per quest: the id it declares, or its file name — which is the vocabulary the editor keys
+        // an id-less file by as well, so a create that ignored the stem could still land on one.
+        String declared = stringAt(document, "$.id");
+        ids.add(declared == null || declared.isBlank() ? stemOf(fileName) : declared);
+    }
+
+    /** One id, if it is a string worth remembering. */
+    private static void addId(JsonElement element, Set<String> ids) {
+        if (element != null && element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+            String id = element.getAsString();
+            if (!id.isBlank()) {
+                ids.add(id);
+            }
+        }
+    }
+
+    /** Whether a name is one of the three manifests, whose {@code id} is not a quest's. */
+    private static boolean isManifestName(String name) {
+        return GROUP_MANIFEST.equals(name) || CHAPTER_MANIFEST.equals(name) || INDEX_MANIFEST.equals(name);
+    }
+
+    /** A quest file's name without its suffix. Only called once {@link #isQuestFile} has said yes. */
+    private static String stemOf(String name) {
+        return name.substring(0, name.length() - ".json".length());
+    }
+
+    // ------------------------------------------------------------------
     // What a discovery produces
     // ------------------------------------------------------------------
 
@@ -371,28 +509,58 @@ public final class QuestFiles {
         }
 
         Path indexPath = questRoot.resolve(INDEX_MANIFEST);
+        // True once some walk has read the root: the manifest's when it declares one, the folder names'
+        // when there is not one -- or when there is one and it cannot say what the root is, which is the
+        // case this arrangement exists for. That last case used to walk nothing at all and empty the whole
+        // book; see `discoverIndexed`.
+        boolean rootRead = false;
         if (Files.isRegularFile(indexPath)) {
-            discoverIndexed(questRoot, indexPath, entries, declarations, problems, examined);
+            rootRead = discoverIndexed(questRoot, indexPath, entries, declarations, problems, examined);
         }
-        else {
-            for (Path entry : entries) {
-                String name = entry.getFileName().toString();
-                if (DeclaredPaths.isIgnoredName(name) || isDeletedName(name) || isReservedName(name)) {
-                    // `_schema/` and every other underscore-prefixed name at the root, anything a
-                    // recoverable delete left behind, and the reward tables' folder -- which is
-                    // content, just not the book's. See the class note.
-                    continue;
-                }
-                if (Files.isDirectory(entry) && !Files.isSymbolicLink(entry)) {
-                    discoverGroup(questRoot, entry, declarations, problems, examined);
-                }
-                else if (isQuestFile(name)) {
-                    discoverFlatFile(questRoot, entry, declarations, problems, examined);
-                }
-            }
+        if (!rootRead) {
+            walkRootByFolderName(questRoot, entries, declarations, problems, examined);
         }
 
         return new Discovery(List.copyOf(declarations), problems, examined[0]);
+    }
+
+    /**
+     * The root read by folder name: every folder is a group, every flat file is a version-1 file.
+     *
+     * <p>This is the whole of what the loader did before {@code index.json} existed, and it is now two
+     * callers rather than one: a tree with no manifest, and a tree whose manifest cannot say what the
+     * root is. Keeping it one method is the point -- "no index" has to mean one thing, or the same
+     * directory would load differently depending on <i>how</i> its manifest came to be unreadable.
+     *
+     * <p>A root chapter is the one thing it cannot serve, and deliberately: with no readable manifest
+     * there is nothing left that says a folder at the root is a chapter rather than a malformed group,
+     * so it is reported as "not a chapter group" and does not load. The shipped example has no
+     * {@code index.json} at all, so it is the shape this method is normally handed.
+     */
+    private static void walkRootByFolderName(Path questRoot, List<Path> entries, List<Declaration> out,
+                                             Problems problems, int[] examined) {
+        for (Path entry : entries) {
+            String name = entry.getFileName().toString();
+            if (name.equals(INDEX_MANIFEST)) {
+                // Only reachable from the fallback, where this file has already been read and reported:
+                // without this it is a root `.json` file like any other, so the walk reads it a second
+                // time as a version-1 file and reports the same parse failure twice. It is not book
+                // content in either reading.
+                continue;
+            }
+            if (DeclaredPaths.isIgnoredName(name) || isDeletedName(name) || isReservedName(name)) {
+                // `_schema/` and every other underscore-prefixed name at the root, anything a
+                // recoverable delete left behind, and the reward tables' folder -- which is content,
+                // just not the book's. See the class note.
+                continue;
+            }
+            if (Files.isDirectory(entry) && !Files.isSymbolicLink(entry)) {
+                discoverGroup(questRoot, entry, out, problems, examined);
+            }
+            else if (isQuestFile(name)) {
+                discoverFlatFile(questRoot, entry, out, problems, examined);
+            }
+        }
     }
 
     /**
@@ -411,14 +579,31 @@ public final class QuestFiles {
      * whether it is a mistake or a note to be prefixed. The one asymmetry is that this rule exists
      * only while the manifest does — without it there is nothing to be listed in, and the old
      * folder-name walk is the honest reading.
+     *
+     * <h2>Returns whether it read the root, and that is the answer to "the file is broken"</h2>
+     *
+     * <p>A manifest that cannot be read, or that does not declare a usable {@code entries} list, cannot
+     * say what the top level of the book is — so the caller reads the root the way it reads a tree with
+     * no manifest at all, and this returns {@code false} to say so. It used to return with nothing
+     * walked, which meant <b>one typo in this one file emptied the whole book</b>: every group, every
+     * chapter and every quest, live, on the next reload, while every other file in the loader fails
+     * open. The book's contents are the one thing that should not depend on this file being valid, and
+     * absence has always been a supported state for it -- a tree with no {@code index.json} is read by
+     * folder name, and the shipped example is exactly that.
+     *
+     * <p><b>What is not a fallback:</b> entries that are declared and individually fail to resolve. That
+     * is a per-entry fault the walk already reports and skips, and falling back there would load content
+     * the manifest deliberately left out.
      */
-    private static void discoverIndexed(Path root, Path indexPath, List<Path> entries,
-                                        List<Declaration> out, Problems problems, int[] examined) {
+    private static boolean discoverIndexed(Path root, Path indexPath, List<Path> entries,
+                                           List<Declaration> out, Problems problems, int[] examined) {
         String indexDisplay = display(root, indexPath);
         examined[0]++;
         Optional<JsonDocument> parsed = parse(indexPath, indexDisplay, problems);
         if (parsed.isEmpty()) {
-            return;
+            // The parse failure is already reported against this file, at its own line.
+            reportIndexFallback(indexDisplay, problems);
+            return false;
         }
         JsonDocument document = parsed.get();
 
@@ -430,7 +615,8 @@ public final class QuestFiles {
                             + " the two say different things about the tree."
                     : "expected a list of entries, found " + Checks.kindOf(list) + ". Each entry names a"
                             + " \"group\", a \"chapter\" or a version-1 \"file\".");
-            return;
+            reportIndexFallback(indexDisplay, problems);
+            return false;
         }
 
         // What this manifest accounted for, so the sweep afterwards can say what it did not. The
@@ -506,6 +692,29 @@ public final class QuestFiles {
                             + " - so it will never load. Add an entry for \"" + name + "\" in the order it"
                             + " should sit, or prefix the name with \"_\" to leave it out deliberately.");
         }
+        return true;
+    }
+
+    /**
+     * What the author is told when the root manifest could not say what the root is.
+     *
+     * <p>A second message rather than one, because they are two facts: what is wrong with the file
+     * (reported where it was found, against this file at its own line) and what was done about it. The
+     * second is the one that stops the reload reading as "my whole book is gone" -- the tree is there
+     * and it loaded, in a different order, with anything this file would have excluded included.
+     *
+     * <p>Reported even though the fallback succeeds, for the reason the loader reports anything: a load
+     * that quietly reads a tree differently from how its own manifest describes it is a load whose
+     * author has no way to learn the manifest is being ignored.
+     */
+    private static void reportIndexFallback(String indexDisplay, Problems problems) {
+        problems.add(indexDisplay, new JsonLocation(1, 1, "$"), DataProblem.Severity.WARNING,
+                "this file does not say what the root of the book is, so the tree is being read as if it"
+                        + " were not here: every folder at the root is a chapter group, in folder-name"
+                        + " order, and anything this file would have left out of the book is loaded"
+                        + " instead. A chapter declared only by this file does not load, because nothing"
+                        + " left says that folder is one."
+                        + "\n    fix this file and reload to get the order and the contents it declares.");
     }
 
     /**
@@ -608,7 +817,17 @@ public final class QuestFiles {
                 continue;
             }
             if (!declared.contains(name)) {
-                problems.add(document, "$.chapters", DataProblem.Severity.ERROR,
+                // **Against the folder, not against this manifest**, and that is the whole of the fix
+                // rather than a tidiness. `QuestLoader.assemble` refuses a declaration whose own file
+                // carries an error -- so an error attached to `group.json` threw the group away, and with
+                // it every chapter the list *did* name and every quest underneath them. One stray folder
+                // cost an author their entire group, which is what a pack converted from another mod looks
+                // like when a folder gets copied into itself.
+                //
+                // The sibling branch above, for a stray file, already reports against the thing itself.
+                // The two now agree, and the severity is unchanged: the folder really will never load, and
+                // saying so is the point of the message.
+                problems.add(display(root, entry), new JsonLocation(1, 1, "$"), DataProblem.Severity.ERROR,
                         "the folder \"" + name + "\" is here, and this group's \"chapters\" list does not"
                                 + " mention it - so its quests will never load. Add \"" + name
                                 + "\" to \"chapters\", or prefix the folder with \"_\" to leave it out"
@@ -617,17 +836,62 @@ public final class QuestFiles {
         }
 
         // Declared order, because that is the author's order and the only thing that can express it.
-        // A name that did not resolve was reported and is skipped here; the rest of the chapter still
-        // loads, which is the difference between one bad reference and a dead group.
+        // A name that did not resolve was reported and is skipped here, and the rest of the group still
+        // loads -- which is the difference between one bad reference and a dead group, and it is now
+        // true of the *loader* as well as of this walk. It was not: the failure below used to be
+        // reported against `group.json`, and `QuestLoader.assemble` refuses a declaration whose own file
+        // carries an error, so one chapter folder deleted by hand took every chapter the list did name
+        // with it. The mirror case -- a folder that is there and unlisted -- carries the same fix and
+        // the same reasoning; see `QuestLoaderTest`.
         for (String name : declared) {
             DeclaredPaths.Resolved resolved = DeclaredPaths.resolveSibling(
                     folder, name, DeclaredPaths.Kind.DIRECTORY);
             if (!resolved.ok()) {
-                problems.add(document, "$.chapters", DataProblem.Severity.ERROR, resolved.problem());
+                problems.add(unresolvedDisplay(root, document, name, resolved), new JsonLocation(1, 1, "$"),
+                        DataProblem.Severity.ERROR, resolved.problem());
                 continue;
             }
             discoverChapter(root, resolved.path(), manifestDisplay, out, problems, examined);
         }
+    }
+
+    /**
+     * Where a declared child that could not be resolved is reported.
+     *
+     * <h2>The child, not the manifest that named it</h2>
+     *
+     * <p>A resolution failure is a fact about a name and the thing it should have resolved to, so it
+     * belongs to the name. Reporting it against the declaring manifest is what made it fatal: the
+     * loader gates every declaration on "is there an error against this file", so an error attached to
+     * <code>chapter.json</code> refused the chapter and dropped every quest its list did name, and one
+     * attached to <code>group.json</code> did the same a level up. A deleted file is the ordinary way
+     * in -- Explorer, a bad merge, a rename done in one place -- and the cost was a chapter or a group
+     * rather than the one thing that is actually missing.
+     *
+     * <p>This is the same fix, in the same shape, that the unlisted case already carries one branch
+     * over, and the assertion that keeps it honest is in {@code QuestFilesTest}: the problem's
+     * <i>file</i> is the child, never the manifest.
+     *
+     * @param root      the quest root, for the display name
+     * @param declaring the manifest that named the child, used only when there is nothing else to name
+     * @param declared  the name exactly as the manifest spelled it
+     * @param resolved  the failed resolution: its path is the place the name would have resolved to, and
+     *                  is null when the name itself was unusable
+     */
+    private static String unresolvedDisplay(Path root, JsonDocument declaring, String declared,
+                                            DeclaredPaths.Resolved resolved) {
+        if (resolved.path() != null) {
+            // The common case: the name is fine and there is nothing there (or there is the wrong kind
+            // of thing). Naming it is what makes the message actionable, and it is what the loader's
+            // per-file gate then reads.
+            return display(root, resolved.path());
+        }
+        // The name itself was unusable -- a separator, a `..`, an `_`-prefixed name, an absolute path.
+        // The name as written is the thing to fix, and every message `problemWithName` produces quotes
+        // it, so it is the honest token. A blank name has nothing to quote, and that is the one case
+        // where this reports against a file that does load: an empty string names nothing, so there is
+        // no child to blame.
+        return declared == null || declared.isBlank() ? declaring.name() : declared;
     }
 
     /**
@@ -701,7 +965,10 @@ public final class QuestFiles {
                 continue;
             }
             if (!declared.contains(name)) {
-                problems.add(document, "$.quests", DataProblem.Severity.ERROR,
+                // Against the file, for the reason the group branch above gives: an error on `chapter.json`
+                // makes the loader refuse the chapter, and a chapter refused takes every quest it lists
+                // with it. One unlisted file must not cost an author a chapter of forty.
+                problems.add(display(root, entry), new JsonLocation(1, 1, "$"), DataProblem.Severity.ERROR,
                         "the quest file \"" + name + "\" is here, and this chapter's \"quests\" list does"
                                 + " not mention it - so it will never load. Add \"" + name
                                 + "\" to \"quests\" in the order it should sit, or prefix the file with"
@@ -713,7 +980,14 @@ public final class QuestFiles {
             DeclaredPaths.Resolved resolved = DeclaredPaths.resolveSibling(
                     folder, name, DeclaredPaths.Kind.FILE);
             if (!resolved.ok()) {
-                problems.add(document, "$.quests", DataProblem.Severity.ERROR, resolved.problem());
+                // **Reported against the name that did not resolve, not against this manifest**, and
+                // the difference is a whole chapter. `QuestLoader.assemble` refuses a declaration whose
+                // own file carries an error, so an error against `chapter.json` took every quest its
+                // list *did* name with it: one file deleted by hand in Explorer cost an author the
+                // other thirty-nine. The mirror case -- a quest file that is there and unlisted -- was
+                // fixed the same way and says the same thing; see `QuestLoaderTest`.
+                problems.add(unresolvedDisplay(root, document, name, resolved), new JsonLocation(1, 1, "$"),
+                        DataProblem.Severity.ERROR, resolved.problem());
                 continue;
             }
             String questDisplay = display(root, resolved.path());

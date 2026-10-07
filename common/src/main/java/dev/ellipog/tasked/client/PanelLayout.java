@@ -19,12 +19,12 @@ import java.util.List;
  *
  * <h2>The three bands are the card's own numbers</h2>
  *
- * <p>{@link #BODY_INSET}, {@link #BODY_TOP} and {@link #BODY_BOTTOM} are the figures {@code QuestBookScreen}
- * already draws a centred card's body with. They are repeated here on purpose and the screen will read
- * them from here: the mode that swaps a card for a column promises that <b>the content does not move
- * relative to its own surface</b>, and that promise is only keepable if both shapes measure the same
- * three numbers. A second copy in the screen would be a second answer to "where does the body start",
- * which is the class of fault {@code BookGeometry} was written to end.
+ * <p>{@link #BODY_INSET}, {@link #BODY_TOP} and {@link #BODY_BOTTOM} are the figures a centred card
+ * used to be drawn with. They are repeated here on purpose and the screen reads them from here: the round
+ * that moved every kind into a rail promised that <b>the content does not move relative to its own
+ * surface</b>, and that promise is only keepable if the rail measures the numbers the card did. A second
+ * copy in the screen would be a second answer to "where does the body start", which is the class of fault
+ * {@code BookGeometry} was written to end.
  *
  * <h2>The four decisions</h2>
  *
@@ -229,6 +229,13 @@ public final class PanelLayout {
      *
      * <p>The single column is unaffected: one panel may cover the whole canvas, which is what "the panel
      * wins" means. This floor is about two of them at once.
+     *
+     * <h2>What {@code available} is now that the dock has a rail of its own</h2>
+     *
+     * <p>The room the <b>pair</b> has, which is the canvas less the dock's rail and its two gaps when the
+     * author has their tools latched. Passing the canvas's whole width with a dock open would let the pair
+     * count the dock's rail as spare room and unfold itself into it — and the dock is the one rail no
+     * transition may move, so the arithmetic that decides the fold is the one place that has to know.
      */
     public static boolean fits(int available, int leftWidth, int rightWidth) {
         return leftWidth + BookGeometry.PANEL_GAP + rightWidth + BookGeometry.MIN_CANVAS_WIDTH

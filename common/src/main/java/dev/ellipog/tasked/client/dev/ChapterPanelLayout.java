@@ -41,6 +41,24 @@ public final class ChapterPanelLayout {
     public static final String QUESTS = "h:quests";
     public static final String GROUP = "h:group";
 
+    /**
+     * The pack's own faults, above everything else and <b>not foldable</b>.
+     *
+     * <h2>Why this heading has no fold when every other one does</h2>
+     *
+     * <p>Because a section is a category a reader may put away and this is a fault. A folded fault is a
+     * hidden one, and hiding it is the whole of what it exists to stop: the report used to be a toast that
+     * scrolled away, so an author who missed it went on working on a pack whose quests were quietly absent
+     * from the tree. So it carries no marker, {@code ToolsLayout.folds} does not list it, and neither the
+     * panel nor the screen gives it a press — the arrangement {@code SHAPE_SECTION} already has, and for
+     * the same reason. It is also why the key is declared here and not mirrored in {@code ToolsLayout}: that
+     * file's copies exist to be named by {@code folds}, and this one must never be.
+     *
+     * <p>Above Identity, because it is about the pack rather than about this chapter, and the reader who
+     * opens this tab is the one who can act on it.
+     */
+    public static final String PROBLEMS = "h:problems";
+
     /** The read-only values' prefix. */
     public static final String VALUE_PREFIX = "v:";
 
@@ -146,7 +164,37 @@ public final class ChapterPanelLayout {
      */
     public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
                                                 String missingNote) {
+        return rows(chapter, group, folded, missingNote, Problems.NONE);
+    }
+
+    /**
+     * What the last load found wrong with the pack, as this panel shows it.
+     *
+     * <p>Declared here rather than passed as {@code ClientEditProblems.Report} so the layout stays a
+     * function of its own inputs, the way {@link GroupInfo} and {@link Header} are: this file is asserted
+     * without a client, and reaching into the store that holds the news would make the test reach for it
+     * too. The screen is where the two shapes meet, which is one line of glue rather than a dependency.
+     *
+     * @param count how many the server found, which may exceed the lines it could fit
+     * @param lines the faults, one per line, as the server rendered them
+     */
+    public record Problems(int count, List<String> lines) {
+
+        /** Nothing wrong, or nothing heard yet. The two are the same to this panel. */
+        public static final Problems NONE = new Problems(0, List.of());
+    }
+
+    /**
+     * The same, with the pack's own faults to show above everything else.
+     *
+     * <p>The report is the <b>pack's</b> and not this chapter's, which is why it is a parameter of the
+     * panel rather than a field of the tree it draws: a chapter's copy can have arrived perfectly and the
+     * pack still be broken. It is passed in rather than read here for the reason {@link Problems} gives.
+     */
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
+                                                String missingNote, Problems problems) {
         List<ToolsLayout.Action> rows = new ArrayList<>();
+        problems(rows, problems);
         if (chapter == null || chapter.isEmpty()) {
             String why = missingNote == null || missingNote.isBlank()
                     ? Labels.of("tasked.dev.chapter.missing_copy")
@@ -175,6 +223,32 @@ public final class ChapterPanelLayout {
                     flagOn(chapter, "defaultConsumeItems") ? ToolsLayout.ON : ToolsLayout.OFF));
             rows.add(choiceRow(chapter, PREREQUISITE));
             rows.add(choiceRow(chapter, AUTO_CLAIM));
+            // The chapter's own gate, above the line-style rows because it is what the chapter *is* in
+            // the progression rather than how its lines are drawn. Both id lists are TEXT rows, the shape
+            // the aliases row above already uses: a chapter is picked by name here, and the validator is
+            // what says a name does not resolve. A click-to-pick overlay for chapters is the obvious next
+            // step and is deliberately not this one -- the picker is shaped around canvas nodes.
+            rows.add(choiceRow(chapter, GATE_MODE));
+            rows.add(ToolsLayout.Action.text("minRequired", "tasked.dev.chapter.gate_min",
+                    numberText(chapter, "minRequired")));
+            rows.add(ToolsLayout.Action.text("dependsOn", "tasked.dev.chapter.depends_on",
+                    String.join(", ", QuestPanelLayout.strings(chapter, "dependsOn"))));
+            rows.add(ToolsLayout.Action.text("completesWhen", "tasked.dev.chapter.completes_when",
+                    String.join(", ", QuestPanelLayout.strings(chapter, "completesWhen"))));
+            rows.add(ToolsLayout.Action.toggle("hideUntilDependenciesComplete",
+                    "tasked.dev.chapter.hide_until_deps",
+                    flagOn(chapter, "hideUntilDependenciesComplete") ? ToolsLayout.ON : ToolsLayout.OFF));
+            // What this chapter's quests do about their *own* dependencies, unless a quest says
+            // otherwise. Beside the row above because they are the pair an author will confuse: that one
+            // withholds this chapter's row from a reader, these withhold its quests from everybody.
+            rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesComplete",
+                    "tasked.dev.chapter.default_hide_deps_complete",
+                    flagOn(chapter, "defaultHideUntilDependenciesComplete")
+                            ? ToolsLayout.ON : ToolsLayout.OFF));
+            rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesVisible",
+                    "tasked.dev.chapter.default_hide_deps_visible",
+                    flagOn(chapter, "defaultHideUntilDependenciesVisible")
+                            ? ToolsLayout.ON : ToolsLayout.OFF));
             rows.add(choiceRow(chapter, LINE_FORM));
             rows.add(choiceRow(chapter, LINE_ARROW_HEAD));
             rows.add(choiceRow(chapter, LINE_ARROW_PLACE));
@@ -224,6 +298,45 @@ public final class ChapterPanelLayout {
      */
     private static ToolsLayout.Action section(String key, String label, Set<String> folded) {
         return ToolsLayout.Action.heading(key, (folded.contains(key) ? "\u203a " : "\u25bc ") + label);
+    }
+
+    /**
+     * The pack's faults, above everything and never folded away.
+     *
+     * <h2>What it draws, and what it deliberately does not</h2>
+     *
+     * <p>A heading carrying the count, then one line per fault, then a line saying how many were too long to
+     * send. The count is in the heading rather than in a row of its own because it is the one thing worth
+     * reading at a glance — the badge exists so that a broken pack is visible without opening anything — and
+     * the lines are there because the alternative is a number the author has to go to the log to interpret.
+     *
+     * <p><b>The lines are long and this column is narrow.</b> They are rendered by the server as
+     * {@code file:line:column: error: message} and the panel truncates to the band, so a fault may be cut
+     * mid-sentence. That is accepted rather than solved: the row is a pointer at a message whose whole text
+     * is in the log and in {@code /tasked reload}'s output, and a truncated first clause plus the file name
+     * is enough to know which file to open. Worth stating because the truncation is visible and would
+     * otherwise read as a rendering fault.
+     *
+     * <p>A {@code VALUE} row per line, so the screen builds no widget for any of them: a fault is something
+     * to read, and a row that looked pressable and did nothing would be the worse of the two.
+     */
+    private static void problems(List<ToolsLayout.Action> rows, Problems problems) {
+        if (problems == null || problems.count() <= 0) {
+            return;
+        }
+        // Resolved here rather than at the draw site: a heading's label goes through `Labels.of` with no
+        // values, so a `%s` left in it would be drawn as one. A resolved string is not a key, and the
+        // resolver passes it through unchanged -- which is what makes this the one place it can be done.
+        rows.add(ToolsLayout.Action.heading(PROBLEMS,
+                Labels.of("tasked.dev.chapter.problems", problems.count())));
+        for (int i = 0; i < problems.lines().size(); i++) {
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "problem:" + i, "", problems.lines().get(i)));
+        }
+        int hidden = problems.count() - problems.lines().size();
+        if (hidden > 0) {
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "problems:more", "",
+                    Labels.of("tasked.dev.chapter.problems_more", hidden)));
+        }
     }
 
     /** Whether one of the chapter's flags is on, as the file holds it. */
@@ -314,6 +427,15 @@ public final class ChapterPanelLayout {
             Map.entry("defaultConsumeItems", "tasked.dev.chapter.help.consume_items"),
             Map.entry("defaultPrerequisiteMode", "tasked.dev.chapter.help.prerequisite"),
             Map.entry("autoClaim", "tasked.dev.chapter.help.auto_claim"),
+            Map.entry("prerequisiteMode", "tasked.dev.chapter.help.gate_mode"),
+            Map.entry("minRequired", "tasked.dev.chapter.help.gate_min"),
+            Map.entry("dependsOn", "tasked.dev.chapter.help.depends_on"),
+            Map.entry("completesWhen", "tasked.dev.chapter.help.completes_when"),
+            Map.entry("hideUntilDependenciesComplete", "tasked.dev.chapter.help.hide_until_deps"),
+            Map.entry("defaultHideUntilDependenciesComplete",
+                    "tasked.dev.chapter.help.default_hide_deps_complete"),
+            Map.entry("defaultHideUntilDependenciesVisible",
+                    "tasked.dev.chapter.help.default_hide_deps_visible"),
             Map.entry(DEPENDENCY_STYLE + ".form", "tasked.dev.chapter.help.line_form"),
             Map.entry(DEPENDENCY_STYLE + ".arrowHead", "tasked.dev.chapter.help.line_head"),
             Map.entry(DEPENDENCY_STYLE + ".arrowPlace", "tasked.dev.chapter.help.line_place"),
@@ -335,6 +457,17 @@ public final class ChapterPanelLayout {
 
     public static final Choice PREREQUISITE = new Choice("defaultPrerequisiteMode",
             "tasked.dev.chapter.prerequisite",
+            List.of("all_completed", "one_completed", "all_started", "one_started"), "all_completed");
+
+    /**
+     * What this chapter's <b>own</b> dependencies have to reach.
+     *
+     * <p>The row beside {@link #PREREQUISITE}, and the two are deliberately named apart on screen: this
+     * one is about the chapters this chapter waits on, and that one is the mode its quests inherit. On
+     * disk they are {@code prerequisiteMode} and {@code defaultPrerequisiteMode} — one letter apart, and
+     * the difference is the direction the rule applies in.
+     */
+    public static final Choice GATE_MODE = new Choice("prerequisiteMode", "tasked.dev.chapter.gate_mode",
             List.of("all_completed", "one_completed", "all_started", "one_started"), "all_completed");
 
     /**
@@ -367,8 +500,8 @@ public final class ChapterPanelLayout {
             List.of("thin", "thick", "bold", "conduit"), "thin");
 
     /** The cycling rows, in the order the Rules section carries them. */
-    public static final List<Choice> CHOICES = List.of(PROGRESSION, PREREQUISITE, AUTO_CLAIM, LINE_FORM,
-            LINE_ARROW_HEAD, LINE_ARROW_PLACE, LINE_ARROW_DENSITY, LINE_DASH, LINE_WEIGHT);
+    public static final List<Choice> CHOICES = List.of(PROGRESSION, PREREQUISITE, AUTO_CLAIM, GATE_MODE,
+            LINE_FORM, LINE_ARROW_HEAD, LINE_ARROW_PLACE, LINE_ARROW_DENSITY, LINE_DASH, LINE_WEIGHT);
 
     /** The cycling row a key names, or null for every other row. */
     public static Choice choiceForKey(String key) {
@@ -495,6 +628,19 @@ public final class ChapterPanelLayout {
     private static String text(JsonObject object, String member, String fallback) {
         JsonElement found = QuestPanelLayout.get(object, member);
         return found != null && found.isJsonPrimitive() ? found.getAsString() : fallback;
+    }
+
+    /**
+     * A numeric field as a text row's value, or empty when the file says nothing.
+     *
+     * <p>Empty rather than the codec's default, for the same reason every other row here shows the
+     * <i>file's</i> value: a row that printed the default would make "unset" and "set to the default"
+     * look alike, and the first of those is what an author resets to.
+     */
+    private static String numberText(JsonObject object, String member) {
+        JsonElement found = QuestPanelLayout.get(object, member);
+        return found != null && found.isJsonPrimitive() && found.getAsJsonPrimitive().isNumber()
+                ? String.valueOf(found.getAsInt()) : "";
     }
 
     /** The icon's item id, or "" when the chapter declares none. */

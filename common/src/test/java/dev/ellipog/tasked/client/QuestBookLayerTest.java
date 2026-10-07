@@ -32,31 +32,30 @@ class QuestBookLayerTest {
     @Test
     @DisplayName("every band clears the item icons of the band below it")
     void bandsClearTheLayerBelow() {
-        assertTrue(QuestBookScreen.MODAL_Z - QuestBookScreen.CHROME_Z > ITEM_Z,
-                "the modal card must be above the chrome's item icons (sidebar row icons)");
-        assertTrue(QuestBookScreen.TOOLTIP_Z - QuestBookScreen.MODAL_Z > ITEM_Z,
-                "tooltips must be above the modal's item icons (the card's task and reward icons)");
+        assertTrue(QuestBookScreen.POPOVER_Z - QuestBookScreen.CHROME_Z > ITEM_Z,
+                "the colour picker must be above the chrome's item icons (sidebar row icons)");
+        assertTrue(QuestBookScreen.TOOLTIP_Z - QuestBookScreen.POPOVER_Z > ITEM_Z,
+                "tooltips must be above the picker's item icons (a panel's swatches and its icon buttons)");
     }
 
     @Test
-    @DisplayName("the bands are ordered chrome < modal < tooltip")
+    @DisplayName("the bands are ordered chrome < popover < tooltip")
     void bandsAreOrdered() {
-        assertTrue(QuestBookScreen.CHROME_Z < QuestBookScreen.MODAL_Z);
-        assertTrue(QuestBookScreen.MODAL_Z < QuestBookScreen.TOOLTIP_Z);
+        assertTrue(QuestBookScreen.CHROME_Z < QuestBookScreen.POPOVER_Z);
+        assertTrue(QuestBookScreen.POPOVER_Z < QuestBookScreen.TOOLTIP_Z);
     }
 
     @Test
-    @DisplayName("the chrome band clears the canvas's own item layer, which is what a docked column needs")
+    @DisplayName("the chrome band clears the canvas's own item layer, which is what a rail needs")
     void theChromeClearsTheCanvasItems() {
-        // The fact a docked column rests on, and the one this pair of tests was missing. A node's item icon
-        // is rendered at Z = 150 *and writes depth*, so the column that floats over the graph has to clear
-        // that layer by depth rather than by draw order -- which is why the graph can be drawn at all with a
-        // column open, and why it is hidden only for a modal card.
+        // The fact every rail rests on. A node's item icon is rendered at Z = 150 *and writes depth*, so
+        // the rail that floats over the graph has to clear that layer by depth rather than by draw order --
+        // which is why the graph is drawn in every arrangement, with a rail beside it or with nothing open.
         //
         // Without this, the two assertions above would still pass while a change to CHROME_Z quietly made a
-        // column trade places with the node icons underneath it.
+        // rail trade places with the node icons underneath it.
         assertTrue(QuestBookScreen.CHROME_Z > ITEM_Z,
-                "the chrome band (the docked column, the tools panel) must clear the canvas's item icons");
+                "the chrome band (the rails, the dock) must clear the canvas's item icons");
     }
 
     // ------------------------------------------------------------------

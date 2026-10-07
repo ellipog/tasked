@@ -144,14 +144,19 @@ public final class BookGeometry {
     public static final int ASSETS_PILL_WIDTH = 72;
 
     /**
-     * The Panels pill's width.
+     * The Author pill's width.
      *
-     * <p>The same figure as Assets', and it is a measurement rather than a reuse: "Panels" and "Assets" are
+     * <p>The same figure as Assets', and it is a measurement rather than a reuse: "Author" and "Assets" are
      * both six characters, so a width that fits one fits the other. Kept as its own constant so that changing
      * one label cannot silently resize the other — see {@link #editPill} for why a pill's width follows its
      * own word.
+     *
+     * <p><b>It was the Author pill, and the label is the reason it moved.</b> "Panels" named the machinery
+     * rather than the thing, while the dock it latches is the author's own surface — which is what its
+     * tooltip has always called it. The word changed and the width did not, because the two words are the
+     * same length.
      */
-    public static final int PANELS_PILL_WIDTH = 72;
+    public static final int AUTHOR_PILL_WIDTH = 72;
 
     /**
      * The party button's width, in the header.
@@ -400,7 +405,7 @@ public final class BookGeometry {
      * floating clusters have made it an arithmetic term instead. Both clusters are on the canvas's left
      * now, so the term is that band read left to right: the view cluster occupies
      * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the author's
-     * pills occupy {@code PANELS_PILL_WIDTH + PILL_GAP + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH}
+     * pills occupy {@code AUTHOR_PILL_WIDTH + PILL_GAP + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH}
      * immediately right of it, one {@link #EDGE} is the air between the two, and the last {@link #EDGE} is
      * the air at the canvas's right edge -- which is not spare: the dock and a docked column float there.
      * What is left for the graph is the remainder, and it is written from the constants the clusters are
@@ -408,7 +413,7 @@ public final class BookGeometry {
      * something a test can sweep.
      */
     public static final int MIN_CANVAS_WIDTH =
-            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + PANELS_PILL_WIDTH + PILL_GAP
+            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + AUTHOR_PILL_WIDTH + PILL_GAP
                     + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH + EDGE;
 
     /**
@@ -432,7 +437,7 @@ public final class BookGeometry {
      * binding one at <b>336</b>. They float over the canvas instead now (see {@link #editPill()}), which
      * takes them out of the row that measures the panel but adds them to the canvas term -- so the
      * minimum fell, and the pills have since carried it back up: the assets pill from the 257 this note
-     * used to claim, and then the Panels pill by its own width and its seam. Both sums are still written
+     * used to claim, and then the Author pill by its own width and its seam. Both sums are still written
      * from the constants the controls are placed with, so widening one moves this with it -- the header's
      * own test caught exactly that when the rewards button arrived, which is the drift it exists to catch.
      *
@@ -830,161 +835,17 @@ public final class BookGeometry {
         return sidebar;
     }
 
-    /** The full-screen quest view. */
-    /**
-     * The modal card: a centred box with caps.
-     *
-     * <p>See {@link #MAX_MODAL_WIDTH} for the report this answers. Two consequences worth stating: a
-     * modal no longer changes shape when the window is resized past the cap, and a caller that needs to
-     * know how much room it has asks this rather than subtracting a margin of its own, which is the
-     * fault this class exists to prevent one level up.
-     *
-     * <p>The floors matter as much as the caps. A window smaller than the cap plus its margins gets what
-     * is left rather than the cap, so the card never runs off the screen.
-     */
-    public Rect modal() {
-        return centred(MAX_MODAL_WIDTH, MAX_MODAL_HEIGHT);
-    }
-
-    /**
-     * The wide card, for the one surface that reads in columns.
-     *
-     * <p>See {@link #MAX_WIDE_MODAL_WIDTH} for why a second cap exists at all. Everything else about
-     * this rectangle is {@link #modal()}'s: the same height cap, the same floor, the same margin, and
-     * the same centre — so a window too small for either gets the same answer from both, and a caller
-     * that switches cards does not move the footer it places from {@link #questFooter}.
-     */
-    public Rect wideModal() {
-        return centred(MAX_WIDE_MODAL_WIDTH, MAX_MODAL_HEIGHT);
-    }
-
-    /**
-     * A card of the largest size the window allows, centred — the one derivation of both caps.
-     *
-     * <p>Written once and called by both entry points rather than copied into each, because two copies
-     * of this arithmetic are two answers to "how wide is a card", which is the class of fault this file
-     * exists to prevent. It is private, so the only thing a caller can vary is which cap it asks for.
-     *
-     * <p>The floors matter as much as the caps. A window smaller than the cap plus its margins gets what
-     * is left rather than the cap, so the card never runs off the screen.
-     */
-    private Rect centred(int maxWidth, int maxHeight) {
-        int width = Math.max(MIN_MODAL_WIDTH, Math.min(maxWidth, screenWidth - MODAL_MARGIN * 2));
-        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(maxHeight, screenHeight - MODAL_MARGIN * 2));
-        return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
-    }
-
-    /**
-     * A modal card sized to the content it will hold, within the caps.
-     *
-     * <h2>Why a second entry point exists</h2>
-     *
-     * <p>Because a roster and a quest's prose want opposite things from a box. A roster is a short list:
-     * three rows is three rows, and a card two hundred and sixty pixels tall holding sixty pixels of
-     * content is the thing the report complained about. Prose fills whatever it is given and then
-     * scrolls. So a caller that knows its content's height says so, and one that does not gets
-     * {@link #modal()}.
-     *
-     * <p>The result is centred on the same centre, so a card that grows as members join grows in both
-     * directions rather than downwards from a fixed top. A list that added a row and moved every row
-     * above it would be the alternative.
-     *
-     * <h2>Why the width is a parameter rather than one number for every modal</h2>
-     *
-     * <p>Because a roster and a quest's prose want different cards, and a single width makes one of them
-     * wrong. A roster is a name, a gap, and a rank: too wide and the eye has to cross the gap to read
-     * them as one row. Prose is lines of text: too narrow and every paragraph wraps twice as often.
-     *
-     * <p>So each caller says what it wants and this clamps it to what the window can hold, which is the
-     * half a caller cannot know. A width larger than {@link #MAX_MODAL_WIDTH} is capped rather than
-     * refused, so a caller asking for "as wide as you can" gets the cap and not an exception.
-     *
-     * <h2>The width does not depend on the height, and a caller relies on it</h2>
-     *
-     * <p>{@code modalFramed(0, width).width() == modalFramed(anything, width).width()}, always. It reads
-     * as an incidental truth and it is a load-bearing one: a panel whose height comes from its own
-     * layout cannot know that height until it has built the layout, and it cannot build the layout
-     * without knowing how wide the card is. So it asks for the width first, with the height unknown, and
-     * that is only meaningful because the height is not an input to the width.
-     *
-     * <p>Stated here and asserted in {@code BookGeometryTest} rather than left to be noticed. A caller
-     * asking twice and getting two answers would place every row it drew against a card that is not the
-     * one on screen — which is the class of fault this whole file exists to prevent, arriving through a
-     * parameter that reads as harmless.
-     *
-     * @param contentHeight   how much room the body needs, in pixels
-     * @param preferredWidth  how wide the card would like to be
-     */
-    public Rect modalFramed(int contentHeight, int preferredWidth) {
-        return framed(modal(), contentHeight, preferredWidth);
-    }
-
-    /**
-     * The same, on the wide card: for a caller that knows its content's height and needs the columns.
-     *
-     * <p>The invariant {@link #modalFramed} documents holds here too and for the same reason — the
-     * width does not depend on the height — which is what lets the claim menu build its rows at the
-     * card's width before it knows how tall the card will be.
-     */
-    public Rect wideModalFramed(int contentHeight, int preferredWidth) {
-        return framed(wideModal(), contentHeight, preferredWidth);
-    }
-
-    /**
-     * A card sized to its content, within the caps of the base card it was given.
-     *
-     * <p>The base is a parameter rather than a call to {@link #modal()} so that both framed entry points
-     * share one arithmetic — see {@link #centred} for the same argument one level down.
-     */
-    private Rect framed(Rect base, int contentHeight, int preferredWidth) {
-        int width = Math.max(MIN_MODAL_WIDTH, Math.min(base.width(), preferredWidth));
-        int height = Math.max(MIN_MODAL_HEIGHT, Math.min(base.height(), contentHeight + MODAL_CHROME));
-        return Rect.at((screenWidth - width) / 2, (screenHeight - height) / 2, width, height);
-    }
-
-    /**
-     * The region inside a card that its content may use: the card, inset, less the footer's row.
-     *
-     * <h2>Why this is here and the row height is not</h2>
-     *
-     * <p>Because "where inside this card may content go" is a framing question — this class's whole
-     * subject — and "where do row <i>n</i> of my list go" is not, since that depends on how many rows
-     * there are. So this answers the first and a {@code Stack} answers the second, and the two compose:
-     * a caller builds its layout at {@code modalBody(card).width()} and skips a row whose bottom is past
-     * {@code modalBody(card).height()}.
-     *
-     * <p>That is what replaced {@code bodyRows(card, count, top, bottom)}, which took a count and handed
-     * back rectangles. It had a fault that no test caught and no reading would find: its {@code top} and
-     * {@code bottom} arguments were the <i>caller's</i> idea of where the body starts and ends, so the
-     * card's height and the rows inside it came from two different sums — the exact fault this class
-     * exists to prevent, living inside the class. It has no callers now, and the panel it was written
-     * for sizes its card from its layout instead.
-     *
-     * <p>The footer's row is {@link #OVERLAY_CONTROL_HEIGHT}, not the footer's actual controls: this says
-     * how much room is <b>reserved</b> for them, and a caller that wanted to know where a specific button
-     * went asks {@link #partyControls} instead. Two questions, two methods, and neither re-derives the
-     * other's answer.
-     */
-    public static Rect modalBody(Rect card) {
-        int height = card.height() - MODAL_INSET * 2 - MODAL_FOOTER_GAP - OVERLAY_CONTROL_HEIGHT;
-        return Rect.at(card.x() + MODAL_INSET, card.y() + MODAL_INSET,
-                Math.max(0, card.width() - MODAL_INSET * 2), Math.max(0, height));
-    }
-
-    /**
-     * The modal card, for a caller that does not know how tall its content is.
-     *
-     * <p>An alias rather than a second rectangle: the quest overlay was written against a much larger
-     * box and every position inside it is relative, so pointing it at the card shrinks the whole panel
-     * with no arithmetic of its own changing. Two rectangles would be two things to keep in step.
-     */
-    public Rect overlay() {
-        return modal();
-    }
-
     // ------------------------------------------------------------------
     // The docked column
     // ------------------------------------------------------------------
+
+    // (The centred card stood here: `modal()`, `wideModal()`, the private `centred` they shared, the two
+    // `...ModalFramed` entry points, the private `framed` they shared, `modalBody` and the `overlay` alias.
+    // They are gone with the presentation they described -- every kind is a rail now, and the rails' own
+    // rectangles are below. `MAX_WIDE_MODAL_WIDTH` stays because it is a live number rather than a dead
+    // rectangle: `PanelStack.WIDE_WIDTH` is it, which is why a wide kind opens at the width its layout was
+    // drawn against when it was a card. `MODAL_CHROME`, `MODAL_INSET` and the footer's two figures stay for
+    // the same reason -- the columns' own bands are measured with them.)
 
     /**
      * The column a docked panel occupies: inside the canvas, against its right edge, never off the book.
@@ -1017,20 +878,37 @@ public final class BookGeometry {
     }
 
     /**
-     * The second column: the same rail, one gap to the left of the first.
+     * A rail one gap to the left of another: the one expression every panel but the outermost is placed by.
      *
-     * <p>Anchored to the first rather than to the canvas, so the pair keeps their gap whatever the first
-     * column's width is — dragging the outer column moves the inner one, which is what makes the two read
-     * as one dock. The room it has is what is left of the canvas to the left of the first column, and it
-     * is <b>zero-width when there is none</b>: whether to fold instead is {@code PanelLayout}'s question,
-     * and it answers it before asking for this rectangle. Answering it here as null would give every
-     * caller a second thing to check for the same fact.
+     * <h2>Anchored to the rail beside it rather than to the canvas</h2>
+     *
+     * <p>So a chain of rails keeps its gaps whatever any one of their widths is — dragging the outer column
+     * moves the inner ones with it, which is what makes the three read as one dock rather than as three
+     * panels that happen to be near each other. The room a rail has is what is left of the canvas to the
+     * left of the one it hangs off, and it is <b>zero-width when there is none</b>: whether to fold instead
+     * is {@code PanelLayout}'s question, and it answers it before asking for this rectangle. Answering it
+     * here as null would give every caller a second thing to check for the same fact.
+     *
+     * <p>This is the author's dock's own rule, written once: with the dock latched, column 1 hangs off it and
+     * column 2 hangs off column 1, so the dock is the only rail anchored to the canvas and the only one that
+     * cannot move. With no dock the chain starts at the canvas edge and every rectangle is what it always
+     * was — {@link #panelRail2} is the two-link case of this, spelled out because that is the name its own
+     * callers and tests know it by.
+     *
+     * @param width what this rail wants
+     * @param inner the rail it sits to the left of
+     */
+    public Rect panelRailBefore(int width, Rect inner) {
+        int limit = Math.max(0, inner.x() - canvas.x() - PANEL_GAP * 2);
+        int w = Math.max(0, Math.min(width, limit));
+        return Rect.at(inner.x() - PANEL_GAP - w, inner.y(), w, inner.height());
+    }
+
+    /**
+     * The second column: the same rail, one gap to the left of the first. See {@link #panelRailBefore}.
      */
     public Rect panelRail2(int width2, int width1) {
-        Rect first = panelRail(width1);
-        int limit = Math.max(0, first.x() - canvas.x() - PANEL_GAP * 2);
-        int w = Math.max(0, Math.min(width2, limit));
-        return Rect.at(first.x() - PANEL_GAP - w, first.y(), w, first.height());
+        return panelRailBefore(width2, panelRail(width1));
     }
 
     /**
@@ -1233,20 +1111,20 @@ public final class BookGeometry {
      *
      * <h2>Three pills, and the one that was not a pill's business</h2>
      *
-     * <p>Panels, Assets and Edit, in that order. The dock was the last thing to get a control of its own: it
+     * <p>Author, Assets and Edit, in that order. The dock was the last thing to get a control of its own: it
      * used to be a side effect of edit mode, which is why the Edit pill had to double as "close the panel so
      * the dock comes back" — see {@code QuestBookScreen.pressEditPill}, where that second meaning is gone.
      * The order is the author's own reading order: the surfaces they work in first, the mode last.
      */
-    public Rect panelsPill() {
+    public Rect authorPill() {
         // One EDGE clear of the view cluster's own right edge, control to control: the mats then sit
         // VIEW_MAT closer than that, which is the seam the two clusters keep.
-        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, PANELS_PILL_WIDTH, ROW_HEIGHT);
+        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, AUTHOR_PILL_WIDTH, ROW_HEIGHT);
     }
 
-    /** The Assets pill, immediately right of Panels. */
+    /** The Assets pill, immediately right of Author. */
     public Rect assetsPill() {
-        return Rect.at(panelsPill().right() + PILL_GAP, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
+        return Rect.at(authorPill().right() + PILL_GAP, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
     }
 
     /**
@@ -1254,7 +1132,7 @@ public final class BookGeometry {
      *
      * <p>Wider than Edit's by a word rather than by taste: "Assets" is six characters to "Edit"'s four, and a
      * pill that truncated its own label would be a control whose name depends on the font. Each pill's width
-     * follows its own word for that reason, which is why adding Panels added a constant rather than a share
+     * follows its own word for that reason, which is why adding Author added a constant rather than a share
      * of one.
      */
     public Rect editPill() {
@@ -1270,8 +1148,8 @@ public final class BookGeometry {
      * The screen draws it only when it draws a pill, so a player who may not edit is shown none of them.
      */
     public Rect pillMat() {
-        return Rect.at(panelsPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
-                editPill().right() - panelsPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
+        return Rect.at(authorPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
+                editPill().right() - authorPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
     }
 
     // (`AUTHOR_PILL_BAND` and `authorRail()` stood here, and they are gone with the reason for them.)
@@ -1358,11 +1236,11 @@ public final class BookGeometry {
         // next. They are placed here rather than with the view cluster below so that the map's source order
         // still reads as the header first, then the canvas furniture -- the slot the old header pair
         // occupied.
-        out.put("panelsPill", panelsPill());
+        out.put("authorPill", authorPill());
         // Then Assets, by the same convention and for the same reason: always in the map (so the overlap
         // sweep tests it in every build) and drawn only for a player who may edit.
         out.put("assetsPill", assetsPill());
-        // And Edit last, so the row reads left to right as Panels, Assets, Edit.
+        // And Edit last, so the row reads left to right as Author, Assets, Edit.
         out.put("editPill", editPill());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
@@ -1395,25 +1273,9 @@ public final class BookGeometry {
         return out;
     }
 
-    /**
-     * Every control on the full-screen overlay, by name.
-     *
-     * <p>Stacked when the overlay is too narrow for both side by side — rather than letting Submit
-     * and Back collide on a small window, which is the same bug in a third place. A narrow window is
-     * a real case here: the overlay is only {@code screenWidth - 48} wide, so a 427-wide window gives
-     * it 379 and the two fit; a 300-wide one gives 252 and they would not.
-     */
-    public Map<String, Rect> overlayControls(boolean hasSubmit) {
-        // **Measured against the card, not against the `overlay` field** -- and that was a real
-        // fault rather than a tidy-up. The field is the old full-screen rectangle, computed once
-        // in the constructor; the card is `modal()`, which is a different rectangle now. So Submit
-        // and Back were placed outside the card they belong to: Back just past its bottom-right
-        // corner, which is what the screenshot showed.
-        //
-        // The fault is the one this class exists to prevent, one level up: two rectangles describing
-        // one panel, agreeing until the panel changed shape.
-        return questFooter(modal(), hasSubmit);
-    }
+    // (`overlayControls(boolean)` stood here, and it was the quest footer's controls measured against the
+    // centred card. The card is gone and the panel's rectangle is the caller's -- which is `questFooter`
+    // below, the method this was a wrapper around.)
 
     /**
      * The quest editor's own bar, in the footer: from the card's inset to just short of Back.
@@ -1434,20 +1296,16 @@ public final class BookGeometry {
      *
      * @return the bar's rectangle, or null when the footer has no Back to place it against
      */
-    public Rect editorBar() {
-        return editorBar(modal());
-    }
-
     /**
-     * The same bar, inside a surface the caller supplies.
+     * The quest editor's own bar, inside the surface the caller supplies.
      *
-     * <h2>Why the surface became a parameter</h2>
+     * <h2>Why the surface is a parameter</h2>
      *
-     * <p>Because the editor is drawn in a docked column as well as on a card, and the bar's whole rule is
-     * that it spans from the surface's inset to just short of Back — so a bar computed from the card while
-     * the editor sat in a column would have run past the column's edge on one side and stopped short of
-     * Back on the other. {@code questFooter} has taken its rectangle from the caller since the two cards
-     * were found to disagree about one panel; this is that same seam, one method further in.
+     * <p>Because the editor's bar spans from the surface's inset to just short of Back, and there is one
+     * surface now: the rail the editor is drawn in. It took no argument while there were two presentations
+     * — the no-argument form asked the centred card — and that form is gone with the card, which is the
+     * same argument {@code questFooter} below makes for taking its rectangle from the caller: two ways to
+     * ask "how wide is the panel I am in" is how the two answers come to disagree.
      */
     public Rect editorBar(Rect surface) {
         Rect back = questFooter(surface, false).get("back");

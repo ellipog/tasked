@@ -173,6 +173,14 @@ public final class QuestSync {
      * editor's browser lists and a reward's table badge draws. A version-10 reader ignores both. The
      * client pins this one by name, which is why it is here.
      *
+     * <p>Version 12 added each chapter's own gate to {@code chapters[]} — {@code dependsOn},
+     * {@code prerequisiteMode}, {@code minRequired} and {@code hideUntilDependenciesComplete} — plus the
+     * chapter states on the progress channel, which is the other half of the same feature: the tree says
+     * what a chapter waits for, and the progress message says how far it has got. Additive in the same
+     * way as every bump before it: a version-11 reader reads the four fields it knows about a chapter and
+     * draws every chapter exactly as it does today, which is the right fallback for a server that has
+     * learned about chapter gates and a client that has not.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -198,7 +206,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 11;
+    public static final int TREE_VERSION = 12;
 
     /**
      * The quest tree, as JSON.
@@ -287,6 +295,31 @@ public final class QuestSync {
             one.addProperty("groupId", entry.groupId());
             one.addProperty("title", chapter.title().value());
             chapterIcon(chapter, one, "icon", "iconComponents");
+
+            // The chapter's own gate, since version 12. The *rules* travel, not the state: what a reader
+            // needs to explain a shut chapter is what it is waiting for, and how far along that is comes
+            // on the progress channel with everything else that moves. Sent resolved rather than
+            // optionally, unlike a quest's own mode: nothing sits above a chapter for these to inherit
+            // from, so the two are the same value and an absent field would be a second way to say a
+            // default.
+            if (chapter.rules().waits()) {
+                JsonArray dependsOn = new JsonArray();
+                for (var dependency : chapter.rules().dependsOn()) {
+                    dependsOn.add(dependency.id());
+                }
+                one.add("dependsOn", dependsOn);
+            }
+            one.addProperty("prerequisiteMode",
+                    chapter.rules().prerequisiteMode().name().toLowerCase(java.util.Locale.ROOT));
+            one.addProperty("minRequired", chapter.rules().minRequired());
+            // Only when true: absence is the ordinary case, and it means "listed and drawable" -- which is
+            // what a reader of a version-11 tree does with a chapter it hears nothing about.
+            if (chapter.rules().hideUntilDependenciesComplete()) {
+                one.addProperty("hideUntilDependenciesComplete", true);
+            }
+            // `completesWhen` deliberately does not cross. What a reader draws is the chapter's state, and
+            // the milestone list is the author's own account of how that state is reached -- the chapter
+            // tab reads it from the file replica, which is where every other authoring field comes from.
             chapters.add(one);
         }
 
@@ -506,8 +539,17 @@ public final class QuestSync {
         // The reveal flags. Every one of them is a presentation decision the client makes against state
         // it already has -- dependency states, task progress -- so they travel as data and the client
         // needs no engine of its own.
-        json.addProperty("hideUntilDependenciesComplete", quest.rules().hideUntilDependenciesComplete());
-        json.addProperty("hideUntilDependenciesVisible", quest.rules().hideUntilDependenciesVisible());
+        //
+        // The first two are three-state in the file -- absent means "the chapter decides" -- and this is
+        // where that is resolved, deliberately the only place: the chapter's own defaults are an
+        // authoring convenience, and both sides reading them would be two answers to one question. What
+        // goes on the wire is a boolean, which is what the client has always read.
+        json.addProperty("hideUntilDependenciesComplete",
+                quest.rules().hideUntilDependenciesComplete(
+                        chapter.rules().defaultHideUntilDependenciesComplete()));
+        json.addProperty("hideUntilDependenciesVisible",
+                quest.rules().hideUntilDependenciesVisible(
+                        chapter.rules().defaultHideUntilDependenciesVisible()));
         json.addProperty("hideDependencyLines", quest.rules().hideDependencyLines());
         json.addProperty("hideTextUntilComplete", quest.rules().hideTextUntilComplete());
         json.addProperty("hideDetailsUntilStartable", quest.rules().hideDetailsUntilStartable());
@@ -879,6 +921,24 @@ public final class QuestSync {
         JsonObject root = new JsonObject();
         root.addProperty("version", 1);
         root.add("quests", changed);
+
+        // How far every chapter has got, by chapter id. Sent whole in both a full sync and a delta, and
+        // that is not a shortcut: the map is a handful of short strings, and a delta for it would need a
+        // second baseline to compare against for a fact that can only move when a quest's state did --
+        // which is a quest the same message already carries. The reading on the other side is
+        // "replace what you have", which cannot leave a stale chapter behind.
+        //
+        // A chapter the tree does not describe cannot appear here, and a chapter absent from here reads
+        // as open on the client -- the direction that hides least, and the one that makes an older server
+        // keep drawing every chapter.
+        JsonObject chapters = new JsonObject();
+        for (Map.Entry<String, QuestState> state : resolution.chapterStates().entrySet()) {
+            // The enum's own name, uppercase, which is the spelling the per-quest `state` beside this uses.
+            // Two spellings of one vocabulary in one message would be a reader's trap, and the client's
+            // reader is the same `valueOf` for both.
+            chapters.addProperty(state.getKey(), state.getValue().name());
+        }
+        root.add("chapters", chapters);
 
         if (previous != null) {
             JsonArray removed = new JsonArray();

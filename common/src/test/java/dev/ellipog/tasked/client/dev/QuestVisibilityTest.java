@@ -171,12 +171,19 @@ class QuestVisibilityTest {
         }
 
         @Test
-        @DisplayName("a quest with no prerequisites and this flag stays hidden")
-        void nothingToRevealIt() {
+        @DisplayName("a quest with no prerequisites and this flag is visible, like its sibling flag")
+        void anEmptyRuleIsMet() {
+            // This test used to assert the opposite, with the reasoning that "an author who set this flag
+            // on a root quest meant to hide it". That reasoning is what changed, and the case for it is
+            // worth keeping: an empty *rule* is met everywhere else in this file — `hideUntilDependenciesComplete`
+            // on a root quest shows it, because `requiredCount` of zero dependencies is zero — so the two
+            // sibling flags disagreed about the same empty list. An author who picked the wrong one of two
+            // adjacent names got a quest that never appeared, with no message and nothing on the canvas to
+            // explain it. "Hide this root quest" already has a flag whose name says so: `invisible`.
             Map<String, Flags> quests = Map.of("a", Flags.hiddenUntilVisible());
-            assertFalse(visible(quests, "a", locked(), unmet(), noProgress()),
-                    "with nothing to be revealed by, the quest should stay hidden -- an author who set "
-                            + "this flag on a root quest meant to hide it");
+            assertTrue(visible(quests, "a", locked(), unmet(), noProgress()),
+                    "with no prerequisites to be revealed by, the empty rule is satisfied -- which is what "
+                            + "the other flag about prerequisites already says");
         }
 
         @Test

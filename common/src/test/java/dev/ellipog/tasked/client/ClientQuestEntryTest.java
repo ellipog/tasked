@@ -1,5 +1,8 @@
 package dev.ellipog.tasked.client;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.quest.Fixtures;
 import dev.ellipog.tasked.quest.MinecraftTestBootstrap;
@@ -11,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -116,17 +120,38 @@ class ClientQuestEntryTest {
     }
 
     @Test
-    @DisplayName("two quests claiming one id: the first in declaration order wins, as the scan did")
-    void theFirstOfADuplicateWins() {
-        // Reachable, and not only in theory: `QuestIndex.build` adds a quest to its list *before* it
-        // claims the id, so a duplicate is reported as an error and is still sent -- and the client
-        // holds both. What matters is that the index answers with the same quest the scan would have.
+    @DisplayName("the loader no longer sends a duplicate at all")
+    void theDuplicateNeverReachesTheWire() {
+        // **This half changed.** `QuestIndex` used to add an entry to its list *before* claiming the id, so
+        // a duplicate was reported as an error and sent anyway -- two rows for one id, one of which could
+        // never be reached: it drew, it could be clicked, and the click opened the other quest. It is now
+        // reported and dropped, so there is nothing on this side to disambiguate.
         QuestIndex index = Fixtures.indexOf(Fixtures.file(STONE, STONE));
-        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
 
-        List<ClientQuestCache.Entry> tree = ClientQuestCache.entries();
-        assertEquals(2, tree.size(), "the loader reports the duplicate and sends both");
-        assertSame(tree.get(0), ClientQuestCache.entry("stone"),
+        assertEquals(1, index.questCount(), "reported and dropped, so the tree carries one");
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertEquals(1, ClientQuestCache.entries().size(), "and one reaches the client");
+        assertNotNull(ClientQuestCache.entry("stone"));
+    }
+
+    @Test
+    @DisplayName("and a tree that does carry two still resolves to the first in declaration order")
+    void theFirstOfADuplicateWins() {
+        // Kept as a rule of the client's own rather than deleted along with the loader change, because the
+        // wire is not a guarantee: a client on an older server is sent both, and this is the answer that
+        // keeps a click opening the quest the server's own map resolves. The tree is therefore built by
+        // hand -- no index this build can produce carries two quests under one id any more.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(STONE));
+        JsonObject tree = JsonParser.parseString(
+                new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+        JsonArray quests = tree.getAsJsonArray("quests");
+        quests.add(quests.get(0).deepCopy());
+        ClientQuestCache.acceptTree(quests.size(), index.chapterCount(),
+                tree.toString().getBytes(StandardCharsets.UTF_8));
+
+        List<ClientQuestCache.Entry> held = ClientQuestCache.entries();
+        assertEquals(2, held.size(), "an older server's tree, which this build no longer produces");
+        assertSame(held.get(0), ClientQuestCache.entry("stone"),
                 "first wins: a plain put would have kept the second, and the two disagree about which "
                         + "quest a click opens");
     }

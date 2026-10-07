@@ -1,6 +1,7 @@
 package dev.ellipog.tasked.client.dev;
 
 import dev.ellipog.tasked.client.BookGeometry;
+import dev.ellipog.tasked.client.PanelStack;
 import dev.ellipog.tasked.quest.loot.RewardTable;
 import dev.ellipog.tasked.quest.reward.TableReward;
 
@@ -142,17 +143,17 @@ class TablePanelLayoutTest {
     }
 
     @Test
-    @DisplayName("the card's body stops above the footer band, where the controls are drawn")
+    @DisplayName("the panel's body stops above the footer band, where the controls are drawn")
     void theBodyLeavesTheFooterItsBand() {
-        // The bug this pins: the way out of the table panels is drawn from `overlayControls`, which
-        // places Back and the submit slot inside the footer band. A body that reached the card's bottom
-        // would put the last row under that button -- drawn beneath it, and beaten in the hit test by
-        // it, because the footer's target is registered first. So the body has to stop where the band
-        // starts, and the band is `BookGeometry.MODAL_FOOTER_HEIGHT` tall.
+        // The bug this pins: the way out of the table panels is drawn from the footer's own band, which
+        // places Back and the submit slot inside it. A body that reached the rail's bottom would put the
+        // last row under that button -- drawn beneath it, and beaten in the hit test by it, because the
+        // footer's target is registered first. So the body has to stop where the band starts, and the band
+        // is `BookGeometry.MODAL_FOOTER_HEIGHT` tall.
         BookGeometry geometry = new BookGeometry(1280, 720);
-        BookGeometry.Rect card = geometry.modal();
+        BookGeometry.Rect card = geometry.panelRail(PanelStack.WIDE_WIDTH);
         BookGeometry.Rect body = TableEditorLayout.body(card);
-        BookGeometry.Rect back = geometry.overlayControls(true).get("back");
+        BookGeometry.Rect back = geometry.questFooter(card, true).get("back");
 
         assertNotNull(back, "the footer places its controls from the same card");
         assertEquals(card.bottom() - TableEditorLayout.FOOTER_RESERVE, body.bottom(),
@@ -493,12 +494,12 @@ class TablePanelLayoutTest {
     @Test
     @DisplayName("the band a page lays out in is inside the card and below the toolbar")
     void thePageBandCannotReachTheHeader() {
-        // What the table editor's type picker lays its rows out in now. It used to be the *quest* card's
-        // body -- a different rectangle by design -- which drew the picker's heading on the table card's
+        // What the table editor's type picker lays its rows out in now. It used to be the *quest* panel's
+        // body -- a different rectangle by design -- which drew the picker's heading on the table panel's
         // title line and its first rows behind the toolbar. This pins the property the fix leans on:
-        // the band is below everything the card keeps above it, and inside the body it was given.
+        // the band is below everything the panel keeps above it, and inside the body it was given.
         BookGeometry geometry = new BookGeometry(1280, 720);
-        BookGeometry.Rect body = TableEditorLayout.body(geometry.modal());
+        BookGeometry.Rect body = TableEditorLayout.body(geometry.panelRail(PanelStack.WIDE_WIDTH));
         TableEditorLayout.Frame frame = TableEditorLayout.Frame.of(body);
         BookGeometry.Rect page = frame.list();
 

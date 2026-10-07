@@ -104,8 +104,18 @@ public final class SidebarLayout {
      * @param id      the chapter's id
      * @param title   what the row says
      * @param groupId the id of the group it hangs under, or empty for a server that describes none
+     * @param locked  whether the chapter's own gate is unmet, so the row is drawn shut
+     * @param hidden  whether the chapter is withheld from a reader until that gate is met. A hidden row
+     *                is <b>absent from the layout</b> rather than flagged on a drawn one — the same
+     *                mechanism a collapsed group uses, and for the same reason: a row that is not in the
+     *                list cannot be drawn by a caller that forgot to check a flag. See {@link #of}
      */
-    public record ChapterRow(String id, String title, String groupId) {
+    public record ChapterRow(String id, String title, String groupId, boolean locked, boolean hidden) {
+
+        /** A chapter with no gate: open, and shown. */
+        public ChapterRow(String id, String title, String groupId) {
+            this(id, title, groupId, false, false);
+        }
     }
 
     /**
@@ -123,9 +133,16 @@ public final class SidebarLayout {
      * @param group       whether this row is a heading rather than a chapter
      * @param collapsible whether it has anything under it, and so whether it gets an arrow
      * @param expanded    whether its children are showing
+     * @param locked      whether the row is a chapter whose gate is unmet, so the drawing dims it
      */
     public record Row(String key, String id, String title, int depth, boolean group, boolean collapsible,
-                      boolean expanded) {
+                      boolean expanded, boolean locked) {
+
+        /** A row with no gate on it: every heading, and every chapter that is open. */
+        public Row(String key, String id, String title, int depth, boolean group, boolean collapsible,
+                   boolean expanded) {
+            this(key, id, title, depth, group, collapsible, expanded, false);
+        }
 
         /**
          * What the row's widget is labelled with.
@@ -205,6 +222,16 @@ public final class SidebarLayout {
         }
 
         for (ChapterRow chapter : chapters) {
+            if (chapter.hidden()) {
+                // Absent rather than flagged, and this is the one place that decides it. A chapter whose
+                // author asked for it to be withheld until its gate is met is not a row with a flag on
+                // it: it is not a row. The alternative -- drawing it and letting the caller check -- is
+                // the shape that produced this class's note about a caller forgetting, one level down.
+                //
+                // Note what this is *not*: the gate itself. A locked chapter that is not hidden is
+                // listed, and `locked` is carried so the drawing can say so.
+                continue;
+            }
             if (chaptersByKey.putIfAbsent(chapterKey(chapter.id()), chapter) != null) {
                 continue;
             }
@@ -302,7 +329,8 @@ public final class SidebarLayout {
                 // constants. `expanded` is false rather than true because false is what "has nothing to
                 // show" means for every other reader of this record, and a leaf claiming to be expanded
                 // would draw an arrow if the `collapsible` check were ever dropped.
-                out.add(new Row(key, chapter.id(), chapter.title(), outline.depth(key), false, false, false));
+                out.add(new Row(key, chapter.id(), chapter.title(), outline.depth(key), false, false, false,
+                        chapter.locked()));
             }
         }
         return List.copyOf(out);

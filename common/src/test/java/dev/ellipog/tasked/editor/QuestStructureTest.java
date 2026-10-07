@@ -188,6 +188,32 @@ class QuestStructureTest {
     }
 
     @Test
+    @DisplayName("an entries list that is not a list is read as absent, so an edit cannot write the order away")
+    void anUnusableEntriesListBootstrapsFromWhatWasThere() throws IOException {
+        tree();
+        // A hand-edit that leaves valid JSON whose `entries` is not a list -- a file the loader reports
+        // and reads as if it were not there. The editor used to read it as an *empty* entry list, and a
+        // structural write writes what it read: the first drag replaced the root order with nothing at
+        // all, silently, and every later load would read the book in folder-name order. The disk is the
+        // only remaining record of the order, so the disk is what answers, exactly as it does when the
+        // file is not there at all.
+        write(QuestFiles.INDEX_MANIFEST, "{ \"entries\": {} }");
+
+        QuestStructure.Outcome outcome = QuestStructure.moveGroup(root(), "beta", 0);
+
+        assertTrue(outcome.ok(), outcome.refusal());
+        String index = indexText();
+        assertTrue(index.contains("\"group\": \"alpha\""),
+                "the group the unusable list did not name is still declared: " + index);
+        assertTrue(index.indexOf("\"group\": \"beta\"") < index.indexOf("\"group\": \"alpha\""),
+                "and the move happened: " + index);
+        List<String> groups = QuestFiles.discover(root()).of(QuestFiles.Kind.GROUP).stream()
+                .map(QuestFiles.Declaration::id).toList();
+        assertEquals(List.of("beta", "alpha"), groups,
+                "the loader reads the order the edit wrote");
+    }
+
+    @Test
     @DisplayName("a root chapter moved into a group leaves no dangling index entry")
     void movingARootChapterIntoAGroupClearsTheIndex() throws IOException {
         // The root chapter was listed in index.json; moving it into a group moves its folder, and the

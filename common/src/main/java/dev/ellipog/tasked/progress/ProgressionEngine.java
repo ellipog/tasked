@@ -46,10 +46,23 @@ import java.util.Set;
 public final class ProgressionEngine {
 
     /** State of every quest, keyed by the quest's own id. */
-    public record Resolution(Map<String, QuestState> states, Map<String, Long> cooldownRemaining) {
+    public record Resolution(Map<String, QuestState> states,
+                             Map<String, QuestState> chapterStates,
+                             Map<String, Long> cooldownRemaining) {
 
         public QuestState stateOf(Quest quest) {
             return states.getOrDefault(quest.id(), QuestState.LOCKED);
+        }
+
+        /**
+         * How far one chapter has got, by its own id.
+         *
+         * <p>{@link QuestState#UNLOCKED} for a chapter this resolution has never heard of, which is the
+         * reading that hides least: an unknown id is a caller asking about a chapter that is not in the
+         * tree, and answering LOCKED there would shut a screen for a fact nobody stated.
+         */
+        public QuestState chapterStateOf(String chapterId) {
+            return chapterStates.getOrDefault(chapterId, QuestState.UNLOCKED);
         }
 
         /** Ticks until a repeatable quest can be done again, or zero. */
@@ -73,6 +86,11 @@ public final class ProgressionEngine {
     public static Resolution resolve(QuestIndex index, TeamProgress progress, long now) {
         Map<String, QuestState> states = new LinkedHashMap<>();
         Map<String, Long> cooldowns = new LinkedHashMap<>();
+
+        // The chapters first, and in one direction: a chapter's state is a function of stored progress
+        // and the chapter graph, and never of what a quest resolved to. That is what stops the two
+        // passes from being mutually recursive -- see ChapterStates for why that matters.
+        Map<String, QuestState> chapterStates = ChapterStates.resolve(index, progress);
 
         // Which quest has completed in each exclusive group, keyed by chapter and group so that a
         // group name is scoped to the chapter that declared it. Without the chapter in the key,
@@ -114,10 +132,10 @@ public final class ProgressionEngine {
 
         for (QuestIndex.QuestEntry entry : index.quests()) {
             resolveOne(index, entry, progress, now, states, cooldowns, takenExclusiveGroups,
-                    cappedOut, positionInChapter, new ArrayDeque<>());
+                    cappedOut, positionInChapter, chapterStates, new ArrayDeque<>());
         }
 
-        return new Resolution(states, cooldowns);
+        return new Resolution(states, chapterStates, cooldowns);
     }
 
     /**
@@ -136,6 +154,7 @@ public final class ProgressionEngine {
                                          Set<String> takenExclusiveGroups,
                                          Set<String> cappedOut,
                                          Map<String, Integer> positionInChapter,
+                                         Map<String, QuestState> chapterStates,
                                          Deque<String> visiting) {
 
         Quest quest = entry.quest();
@@ -162,6 +181,17 @@ public final class ProgressionEngine {
                     return QuestState.COMPLETED;
                 }
                 // Repeatable with the cooldown elapsed: falls through, and resolves as playable again.
+            }
+
+            // The chapter's own gate. A quest inside a chapter that is not open yet cannot be reached
+            // whatever its own edges say, so this comes before them -- and after the completed
+            // short-circuit above, which is what lets a quest finished before its chapter was gated keep
+            // its completion. That is the same rule the dependents cap follows: a gate decides what is
+            // still available, not what a player has already done.
+            if (ChapterStates.gatesQuests(
+                    chapterStates.getOrDefault(entry.chapterId(), QuestState.UNLOCKED))) {
+                states.put(quest.id(), QuestState.LOCKED);
+                return QuestState.LOCKED;
             }
 
             // Mutually exclusive with something already taken -- but not with *itself*. A group's key is
@@ -192,11 +222,9 @@ public final class ProgressionEngine {
             int satisfied = 0;
             for (var dependency : quest.dependencies()) {
                 QuestState dependencyState = resolveById(index, dependency.id(), entry, progress, now, states,
-                        cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, visiting);
-                if (dependencyState.isAtLeast(effective == PrerequisiteMode.ALL_STARTED
-                        || effective == PrerequisiteMode.ONE_STARTED
-                        ? QuestState.STARTED
-                        : QuestState.COMPLETED)) {
+                        cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, chapterStates,
+                        visiting);
+                if (dependencyState.isAtLeast(QuestState.bar(effective))) {
                     satisfied++;
                 }
             }
@@ -217,7 +245,8 @@ public final class ProgressionEngine {
                 if (chapter.progressionMode() == ProgressionMode.LINEAR) {
                     for (Quest earlier : chapter.questsBefore(position)) {
                         QuestState earlierState = resolveById(index, earlier.id(), entry, progress, now, states,
-                                cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, visiting);
+                                cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, chapterStates,
+                                visiting);
                         if (earlierState != QuestState.COMPLETED) {
                             states.put(quest.id(), QuestState.LOCKED);
                             return QuestState.LOCKED;
@@ -250,6 +279,7 @@ public final class ProgressionEngine {
                                           Set<String> takenExclusiveGroups,
                                           Set<String> cappedOut,
                                           Map<String, Integer> positionInChapter,
+                                          Map<String, QuestState> chapterStates,
                                           Deque<String> visiting) {
         Optional<QuestIndex.QuestEntry> found = index.quest(idOrAlias);
         if (found.isEmpty()) {
@@ -259,7 +289,7 @@ public final class ProgressionEngine {
             return QuestState.LOCKED;
         }
         return resolveOne(index, found.get(), progress, now, states, cooldowns, takenExclusiveGroups,
-                cappedOut, positionInChapter, visiting);
+                cappedOut, positionInChapter, chapterStates, visiting);
     }
 
     // ------------------------------------------------------------------
@@ -392,13 +422,79 @@ public final class ProgressionEngine {
             edges.put(entry.quest().id(), targets);
         }
 
+        return cyclesIn(edges);
+    }
+
+    /**
+     * Finds every cycle in the <b>chapter</b> graph, returning each one as the chain of chapter ids.
+     *
+     * <h2>Two kinds of edge, and the second is the one that is easy to miss</h2>
+     *
+     * <p>A chapter waits on the chapters in its {@code dependsOn}, which is one edge. The other comes
+     * from {@code completesWhen}: a chapter that says "I am finished when these quests are" cannot be
+     * finished unless the chapters holding those quests can be played, so it <i>also</i> waits on them.
+     * A file that writes the two against each other — A waits on B, and B is finished by a quest inside
+     * A — is a loop that no amount of play can break, and it looks like nothing at all in either file
+     * read on its own.
+     *
+     * <p>Reported like a quest cycle, and for the same reason: it is an author's mistake that otherwise
+     * shows up only as a chapter that never opens, with no log line to explain it.
+     */
+    public static java.util.List<java.util.List<String>> findChapterCycles(QuestIndex index) {
+        Map<String, java.util.List<String>> edges = new LinkedHashMap<>();
+        for (QuestIndex.ChapterEntry entry : index.chapters()) {
+            Chapter chapter = entry.chapter();
+            java.util.List<String> targets = new java.util.ArrayList<>();
+            for (var dependency : chapter.rules().dependsOn()) {
+                index.chapter(dependency.id())
+                        .ifPresent(target -> addOnce(targets, target.chapter().id()));
+            }
+            // The completion edges. A milestone in this chapter is not an edge -- a chapter is allowed
+            // to be finished by its own quests, which is the ordinary case.
+            for (var milestone : chapter.rules().completesWhen()) {
+                index.quest(milestone.id()).ifPresent(quest -> {
+                    if (!quest.chapterId().equals(chapter.id())) {
+                        addOnce(targets, quest.chapterId());
+                    }
+                });
+            }
+            edges.put(chapter.id(), targets);
+        }
+
+        return cyclesIn(edges);
+    }
+
+    private static void addOnce(java.util.List<String> targets, String id) {
+        if (!targets.contains(id)) {
+            targets.add(id);
+        }
+    }
+
+    /**
+     * Every cycle in a directed graph, each reported once, as a chain that closes.
+     *
+     * <h2>Two memories, and why the second one had to change</h2>
+     *
+     * <p>One holds the set of nodes in each cycle already reported, so a loop reached from several entry
+     * points is reported once. The other holds the nodes themselves, so the walk can stop when it
+     * reaches a loop it has already described.
+     *
+     * <p>That second memory used to be the same collection as the first, tested with {@code contains} —
+     * and since the first held the <b>rendered</b> cycle strings, that was a substring test, which is
+     * not the same question as a set containing an element. A quest called {@code stone} counted as
+     * "already reported" by a cycle containing {@code stone_tools}, so its own cycle went unmentioned: a
+     * load-time silence about a questline that can never be finished, which is the one thing this pass
+     * exists to prevent. A set of ids is exact, and it is what the old test meant to say.
+     */
+    private static java.util.List<java.util.List<String>> cyclesIn(Map<String, java.util.List<String>> edges) {
         java.util.List<java.util.List<String>> cycles = new java.util.ArrayList<>();
         Set<String> reported = new HashSet<>();
+        Set<String> reportedNodes = new HashSet<>();
 
         for (String start : edges.keySet()) {
             Deque<String> path = new ArrayDeque<>();
             Set<String> onPath = new LinkedHashSet<>();
-            walkForCycles(start, edges, path, onPath, cycles, reported);
+            walkForCycles(start, edges, path, onPath, cycles, reported, reportedNodes);
         }
         return cycles;
     }
@@ -408,7 +504,8 @@ public final class ProgressionEngine {
                                       Deque<String> path,
                                       Set<String> onPath,
                                       java.util.List<java.util.List<String>> cycles,
-                                      Set<String> reported) {
+                                      Set<String> reported,
+                                      Set<String> reportedNodes) {
         if (onPath.contains(node)) {
             // Found one. Trim the path to start where the cycle starts, so the message reads as a
             // loop rather than as the route that happened to reach it.
@@ -418,18 +515,21 @@ public final class ProgressionEngine {
             if (start >= 0) {
                 java.util.List<String> cycle = new java.util.ArrayList<>(chain.subList(start, chain.size()));
                 cycle.add(node);
-                // Keyed by the set of nodes in the cycle, so the same loop reached from a different
-                // entry point is only reported once. A graph with a cycle would otherwise produce
-                // one message per node that can reach it, which for a questline is dozens.
-                String key = new java.util.TreeSet<>(cycle).toString();
-                if (reported.add(key)) {
+                // Two memories, and they answer two different questions. `reported` holds the set of
+                // nodes in each cycle reported so far, so the same loop reached from a different entry
+                // point is only reported once -- a graph with a cycle would otherwise produce one
+                // message per node that can reach it, which for a questline is dozens. `reportedNodes`
+                // holds the nodes themselves, for the walk's own prune below.
+                if (reported.add(new java.util.TreeSet<>(cycle).toString())) {
                     cycles.add(java.util.List.copyOf(cycle));
                 }
+                reportedNodes.addAll(cycle);
             }
             return;
         }
-        if (reported.stream().anyMatch(existing -> existing.contains(node)) && !path.isEmpty()) {
-            // Already inside a cycle that has been reported; no need to walk it again.
+        if (reportedNodes.contains(node) && !path.isEmpty()) {
+            // Already inside a cycle that has been reported; no need to walk it again. A set of ids and
+            // not a substring test on the rendered cycles -- see `cyclesIn`.
             return;
         }
 
@@ -437,7 +537,7 @@ public final class ProgressionEngine {
         onPath.add(node);
         try {
             for (String next : edges.getOrDefault(node, java.util.List.of())) {
-                walkForCycles(next, edges, path, onPath, cycles, reported);
+                walkForCycles(next, edges, path, onPath, cycles, reported, reportedNodes);
             }
         }
         finally {

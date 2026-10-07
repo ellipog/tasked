@@ -60,6 +60,15 @@ class ProgressionEngineTest {
         return ProgressionEngine.resolve(index, progress, NOW).stateOf(Fixtures.quest(index, id));
     }
 
+    /** An index of chapters built by {@code Fixtures.chapterWith}, rather than of one chapter. */
+    private static QuestIndex indexWithChapters(String... chapters) {
+        return Fixtures.indexOf(Fixtures.fileWithChapters(chapters));
+    }
+
+    private static QuestState chapterStateOf(QuestIndex index, TeamProgress progress, String chapterId) {
+        return ProgressionEngine.resolve(index, progress, NOW).chapterStateOf(chapterId);
+    }
+
     /** Progress where the named quests have been finished. */
     private static TeamProgress completedQuests(QuestIndex index, String... ids) {
         TeamProgress progress = TeamProgress.empty();
@@ -691,9 +700,14 @@ class ProgressionEngineTest {
         @Test
         @DisplayName("is found even when it runs across two files")
         void acrossFiles() {
+            // Two files, so two groups and two chapters -- and they have to be *named* apart. `Fixtures.file`
+            // calls every group `group` and every chapter `chapter`, so two of them in one index are a
+            // duplicate at both levels: reported, and the second file's whole tree dropped with it. That was
+            // invisible while the index listed everything it could not resolve, and it is the fixture's
+            // shortcut rather than the loader's fault.
             QuestIndex index = Fixtures.indexOf(
-                    Fixtures.file(q("p").dependsOn("q").build()),
-                    Fixtures.file(q("q").dependsOn("p").build()));
+                    Fixtures.fileAs("first", "first_chapter", q("p").dependsOn("q").build()),
+                    Fixtures.fileAs("second", "second_chapter", q("q").dependsOn("p").build()));
 
             List<List<String>> cycles = ProgressionEngine.findCycles(index);
             assertEquals(1, cycles.size());
@@ -774,5 +788,266 @@ class ProgressionEngineTest {
                 ProgressionEngine.resolve(index, completedQuests(index, "a"), NOW);
         assertEquals(2, afterA.unlockedCount(), "'a' is done and 'b' has opened");
         assertEquals(1, afterA.completedCount());
+    }
+
+    // ------------------------------------------------------------------
+    // A chapter's own gate
+    // ------------------------------------------------------------------
+
+    /**
+     * Two chapters, the second waiting on the first, each with one quest.
+     *
+     * <p>The shape every test in the nested class below starts from, and the reason it is built through
+     * {@code Fixtures.chapterWith} rather than as a v1 file: a chapter gate is a field of the chapter, so
+     * a fixture that splices it in beside the title is the same thing the author writes in
+     * {@code chapter.json}.
+     */
+    private static QuestIndex twoGatedChapters(String firstExtras, String secondExtras) {
+        return indexWithChapters(
+                Fixtures.chapterWith("first", firstExtras, q("a").build()),
+                Fixtures.chapterWith("second", secondExtras, q("b").build()));
+    }
+
+    @Nested
+    @DisplayName("a chapter gate")
+    class ChapterGates {
+
+        @Test
+        @DisplayName("locks every quest inside a chapter whose dependencies are unmet")
+        void locksTheQuestsInside() {
+            // The half that makes a chapter dependency mean something. Hiding the row is what an author
+            // sees; this is what a player is refused, and it is enforced here rather than in the screen
+            // so that /tasked, a script and a click all get the same answer.
+            QuestIndex index = twoGatedChapters("\"completesWhen\": [\"a\"],",
+                    "\"dependsOn\": [\"first\"],");
+
+            TeamProgress empty = TeamProgress.empty();
+            assertEquals(QuestState.LOCKED, chapterStateOf(index, empty, "second"));
+            assertEquals(QuestState.LOCKED, stateOf(index, empty, "b"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, empty, "a"),
+                    "the first chapter is not gated, so its quest is open");
+        }
+
+        @Test
+        @DisplayName("opens the whole chapter on the tick its dependency is completed")
+        void opensWhenSatisfied() {
+            QuestIndex index = twoGatedChapters("\"completesWhen\": [\"a\"],",
+                    "\"dependsOn\": [\"first\"],");
+
+            TeamProgress done = completedQuests(index, "a");
+            assertEquals(QuestState.COMPLETED, chapterStateOf(index, done, "first"));
+            assertEquals(QuestState.UNLOCKED, chapterStateOf(index, done, "second"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, done, "b"));
+        }
+
+        @Test
+        @DisplayName("reads a started-based mode as one quest touched, not the whole chapter done")
+        void startedModeCountsATouch() {
+            QuestIndex index = twoGatedChapters("\"completesWhen\": [\"a\"],",
+                    "\"dependsOn\": [\"first\"], \"prerequisiteMode\": \"one_started\",");
+
+            TeamProgress touched = startedQuests(index, "a");
+            assertEquals(QuestState.STARTED, chapterStateOf(index, touched, "first"));
+            assertEquals(QuestState.UNLOCKED, chapterStateOf(index, touched, "second"),
+                    "one_started asks for a touch, and it has one");
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "b"),
+                    "and with nothing touched, it is still shut");
+        }
+
+        @Test
+        @DisplayName("honours minRequired over the chapters it waits on")
+        void minRequiredCounts() {
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("first", "\"completesWhen\": [\"a\"],", q("a").build()),
+                    Fixtures.chapterWith("second", "\"completesWhen\": [\"b\"],", q("b").build()),
+                    Fixtures.chapterWith("third",
+                            "\"dependsOn\": [\"first\", \"second\"], \"minRequired\": 2,",
+                            q("c").build()));
+
+            assertEquals(QuestState.LOCKED,
+                    chapterStateOf(index, completedQuests(index, "a"), "third"),
+                    "one of two is not two");
+            assertEquals(QuestState.UNLOCKED,
+                    chapterStateOf(index, completedQuests(index, "a", "b"), "third"));
+        }
+
+        @Test
+        @DisplayName("is COMPLETED only once every quest it names as its completion is done")
+        void completesWhenNeedsAllOfThem() {
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("first", "\"completesWhen\": [\"a\", \"a2\"],",
+                            q("a").build(), q("a2").build()));
+
+            assertEquals(QuestState.STARTED,
+                    chapterStateOf(index, completedQuests(index, "a"), "first"),
+                    "one milestone done is progress, not completion");
+            assertEquals(QuestState.COMPLETED,
+                    chapterStateOf(index, completedQuests(index, "a", "a2"), "first"));
+        }
+
+        @Test
+        @DisplayName("never reports completed without a completesWhen")
+        void noCompletionWithoutDeclaration() {
+            // A real state rather than an oversight: a chapter that is only ever waited on as "started"
+            // has nothing to declare. The load-time check is what stops a completed bar being written
+            // against one -- see ChapterDependencyTest.
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("only", "", q("a").build()));
+
+            assertEquals(QuestState.STARTED,
+                    chapterStateOf(index, completedQuests(index, "a"), "only"),
+                    "finished quests are progress; the chapter itself never reports completed");
+        }
+
+        @Test
+        @DisplayName("lets a quest finished before the gate closed keep its completion")
+        void completedQuestsStayCompleted() {
+            // The same rule the dependents cap follows: a gate decides what is still available, not what
+            // a player has already done. A quest that vanishes back to LOCKED would take a player's
+            // completion with it the moment an author added a dependency to the chapter.
+            QuestIndex index = twoGatedChapters("",
+                    "\"dependsOn\": [\"first\"],");
+            // `first` declares no completion, so the second chapter's ALL_COMPLETED gate can never open
+            // -- which is the state this test needs. Quest `b` was finished while the chapter was open (a
+            // file edit can always produce that), and the stored completion is what decides.
+
+            TeamProgress done = completedQuests(index, "b");
+            assertEquals(QuestState.COMPLETED, stateOf(index, done, "b"),
+                    "a stored completion outranks a chapter that is shut");
+            assertEquals(QuestState.LOCKED, chapterStateOf(index, done, "second"),
+                    "and the chapter itself is still shut");
+        }
+
+        @Test
+        @DisplayName("leaves every quest in a chapter cycle locked, rather than hanging")
+        void chapterCycleResolvesSafely() {
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("one", "\"dependsOn\": [\"two\"],", q("a").build()),
+                    Fixtures.chapterWith("two", "\"dependsOn\": [\"one\"],", q("b").build()));
+
+            TeamProgress empty = TeamProgress.empty();
+            assertEquals(QuestState.LOCKED, chapterStateOf(index, empty, "one"));
+            assertEquals(QuestState.LOCKED, chapterStateOf(index, empty, "two"));
+            assertEquals(QuestState.LOCKED, stateOf(index, empty, "a"));
+            assertEquals(QuestState.LOCKED, stateOf(index, empty, "b"));
+        }
+
+        @Test
+        @DisplayName("stays UNLOCKED when it holds no quests at all")
+        void emptyChapterIsOpen() {
+            // The state between creating a chapter and writing its first quest, which is normal rather
+            // than a fault: it is open, it has nothing in it, and it can never be started or completed
+            // because there is nothing to touch. A dependent waiting on it in a started-based mode
+            // therefore stays shut, which is the honest reading of "no quest has been started here".
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("empty", ""),
+                    Fixtures.chapterWith("waits",
+                            "\"dependsOn\": [\"empty\"], \"prerequisiteMode\": \"all_started\",",
+                            q("a").build()));
+
+            assertEquals(QuestState.UNLOCKED,
+                    chapterStateOf(index, TeamProgress.empty(), "empty"));
+            assertEquals(QuestState.LOCKED, chapterStateOf(index, TeamProgress.empty(), "waits"),
+                    "nothing in the empty chapter can ever be started");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // A chapter cycle
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("a circular chapter dependency")
+    class ChapterCycles {
+
+        @Test
+        @DisplayName("is reported as a chain that closes the loop")
+        void detected() {
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("one", "\"dependsOn\": [\"two\"],", q("a").build()),
+                    Fixtures.chapterWith("two", "\"dependsOn\": [\"one\"],", q("b").build()));
+
+            List<List<String>> cycles = ProgressionEngine.findChapterCycles(index);
+
+            assertEquals(1, cycles.size(), "one loop, reported once: " + cycles);
+            List<String> cycle = cycles.get(0);
+            assertEquals(cycle.get(0), cycle.get(cycle.size() - 1),
+                    "the chain should end where it started: " + cycle);
+            assertTrue(cycle.containsAll(List.of("one", "two")), "got " + cycle);
+        }
+
+        @Test
+        @DisplayName("is found when it runs through a completion rather than a dependency")
+        void throughACompletion() {
+            // The edge a hand-written check misses. `one` waits on `two`, and `two` is finished by a
+            // quest that lives inside `one` -- so `two` cannot be finished until `one` is open, and `one`
+            // cannot open until `two` is finished. Neither file says anything wrong on its own, and the
+            // symptom is a chapter that never opens.
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("one", "\"dependsOn\": [\"two\"],", q("a").build()),
+                    Fixtures.chapterWith("two", "\"completesWhen\": [\"a\"],", q("b").build()));
+
+            List<List<String>> cycles = ProgressionEngine.findChapterCycles(index);
+
+            assertEquals(1, cycles.size(), "got " + cycles);
+            assertTrue(cycles.get(0).containsAll(List.of("one", "two")), "got " + cycles.get(0));
+        }
+
+        @Test
+        @DisplayName("is not reported for a completion inside the chapter's own quests")
+        void ownMilestonesAreNotEdges() {
+            // The ordinary case, and the one that would make this check useless: a chapter finished by
+            // its own quests is a chapter waiting on itself only if a self-edge counts.
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("one", "\"completesWhen\": [\"a\", \"b\"],",
+                            q("a").build(), q("b").dependsOn("a").build()));
+
+            assertTrue(ProgressionEngine.findChapterCycles(index).isEmpty());
+        }
+
+        @Test
+        @DisplayName("a quest cycle and a chapter cycle are separate questions")
+        void theTwoGraphsAreIndependent() {
+            // A chapter graph with no loop can hold a quest graph that has one, and the two are reported
+            // by their own pass -- which is what keeps the chapter message from claiming a quest is at
+            // fault, and the other way round.
+            QuestIndex index = indexWithChapters(
+                    Fixtures.chapterWith("one", "\"completesWhen\": [\"a\"],",
+                            q("a").dependsOn("b").build(), q("b").dependsOn("a").build()));
+
+            assertTrue(ProgressionEngine.findChapterCycles(index).isEmpty(),
+                    "the chapters themselves are a chain, not a loop");
+            assertEquals(1, ProgressionEngine.findCycles(index).size());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // The cycle walk's own memory
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("cycle detection")
+    class CycleDetection {
+
+        @Test
+        @DisplayName("does not treat one id as a prefix of another")
+        void idsAreNotSubstrings() {
+            // The walk used to prune on a substring test against the *rendered* cycles, so a quest named
+            // `stone` counted as already reported by a cycle containing `stone_tools` -- and its own
+            // cycle went unmentioned. A load-time silence about a questline that can never be finished,
+            // which is the one thing the pass exists to prevent.
+            QuestIndex index = indexOf(
+                    q("stone_tools").dependsOn("torch").build(),
+                    q("torch").dependsOn("stone_tools").build(),
+                    q("stone").dependsOn("flint").build(),
+                    q("flint").dependsOn("stone").build());
+
+            List<List<String>> cycles = ProgressionEngine.findCycles(index);
+
+            assertEquals(2, cycles.size(), "both loops should be reported, got: " + cycles);
+            assertTrue(cycles.stream().anyMatch(cycle -> cycle.contains("stone")
+                            && cycle.contains("flint")),
+                    "the second loop is missing: " + cycles);
+        }
     }
 }

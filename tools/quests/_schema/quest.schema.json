@@ -117,13 +117,11 @@
     },
     "hideUntilDependenciesComplete": {
       "type": "boolean",
-      "default": false,
-      "description": "Hidden until this quest's prerequisite rule is satisfied. A completed quest is always visible."
+      "description": "Hidden until this quest's prerequisite rule is satisfied. A completed quest is always visible. Leave the field out and the chapter's `defaultHideUntilDependenciesComplete` decides; write `false` to opt out of a chapter that hides its quests by default. There is no `default` - absence is the unset state."
     },
     "hideUntilDependenciesVisible": {
       "type": "boolean",
-      "default": false,
-      "description": "Hidden until at least one prerequisite is itself visible. Recursive, so a chain of hidden quests reveals itself one link at a time."
+      "description": "Hidden until at least one prerequisite is itself visible. Recursive, so a chain of hidden quests reveals itself one link at a time. Leave the field out and the chapter's `defaultHideUntilDependenciesVisible` decides; write `false` to opt out. A quest with no prerequisites at all is visible, because an empty rule is met."
     },
     "hideDependencyLines": {
       "type": "boolean",

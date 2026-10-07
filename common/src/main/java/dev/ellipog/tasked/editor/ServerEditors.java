@@ -46,6 +46,12 @@ public final class ServerEditors {
      * server thread, holding a player's message.
      */
     public EditorOps.Applied apply(String chapter, EditorOp op) {
+        if (op == null) {
+            // The same sentence `applyWithoutSession` gives, so "not an edit this version knows" reads the
+            // same whether or not a chapter happened to be named. A null op would otherwise reach the
+            // exhaustive switch in `applyOne` and throw out of a payload handler.
+            return EditorOps.Applied.refused("that is not an edit this version knows");
+        }
         if (chapter == null || chapter.isBlank()) {
             // No session, which is the state of a questline with no chapters: there is no editor to
             // open and no history to record on, but a structural edit can still be applied — that is how
@@ -57,11 +63,46 @@ public final class ServerEditors {
         if (editor == null) {
             return EditorOps.Applied.refused("no chapter called \"" + chapter + "\"");
         }
+        // The op names a quest; the payload names the chapter it is meant for, and the two come from
+        // different places on the client -- the selection is the screen's and the chapter is the one it is
+        // looking at, and a card left open across a chapter switch is a pair that no longer agrees.
+        //
+        // Refused here rather than left to each mutation's own `map.get(id) == null`, which returns false
+        // and reaches the author as "that edit would change nothing" -- a sentence that reads as a no-op
+        // when the truth is that the edit was aimed at another chapter. Every quest op answers
+        // {@code quest()} with its id; a chapter's own edit and a structural one answer null, and are not
+        // this question's business.
+        for (String target : questTargets(op)) {
+            if (!editor.holds(target)) {
+                return EditorOps.Applied.refused("no quest \"" + target
+                        + "\" in the chapter you are editing (\"" + chapter + "\")");
+            }
+        }
         EditorOps.Applied applied = EditorOps.apply(editor, op);
         if (applied.ok() && touchesStructure(applied)) {
             follow(chapter, editor, applied);
         }
         return applied;
+    }
+
+    /**
+     * Every quest an op is about, one level into a batch.
+     *
+     * <p>A batch answers {@code quest()} with null — it is the gesture, not a quest — so asking only the op
+     * itself would let a bulk edit aimed at another chapter through the one check that has to hold for all
+     * of it. One level is the whole depth: {@code EditorOps.joinable} refuses a batch inside a batch.
+     */
+    private static java.util.List<String> questTargets(EditorOp op) {
+        if (op instanceof EditorOp.Batch batch) {
+            java.util.List<String> out = new java.util.ArrayList<>();
+            for (EditorOp element : batch.ops()) {
+                if (element.quest() != null) {
+                    out.add(element.quest());
+                }
+            }
+            return out;
+        }
+        return op.quest() == null ? java.util.List.of() : java.util.List.of(op.quest());
     }
 
     /**

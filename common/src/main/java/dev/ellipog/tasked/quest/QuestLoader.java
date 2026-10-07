@@ -180,6 +180,18 @@ public final class QuestLoader {
                     "circular dependency: " + chain
                             + "\n    no quest in this loop can ever be unlocked. Break it by removing one dependsOn."));
         }
+
+        // And the same question one level up, over the chapter graph. Two kinds of edge make a loop
+        // here -- a chapter waiting on another, and a chapter that is finished by a quest inside
+        // another -- so the message names both ways out of it. A chapter cycle is reported against the
+        // chapter's own manifest, which is where an author can act on it.
+        for (List<String> cycle : ProgressionEngine.findChapterCycles(index)) {
+            String chain = String.join(" -> ", cycle);
+            index.chapter(cycle.get(0)).ifPresent(entry -> problems.error(entry.document(), entry.path(),
+                    "circular chapter dependency: " + chain
+                            + "\n    no chapter in this loop can ever be opened. Break it by removing a"
+                            + " dependsOn, or by moving a completesWhen quest out of the loop."));
+        }
         long checked = System.nanoTime();
 
         // The reward tables, which live beside the book rather than inside it. Read after the tree

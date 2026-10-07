@@ -48,9 +48,32 @@ because each quest unlocks when the one above it completes.
 }
 ```
 
+A chapter can also wait on other chapters, which is how a pack gates a whole chapter rather than every
+quest in it — `dependsOn` refuses its quests until the rule is met, and `completesWhen` says what
+finishes it. The two `defaultHideUntilDependencies*` fields are the chapter's defaults for its quests'
+*own* reveal flags, so a reveal chapter is one line rather than fifty:
+
+```json
+{
+  "id": "the_deep",
+  "title": "The Deep",
+  "dependsOn": ["first_steps"],
+  "completesWhen": ["the_festival"],
+  "hideUntilDependenciesComplete": true,
+  "defaultHideUntilDependenciesComplete": true
+}
+```
+
+Here the chapter's row is withheld until `first_steps` is finished, and every quest inside it is
+withheld until its own prerequisites are met — a quest that should be visible early writes
+`"hideUntilDependenciesComplete": false` to say so. A chapter whose quests are all still hidden is
+itself left out of a reader's book, so the whole chapter arrives as one reveal.
+
 The fields a group or a chapter can carry beyond those are on [[tasked:authoring/quests]], because they are the
 same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`, and the
-`dependencyStyle` a chapter's lines are drawn with.
+`dependencyStyle` a chapter's lines are drawn with. A chapter's own `dependsOn`, `prerequisiteMode`,
+`minRequired`, `completesWhen` and `hideUntilDependenciesComplete` are documented there too, under
+*[a chapter's own dependencies](quests.md#a-chapters-own-dependencies)*.
 
 > [!WARNING]
 > **A folder's name is its id, and that is checked.** A folder called `first_light` whose manifest
@@ -102,6 +125,16 @@ history, and the write goes straight to this file.
 An absent `index.json` is not an error: the tree is ordered the old way, folders by name, and that is
 how every pack written before the file existed still loads.
 
+**A broken one is read the same way, and says so.** A file that will not parse, or whose `entries` is
+not a list, cannot say what the root is — so the tree is read as if the file were not there, with one
+error naming it and one warning saying what was done instead: every folder at the root is a group, in
+folder-name order, and anything this file would have left out is loaded instead. That rule has one cost
+worth knowing, and the warning names it: a chapter that only `index.json` declares is a folder with no
+`group.json`, so with the manifest unreadable there is nothing left that says it is a chapter, and it is
+reported as a folder that is not one. An `entries` list that is *declared* is still believed, even when
+an entry in it resolves to nothing — that is a per-entry fault, and falling back there would load
+content the file deliberately left out.
+
 > [!NOTE]
 > Group folders come before their contents in reading order, but nothing above them declares an order
 > unless `index.json` does — which is why **renaming a group folder can reorder the book** when the
@@ -118,6 +151,16 @@ quest, chapter or group lists its former ids, and nothing that referenced the ol
 > **Renaming an id without an alias orphans the progress stored under the old one.** A player keeps
 > the completion; the quest no longer recognises it, so it reads as incomplete and their rewards for
 > it are gone. Add the old id to `aliases` in the same edit, and there is nothing to fix.
+**A broken one is read the same way, and says so.** A file that will not parse, or whose `entries` is
+not a list, cannot say what the root is — so the tree is read as if the file were not there, with one
+error naming it and one warning saying what was done instead: every folder at the root is a group, in
+folder-name order, and anything this file would have left out is loaded instead. That rule has one cost
+worth knowing, and the warning names it: a chapter that only `index.json` declares is a folder with no
+`group.json`, so with the manifest unreadable there is nothing left that says it is a chapter, and it is
+reported as a folder that is not one. An `entries` list that is *declared* is still believed, even when
+an entry in it resolves to nothing — that is a per-entry fault, and falling back there would load
+content the file deliberately left out.
+
 
 ## Reward tables
 

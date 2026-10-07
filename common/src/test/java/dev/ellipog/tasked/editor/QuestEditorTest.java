@@ -134,6 +134,38 @@ class QuestEditorTest {
                 """.formatted(id), StandardCharsets.UTF_8);
     }
 
+    /**
+     * A chapter whose quest file is not named after the id it declares — the converted-pack shape.
+     *
+     * <p>Every fixture in this repository but these names its file after its id, which is why the two
+     * vocabularies went unnoticed for so long: the manifest's entry and the tree's key were the same
+     * string, so code that used the wrong one still found the right file. A pack converted from FTB Quests
+     * keeps FTB's hex ids in the files while the converter names the files after the quests' titles, and
+     * there the two part company for every quest in the pack.
+     *
+     * @param dir    the config directory the fixture is built under
+     * @param quests the manifest's quest list, in order
+     * @return the chapter's folder
+     */
+    private static Path convertedChapter(Path dir, String... quests) throws IOException {
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("pack").resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(root.resolve("pack").resolve("group.json"),
+                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ "
+                        + java.util.Arrays.stream(quests).map(name -> "\"" + name + "\"")
+                                .collect(java.util.stream.Collectors.joining(", "))
+                        + " ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("first_tree.json"),
+                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+        return folder;
+    }
+
     @Test
     @DisplayName("a created id is free across the whole pack, not only this chapter")
     void aCreatedIdIsFreeAcrossThePack() throws IOException {
@@ -344,6 +376,142 @@ class QuestEditorTest {
                 "and is recoverable: a program that deletes an author's file outright is one mis-click"
                         + " from losing an evening's work");
         assertFalse(editor.delete("two"), "deleting what is not open is refused");
+    }
+
+    @Test
+    @DisplayName("a delete names the aside and the manifest entry after the file, not after the id")
+    void deletesAQuestWhoseFileIsNotNamedAfterItsId(@TempDir Path dir) throws IOException {
+        // **The divergence, at the one place it reaches the disk.** The manifest lists *file names* while
+        // every op, the canvas and the tree speak declared ids, and a converted pack is where the two part
+        // company. Naming either the aside or the manifest entry from the id renamed the file and left
+        // `chapter.json` still asking for one that was no longer there -- a chapter that loads as an error,
+        // over a quest the author believed they had removed.
+        Path folder = convertedChapter(dir, "first_tree.json");
+        Path root = dir.resolve("quests");
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        String before = Files.readString(folder.resolve("first_tree.json"), StandardCharsets.UTF_8);
+
+        assertTrue(editor.delete("58b556d40904e3b3"));
+
+        assertFalse(Files.exists(folder.resolve("first_tree.json")), "the file is out of the way");
+        assertTrue(Files.exists(folder.resolve("first_tree.json.deleted")),
+                "named after the file, which is the only name an undo can look for");
+        assertFalse(Files.exists(folder.resolve("58b556d40904e3b3.json.deleted")),
+                "the declared id names no file here, and must not name the aside either");
+
+        assertTrue(editor.save().ok());
+        String manifestOnDisk = Files.readString(folder.resolve("chapter.json"), StandardCharsets.UTF_8);
+        assertFalse(manifestOnDisk.contains("first_tree.json"),
+                () -> "the entry that named the file is the one that goes: " + manifestOnDisk);
+        assertTrue(dev.ellipog.tasked.quest.QuestFiles.discover(root).ok(),
+                "and the folder still describes itself, which is the whole of the fault: a manifest naming"
+                        + " a file that is not there");
+
+        assertTrue(editor.undo(), "and undo is still the way back");
+        assertEquals(before, Files.readString(folder.resolve("first_tree.json"), StandardCharsets.UTF_8),
+                "byte for byte");
+        assertFalse(Files.exists(folder.resolve("first_tree.json.deleted")),
+                "with nothing left behind under the aside name");
+    }
+
+    @Test
+    @DisplayName("a created id avoids a quest file nothing lists, which the loader cannot see")
+    void aCreatedIdAvoidsIdsTheLoaderCannotSee(@TempDir Path dir) throws IOException {
+        // **The ghost id.** `freeId` minted against the loader's discovery, which answers "what will the
+        // loader read" -- so a pack the loader is unhappy with hides ids that are written down anyway, and
+        // an unlisted quest file is exactly what a half-converted pack is full of. A create then landed on
+        // an id an existing file already declared: two quests under one id are one progress record, the
+        // first kept and the second drawn, clickable and never able to advance on its own.
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(root.resolve("getting_started").resolve("group.json"),
+                "{ \"id\": \"getting_started\", \"title\": \"Getting Started\", \"chapters\": [ \"first_steps\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"one.json\" ] }",
+                StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("one.json"), ONE, StandardCharsets.UTF_8);
+        // Declares the very id a create would otherwise mint, and nothing will ever read it: the manifest
+        // does not list it, so discovery never parses it and the loader never loads it.
+        Files.writeString(folder.resolve("ghost.json"),
+                "{ \"id\": \"quest\", \"title\": \"Ghost\", \"x\": 0, \"y\": 0 }", StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        String made = editor.create(0, 0);
+
+        assertEquals("quest_2", made,
+                "the id is taken on disk even though the loader cannot read the file that declares it");
+        assertTrue(Files.isRegularFile(folder.resolve("quest_2.json")), "and the new quest has its own file");
+        assertTrue(Files.isRegularFile(folder.resolve("ghost.json")),
+                "the file that was in the way is untouched");
+    }
+
+    @Test
+    @DisplayName("a delete refuses rather than destroy a copy that is already set aside")
+    void aDeleteWillNotDestroyAnEarlierAside() throws IOException {
+        // The aside name is fixed so that `restore` can find it -- a snapshot of this chapter's files is
+        // taken *before* the delete runs, so it cannot record a variable name the way a structural edit's
+        // own steps can. The price of a fixed name is this case, and the price of overwriting it would be
+        // an author's file: so the delete refuses, and says which file is in the way.
+        QuestEditor editor = open();
+        Path file = editor.pathOf("two");
+        Path aside = file.resolveSibling("two.json.deleted");
+        Files.writeString(aside, "an earlier copy nobody has dealt with", StandardCharsets.UTF_8);
+
+        assertFalse(editor.delete("two"), "deleting would have destroyed that copy");
+
+        assertTrue(Files.isRegularFile(file), "so nothing moved");
+        assertEquals("an earlier copy nobody has dealt with",
+                Files.readString(aside, StandardCharsets.UTF_8), "and the earlier copy is untouched");
+        assertEquals(java.util.List.of("one", "two"), editor.questIds(), "the chapter still holds the quest");
+        assertFalse(editor.canUndo(),
+                "a refusal is not an edit that failed, it is one that never started: no snapshot, no step");
+    }
+
+    @Test
+    @DisplayName("a delete the manifest cannot account for puts the file back")
+    void aDeleteThatCannotBeListedIsRolledBack() throws IOException {
+        // The manifest is edited out from under the delete, which is the one way to reach the branch that
+        // used to leave a file renamed and a chapter no longer describing its own folder. `false` has to
+        // mean "nothing changed", or a caller cannot tell a refusal from a half-delete.
+        QuestEditor editor = open();
+        assertTrue(editor.setChapter("quests", java.util.List.of("one.json")));
+        Path file = editor.pathOf("two");
+
+        assertFalse(editor.delete("two"), "it could not be accounted for, so it is not a delete");
+
+        assertTrue(Files.isRegularFile(file), "the file is back where it was");
+        assertFalse(Files.exists(file.resolveSibling("two.json.deleted")),
+                "and nothing is left under the aside name");
+        assertNotNull(editor.quest("two"), "the chapter still holds it");
+    }
+
+    @Test
+    @DisplayName("two files declaring one id: the first is the one open here, as it is for the loader")
+    void aDuplicateIdIsTheLoadersQuestAndNotThisLoops(@TempDir Path dir) throws IOException {
+        // **The delete that removed something else.** `reloadQuests` used a plain `put`, so it kept the
+        // *last* file declaring an id, while `QuestIndex.claimIdentifier` and `ClientQuestCache.byId` keep
+        // the first. The node the author clicks resolves to one file and the delete removed the other --
+        // no chapter switch, no stale selection, just two layers disagreeing about one id.
+        Path folder = convertedChapter(dir, "first_tree.json", "other.json");
+        Files.writeString(folder.resolve("other.json"),
+                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"Also First Tree\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(dir.resolve("quests"), "first_steps").orElseThrow();
+
+        assertEquals(folder.resolve("first_tree.json"), editor.quest("58b556d40904e3b3").file(),
+                "the first file declaring the id, which is the one the loader and the canvas resolve it to");
+        assertEquals(java.util.List.of("58b556d40904e3b3"), editor.declaredIds(),
+                "one id, one quest: the second file is not a second entry");
+
+        assertTrue(editor.delete("58b556d40904e3b3"));
+        assertFalse(Files.exists(folder.resolve("first_tree.json")),
+                "the quest the author was looking at is the one removed");
+        assertTrue(Files.isRegularFile(folder.resolve("other.json")),
+                "and the file whose panel they never saw is untouched");
     }
 
     // ------------------------------------------------------------------
@@ -573,23 +741,11 @@ class QuestEditorTest {
         // chapter's copy has not arrived yet", with the copy in hand. See `QuestEditor.reloadQuests`,
         // `QuestEditor.pathOf` and `ServerEditors.replica`.
         Path root = dir.resolve("quests");
-        Path group = root.resolve("pack");
-        Path folder = group.resolve("first_steps");
-        Files.createDirectories(folder);
-        Files.writeString(group.resolve("group.json"),
-                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
-                StandardCharsets.UTF_8);
-        Files.writeString(folder.resolve("chapter.json"),
-                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"first_tree.json\" ] }",
-                StandardCharsets.UTF_8);
-        Files.writeString(folder.resolve("first_tree.json"),
-                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
-                StandardCharsets.UTF_8);
+        Path folder = convertedChapter(dir, "first_tree.json");
 
         QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
 
-        // The declared id is the key, which is the whole fix: the loader, the canvas, every reference and the
-        // client's own `editTarget()` name this quest by the id in its file.
+        // The declared id is the key, which is the whole fix: the loader, the canvas, every reference and the        // client's own `editTarget()` name this quest by the id in its file.
         assertNotNull(editor.quest("58b556d40904e3b3"),
                 "the declared id is how every other part of the program names this quest");
         assertEquals("First Tree", editor.quest("58b556d40904e3b3").text("title", ""));
@@ -621,18 +777,7 @@ class QuestEditorTest {
         // `SaveResult(0, no refusals)` read as a success, so the reply said "applied" over a file that was
         // never touched. A player sees a press that does nothing and a log that says it worked.
         Path root = dir.resolve("quests");
-        Path group = root.resolve("pack");
-        Path folder = group.resolve("first_steps");
-        Files.createDirectories(folder);
-        Files.writeString(group.resolve("group.json"),
-                "{ \"id\": \"pack\", \"title\": \"Pack\", \"chapters\": [ \"first_steps\" ] }",
-                StandardCharsets.UTF_8);
-        Files.writeString(folder.resolve("chapter.json"),
-                "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [ \"first_tree.json\" ] }",
-                StandardCharsets.UTF_8);
-        Files.writeString(folder.resolve("first_tree.json"),
-                "{ \"id\": \"58b556d40904e3b3\", \"title\": \"First Tree\", \"x\": 0, \"y\": 0 }",
-                StandardCharsets.UTF_8);
+        Path folder = convertedChapter(dir, "first_tree.json");
 
         QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
         assertTrue(editor.set("58b556d40904e3b3", "title", "Renamed"));

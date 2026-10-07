@@ -466,6 +466,38 @@ public final class QuestValidator {
         }
         checkDependencyStyle(document, path + ".dependencyStyle", problems, false);
 
+        // The chapter's own gate, checked field by field the way a quest's is -- a chapter is a file like
+        // a quest is, and the same closed sets and counted fields have the same failure mode here. What
+        // cannot be checked in one file is whether a referenced chapter or quest exists: that is
+        // QuestIndex's cross-file pass, which is where "this chapter can never be opened" is said.
+        checkDependencies(document, path + ".dependsOn", "chapter", problems);
+        if (document.has(path + ".prerequisiteMode")) {
+            Checks.optionalString(document, path + ".prerequisiteMode", problems)
+                    .ifPresent(name -> checkEnum(document, path + ".prerequisiteMode", name,
+                            PrerequisiteMode.class, problems));
+        }
+        if (document.has(path + ".minRequired")) {
+            Checks.optionalInt(document, path + ".minRequired", problems).ifPresent(count -> {
+                if (count < ChapterRules.MIN_COUNT || count > ChapterRules.MAX_COUNT) {
+                    problems.error(document, path + ".minRequired",
+                            "minRequired must be between " + ChapterRules.MIN_COUNT + " and "
+                                    + ChapterRules.MAX_COUNT + ", found " + count);
+                }
+            });
+        }
+        checkDependencies(document, path + ".completesWhen", "quest", problems);
+        if (document.has(path + ".hideUntilDependenciesComplete")) {
+            Checks.optionalBool(document, path + ".hideUntilDependenciesComplete", problems);
+        }
+        // The chapter's defaults for its quests, checked the same way. Note the pair above: the one
+        // without `default` withholds the chapter's row, and these decide what its quests do.
+        for (String defaulted : new String[] {"defaultHideUntilDependenciesComplete",
+                "defaultHideUntilDependenciesVisible"}) {
+            if (document.has(path + "." + defaulted)) {
+                Checks.optionalBool(document, path + "." + defaulted, problems);
+            }
+        }
+
         // A theme name is checked for being a non-empty string and nothing more, and that stopping
         // point is the point of it: the theme catalogue is a <b>client</b> concept, and this validator
         // runs on the server too. A dedicated server has no appearance and no themes, so teaching it
@@ -574,6 +606,15 @@ public final class QuestValidator {
         if (document.has(path + ".showTitle")) {
             Checks.optionalBool(document, path + ".showTitle", problems);
         }
+        // The two reveal flags that are three-state in a quest: a boolean when the quest has an opinion,
+        // absent when the chapter decides. Neither was in this list, so `"hideUntilDependenciesComplete":
+        // "yes"` was refused by the codec at line one column one -- a message that names neither the field
+        // nor the line, which is the whole reason this pass exists.
+        for (String reveal : new String[] {"hideUntilDependenciesComplete", "hideUntilDependenciesVisible"}) {
+            if (document.has(path + "." + reveal)) {
+                Checks.optionalBool(document, path + "." + reveal, problems);
+            }
+        }
         // The quest rung of the auto-claim ladder; the chapter's is checked in the chapter walk. A typo
         // here would silently defer to the chapter, which is the drift this closed-set check prevents.
         if (document.has(path + ".autoClaim")) {
@@ -670,7 +711,7 @@ public final class QuestValidator {
             });
         }
 
-        checkDependencies(document, path + ".dependsOn", problems);
+        checkDependencies(document, path + ".dependsOn", "quest", problems);
         checkDependencyLines(document, path + ".dependencyLines", problems);
         checkTasks(document, path + ".tasks", problems);
         checkRewards(document, path + ".rewards", problems);
@@ -1234,13 +1275,14 @@ public final class QuestValidator {
         });
     }
 
-    private static void checkDependencies(JsonDocument document, String path, Problems problems) {
+    private static void checkDependencies(JsonDocument document, String path, String what,
+                                          Problems problems) {
         var ids = Checks.optionalStringList(document, path, problems);
         for (int i = 0; i < ids.size(); i++) {
             String elementPath = path + "[" + i + "]";
             String candidate = ids.get(i);
             if (candidate.isEmpty()) {
-                problems.error(document, elementPath, "a dependency id may not be empty");
+                problems.error(document, elementPath, "a " + what + " id may not be empty");
                 continue;
             }
             boolean wellFormed = candidate.length() <= ChapterNaming.MAX_LENGTH;
@@ -1250,7 +1292,8 @@ public final class QuestValidator {
             }
             if (!wellFormed) {
                 problems.error(document, elementPath, "'" + candidate
-                        + "' is not a valid quest id; only lowercase letters, digits and underscores are allowed");
+                        + "' is not a valid " + what
+                        + " id; only lowercase letters, digits and underscores are allowed");
             }
         }
     }

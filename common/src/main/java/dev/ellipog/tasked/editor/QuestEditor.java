@@ -273,6 +273,20 @@ public final class QuestEditor {
                         id = declared;
                     }
                 }
+                // **First wins, which is the index's rule and not this loop's.** Two files in one chapter
+                // may declare one id: the format has no per-chapter unique index, and the loader reports
+                // the duplicate without refusing either file. The loader and the client both resolve it to
+                // the first in declaration order -- `QuestIndex.claimIdentifier` puts only when the id is
+                // free, and `ClientQuestCache.byId` is a `putIfAbsent`. A plain `put` here kept the
+                // *last*, so the quest the canvas drew and the quest a delete removed were two different
+                // files: the author's report is "it deleted something else", and this is the only line
+                // that could produce it.
+                if (quests.containsKey(id)) {
+                    Constants.LOG.warn("tasked: {} and {} both declare the quest id \"{}\"; the first is"
+                            + " the one open here, because the loader and the canvas resolve that id to it"
+                            + " as well. Rename one of them.", stems.get(id) + SUFFIX, stem + SUFFIX, id);
+                    continue;
+                }
                 quests.put(id, quest);
                 stems.put(id, stem);
                 byStem.put(stem, id);
@@ -354,6 +368,18 @@ public final class QuestEditor {
     /** The ids of the quests this chapter holds, as the editor keys them: the ones the files declare. */
     public List<String> declaredIds() {
         return List.copyOf(quests.keySet());
+    }
+
+    /**
+     * Whether a quest with this <b>declared id</b> is open here.
+     *
+     * <p>The precondition every quest op needs, and one answer for all of them: the mutations themselves
+     * ask {@code quests.get(id)} directly, so a caller deciding whether to apply an op at all has to ask
+     * the same map. {@link #quest} is the wrong question for that — it answers to a file stem as well, so
+     * an op naming one would be admitted and then do nothing.
+     */
+    boolean holds(String id) {
+        return id != null && quests.containsKey(id);
     }
 
     /**
@@ -680,14 +706,42 @@ public final class QuestEditor {
     /**
      * Deletes a quest: its file, and its name from the list.
      *
-     * <p>The file is <b>renamed</b> rather than deleted — to {@code <id>.json.deleted} — because a file
+     * <p>The file is <b>renamed</b> rather than deleted — to {@code <stem>.json.deleted} — because a file
      * removed from a folder by a program is not recoverable, and an editor's Delete key is one keystroke
      * away from a mis-click. Undo puts it back, and the loader ignores the suffix, so a chapter with a
      * deleted quest in it still loads.
+     *
+     * <h2>Both names come from the stem, not from the id</h2>
+     *
+     * <p>A quest's declared {@code id} and its file name are two different strings, and the format puts no
+     * rule on the two agreeing — see {@link #reloadQuests}, and {@link #pathOf} for the one place they are
+     * reconciled. The manifest lists <b>file names</b>, so the entry that has to go is the stem's, and the
+     * name that can be reconstructed after the move is the stem's too. Naming either from the id is how
+     * this method used to rename the file and leave the manifest still asking for one that was no longer
+     * there: a chapter that loads as an error, over a quest the author believed they had removed.
+     *
+     * <h2>The aside name is fixed, and a taken one is refused</h2>
+     *
+     * <p>{@code .deleted} rather than {@code .deleted.2}, which is what {@code QuestStructure.aside} does
+     * one level up. The difference is not an oversight: a structural edit's undo is a record of the paths
+     * the edit used ({@code Step.SetAside}), so it can name a second copy, while an undo here is a
+     * snapshot of this chapter's files taken <i>before</i> this method runs — {@link #restore} can only
+     * look for one name. A variable aside would be an undo that restores whichever stale copy it found
+     * first. Refusing costs a sentence and a manual move, and it is the only one of the two that cannot
+     * destroy a file the author asked to keep.
      */
     public boolean delete(String id) {
         JsonFile gone = quests.get(id);
         if (gone == null) {
+            return false;
+        }
+        String stem = stemOf(id);
+        Path aside = gone.file().resolveSibling(stem + SUFFIX + QuestFiles.DELETED_SUFFIX);
+        if (Files.exists(aside)) {
+            // Before anything moves, so there is no snapshot to pop and no history entry: this is not an
+            // edit that failed, it is one that never started.
+            Constants.LOG.warn("tasked: {} is already there, so {} was not deleted - moving it would have"
+                    + " destroyed it. Restore or remove that copy first.", aside, gone.file());
             return false;
         }
         // Before anything moves: the snapshot is the state an undo has to put back, so it has to be
@@ -696,8 +750,7 @@ public final class QuestEditor {
         push();
         quests.remove(id);
         try {
-            Files.move(gone.file(), gone.file().resolveSibling(id + SUFFIX + ".deleted"),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.move(gone.file(), aside);
         }
         catch (IOException e) {
             Constants.LOG.warn("tasked: {} could not be renamed out of the way, so nothing was deleted.",
@@ -706,7 +759,26 @@ public final class QuestEditor {
             undo.pop();
             return false;
         }
-        manifest.removeString("quests", id + SUFFIX);
+        if (!manifest.removeString("quests", stem + SUFFIX)) {
+            // The file moved but its name was not in the list, so the manifest no longer describes the
+            // folder. The move goes back rather than staying: `false` has to mean "nothing changed", or a
+            // caller cannot tell a refusal from a half-delete -- and a file the loader reports as missing
+            // is one nobody can find.
+            quests.put(id, gone);
+            try {
+                Files.move(aside, gone.file(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                // Nothing changed after all, so the snapshot of a state we never left is a lie.
+                undo.pop();
+            }
+            catch (IOException e) {
+                // Left where it is, and the snapshot stays -- deliberately. `restore` looks for exactly
+                // this name, so Ctrl+Z is still the way back rather than a copy sitting in the folder
+                // under a name the author has to think of.
+                Constants.LOG.warn("tasked: {} could not be put back and is at {}; undo still restores it.",
+                        gone.file(), aside, e);
+            }
+            return false;
+        }
         return true;
     }
 

@@ -119,8 +119,53 @@ public final class Fixtures {
 
     /** One chapter object, for a file that needs more than one. */
     public static String chapter(String id, String... quests) {
-        return "{\"id\": \"" + id + "\", \"title\": \"" + id + "\", \"quests\": [ "
+        return chapterWith(id, "", quests);
+    }
+
+    /**
+     * One chapter object carrying extra fields.
+     *
+     * <p>The chapter-level counterpart of {@link #fileWithChapter}, and it exists for the same reason:
+     * a test about a chapter's own gate should read as the gate and nothing else. Spliced raw rather
+     * than modelled, so a test can also write a field the codec does not know — which is how a
+     * validator's unknown-field message is exercised.
+     *
+     * @param extras raw JSON for the chapter object, comma-terminated —
+     *               {@code "\"dependsOn\": [\"first\"],"} for instance
+     */
+    public static String chapterWith(String id, String extras, String... quests) {
+        return "{\"id\": \"" + id + "\", \"title\": \"" + id + "\", " + extras + "\"quests\": [ "
                 + String.join(", ", quests) + " ] }";
+    }
+
+    /**
+     * A file whose group and chapter carry the ids given, rather than {@link #file}'s fixed pair.
+     *
+     * <p>Needed by anything that indexes <b>two</b> files. {@code file} always calls its group {@code group}
+     * and its chapter {@code chapter}, so two of them in one index declare two groups under one id and two
+     * chapters under one id — genuine duplicates, which {@code QuestIndex} now reports and <i>drops</i>, and
+     * a dropped group takes its whole subtree with it. A test that means "two files" therefore has to say
+     * which two, or its second file silently vanishes from the fixture.
+     */
+    public static String fileAs(String groupId, String chapterId, String... quests) {
+        return """
+                {
+                  "version": 1,
+                  "chapterGroups": [
+                    {
+                      "id": "%s",
+                      "title": "%s",
+                      "chapters": [
+                        {
+                          "id": "%s",
+                          "title": "%s",
+                          "quests": [ %s ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """.formatted(groupId, groupId, chapterId, chapterId, String.join(", ", quests));
     }
 
     /**

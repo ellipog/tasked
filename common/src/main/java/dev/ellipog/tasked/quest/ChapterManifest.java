@@ -84,6 +84,8 @@ public record ChapterManifest(
         Optional<JsonObject> themePatch,
         /** The chapter's default auto-claim mode; see {@link Chapter#autoClaim()}. */
         dev.ellipog.tasked.quest.reward.RewardAutoClaim autoClaim,
+        /** The chapter's own gate, completion and hiding; see {@link ChapterRules}. */
+        ChapterRules rules,
         List<String> quests
 ) {
 
@@ -91,6 +93,9 @@ public record ChapterManifest(
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
             "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
+            "dependsOn", "prerequisiteMode", "minRequired", "completesWhen",
+            "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
+            "defaultHideUntilDependenciesVisible",
             "quests");
 
     /**
@@ -102,7 +107,7 @@ public record ChapterManifest(
      */
     public Chapter toChapter(List<Quest> resolved) {
         return new Chapter(id, title, subtitle, description, icon, aliases, defaultPrerequisiteMode,
-                progressionMode, defaultConsumeItems, dependencyStyle, theme, themePatch, autoClaim,
+                progressionMode, defaultConsumeItems, dependencyStyle, theme, themePatch, autoClaim, rules,
                 resolved);
     }
 
@@ -130,6 +135,10 @@ public record ChapterManifest(
             dev.ellipog.tasked.quest.reward.RewardAutoClaim.CODEC
                     .optionalFieldOf("autoClaim", dev.ellipog.tasked.quest.reward.RewardAutoClaim.DEFAULT)
                     .forGetter(ChapterManifest::autoClaim),
+            // The same MapCodec the assembled chapter uses, so the manifest and the chapter it becomes
+            // read the same five fields at the same paths -- which is what keeps "the manifest says one
+            // thing and the tree another" a thing that cannot happen here.
+            ChapterRules.MAP_CODEC.forGetter(ChapterManifest::rules),
             Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests)
     ).apply(instance, ChapterManifest::new));
 }

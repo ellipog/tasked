@@ -111,7 +111,14 @@ public final class QuestVisibility {
                 // Any one dependency being visible is enough, and "visible" is this same question about
                 // that dependency -- which is the recursion: a chain of hidden quests reveals itself
                 // from its first visible link outwards, one prerequisite at a time.
-                boolean any = false;
+                //
+                // A quest with no dependencies at all is visible, and that is a correction rather than a
+                // special case: the loop below never runs, so the answer used to be "hidden forever
+                // unless completed" -- while the sibling flag `hideUntilDependenciesComplete` reads an
+                // empty rule as *satisfied* (requiredCount of zero dependencies is zero). Two flags
+                // about the same prerequisites disagreeing about the empty case is the kind of thing an
+                // author discovers by staring at a canvas, so an empty rule means met here too.
+                boolean any = lookup.dependencies(id).isEmpty();
                 for (String dependency : lookup.dependencies(id)) {
                     if (visible(dependency, lookup, states, ruleMet, tasksWithProgress, visiting)) {
                         any = true;

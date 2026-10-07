@@ -41,8 +41,26 @@ public record QuestRules(boolean repeatable,
                          boolean showTitle,
                          Optional<String> exclusiveGroup,
                          int maxCompletableDependents,
-                         boolean hideUntilDependenciesComplete,
-                         boolean hideUntilDependenciesVisible,
+                         /**
+                          * Whether this quest is withheld until its own prerequisite <b>rule</b> is met.
+                          *
+                          * <p><b>Three states, not two.</b> Absent means "no opinion" and the chapter's
+                          * {@code defaultHideUntilDependenciesComplete} decides; {@code true} forces it
+                          * on; {@code false} forces it off. That last one is why this is not a plain
+                          * boolean: a chapter that hides its quests by default needs a way for one quest
+                          * -- the hub, the quest that shows the road ahead -- to opt out, and with a plain
+                          * boolean "off" and "unsaid" are the same word in the file.
+                          *
+                          * <p>The chapter default is resolved in exactly one place, {@code QuestSync},
+                          * which is the side that sends the answer; the client reads a boolean off the
+                          * wire either way, so nothing downstream of this field has three states.
+                          */
+                         Optional<Boolean> hideUntilDependenciesComplete,
+                         /**
+                          * Whether this quest is withheld until at least one prerequisite is itself visible.
+                          * Three states, for the reason above.
+                          */
+                         Optional<Boolean> hideUntilDependenciesVisible,
                          boolean hideDependencyLines,
                          boolean hideTextUntilComplete,
                          boolean hideDetailsUntilStartable,
@@ -75,7 +93,8 @@ public record QuestRules(boolean repeatable,
                          Optional<RewardAutoClaim> autoClaim) {
 
     public static final QuestRules DEFAULT = new QuestRules(false, 0, false, false, false,
-            Optional.empty(), 0, false, false, false, false, false, 0, Optional.empty(), Optional.empty());
+            Optional.empty(), 0, Optional.empty(), Optional.empty(), false, false, false, 0,
+            Optional.empty(), Optional.empty());
 
     /** The field names this contributes, for the validator to allow at quest level. */
     public static final Set<String> FIELDS = Set.of("repeatable", "repeatCooldownTicks", "sequentialTasks",
@@ -83,6 +102,25 @@ public record QuestRules(boolean repeatable,
             "hideUntilDependenciesComplete", "hideUntilDependenciesVisible", "hideDependencyLines",
             "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "requiresStage",
             "autoClaim");
+
+    /**
+     * Whether this quest is withheld until its prerequisite rule is met, with the chapter's default for a
+     * quest that says nothing.
+     *
+     * <p>An accessor rather than an {@code orElse} at the call site, exactly as {@link
+     * #autoClaim(RewardAutoClaim)} is: there is one caller today -- {@code QuestSync}, the side that
+     * sends the resolved answer -- and a second one would otherwise be a second reading of the ladder.
+     */
+    public boolean hideUntilDependenciesComplete(boolean chapterDefault) {
+        return hideUntilDependenciesComplete.orElse(chapterDefault);
+    }
+
+    /**
+     * The same, for the reveal that waits on a prerequisite being <i>visible</i> rather than met.
+     */
+    public boolean hideUntilDependenciesVisible(boolean chapterDefault) {
+        return hideUntilDependenciesVisible.orElse(chapterDefault);
+    }
 
     /**
      * The auto-claim mode in force for this quest: its own, or the chapter's default.
@@ -137,9 +175,12 @@ public record QuestRules(boolean repeatable,
                     .forGetter(QuestRules::maxCompletableDependents),
             // The reveal family. Each is a presentation decision, and each is checked by the client
             // against state it already has -- see `QuestVisibility`.
-            Codec.BOOL.optionalFieldOf("hideUntilDependenciesComplete", false)
+            // Absent rather than defaulted, for the same reason `autoClaim` is absent: "this quest has no
+            // opinion" is a real state, and writing `false` for a quest that said nothing would pin the
+            // chapter's default the moment somebody looked at the file.
+            Codec.BOOL.optionalFieldOf("hideUntilDependenciesComplete")
                     .forGetter(QuestRules::hideUntilDependenciesComplete),
-            Codec.BOOL.optionalFieldOf("hideUntilDependenciesVisible", false)
+            Codec.BOOL.optionalFieldOf("hideUntilDependenciesVisible")
                     .forGetter(QuestRules::hideUntilDependenciesVisible),
             Codec.BOOL.optionalFieldOf("hideDependencyLines", false)
                     .forGetter(QuestRules::hideDependencyLines),

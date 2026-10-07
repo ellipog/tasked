@@ -169,6 +169,51 @@ class ServerEditorsTest {
     }
 
     @Test
+    @DisplayName("an edit aimed at a quest this chapter does not hold is refused, and names both")
+    void anOpForAnotherChaptersQuestIsRefused() throws IOException {
+        // The op names a quest and the payload names a chapter, and on the client the two come from
+        // different places: the selection is the screen's and the chapter is the one it is looking at, so a
+        // card left open across a switch is a pair that no longer agrees. Left to each mutation's own
+        // `map.get(id) == null` the disagreement arrived as "that edit would change nothing" -- a sentence
+        // that reads as a no-op when the truth is that the edit was aimed somewhere else, which is also the
+        // shape a destructive op would silently take.
+        String before = titleOnDisk();
+
+        EditorOps.Applied field = editors.apply("first_steps",
+                new EditorOp.SetField("elsewhere", "title", new JsonPrimitive("Moved")));
+        assertFalse(field.ok());
+        assertEquals(1, field.messages().size());
+        assertTrue(field.messages().get(0).contains("elsewhere"), field.messages().toString());
+        assertTrue(field.messages().get(0).contains("first_steps"),
+                "the refusal names the chapter it was aimed at: " + field.messages());
+
+        assertFalse(editors.apply("first_steps", new EditorOp.Delete("elsewhere")).ok(),
+                "the destructive one is refused by the same rule");
+        assertTrue(editors.apply("first_steps", new EditorOp.Delete("elsewhere")).messages().get(0)
+                        .contains("elsewhere"),
+                "and it names the quest too, rather than reporting a no-op");
+
+        assertEquals(before, titleOnDisk(), "and nothing was written by either");
+    }
+
+    @Test
+    @DisplayName("a batch is checked too: a gesture aimed at another chapter is refused whole")
+    void aBatchForAnotherChaptersQuestIsRefused() throws IOException {
+        // A batch answers `quest()` with null -- it is the gesture rather than a quest -- so a check that
+        // asked only the op itself would let every element of a bulk edit through the one gate that has to
+        // hold for all of them. Checked before anything runs, so a refused gesture is refused entirely
+        // rather than half-applied.
+        EditorOps.Applied applied = editors.apply("first_steps", EditorOps.batch(List.of(
+                new EditorOp.SetField("one", "title", new JsonPrimitive("First")),
+                new EditorOp.SetField("elsewhere", "title", new JsonPrimitive("Moved")))));
+
+        assertFalse(applied.ok());
+        assertTrue(applied.messages().get(0).contains("elsewhere"), applied.messages().toString());
+        assertFalse(titleOnDisk().contains("First"),
+                "refused before any element ran, so the half that was fine did not land either");
+    }
+
+    @Test
     @DisplayName("an edit the validator refuses leaves the chapter open and the disk untouched")
     void aRefusalKeepsTheChapter() throws IOException {
         String before = titleOnDisk();

@@ -72,7 +72,16 @@ public final class QuestSettingsPanel {
      */
     public record View(String title, ItemStack icon, QuestShape shape, Shape geometry, int rotation,
                        int size, double iconScale, boolean showTitle, int hoveredCell,
-                       String hoveredKey, String chapterRequirement) {
+                       String hoveredKey, String chapterRequirement,
+                       /**
+                        * The chapter's default for its quests' own {@code hideUntilDependenciesComplete},
+                        * named in the picker's "Chapter default (...)" value like the requirement above.
+                        * Read from the chapter's own copy rather than the wire: it is an authoring field,
+                        * and this page is an authoring surface.
+                        */
+                       boolean chapterHideUntilDepsComplete,
+                       /** The same, for {@code hideUntilDependenciesVisible}. */
+                       boolean chapterHideUntilDepsVisible) {
     }
 
     /**
@@ -407,9 +416,14 @@ public final class QuestSettingsPanel {
         String value = displayValue(quest, row.key());
         // The auto-claim row defers to the chapter rather than to a mode, so its unset label is not the
         // requirement row's "Chapter default (all_completed)" shape.
-        String shown = "autoClaim".equals(row.key())
-                ? QuestSettingsLayout.autoClaimLabel(value)
-                : QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
+        String shown = switch (row.key()) {
+            case "autoClaim" -> QuestSettingsLayout.autoClaimLabel(value);
+            case "hideUntilDependenciesComplete" ->
+                    QuestSettingsLayout.triStateLabel(value, view.chapterHideUntilDepsComplete());
+            case "hideUntilDependenciesVisible" ->
+                    QuestSettingsLayout.triStateLabel(value, view.chapterHideUntilDepsVisible());
+            default -> QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
+        };
         r.text(Measure.truncate(shown, Math.max(0, strip.width() - 40),
                         Measure.of(r::textWidth, r.lineHeight())),
                 strip.x() + QuestSettingsLayout.ARROW_WIDTH + 4,

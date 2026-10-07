@@ -421,6 +421,43 @@
           "$ref": "#/definitions/dependencyStyle",
           "description": "How this chapter's dependency lines are drawn unless a line overrides an axis. This is what a line's \"Use chapter default\" resets to. Only the axes named here are chosen: an axis left out falls back to the built-ins (chamfered, one, solid, thin), and a line that names the same axis overrides just that one."
         },
+        "dependsOn": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/id" },
+          "description": "The chapters this one waits on, by id or alias. Until the rule below is met every quest in this chapter is locked - it cannot be started, finished or claimed - whatever its own dependsOn says. A name that resolves to nothing is reported at load, because the chapter could then never be opened. The folder format's chapter.json carries the same fields."
+        },
+        "prerequisiteMode": {
+          "enum": ["all_completed", "one_completed", "all_started", "one_started"],
+          "default": "all_completed",
+          "description": "The rule over this chapter's own dependsOn, and *not* defaultPrerequisiteMode: that one is the mode this chapter's quests inherit for their quest dependencies, and this one is how many of the chapters above must be satisfied. all_completed is the default because a gate that let something through early is the surprising direction to be wrong in."
+        },
+        "minRequired": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0,
+          "description": "How many of dependsOn must be satisfied, replacing the mode's own count - \"any two of these three chapters\". May not exceed the size of dependsOn, which is reported. It replaces the count and not the bar: the mode still decides whether a dependency has to be completed or merely started."
+        },
+        "completesWhen": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/id" },
+          "description": "The quests that finish this chapter, by id or alias, in any chapter. The chapter reports completed once every one of them is; a repeatable quest counts after its first completion. Empty means the chapter never reports completed, which is a real state - it is then only ever satisfiable as \"started\". A chapter another chapter waits on as completed must declare this, and the loader reports the pair that does not."
+        },
+        "hideUntilDependenciesComplete": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this chapter is left out of the book for a reader until its own dependencies are met. Off, it is listed and drawn dimmed with what it is waiting for on hover. An author in edit mode always sees it, or the flag could not be authored. Presentation only: the gate itself is enforced whatever this says. Not the same field as defaultHideUntilDependenciesComplete below: this one withholds the chapter's row, those decide what its quests do."
+        },
+        "defaultHideUntilDependenciesComplete": {
+          "type": "boolean",
+          "default": false,
+          "description": "What the quests in this chapter do about their own prerequisites unless a quest says otherwise: with it on, a quest here is hidden until its own prerequisite rule is met. A quest may write false to opt out, and a quest with no prerequisites is visible either way."
+        },
+        "defaultHideUntilDependenciesVisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "The same default for hideUntilDependenciesVisible: with it on, a quest here is hidden until at least one of its prerequisites is itself visible."
+        },
         "theme": {
           "type": "string",
           "description": "A palette this chapter asks to be drawn in. A client concept: the catalogue of themes lives on the client, so this is a plain string here and is reported by the client that could not resolve it."
@@ -545,13 +582,11 @@
         },
         "hideUntilDependenciesComplete": {
           "type": "boolean",
-          "default": false,
-          "description": "Hidden until this quest's prerequisite *rule* is satisfied — the same rule the card's \"2 of 3 met\" counts, so minRequired and the started-based modes are honoured. A completed quest is always visible."
+          "description": "Hidden until this quest's prerequisite *rule* is satisfied — the same rule the card's \"2 of 3 met\" counts, so minRequired and the started-based modes are honoured. A completed quest is always visible. Leave the field out and the chapter's defaultHideUntilDependenciesComplete decides; write false to opt out of a chapter that hides its quests by default."
         },
         "hideUntilDependenciesVisible": {
           "type": "boolean",
-          "default": false,
-          "description": "Hidden until at least one of its prerequisites is itself visible. Recursive, so a chain of hidden quests reveals itself one link at a time from its first visible end. A quest with no prerequisites and this flag stays hidden."
+          "description": "Hidden until at least one of its prerequisites is itself visible. Recursive, so a chain of hidden quests reveals itself one link at a time from its first visible end. A quest with no prerequisites at all is visible, because an empty rule is met - this used to stay hidden, which is the trap the sibling flag's empty case never had. Leave the field out and the chapter's defaultHideUntilDependenciesVisible decides; write false to opt out."
         },
         "hideDependencyLines": {
           "type": "boolean",
