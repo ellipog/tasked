@@ -4,6 +4,7 @@
     "version": "${version}",
     "name": "${mod_name}",
     "description": "${description}",
+    "icon": "assets/tasked/icon.png",
     "authors": [
         "${mod_author}"
     ],
