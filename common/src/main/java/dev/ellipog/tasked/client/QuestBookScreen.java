@@ -24682,30 +24682,16 @@ public final class QuestBookScreen extends ArmatureScreen
 
             if (live) {
                 // What the canvas showed when the pointer let go is what is committed: these are the
-                // drawn, snapped coordinates, not a re-derivation that could disagree with them. The
-                // selection that moved with it commits through the same pending positions -- one op
-                // each, because a move is one quest's edit.
-                commitMove(id, x, y);
-                long revision = ClientQuestCache.treeRevision();
-                for (String moved : dragStarts.keySet()) {
-                    // **Only the ones that are still pending.** `movedX` answers zero for an id it does
-                    // not hold, and this loop used to commit that zero -- so every other selected quest
-                    // was written to (0,0) whenever the pending positions had been dropped between the
-                    // last mouse-move and the release. That is not a rare race: `EditorSession` drops
-                    // them all the moment a tree revision moves, which any other author's edit, a reload
-                    // or a save broadcast does, and the release is the one moment that matters.
-                    //
-                    // A node at (0,0) is a real position, so nothing downstream could tell the difference
-                    // -- the file and the canvas agreed, and the loss was visible only as a diff. The
-                    // read path has always guarded this way; see `nodeX`, whose own note records the same
-                    // fault in the same words: "the first version of the drag read after claiming and
-                    // every commit landed at 0,0".
-                    if (!editors.hasMoved(moved)) {
-                        continue;
-                    }
-                    commitMove(moved, (float) editors.movedX(moved), (float) editors.movedY(moved),
-                            revision);
-                }
+                // drawn, snapped coordinates, not a re-derivation that could disagree with them.
+                //
+                // **One operation per chapter, not one per node.** A drag of seventy used to send seventy
+                // ops, each costing a history snapshot and a save, so taking it back was seventy presses of
+                // Ctrl+Z -- which is not an undo. The moves are recorded and then sent as a batch, and the
+                // guard for a node whose pending position has been dropped lives inside that call: `movedX`
+                // answers zero for an id it does not hold, and committing that zero wrote every other
+                // selected quest to (0,0). See `commitMoveBatch`.
+                commitMoveBatch(new ArrayList<>(dragStarts.keySet()), x, y,
+                        ClientQuestCache.treeRevision());
                 dragStarts.clear();
             }
             else {
@@ -25775,11 +25761,92 @@ public final class QuestBookScreen extends ArmatureScreen
         if (!mayEditNow()) {
             return;
         }
-        // Remembered until the server's tree says the same thing: the canvas draws the server's answer, and the
-        // server has not been asked yet. One exception with an expiry — see `EditorSession` — and the operation
-        // that will end it.
-        editors.moved(id, Math.round(x), Math.round(y), revision);
+        recordMove(id, x, y, revision);
         send(new EditorOp.Move(id, Math.round(x), Math.round(y)));
+    }
+
+    /**
+     * Remembers where a node was moved to, without sending anything.
+     *
+     * <p>Split from the send because a <b>multi-node drag commits as one batch</b> and every node in it still
+     * has to be recorded as pending: the canvas draws these positions until the server's tree agrees, so a
+     * node that is moved but not recorded snaps back on the next frame while its neighbour does not.
+     */
+    private void recordMove(String id, float x, float y, long revision) {
+        editors.moved(id, Math.round(x), Math.round(y), revision);
+    }
+
+    /**
+     * Commits a whole drag as <b>one operation per chapter</b> rather than one per node.
+     *
+     * <h2>Why a gesture is not an operation</h2>
+     *
+     * <p>Dragging a selection of seventy quests used to send seventy ops, and each one cost a history snapshot
+     * and a save, so taking the drag back was seventy presses of Ctrl+Z, which is not an undo. The history
+     * lives in a chapter's editor, so one batch per chapter is the honest granularity: a selection spanning two
+     * chapters is two steps, which is what the model can offer.
+     *
+     * <p>The moves are recorded here and the ops sent as a batch, in that order, so the positions the canvas
+     * draws and the positions the server is asked for are the same list. Recording without sending would leave
+     * the tree disagreeing for a round trip; sending without recording would leave the canvas showing the
+     * server's old answer for the same round trip.
+     *
+     * <p>A chapter whose share of the drag is one node is sent as that plain op rather than as a one-element
+     * batch, which is the rule {@code sendBulk} follows and for the same reason: a gesture with one node in
+     * this chapter is one edit.
+     */
+    private void commitMoveBatch(List<String> moved, float dragX, float dragY, long revision) {
+        if (!mayEditNow()) {
+            return;
+        }
+        // The dragged node first, then the rest of the selection, so the batch reads in the order the gesture
+        // happened and the node the author is holding is the one the server applies first.
+        List<String> ids = new ArrayList<>();
+        if (draggedNode != null) {
+            ids.add(draggedNode);
+        }
+        for (String id : moved) {
+            if (!id.equals(draggedNode)) {
+                ids.add(id);
+            }
+        }
+
+        java.util.Map<String, List<String>> byChapter =
+                dev.ellipog.tasked.client.dev.BatchPlan.byChapter(ids, id -> {
+                    ClientQuestCache.Entry entry = entryFor(id);
+                    return entry == null ? null : entry.chapterId();
+                });
+
+        // **Recorded only what the plan actually carries.** A node whose entry the cache does not know is
+        // dropped by `byChapter`, and recording it anyway would leave the canvas drawing a move the server was
+        // never asked for: it would hold that position until the next tree arrived and then snap back, which
+        // reads as an edit that undid itself.
+        for (List<String> inChapter : byChapter.values()) {
+            for (String id : inChapter) {
+                if (id.equals(draggedNode)) {
+                    recordMove(id, dragX, dragY, revision);
+                }
+                else if (editors.hasMoved(id)) {
+                    // Only the ones still pending: `movedX` answers zero for an id it does not hold, and
+                    // committing that zero wrote every other selected quest to (0,0). See `nodeX`, whose own
+                    // note records the same fault in the same words.
+                    recordMove(id, (float) editors.movedX(id), (float) editors.movedY(id), revision);
+                }
+            }
+        }
+
+        for (java.util.Map.Entry<String, List<String>> chapter : byChapter.entrySet()) {
+            List<EditorOp> ops = new ArrayList<>(chapter.getValue().size());
+            for (String id : chapter.getValue()) {
+                ops.add(new EditorOp.Move(id, (long) editors.movedX(id), (long) editors.movedY(id)));
+            }
+            if (ops.size() == 1) {
+                send(ops.get(0), chapter.getKey());
+            }
+            else {
+                send(dev.ellipog.tasked.editor.EditorOps.batch(ops), chapter.getKey());
+            }
+        }
     }
 
     // ------------------------------------------------------------------
