@@ -156,6 +156,19 @@ public final class TaskedNetworking {
                 ArmatureNetwork.Direction.TO_CLIENT,
                 payload -> dev.ellipog.tasked.client.Vitals.set(payload.on()),
                 null));
+
+        // --- the undo history being discarded, server to client ---
+
+        // `/tasked reload` drops every open editor, so the server's undo stack is gone -- but the *undo
+        // button* is the client's, drawn from counters the client moves itself. Without this the book kept
+        // drawing a live undo over a history that had been thrown away, and pressing it did nothing and said
+        // nothing. See `EditHistoryPayload` for why it is not a line on the reply.
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                EditHistoryPayload.TYPE,
+                EditHistoryPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                payload -> dev.ellipog.tasked.client.ClientEditHistory.discard(),
+                null));
         // --- submitting a task, client to server ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -664,6 +677,25 @@ public final class TaskedNetworking {
     /** Pushes the tree to every connected player, then their progress in full. Called after a reload. */
     public static void sendTreeToAll(MinecraftServer server) {
         sendTreeToAll(server, TreeRefresh.Touch.Progress.FULL);
+    }
+
+    /**
+     * Tells every connected player that the server's undo history is gone.
+     *
+     * <p>Sent by {@code /tasked reload}, which drops every open editor: the history was recorded against a
+     * model of the files that the reload has just replaced, so it is discarded rather than kept. The client's
+     * undo button is drawn from counters of its own, and without this it went on offering an undo over a
+     * history that no longer existed — a Ctrl+Z that sent an op, got nothing back, and said nothing.
+     *
+     * <p>To everyone rather than to the command's sender: the history that was dropped is every player's, and
+     * the ones who are not the operator are exactly the ones who would otherwise be left with a live button
+     * and no explanation. A client with no book open keeps the news until one is, which is what
+     * {@code ClientEditHistory} is for.
+     */
+    public static void sendEditHistoryDiscardedToAll(MinecraftServer server) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            ArmatureNetwork.sendToPlayer(player, new EditHistoryPayload(true));
+        }
     }
 
     /**

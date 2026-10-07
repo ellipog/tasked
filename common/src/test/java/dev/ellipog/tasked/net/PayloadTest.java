@@ -124,6 +124,7 @@ class PayloadTest {
                 "tasked:claim_reward_entry",
                 "tasked:claim_summary",
                 "tasked:dimension_sync",
+                "tasked:edit_history",
                 "tasked:editor_op",
                 "tasked:editor_reply",
                 "tasked:party_sync",
@@ -211,20 +212,46 @@ class PayloadTest {
         // with two escape layers in it is a sample that tests my quoting rather than the codec.
         EditorOpPayload op = new EditorOpPayload("first_steps", EditorOps.write(new EditorOp.SetField(
                 "one", "title", new JsonPrimitive("A \"quote\" and a\nnewline")))
-                .toString());
+                .toString(), 4321L);
 
         EditorOpPayload sent = roundTrip(EditorOpPayload.CODEC, op);
         assertEquals(op.chapter(), sent.chapter());
         assertEquals(op.op(), sent.op(), "the bytes are the whole contract of this payload");
+        assertEquals(4321L, sent.requestId(),
+                "the id is what the reply is matched against, so losing it silently un-matches every answer");
 
         EditorReplyPayload reply = new EditorReplyPayload("first_steps", false, "one",
-                "line one\nline two");
+                "line one\nline two", 4321L);
         EditorReplyPayload answered = roundTrip(EditorReplyPayload.CODEC, reply);
 
         assertEquals(reply.chapter(), answered.chapter());
         assertEquals(reply.ok(), answered.ok());
         assertEquals(reply.questId(), answered.questId());
         assertEquals(List.of("line one", "line two"), answered.lines());
+        assertEquals(4321L, answered.requestId(), "and the answer carries the request's own id back");
+    }
+
+    @Test
+    @DisplayName("an answer with no id round-trips as zero, which is what the fallback matches on")
+    void aReplyWithNoIdKeepsZero() {
+        // The four-argument constructor is the no-id one, and the client's fallback is an equality test
+        // against zero. A codec that turned an absent id into anything else would send every broadcast
+        // through the by-id path, where it would match nothing.
+        EditorReplyPayload answered = roundTrip(EditorReplyPayload.CODEC,
+                new EditorReplyPayload("first_steps", true, "", ""));
+
+        assertEquals(0L, answered.requestId());
+        assertEquals(EditorReplyPayload.NO_REQUEST, answered.requestId());
+    }
+
+    @Test
+    @DisplayName("the undo-history notice survives the wire")
+    void editHistoryRoundTrips() {
+        // One boolean, and it has to arrive true: a notice that decoded as "nothing was discarded" is a
+        // client that keeps drawing an undo button over a history the server has thrown away.
+        EditHistoryPayload sent = roundTrip(EditHistoryPayload.CODEC, new EditHistoryPayload(true));
+
+        assertTrue(sent.discarded(), "the notice arrived saying the opposite of what it meant");
     }
 
     @Test

@@ -140,6 +140,10 @@ class SyncWiringTest {
                 "tasked:claim_reward_entry",
                 "tasked:claim_summary",
                 "tasked:dimension_sync",
+                // Not a viewer message either: the undo history being discarded, which `/tasked reload`
+                // sends because the client's undo *button* is drawn from counters of its own and would
+                // otherwise keep offering an undo over a history the server had thrown away.
+                "tasked:edit_history",
                 "tasked:editor_op",
                 "tasked:editor_reply",
                 "tasked:party_sync",

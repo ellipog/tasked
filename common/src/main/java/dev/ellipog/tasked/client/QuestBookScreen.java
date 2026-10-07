@@ -26131,6 +26131,20 @@ public final class QuestBookScreen extends ArmatureScreen
             autoScrollSidebar();
         }
 
+        // The server's undo history can be thrown away without this client having asked for anything --
+        // `/tasked reload` drops every open editor. The *counters* behind the undo button are this screen's,
+        // so they have to be reset here or the book keeps offering an undo over a history that is gone: a
+        // Ctrl+Z that sends an op, gets nothing back, and says nothing. See `ClientEditHistory`.
+        if (ClientEditHistory.takeDiscarded()) {
+            tableApplied = 0;
+            tableUndone = 0;
+            // The drafts go with it, for the same reason the server's own `forget` drops the model: a pending
+            // value is an edit recorded against the files as they were, and the reload has replaced them.
+            fieldDraft.forgetChapter(effectiveChapter());
+            settingsDraft.clear();
+            report("The server reloaded, so the undo history was discarded");
+        }
+
         // Every answer nobody has read yet, oldest first. A burst of quick edits -- spamming a stepper
         // -- puts several between two ticks, and the store used to keep only the last, so a refusal in
         // the middle was lost. A refusal also drops that chapter's pending values: the edit did not

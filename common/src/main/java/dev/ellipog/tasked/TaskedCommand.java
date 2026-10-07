@@ -413,6 +413,11 @@ public final class TaskedCommand {
         MinecraftServer server = context.getSource().getServer();
         if (server != null) {
             TaskedNetworking.sendTreeToAll(server);
+            // And the editors' undo history, which the two `forget` calls above have just thrown away. The
+            // tree being right is not enough: the book's undo button is drawn from counters the *client*
+            // moves, so without this it went on offering an undo over a history that no longer existed, and
+            // a Ctrl+Z sent an op the server had nothing to answer with. See `EditHistoryPayload`.
+            TaskedNetworking.sendEditHistoryDiscardedToAll(server);
         }
         return result.filesDecoded();
     }
