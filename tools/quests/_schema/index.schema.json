@@ -44,6 +44,11 @@
           "type": "string",
           "default": "",
           "description": "The item id the book wears in its header, e.g. \"minecraft:spyglass\". Resolved on the client; an id it cannot resolve is drawn as the header's missing-item mark rather than refusing the pack."
+        },
+        "fallbackLocale": {
+          "type": "string",
+          "default": "en_us",
+          "description": "The locale the tree's own strings are written in, e.g. \"en_us\". It is what a player reads when `lang/<locale>.json` has nothing for their language, and it sits underneath whichever locale they are served, so a pack can keep the strings every language shares in this one file and only the differences elsewhere. A locale the pack ships no file for still gets this one; the two are looked up together."
         }
       }
     },

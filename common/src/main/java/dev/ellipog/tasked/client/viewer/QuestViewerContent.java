@@ -75,6 +75,33 @@ public final class QuestViewerContent implements QuestContent {
     private volatile long builtRevision = -1L;
 
     /**
+     * The language revision the current pages were built in.
+     *
+     * <h2>The second input, and why the pages have to know about it</h2>
+     *
+     * <p>A page carries a quest's title and its chapter's, and those are the words a player reads — so
+     * a locale arriving changes what every page <i>says</i> while the questline itself does not move.
+     * Rebuilding on the tree revision alone would leave the recipe viewers showing the previous
+     * language's titles for the rest of the session.
+     *
+     * <p>Tracked separately from {@link #builtRevision} rather than folded into it, because a tag-only
+     * rebuild must leave the adapters' signal exactly where it was: tags decide which items point at a
+     * quest, not what a page says. See {@link #revision()}.
+     */
+    private volatile long builtText = -1L;
+
+    /**
+     * What {@link #revision()} answers: a counter that moves whenever the pages' <b>words</b> could have.
+     *
+     * <p>The adapters compare this to decide whether to re-register their entries, so it has to move for
+     * everything that changes a page and for nothing that does not. It is a counter of its own rather
+     * than the tree revision because the two are no longer the same question — and because the adapters
+     * measure text: a translated page is a different height, which is why JEI recomputes its layout from
+     * this signal rather than from the tree.
+     */
+    private volatile long token;
+
+    /**
      * The tags the last rebuild expanded, and the holder set it read each one from.
      *
      * <h2>The input the tree revision does not carry</h2>
@@ -160,9 +187,14 @@ public final class QuestViewerContent implements QuestContent {
     @Override
     public void tick() {
         long revision = ClientQuestCache.treeRevision();
-        if (revision == builtRevision && !tagsMoved()) {
+        long text = ClientQuestCache.textRevision();
+        if (revision == builtRevision && text == builtText && !tagsMoved()) {
             return;
         }
+        // Whether the pages' words could have changed, as opposed to only the item index behind them.
+        // A tag-only rebuild leaves the adapters' signal alone: their entries are built from `pages()`,
+        // which a tag does not touch.
+        boolean words = revision != builtRevision || text != builtText;
         // The tags the walk expands, collected as it goes, so the watch list is exactly what the snapshot
         // was built from rather than a second walk deciding what it might have read.
         java.util.Map<TagKey<Item>, HolderSet<Item>> seen = new java.util.HashMap<>();
@@ -172,11 +204,22 @@ public final class QuestViewerContent implements QuestContent {
             return itemsOf(holders);
         });
         watchedTags = java.util.Map.copyOf(seen);
+        builtText = text;
+        if (words) {
+            token++;
+        }
     }
 
+    /**
+     * Which snapshot the adapters last registered: a counter that moves with the pages' words.
+     *
+     * <p>Read by each viewer to decide whether its entries are stale, and by JEI to decide whether to
+     * re-measure a page. It moves when the tree arrives and when the language does — see
+     * {@link #builtText} — and not when only the item tags do.
+     */
     @Override
     public long revision() {
-        return builtRevision;
+        return token;
     }
 
     @Override
@@ -312,7 +355,7 @@ public final class QuestViewerContent implements QuestContent {
         // — see QuestContent.page for why an adapter must not write its own.
         java.util.Map<String, QuestPage> byQuest = new java.util.HashMap<>();
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
-            QuestRef ref = new QuestRef(entry.id(), entry.title(), entry.chapterTitle(),
+            QuestRef ref = new QuestRef(entry.id(), entry.titleText(), entry.chapterTitleText(),
                     entry.icon(), entry.iconId());
             List<QuestRow> tasks = taskRows(entry, ref, index, once);
             List<QuestRow> rewards = rewardRows(entry, ref, index);

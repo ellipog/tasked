@@ -131,7 +131,10 @@ public final class ClientQuestCache {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                return Component.translatableWithFallback(label, labelFallback, arg);
+                // Through the locale resolver, so a pack's own translation of this key wins over the
+                // English the server sent -- and so a row's sentence follows a language change without
+                // the tree being re-sent. See ClientLocale.
+                return Component.literal(ClientLocale.text(label, labelFallback, arg));
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
@@ -166,7 +169,10 @@ public final class ClientQuestCache {
                 return item.getHoverName();
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                return Component.translatableWithFallback(label, labelFallback, arg);
+                // Through the locale resolver, so a pack's own translation of this key wins over the
+                // English the server sent -- and so a row's sentence follows a language change without
+                // the tree being re-sent. See ClientLocale.
+                return Component.literal(ClientLocale.text(label, labelFallback, arg));
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
@@ -202,7 +208,7 @@ public final class ClientQuestCache {
                 return count > 1 ? name + " \u00d7" + count : name;
             }
             if (!labelFallback.isEmpty() && !label.isEmpty()) {
-                return Component.translatableWithFallback(label, labelFallback, labelArg).getString();
+                return ClientLocale.text(label, labelFallback, labelArg);
             }
             return label.isEmpty() ? "?" : label;
         }
@@ -228,7 +234,17 @@ public final class ClientQuestCache {
      * facts are worth telling apart.
      */
     public record GroupEntry(String id, String title, boolean collapsedByDefault, ItemStack icon,
-                             String iconId) {
+                             String iconId,
+                             /**
+                              * The heading's English words when its title is a translation key, and
+                              * empty when it is a plain string. See {@link #titleText()}.
+                              */
+                             String titleFallback) {
+
+        /** The heading as the player reads it. See {@link ClientQuestCache#text}. */
+        public String titleText() {
+            return text(title, titleFallback, "group." + id + ".title");
+        }
     }
 
     /**
@@ -255,7 +271,9 @@ public final class ClientQuestCache {
      */
     public record ChapterEntry(String id, String groupId, String title, ItemStack icon, String iconId,
                                List<String> dependsOn, dev.ellipog.tasked.quest.PrerequisiteMode prerequisiteMode,
-                               int minRequired, boolean hideUntilDependenciesComplete) {
+                               int minRequired, boolean hideUntilDependenciesComplete,
+                               /** The title's English words when it is a key, empty when it is text. */
+                               String titleFallback) {
 
         public ChapterEntry {
             dependsOn = List.copyOf(dependsOn);
@@ -264,6 +282,11 @@ public final class ClientQuestCache {
         /** Whether this chapter waits on anything. False for every chapter of an older server. */
         public boolean waits() {
             return !dependsOn.isEmpty();
+        }
+
+        /** The chapter as the player reads it. See {@link ClientQuestCache#text}. */
+        public String titleText() {
+            return text(title, titleFallback, "chapter." + id + ".title");
         }
     }
 
@@ -278,6 +301,17 @@ public final class ClientQuestCache {
      * @param iconId  the item id as written, kept beside the resolved stack so a missing item can say so
      */
     public record TableSummary(String id, String title, ItemStack icon, String iconId, int entries) {
+
+        /**
+         * The table as the player reads it.
+         *
+         * <p>No fallback component, unlike the other three: a table's title is a plain string in its
+         * file rather than a {@code QuestText}, so it has no authored-key form to keep apart. The
+         * pack's conventional key is the whole of its translation road.
+         */
+        public String titleText() {
+            return ClientLocale.text("rewardTable." + id + ".title", title);
+        }
     }
 
     /**
@@ -360,7 +394,104 @@ public final class ClientQuestCache {
                          * server: the client needs the effective value for a quest that says nothing, and
                          * has no chapter record to resolve one from.
                          */
-                        dev.ellipog.tasked.quest.reward.RewardAutoClaim chapterAutoClaim) {
+                        dev.ellipog.tasked.quest.reward.RewardAutoClaim chapterAutoClaim,
+                        /**
+                         * The four text fields' English halves, since version 13.
+                         *
+                         * <h2>Why they are here rather than beside the text they belong to</h2>
+                         *
+                         * <p>Because each is the second half of a field that already exists, and
+                         * grouping them says so: {@code title}/{@code titleFallback} are one fact in
+                         * two parts, and a reader looking for "where did the English go" finds all
+                         * four answers in one place rather than four.
+                         *
+                         * <p>Each is <b>empty for a plain string</b> and holds the English words when
+                         * the file wrote {@code {"translate": key, "fallback": words}}. That empty is
+                         * load-bearing rather than incidental: it is the client's only way to tell a
+                         * literal from a key, and getting it wrong is how a raw key ends up drawn on
+                         * a node — which is exactly what the server used to send, because it put
+                         * {@code QuestText.value()} on the wire whatever the file meant by it.
+                         *
+                         * <p>{@code descriptionFallbacks} pairs with {@code description} by index and
+                         * may be shorter: a paragraph the server sent no fallback for reads as empty,
+                         * which resolves to the canonical paragraph that travelled beside it.
+                         */
+                        String titleFallback, String subtitleFallback, String chapterTitleFallback,
+                        List<String> descriptionFallbacks) {
+
+        public Entry {
+            descriptionFallbacks = List.copyOf(descriptionFallbacks);
+        }
+
+        /**
+         * The quest's title, as the player reads it.
+         *
+         * <p>The one accessor the screens should draw with. {@link #title()} stays exactly what the
+         * wire carried — a literal, or the author's translation key — because the editor seeds its
+         * text fields from it and a translated string written back to a quest file would silently
+         * replace the author's own words. See {@link ClientQuestCache#text}.
+         */
+        public String titleText() {
+            return text(title, titleFallback, "quest." + id + ".title");
+        }
+
+        /** The subtitle, as the player reads it. Authoring paths use {@link #subtitle()}. */
+        public String subtitleText() {
+            return text(subtitle, subtitleFallback, "quest." + id + ".subtitle");
+        }
+
+        /**
+         * The chapter this quest sits in, as the player reads it.
+         *
+         * <p>The chapter's own title rides on every quest of it because the client has no chapter
+         * record to hang it on, so it is resolved here the same way {@code chapters[]} resolves it —
+         * and a card that said "in <i>Chapter One</i>" beside a sidebar row saying something else
+         * would be two answers to one question.
+         */
+        public String chapterTitleText() {
+            return text(chapterTitle, chapterTitleFallback, "chapter." + chapterId + ".title");
+        }
+
+        /**
+         * The description, as the player reads it, in paragraphs.
+         *
+         * <h2>The three roads, in the order they are tried</h2>
+         *
+         * <ol>
+         *   <li><b>One key for the whole description</b>, {@code quest.<id>.description}. This is the
+         *       road a translator uses, and it is first because it is the only one that cannot
+         *       half-fall-back: a canonical description of three paragraphs that a translator wrote as
+         *       one, or as four, is one string here and the paragraph count never has to agree.</li>
+         *   <li><b>One key per paragraph</b>, {@code quest.<id>.description.<i>}, for the case where
+         *       only one paragraph of many is wrong — indexed against the canonical array, so a key
+         *       past the end of it simply never matches.</li>
+         *   <li><b>The canonical paragraphs</b> the tree sent.</li>
+         * </ol>
+         *
+         * <p>The split for road 1 is {@link Prose#split}, the same rule the editor's own field
+         * commits by, so a description typed in the editor and one written in a lang file break into
+         * paragraphs identically.
+         */
+        public List<String> descriptionText() {
+            // Asked first, and before the empty check below, because a translation may be the only text
+            // there is: a quest whose canonical description is empty and whose locale file writes one is
+            // a description, not nothing. Returning early on the empty canonical list would drop the
+            // translator's work silently, which is the "reads as supported and does nothing" failure
+            // this codebase keeps finding.
+            String whole = ClientLocale.find("quest." + id + ".description");
+            if (whole != null) {
+                return Prose.trimmed(Prose.split(whole));
+            }
+            if (description.isEmpty()) {
+                return description;
+            }
+            List<String> out = new java.util.ArrayList<>(description.size());
+            for (int i = 0; i < description.size(); i++) {
+                String fallback = i < descriptionFallbacks.size() ? descriptionFallbacks.get(i) : "";
+                out.add(text(description.get(i), fallback, "quest." + id + ".description." + i));
+            }
+            return List.copyOf(out);
+        }
 
         /**
          * The auto-claim mode in force for this quest: its own, or the chapter's.
@@ -625,6 +756,33 @@ public final class ClientQuestCache {
      */
     private static volatile long progressRevision;
 
+    /**
+     * Which language the rendered rows were built in, as a counter that only ever moves.
+     *
+     * <h2>Why a language change needs a revision of its own</h2>
+     *
+     * <p>Because it moves neither of the other two. A locale arriving is not a tree: nothing is
+     * re-parsed, no row's identity or position changes, and {@link #treeRevision()} deliberately does
+     * not move — it is also the stamp editor drafts expire against and the revision a chapter replica
+     * is matched to, so moving it would throw away an author's in-progress edit because a player
+     * changed language.
+     *
+     * <p>But rows that hold <i>text</i> still have to be rebuilt. The sidebar's chapter and group
+     * names, and the recipe viewers' page titles, are resolved when they are built and kept; without
+     * this counter they would keep the previous language's words until the screen was closed and
+     * reopened. Text is measured per frame, so nothing else needs telling.
+     *
+     * <p>Moved only on a real change of the overlay, like the two above it: a re-send of the same
+     * locale — which a reload produces — must not make every screen holding rendered rows rebuild
+     * them for nothing.
+     */
+    private static volatile long textRevision;
+
+    /** Called by {@link ClientLocale} when the overlay it holds actually changed. */
+    static void textChanged() {
+        textRevision++;
+    }
+
     /** Whether the tree has arrived — even an empty one. */
     public static boolean hasTree() {
         return treeReceived;
@@ -683,6 +841,48 @@ public final class ClientQuestCache {
     /** Which progress this cache holds. See the field's note for why a screen watches it. */
     public static long progressRevision() {
         return progressRevision;
+    }
+
+    /**
+     * Which language the rendered rows were built in. See the field's note for why it is its own.
+     *
+     * <p>A screen that caches rows holding text — the sidebar, and the recipe viewers' pages —
+     * watches this beside the tree and the progress. Everything else draws text measured per frame
+     * and needs nothing.
+     */
+    public static long textRevision() {
+        return textRevision;
+    }
+
+    /**
+     * One field's text, in the order the two key spaces are tried.
+     *
+     * <h2>Why one method rather than the rule at each accessor</h2>
+     *
+     * <p>Because there are two roads to a translation and they are tried in a fixed order, and four
+     * records times several fields is a dozen places for the order to drift. The rule is:
+     *
+     * <ol>
+     *   <li>the <b>author's own key</b>, when the file wrote one. It is the most specific thing
+     *       anybody said about this exact text.</li>
+     *   <li>the <b>pack's conventional key</b> — {@code quest.<id>.title} and its siblings. This is
+     *       the road a converted pack uses, and the one an author can add without touching a quest
+     *       file at all.</li>
+     *   <li>the <b>wire's fallback</b>: the English words for a translatable text, or the literal
+     *       itself. What a player reads when nothing translated the key, and the reason a missing
+     *       translation never shows a raw key.</li>
+     * </ol>
+     *
+     * @param value    what the wire carried: a literal, or the author's key
+     * @param fallback the English words, empty when {@code value} is a literal
+     */
+    private static String text(String value, String fallback, String conventionalKey) {
+        if (fallback.isEmpty()) {
+            // A plain string in the file is not a key, so only the conventional key can translate it.
+            return ClientLocale.text(conventionalKey, value);
+        }
+        String byAuthor = ClientLocale.find(value);
+        return byAuthor != null ? byAuthor : ClientLocale.text(conventionalKey, fallback);
     }
 
     /**
@@ -1343,7 +1543,8 @@ public final class ClientQuestCache {
                         str(group, "title"),
                         group.has("collapsedByDefault") && group.get("collapsedByDefault").getAsBoolean(),
                         stack(str(group, "icon"), 1, group.get("iconComponents")),
-                        str(group, "icon")));
+                        str(group, "icon"),
+                        str(group, "titleFallback")));
             }
         }
 
@@ -1382,7 +1583,8 @@ public final class ClientQuestCache {
                         mode,
                         chapter.has("minRequired") ? Math.max(0, chapter.get("minRequired").getAsInt()) : 0,
                         chapter.has("hideUntilDependenciesComplete")
-                                && chapter.get("hideUntilDependenciesComplete").getAsBoolean()));
+                                && chapter.get("hideUntilDependenciesComplete").getAsBoolean(),
+                        str(chapter, "titleFallback")));
             }
         }
 
@@ -1434,7 +1636,25 @@ public final class ClientQuestCache {
             }
             // The ends of the prose are not content -- see `Prose`. Trimmed where the tree is parsed, so a
             // reader's card and the editor's copy of the same file agree about where the prose stops.
-            description = new ArrayList<>(Prose.trimmed(description));
+            //
+            // The English half of each paragraph is read first and cut to the *same* ends, because the
+            // two lists are paired by index and a literal paragraph in the middle carries an empty
+            // fallback -- so trimming the fallbacks by their own blankness would drop that entry and
+            // shift every paragraph after it onto the wrong translation. See `Prose.Ends`.
+            //
+            // The fallbacks are sent only for a description that is translatable at all, so an absent
+            // array is the common case and means every paragraph is a literal. It may also be shorter
+            // than the prose, which `cut` clamps: a server that sent fewer fallbacks than paragraphs
+            // leaves the tail reading as literal, which is what those paragraphs are.
+            List<String> descriptionFallbacks = new ArrayList<>();
+            if (quest.has("descriptionFallbacks")) {
+                for (JsonElement paragraph : quest.getAsJsonArray("descriptionFallbacks")) {
+                    descriptionFallbacks.add(paragraph.getAsString());
+                }
+            }
+            Prose.Ends ends = Prose.ends(description);
+            description = new ArrayList<>(ends.cut(description));
+            descriptionFallbacks = new ArrayList<>(ends.cut(descriptionFallbacks));
 
             // The dependency rule, as the server resolved it. Absent means the quest has no opinion and
             // the chapter's default applies -- which is a different thing from the mode written out, so
@@ -1555,7 +1775,13 @@ public final class ClientQuestCache {
                     quest.has("chapterThemePatch") && quest.get("chapterThemePatch").isJsonObject()
                             ? quest.getAsJsonObject("chapterThemePatch") : null,
                     autoClaim(quest, "autoClaim"),
-                    autoClaim(quest, "chapterAutoClaim")));
+                    autoClaim(quest, "chapterAutoClaim"),
+                    // The four text fields' English halves, absent for every literal -- see the record's
+                    // own note on why an empty fallback is the fact that says "this is not a key".
+                    str(quest, "titleFallback"),
+                    str(quest, "subtitleFallback"),
+                    str(quest, "chapterTitleFallback"),
+                    List.copyOf(descriptionFallbacks)));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);

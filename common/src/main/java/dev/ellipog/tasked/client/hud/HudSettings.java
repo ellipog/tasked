@@ -1,0 +1,329 @@
+package dev.ellipog.tasked.client.hud;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import dev.ellipog.armature.api.ArmatureApi;
+import dev.ellipog.armature.api.data.JsonWrite;
+import dev.ellipog.tasked.Constants;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.EnumMap;
+import java.util.Map;
+
+/**
+ * Where this client's HUD things are, and whether they are drawn: {@code config/tasked/hud.json}.
+ *
+ * <h2>Its own file, and the four it sits beside</h2>
+ *
+ * <p>{@code appearance.json}, {@code client.json}, {@code canvas.json} and {@code working.json} already
+ * exist, one per area of this client's own preferences. A layout is a fifth area and gets a fifth file --
+ * rather than a corner of {@code client.json}, which is the tools' file and whose schema is the panel-width
+ * table. What lives here is not a developer's setting: it is where a player put their things.
+ *
+ * <h2>A diff from the defaults, not a table</h2>
+ *
+ * <p>An element the player has never touched has <b>no entry</b>, and a value put back to its default is
+ * removed from the entry it was in; an entry with nothing left in it goes. That is
+ * {@code DevMode.panelWidths}' own shape, and its own reason: a file that restates every value cannot be read
+ * for what the player changed, and a file that grows a line every time somebody drags something and puts it
+ * back is a file nobody can diff.
+ *
+ * <h2>What a stored value is, and what it is not</h2>
+ *
+ * <p>A <b>position in the window's own pixels</b> -- the same space the HUD is measured in and the same space
+ * the editor draws in, so a number written there is a number the game draws at, at any window size.
+ *
+ * <p>Nothing here clamps it: the only bound that means anything is the window, and that is not known until
+ * something is being drawn or dragged. A hand-edited {@code -500} is therefore kept exactly as it was
+ * written and lands at the window's edge, rather than being rewritten to a number the player did not type.
+ *
+ * <h2>Every way of being wrong</h2>
+ *
+ * <p>The same tolerance as the file beside it, at the same granularity: a key that names no element this
+ * build has, a value that is not an object, and a field of the wrong type each cost <b>that entry</b> -- the
+ * element keeps its defaults and its neighbours are untouched -- while text that is not JSON at all costs the
+ * whole file, which is the defaults. Neither stops the client.
+ */
+public final class HudSettings {
+
+    /** The client preference this feature writes. Named for what it holds. */
+    public static final String FILE_NAME = "hud.json";
+
+    /**
+     * One element's deviation from its defaults; a missing field is the element's own default.
+     *
+     * <p>Boxed rather than primitive, because "the player did not say" and "the player said the default"
+     * have to be different answers: the first writes no field at all, and the second removes one.
+     */
+    public record Entry(Integer x, Integer y, Boolean on) {
+
+        /** Whether this says nothing, and so should not be in the file. */
+        public boolean empty() {
+            return x == null && y == null && on == null;
+        }
+    }
+
+    private static Map<HudElement, Entry> entries = new EnumMap<>(HudElement.class);
+    private static Path file;
+
+    private HudSettings() {
+    }
+
+    /** Whether this element is drawn. On unless the player switched it off. */
+    public static boolean on(HudElement element) {
+        Boolean said = entry(element).on();
+        return said == null ? element.defaultOn() : said;
+    }
+
+    /** Where it sits, as a position in the window. */
+    public static int x(HudElement element) {
+        Integer said = entry(element).x();
+        return said == null ? element.defaultX() : said;
+    }
+
+    /** The same, vertically. */
+    public static int y(HudElement element) {
+        Integer said = entry(element).y();
+        return said == null ? element.defaultY() : said;
+    }
+
+    /** Switches an element on or off and writes the choice. */
+    public static void setOn(HudElement element, boolean next) {
+        Entry before = entry(element);
+        put(element, new Entry(before.x(), before.y(), next == element.defaultOn() ? null : next));
+    }
+
+    /**
+     * Remembers where an element was put and writes it.
+     *
+     * <p>Both coordinates together, because they are one decision: an element is somewhere, not at an x and
+     * separately at a y.
+     */
+    public static void setPosition(HudElement element, int nextX, int nextY) {
+        Entry before = entry(element);
+        put(element, new Entry(
+                nextX == element.defaultX() ? null : nextX,
+                nextY == element.defaultY() ? null : nextY,
+                before.on()));
+    }
+
+    /** Puts one element back to everything it shipped with, and writes that. */
+    public static void resetElement(HudElement element) {
+        entries.remove(element);
+        save();
+    }
+
+    /**
+     * Every element the player has changed, as the file holds it.
+     *
+     * <p>Exposed because a setting with no way to ask what is in it is hard to believe: the test that asserts
+     * the file's format asks here.
+     */
+    public static Map<HudElement, Entry> changed() {
+        return Map.copyOf(entries);
+    }
+
+    // ------------------------------------------------------------------
+    // Persistence
+    // ------------------------------------------------------------------
+
+    /** Reads the layout from the platform's config directory. Called once by each loader's client. */
+    public static void loadFromConfig() {
+        Path path = null;
+        try {
+            path = ArmatureApi.platform().configDir(Constants.MOD_ID).resolve(FILE_NAME);
+        }
+        catch (RuntimeException e) {
+            // Reachable only if this runs before the platform is installed, which is a caller ordering
+            // fault rather than a player's. The shipped layout is the working default either way.
+            Constants.LOG.warn("tasked: the platform layer was not ready, so the HUD layout was not read."
+                    + " Every element keeps its default.", e);
+        }
+
+        if (path == null) {
+            return;
+        }
+        load(path);
+    }
+
+    /**
+     * Reads the layout from one file.
+     *
+     * <p>A missing file is a first run and gets no message; a file that is there and cannot be read gets one
+     * that names it. Neither stops the client, and neither moves anything.
+     */
+    public static void load(Path path) {
+        // Reset first, and the order is not cosmetic: `reset` forgets the file as well as the entries, so a
+        // version that assigned the path first and reset after it left this feature holding a path it had
+        // forgotten -- every change still worked and nothing was ever written.
+        reset();
+        file = path;
+
+        if (Files.isRegularFile(path)) {
+            try {
+                entries = new EnumMap<>(parse(Files.readString(path, StandardCharsets.UTF_8)));
+            }
+            catch (IOException | RuntimeException e) {
+                Constants.LOG.warn("tasked: {} could not be read, so every HUD element keeps its default."
+                        + " Deleting the file will stop this message.", path, e);
+            }
+        }
+    }
+
+    /**
+     * Parses the file's text into the elements it changed.
+     *
+     * @throws com.google.gson.JsonSyntaxException if the text is not JSON at all; {@link #load} catches it
+     */
+    public static Map<HudElement, Entry> parse(String json) {
+        Map<HudElement, Entry> read = new EnumMap<>(HudElement.class);
+
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        if (!root.has("elements") || !root.get("elements").isJsonObject()) {
+            return read;
+        }
+
+        for (Map.Entry<String, JsonElement> stored : root.getAsJsonObject("elements").entrySet()) {
+            HudElement element = HudElement.named(stored.getKey());
+            JsonElement value = stored.getValue();
+            if (element == null || value == null || !value.isJsonObject()) {
+                continue;
+            }
+            JsonObject entry = value.getAsJsonObject();
+            Entry parsed = read(element, entry);
+            if (parsed != null && !parsed.empty()) {
+                read.put(element, parsed);
+            }
+        }
+        return read;
+    }
+
+    /**
+     * One entry, or null when a field in it is the wrong type.
+     *
+     * <p><b>Field by field, and one wrong field costs the entry.</b> That is the granularity
+     * {@code panelWidths} chose for the same reason: this file is hand-edited, so a typo should cost the
+     * thing it is in and not everything beside it -- and half-applying an entry, keeping the y of a pair whose
+     * x was nonsense, would leave an element somewhere nobody asked for, which is harder to explain than the
+     * default.
+     */
+    private static Entry read(HudElement element, JsonObject entry) {
+        Integer x = null;
+        Integer y = null;
+        Boolean on = null;
+
+        if (entry.has("x")) {
+            JsonElement value = entry.get("x");
+            if (!isNumber(value)) {
+                return null;
+            }
+            x = value.getAsInt();
+        }
+        if (entry.has("y")) {
+            JsonElement value = entry.get("y");
+            if (!isNumber(value)) {
+                return null;
+            }
+            y = value.getAsInt();
+        }
+        if (entry.has("on")) {
+            JsonElement value = entry.get("on");
+            if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) {
+                return null;
+            }
+            on = value.getAsBoolean();
+        }
+        return new Entry(x, y, on);
+    }
+
+    private static boolean isNumber(JsonElement value) {
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber();
+    }
+
+    /**
+     * Writes the file. Answer given rather than the default so a test can assert the format.
+     *
+     * <p>Elements are written in the enum's own order, so two clients that moved the same things write
+     * byte-identical files and a diff of two of them is a diff of the choices rather than of iteration order.
+     * An empty entry is written as nothing at all: {@link #setPosition} and {@link #setOn} are where a value
+     * returning to its default stops being stored, and this writer's job is to say what it was handed.
+     */
+    public static String write(Map<HudElement, Entry> written) {
+        JsonObject elements = new JsonObject();
+        for (HudElement element : HudElement.values()) {
+            Entry entry = written == null ? null : written.get(element);
+            if (entry == null || entry.empty()) {
+                continue;
+            }
+            JsonObject stored = new JsonObject();
+            if (entry.x() != null) {
+                stored.addProperty("x", entry.x());
+            }
+            if (entry.y() != null) {
+                stored.addProperty("y", entry.y());
+            }
+            if (entry.on() != null) {
+                stored.addProperty("on", entry.on());
+            }
+            elements.add(element.id(), stored);
+        }
+
+        JsonObject root = new JsonObject();
+        root.add("elements", elements);
+        return root.toString();
+    }
+
+    /**
+     * The file this client reads and writes, or null before {@link #loadFromConfig} has run.
+     *
+     * <p>Exposed because a setting with no way to ask where it lives is a setting that is hard to believe:
+     * the editor that changes it and the file a person edits have to be the same file.
+     */
+    public static Path file() {
+        return file;
+    }
+
+    /** Forgets the layout and the file. For a test, and for a client leaving a world it never owned. */
+    public static void reset() {
+        entries = new EnumMap<>(HudElement.class);
+        file = null;
+    }
+
+    // ------------------------------------------------------------------
+
+    private static Entry entry(HudElement element) {
+        Entry found = entries.get(element);
+        return found == null ? new Entry(null, null, null) : found;
+    }
+
+    private static void put(HudElement element, Entry entry) {
+        if (entry.empty()) {
+            entries.remove(element);
+        }
+        else {
+            entries.put(element, entry);
+        }
+        save();
+    }
+
+    private static void save() {
+        if (file == null) {
+            // No path means no platform: in a test, or in a client whose config directory could not be
+            // resolved. The layout still works for this session, which is the useful half.
+            return;
+        }
+        try {
+            // Through JsonWrite, which creates the directory and writes by rename -- so a crash mid-save
+            // leaves the previous layout rather than a half-written file the next load has to guess at.
+            JsonWrite.atomically(file, write(entries));
+        }
+        catch (IOException e) {
+            Constants.LOG.warn("tasked: the HUD layout could not be written to {}", file, e);
+        }
+    }
+}

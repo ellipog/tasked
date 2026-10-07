@@ -831,6 +831,26 @@ class QuestFilesTest {
         }
 
         @Test
+        @DisplayName("a lang folder is Tasked's own storage, not content the index forgot")
+        void theLocaleFolderIsNotReported(@TempDir Path root) throws IOException {
+            // Reserved by name for the same reason `reward_tables` is, and it has to be: the walk
+            // reports every root entry `index.json` does not mention, so a folder that is deliberately
+            // not book content is an error on every load until it is named here. A pack shipping
+            // translations would be told its own lang folder is a mistake, on every reload, forever.
+            write(root, "listed/group.json", group("listed", "[]"));
+            write(root, "lang/en_us.json", "{ \"quest.a.title\": \"A\" }");
+            write(root, "index.json", index("[{\"group\": \"listed\"}]"));
+
+            QuestFiles.Discovery found = QuestFiles.discover(root);
+
+            assertTrue(found.ok(), () -> "a lang folder is not a mistake:\n" + messages(found.problems()));
+            assertFalse(messages(found.problems()).contains("lang"),
+                    "the folder must not be named in any problem:\n" + messages(found.problems()));
+            // And it is found by the loader's own walk, which is what reads it.
+            assertEquals(List.of(root.resolve("lang").resolve("en_us.json")), QuestFiles.localeFiles(root));
+        }
+
+        @Test
         @DisplayName("an entry that resolves to nothing is reported against the entry")
         void anUnresolvableEntryIsReported(@TempDir Path root) throws IOException {
             write(root, "index.json", index("[{\"group\": \"missing\"}]"));

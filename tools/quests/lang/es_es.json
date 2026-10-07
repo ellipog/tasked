@@ -1,0 +1,8 @@
+{
+  "group.first_light.title": "Primera luz",
+  "chapter.first_steps.title": "El planetario",
+  "rewardTable.dice.title": "El dado",
+  "quest.punch_a_tree.title": "Golpea un árbol",
+  "quest.punch_a_tree.subtitle": "Ocho troncos, y los cuenta él solo",
+  "quest.punch_a_tree.description": "Todo lo que vale la pena tener empieza con un árbol, y todo lo que vale la pena tener acaba con que le pegues.\n\nUna tarea de objeto que no consume no tiene botón de Enviar: en el momento en que ocho troncos de roble están en tu inventario la misión se completa y los troncos se quedan donde estaban."
+}

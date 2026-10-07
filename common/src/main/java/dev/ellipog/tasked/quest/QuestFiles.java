@@ -167,9 +167,55 @@ public final class QuestFiles {
      */
     public static final String REWARD_TABLES_DIRECTORY = "reward_tables";
 
+    /**
+     * The root folder per-locale quest text lives in, beside the book rather than inside it.
+     *
+     * <p>One file per locale — {@code lang/en_us.json}, {@code lang/es_es.json} — holding the same
+     * shape a resource pack's language file does: a flat object of key to text. Reserved by name for
+     * the same reason {@link #REWARD_TABLES_DIRECTORY} is, and it has to be: the root walk reports
+     * any entry {@code index.json} does not mention, so a folder that is deliberately not book
+     * content must be named here or every pack that ships translations would be told its own
+     * {@code lang} folder is a mistake.
+     *
+     * <p>A word rather than an underscore, like the tables' folder and unlike {@code _schema}: this
+     * one carries the author's own words.
+     */
+    public static final String LANG_DIRECTORY = "lang";
+
     /** Whether a root entry is Tasked's own storage rather than book content. */
     public static boolean isReservedName(String name) {
-        return REWARD_TABLES_DIRECTORY.equals(name);
+        return REWARD_TABLES_DIRECTORY.equals(name) || LANG_DIRECTORY.equals(name);
+    }
+
+    /**
+     * The locale files at the root, name-sorted. Empty when there is no such folder.
+     *
+     * <p>Read outside the discovery walk for the reason {@link #rewardTableFiles} gives: a locale is
+     * not a {@code Declaration}, and it must not travel through the book's assembly. The walk only
+     * needs to know to leave the folder alone.
+     *
+     * <p>Returns every {@code *.json} that is not a recoverable delete and not ignored by the {@code _}
+     * rule. The file's name <i>is</i> the locale id — there is no second place to declare one, and a
+     * name that is not a locale a client can ask for is simply never looked up.
+     */
+    public static List<Path> localeFiles(Path questRoot) {
+        Path folder = questRoot.resolve(LANG_DIRECTORY);
+        if (!Files.isDirectory(folder)) {
+            return List.of();
+        }
+        List<Path> entries = listSorted(folder);
+        if (entries == null) {
+            return List.of();
+        }
+        List<Path> files = new ArrayList<>();
+        for (Path entry : entries) {
+            String name = entry.getFileName().toString();
+            if (Files.isRegularFile(entry) && isQuestFile(name) && !isDeletedName(name)
+                    && !DeclaredPaths.isIgnoredName(name)) {
+                files.add(entry);
+            }
+        }
+        return List.copyOf(files);
     }
 
     /**

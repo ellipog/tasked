@@ -34,6 +34,16 @@ public final class Tasked {
     /** The quest book screen, opened by id so that common code never names a client class. */
     public static final ResourceLocation QUEST_BOOK_SCREEN = ResourceLocation.fromNamespaceAndPath(MOD_ID, "quest_book");
 
+    /**
+     * The HUD editor, opened by its own key and from the book's settings card.
+     *
+     * <p>A screen of its own rather than a panel inside the book, because what it edits is drawn on the
+     * world: the book is content and fills its own background, and this one has to have nothing in front of
+     * the thing being moved. That is the same argument that moved the theme picker out of the book, one
+     * step further.
+     */
+    public static final ResourceLocation HUD_EDIT_SCREEN = ResourceLocation.fromNamespaceAndPath(MOD_ID, "hud_edit");
+
     /** Whether {@link #listenToTeams} has run. See its comment for why a flag is needed. */
     private static boolean teamListenersInstalled;
 

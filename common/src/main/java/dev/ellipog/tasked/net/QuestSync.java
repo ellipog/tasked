@@ -16,10 +16,12 @@ import dev.ellipog.tasked.quest.ChapterGroup;
 import dev.ellipog.tasked.quest.ItemRef;
 import dev.ellipog.tasked.quest.Quest;
 import dev.ellipog.tasked.quest.QuestIndex;
+import dev.ellipog.tasked.quest.QuestLanguages;
 import dev.ellipog.tasked.quest.QuestRef;
 import dev.ellipog.tasked.quest.QuestReward;
 import dev.ellipog.tasked.quest.QuestSettings;
 import dev.ellipog.tasked.quest.QuestTask;
+import dev.ellipog.tasked.quest.QuestText;
 import dev.ellipog.tasked.quest.TaskedQuests;
 import dev.ellipog.tasked.quest.condition.ConditionDisplay;
 import dev.ellipog.tasked.quest.condition.ConditionTypes;
@@ -75,6 +77,27 @@ public final class QuestSync {
      * correct and a concurrent one would be a claim about contention that does not exist.
      */
     private static final Map<UUID, Sent> SENT = new HashMap<>();
+
+    /**
+     * Each locale's message, packed and chunked once, keyed by the locale actually served.
+     *
+     * <h2>Why this is cached when nothing else about the broadcast is</h2>
+     *
+     * <p>Because the tree is the same bytes for everybody and the locale is not: it depends on one
+     * thing, the language the player reads, and a server with twenty players on three languages would
+     * otherwise pay twenty encodes and twenty deflates to produce three messages. The tree already pays
+     * one encode per recipient and is measured for it — see {@link WireTiming} — so adding a second
+     * per-recipient encode would be the wrong direction twice over.
+     *
+     * <p>Bounded by the pack's own files rather than by anything a client can ask for: the key is the
+     * value {@code QuestLanguages.servedLocale} returned, which is either empty or one of the locales
+     * the pack actually ships. A player asking for a language the pack has never heard of shares the
+     * one empty entry, so there is no request a client can make that grows this map.
+     */
+    private static final Map<String, List<byte[]>> LOCALE_CHUNKS = new HashMap<>();
+
+    /** Which set of translations the cache above was built from, so a reload cannot serve a stale one. */
+    private static volatile QuestLanguages cachedLanguages;
 
     /**
      * Nobody is contributing to anything: the answer for a caller with no team behind it.
@@ -181,6 +204,16 @@ public final class QuestSync {
      * draws every chapter exactly as it does today, which is the right fallback for a server that has
      * learned about chapter gates and a client that has not.
      *
+     * <p>Version 13 added the <b>English half of every translatable text</b> — {@code titleFallback},
+     * {@code subtitleFallback}, {@code chapterTitleFallback} and {@code descriptionFallbacks} — so a
+     * client can tell a translation key from a literal and show the author's own words when nothing has
+     * translated the key. A version-12 reader ignores them and draws what the field it does read holds,
+     * which for a translatable text is the key: the same wrong string it drew before this version
+     * existed, and the reason this bump is a fix rather than only a feature. The locale <i>overlay</i>
+     * is deliberately not here at all — it travels on its own channel, to one player, because the tree
+     * is broadcast and fifteen locales are not fifteen copies of the same questline. See
+     * {@code LocaleSyncPayload}.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -206,7 +239,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 12;
+    public static final int TREE_VERSION = 13;
 
     /**
      * The quest tree, as JSON.
@@ -266,7 +299,7 @@ public final class QuestSync {
             ChapterGroup group = entry.group();
             JsonObject one = new JsonObject();
             one.addProperty("id", group.id());
-            one.addProperty("title", group.title().value());
+            textAsJson(group.title(), "title", one);
             one.addProperty("collapsedByDefault", group.collapsedByDefault());
             // Optional, and sent only when the group declares one: a group with no icon falls back on
             // the client to the first chapter under it, which is a client-side choice rather than a
@@ -293,7 +326,7 @@ public final class QuestSync {
             // Empty for a chapter the index places at the root, which is the same "no group" sentinel
             // the per-quest field already uses and the sidebar already draws as a root row.
             one.addProperty("groupId", entry.groupId());
-            one.addProperty("title", chapter.title().value());
+            textAsJson(chapter.title(), "title", one);
             chapterIcon(chapter, one, "icon", "iconComponents");
 
             // The chapter's own gate, since version 12. The *rules* travel, not the state: what a reader
@@ -449,7 +482,10 @@ public final class QuestSync {
         // g" would be a second thing to keep in step with the first.
         json.addProperty("chapterGroupId", groupId);
         json.addProperty("chapterId", chapter.id());
-        json.addProperty("chapterTitle", chapter.title().value());
+        // Both halves, since version 13: see `textAsJson` for why the fallback cannot be folded into
+        // the text. The client resolves it against the pack's `chapter.<id>.title` when the chapter
+        // wrote a key of its own.
+        textAsJson(chapter.title(), "chapterTitle", json);
 
         // The chapter's own icon, on every quest of it for the same reason `chapterTheme` is below: the
         // client groups entries by `chapterId` and has no chapter record to hang it on.
@@ -487,8 +523,10 @@ public final class QuestSync {
             json.add("dependencyLines", lines);
         }
         json.addProperty("id", quest.id());
-        json.addProperty("title", quest.title().value());
-        quest.subtitle().ifPresent(subtitle -> json.addProperty("subtitle", subtitle.value()));
+        // Both halves of each, since version 13. See `textAsJson`. The quest's own title is the field
+        // that used to draw a raw key on a node, so this is the fix as much as it is the feature.
+        textAsJson(quest.title(), "title", json);
+        quest.subtitle().ifPresent(subtitle -> textAsJson(subtitle, "subtitle", json));
         json.addProperty("icon", quest.icon().item().toString());
         componentsAsJson(quest.icon(), "iconComponents", json);
         json.addProperty("x", quest.layout().x());
@@ -565,10 +603,33 @@ public final class QuestSync {
         json.addProperty("order", orderInChapter);
 
         JsonArray description = new JsonArray();
+        // The English words for the paragraphs that are translation keys, paired by index with the
+        // paragraphs above. Absent when no paragraph is translatable, which is the common case and the
+        // one that has to cost nothing: a pack that writes its text out plainly sends exactly the bytes
+        // it sent before this field existed.
+        //
+        // An empty entry means "this paragraph is a literal", and that empty is load-bearing -- it is
+        // the client's only way to tell a literal from a key, and a paragraph it got wrong is a raw key
+        // drawn on a card. See `ClientQuestCache.Entry#descriptionText`.
+        JsonArray descriptionFallbacks = new JsonArray();
+        boolean anyTranslatable = false;
         for (var paragraph : quest.description()) {
             description.add(paragraph.value());
+            if (paragraph.translatable()) {
+                anyTranslatable = true;
+                // The author's own words, or the key itself when they wrote none. The field's presence
+                // is what marks the paragraph as a key, so it is sent either way -- a translatable
+                // paragraph with no fallback still has the pack's conventional key to be found by.
+                descriptionFallbacks.add(paragraph.fallback().orElse(paragraph.value()));
+            }
+            else {
+                descriptionFallbacks.add("");
+            }
         }
         json.add("description", description);
+        if (anyTranslatable) {
+            json.add("descriptionFallbacks", descriptionFallbacks);
+        }
 
         JsonArray dependencies = new JsonArray();
         for (QuestRef dependency : quest.dependencies()) {
@@ -736,6 +797,33 @@ public final class QuestSync {
         }
         json.addProperty(idField, chapter.icon().item().toString());
         componentsAsJson(chapter.icon(), componentsField, json);
+    }
+
+    /**
+     * A {@link QuestText} as the two fields a client needs: the text, and the English words when the
+     * text is a key.
+     *
+     * <h2>Why the fallback is a field of its own rather than the text</h2>
+     *
+     * <p>Because a client cannot tell a key from a literal by looking at one string, and getting it
+     * wrong is visible: {@code QuestText.value()} is the <b>key</b> for a translatable text, so a tree
+     * that sent only that drew {@code quest.tasked.punch_a_tree} on the node. That was the bug. The
+     * field's <i>presence</i> is what marks the text as translatable, and its value is what a player
+     * reads when nothing translated the key — the same arrangement {@code label}/{@code labelFallback}
+     * already uses for a task's or a reward's sentence.
+     *
+     * <p>A translatable text with no fallback of its own still sends one, and it sends the key. That
+     * keeps the presence meaningful — the client needs to know to look the conventional key up — and
+     * leaves the author's key as the last resort, which is the only text that file ever named.
+     *
+     * <p>A literal sends no fallback field at all, so a pack that writes its text out plainly sends
+     * exactly the bytes it sent before this existed.
+     */
+    private static void textAsJson(QuestText text, String field, JsonObject json) {
+        json.addProperty(field, text.value());
+        if (text.translatable()) {
+            json.addProperty(field + "Fallback", text.fallback().orElse(text.value()));
+        }
     }
 
     /**
@@ -1167,6 +1255,113 @@ public final class QuestSync {
         }
     }
 
+    /**
+     * Sends one player the quest text in the language they read.
+     *
+     * <h2>What decides the language, and why it is not asked for</h2>
+     *
+     * <p>The client's own language arrives with the login handshake and is readable as
+     * {@code clientInformation().language()}, so a join needs no request and no round trip. What the
+     * server cannot see is a player who changes language <b>mid-session</b>, which is why
+     * {@code LocaleRequestPayload} exists — see {@link #sendLocaleFor}.
+     *
+     * <p>Sent even when the pack has no file for the language, and that is not a wasted message: it is
+     * how the client learns it is current, and it is what clears a locale the player has just switched
+     * away from. See {@link LocaleSyncPayload}.
+     */
+    public static void sendLocaleTo(ServerPlayer player) {
+        String asked = player.clientInformation() == null
+                ? "" : player.clientInformation().language();
+        sendLocaleFor(player, asked);
+    }
+
+    /**
+     * The same, for a language the client named itself.
+     *
+     * <p>The one entry point for both roads — the join handshake's language and a client's own
+     * {@code LocaleRequestPayload} — so the two cannot resolve a locale differently.
+     *
+     * <p>{@code asked} is a string a client chose, so it is normalised by the same rule the file names
+     * are and is then only ever a <b>map key</b>. It never becomes a path: the files were read once at
+     * load, and this looks a language up among them. A value that is not a locale id at all resolves to
+     * nothing, which is answered rather than refused.
+     */
+    public static void sendLocaleFor(ServerPlayer player, String asked) {
+        QuestSettings settings = TaskedQuests.settings();
+        QuestLanguages languages = TaskedQuests.languages();
+        String canonical = settings.canonicalLocale();
+        String locale = QuestLanguages.normalise(asked);
+        String served = languages.servedLocale(locale, canonical);
+        List<byte[]> parts = localeChunks(languages, served, canonical);
+        int transferId = SyncWire.newTransferId();
+
+        for (int i = 0; i < parts.size(); i++) {
+            send(player, new LocaleSyncPayload(locale, served,
+                    new SyncChunk(transferId, i, parts.size(), true), parts.get(i)));
+        }
+    }
+
+    /**
+     * One locale's message, packed and chunked, built once and kept.
+     *
+     * <p>Keyed by the <b>served</b> locale rather than by the language a player asked for, because two
+     * players who asked for different things may read the same text: an {@code es_mx} and an
+     * {@code es_ar} player on a pack with one Spanish file share one message, and keying by the request
+     * would build it twice.
+     *
+     * <p>Keyed that way it is also bounded without a cap. {@code served} is only ever empty or one of
+     * the locales the pack ships, so the number of entries is the number of locale files plus one —
+     * there is no request a client can send that adds a second entry.
+     *
+     * <p>The build is timed into the same counters the tree's is, and only on the miss: a number that
+     * stays flat while players join is this cache working, which is worth being able to see rather than
+     * infer.
+     */
+    private static List<byte[]> localeChunks(QuestLanguages languages, String served, String canonical) {
+        if (languages != cachedLanguages) {
+            // A reload replaces the translations wholesale, so everything packed from the old set is
+            // wrong -- including the empty one, which may no longer be empty.
+            LOCALE_CHUNKS.clear();
+            cachedLanguages = languages;
+        }
+        List<byte[]> cached = LOCALE_CHUNKS.get(served);
+        if (cached != null) {
+            return cached;
+        }
+
+        boolean timing = EditPhases.on();
+        long started = timing ? System.nanoTime() : 0L;
+        byte[] json = localeAsJson(languages.forLocale(served, canonical));
+        long encodedAt = timing ? System.nanoTime() : 0L;
+        byte[] packed = SyncWire.pack(json);
+        if (timing) {
+            WIRE_ENCODE_NANOS += encodedAt - started;
+            WIRE_DEFLATE_NANOS += System.nanoTime() - encodedAt;
+        }
+
+        List<byte[]> parts = SyncWire.chunk(packed);
+        LOCALE_CHUNKS.put(served, parts);
+        if (!served.isEmpty()) {
+            Constants.LOG.debug("tasked: packed the {} locale for {} key(s)", served, countKeys(json));
+        }
+        return parts;
+    }
+
+    /** One locale's entries as the flat JSON object the client reads. */
+    private static byte[] localeAsJson(Map<String, String> entries) {
+        JsonObject root = new JsonObject();
+        for (Map.Entry<String, String> each : entries.entrySet()) {
+            root.addProperty(each.getKey(), each.getValue());
+        }
+        return root.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** How many entries a packed locale holds, for the one debug line. Cheap, and only on a miss. */
+    private static int countKeys(byte[] json) {
+        return JsonParser.parseString(new String(json, StandardCharsets.UTF_8))
+                .getAsJsonObject().size();
+    }
+
     /** One flush's broadcast cost, summed over its recipients. See {@link #drainWireTiming}. */
     public record WireTiming(long encodeNanos, long deflateNanos) {
     }
@@ -1351,6 +1546,14 @@ public final class QuestSync {
     public static void sendEverythingTo(ServerPlayer player, MinecraftServer server) {
         QuestIndex index = TaskedQuests.index();
         forget(player.getUUID());
+
+        // The player's language goes first, and that ordering is the whole of the fix for a visible
+        // seam: the play channel is ordered per connection, so a locale that is sent first is a locale
+        // the client already holds when the tree below it is parsed, and the first frame draws the
+        // player's own language rather than the canonical one. Correctness does not rest on it -- text
+        // is resolved when it is drawn, so the other order is right one frame later -- but a book that
+        // flashes English before settling is a thing somebody reports as a bug.
+        sendLocaleTo(player);
 
         // The tree is sent even when it is empty, so the client can tell "nothing loaded" from
         // "nothing received" and say the right one of those to a player.

@@ -67,6 +67,18 @@ public final class TaskedQuests {
     private static volatile java.util.Map<String, String> refusedTables = java.util.Map.of();
 
     /**
+     * The pack's own translations, from {@code lang/*.json}.
+     *
+     * <p>Here rather than inside {@link QuestIndex} because a locale is an overlay on the book rather
+     * than part of it: the tree's shape is identical whichever language it is read in, so a reload of
+     * one does not have to disturb the other, and the client can be sent a locale without being sent
+     * a tree. See {@link QuestLanguages} for the file format and the resolution chain.
+     *
+     * <p>Replaced wholesale by a reload, like the index and the settings.
+     */
+    private static volatile QuestLanguages languages = QuestLanguages.EMPTY;
+
+    /**
      * What the last full load found wrong, for a player who was not there when it happened.
      *
      * <h2>Why it is held rather than derived</h2>
@@ -139,10 +151,26 @@ public final class TaskedQuests {
         settings = QuestSettings.load(QuestEditor.root(ArmatureApi.platform().configDir()));
         rewardTables = result.rewardTables();
         refusedTables = refusals(result.problems(), result.refusedTables());
+        // The translations are read into the *same* problem list the tree's load filled, and read
+        // before that list is published: a mistyped translation is then reported to the log, to
+        // `/tasked reload` and to every author in game, through the one report that already exists,
+        // rather than only to whoever happened to be reading the log.
+        languages = QuestLanguages.load(QuestEditor.root(ArmatureApi.platform().configDir()),
+                result.problems());
         problems = result.problems();
 
         report(result);
         return result;
+    }
+
+    /**
+     * The pack's own translations. Never null; empty until a tree ships any.
+     *
+     * <p>Read by the join path and by the broadcast, both of which send one locale to one player —
+     * see {@code TaskedNetworking.sendLocaleTo}.
+     */
+    public static QuestLanguages languages() {
+        return languages;
     }
 
     /**

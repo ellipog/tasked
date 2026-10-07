@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -128,6 +129,8 @@ class PayloadTest {
                 "tasked:edit_problems",
                 "tasked:editor_op",
                 "tasked:editor_reply",
+                "tasked:locale_request",
+                "tasked:locale_sync",
                 "tasked:party_sync",
                 "tasked:progress_sync",
                 "tasked:quest_sync",
@@ -498,6 +501,50 @@ class PayloadTest {
 
         assertEquals(List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
                 "twilightforest:twilight_forest", "example:the_deep"), decoded.dimensions());
+    }
+
+    @Test
+    @DisplayName("a locale travels with both ids, its bytes and its place in the message")
+    void localeSyncRoundTrip() {
+        // Both ids, because they answer different questions and the client compares the first one: an
+        // `es_mx` player served the pack's `es_es` file has to settle on `es_mx`, or it would ask for a
+        // locale the pack was never going to have, forever. See LocaleSyncPayload.
+        LocaleSyncPayload decoded = roundTrip(LocaleSyncPayload.CODEC, new LocaleSyncPayload(
+                "es_mx", "es_es", new SyncChunk(4, 1, 3, true), new byte[]{9, 8, 7}));
+
+        assertEquals("es_mx", decoded.locale());
+        assertEquals("es_es", decoded.served());
+        assertEquals(4, decoded.chunk().transferId());
+        assertEquals(1, decoded.chunk().index());
+        assertEquals(3, decoded.chunk().count());
+        assertTrue(decoded.chunk().full());
+        assertArrayEquals(new byte[]{9, 8, 7}, decoded.data());
+    }
+
+    @Test
+    @DisplayName("a locale with nothing to serve travels as empty, not as the word null")
+    void localeSyncNullsBecomeEmpty() {
+        // The two states are one character apart on the wire and behave very differently: an empty
+        // locale is "this pack has nothing for you", and a locale named `null` is a key that would
+        // never match and a client that would keep asking. The same normalisation QuestSyncPayload
+        // makes for its theme, for the same reason.
+        LocaleSyncPayload decoded = roundTrip(LocaleSyncPayload.CODEC,
+                new LocaleSyncPayload(null, null, new SyncChunk(1, 0, 1, true), new byte[]{1}));
+
+        assertEquals("", decoded.locale());
+        assertEquals("", decoded.served());
+    }
+
+    @Test
+    @DisplayName("a client's language request survives a round trip")
+    void localeRequestRoundTrip() {
+        LocaleRequestPayload decoded = roundTrip(LocaleRequestPayload.CODEC,
+                new LocaleRequestPayload("pt_br"));
+
+        assertEquals("pt_br", decoded.locale(),
+                "a codec that lowercased or trimmed this would ask for a locale the files are not keyed by");
+        // And absent is empty rather than null, so the handler has one spelling of "no answer" to read.
+        assertEquals("", roundTrip(LocaleRequestPayload.CODEC, new LocaleRequestPayload(null)).locale());
     }
 
     @Test

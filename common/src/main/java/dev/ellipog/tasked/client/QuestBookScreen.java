@@ -44,6 +44,7 @@ import dev.ellipog.tasked.net.EditorReplyPayload;
 import dev.ellipog.tasked.net.TaskedNetworking;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.hud.HudEditScreen;
 import dev.ellipog.tasked.client.viewer.QuestBookFocus;
 import dev.ellipog.tasked.client.viewer.RecipeLookups;
 import dev.ellipog.tasked.client.dev.HexColour;
@@ -1405,9 +1406,19 @@ public final class QuestBookScreen extends ArmatureScreen
     private static SidebarLayout sidebar;
     private static long sidebarRevision = -1;
 
-    /** And the other two inputs the outline's rows depend on. See {@link #sidebar()}. */
+    /** And the other three inputs the outline's rows depend on. See {@link #sidebar()}. */
     private static long sidebarProgress = -1;
     private static boolean sidebarEditing;
+
+    /**
+     * And the language, since the rows carry chapter and group <b>names</b>.
+     *
+     * <p>Its own field rather than folded into {@code sidebarRevision}, because that one is the tree's
+     * and a locale arriving is not a tree: the outline's rows, their order and the player's own
+     * expansions are all unchanged, and only the words in them are. Keeping them apart is what lets
+     * this rebuild the outline for a language change without pretending the questline moved.
+     */
+    private static long sidebarText = -1;
 
     /**
      * Which groups the player has opened or closed, over the groups' own defaults.
@@ -2896,20 +2907,46 @@ public final class QuestBookScreen extends ArmatureScreen
      * about a server this client is no longer connected to.
      */
     private static SidebarLayout sidebar() {
-        long revision = ClientQuestCache.treeRevision();
-        // Progress and the editing flag as well as the tree, because which chapters are rows at all now
-        // depends on both: a chapter leaves the sidebar the moment the gate it was hiding behind is met,
-        // and an author sees every chapter. A layout cached on the tree alone would keep drawing a row
-        // for a chapter that has just appeared.
-        long progress = ClientQuestCache.progressRevision();
-        if (sidebar == null || sidebarRevision != revision || sidebarProgress != progress
-                || sidebarEditing != editingView) {
+        if (sidebarStale()) {
             sidebar = buildSidebar();
-            sidebarRevision = revision;
-            sidebarProgress = progress;
+            sidebarRevision = ClientQuestCache.treeRevision();
+            sidebarProgress = ClientQuestCache.progressRevision();
             sidebarEditing = editingView;
+            sidebarText = ClientQuestCache.textRevision();
         }
         return sidebar;
+    }
+
+    /**
+     * Whether the outline the client holds is describing something other than what it now has.
+     *
+     * <h2>One predicate, because two callers have to agree</h2>
+     *
+     * <p>Both the builder above and the frame that rebuilds the sidebar's <b>widgets</b> ask this, and
+     * they have to ask the same question: a widget list rebuilt on a different answer from the outline
+     * it draws is a sidebar whose rows and whose click targets disagree. It was two comparisons once,
+     * and they had already drifted — the builder watched the tree, the progress and the editing flag,
+     * while the widget check watched only the tree, so a chapter appearing because its gate opened
+     * rebuilt the outline and left the widgets behind it.
+     *
+     * <p>The four inputs, and each is a different reason for a row to change:
+     *
+     * <ul>
+     *   <li>the <b>tree</b>: a reload can add, remove or rename a chapter, and can move one group to
+     *       another heading.</li>
+     *   <li>the <b>progress</b>: a chapter leaves the sidebar the moment the gate it was hiding behind
+     *       is met, so which chapters are rows at all depends on it.</li>
+     *   <li>the <b>editing flag</b>: an author sees every chapter, a reader only the revealed ones.</li>
+     *   <li>the <b>language</b>: the rows carry chapter and group names, and a locale arriving changes
+     *       those words without changing anything about which rows there are.</li>
+     * </ul>
+     */
+    private static boolean sidebarStale() {
+        return sidebar == null
+                || sidebarRevision != ClientQuestCache.treeRevision()
+                || sidebarProgress != ClientQuestCache.progressRevision()
+                || sidebarEditing != editingView
+                || sidebarText != ClientQuestCache.textRevision();
     }
 
     /**
@@ -2938,18 +2975,18 @@ public final class QuestBookScreen extends ArmatureScreen
     private static SidebarLayout buildSidebar() {
         List<SidebarLayout.Group> groups = new ArrayList<>();
         for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
-            groups.add(new SidebarLayout.Group(group.id(), group.title(), group.collapsedByDefault()));
+            groups.add(new SidebarLayout.Group(group.id(), group.titleText(), group.collapsedByDefault()));
         }
 
         Map<String, SidebarLayout.ChapterRow> chapters = new LinkedHashMap<>();
         for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
             chapters.putIfAbsent(chapter.id(), new SidebarLayout.ChapterRow(
-                    chapter.id(), chapter.title(), chapter.groupId(),
+                    chapter.id(), chapter.titleText(), chapter.groupId(),
                     chapterLocked(chapter.id()), chapterHidden(chapter.id())));
         }
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             chapters.putIfAbsent(entry.chapterId(), new SidebarLayout.ChapterRow(
-                    entry.chapterId(), entry.chapterTitle(), entry.chapterGroupId(),
+                    entry.chapterId(), entry.chapterTitleText(), entry.chapterGroupId(),
                     chapterLocked(entry.chapterId()), chapterHidden(entry.chapterId())));
         }
 
@@ -3750,13 +3787,13 @@ public final class QuestBookScreen extends ArmatureScreen
                 // make the hidden chapter the one a reader lands on with nothing selected.
                 continue;
             }
-            chapters.putIfAbsent(chapter.id(), chapter.title());
+            chapters.putIfAbsent(chapter.id(), chapter.titleText());
         }
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
             if (chapterHidden(entry.chapterId())) {
                 continue;
             }
-            chapters.putIfAbsent(entry.chapterId(), entry.chapterTitle());
+            chapters.putIfAbsent(entry.chapterId(), entry.chapterTitleText());
         }
         chaptersHeld = chapters;
         chaptersRevision = revision;
@@ -4013,7 +4050,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 met++;
             }
             ClientQuestCache.ChapterEntry target = chapterEntryFor(dependency);
-            names.add(target == null ? dependency : target.title());
+            names.add(target == null ? dependency : target.titleText());
         }
         return Component.translatable("tasked.screen.chapter_needs",
                 String.join(", ", names), met, chapter.dependsOn().size());
@@ -6084,12 +6121,12 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** A quest's title, with a committed rename winning over the tree the sidebar draws. */
     private static String titleOf(ClientQuestCache.Entry entry) {
-        return fieldDraft.text(entry.chapterId(), entry.id(), "title", entry.title());
+        return fieldDraft.text(entry.chapterId(), entry.id(), "title", entry.titleText());
     }
 
     /** The same, for the subtitle. */
     private static String subtitleOf(ClientQuestCache.Entry entry) {
-        return fieldDraft.text(entry.chapterId(), entry.id(), "subtitle", entry.subtitle());
+        return fieldDraft.text(entry.chapterId(), entry.id(), "subtitle", entry.subtitleText());
     }
 
     /** The shape the canvas should draw, with a pending settings-page change winning over the tree. */
@@ -9125,7 +9162,7 @@ public final class QuestBookScreen extends ArmatureScreen
                         Math.max(60, r.textWidth(titleOf(entry)) + 6), 12),
                 textX, card.y() + 12, titleOf(entry), null, -1, mouseX, mouseY);
 
-        String where = entry.chapterTitle()
+        String where = entry.chapterTitleText()
                 + (subtitleOf(entry).isEmpty() ? "" : "  \u00b7  " + subtitleOf(entry));
         target(r, EditAction.FIELD, "subtitle", BookGeometry.Rect.at(textX - 2, card.y() + 24,
                         Math.max(80, r.textWidth(where) + 6), 12),
@@ -10203,7 +10240,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // The editor's own text, exactly as typed -- including the blank line the caret is on at the
             // end. It is the commit that trims (see `commitInlineText`), so a press of Enter at the end
             // shows while it is being typed and is gone once the edit finishes.
-            return List.of(inlineArea.value().split("\n", -1));
+            return Prose.split(inlineArea.value());
         }
         // The ends of the prose are not content; see `Prose`. The entry's own description is trimmed
         // where it is parsed (`ClientQuestCache`), so both readings of this file agree about the ends.
@@ -10211,7 +10248,7 @@ public final class QuestBookScreen extends ArmatureScreen
         if (!lines.isEmpty()) {
             return lines;
         }
-        return entry.description();
+        return entry.descriptionText();
     }
 
     /**
@@ -11097,7 +11134,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // Split back into paragraphs and drop the blank ones at the ends: a blank line at the end of
             // the prose is where the caret was, not content. A blank line *between* two paragraphs is a
             // paragraph break and is written as one. See `Prose`.
-            List<String> paragraphs = Prose.trimmed(List.of(text.split("\n", -1)));
+            List<String> paragraphs = Prose.trimmed(Prose.split(text));
             sendField(target, "description", stringArray(paragraphs));
             return;
         }
@@ -12953,7 +12990,7 @@ public final class QuestBookScreen extends ArmatureScreen
             if (entry.id().equals(current)) {
                 continue;
             }
-            items.add(MenuFlyout.text(Labels.of("tasked.dev.menu.move_to", entry.title()),
+            items.add(MenuFlyout.text(Labels.of("tasked.dev.menu.move_to", entry.titleText()),
                     () -> send(new EditorOp.MoveChapter(id, entry.id(), Integer.MAX_VALUE))));
         }
         int room = Math.max(0, (panelRect().height() - 16) / MENU_ROW_HEIGHT - 2);
@@ -14909,7 +14946,7 @@ public final class QuestBookScreen extends ArmatureScreen
         if (!id.isEmpty()) {
             ClientQuestCache.TableSummary summary = ClientQuestCache.table(id);
             if (summary != null) {
-                return new TableBadge(summary.title(), summary.icon(), summary.entries(), true, false, "");
+                return new TableBadge(summary.titleText(), summary.icon(), summary.entries(), true, false, "");
             }
             // A reference this build has not been told about: the id is still the truth, and the file
             // it names may exist -- a server older than the summaries, or a table that failed to load.
@@ -15670,7 +15707,7 @@ public final class QuestBookScreen extends ArmatureScreen
         java.util.List<dev.ellipog.tasked.client.dev.TableBrowserLayout.Row> rows = new java.util.ArrayList<>();
         for (ClientQuestCache.TableSummary summary : ClientQuestCache.tables()) {
             rows.add(dev.ellipog.tasked.client.dev.TableBrowserLayout.Row.table(summary.id(),
-                    summary.title(), summary.iconId(), summary.entries(),
+                    summary.titleText(), summary.iconId(), summary.entries(),
                     summary.id().equals(current)));
         }
         return rows;
@@ -16881,7 +16918,7 @@ public final class QuestBookScreen extends ArmatureScreen
 
         /** A quest row: the path it lives at is drawn, and the quest's own id is what a press acts on. */
         static AssetLine quest(ClientQuestCache.Entry quest) {
-            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.ROW, quest.title(),
+            return new AssetLine(dev.ellipog.tasked.client.dev.AssetsLayout.Kind.ROW, quest.titleText(),
                     quest.chapterId() + "/" + quest.id(), quest.id(), EditAction.ASSETS_ROW, false,
                     quest.icon());
         }
@@ -16975,8 +17012,8 @@ public final class QuestBookScreen extends ArmatureScreen
         List<AssetLine> lines = new ArrayList<>();
         String chapter = null;
         for (ClientQuestCache.Entry quest : ClientQuestCache.entries()) {
-            if (!quest.chapterTitle().equals(chapter)) {
-                chapter = quest.chapterTitle();
+            if (!quest.chapterTitleText().equals(chapter)) {
+                chapter = quest.chapterTitleText();
                 lines.add(AssetLine.heading(chapter));
             }
             lines.add(AssetLine.quest(quest));
@@ -17853,7 +17890,7 @@ public final class QuestBookScreen extends ArmatureScreen
         return switch (address.owner()) {
             case dev.ellipog.tasked.editor.TableAddress.Owner.Named named -> {
                 ClientQuestCache.TableSummary summary = ClientQuestCache.table(named.id());
-                yield summary == null ? named.id() : summary.title();
+                yield summary == null ? named.id() : summary.titleText();
             }
             case dev.ellipog.tasked.editor.TableAddress.Owner.InQuest quest -> "inline table";
         };
@@ -18698,16 +18735,20 @@ public final class QuestBookScreen extends ArmatureScreen
         centreCanvas();
 
         // A tree that arrived since the sidebar was built means the outline is describing a questline
-        // this client no longer holds. Rebuilt here rather than from a payload handler, because the
-        // handlers run before this screen exists as often as after it, and because this is the first
-        // point in a frame where clearing and recreating the widgets is safe — `super.render` has not
-        // started iterating them yet.
+        // this client no longer holds — and the same is true of a gate that opened, an author's view
+        // changing, or a language arriving, which are the other three things the outline's rows depend
+        // on. All four go through `sidebarStale`, the same question the builder asks, so the outline and
+        // the widgets over it can never be built from different answers. See its javadoc.
+        //
+        // Rebuilt here rather than from a payload handler, because the handlers run before this screen
+        // exists as often as after it, and because this is the first point in a frame where clearing and
+        // recreating the widgets is safe — `super.render` has not started iterating them yet.
         //
         // No guard: the sidebar is built, drawn and answering in every arrangement there is, so it follows a
         // reload exactly as it does with nothing open. It used to skip while a card was up, on the reasoning
         // that `init` built only the card's controls -- and a rail beside the sidebar is not that case, so
         // the guard's only remaining effect would be a sidebar that went stale whenever a panel was open.
-        if (sidebarRevision != ClientQuestCache.treeRevision()) {
+        if (sidebarStale()) {
             rebuildWidgets();
         }
 
@@ -20801,7 +20842,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         int textX = iconX + iconBox + 6;
         Measure measure = textMeasure(r);
-        r.text(Measure.truncate(quest == null ? heading : quest.title(), w - (textX - left) - 8, measure),
+        r.text(Measure.truncate(quest == null ? heading : quest.titleText(), w - (textX - left) - 8, measure),
                 textX, top + 12, ArmatureTheme.title());
         if (quest != null) {
             // The subtitle slot is also where a refusal is drawn: the card has to say what went wrong
@@ -21077,12 +21118,23 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>A set rather than a count, because the caller only ever asks "is this title ambiguous" — and
      * one pass over the chapter's own list is what makes the numbering stable for that chapter.
      */
-    private static Set<String> repeatedTitles(List<ClientQuestCache.Entry> quests) {
+    /**
+     * The titles that appear more than once in a chapter's list, in the words a player reads.
+     *
+     * <p>Package-private rather than private so the rule can be asserted without a screen: it is a pure
+     * function of the entries, and the thing that can be got wrong is <i>which</i> accessor it reads —
+     * which is exactly the kind of claim that rots silently. See {@code RepeatedQuestTitlesTest}.
+     */
+    static Set<String> repeatedTitles(List<ClientQuestCache.Entry> quests) {
         Set<String> seen = new HashSet<>();
         Set<String> repeated = new HashSet<>();
         for (ClientQuestCache.Entry entry : quests) {
-            if (!seen.add(entry.title())) {
-                repeated.add(entry.title());
+            // The words the player reads, not the wire's key: two quests whose titles are the same
+            // string in the player's language are the duplicate the number exists to disambiguate, and
+            // a set built from the raw values would number rows that read identically and miss the ones
+            // that do not.
+            if (!seen.add(entry.titleText())) {
+                repeated.add(entry.titleText());
             }
         }
         return repeated;
@@ -21096,9 +21148,17 @@ public final class QuestBookScreen extends ArmatureScreen
      * quest's position in its chapter, and it is drawn <b>only</b> for a title that actually repeats —
      * numbering every row would put a number on the ninety per cent of rows that do not need one.
      */
-    private static String questLabel(ClientQuestCache.Entry entry, int at, Set<String> repeated) {
+    /**
+     * A quest's row label, numbered only when its chapter uses that title twice.
+     *
+     * <p>Package-private beside {@link #repeatedTitles}, and for the same reason: the two have to agree
+     * about <i>which</i> string they are comparing, and a number drawn for a title the set does not
+     * hold — or withheld from one it does — is invisible in English and wrong under any locale. See
+     * {@code RepeatedQuestTitlesTest}.
+     */
+    static String questLabel(ClientQuestCache.Entry entry, int at, Set<String> repeated) {
         String title = titleOf(entry);
-        return repeated.contains(entry.title()) ? (at + 1) + " \u00b7 " + title : title;
+        return repeated.contains(entry.titleText()) ? (at + 1) + " \u00b7 " + title : title;
     }
 
     /**
@@ -21185,7 +21245,7 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
                 if (group.id().equals(chapter.groupId())) {
-                    return group.title();
+                    return group.titleText();
                 }
             }
             return "";
@@ -21898,7 +21958,7 @@ public final class QuestBookScreen extends ArmatureScreen
             List<String> lines = new ArrayList<>();
             // The quest first: the reward's own lines say what is being collected, and this says which
             // quest is giving it.
-            lines.add(entry.title());
+            lines.add(entry.titleText());
             lines.addAll(rewardTooltipLines(row.questId(), row.rewardIndex()));
             rowTooltips.add(new RowTooltip(slot, lines));
         }
@@ -22076,7 +22136,7 @@ public final class QuestBookScreen extends ArmatureScreen
     private void buildSettingsWidgets() {
         appearanceEntries = SettingsLayout.entries(ClientAppearance.LOOK.textScale());
         appearanceRows = appearanceEntries.stream()
-                .map(entry -> InspectRow.action(entry.key(), entry.label()))
+                .map(entry -> InspectRow.action(entry.key(), entry.label().getString()))
                 .toList();
 
         int cardWidth = framed(PanelKind.SETTINGS).width();
@@ -22108,6 +22168,13 @@ public final class QuestBookScreen extends ArmatureScreen
         });
         addRenderableWidget(slider);
         appearanceView.put(SettingsLayout.TEXT_KEY, slider);
+
+        // And the row that opens the HUD editor. An action row rather than a strip, because what it changes
+        // is not one number: where things sit wants a place to drag them, and that place is a screen over
+        // the world. Opened from here it comes back here, which is what `openFromBook` is for.
+        appearanceView.put(SettingsLayout.HUD_KEY,
+                control(0, 0, 0, 0, Component.translatable("tasked.screen.hud_edit.open"),
+                        HudEditScreen::openFromBook));
 
         appearanceView.apply(appearanceLayout, body.viewWidth());
 
@@ -22300,7 +22367,7 @@ public final class QuestBookScreen extends ArmatureScreen
         r.text(stateLabel(state), textX + r.textWidth(titleOf(entry)) + 10, top + 12,
                 stateColour(state));
 
-        String where = entry.chapterTitle() + (subtitleOf(entry).isEmpty() ? "" : "  \u00b7  " + subtitleOf(entry));
+        String where = entry.chapterTitleText() + (subtitleOf(entry).isEmpty() ? "" : "  \u00b7  " + subtitleOf(entry));
         // The read line carries the chapter name as well; the field edits the subtitle alone, so
         // drawing both would print the chapter title through the field's text.
         if (!InlineEdit.replaces("subtitle", editingPath)) {
@@ -22390,7 +22457,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
 
         Layout built = OverlayLayout.stack(
-                        readerProse(r, text ? entry.description() : List.of(), body.viewWidth()),
+                        readerProse(r, text ? entry.descriptionText() : List.of(), body.viewWidth()),
                         entry.tasks().size(), entry.rewards().size(), dependenciesOf(entry).size(), false,
                         new OverlayLayout.Reveal(text, details))
                 .build(body.viewWidth(), textMeasure(r));
@@ -26367,6 +26434,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // happens to share.
         sidebar = null;
         sidebarRevision = -1;
+        sidebarText = -1;
         // And the player's own expansions, for the reason the outline goes: they belong to a questline
         // on a server this client has left.
         sidebarExpansion.clear();

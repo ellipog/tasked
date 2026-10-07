@@ -5,6 +5,7 @@ import dev.ellipog.tasked.client.viewer.QuestContent;
 import dev.ellipog.tasked.client.viewer.QuestPage;
 import dev.ellipog.tasked.client.viewer.QuestRef;
 import dev.ellipog.tasked.client.viewer.QuestRow;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.net.QuestSync;
 import dev.ellipog.tasked.quest.Fixtures;
@@ -29,6 +30,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -90,6 +92,9 @@ class QuestViewerContentTest {
     void clearCache() {
         ClientQuestCache.clear();
         QuestBookFocus.clear();
+        // The language too: a locale left by one test would translate the next one's title, which
+        // would pass without the tree having carried anything.
+        ClientLocale.clear();
     }
 
     private static void accept(String... quests) {
@@ -334,6 +339,39 @@ class QuestViewerContentTest {
         content.tick();
         assertEquals(2, content.pages().size(), "a new tree is a new snapshot");
         assertTrue(content.revision() > firstRevision);
+    }
+
+    @Test
+    @DisplayName("a language moves the signal the viewers watch, and a tag still does not")
+    void aLanguageMovesTheRevisionAndATagDoesNot() {
+        // A page carries a quest's title and its chapter's, so a locale arriving changes what every
+        // page *says* while the questline does not move at all. The adapters compare `revision()` to
+        // decide whether to re-register their entries, and JEI re-measures a page's height from it --
+        // which is exactly the case this exists for, because translated text is a different height.
+        //
+        // The second half of the assertion is the property this class already documented and a
+        // previous round spent four attempts on: a **tag** rebuilds the snapshot and must leave this
+        // signal alone, because a tag decides which items find a quest rather than what a page says.
+        // See `aTagThatMovedRebuildsTheSnapshot`.
+        accept(ONE_QUEST);
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+        long built = content.revision();
+        assertEquals("Punch a tree", content.pages().get(0).quest().title());
+
+        content.setTagHolders(tag -> oakLogSet(2));
+        content.tick();
+        assertEquals(built, content.revision(),
+                "a tag moved, which is not a change to any page's words");
+
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("quest.tree.title", "Vagj egy f\u00e1t"));
+        content.tick();
+
+        assertEquals("Vagj egy f\u00e1t", content.pages().get(0).quest().title(),
+                "the page carries the words a player reads, not the wire's");
+        assertNotEquals(built, content.revision(),
+                "and the adapters' signal has to move, or the viewers keep the previous language");
     }
 
     @Test

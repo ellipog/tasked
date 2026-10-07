@@ -14,6 +14,7 @@ import dev.ellipog.tasked.client.ClientTableOpen;
 import dev.ellipog.tasked.client.ClientTableReplica;
 import dev.ellipog.tasked.client.ClientTableRoll;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.viewer.QuestViewerContent;
@@ -22,13 +23,18 @@ import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.ClientWorking;
 import dev.ellipog.tasked.client.DevMode;
+import dev.ellipog.tasked.client.InventoryQuestBookButton;
 import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
 import dev.ellipog.tasked.client.QuestNotifier;
+import dev.ellipog.tasked.client.hud.HudEditScreen;
+import dev.ellipog.tasked.client.hud.HudSettings;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
 
 /**
  * Fabric's client half.
@@ -63,12 +69,36 @@ public final class TaskedFabricClient implements ClientModInitializer {
 
         // The screen first: declaring the key before the screen exists is a key that opens nothing.
         ArmatureScreens.register(Tasked.QUEST_BOOK_SCREEN, QuestBookScreen::new);
+        ArmatureScreens.register(Tasked.HUD_EDIT_SCREEN, HudEditScreen::new);
 
         ArmatureClient.registerKeyMapping(
                 Tasked.QUEST_BOOK_SCREEN,
                 InputConstants.KEY_B,
                 "key.categories.tasked",
                 () -> ArmatureClient.openScreen(Tasked.QUEST_BOOK_SCREEN));
+
+        // The HUD editor's own key. Declared through the same call as the book's, so both loaders get it
+        // from one shape and the Controls list names it the same way.
+        ArmatureClient.registerKeyMapping(
+                Tasked.HUD_EDIT_SCREEN,
+                InputConstants.KEY_H,
+                "key.categories.tasked",
+                () -> ArmatureClient.openScreen(Tasked.HUD_EDIT_SCREEN));
+
+        // The quest book's other door: a control in the player's own inventory. What to add and where is
+        // Tasked's and lives in `InventoryQuestBookButton`; that a widget may be added to somebody else's
+        // screen at all is this loader's business, which is why the two lines below are here.
+        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            InventoryQuestBookButton button = InventoryQuestBookButton.forScreen(screen);
+            if (button != null) {
+                Screens.getButtons(screen).add(button);
+            }
+        });
+
+        // And the layout those lines read, before anything can draw it. Read here for the same reason as
+        // the settings below: an inventory opened in the first second of a session must not draw its
+        // button somewhere else because the file had not been read yet.
+        HudSettings.loadFromConfig();
 
         // The developer screen and its F9 key are gone: the tools are a panel inside the book now,
         // reached from its header by a player who may edit. A key that opened a *different* screen was
@@ -105,6 +135,12 @@ public final class TaskedFabricClient implements ClientModInitializer {
             // The notice half: the one detector of completions and claims, which speaks whether or not
             // the book is open. See QuestNotifier.
             QuestNotifier.tick();
+            // The language half: a player who changed language in the options is told to the server, so
+            // the book follows them without a reconnect. Guarded on being in a world, because there is
+            // no connection to send on before one and the server answers a join on its own.
+            if (client.player != null) {
+                ClientLocale.pollLocale(client.getLanguageManager().getSelected());
+            }
         });
 
         // A payload can arrive for a world being left, and a cache holding it would be read by the
@@ -118,6 +154,9 @@ public final class TaskedFabricClient implements ClientModInitializer {
         // until the cap in SyncWire.Reassembler evicted them.
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientQuestCache.clear();
+            // And the language: another server's translations are not this one's to draw, and a stale
+            // overlay would answer for keys the new server's pack spells differently -- or never says.
+            ClientLocale.clear();
             ClientChapterReplica.clear();
             ClientTableReplica.clear();
             ClientTableRoll.clear();

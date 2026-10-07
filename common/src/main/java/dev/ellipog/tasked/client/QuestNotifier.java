@@ -167,7 +167,7 @@ public final class QuestNotifier {
             return;
         }
 
-        Component message = Component.translatable("tasked.quest.completed", entry.title());
+        Component message = Component.translatable("tasked.quest.completed", entry.titleText());
         if (minecraft.screen instanceof QuestBookScreen book) {
             book.notifyQuestCompleted(message);
         } else if (minecraft.getToasts().getToast(QuestToast.class, QuestToast.tokenFor(entry.id()))
@@ -176,7 +176,7 @@ public final class QuestNotifier {
             // told once, and the token is what makes the two notices the same notice.
             ItemStack icon = entry.icon();
             minecraft.getToasts().addToast(
-                    new QuestToast(entry.id(), icon, Component.literal(entry.title())));
+                    new QuestToast(entry.id(), icon, Component.literal(entry.titleText())));
         }
         // A soft chime rather than the advancement fanfare this first shipped with: a pack with a
         // hundred quests plays this a hundred times, and the challenge sting is a celebration-sized

@@ -5,6 +5,7 @@ import dev.ellipog.armature.api.teams.TeamPolicy;
 import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.progress.ProgressionEngine;
@@ -110,6 +111,10 @@ class SyncWiringTest {
         // without the handler having done anything.
         ClientPartyCache.clear();
         TaskedNetworking.forgetTransfers();
+        // And the language, for the same reason and with the same hazard: a locale left by an earlier
+        // test would answer for the next one's conventional lookup, which would then pass without the
+        // wire having carried anything.
+        ClientLocale.clear();
         // And the editor's two stores, for the same reason: a replica or a reply left by an earlier test
         // would be read by the assertions below as if the handler had just delivered it.
         ClientChapterReplica.clear();
@@ -149,6 +154,12 @@ class SyncWiringTest {
                 "tasked:edit_problems",
                 "tasked:editor_op",
                 "tasked:editor_reply",
+                // The one player's quest text, in the language they read: the tree is broadcast and
+                // carries the canonical strings, so a locale cannot ride on it. The request is the
+                // other half -- the only way a language changed after the login handshake can reach
+                // the server, since no loader exposes a hook for it.
+                "tasked:locale_request",
+                "tasked:locale_sync",
                 "tasked:party_sync",
                 "tasked:progress_sync",
                 "tasked:quest_sync",
@@ -673,6 +684,134 @@ class SyncWiringTest {
         assertFalse(ClientPartyCache.hasParty(),
                 "an empty roster must clear the party rather than be ignored, which is the whole "
                         + "reason `sendNoPartyTo` sends something instead of nothing");
+    }
+
+    // ------------------------------------------------------------------
+    // The locale's own channel
+    // ------------------------------------------------------------------
+
+    /**
+     * Sends one locale the way the server does: pack it, chunk it, hand every chunk to the handler.
+     *
+     * <p>Replicates {@code QuestSync.sendLocaleFor}'s three steps rather than calling it, for the same
+     * reason {@link #sendTreeAsTheServerWould} does: that method needs a {@code ServerPlayer} to send
+     * to, and the sending is not what is under test. What is under test is that the steps compose into
+     * something the far end can read, and that what it reads reaches the resolver.
+     */
+    private static void sendLocaleAsTheServerWould(String asked, String served,
+                                                   java.util.Map<String, String> entries) {
+        Consumer<LocaleSyncPayload> handler = clientHandler("locale_sync");
+
+        com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+        entries.forEach(root::addProperty);
+        byte[] packed = SyncWire.pack(root.toString()
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        List<byte[]> parts = SyncWire.chunk(packed);
+        int transferId = SyncWire.newTransferId();
+
+        for (int i = 0; i < parts.size(); i++) {
+            LocaleSyncPayload payload = new LocaleSyncPayload(asked, served,
+                    new SyncChunk(transferId, i, parts.size(), true), parts.get(i));
+            handler.accept(throughTheCodec(LocaleSyncPayload.CODEC, payload));
+        }
+    }
+
+    @Test
+    @DisplayName("a locale changes what is drawn without rebuilding the tree")
+    void aLocaleChangesTheTextAndNothingElse() {
+        // The claim the whole design rests on. The tree is immutable for as long as the quest files
+        // are, and a language is not a quest file: it changes what a player reads and nothing about
+        // which quests there are. So the *tree* revision must not move -- it is also the stamp editor
+        // drafts expire against, and moving it would throw away an author's in-progress edit because a
+        // player changed language -- while the text revision must, because the sidebar and the recipe
+        // viewers hold rendered rows.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"Punch a Tree\"}"));
+        sendTreeAsTheServerWould(index);
+
+        ClientQuestCache.Entry before = ClientQuestCache.entry("a");
+        assertNotNull(before);
+        assertEquals("Punch a Tree", before.titleText());
+
+        long treeBefore = ClientQuestCache.treeRevision();
+        long textBefore = ClientQuestCache.textRevision();
+
+        sendLocaleAsTheServerWould("hu_hu", "hu_hu",
+                java.util.Map.of("quest.a.title", "Vagj egy f\u00e1t"));
+
+        assertEquals("Vagj egy f\u00e1t", ClientQuestCache.entry("a").titleText(),
+                "the locale did not reach the resolver, so the book would stay in the old language");
+        assertEquals(treeBefore, ClientQuestCache.treeRevision(),
+                "a language is not a tree: the revision editor drafts expire against must not move");
+        assertNotEquals(textBefore, ClientQuestCache.textRevision(),
+                "and the text revision must, or the sidebar would keep the previous language's rows");
+        // The raw field is untouched, so the editor still seeds its fields from the authored text.
+        assertEquals("Punch a Tree", ClientQuestCache.entry("a").title());
+    }
+
+    @Test
+    @DisplayName("a locale the pack has nothing for is answered with an empty one, not with silence")
+    void anEmptyLocaleClearsTheOverlay() {
+        // The failure this prevents: a player switching away from a translated language keeps reading
+        // it, because nothing ever said the new one has no text. An empty overlay labelled with the
+        // locale is a real message -- and it is also what stops the client asking again.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"Punch a Tree\"}"));
+        sendTreeAsTheServerWould(index);
+        sendLocaleAsTheServerWould("hu_hu", "hu_hu",
+                java.util.Map.of("quest.a.title", "Vagj egy f\u00e1t"));
+        assertEquals("Vagj egy f\u00e1t", ClientQuestCache.entry("a").titleText());
+
+        sendLocaleAsTheServerWould("de_de", "", java.util.Map.of());
+
+        assertEquals("Punch a Tree", ClientQuestCache.entry("a").titleText(),
+                "the previous language's text outlived the switch to one the pack does not translate");
+        assertEquals("de_de", ClientLocale.asked(),
+                "and the client settles on the language it actually has selected");
+        assertEquals("", ClientLocale.served(), "while knowing the pack served it nothing");
+    }
+
+    @Test
+    @DisplayName("a served relative does not leave the client asking for a locale it will never get")
+    void aServedRelativeSettlesTheClient() {
+        // The bug the regional fallback would otherwise introduce: an `es_mx` player served the pack's
+        // `es_es` file would compare against `es_es`, find it different from `es_mx`, and ask again --
+        // every hundred ticks, for the rest of the session. The client compares against what it asked
+        // for, which is why both ids travel. See LocaleSyncPayload.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"Punch a Tree\"}"));
+        sendTreeAsTheServerWould(index);
+
+        sendLocaleAsTheServerWould("es_mx", "es_es",
+                java.util.Map.of("quest.a.title", "Golpea un arbol"));
+
+        assertEquals("Golpea un arbol", ClientQuestCache.entry("a").titleText(),
+                "the regional relative's text is what a player reads");
+        assertEquals("es_mx", ClientLocale.asked(), "and the client settles on its own language");
+        assertEquals("es_es", ClientLocale.served(), "while being able to say what it is reading");
+    }
+
+    @Test
+    @DisplayName("the locale payload travels to the client, and the request to the server")
+    void theLocalePairTravelsTheRightWays() {
+        // A payload registered the wrong way round is one that never arrives, and the symptom is a
+        // book in the wrong language with nothing in either log. The request's server handler is
+        // asserted here too, because a registration with no handler is one the loader refuses.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("locale_sync"));
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("locale_request"));
+        assertNotNull(ArmatureNetwork.registrations().stream()
+                        .filter(candidate -> candidate.type().id().getPath().equals("locale_request"))
+                        .findFirst().orElseThrow().onServer(),
+                "the request travels to the server and must have a handler there");
+    }
+
+    /** Which way a registered payload travels. */
+    private static ArmatureNetwork.Direction directionOf(String path) {
+        return ArmatureNetwork.registrations().stream()
+                .filter(candidate -> candidate.type().id().getPath().equals(path))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no payload is registered at " + path))
+                .direction();
     }
 
     // ------------------------------------------------------------------

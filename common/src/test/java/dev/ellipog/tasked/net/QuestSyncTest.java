@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.progress.ProgressService;
 import dev.ellipog.tasked.progress.ProgressionEngine;
@@ -87,6 +88,10 @@ class QuestSyncTest {
     void clearCache() {
         // Both, so a failure in one test cannot leave entries for the next one to find and pass on.
         ClientQuestCache.clear();
+        // And the overlay, for the same reason and with the same hazard: a locale left by a test that
+        // translated a key would answer for the next test's conventional lookup, which would pass
+        // without the wire having carried anything.
+        ClientLocale.clear();
     }
 
     // ------------------------------------------------------------------
@@ -496,6 +501,184 @@ class QuestSyncTest {
         // The fallback is what is shown, because the key has no translation in this test JVM. That is
         // the behaviour that matters: a missing translation must not show a raw key.
         assertEquals("Read it", task.text().getString());
+    }
+
+    // ------------------------------------------------------------------
+    // Per-locale text: the wire's two halves, and what a player reads
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a translatable title arrives as a key with its words, and reads as the words")
+    void translatableTitleReadsAsItsFallback() {
+        // The bug this exists for: the tree used to send `QuestText.value()`, which for a translatable
+        // text is the *key*, so the client drew `tasked.test.punch` on the node. The fallback field's
+        // presence is now what tells the client it is a key rather than a literal.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": {\"translate\": \"tasked.test.punch\", "
+                        + "\"fallback\": \"Punch a Tree\"}}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals("tasked.test.punch", entry.title(), "the wire still carries the author's key");
+        assertEquals("Punch a Tree", entry.titleFallback(), "and the words beside it");
+        assertEquals("Punch a Tree", entry.titleText(), "a player must never be shown the raw key");
+    }
+
+    @Test
+    @DisplayName("a plain string arrives with no fallback at all, so nothing can mistake it for a key")
+    void literalTitleCarriesNoFallback() {
+        // The empty fallback is load-bearing rather than incidental: it is the client's only way to
+        // tell a literal from a key. A server that sent the text in both fields would make a literal
+        // resolvable as a key, and a resource pack that happened to define that string would silently
+        // replace an author's plain words.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"Punch a Tree\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals("", entry.titleFallback());
+        assertEquals("Punch a Tree", entry.titleText());
+    }
+
+    @Test
+    @DisplayName("a translatable title with no fallback still marks itself as a key")
+    void translatableWithoutFallbackIsStillAKey() {
+        // An author may write `{"translate": key}` and nothing else, and the validator warns about it.
+        // The wire still sends a fallback -- the key itself -- because the field's *presence* is what
+        // tells the client to try the pack's conventional key. Sending nothing would make it a literal
+        // and take that road away, which is the difference between a translated title and a raw key.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": {\"translate\": \"tasked.test.punch\"}}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals("tasked.test.punch", entry.titleFallback());
+        assertEquals("tasked.test.punch", entry.titleText(),
+                "nothing can translate it, so the key is the only text there is");
+    }
+
+    @Test
+    @DisplayName("the pack's conventional key translates a plain string without touching the file")
+    void conventionalKeyTranslatesALiteral() {
+        // The road a converted pack uses: `quest.<id>.title` needs nothing in the quest file, which is
+        // what lets a translation be added without editing the questline at all.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"punch_a_tree\", \"title\": \"Punch a Tree\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("quest.punch_a_tree.title", "Vagj egy f\u00e1t"));
+
+        assertEquals("Vagj egy f\u00e1t", entryFor("punch_a_tree").titleText());
+        // And the raw field is untouched, because the editor seeds its text fields from it and a
+        // translated string written back would replace the author's own words.
+        assertEquals("Punch a Tree", entryFor("punch_a_tree").title());
+    }
+
+    @Test
+    @DisplayName("the author's own key wins over the pack's conventional one")
+    void authoredKeyBeatsConventionalKey() {
+        // Two roads to the same text, and the more specific one has to win: the author who wrote a
+        // translate key for this exact quest meant it, where the conventional key is what a pack-wide
+        // overlay says about the id.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": {\"translate\": \"my_pack.greeting\", "
+                        + "\"fallback\": \"Hello\"}}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientLocale.accept("hu_hu", "hu_hu", java.util.Map.of(
+                "my_pack.greeting", "Szia",
+                "quest.a.title", "Konvencionalis"));
+
+        assertEquals("Szia", entryFor("a").titleText());
+    }
+
+    @Test
+    @DisplayName("description fallbacks pair with their paragraphs, and the ends are cut together")
+    void descriptionFallbacksPairByIndex() {
+        // The pairing is by index, and the two lists are cut to the *same* ends. Trimming the
+        // fallbacks by their own blankness would be wrong in a way that is hard to see: a literal
+        // paragraph in the middle carries an empty fallback, so a rule that dropped blanks would drop
+        // that entry and shift every paragraph after it onto the wrong translation. See `Prose.Ends`.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"description\": ["
+                        + "\"\", "
+                        + "\"First\", "
+                        + "{\"translate\": \"my_pack.second\", \"fallback\": \"Second\"}, "
+                        + "\"Third\", "
+                        + "\"\"]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals(java.util.List.of("First", "Second", "Third"), entryFor("a").descriptionText(),
+                "the blank ends are cut from both lists, so nothing shifts onto the wrong paragraph");
+    }
+
+    @Test
+    @DisplayName("one key for the whole description overrides the paragraph count entirely")
+    void wholeDescriptionOverridesTheCount() {
+        // The road a translator uses when they condensed three paragraphs into one or split one into
+        // four. It is first because it is the only one that cannot half-fall-back against the
+        // canonical count.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"description\": [\"One\", \"Two\", \"Three\"]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("quest.a.description", "Egy\nKetto"));
+
+        assertEquals(java.util.List.of("Egy", "Ketto"), entryFor("a").descriptionText(),
+                "a description written as two paragraphs replaces one written as three");
+    }
+
+    @Test
+    @DisplayName("a description a locale supplies is kept even when the canonical one is empty")
+    void aTranslationCanBeTheOnlyDescription() {
+        // The road above, at the edge that is easy to get wrong: a quest with no description at all and
+        // a locale file that writes one. Returning early on the empty canonical list would drop the
+        // translator's work silently -- a key that reads as supported and does nothing.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file("{\"id\": \"a\", \"title\": \"a\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertTrue(entryFor("a").descriptionText().isEmpty());
+
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("quest.a.description", "Egy leiras"));
+
+        assertEquals(java.util.List.of("Egy leiras"), entryFor("a").descriptionText());
+    }
+
+    @Test
+    @DisplayName("a chapter and a group and a quest all answer to their own conventional keys")
+    void everyTextBearingObjectHasAConventionalKey() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"title\": \"Chapter One\",", "{\"id\": \"a\", \"title\": \"A\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientLocale.accept("hu_hu", "hu_hu", java.util.Map.of(
+                "chapter.chapter.title", "Elso fejezet",
+                "group.group.title", "Elso csoport",
+                "quest.a.title", "Egy"));
+
+        assertEquals("Elso fejezet", entryFor("a").chapterTitleText());
+        assertEquals("Elso fejezet", ClientQuestCache.chapters().get(0).titleText());
+        assertEquals("Elso csoport", ClientQuestCache.groups().get(0).titleText());
+        assertEquals("Egy", entryFor("a").titleText());
+    }
+
+    @Test
+    @DisplayName("the tree carries no locale but the canonical one")
+    void theTreeCarriesOneLocaleOnly() {
+        // The whole point of the separate channel: the tree is broadcast, so fifteen locales on it
+        // would send every player fourteen they cannot read, on the message that is already the
+        // largest one the mod sends. This is the check rather than the sentence.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"Punch a Tree\"}"));
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("quest.a.title", "Vagj egy f\u00e1t"));
+        String tree = new String(QuestSync.treeAsJson(index), java.nio.charset.StandardCharsets.UTF_8);
+
+        assertFalse(tree.contains("Vagj egy f\u00e1t"), "a locale's text reached the tree payload");
+        assertTrue(tree.contains("Punch a Tree"),
+                "and the canonical string is what the tree carries as the fallback");
     }
 
     @Test

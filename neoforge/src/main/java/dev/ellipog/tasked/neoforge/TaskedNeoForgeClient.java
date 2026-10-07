@@ -14,6 +14,7 @@ import dev.ellipog.tasked.client.ClientTableOpen;
 import dev.ellipog.tasked.client.ClientTableReplica;
 import dev.ellipog.tasked.client.ClientTableRoll;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.client.viewer.QuestViewerContent;
@@ -22,15 +23,19 @@ import dev.ellipog.tasked.client.ClientTicker;
 import dev.ellipog.tasked.client.ClientAppearance;
 import dev.ellipog.tasked.client.ClientWorking;
 import dev.ellipog.tasked.client.DevMode;
+import dev.ellipog.tasked.client.InventoryQuestBookButton;
 import dev.ellipog.tasked.client.ObservationWatcher;
 import dev.ellipog.tasked.client.QuestBookScreen;
 import dev.ellipog.tasked.client.QuestNotifier;
+import dev.ellipog.tasked.client.hud.HudEditScreen;
+import dev.ellipog.tasked.client.hud.HudSettings;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
 /**
@@ -57,12 +62,33 @@ public final class TaskedNeoForgeClient {
         ArmatureNetwork.install(new NeoForgeNetworking());
 
         ArmatureScreens.register(Tasked.QUEST_BOOK_SCREEN, QuestBookScreen::new);
+        ArmatureScreens.register(Tasked.HUD_EDIT_SCREEN, HudEditScreen::new);
 
         ArmatureClient.registerKeyMapping(
                 Tasked.QUEST_BOOK_SCREEN,
                 InputConstants.KEY_B,
                 "key.categories.tasked",
                 () -> ArmatureClient.openScreen(Tasked.QUEST_BOOK_SCREEN));
+
+        // The HUD editor's own key, declared the same way -- see the Fabric side.
+        ArmatureClient.registerKeyMapping(
+                Tasked.HUD_EDIT_SCREEN,
+                InputConstants.KEY_H,
+                "key.categories.tasked",
+                () -> ArmatureClient.openScreen(Tasked.HUD_EDIT_SCREEN));
+
+        // The quest book's other door. `addListener` is this loader's way of putting a widget on a screen
+        // that is being initialised, and it is the whole of the loader-shaped half; what to add and where
+        // is Tasked's, in `InventoryQuestBookButton`.
+        NeoForge.EVENT_BUS.addListener((ScreenEvent.Init.Post event) -> {
+            InventoryQuestBookButton button = InventoryQuestBookButton.forScreen(event.getScreen());
+            if (button != null) {
+                event.addListener(button);
+            }
+        });
+
+        // And the layout those lines read, before anything can draw it -- see the Fabric side.
+        HudSettings.loadFromConfig();
 
         // No developer screen and no F9: the tools are a panel in the book, reached from its header.
         DevMode.loadFromConfig();
@@ -93,6 +119,13 @@ public final class TaskedNeoForgeClient {
             // The notice half: the one detector of completions and claims, which speaks whether or not
             // the book is open. See QuestNotifier.
             QuestNotifier.tick();
+            // The language half: a player who changed language in the options is told to the server, so
+            // the book follows them without a reconnect. Guarded on being in a world, because there is
+            // no connection to send on before one and the server answers a join on its own.
+            if (net.minecraft.client.Minecraft.getInstance().player != null) {
+                ClientLocale.pollLocale(
+                        net.minecraft.client.Minecraft.getInstance().getLanguageManager().getSelected());
+            }
         });
 
         // Both, for the same reason as on Fabric: the cache's contents and the half-received chunks
@@ -100,6 +133,9 @@ public final class TaskedNeoForgeClient {
         // rather than in the cache.
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
             ClientQuestCache.clear();
+            // And the language: another server's translations are not this one's to draw, and a stale
+            // overlay would answer for keys the new server's pack spells differently -- or never says.
+            ClientLocale.clear();
             ClientChapterReplica.clear();
             ClientTableReplica.clear();
             ClientTableRoll.clear();

@@ -50,7 +50,11 @@ public final class RewardText {
         }
         if (label != null && !label.isEmpty() && fallback != null && !fallback.isEmpty()) {
             String subject = arg == null || arg.isEmpty() ? String.valueOf(Math.max(1, count)) : arg;
-            return Component.translatableWithFallback(label, fallback, subject).getString();
+            // Through the locale resolver rather than straight to the Component: a pack may translate
+            // this key in its own lang file, and that translation is the server's overlay rather than
+            // anything the client's Language holds. When it does not, this is the Component call
+            // unchanged -- see ClientLocale#text(String, String, Object...).
+            return ClientLocale.text(label, fallback, subject);
         }
         return label == null || label.isEmpty() ? "?" : label;
     }

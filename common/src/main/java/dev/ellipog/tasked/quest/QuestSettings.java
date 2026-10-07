@@ -38,7 +38,7 @@ import java.util.Set;
  */
 public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTeamReward,
                             boolean suppressAllAutoclaiming, int detectionDelay,
-                            String bookTitle, String bookIcon) {
+                            String bookTitle, String bookIcon, String fallbackLocale) {
 
     /**
      * What a tree that says nothing gets.
@@ -47,14 +47,19 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      * handing it over in the same breath is a choice an author makes, not one the mod makes for them.
      * An empty title and icon mean "draw the client's own title and no icon", which is what every
      * pack that predates these fields gets.
+     *
+     * <p>{@code en_us} as the fallback locale, because that is the language the tree's own strings
+     * are written in unless an author says otherwise: a quest file's {@code title} is the text a
+     * player reads when nothing translates it, so the canonical locale is whatever language those
+     * strings are in. See {@link QuestLanguages}.
      */
     public static final QuestSettings DEFAULTS =
-            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", "");
+            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", "", "en_us");
 
     /** The field names, for the validator and the schema. */
     public static final Set<String> FIELDS =
             Set.of("defaultAutoClaim", "defaultTeamReward", "suppressAllAutoclaiming", "detectionDelay",
-                    "bookTitle", "bookIcon");
+                    "bookTitle", "bookIcon", "fallbackLocale");
 
     public static final MapCodec<QuestSettings> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardAutoClaim.CODEC.optionalFieldOf("defaultAutoClaim", RewardAutoClaim.DISABLED)
@@ -64,8 +69,23 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
                     .forGetter(QuestSettings::suppressAllAutoclaiming),
             Codec.intRange(0, 72000).optionalFieldOf("detectionDelay", 20).forGetter(QuestSettings::detectionDelay),
             Codec.STRING.optionalFieldOf("bookTitle", "").forGetter(QuestSettings::bookTitle),
-            Codec.STRING.optionalFieldOf("bookIcon", "").forGetter(QuestSettings::bookIcon)
+            Codec.STRING.optionalFieldOf("bookIcon", "").forGetter(QuestSettings::bookIcon),
+            // Read through the same normalisation the loader uses, so an author who writes
+            // "en-US" gets the locale the files are keyed by rather than one that never matches.
+            Codec.STRING.optionalFieldOf("fallbackLocale", "en_us").forGetter(QuestSettings::fallbackLocale)
     ).apply(instance, QuestSettings::new));
+
+    /**
+     * The canonical locale, normalised, or empty when the setting names something that is not one.
+     *
+     * <p>Empty rather than the raw string, because every reader wants the locale id the files are
+     * keyed by: an unusable value means "no canonical locale", which is a state the resolution
+     * already handles, and passing the raw value on would be a second spelling that silently never
+     * matches a file.
+     */
+    public String canonicalLocale() {
+        return QuestLanguages.normalise(fallbackLocale);
+    }
 
     public static final Codec<QuestSettings> CODEC = MAP_CODEC.codec();
 

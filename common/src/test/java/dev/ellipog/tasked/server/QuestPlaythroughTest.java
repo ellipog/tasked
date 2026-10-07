@@ -14,6 +14,7 @@ import dev.ellipog.armature.api.teams.TeamRole;
 import dev.ellipog.armature.api.teams.Teams;
 import dev.ellipog.tasked.TaskedCommand;
 import dev.ellipog.tasked.api.TaskedScripts;
+import dev.ellipog.tasked.editor.EditPhases;
 import dev.ellipog.tasked.net.ClaimChoiceResultPayload;
 import dev.ellipog.tasked.progress.ClaimFilter;
 import dev.ellipog.tasked.progress.ProgressService;
@@ -279,6 +280,7 @@ class QuestPlaythroughTest {
         int seededQuests = 0;
         int seededFlat = 0;
         int seededTables = 0;
+        int seededLocales = 0;
         for (String name : examples) {
             Path relative = Path.of(name);
             String fileName = relative.getFileName().toString();
@@ -289,6 +291,17 @@ class QuestPlaythroughTest {
                 // its own pass and keeps it out of the index, so counting it as a quest here would
                 // fail the count below by exactly the number of tables.
                 seededTables++;
+                continue;
+            }
+
+            if (relative.getNameCount() > 1
+                    && relative.getName(0).toString().equals(QuestFiles.LANG_DIRECTORY)) {
+                // A translation, not a quest, for the same reason and by the same rule: `lang/` is
+                // reserved by name, and a locale is read by its own pass and kept out of the index.
+                // Counting one as a quest would fail the count below by exactly the number of locales
+                // -- and this is the shape the whole reserved-folder mechanism exists to produce, so
+                // the test that counts by file name is where it has to be honoured too.
+                seededLocales++;
                 continue;
             }
 
@@ -329,13 +342,13 @@ class QuestPlaythroughTest {
         assertEquals(seededQuests, TaskedQuests.index().questCount(),
                 "every quest in the seeded files should be in the index");
 
-        // The files the loader examines are the quest tree's, and a reward table is not one of them:
-        // it lives in its reserved folder, the discovery walk skips it by name, and its own pass reads
-        // it. So the seeded count comes down by the tables before it meets filesFound.
-        assertEquals(examples.size() - seededTables, loaded.filesFound(),
+        // The files the loader examines are the quest tree's, and neither a reward table nor a locale
+        // is one of them: each lives in a folder reserved by name, the discovery walk skips it, and its
+        // own pass reads it. So the seeded count comes down by both before it meets filesFound.
+        assertEquals(examples.size() - seededTables - seededLocales, loaded.filesFound(),
                 "every seeded file the loader examines should have been found and read. Reward tables"
-                        + " are seeded but not examined -- they are read by their own pass -- so they"
-                        + " come off the seeded count here.");
+                        + " and locales are seeded but not examined -- they are read by their own passes"
+                        + " -- so they come off the seeded count here.");
 
         // And the tables are loaded, keyed by file name: the same contract as a chapter's quest list,
         // and the one a `tasked:loot` reward like The Winnings depends on resolving.
@@ -345,14 +358,26 @@ class QuestPlaythroughTest {
                 "the examples no longer include a reward table, so nothing in the playthrough rolls one"
                         + " -- add one under tools/quests/reward_tables/ or stop counting on it");
 
+        // And the locales, which are the same shape of claim one folder over: a file in a reserved
+        // folder is seeded, is read by its own pass, and never reaches the index. Asserted here rather
+        // than in a test of its own because this is the one place the whole tree is put on disk and
+        // loaded through the real entry point -- so it is the only place that can catch a `lang/` folder
+        // the loader stops reading, which is exactly what a reserved name going stale looks like.
+        assertEquals(seededLocales, TaskedQuests.languages().locales().size(),
+                "every seeded locale should have been read, and none invented");
+        assertTrue(TaskedQuests.languages().refused().isEmpty(),
+                () -> "the shipped example's translation was refused: "
+                        + TaskedQuests.languages().refused());
+
         // And not vacuously: every count above is zero if the walk found nothing, and zero equals zero.
         assertTrue(seededQuests > 0 && seededGroups > 0,
                 "the counting walk found no content at all under " + EXAMPLES.toAbsolutePath()
                         + ", so every assertion above is comparing zero with zero");
 
         note("the seeded examples are " + seededQuests + " quest(s) in " + seededChapters
-                + " chapter(s) in " + seededGroups + " group(s) and " + seededTables
-                + " reward table(s), from " + examples.size() + " file(s)");
+                + " chapter(s) in " + seededGroups + " group(s), " + seededTables
+                + " reward table(s) and " + seededLocales + " locale(s), from " + examples.size()
+                + " file(s)");
     }
 
     @Test
@@ -2461,6 +2486,48 @@ class QuestPlaythroughTest {
         clearInventories();
         note("a chapter's press paid its own reward, left the other chapter's, and an unknown id paid "
                 + "nothing");
+    }
+
+    @Test
+    @DisplayName("a locale is packed once per language, however many players read it")
+    void aLocaleIsPackedOncePerLanguage() {
+        // The claim the per-locale cache exists for, and it is measured rather than asserted in prose
+        // because a cache that quietly stopped working would show up as a number nobody reads. The
+        // reason it matters: `sendTreeTo` already pays one encode and one deflate **per recipient** and
+        // is instrumented for exactly that (see `WireTiming`), so a second per-recipient encode would
+        // be the wrong direction twice over.
+        //
+        // Run without `@Order`, so it goes last, after the playthrough has finished with the server.
+        //
+        // The language is `es_es` rather than whatever these players read, and that is the point of
+        // the test: it is a locale nobody has asked for yet, so the first call is a genuine miss and
+        // the second is a genuine hit. The shipped example translates `es_es`, so the bundle is real
+        // rather than an empty object that would be cheap either way.
+        boolean wasOn = EditPhases.on();
+        EditPhases.set(true);
+        try {
+            QuestSync.drainWireTiming();
+            server.callOnServerThread(() -> {
+                QuestSync.sendLocaleFor(player, "es_es");
+                return null;
+            });
+            QuestSync.WireTiming first = QuestSync.drainWireTiming();
+
+            server.callOnServerThread(() -> {
+                QuestSync.sendLocaleFor(player, "es_es");
+                return null;
+            });
+            QuestSync.WireTiming second = QuestSync.drainWireTiming();
+
+            assertTrue(first.encodeNanos() + first.deflateNanos() > 0,
+                    "the first reader of a language pays to pack it");
+            assertEquals(0, second.encodeNanos() + second.deflateNanos(),
+                    "and the next reader of the same language reuses those bytes rather than rebuilding"
+                            + " them -- which is what keeps a second encode off the per-recipient path");
+        }
+        finally {
+            EditPhases.set(wasOn);
+        }
     }
 
     /**

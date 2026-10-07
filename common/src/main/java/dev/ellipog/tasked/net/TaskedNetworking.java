@@ -9,6 +9,7 @@ import dev.ellipog.tasked.Constants;
 import dev.ellipog.tasked.QuestAuthority;
 import dev.ellipog.tasked.client.ClientChapterReplica;
 import dev.ellipog.tasked.client.ClientEditReplies;
+import dev.ellipog.tasked.client.ClientLocale;
 import dev.ellipog.tasked.client.ClientPartyCache;
 import dev.ellipog.tasked.client.ClientQuestCache;
 import dev.ellipog.tasked.editor.EditorOp;
@@ -23,6 +24,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -64,6 +66,15 @@ public final class TaskedNetworking {
      */
     private static final SyncWire.Reassembler TREE = new SyncWire.Reassembler();
     private static final SyncWire.Reassembler PROGRESS = new SyncWire.Reassembler();
+
+    /**
+     * The locale's own, for the reason the two above are separate from each other.
+     *
+     * <p>A third rather than sharing the tree's: the locale is sent on its own channel and its transfer
+     * ids come from the same counter, so a chunk of one could otherwise complete a message of the other
+     * and hand the parser a locale where it expected a questline.
+     */
+    private static final SyncWire.Reassembler LOCALE = new SyncWire.Reassembler();
 
     /**
      * Every roster message sent, by the player it went to.
@@ -243,6 +254,26 @@ public final class TaskedNetworking {
                 null,
                 TaskedNetworking::handleClaimChoice));
 
+        // --- one player's quest text, in the language they read ---
+        //
+        // The tree is broadcast and carries the canonical strings; a locale is one player's business
+        // and travels on its own. The request exists because the server cannot see a language change
+        // made after the login handshake -- see LocaleRequestPayload.
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                LocaleSyncPayload.TYPE,
+                LocaleSyncPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TaskedNetworking::handleLocale,
+                null));
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                LocaleRequestPayload.TYPE,
+                LocaleRequestPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TaskedNetworking::handleLocaleRequest));
+
         // --- what a grant had to drop, so the book can say it while it is open ---
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
@@ -419,6 +450,54 @@ public final class TaskedNetworking {
     }
 
     /**
+     * One chunk of the locale: reassemble, decompress, hand the overlay to the resolver.
+     *
+     * <p>Silence while a message is incomplete, a log line and a shrug when one cannot be read — the
+     * same treatment the tree gets, and for the same reason: a client that refused to connect because
+     * one pack file it cannot parse appeared would be a worse failure than one that shows the canonical
+     * text and says nothing.
+     *
+     * <p>The JSON is a flat object of key to text, which is the shape a resource pack's language file
+     * has. A member that is not a string is dropped rather than refused: a locale is an overlay, so the
+     * worst a malformed entry can do is leave one key reading in the canonical language.
+     */
+    private static void handleLocale(LocaleSyncPayload payload) {
+        byte[] json = completed(LOCALE, payload.chunk(), payload.data(), "locale");
+        if (json == null) {
+            return;
+        }
+        java.util.Map<String, String> entries = new java.util.LinkedHashMap<>();
+        try {
+            JsonObject root = JsonParser.parseString(new String(json, StandardCharsets.UTF_8))
+                    .getAsJsonObject();
+            for (java.util.Map.Entry<String, JsonElement> each : root.entrySet()) {
+                if (each.getValue().isJsonPrimitive()
+                        && each.getValue().getAsJsonPrimitive().isString()) {
+                    entries.put(each.getKey(), each.getValue().getAsString());
+                }
+            }
+        }
+        catch (RuntimeException e) {
+            Constants.LOG.warn("tasked: ignored an unreadable locale from the server: {}",
+                    e.getMessage());
+            return;
+        }
+        ClientLocale.accept(payload.locale(), payload.served(), entries);
+    }
+
+    /**
+     * A client says it is reading in a different language now: answer with that locale.
+     *
+     * <p>The string is the client's own, so it is used as a <b>map key</b> and nothing else — the pack's
+     * files were read at load, and this looks a language up among them. Anything that is not a locale id
+     * resolves to nothing, and nothing is answered with an empty overlay rather than with silence, so
+     * the client stops asking. See {@code QuestSync.sendLocaleFor}.
+     */
+    private static void handleLocaleRequest(LocaleRequestPayload payload, ServerPlayer sender) {
+        QuestSync.sendLocaleFor(sender, payload.locale());
+    }
+
+    /**
      * A chunk's bytes once the message is whole, or null while it is not.
      *
      * <p>The one place the two handlers' error handling lives, so a malformed tree and a malformed
@@ -463,11 +542,12 @@ public final class TaskedNetworking {
     public static void forgetTransfers() {
         TREE.forgetAll();
         PROGRESS.forgetAll();
+        LOCALE.forgetAll();
     }
 
     /** How many transfers are half-received. Diagnostics for a test. */
     public static int pendingTransfers() {
-        return TREE.pendingTransfers() + PROGRESS.pendingTransfers();
+        return TREE.pendingTransfers() + PROGRESS.pendingTransfers() + LOCALE.pendingTransfers();
     }
 
     /**
@@ -775,6 +855,11 @@ public final class TaskedNetworking {
         QuestIndex index = TaskedQuests.index();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             QuestSync.sendTreeTo(player, index);
+            // And their language, on the same broadcast. A reload is how an author iterates on a lang
+            // file, so the tree arriving without the text it names would leave the one person who just
+            // edited a translation looking at the old one. Cheap by construction: the message is packed
+            // once per language however many players are on it -- see `QuestSync.localeChunks`.
+            QuestSync.sendLocaleTo(player);
             switch (progress) {
                 case NONE -> {
                     // Nothing about a player has moved. The tree above is the whole of the message.
