@@ -109,9 +109,10 @@ how every pack written before the file existed still loads.
 
 ## Ids, aliases, and the cost of a rename
 
-An id is lowercase letters, digits and underscores, at most 64 characters. It appears in player
-progress files, which is the whole reason `aliases` exists: a renamed quest, chapter or group lists
-its former ids, and nothing that referenced the old name breaks.
+An id is lowercase letters, digits and underscores, at most 64 characters, and it may not begin with
+`_` — the loader skips every name that does — nor end in `.deleted`, which is what a removed chapter is
+renamed to. It appears in player progress files, which is the whole reason `aliases` exists: a renamed
+quest, chapter or group lists its former ids, and nothing that referenced the old name breaks.
 
 > [!CAUTION]
 > **Renaming an id without an alias orphans the progress stored under the old one.** A player keeps

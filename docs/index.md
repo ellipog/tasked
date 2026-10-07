@@ -6,7 +6,7 @@ as done — the client renders what it is told and nothing more, so no player ca
 editing their own game.
 
 > [!NOTE]
-> **Tasked is at 0.1.2 — pre-1.0 — and everything these pages describe works on both loaders, except
+> **Tasked is at 0.1.3 — pre-1.0 — and everything these pages describe works on both loaders, except
 > where a page says otherwise** (the KubeJS binding is NeoForge-only, and its page says so). The
 > quest folder format and its [[validator]], the progression engine, server-authoritative sync, the
 > quest book and its in-game editor are all built, but the version is below 1.0 on purpose: a break
@@ -68,8 +68,9 @@ and the lines between nodes are its dependencies. From a quest's card a player s
 [[reward]]s, and picks between a choice reward's entries. A player in a party sees the roster there
 too, and the counts the party's mode combines.
 
-An operator gets the `✎ Edit` and `Assets` pills over the canvas's top-right corner — the header itself
-carries no authoring control. Edit latches edit mode and opens the tools panel; Assets opens the pack's
-own files. That is the in-game editor, and it writes the same files these pages describe: the server
+An operator gets three pills over the canvas's top-left corner — `Panels`, `Assets` and `✎ Edit` — and
+the header itself carries no authoring control. `Panels` latches the author's dock, which is where the
+Book and Chapter tabs live; `Assets` opens the pack's own files; `Edit` latches edit mode and nothing
+else. That is the in-game editor, and it writes the same files these pages describe: the server
 re-checks the permission and validates before anything lands on disk, so no quest file is written by the
 client — the player's own look and text size live in files the client owns.

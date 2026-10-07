@@ -5,7 +5,8 @@ claiming, and everything under `party` — are for whoever is playing. The comma
 quest files or operator state (`reload`, `complete`, `reset`, `rewards block|unblock`, `stage
 add|remove`, and naming another player in `stage list`) ask for permission level 2, a command
 block's level — and so does everything under `table`, the reads included, along with `config`:
-they name the server's own file paths and table ids.
+they name the server's own file paths and table ids. The three diagnostics in their own table below
+take the same level, because they read the server's own costs rather than a player's.
 
 ## For players
 
@@ -32,6 +33,14 @@ they name the server's own file paths and table ids.
 | `/tasked stage remove <player> <stage>` | Take one away. |
 | `/tasked types` | Every task, reward and condition type this build has, with the fields each one takes. |
 | `/tasked config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tasked reload` — both files are re-read. A player's own text size is in the book's Settings card; the palette, the corner radius and the Motion switch are in the tools panel's Quest Book tab, which needs edit permission. |
+
+Three diagnostics, and they are operator tools rather than preferences:
+
+| Command | What it does |
+|---|---|
+| `/tasked vitals [on\|off]` | Show or hide the frame-rate readout over the canvas. Bare, it flips. |
+| `/tasked editcost [on\|off]` | Start or stop logging what one editing gesture costs on the server. It works from the console, because the question it answers is about a server's cost rather than a client's. |
+| `/tasked iconmode <0-3>` | A temporary experiment in how a node's item icon is drawn: four arms, so the one that shows the item names the cause of the one that did not. It sets a **system property**, so on a dedicated server it changes the server's JVM and nothing visible. |
 
 ## Reward tables
 
