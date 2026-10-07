@@ -25819,53 +25819,39 @@ public final class QuestBookScreen extends ArmatureScreen
         if (!mayEditNow()) {
             return;
         }
-        // The dragged node first, then the rest of the selection, so the batch reads in the order the gesture
-        // happened and the node the author is holding is the one the server applies first.
-        List<String> ids = new ArrayList<>();
-        if (draggedId != null) {
-            ids.add(draggedId);
-        }
+        // **The decision is `MoveCommit`'s; this method has only the two side effects left.** That split is
+        // the whole point of the class: both faults this path has had were decisions — a position invented
+        // for a node that had none, and a dragged node that never entered the list — and neither was visible
+        // to a test because the decision and the write lived in the same place, on a screen no test builds.
+        java.util.function.Function<String, String> chapterOf = id -> {
+            ClientQuestCache.Entry entry = entryFor(id);
+            return entry == null ? null : entry.chapterId();
+        };
+
+        // The selection's positions are the ones the canvas is drawing it at -- the pending values, guarded,
+        // because `movedX` answers zero for an id it does not hold and that zero was the (0,0) fault. A node
+        // with no pending position is not passed at all, so the planner has nothing to invent a coordinate
+        // from.
+        List<dev.ellipog.tasked.client.dev.MoveCommit.Move> selection = new ArrayList<>();
         for (String id : moved) {
-            if (!id.equals(draggedId)) {
-                ids.add(id);
+            if (editors.hasMoved(id)) {
+                selection.add(new dev.ellipog.tasked.client.dev.MoveCommit.Move(
+                        id, (float) editors.movedX(id), (float) editors.movedY(id)));
             }
         }
 
-        java.util.Map<String, List<String>> byChapter =
-                dev.ellipog.tasked.client.dev.BatchPlan.byChapter(ids, id -> {
-                    ClientQuestCache.Entry entry = entryFor(id);
-                    return entry == null ? null : entry.chapterId();
-                });
-
-        // **Recorded only what the plan actually carries.** A node whose entry the cache does not know is
-        // dropped by `byChapter`, and recording it anyway would leave the canvas drawing a move the server was
-        // never asked for: it would hold that position until the next tree arrived and then snap back, which
-        // reads as an edit that undid itself.
-        for (List<String> inChapter : byChapter.values()) {
-            for (String id : inChapter) {
-                if (id.equals(draggedId)) {
-                    recordMove(id, dragX, dragY, revision);
-                }
-                else if (editors.hasMoved(id)) {
-                    // Only the ones still pending: `movedX` answers zero for an id it does not hold, and
-                    // committing that zero wrote every other selected quest to (0,0). See `nodeX`, whose own
-                    // note records the same fault in the same words.
-                    recordMove(id, (float) editors.movedX(id), (float) editors.movedY(id), revision);
-                }
-            }
+        // Recorded and sent from the same grouping, so the canvas and the wire cannot disagree: recording
+        // without sending leaves the tree wrong for a round trip, and sending without recording leaves the
+        // canvas showing the server's old answer for the same round trip.
+        for (dev.ellipog.tasked.client.dev.MoveCommit.Move move
+                : dev.ellipog.tasked.client.dev.MoveCommit.carried(
+                        draggedId, dragX, dragY, selection, chapterOf)) {
+            recordMove(move.id(), move.x(), move.y(), revision);
         }
-
-        for (java.util.Map.Entry<String, List<String>> chapter : byChapter.entrySet()) {
-            List<EditorOp> ops = new ArrayList<>(chapter.getValue().size());
-            for (String id : chapter.getValue()) {
-                ops.add(new EditorOp.Move(id, (long) editors.movedX(id), (long) editors.movedY(id)));
-            }
-            if (ops.size() == 1) {
-                send(ops.get(0), chapter.getKey());
-            }
-            else {
-                send(dev.ellipog.tasked.editor.EditorOps.batch(ops), chapter.getKey());
-            }
+        for (dev.ellipog.tasked.client.dev.MoveCommit.Chapter chapter
+                : dev.ellipog.tasked.client.dev.MoveCommit.plan(
+                        draggedId, dragX, dragY, selection, chapterOf)) {
+            send(chapter.op(), chapter.chapterId());
         }
     }
 
