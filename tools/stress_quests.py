@@ -53,9 +53,13 @@ import sys
 
 # ---------------------------------------------------------------- the shape of the pack
 
-#: The chapter count and the size of each. 12 x 80 is 960, which is the row the table names.
-CHAPTERS = 12
-PER_CHAPTER = 80
+#: The default size, and **one chapter**. Splitting the same count across twelve chapters would make twelve
+#: small chapters, which is the thing this pack exists not to be: every question it answers is about a
+#: *canvas* -- how fills grow with the node count, whether the edge list is linear, what a drag costs on a
+#: big graph -- and a chapter is the unit a canvas draws. More chapters is a different pack, so it is a flag
+#: rather than the default.
+CHAPTERS = 1
+PER_CHAPTER = 960
 
 #: Fixed, so a baseline taken on this pack can be retaken. Change it and you have a different pack.
 SEED = 0x5EED_1234
@@ -137,7 +141,7 @@ def quest_id(chapter_index, quest_index):
     return f"stress_{chapter_index:02d}_{quest_index:03d}"
 
 
-def quest_for(rng, chapter_index, quest_index, dependency_ids, mode):
+def quest_for(rng, chapter_index, quest_index, dependency_ids, mode, grid_columns):
     """
     One quest, with its connections and its styling drawn from the fixed random stream.
 
@@ -155,11 +159,13 @@ def quest_for(rng, chapter_index, quest_index, dependency_ids, mode):
         "id": qid,
         "title": f"Stress {chapter_index:02d}-{quest_index:03d}",
         "icon": item_ref(item),
-        # A 32-unit grid with room for the widest outline, so nodes never overlap at 100% and the layout
-        # is the same on every run. Ten columns of eight, which fits the aspect of a canvas better than a
-        # square block does.
-        "x": (quest_index % 10) * 96,
-        "y": (quest_index // 10) * 96,
+        # A **near-square** grid rather than a wide one, because with a thousand nodes the shape of the
+        # block decides what the canvas looks like at a given zoom: a wide block needs a wide canvas and
+        # puts most of the pack off-screen at any usable scale, which measures the cull rather than the
+        # graph. 96 units apart on the 32-unit grid, so the widest outline has room and nodes never
+        # overlap at 100% -- and it is a function of the index, so the layout is identical on every run.
+        "x": (quest_index % grid_columns) * 96,
+        "y": (quest_index // grid_columns) * 96,
         "shape": SHAPES[(chapter_index + quest_index) % len(SHAPES)],
         "iconScale": round(0.25 + 0.75 * ((chapter_index * 3 + quest_index) % 5) / 4, 2),
     }
@@ -222,7 +228,15 @@ def chapter_for(rng, index, count):
     sometimes produces a pack which will not load.
     """
     chapter_id = f"stress_{index:02d}"
-    linear = index in (0, 5)
+    # **Not chapter 0**, and that matters more than it looks: a `linear` chapter's order *is* its
+    # progression and it declares no dependencies at all, so making the first chapter linear would throw
+    # away the whole randomised graph -- the fan-in, the cross-links, the per-line overrides keyed by
+    # dependency. The default pack is one chapter, so this is the difference between a stress graph and a
+    # chain of 960 boxes. `--chapters 6` puts a linear one in the set, which is how that mode gets covered.
+    linear = index in (5,)
+    # A near-square block. `int(sqrt(count))` rather than a constant, so `--quests 4000` is still a
+    # sensible shape instead of a ribbon a thousand nodes long.
+    grid_columns = max(1, int(count ** 0.5))
     quests = []
     ids = []
 
@@ -237,7 +251,7 @@ def chapter_for(rng, index, count):
                 if candidate not in dependencies:
                     dependencies.append(candidate)
         mode = MODES[(index + q) % len(MODES)]
-        quests.append(quest_for(rng, index, q, dependencies, mode))
+        quests.append(quest_for(rng, index, q, dependencies, mode, grid_columns))
         ids.append(quest_id(index, q))
 
     # The chapter's own default, so most lines take one path and the overrides are the exception. The two
@@ -489,6 +503,9 @@ def main() -> int:
                         help="write into this repo's test combos and both Modrinth profiles")
     parser.add_argument("--quests", type=int, default=CHAPTERS * PER_CHAPTER,
                         help=f"total quests (default {CHAPTERS * PER_CHAPTER})")
+    parser.add_argument("--chapters", type=int, default=CHAPTERS,
+                        help=f"how many chapters to spread them over (default {CHAPTERS}; more than one is"
+                             f" a different pack, because a canvas draws a chapter)")
     parser.add_argument("--dry-run", action="store_true", help="report without writing")
     parser.add_argument("--verify", action="store_true",
                         help="check an existing pack against the schemas instead of writing one")
@@ -508,11 +525,12 @@ def main() -> int:
         parser.error("name at least one directory, or pass --workspace")
 
     # The chapter count is derived from the requested total so `--quests 2000` does not silently keep
-    # making twelve chapters of eighty.
-    per_chapter = PER_CHAPTER
-    chapter_count = max(1, args.quests // per_chapter)
+    # making twelve chapters of eighty. One chapter by default: see the note on CHAPTERS.
+    per_chapter = max(1, args.quests // max(1, args.chapters))
+    chapter_count = max(1, args.chapters)
     failed = 0
-    print(f"{args.quests} quest(s) over {chapter_count} chapter(s) of {per_chapter}, seed {SEED:#x}")
+    print(f"{per_chapter * chapter_count} quest(s) over {chapter_count} chapter(s) of {per_chapter}, "
+          f"seed {SEED:#x}")
 
     for target in targets:
         if not target.is_dir():
