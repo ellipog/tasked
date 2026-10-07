@@ -23,13 +23,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Open the guild chest"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:diamond",
       "count": 2,
       "team": true

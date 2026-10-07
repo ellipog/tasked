@@ -18,7 +18,7 @@ demonstrates in its own description.
 
 What this script is
 -------------------
-The files are the content; this script is how they are written, so a clone of Tasked can
+The files are the content; this script is how they are written, so a clone of Tenet can
 regenerate them rather than hand-editing seventy JSON documents. It is table-driven: one entry
 per quest, a polar layout pass that turns an arm and a slot into canvas coordinates, and a
 **coverage check** that fails before anything is written if a task type, a reward mode, a
@@ -32,7 +32,7 @@ this script's to delete.
 
 Usage
 -----
-    python tasked/tools/gen_examples.py
+    python tenet/tools/gen_examples.py
 """
 
 from __future__ import annotations
@@ -75,15 +75,15 @@ def describe(*paragraphs: str) -> list[str]:
 
 
 def task(kind: str, **fields):
-    return {"type": "tasked:" + kind, **fields}
+    return {"type": "tenet:" + kind, **fields}
 
 
 def reward(kind: str, **fields):
-    return {"type": "tasked:" + kind, **fields}
+    return {"type": "tenet:" + kind, **fields}
 
 
 def condition(kind: str, **fields):
-    return {"type": "tasked:" + kind, **fields}
+    return {"type": "tenet:" + kind, **fields}
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +514,7 @@ QUEST_DEFS: list[dict] = [
         "arm": "measures", "slot": 3, "offset": -12,
         "deps": ["the_long_walk"],
         "desc": describe(
-            "A `tasked:custom` task measures whatever a registered handler answers. Nothing"
+            "A `tenet:custom` task measures whatever a registered handler answers. Nothing"
             " outside a handler can advance it, so this quest will not complete in a build"
             " without one -- and that is not an error: the validator warns that nothing provides"
             " the id, which is exactly what a pack shipping an optional handler mod wants to"
@@ -907,7 +907,7 @@ QUEST_DEFS: list[dict] = [
         "deps": ["the_engine"],
         "lines": {"the_engine": {"arrowHead": "diamond"}},
         "desc": describe(
-            "Two `tasked:random` rewards, the two ways a table can arrive. The first names"
+            "Two `tenet:random` rewards, the two ways a table can arrive. The first names"
             " `dice`, a file under `reward_tables/`; the second carries its table `inline`, for"
             " a reward that is its own roll.",
             "The inline table's one entry rolls another named table, `dregs` -- tables nest,"
@@ -932,10 +932,10 @@ QUEST_DEFS: list[dict] = [
         "arm": "treasury", "slot": 1, "offset": -12,
         "deps": ["the_house_always_wins"],
         "desc": describe(
-            "The same table, rolled two ways. `tasked:loot` includes the empty band: `toll`"
+            "The same table, rolled two ways. `tenet:loot` includes the empty band: `toll`"
             " carries `emptyWeight: 4`, so a throw can come up with nothing at all -- the one"
             " table mode where 'no prize' is a possible answer.",
-            "`tasked:all_table` is the other extreme: no dice, every entry granted, weight-zero"
+            "`tenet:all_table` is the other extreme: no dice, every entry granted, weight-zero"
             " entries and all. Between them the two rewards show the mode field deciding what a"
             " table means."),
         "tasks": [task("checkmark", title="Draw the dust")],
@@ -952,7 +952,7 @@ QUEST_DEFS: list[dict] = [
         "arm": "treasury", "slot": 1, "offset": 12,
         "deps": ["the_house_always_wins"],
         "desc": describe(
-            "`tasked:choice` sends the table's entries to the player and waits for the pick."
+            "`tenet:choice` sends the table's entries to the player and waits for the pick."
             " The payout *is* the decision, so a choice reward is never auto-granted -- whatever"
             " the chapter's `autoClaim` says -- and a crash between the offer and the pick"
             " loses nothing.",
@@ -975,7 +975,7 @@ QUEST_DEFS: list[dict] = [
         "arm": "treasury", "slot": 2, "offset": -16,
         "deps": ["the_dust_draw"],
         "desc": describe(
-            "Three `tasked:item` rewards, one per field. The first rolls `randomBonus` on top of"
+            "Three `tenet:item` rewards, one per field. The first rolls `randomBonus` on top of"
             " its count -- up to eight more gold ingots, decided when the reward is collected.",
             "The second sets `onlyOne: true`, so it is skipped if the player already carries a"
             " shield: the field for a reward that should not arrive twice.",
@@ -1086,7 +1086,7 @@ QUEST_DEFS: list[dict] = [
             " that must not depend on the player's rights. Level 2 is the default because most"
             " commands should be a command block's; this one is the exception.",
             "`ignoreRewardBlocking: true` pays even while an operator has held the team's"
-            " automatic payouts with `/tasked rewards block` -- the hold's one sanctioned"
+            " automatic payouts with `/tenet rewards block` -- the hold's one sanctioned"
             " exception, for the reward that is a debt rather than a gift."),
         "tasks": [task("checkmark", title="Pay the crowns due")],
         "rewards": [reward("command", command="give {p} minecraft:gold_block 1",
@@ -1269,7 +1269,7 @@ QUEST_DEFS: list[dict] = [
     },
     {
         "id": "the_calling",
-        "title": {"translate": "tasked.example.first_light.the_calling",
+        "title": {"translate": "tenet.example.first_light.the_calling",
                   "fallback": "The Calling"},
         "subtitle": "A stage granted, and a title in the other spelling",
         "icon": "minecraft:name_tag",
@@ -1555,7 +1555,7 @@ QUEST_DEFS: list[dict] = [
             "`hideDependencyLines` draws no line arriving at this quest. The node itself is"
             " unaffected, and quests that depend on it still draw their lines to it -- one"
             " edge's worth of line art, withheld.",
-            "The reward is `tasked:custom`, the write half of the custom pair: it does whatever"
+            "The reward is `tenet:custom`, the write half of the custom pair: it does whatever"
             " a handler registered under `first_light:announce` does, and warns rather than"
             " failing when no handler is registered. The KubeJS page has the pattern, with a"
             " placeholder id of its own rather than this one."),
@@ -1671,7 +1671,7 @@ def build_chapter() -> dict:
             " a `themePatch` layered on top -- two token colours, a corner radius, a motion"
             " duration and an easing curve -- which is how a chapter sets its own look without"
             " shipping a whole theme file.",
-            "Read it as documentation, or walk it as a tour: `/tasked complete <quest>` moves"
+            "Read it as documentation, or walk it as a tour: `/tenet complete <quest>` moves"
             " one node at a time, which is how a canvas this size is meant to be seen."),
         "aliases": ["the_engine_room"],
         "icon": {"item": "minecraft:spyglass"},
@@ -1760,21 +1760,21 @@ def check_coverage(quests: list[dict], chapter: dict, group: dict):
     condition_types = {c["type"] for c in conditions}
 
     for kind in TASK_TYPES:
-        need("tasked:" + kind in task_types, "task type tasked:" + kind)
+        need("tenet:" + kind in task_types, "task type tenet:" + kind)
     for kind in REWARD_TYPES:
-        need("tasked:" + kind in reward_types, "reward type tasked:" + kind)
+        need("tenet:" + kind in reward_types, "reward type tenet:" + kind)
     for mode in TABLE_MODES:
-        need(any(r["type"] == "tasked:" + mode for r in all_rewards),
-             "table mode tasked:" + mode)
+        need(any(r["type"] == "tenet:" + mode for r in all_rewards),
+             "table mode tenet:" + mode)
     need(any(r.get("table") for r in all_rewards), "a named table reward")
     need(any(r.get("inline") for r in all_rewards), "an inline table reward")
-    need(any(r["type"] == "tasked:random" and r.get("table") for r in all_rewards)
+    need(any(r["type"] == "tenet:random" and r.get("table") for r in all_rewards)
          or any(entry.get("reward", {}).get("table")
                 for r in all_rewards if r.get("inline")
                 for entry in r["inline"].get("entries", [])),
          "a nested table roll")
 
-    item_tasks = [t for t in all_tasks if t["type"] == "tasked:item"]
+    item_tasks = [t for t in all_tasks if t["type"] == "tenet:item"]
     for match in ["none", "fuzzy", "strict"]:
         need(any(t.get("match") == match for t in item_tasks), "item match: " + match)
     need(any(t.get("components") for t in item_tasks), "item components")
@@ -1783,16 +1783,16 @@ def check_coverage(quests: list[dict], chapter: dict, group: dict):
     need(any(t.get("consumeItems") is False for t in item_tasks),
          "consumeItems: false on a task (the declining task)")
     need(any(t.get("count", 0) >= 256 for t in item_tasks), "an item count in the hundreds")
-    need(any(t["type"] == "tasked:xp" and t.get("points") is True for t in all_tasks),
+    need(any(t["type"] == "tenet:xp" and t.get("points") is True for t in all_tasks),
          "an xp task in points")
-    need(any(t["type"] == "tasked:xp" and t.get("points") is False for t in all_tasks),
+    need(any(t["type"] == "tenet:xp" and t.get("points") is False for t in all_tasks),
          "an xp task in levels")
     need(any(t.get("ignoreDimension") for t in all_tasks), "location ignoreDimension")
-    kills = [t for t in all_tasks if t["type"] == "tasked:kill"]
+    kills = [t for t in all_tasks if t["type"] == "tenet:kill"]
     need(any(t.get("customName") for t in kills), "a kill by customName")
     need(any(t.get("nbtFilter") for t in kills), "a kill by nbtFilter")
     need(any(t.get("entityTypeTag") for t in kills), "a kill by entityTypeTag")
-    observations = [t for t in all_tasks if t["type"] == "tasked:observation"]
+    observations = [t for t in all_tasks if t["type"] == "tenet:observation"]
     for observe in OBSERVE_TYPES:
         need(any(t.get("observeType") == observe for t in observations),
              "observation of " + observe)
@@ -1802,18 +1802,18 @@ def check_coverage(quests: list[dict], chapter: dict, group: dict):
     need(any(t.get("optional") for t in all_tasks), "an optional task")
 
     for kind in CONDITION_TYPES:
-        need("tasked:" + kind in condition_types, "condition type tasked:" + kind)
+        need("tenet:" + kind in condition_types, "condition type tenet:" + kind)
 
-    item_rewards = [r for r in all_rewards if r["type"] == "tasked:item"]
+    item_rewards = [r for r in all_rewards if r["type"] == "tenet:item"]
     need(any(r.get("randomBonus") for r in item_rewards), "item reward randomBonus")
     need(any(r.get("onlyOne") for r in item_rewards), "item reward onlyOne")
     need(any(r.get("components") for r in item_rewards), "item reward components")
-    need(any(r["type"] == "tasked:xp" and r.get("levels") for r in all_rewards),
+    need(any(r["type"] == "tenet:xp" and r.get("levels") for r in all_rewards),
          "an xp reward in levels")
-    commands = [r for r in all_rewards if r["type"] == "tasked:command"]
+    commands = [r for r in all_rewards if r["type"] == "tenet:command"]
     need(any(r.get("silent") for r in commands), "a silent command reward")
     need(any("{" in r.get("command", "") for r in commands), "command placeholders")
-    need(any(r["type"] == "tasked:stage" and r.get("remove") for r in all_rewards),
+    need(any(r["type"] == "tenet:stage" and r.get("remove") for r in all_rewards),
          "a stage reward that removes")
     need(any(r.get("team") for r in all_rewards), "a team reward")
     need(any(r.get("excludeFromClaimAll") for r in all_rewards), "excludeFromClaimAll")

@@ -3,7 +3,7 @@ seed_quests.py - put the example questlines into a config directory.
 
 Why this is a script and not something the mod does
 ---------------------------------------------------
-Tasked ships no quests. It is a quest *engine*, and a mod that installs example chapters into
+Tenet ships no quests. It is a quest *engine*, and a mod that installs example chapters into
 every player's config directory has decided something that is not its to decide: the first thing a
 pack author would have to do is delete somebody else's content, and every file a mod ships is a file
 that has to keep working forever against a format that is still moving.
@@ -11,10 +11,10 @@ that has to keep working forever against a format that is still moving.
 So the worked examples live here, beside this script, and they reach a config directory when somebody
 asks for them:
 
-    python tasked/tools/seed_quests.py <dir> [<dir>...]     any config/tasked/quests directories
-    python tasked/tools/seed_quests.py --workspace          this repo's own test setup
+    python tenet/tools/seed_quests.py <dir> [<dir>...]     any config/tenet/quests directories
+    python tenet/tools/seed_quests.py --workspace          this repo's own test setup
 
-A `<dir>` is a `config/tasked/quests` directory - the one the mod reads. It is created if it is not
+A `<dir>` is a `config/tenet/quests` directory - the one the mod reads. It is created if it is not
 there.
 
 Nothing is overwritten unless you say so
@@ -51,8 +51,8 @@ everywhere else in this project: deliberately out of the loader's way. A test co
 reset that deleted them would be the one place the convention did not hold.
 
 `--workspace` seeds every test combo and both Modrinth profiles, and is the mode this project uses.
-It is also why this script is here rather than in `.utils/`: it belongs to the Tasked repository, so
-it travels with the examples it copies, and a separate checkout of Tasked gets both.
+It is also why this script is here rather than in `.utils/`: it belongs to the Tenet repository, so
+it travels with the examples it copies, and a separate checkout of Tenet gets both.
 
 Files beginning with `_` are **not** copied, at any level. Those are deliberately-broken fixtures -
 the loader skips them by that prefix - and copying one would install a questline whose only purpose is
@@ -73,7 +73,7 @@ import pathlib
 import shutil
 import sys
 
-# This script lives in tasked/tools/, so the repository is one level up and the workspace two.
+# This script lives in tenet/tools/, so the repository is one level up and the workspace two.
 TOOLS = pathlib.Path(__file__).resolve().parent
 QUESTS = TOOLS / "quests"
 WORKSPACE = TOOLS.parent.parent
@@ -90,10 +90,10 @@ LOADERS = ("fabric", "neoforge")
 # The launcher's profiles, where the mod actually runs for a person. Resolved from the home
 # directory rather than written down, so nothing here is a path to this machine.
 LAUNCH_PROFILES = pathlib.Path.home() / "AppData" / "Roaming" / "ModrinthApp" / "profiles"
-PROFILE_NAMES = ("Tasked Fabric", "Tasked NeoForge")
+PROFILE_NAMES = ("Tenet Fabric", "Tenet NeoForge")
 
 # Relative to a config directory. Must match QuestLoader.DIRECTORY in the mod.
-QUEST_DIRECTORY = pathlib.Path("config") / "tasked" / "quests"
+QUEST_DIRECTORY = pathlib.Path("config") / "tenet" / "quests"
 
 
 def example_files():
@@ -137,7 +137,7 @@ def workspace_targets():
 
     The combos are seeded because the test servers read them, and the profiles because that is where
     the mod is actually played. Profiles are only used when the profile directory exists: creating
-    `config/tasked/quests` inside a profile you have is a kindness, and conjuring a profile folder
+    `config/tenet/quests` inside a profile you have is a kindness, and conjuring a profile folder
     the launcher does not know about is not.
 
     `_tools` and `_loaders` are skipped by name. They sit in the same folder as the combos and are
@@ -482,10 +482,10 @@ def sweep_legacy_flat_files(target: pathlib.Path, files, dry_run: bool):
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="seed_quests.py",
-        description="Copy the example questlines into config/tasked/quests directories. "
+        description="Copy the example questlines into config/tenet/quests directories. "
                     "Existing files are left alone unless --force is given.")
     parser.add_argument("targets", nargs="*", metavar="DIR",
-                        help="a config/tasked/quests directory, created if it is not there")
+                        help="a config/tenet/quests directory, created if it is not there")
     parser.add_argument("--workspace", action="store_true",
                         help="seed this repo's test combos and both Modrinth profiles")
     parser.add_argument("--force", action="store_true",
@@ -549,7 +549,7 @@ def main() -> int:
     if kept and not args.force:
         print("Existing files were left alone. That is the default: delete one and run this again "
               "for a fresh copy, or pass --force.")
-    print("A running server reads these on /tasked reload, or on its next start.")
+    print("A running server reads these on /tenet reload, or on its next start.")
     return 0
 
 

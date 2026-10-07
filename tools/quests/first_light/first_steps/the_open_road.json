@@ -28,13 +28,13 @@
   "minRequired": 2,
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Take the open road"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 30
     }
   ]

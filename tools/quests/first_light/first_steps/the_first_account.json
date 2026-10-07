@@ -32,17 +32,17 @@
   },
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Open the first account"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:command",
+      "type": "tenet:command",
       "command": "scoreboard objectives add first_light_standing dummy"
     },
     {
-      "type": "tasked:command",
+      "type": "tenet:command",
       "command": "scoreboard players set {p} first_light_standing 1"
     }
   ]

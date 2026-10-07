@@ -40,13 +40,13 @@
   },
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Wind the orrery"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 50
     }
   ]

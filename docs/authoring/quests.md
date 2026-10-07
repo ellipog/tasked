@@ -14,10 +14,10 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
   "x": 0,
   "y": 0,
   "tasks": [
-    { "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
+    { "type": "tenet:item", "item": "minecraft:oak_log", "count": 8 }
   ],
   "rewards": [
-    { "type": "tasked:item", "item": "minecraft:wooden_axe" }
+    { "type": "tenet:item", "item": "minecraft:wooden_axe" }
   ]
 }
 ```
@@ -26,7 +26,7 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
 
 | Field | Meaning |
 |---|---|
-| `id` | Lowercase letters, digits and underscores. The name progress is stored under — see the rename note on [[tasked:authoring/quest-files]]. |
+| `id` | Lowercase letters, digits and underscores. The name progress is stored under — see the rename note on [[tenet:authoring/quest-files]]. |
 | `title` | What the player sees, under the node and at the top of its card. |
 | `subtitle` | One line beneath the title. Optional. |
 | `description` | Paragraphs, read as markdown — see below. |
@@ -84,7 +84,7 @@ computed from the quests inside it plus padding, so moving a quest moves the fra
 
 `dependsOn` is a list of quest ids — or their aliases — that must be satisfied before this one is
 open. They may live in other files, and a reference that resolves to nothing is an
-[[tasked:authoring/validation|error rather than a quiet lock]]. A [[chapter]] whose `progressionMode` is
+[[tenet:authoring/validation|error rather than a quiet lock]]. A [[chapter]] whose `progressionMode` is
 `linear` supplies the chain itself, so its quests need no `dependsOn` at all.
 
 | Field | Default | Meaning |
@@ -194,7 +194,7 @@ For a whole chapter:
 | `repeatable` | `false` | Completable more than once. `timesCompleted` survives each completion, and something depending on it stays satisfied. |
 | `repeatCooldownTicks` | `0` | Ticks to wait between completions. 2400 is two minutes. |
 | `sequentialTasks` | `false` | Tasks must be handed in in order: the second cannot be handed in until the first is. |
-| `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tasked:authoring/rewards]]. |
+| `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tenet:authoring/rewards]]. |
 | `exclusiveGroup` | — | Quests sharing a name are mutually exclusive: completing one locks the others, permanently. A [[exclusive-group]] is a choice of paths. Scoped to the chapter. |
 | `maxCompletableDependents` | `0` | At most this many of the quests depending on this one may complete; the rest stay locked for good. `0` is no cap. A dependent already completed stays completed. |
 
@@ -234,8 +234,8 @@ loads, still counts for progress, and is always shown to the editor.
 
 It is the one gate here that is **per player rather than per team**: a quest gated on a stage is open
 to a player who has it and locked to one who does not, even in the same party. Stages are granted by
-[[tasked:authoring/rewards|stage rewards]] and removed by them, read by stage tasks, and manipulated from
-scripts — see [[tasked:authoring/kubejs]].
+[[tenet:authoring/rewards|stage rewards]] and removed by them, read by stage tasks, and manipulated from
+scripts — see [[tenet:authoring/kubejs]].
 
 > [!WARNING]
 > Nothing validates that a stage exists, because a stage exists by being granted: there is no list to
@@ -257,7 +257,7 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 | `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. |
 | `defaultHideUntilDependenciesComplete` | `false` | Whether the chapter's quests are hidden until their own prerequisite rule is met — the reveal flag below, set once for a whole chapter. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same, for the reveal that waits on a prerequisite being visible. |
-| `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tasked:authoring/rewards]]. |
+| `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tenet:authoring/rewards]]. |
 | `dependencyStyle` | built-ins | The drawing defaults for the chapter's lines. |
 | `theme` | — | A palette the chapter asks to be drawn in. A client concept: the catalogue lives on the client, so the name is a plain string here, and a client that cannot resolve it says so. |
 | `themePatch` | — | Token-level overrides for `theme` — individual colours and a corner radius, applied over the named theme (or over the player's own when no theme is named). The Chapter tab's appearance section writes this; a file can also carry it by hand: `{ "colours": { "raised": "#FF24242E" }, "cornerRadius": 4 }`. |

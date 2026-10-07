@@ -33,7 +33,7 @@ plugins {
 }
 
 // This should match the folder name of the project, or else IDEA may complain (see https://youtrack.jetbrains.com/issue/IDEA-317606)
-rootProject.name = 'tasked'
+rootProject.name = 'tenet'
 include('common')
 include('fabric')
 include('neoforge')
@@ -48,12 +48,12 @@ include('neoforge')
 // "no matching variant" for reasons that were about build tooling rather than about anything
 // in either mod.
 //
-// So Tasked depends on "dev.ellipog:armature-common-<mc>:<version>", resolved from Maven
+// So Tenet depends on "dev.ellipog:armature-common-<mc>:<version>", resolved from Maven
 // local, which armature publishes. That is also exactly how the real release works -- from
 // Modrinth or CurseForge, as a required dependency -- so the development path and the shipped
 // path are the same shape. See _deploy.ps1, which orders the two steps so it cannot be got
 // wrong by hand.
 //
 // Armature's own loader projects (:fabric, :neoforge) are not needed by this build at all:
-// Tasked names only classes from Armature's common API. Its jars arrive at runtime as mods.
+// Tenet names only classes from Armature's common API. Its jars arrive at runtime as mods.
 // ---------------------------------------------------------------------------

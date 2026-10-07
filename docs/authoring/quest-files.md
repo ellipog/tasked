@@ -1,11 +1,11 @@
 # The quest folder
 
-Everything Tasked loads lives under one root, `config/tasked/quests/`. The folder layout *is* the
+Everything Tenet loads lives under one root, `config/tenet/quests/`. The folder layout *is* the
 format: a [[chapter-group]] is a folder with a manifest, a [[chapter]] is a folder inside it, and each
 [[quest]] is one file.
 
 ```
-config/tasked/quests/
+config/tenet/quests/
 ├── index.json                  the root: what exists, and in what order
 ├── reward_tables/              rolls a reward can name
 │   └── bell_toll.json
@@ -69,7 +69,7 @@ withheld until its own prerequisites are met — a quest that should be visible 
 `"hideUntilDependenciesComplete": false` to say so. A chapter whose quests are all still hidden is
 itself left out of a reader's book, so the whole chapter arrives as one reveal.
 
-The fields a group or a chapter can carry beyond those are on [[tasked:authoring/quests]], because they are the
+The fields a group or a chapter can carry beyond those are on [[tenet:authoring/quests]], because they are the
 same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`, and the
 `dependencyStyle` a chapter's lines are drawn with. A chapter's own `dependsOn`, `prerequisiteMode`,
 `minRequired`, `completesWhen` and `hideUntilDependenciesComplete` are documented there too, under
@@ -110,7 +110,7 @@ thing it affects:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tasked:authoring/rewards]] |
+| `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tenet:authoring/rewards]] |
 | `defaultTeamReward` | `false` | Whether a reward that does not say otherwise is one claim for the team |
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
 | `detectionDelay` | `20` | Ticks after a player joins before their first task check, so a login does not run the whole book on one tick |
@@ -165,7 +165,7 @@ content the file deliberately left out.
 ## Reward tables
 
 Rolls live in `reward_tables/`, one file per table, named without the `.json` suffix. A reward names
-one with `"table": "dungeon"`; the file's own format is on [[tasked:authoring/rewards]].
+one with `"table": "dungeon"`; the file's own format is on [[tenet:authoring/rewards]].
 
 ## Underscores are skipped, everywhere
 
@@ -177,19 +177,19 @@ cannot be mistaken for content. `tools/quests/_schema/` in the repository is the
 ## Editor schemas
 
 Each kind has a published JSON Schema, and a file that names it gets autocomplete and
-error-underlining in any editor that speaks JSON Schema. Tasked ignores the key entirely; it is
+error-underlining in any editor that speaks JSON Schema. Tenet ignores the key entirely; it is
 there for the editor.
 
 | File | `$schema` |
 |---|---|
-| `group.json` | `https://ellipog.dev/tasked/_schema/group.schema.json` |
-| `chapter.json` | `https://ellipog.dev/tasked/_schema/chapter.schema.json` |
-| a quest file | `https://ellipog.dev/tasked/_schema/quest.schema.json` |
-| `index.json` | `https://ellipog.dev/tasked/_schema/index.schema.json` |
-| `reward_tables/<name>.json` | `https://ellipog.dev/tasked/_schema/reward_table.schema.json` |
+| `group.json` | `https://ellipog.dev/tenet/_schema/group.schema.json` |
+| `chapter.json` | `https://ellipog.dev/tenet/_schema/chapter.schema.json` |
+| a quest file | `https://ellipog.dev/tenet/_schema/quest.schema.json` |
+| `index.json` | `https://ellipog.dev/tenet/_schema/index.schema.json` |
+| `reward_tables/<name>.json` | `https://ellipog.dev/tenet/_schema/reward_table.schema.json` |
 
 The same five files are checked into the repository under `tools/quests/_schema/`, so a copy works
-offline. [[tasked:authoring/validation]] is what Tasked itself checks; the schema is what your
+offline. [[tenet:authoring/validation]] is what Tenet itself checks; the schema is what your
 editor checks before a file ever reaches the game, and the two are held in step by a test.
 
 ## The older, single-file format
@@ -204,13 +204,13 @@ is recognised by *position*, not by a `version` field, so an old file needs no e
 The two formats describe the same objects, so a flat file may carry the same fields a `group.json`
 does. New packs should use the folder format; the flat one is kept so old ones do not have to be
 rewritten. Its schema is published at
-`https://ellipog.dev/tasked/_legacy/tasked-quests.schema.json`.
+`https://ellipog.dev/tenet/_legacy/tenet-quests.schema.json`.
 
 </details>
 
 ## Reloading
 
-`/tasked reload` re-reads the folder without a restart, and re-syncs every connected player's tree and
+`/tenet reload` re-reads the folder without a restart, and re-syncs every connected player's tree and
 progress — a quest removed, an id renamed, or a dependency broken is visible immediately rather than
 on the next reconnect. A file with an error is reported and skipped; the rest of the pack still loads.
-[[tasked:authoring/validation]] is the page about what those reports say.
+[[tenet:authoring/validation]] is the page about what those reports say.

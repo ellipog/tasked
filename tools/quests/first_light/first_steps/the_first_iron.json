@@ -21,13 +21,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:advancement",
+      "type": "tenet:advancement",
       "advancement": "minecraft:story/smelt_iron"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:iron_ingot",
       "count": 4
     }

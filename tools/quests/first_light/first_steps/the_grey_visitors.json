@@ -27,14 +27,14 @@
   },
   "tasks": [
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "entity_type_tag",
       "toObserve": "minecraft:illagers"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:emerald",
       "count": 2
     }

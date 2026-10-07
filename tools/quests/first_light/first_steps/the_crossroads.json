@@ -26,13 +26,13 @@
   "maxCompletableDependents": 1,
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Stand at the crossroads"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 10
     }
   ]

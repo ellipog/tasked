@@ -4,7 +4,7 @@
   "title": "The House Always Wins",
   "subtitle": "A named table, an inline table, and a nested roll",
   "description": [
-    "Two `tasked:random` rewards, the two ways a table can arrive. The",
+    "Two `tenet:random` rewards, the two ways a table can arrive. The",
     "first names `dice`, a file under `reward_tables/`; the second",
     "carries its table `inline`, for a reward that is its own roll.",
     "",
@@ -33,23 +33,23 @@
   },
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Play the house's game"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:random",
+      "type": "tenet:random",
       "table": "dice"
     },
     {
-      "type": "tasked:random",
+      "type": "tenet:random",
       "inline": {
         "entries": [
           {
             "weight": 1,
             "reward": {
-              "type": "tasked:random",
+              "type": "tenet:random",
               "table": "dregs"
             }
           }

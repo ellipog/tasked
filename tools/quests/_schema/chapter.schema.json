@@ -1,19 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ellipog.dev/tasked/_schema/chapter.schema.json",
-  "title": "Tasked chapter manifest",
-  "description": "One chapter folder's chapter.json, under config/tasked/quests/. The folder it sits in must be named after the chapter's id, and `quests` lists the file names of that chapter's quests, in the order they should appear.",
+  "$id": "https://ellipog.dev/tenet/_schema/chapter.schema.json",
+  "title": "Tenet chapter manifest",
+  "description": "One chapter folder's chapter.json, under config/tenet/quests/. The folder it sits in must be named after the chapter's id, and `quests` lists the file names of that chapter's quests, in the order they should appear.",
   "type": "object",
   "required": ["id", "title"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Ignored by Tasked. For your editor. Depth-counted: three levels up from a chapter folder is the quest root."
+      "description": "Ignored by Tenet. For your editor. Depth-counted: three levels up from a chapter folder is the quest root."
     },
     "id": {
       "$ref": "#/definitions/id",
-      "description": "Must equal the name of the folder this file is in. Tasked reports the mismatch naming both sides, and uses the folder name."
+      "description": "Must equal the name of the folder this file is in. Tenet reports the mismatch naming both sides, and uses the folder name."
     },
     "title": { "$ref": "#/definitions/text" },
     "subtitle": { "$ref": "#/definitions/text" },

@@ -25,14 +25,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:item_tag",
+      "type": "tenet:item_tag",
       "tag": "minecraft:logs",
       "count": 32
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:emerald",
       "count": 2
     }

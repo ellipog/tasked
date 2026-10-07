@@ -10,7 +10,7 @@
     "one is the exception.",
     "",
     "`ignoreRewardBlocking: true` pays even while an operator has held",
-    "the team's automatic payouts with `/tasked rewards block` -- the",
+    "the team's automatic payouts with `/tenet rewards block` -- the",
     "hold's one sanctioned exception, for the reward that is a debt",
     "rather than a gift."
   ],
@@ -24,13 +24,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Pay the crowns due"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:command",
+      "type": "tenet:command",
       "command": "give {p} minecraft:gold_block 1",
       "permissionLevel": 4,
       "ignoreRewardBlocking": true

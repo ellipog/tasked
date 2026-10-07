@@ -27,22 +27,22 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Open the festival"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:cake",
       "conditions": [
         {
-          "type": "tasked:score",
+          "type": "tenet:score",
           "objective": "first_light_standing",
           "min": 1
         },
         {
-          "type": "tasked:party_size",
+          "type": "tenet:party_size",
           "min": 2
         }
       ]

@@ -20,7 +20,7 @@ repositories {
 
     // Armature, during local development.
     //
-    // Tasked compiles against Armature's published artefact rather than its source tree: the
+    // Tenet compiles against Armature's published artefact rather than its source tree: the
     // composite-build substitution the plan originally called for turned out to fight
     // Loom's and ModDevGradle's variant attributes, and the plan itself named this as the
     // fallback. _deploy.ps1 runs "gradlew :common:publishToMavenLocal" in armature before
@@ -158,7 +158,7 @@ jar {
 }
 
 processResources {
-    // Note: armature_version is new here. Tasked's metadata declares Armature as a required
+    // Note: armature_version is new here. Tenet's metadata declares Armature as a required
     // dependency, so the version has to be expanded into fabric.mod.json and neoforge.mods.toml
     // -- and every field used in those files must appear in this map.
     var expandProps = [
@@ -197,9 +197,9 @@ publishing {
         // The Maven tree the release workflow uploads to maven.ellipog.dev -- see the same block in
         // armature's copy for the full reasoning. `gradlew publishToLocalRepo` is the one command.
         //
-        // Tasked's API is published for a *handler mod*: the docs already describe a pack shipping
+        // Tenet's API is published for a *handler mod*: the docs already describe a pack shipping
         // "a handler mod as an optional dependency", and registering a custom task or reward type
-        // means compiling against CustomTasks.Handler, TaskedScripts and TaskedEvents. A KubeJS pack
+        // means compiling against CustomTasks.Handler, TenetScripts and TenetEvents. A KubeJS pack
         // needs none of this -- scripts register the same handlers through the plugin, which KubeJS
         // finds inside this jar.
         //

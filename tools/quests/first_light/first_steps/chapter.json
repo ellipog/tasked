@@ -29,7 +29,7 @@
     "easing curve -- which is how a chapter sets its own look without",
     "shipping a whole theme file.",
     "",
-    "Read it as documentation, or walk it as a tour: `/tasked complete",
+    "Read it as documentation, or walk it as a tour: `/tenet complete",
     "<quest>` moves one node at a time, which is how a canvas this size",
     "is meant to be seen."
   ],

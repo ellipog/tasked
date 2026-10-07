@@ -25,7 +25,7 @@
   "autoClaim": "disabled",
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:crafting_table",
       "count": 1,
       "consumeItems": false
@@ -33,7 +33,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:stick",
       "count": 8
     }

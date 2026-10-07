@@ -4,12 +4,12 @@
   "title": "The Dust Draw",
   "subtitle": "loot with an empty band, and all_table",
   "description": [
-    "The same table, rolled two ways. `tasked:loot` includes the empty",
+    "The same table, rolled two ways. `tenet:loot` includes the empty",
     "band: `toll` carries `emptyWeight: 4`, so a throw can come up with",
     "nothing at all -- the one table mode where 'no prize' is a possible",
     "answer.",
     "",
-    "`tasked:all_table` is the other extreme: no dice, every entry",
+    "`tenet:all_table` is the other extreme: no dice, every entry",
     "granted, weight-zero entries and all. Between them the two rewards",
     "show the mode field deciding what a table means."
   ],
@@ -23,17 +23,17 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Draw the dust"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:loot",
+      "type": "tenet:loot",
       "table": "toll"
     },
     {
-      "type": "tasked:all_table",
+      "type": "tenet:all_table",
       "table": "toll"
     }
   ]

@@ -21,13 +21,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Mark the triumph"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:advancement",
+      "type": "tenet:advancement",
       "advancement": "minecraft:story/enter_the_nether"
     }
   ]

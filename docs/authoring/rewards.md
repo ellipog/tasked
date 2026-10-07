@@ -13,7 +13,7 @@ button that takes it. A quest's rewards are listed in the details column whether
 folded open, so a chapter can be read at a glance and unfolded only where something needs deciding.
 
 ```json
-{ "type": "tasked:item", "item": "minecraft:diamond", "count": 4 }
+{ "type": "tenet:item", "item": "minecraft:diamond", "count": 4 }
 ```
 
 ## Every reward has these
@@ -23,8 +23,8 @@ folded open, so a chapter can be read at a glance and unfolded only where someth
 | `team` | the tree's `defaultTeamReward` | One claim for the team, rather than one per player. |
 | `auto` | `default` | When it is handed over. See below. |
 | `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
-| `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tasked rewards block`. |
-| `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tasked:authoring/conditions]]. |
+| `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tenet rewards block`. |
+| `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tenet:authoring/conditions]]. |
 
 `auto` decides the moment the reward changes hands:
 
@@ -59,9 +59,9 @@ Two things a mode can never override:
 
 - **A choice reward is never auto-granted.** Its payout *is* the player's pick, so it stays
   outstanding and is offered the moment the quest is claimed — whatever `auto` says. A file that sets
-  an automatic `auto` on a `tasked:choice` gets a warning saying so, because the setting would
+  an automatic `auto` on a `tenet:choice` gets a warning saying so, because the setting would
   otherwise read as supported.
-- **A held team gets nothing.** `/tasked rewards block` outranks every automatic mode; unblocking is
+- **A held team gets nothing.** `/tenet rewards block` outranks every automatic mode; unblocking is
   the one moment it is released.
 
 `no_toast` and `invisible` are the same silence under two names: both grant without a toast and both
@@ -72,35 +72,35 @@ While anything is still waiting, the player sees it in two places: a small badge
 with the number of rewards, and a count beside the chapter's row in the sidebar — `The Shop (3)` —
 which is where the eye goes first.
 
-An operator can hold every automatic payout at once with `/tasked rewards block`, whatever individual
-rewards say, and release it with `/tasked rewards unblock`. The switch is stored in the team's
+An operator can hold every automatic payout at once with `/tenet rewards block`, whatever individual
+rewards say, and release it with `/tenet rewards unblock`. The switch is stored in the team's
 progress rather than in a save, so it is a server-side decision and not up to the player being paid.
 
 ## The types
 
 | Type | Gives |
 |---|---|
-| `tasked:advancement` | An advancement, or one criterion of one. |
-| `tasked:choice` | One entry of a table, picked by the player. |
-| `tasked:command` | A command, run as the player. |
-| `tasked:custom` | Whatever a registered handler does. |
-| `tasked:item` | Items. |
-| `tasked:loot` | A table roll that can come up empty. |
-| `tasked:random` | A weighted table roll that promises something. |
-| `tasked:all_table` | Every entry of a table. |
-| `tasked:stage` | A stage, granted or taken away. |
-| `tasked:xp` | Experience, in points or levels. |
+| `tenet:advancement` | An advancement, or one criterion of one. |
+| `tenet:choice` | One entry of a table, picked by the player. |
+| `tenet:command` | A command, run as the player. |
+| `tenet:custom` | Whatever a registered handler does. |
+| `tenet:item` | Items. |
+| `tenet:loot` | A table roll that can come up empty. |
+| `tenet:random` | A weighted table roll that promises something. |
+| `tenet:all_table` | Every entry of a table. |
+| `tenet:stage` | A stage, granted or taken away. |
+| `tenet:xp` | Experience, in points or levels. |
 
 ## Simple rewards
 
 | Type | Field | Meaning |
 |---|---|---|
-| `tasked:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
-| `tasked:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
-| `tasked:stage` | `stage`, `remove` | The stage to set; `remove: true` takes it away instead of granting it. |
-| `tasked:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
+| `tenet:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
+| `tenet:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
+| `tenet:stage` | `stage`, `remove` | The stage to set; `remove: true` takes it away instead of granting it. |
+| `tenet:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
 
-## `tasked:item`
+## `tenet:item`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -110,7 +110,7 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | `randomBonus` | `0` | Up to this many more, rolled at random on top of the count. |
 | `onlyOne` | `false` | Skip it if the player already carries this item. |
 
-## `tasked:command`
+## `tenet:command`
 
 The escape hatch every pack reaches for, and the one reward whose reach is the whole server — so it
 runs through the server's own dispatcher with the player as the source.
@@ -138,7 +138,7 @@ operator reading the log is a one-second fix, and a command that silently loses 
 
 ```json
 {
-  "type": "tasked:command",
+  "type": "tenet:command",
   "command": "say {p} finished {quest}",
   "permissionLevel": 2
 }
@@ -146,17 +146,17 @@ operator reading the log is a one-second fix, and a command that silently loses 
 
 ## Table rewards
 
-Four types share one shape: `tasked:random`, `tasked:loot`, `tasked:all_table` and `tasked:choice`.
+Four types share one shape: `tenet:random`, `tenet:loot`, `tenet:all_table` and `tenet:choice`.
 Each names a table — a file under `reward_tables/`, by id and without the `.json` suffix — or carries
 its own `inline`. The type *is* the mode; a file cannot turn a `random` into a `choice` by adding a
 field.
 
 | Type | What the roll does |
 |---|---|
-| `tasked:random` | Throws the dice `lootSize` times over the weights, and promises something: there is no empty band. |
-| `tasked:loot` | The same, except the empty band exists — `emptyWeight` is the chance of nothing on a throw. |
-| `tasked:all_table` | Grants every entry, no dice. |
-| `tasked:choice` | Sends the entries to the player and waits for the pick. |
+| `tenet:random` | Throws the dice `lootSize` times over the weights, and promises something: there is no empty band. |
+| `tenet:loot` | The same, except the empty band exists — `emptyWeight` is the chance of nothing on a throw. |
+| `tenet:all_table` | Grants every entry, no dice. |
+| `tenet:choice` | Sends the entries to the player and waits for the pick. |
 
 `random`, `loot` and `all_table` resolve the moment the reward is granted. `choice` cannot — the
 player picks — so the claim marks nothing until it is answered, which also means a crash between the
@@ -171,9 +171,9 @@ A table is a list of entries, each an ordinary reward with a weight:
   "lootSize": 2,
   "emptyWeight": 10,
   "entries": [
-    { "weight": 0, "reward": { "type": "tasked:item", "item": "minecraft:bread", "count": 4 } },
-    { "weight": 3, "reward": { "type": "tasked:item", "item": "minecraft:iron_ingot", "count": 8 } },
-    { "weight": 1, "reward": { "type": "tasked:xp", "amount": 30 } }
+    { "weight": 0, "reward": { "type": "tenet:item", "item": "minecraft:bread", "count": 4 } },
+    { "weight": 3, "reward": { "type": "tenet:item", "item": "minecraft:iron_ingot", "count": 8 } },
+    { "weight": 1, "reward": { "type": "tenet:xp", "amount": 30 } }
   ]
 }
 ```
@@ -181,7 +181,7 @@ A table is a list of entries, each an ordinary reward with a weight:
 | Field | Default | Meaning |
 |---|---|---|
 | `entries` | — | The table. Each entry is a `reward` and a `weight`. |
-| `emptyWeight` | `0` | The chance of nothing on a throw, against the positive weights. Only `tasked:loot` includes it. |
+| `emptyWeight` | `0` | The chance of nothing on a throw, against the positive weights. Only `tenet:loot` includes it. |
 | `lootSize` | `1` | How many times the dice are thrown. |
 | `title` | the id | What the in-game editor calls the table. Absent, the id is opened out: `tier_1_ores` reads as "Tier 1 ores". |
 | `icon` | see below | The item the editor's table browser draws for it: `{ "item": "minecraft:iron_ingot" }`, with an optional `count` and `components` — the same shape a quest's `icon` uses. |
@@ -210,7 +210,7 @@ once and grants nothing. That is an author's mistake, not a crash.
 
 ## Editing a table in game
 
-Nothing above has to be typed. A `tasked:random`, `tasked:loot`, `tasked:all_table` or `tasked:choice`
+Nothing above has to be typed. A `tenet:random`, `tenet:loot`, `tenet:all_table` or `tenet:choice`
 reward's **Table** field is a card: it shows the table's icon, its name and its entry count, and it
 opens two panels.
 
@@ -240,6 +240,6 @@ it is, without an edit path into it.
 | **Done** | one table back, or out of the panel. `Ctrl+Z` undoes your edits here — and stops at the table you opened. |
 
 Filling a container from a table is a command rather than a button, because it needs the crosshair and a
-screen captures the mouse: `/tasked table export <id>`. Reading one is a button above — the panel's
-`Import... › From target chest` row — and `/tasked table import <id>` is the same read for a player who is
+screen captures the mouse: `/tenet table export <id>`. Reading one is a button above — the panel's
+`Import... › From target chest` row — and `/tenet table import <id>` is the same read for a player who is
 walking around. See [commands](../commands.md).

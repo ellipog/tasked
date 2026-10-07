@@ -25,13 +25,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Align the gear"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 10
     }
   ]

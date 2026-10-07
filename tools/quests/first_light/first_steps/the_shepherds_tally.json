@@ -25,19 +25,19 @@
   ],
   "tasks": [
     {
-      "type": "tasked:stat",
+      "type": "tenet:stat",
       "stat": "minecraft:animals_bred",
       "value": 8
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:name_tag",
       "count": 2,
       "conditions": [
         {
-          "type": "tasked:advancement",
+          "type": "tenet:advancement",
           "advancement": "minecraft:husbandry/breed_an_animal"
         }
       ]

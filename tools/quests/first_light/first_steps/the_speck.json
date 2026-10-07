@@ -26,14 +26,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:amethyst_shard",
       "count": 1
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 5
     }
   ]

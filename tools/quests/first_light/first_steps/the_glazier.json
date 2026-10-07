@@ -23,14 +23,14 @@
   "hideDetailsUntilStartable": true,
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:glass",
       "count": 8
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:glass_pane",
       "count": 16
     }

@@ -17,11 +17,11 @@ neoForge {
 }
 
 dependencies {
-    // Armature's API -- the only part of it Tasked names anything from.
+    // Armature's API -- the only part of it Tenet names anything from.
     //
     // compileOnly, deliberately, and not just as a shortcut. At runtime Armature is a separate
     // mod jar sitting beside this one in the mods folder, loaded by the loader; it is never
-    // bundled into Tasked's jar. So there is nothing for Loom or ModDevGradle to remap here,
+    // bundled into Tenet's jar. So there is nothing for Loom or ModDevGradle to remap here,
     // and a plain java-library dependency is both sufficient and much less likely to trip
     // over loader-specific variant attributes.
     //
@@ -41,7 +41,7 @@ dependencies {
 //
 // These run headless on the JVM. The progression engine is a pure function of the loaded quests,
 // a team's progress and the clock -- no player, no level -- so the rules it implements are
-// testable without launching anything. That matters, because those rules are the part of Tasked
+// testable without launching anything. That matters, because those rules are the part of Tenet
 // most likely to be subtly wrong and the part hardest to check by playing: a quest that refuses
 // to unlock looks identical whether the cause is the prerequisite mode, a typo in an id, or a
 // cycle, and you only find out by reading the code.
@@ -77,7 +77,7 @@ dependencies {
 tasks.named('test', Test) {
     useJUnitPlatform()
 
-    // The worked examples are read by the tests from `tasked/tools/quests` (see `QuestIndexTest`) --
+    // The worked examples are read by the tests from `tenet/tools/quests` (see `QuestIndexTest`) --
     // outside every source set, so Gradle did not know a fixture edit was an input. The task stayed
     // UP-TO-DATE across one, and the report from before the edit was read as a pass; a bad component
     // spelling rode into a deployed build that way. Declaring the directory makes a fixture change

@@ -7,10 +7,10 @@ one, and nothing about a condition changes a quest's dependency graph.
 
 ```json
 {
-  "type": "tasked:checkmark",
+  "type": "tenet:checkmark",
   "title": "Hand over the list",
   "conditions": [
-    { "type": "tasked:item", "item": "minecraft:cobblestone", "count": 8 }
+    { "type": "tenet:item", "item": "minecraft:cobblestone", "count": 8 }
   ]
 }
 ```
@@ -18,7 +18,7 @@ one, and nothing about a condition changes a quest's dependency graph.
 `conditions` sits on the task or reward itself, beside `optional` or `auto`, and it is a list. **Every
 entry must hold** — the list is an AND, and an empty list (or no field at all) is met by definition.
 Conditions can be put on a task, on a reward, or on both; a quest's `requiresStage` is a separate,
-quest-level gate from the [[tasked:authoring/quests|quest's own fields]].
+quest-level gate from the [[tenet:authoring/quests|quest's own fields]].
 
 ## How a condition is asked
 
@@ -40,7 +40,7 @@ complete — which is the same direction the engine's task counting has always t
 exception by nature: they are paid on the day, so a reward's condition is checked on the day.
 
 An unknown condition type is an error in the file, reported at its own line by the
-[[tasked:authoring/validation|validator]], exactly as an unknown task or reward type is.
+[[tenet:authoring/validation|validator]], exactly as an unknown task or reward type is.
 
 ## Every condition has these
 
@@ -55,14 +55,14 @@ its own fields.
 
 | Type | Asks |
 |---|---|
-| `tasked:advancement` | Whether the player has earned an advancement, or one of its criteria. |
-| `tasked:item` | Whether the player is carrying a count of an item. |
-| `tasked:item_tag` | Whether the player is carrying a count of any item in a tag. |
-| `tasked:party_size` | How many members of the player's party are online now. |
-| `tasked:score` | Whether a scoreboard objective holds at least a value. |
-| `tasked:stage` | Whether the player has a stage. |
+| `tenet:advancement` | Whether the player has earned an advancement, or one of its criteria. |
+| `tenet:item` | Whether the player is carrying a count of an item. |
+| `tenet:item_tag` | Whether the player is carrying a count of any item in a tag. |
+| `tenet:party_size` | How many members of the player's party are online now. |
+| `tenet:score` | Whether a scoreboard objective holds at least a value. |
+| `tenet:stage` | Whether the player has a stage. |
 
-## `tasked:item`
+## `tenet:item`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -71,17 +71,17 @@ its own fields.
 | `components` | — | 1.21 data components, as on an item task: a condition can ask for the renamed sword and not the plain one. |
 | `match` | `strict` | How closely a carried stack must match: `none` ignores its data, `fuzzy` needs the data it names, `strict` needs the whole stack. |
 
-The condition half of the `tasked:item` task, and the same matching. It counts and never takes: the
+The condition half of the `tenet:item` task, and the same matching. It counts and never takes: the
 item task's `consumeItems` has no counterpart here, because a condition only ever asks.
 
-## `tasked:item_tag`
+## `tenet:item_tag`
 
 | Field | Default | Meaning |
 |---|---|---|
 | `tag` | — | The item tag's id, e.g. `minecraft:logs`. Any item in it counts. |
 | `count` | `1` | How many of them. |
 
-## `tasked:score`
+## `tenet:score`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -97,23 +97,23 @@ Read from the scoreboard, per player. Two things are worth knowing:
   `condition_gallery_standing`, not `pack:standing`. The condition still takes any name the server
   actually has.
 
-## `tasked:advancement`
+## `tenet:advancement`
 
 | Field | Default | Meaning |
 |---|---|---|
 | `advancement` | — | The advancement's namespaced id, e.g. `minecraft:story/mine_diamond`. |
 | `criterion` | — | Require one criterion of it instead of the whole advancement. |
 
-## `tasked:stage`
+## `tenet:stage`
 
 | Field | Default | Meaning |
 |---|---|---|
 | `stage` | — | The stage's id. A stage exists by being granted, so there is no list to pick from and no id to validate. |
 
-The condition half of the `tasked:stage` task. `/tasked stage add` grants one, a stage reward grants
+The condition half of the `tenet:stage` task. `/tenet stage add` grants one, a stage reward grants
 one, and a script can too.
 
-## `tasked:party_size`
+## `tenet:party_size`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -130,4 +130,4 @@ how many people are actually present, which is what a togetherness gate is about
 gated by an item, an item tag and a stage together (`the_witness_list.json`), a reward gated by an
 advancement (`the_shepherds_tally.json`), and a reward behind a scoreboard objective and a party gate
 at once (`the_festival.json`, with the objective created by `the_first_account.json`'s command
-reward). The [[tasked:authoring/quest-files|quest files]] page says how the folder is laid out.
+reward). The [[tenet:authoring/quest-files|quest files]] page says how the folder is laid out.

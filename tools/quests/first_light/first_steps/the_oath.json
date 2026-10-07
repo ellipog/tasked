@@ -25,13 +25,13 @@
   "requiresStage": "first_light:sworn",
   "tasks": [
     {
-      "type": "tasked:stage",
+      "type": "tenet:stage",
       "stage": "first_light:sworn"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:shield"
     }
   ]

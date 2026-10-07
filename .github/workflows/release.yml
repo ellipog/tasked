@@ -1,11 +1,11 @@
-# Tagged releases and manual builds for Tasked.
+# Tagged releases and manual builds for Tenet.
 #
 # Two triggers and nothing else, deliberately: no run on an ordinary push or a pull request. A
 # release is a decision (a tag) or a button press, not a side effect of committing. Everything is a
 # pre-release for now -- `prerelease: true` below is the single line to flip when a stable release
 # is wanted.
 #
-# Armature has to be released before this runs: Tasked compiles against the artefact Armature's own
+# Armature has to be released before this runs: Tenet compiles against the artefact Armature's own
 # release workflow publishes to maven.ellipog.dev, and this checks that `armature_version` is there
 # before building rather than letting it fail later as an unresolved coordinate.
 name: Build and Release
@@ -46,7 +46,7 @@ jobs:
 
       # The tag and the built version have to name the same version, and Armature's version has to
       # come out of the same file -- it is the tag the next step checks out. A jar called
-      # `tasked-fabric-1.21.1-0.1.0.jar` published under tag v0.1.1 is a release whose download does
+      # `tenet-fabric-1.21.1-0.1.0.jar` published under tag v0.1.1 is a release whose download does
       # not match its name, and nothing else here would notice. Runs before the build, so a mismatch
       # fails in seconds instead of after twenty minutes.
       - name: Resolve the versions and check the tag against them
@@ -89,7 +89,7 @@ jobs:
           set -euo pipefail
           version='${{ steps.version.outputs.version }}'
           mc='${{ steps.version.outputs.minecraft_version }}'
-          for artifact in tasked-common tasked-fabric tasked-neoforge; do
+          for artifact in tenet-common tenet-fabric tenet-neoforge; do
             url="$BASE/dev/ellipog/${artifact}-${mc}/${version}/${artifact}-${mc}-${version}.pom"
             # `|| { ... }` rather than relying on `set -e`: an assignment whose command substitution
             # fails aborts the step with curl's own exit code and no output at all, and "exit code 6"
@@ -138,7 +138,7 @@ jobs:
             fi
           done
           if [ "$missing" != 0 ]; then
-            echo "Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_ACCOUNT_ID as repository secrets on ellipog/tasked."
+            echo "Set R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_ACCOUNT_ID as repository secrets on ellipog/tenet."
             exit 1
           fi
           if ! command -v rclone >/dev/null; then
@@ -160,11 +160,11 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # Tasked compiles against a *published* Armature, not its source tree, so the version this repo
+      # Tenet compiles against a *published* Armature, not its source tree, so the version this repo
       # declares has to exist on the repository -- otherwise the failure arrives much later as a
       # resolution error naming a coordinate, which does not say that the version was never released.
       # One request, and it names which of the two numbers is wrong.
-      - name: Check Armature is published at the version Tasked compiles against
+      - name: Check Armature is published at the version Tenet compiles against
         env:
           BASE: https://maven.ellipog.dev
         run: |
@@ -189,7 +189,7 @@ jobs:
       - name: Build with Gradle
         run: |
           set -o pipefail
-          ./gradlew build --console=plain 2>&1 | tee "$RUNNER_TEMP/tasked.log"
+          ./gradlew build --console=plain 2>&1 | tee "$RUNNER_TEMP/tenet.log"
 
       # A failed build's reason, in the run's own summary and annotations rather than only in a log
       # nobody opens. Both Gradle logs are read, because the Armature publish above can be the step
@@ -199,7 +199,7 @@ jobs:
         run: |
           {
             echo '### The build failed, and Gradle said'
-            for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tasked.log"; do
+            for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tenet.log"; do
               [ -f "$log" ] || continue
               echo "#### $(basename "$log") (tail)"
               echo '```'
@@ -207,7 +207,7 @@ jobs:
               echo '```'
             done
           } >> "$GITHUB_STEP_SUMMARY"
-          for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tasked.log"; do
+          for log in "$RUNNER_TEMP/armature.log" "$RUNNER_TEMP/tenet.log"; do
             [ -f "$log" ] || continue
             # Everything Gradle writes between these two markers is the fault. One annotation carries
             # it whole -- newlines escaped, because the run UI keeps only the first ten annotations --
@@ -225,7 +225,7 @@ jobs:
 
       # The loader jars only, for the *release assets*: those are what a player installs, and a
       # non-mod jar in a `mods` folder is what makes Fabric refuse the whole folder ("Found 2
-      # non-fabric mods") -- see the note in .utils/deploy.ps1. `tasked-common` is the API a handler
+      # non-fabric mods") -- see the note in .utils/deploy.ps1. `tenet-common` is the API a handler
       # mod compiles against, so it goes to the Maven below instead, where nothing installs it by
       # accident.
       #
@@ -260,15 +260,15 @@ jobs:
       - name: Upload the jars as a workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: tasked-${{ steps.version.outputs.tag }}
+          name: tenet-${{ steps.version.outputs.tag }}
           path: dist/*.jar
           if-no-files-found: error
 
       # -- maven.ellipog.dev ----------------------------------------------------------------
       #
-      # Tasked's API for a *handler mod*: the docs already describe a pack shipping one as an
+      # Tenet's API for a *handler mod*: the docs already describe a pack shipping one as an
       # optional dependency, and registering a custom task or reward type means compiling against
-      # CustomTasks.Handler, TaskedScripts and TaskedEvents. All three modules go up, so a handler
+      # CustomTasks.Handler, TenetScripts and TenetEvents. All three modules go up, so a handler
       # mod's dev run can resolve the loader jars too. A KubeJS pack needs none of this -- scripts
       # register the same handlers through the plugin KubeJS finds inside this jar.
       - name: Publish the Maven tree
@@ -327,7 +327,7 @@ jobs:
           set -euo pipefail
           version='${{ steps.version.outputs.version }}'
           mc='${{ steps.version.outputs.minecraft_version }}'
-          url="https://maven.ellipog.dev/dev/ellipog/tasked-common-${mc}/${version}/tasked-common-${mc}-${version}.pom"
+          url="https://maven.ellipog.dev/dev/ellipog/tenet-common-${mc}/${version}/tenet-common-${mc}-${version}.pom"
           for attempt in 1 2 3 4 5; do
             if curl -sf -o /dev/null --max-time 30 "$url"; then
               echo "served: $url"
@@ -349,7 +349,7 @@ jobs:
           fail_on_unmatched_files: true
           files: dist/*.jar
           body: |
-            Install `tasked-fabric-*.jar` on Fabric, or `tasked-neoforge-*.jar` on NeoForge.
+            Install `tenet-fabric-*.jar` on Fabric, or `tenet-neoforge-*.jar` on NeoForge.
 
-            **Armature is required on both loaders** -- install it alongside Tasked; the loader names
+            **Armature is required on both loaders** -- install it alongside Tenet; the loader names
             it if it is missing.

@@ -28,19 +28,19 @@
   },
   "tasks": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "value": 30,
       "points": true
     },
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "value": 5,
       "points": false
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

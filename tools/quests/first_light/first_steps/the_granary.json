@@ -22,14 +22,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:wheat",
       "count": 256
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:bread",
       "count": 16
     }

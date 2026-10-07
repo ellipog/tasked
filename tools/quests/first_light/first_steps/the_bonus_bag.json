@@ -4,7 +4,7 @@
   "title": "The Bonus Bag",
   "subtitle": "Three item-reward fields, one reward each",
   "description": [
-    "Three `tasked:item` rewards, one per field. The first rolls",
+    "Three `tenet:item` rewards, one per field. The first rolls",
     "`randomBonus` on top of its count -- up to eight more gold ingots,",
     "decided when the reward is collected.",
     "",
@@ -26,24 +26,24 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Open the bonus bag"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:gold_ingot",
       "count": 8,
       "randomBonus": 8
     },
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:shield",
       "onlyOne": true
     },
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:golden_apple",
       "components": {
         "minecraft:custom_name": "\"The Keepsake\""

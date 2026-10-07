@@ -24,14 +24,14 @@
   "hideTextUntilComplete": true,
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:paper",
       "count": 1
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

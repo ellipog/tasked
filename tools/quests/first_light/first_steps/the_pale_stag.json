@@ -27,7 +27,7 @@
   },
   "tasks": [
     {
-      "type": "tasked:kill",
+      "type": "tenet:kill",
       "entity": "minecraft:wolf",
       "customName": "The Pale Stag",
       "value": 1
@@ -35,7 +35,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:white_wool",
       "count": 8
     }

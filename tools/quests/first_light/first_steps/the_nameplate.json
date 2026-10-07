@@ -27,7 +27,7 @@
   ],
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:iron_sword",
       "count": 1,
       "components": {
@@ -39,7 +39,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:experience_bottle",
       "count": 4
     }

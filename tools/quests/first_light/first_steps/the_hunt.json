@@ -23,14 +23,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:kill",
+      "type": "tenet:kill",
       "entity": "minecraft:cow",
       "value": 8
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:leather",
       "count": 8
     }

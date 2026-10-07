@@ -22,13 +22,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:dimension",
+      "type": "tenet:dimension",
       "dimension": "minecraft:the_nether"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:flint_and_steel"
     }
   ]

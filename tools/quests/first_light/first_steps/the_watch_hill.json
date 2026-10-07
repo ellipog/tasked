@@ -23,7 +23,7 @@
   ],
   "tasks": [
     {
-      "type": "tasked:location",
+      "type": "tenet:location",
       "position": [
         128,
         64,
@@ -37,7 +37,7 @@
       "dimension": "minecraft:overworld"
     },
     {
-      "type": "tasked:location",
+      "type": "tenet:location",
       "position": [
         -64,
         32,
@@ -54,7 +54,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

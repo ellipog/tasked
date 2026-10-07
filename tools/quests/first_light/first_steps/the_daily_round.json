@@ -26,13 +26,13 @@
   "repeatCooldownTicks": 2400,
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Make the round"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 10
     }
   ]

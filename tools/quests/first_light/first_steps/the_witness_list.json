@@ -25,21 +25,21 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Hand over the list",
       "conditions": [
         {
-          "type": "tasked:item",
+          "type": "tenet:item",
           "item": "minecraft:paper",
           "count": 1
         },
         {
-          "type": "tasked:item_tag",
+          "type": "tenet:item_tag",
           "tag": "minecraft:coals",
           "count": 4
         },
         {
-          "type": "tasked:stage",
+          "type": "tenet:stage",
           "stage": "first_light:sworn"
         }
       ]
@@ -47,7 +47,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

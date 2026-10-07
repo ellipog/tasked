@@ -28,7 +28,7 @@
   "autoClaim": "disabled",
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:oak_log",
       "count": 8,
       "consumeItems": false
@@ -36,7 +36,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:wooden_axe"
     }
   ]

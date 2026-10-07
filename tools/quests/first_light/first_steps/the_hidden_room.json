@@ -26,14 +26,14 @@
   "invisibleUntilTasks": 1,
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:amethyst_shard",
       "count": 1
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:amethyst_block"
     }
   ]

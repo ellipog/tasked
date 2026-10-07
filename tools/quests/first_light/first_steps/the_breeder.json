@@ -23,14 +23,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:advancement",
+      "type": "tenet:advancement",
       "advancement": "minecraft:husbandry/breed_an_animal",
       "criterion": "bred_an_animal"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:hay_block",
       "count": 4
     }

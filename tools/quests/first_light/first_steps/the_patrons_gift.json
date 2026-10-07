@@ -4,7 +4,7 @@
   "title": "The Patron's Gift",
   "subtitle": "A choice reward, picked by the player",
   "description": [
-    "`tasked:choice` sends the table's entries to the player and waits",
+    "`tenet:choice` sends the table's entries to the player and waits",
     "for the pick. The payout *is* the decision, so a choice reward is",
     "never auto-granted -- whatever the chapter's `autoClaim` says -- and",
     "a crash between the offer and the pick loses nothing.",
@@ -22,19 +22,19 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Choose a gift"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:choice",
+      "type": "tenet:choice",
       "inline": {
         "entries": [
           {
             "weight": 1,
             "reward": {
-              "type": "tasked:item",
+              "type": "tenet:item",
               "item": "minecraft:diamond",
               "count": 4
             }
@@ -42,14 +42,14 @@
           {
             "weight": 1,
             "reward": {
-              "type": "tasked:item",
+              "type": "tenet:item",
               "item": "minecraft:enchanted_book"
             }
           },
           {
             "weight": 1,
             "reward": {
-              "type": "tasked:xp",
+              "type": "tenet:xp",
               "amount": 250
             }
           }

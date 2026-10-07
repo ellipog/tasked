@@ -28,19 +28,19 @@
   },
   "tasks": [
     {
-      "type": "tasked:fluid",
+      "type": "tenet:fluid",
       "fluid": "minecraft:water",
       "amount": 1000
     },
     {
-      "type": "tasked:fluid",
+      "type": "tenet:fluid",
       "fluid": "minecraft:lava",
       "amount": 1000
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:bucket",
       "count": 2
     }

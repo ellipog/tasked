@@ -25,13 +25,13 @@
   "hideUntilDependenciesVisible": true,
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Find the far star"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

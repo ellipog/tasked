@@ -24,13 +24,13 @@
   "exclusiveGroup": "the_patrons",
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Take the gold patron's coin"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:gold_block",
       "count": 2
     }

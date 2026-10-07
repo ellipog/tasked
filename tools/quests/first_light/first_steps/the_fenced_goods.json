@@ -24,14 +24,14 @@
   "hideUntilDependenciesComplete": true,
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:gold_ingot",
       "count": 4
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

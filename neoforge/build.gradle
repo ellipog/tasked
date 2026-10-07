@@ -60,7 +60,7 @@ repositories {
 }
 
 dependencies {
-    // Armature's common API -- see the note in :fabric. Tasked names nothing from Armature's
+    // Armature's common API -- see the note in :fabric. Tenet names nothing from Armature's
     // NeoForge jar, and that jar is loaded as a separate mod at runtime, so there is no mod
     // dependency here either.
     compileOnly "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
@@ -68,9 +68,9 @@ dependencies {
     // KubeJS, for the scripting plugin's class only -- see the note in gradle.properties.
     compileOnly "dev.latvian.mods:kubejs-neoforge:${kubejs_version}"
 
-    // Armature's own NeoForge mod, for the dev runs only. Tasked requires it at runtime as a separate
+    // Armature's own NeoForge mod, for the dev runs only. Tenet requires it at runtime as a separate
     // mod, so a dev run without it fails the same way a player's instance would -- which is how the
-    // first attempt at running a dev server ended: "Mod tasked requires armature 0.1.0 or above".
+    // first attempt at running a dev server ended: "Mod tenet requires armature 0.1.0 or above".
     runtimeOnly "dev.ellipog:armature-neoforge-${minecraft_version}:${armature_version}"
 
     // And for the dev runs, so the plugin can actually be exercised: KubeJS is optional at runtime, which

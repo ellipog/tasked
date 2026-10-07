@@ -7,17 +7,17 @@ where nothing at all is required would complete itself the instant it unlocked.
 Every task object carries its `type` and that type's fields, flat at the same level:
 
 ```json
-{ "type": "tasked:item", "item": "minecraft:oak_log", "count": 8 }
+{ "type": "tenet:item", "item": "minecraft:oak_log", "count": 8 }
 ```
 
-A field that belongs to another type is accepted and ignored: the [[tasked:authoring/validation|validator]]
+A field that belongs to another type is accepted and ignored: the [[tenet:authoring/validation|validator]]
 checks a task against every type's fields at once, so what it reports is a field **no** type declares — a
 typo like `titl` rather than a field belonging to the type next door. What each type actually reads is
 what the codec decides, and the list of what this build has — with every field each type takes — is also
 one command away:
 
 ```cmd
-/tasked types
+/tenet types
 ```
 
 ## Every task has these
@@ -26,7 +26,7 @@ one command away:
 |---|---|---|
 | `optional` | `false` | This one does not have to be done for the quest to complete. |
 | `autoSubmitTicks` | the type's own cadence | How often the task is re-checked, in ticks — twenty to the second. A type picks a sensible interval for its own cost; raise it for an expensive check. |
-| `conditions` | none | Gates this task on the player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold. See [[tasked:authoring/conditions]]. |
+| `conditions` | none | Gates this task on the player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold. See [[tenet:authoring/conditions]]. |
 
 ## What a player has to do, and what just happens
 
@@ -35,41 +35,41 @@ quest ticks over. A task that takes something waits for the player to press **Su
 press is the consent to take it — an item task with `consumeItems`, an `xp` task, and a `fluid` task.
 A `checkmark` is nothing but the button.
 
-Task ids are namespaced, so the built-ins live under `tasked:` and a mod's own type is its own id. The
+Task ids are namespaced, so the built-ins live under `tenet:` and a mod's own type is its own id. The
 types below are the fifteen this build ships.
 
 | Type | Counts |
 |---|---|
-| `tasked:advancement` | An advancement earned, or one criterion of one. |
-| `tasked:biome` | Standing in a biome, or any biome of a tag. |
-| `tasked:checkmark` | Nothing — it is a button the player presses. |
-| `tasked:custom` | Whatever a registered handler answers. |
-| `tasked:dimension` | Being in a dimension. |
-| `tasked:fluid` | Fluid handed over, carried in buckets. |
-| `tasked:item` | Carried items, with matching and consume rules. |
-| `tasked:item_tag` | Carried items belonging to an item tag. |
-| `tasked:kill` | Mobs killed, filtered by id, tag, name or SNBT. |
-| `tasked:location` | Being inside a box. |
-| `tasked:observation` | Looking at a block or an entity for a moment. |
-| `tasked:stage` | Having a stage. |
-| `tasked:stat` | A vanilla statistic's value. |
-| `tasked:structure` | Being inside a structure. |
-| `tasked:xp` | Experience handed over. |
+| `tenet:advancement` | An advancement earned, or one criterion of one. |
+| `tenet:biome` | Standing in a biome, or any biome of a tag. |
+| `tenet:checkmark` | Nothing — it is a button the player presses. |
+| `tenet:custom` | Whatever a registered handler answers. |
+| `tenet:dimension` | Being in a dimension. |
+| `tenet:fluid` | Fluid handed over, carried in buckets. |
+| `tenet:item` | Carried items, with matching and consume rules. |
+| `tenet:item_tag` | Carried items belonging to an item tag. |
+| `tenet:kill` | Mobs killed, filtered by id, tag, name or SNBT. |
+| `tenet:location` | Being inside a box. |
+| `tenet:observation` | Looking at a block or an entity for a moment. |
+| `tenet:stage` | Having a stage. |
+| `tenet:stat` | A vanilla statistic's value. |
+| `tenet:structure` | Being inside a structure. |
+| `tenet:xp` | Experience handed over. |
 
-## `tasked:advancement`
+## `tenet:advancement`
 
 | Field | Meaning |
 |---|---|
 | `advancement` | The advancement's namespaced id, e.g. `minecraft:story/mine_stone`. |
 | `criterion` | One criterion of it instead of the whole advancement. Absent means the whole one. |
 
-## `tasked:biome`
+## `tenet:biome`
 
 | Field | Meaning |
 |---|---|
 | `biome` | The biome to stand in. A `#` tag counts any biome of it, e.g. `#minecraft:is_forest`. |
 
-## `tasked:checkmark`
+## `tenet:checkmark`
 
 | Field | Meaning |
 |---|---|
@@ -78,28 +78,28 @@ types below are the fifteen this build ships.
 The simplest way to say "read the sign", "talk to the NPC", "make the choice" — anything the game
 cannot see.
 
-## `tasked:custom`
+## `tenet:custom`
 
 | Field | Meaning |
 |---|---|
-| `id` | The id a handler was registered under: by a mod during its construction, or by a script — see [[tasked:authoring/kubejs]]. |
+| `id` | The id a handler was registered under: by a mod during its construction, or by a script — see [[tenet:authoring/kubejs]]. |
 | `value` | The number the handler's answer has to reach. |
 
 The handler answers how far along the player is, and the engine treats that answer exactly as it
 treats a stat's or a kill count's. Nothing outside a handler can advance a task, so a custom task is a
 measured task or it is nothing.
 
-A `tasked:custom` task whose handler is not registered is not an error: the quest still loads and the
+A `tenet:custom` task whose handler is not registered is not an error: the quest still loads and the
 validator warns that this build has nothing registered for the id — which is what a pack shipping a
 handler mod as an optional dependency wants to see.
 
-## `tasked:dimension`
+## `tenet:dimension`
 
 | Field | Meaning |
 |---|---|
 | `dimension` | The dimension the player has to be in, e.g. `minecraft:the_nether`. |
 
-## `tasked:fluid`
+## `tenet:fluid`
 
 | Field | Meaning |
 |---|---|
@@ -107,10 +107,10 @@ handler mod as an optional dependency wants to see.
 | `amount` | How much of it, in millibuckets. A bucket is a thousand. |
 
 Carried in the buckets the player holds — a submit empties them and hands the empties back. FTB
-Quests fills this task at a task screen block; Tasked has no such block, so this is the
+Quests fills this task at a task screen block; Tenet has no such block, so this is the
 carried-container path for now.
 
-## `tasked:item`
+## `tenet:item`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -127,7 +127,7 @@ a renamed item:
 
 ```json
 {
-  "type": "tasked:item",
+  "type": "tenet:item",
   "item": "minecraft:diamond_sword",
   "components": { "minecraft:custom_name": "\"Tempered Blade\"" }
 }
@@ -136,7 +136,7 @@ a renamed item:
 An item this build does not have keeps its id and the quest still loads: the row draws a placeholder
 and says the item is missing, so a removed mod can come back.
 
-## `tasked:item_tag`
+## `tenet:item_tag`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -144,10 +144,10 @@ and says the item is missing, so a removed mod can come back.
 | `count` | `1` | How many. |
 | `consumeItems` | the chapter's default | Whether handing it in takes the items. |
 
-A sibling of `tasked:item` rather than a field on it, so a tag where an id is expected is an error
+A sibling of `tenet:item` rather than a field on it, so a tag where an id is expected is an error
 here as it is everywhere else.
 
-## `tasked:kill`
+## `tenet:kill`
 
 | Field | Meaning |
 |---|---|
@@ -157,7 +157,7 @@ here as it is everywhere else.
 | `customName` | Only count a mob with this name. |
 | `nbtFilter` | An SNBT filter, for the mobs an id cannot pick out. |
 
-## `tasked:location`
+## `tenet:location`
 
 | Field | Meaning |
 |---|---|
@@ -166,7 +166,7 @@ here as it is everywhere else.
 | `dimension` | The dimension the box is in. |
 | `ignoreDimension` | Count the box anywhere, instead of only in the dimension above. |
 
-## `tasked:observation`
+## `tenet:observation`
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -174,31 +174,31 @@ here as it is everywhere else.
 | `toObserve` | — | The block or entity to look at, following `observeType`. |
 | `timer` | `20` | How long to look at it, in ticks. |
 
-## `tasked:stage`
+## `tenet:stage`
 
 | Field | Meaning |
 |---|---|
 | `stage` | The stage the player has to have, e.g. `my_pack:left_the_village`. |
 
-The read half of the same feature whose write half is a stage [[tasked:authoring/rewards|reward]], a command, or
+The read half of the same feature whose write half is a stage [[tenet:authoring/rewards|reward]], a command, or
 a script: a pack grants a stage somewhere and asks about it here. Nothing is required of the id — a
 stage exists by being granted — so a typo shows up as a task that never completes rather than as a file
 that will not load.
 
-## `tasked:stat`
+## `tenet:stat`
 
 | Field | Meaning |
 |---|---|
 | `stat` | Which vanilla statistic to watch, e.g. `minecraft:walk_one_cm`. |
 | `value` | The value that counts as enough. |
 
-## `tasked:structure`
+## `tenet:structure`
 
 | Field | Meaning |
 |---|---|
 | `structure` | The structure to be inside, e.g. `minecraft:village_plains`. A `#` tag counts any of them. |
 
-## `tasked:xp`
+## `tenet:xp`
 
 | Field | Default | Meaning |
 |---|---|---|

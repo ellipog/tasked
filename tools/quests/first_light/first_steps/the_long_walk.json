@@ -23,14 +23,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:stat",
+      "type": "tenet:stat",
       "stat": "minecraft:walk_one_cm",
       "value": 50000
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

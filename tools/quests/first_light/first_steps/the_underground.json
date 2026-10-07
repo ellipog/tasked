@@ -24,18 +24,18 @@
   "autoClaim": "disabled",
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Descend below the surface"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:torch",
       "count": 16
     },
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 10
     }
   ]

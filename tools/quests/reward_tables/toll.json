@@ -5,14 +5,14 @@
     {
       "weight": 0,
       "reward": {
-        "type": "tasked:xp",
+        "type": "tenet:xp",
         "amount": 5
       }
     },
     {
       "weight": 6,
       "reward": {
-        "type": "tasked:item",
+        "type": "tenet:item",
         "item": "minecraft:torch",
         "count": 8
       }
@@ -20,7 +20,7 @@
     {
       "weight": 3,
       "reward": {
-        "type": "tasked:item",
+        "type": "tenet:item",
         "item": "minecraft:iron_ingot",
         "count": 2
       }
@@ -28,7 +28,7 @@
     {
       "weight": 1,
       "reward": {
-        "type": "tasked:item",
+        "type": "tenet:item",
         "item": "minecraft:golden_apple"
       }
     }

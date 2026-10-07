@@ -29,7 +29,7 @@
   },
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:oak_planks",
       "count": 64,
       "consumeItems": true,
@@ -38,7 +38,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 15
     }
   ]

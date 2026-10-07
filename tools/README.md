@@ -1,6 +1,6 @@
-# tasked/tools
+# tenet/tools
 
-Tools and content that belong to the Tasked **repository** rather than to the mod.
+Tools and content that belong to the Tenet **repository** rather than to the mod.
 
 Nothing in this folder is compiled, and nothing in it ships in the jar.
 
@@ -12,12 +12,12 @@ and one progression mode, so demonstrating fifteen themes took fifteen chapters.
 orrery now — `first_light/first_steps` — because a reader learns more from a single canvas that
 uses everything than from twelve that each use a part.
 
-The reason they live here rather than in `src/main/resources` is worth restating: **Tasked ships
+The reason they live here rather than in `src/main/resources` is worth restating: **Tenet ships
 no quests.** It is a quest engine, and a mod that installs example chapters into every player's
 config directory has made a decision that is not its to make. The first thing a pack author would
 have to do is delete somebody else's content, and every file a mod ships is a file that has to
 keep working forever against a format that is still moving. So the examples are authoring
-documentation, and they arrive in a `config/tasked/quests` directory because somebody ran the
+documentation, and they arrive in a `config/tenet/quests` directory because somebody ran the
 script below.
 
 ### The shape of it
@@ -156,7 +156,7 @@ it does not list is an *error* — and the playthrough test seeds its own fixtur
 the examples. A shipped index would turn every fixture into a load error. Tree-wide settings would
 also reach the examples' claim assertions, and a `defaultAutoClaim` set here would pay out the
 onboarding quests before their claims could be tested. The fields are documented on the
-[[tasked:authoring/quest-files|quest-files page]] and in `_schema/index.schema.json`.
+[[tenet:authoring/quest-files|quest-files page]] and in `_schema/index.schema.json`.
 
 The legacy `arrows` axis (`none`/`one`/`both`/`many`) is likewise deliberately unused in fresh
 content: it is still read, for old files, but new lines write the three current axes.
@@ -197,7 +197,7 @@ Three rules worth knowing before you edit anything here:
 
 `_schema/` holds a JSON Schema per kind — group, chapter, quest, index and reward table — so your
 editor autocompletes every file a pack is made of. The same five are published under
-`https://ellipog.dev/tasked/_schema/`; a file's `$schema` names the URL, and a local copy works
+`https://ellipog.dev/tenet/_schema/`; a file's `$schema` names the URL, and a local copy works
 offline. It is skipped by the `_` prefix rule everywhere — by the loader, by the seeding script, and
 by the tests — which is the same convention the deliberately-broken fixtures in a test combo use.
 
@@ -213,7 +213,7 @@ onboarding five enter from the west as a comet tail. Cross-arm dependencies are 
 deliberate — the open road takes two of three roads from three different arms — so the long lines
 across the sky are the ones worth following.
 
-Read it in this order: the five onboarding quests, then the hub, then any arm. `/tasked complete
+Read it in this order: the five onboarding quests, then the hub, then any arm. `/tenet complete
 <quest>` walks a node at a time, which is how a canvas this size is meant to be seen.
 
 **Geometry is generated, content is authored.** The arms, slots and offsets live in
@@ -225,7 +225,7 @@ check tell you what you broke.
 ## `gen_examples.py` — how the chapter is written
 
 ```cmd
-python tasked/tools/gen_examples.py
+python tenet/tools/gen_examples.py
 ```
 
 The script owns `first_light/` and `reward_tables/` and rewrites both from scratch on every run,
@@ -241,13 +241,13 @@ the exhibition. `QuestIndexTest` asserts the same list on the written files, so 
 agree by construction.
 
 It lives here rather than in `.utils/` for the same reason `seed_quests.py` does: it belongs to
-the Tasked repository, so a clone gets the *how* as well as the *what*.
+the Tenet repository, so a clone gets the *how* as well as the *what*.
 
 ## `seed_quests.py` — how they get into a config directory
 
 ```cmd
-python tasked/tools/seed_quests.py --workspace           this repo's combos and both profiles
-python tasked/tools/seed_quests.py <dir> [<dir>...]      any config/tasked/quests directories
+python tenet/tools/seed_quests.py --workspace           this repo's combos and both profiles
+python tenet/tools/seed_quests.py <dir> [<dir>...]      any config/tenet/quests directories
 ```
 
 Created if missing. **Never overwritten unless you pass `--force`** — that directory is where an
@@ -267,7 +267,7 @@ and `--force` alone would keep them as stale folders. It is never implied by any
 If you seeded an earlier version of the examples, this is the one-time command:
 
 ```cmd
-python tasked/tools/seed_quests.py --workspace --reset
+python tenet/tools/seed_quests.py --workspace --reset
 ```
 
 Files beginning with `_` in `quests/` are skipped, and deliberately: they are the broken fixtures the
@@ -309,7 +309,7 @@ If you have a `mine.json` of your own, move it into a folder of its own or renam
 ## Why these are not in `.utils/`
 
 Every other script for this project lives in `.utils/`, which is gitignored workspace tooling. The
-two here are different in kind: they belong to the Tasked repository, so that a clone of Tasked
+two here are different in kind: they belong to the Tenet repository, so that a clone of Tenet
 alone gets the examples, the script that installs them, and the script that regenerates them.
 `.utils/Seed Example Quests.cmd` is the launcher that runs `seed_quests.py` with `--workspace`, and
 `.utils/preview.py` renders the chapter's canvas without launching the game.

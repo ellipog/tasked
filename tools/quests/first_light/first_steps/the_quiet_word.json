@@ -23,13 +23,13 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Say the quiet word"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:command",
+      "type": "tenet:command",
       "command": "say The quiet word was spoken.",
       "silent": true,
       "excludeFromClaimAll": true

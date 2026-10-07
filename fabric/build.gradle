@@ -5,7 +5,7 @@ plugins {
 // No KubeJS here, and it is not an omission: KubeJS 7 -- the 1.21 line -- is NeoForge-only. The Fabric
 // artifact on its maven (`dev.latvian.mods:kubejs-fabric`) stops at 2001.* (1.20.1), while
 // `kubejs-neoforge` continues through 2101.* and beyond. So the scripting integration lives in
-// :neoforge alone, and `:common`'s `api/TaskedScripts` -- which names none of KubeJS's types -- is the
+// :neoforge alone, and `:common`'s `api/TenetScripts` -- which names none of KubeJS's types -- is the
 // half that would be reused if a Fabric KubeJS ever returns.
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
@@ -21,19 +21,19 @@ dependencies {
     // use it: the client entry point registers a screen and a key through Armature's API.
     //
     // No Armature *mod* dependency, and none is wanted. Armature's Fabric jar supplies its own
-    // common classes at runtime and is loaded as a separate mod, so Tasked only ever needs
+    // common classes at runtime and is loaded as a separate mod, so Tenet only ever needs
     // those classes to compile against.
     compileOnly "dev.ellipog:armature-common-${minecraft_version}:${armature_version}"
 
-    // But a dev *run* is a real game with a real mod loader, and Tasked's fabric.mod.json requires
-    // Armature -- so without this the first thing a dev server does is refuse to start: "Mod tasked
+    // But a dev *run* is a real game with a real mod loader, and Tenet's fabric.mod.json requires
+    // Armature -- so without this the first thing a dev server does is refuse to start: "Mod tenet
     // requires armature ${armature_version} or above". The NeoForge module carries the same line
     // for the same reason; this is the Fabric half.
     //
     // With it, a dev run gets one step further and stops on Fabric API's *own* access widener:
     // "Namespace (intermediary) does not match current runtime namespace (named)". That is the dev
     // toolchain's business rather than this mod's -- it happens while the loader reads Fabric API's
-    // jar, before Tasked is constructed -- and it does not affect a deployed profile, where the
+    // jar, before Tenet is constructed -- and it does not affect a deployed profile, where the
     // runtime namespace is intermediary.
     runtimeOnly "dev.ellipog:armature-fabric-${minecraft_version}:${armature_version}"
 }

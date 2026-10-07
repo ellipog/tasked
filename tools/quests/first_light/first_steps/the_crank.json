@@ -39,21 +39,21 @@
   "sequentialTasks": true,
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Turn the crank"
     },
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Turn it again"
     },
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "And once more"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

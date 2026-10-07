@@ -1,12 +1,12 @@
 # Languages
 
-A questline written for one language is a questline half the people who install it cannot read. Tasked
+A questline written for one language is a questline half the people who install it cannot read. Tenet
 lets a pack ship its own translations beside the book, one file per language, and sends each player the
 one they read — without the quest files being written twice and without the tree being sent once per
 language.
 
 ```
-config/tasked/quests/
+config/tenet/quests/
 ├── index.json
 ├── first_light/
 │   └── ...
@@ -112,7 +112,7 @@ file for a translation to work:
 | A reward table | `rewardTable.<name>.title` |
 
 A task's or a reward's sentence is already a translation key of its own — a checkmark task's `title`,
-or a built-in sentence like `tasked.reward.xp.points` — so it needs no conventional key: put **its** key
+or a built-in sentence like `tenet.reward.xp.points` — so it needs no conventional key: put **its** key
 in a locale file and it is translated like any other.
 
 ### Descriptions, and paragraphs
@@ -153,7 +153,7 @@ your own words with somebody else's translation of them.
 ## Reloading
 
 ```
-/tasked reload
+/tenet reload
 ```
 
 re-reads `lang/` with everything else and re-sends each player their own locale, so editing a
@@ -164,4 +164,4 @@ client's options follows within a tick, with no reconnect at all.
 
 - A chapter's `subtitle` and `description`: nothing draws them for a player, so there is no surface for
   a translation to reach. They are the editor's, and the editor shows the file.
-- An FTB `image` object's title: Tasked has no image object, so the key has no home here.
+- An FTB `image` object's title: Tenet has no image object, so the key has no home here.

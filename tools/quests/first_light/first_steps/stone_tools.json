@@ -25,7 +25,7 @@
   "autoClaim": "disabled",
   "tasks": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:cobblestone",
       "count": 8,
       "consumeItems": false
@@ -33,11 +33,11 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:stone_pickaxe"
     },
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 10
     }
   ]

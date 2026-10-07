@@ -1,15 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ellipog.dev/tasked/_schema/quest.schema.json",
-  "title": "Tasked quest",
-  "description": "One quest, in one file, under a chapter folder in config/tasked/quests/. The file's name is the quest's own name and is what the chapter manifest lists it by; the quest's `id` is separate and is what everything else refers to it by.",
+  "$id": "https://ellipog.dev/tenet/_schema/quest.schema.json",
+  "title": "Tenet quest",
+  "description": "One quest, in one file, under a chapter folder in config/tenet/quests/. The file's name is the quest's own name and is what the chapter manifest lists it by; the quest's `id` is separate and is what everything else refers to it by.",
   "type": "object",
   "required": ["id", "title"],
   "additionalProperties": false,
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Ignored by Tasked. For your editor. Depth-counted: four levels up from a quest file is the quest root."
+      "description": "Ignored by Tenet. For your editor. Depth-counted: four levels up from a quest file is the quest root."
     },
     "id": { "$ref": "#/definitions/id" },
     "title": { "$ref": "#/definitions/text" },
@@ -279,7 +279,7 @@
           "type": "number",
           "minimum": 0,
           "default": 0,
-          "description": "The chance of nothing on a throw, against the positive weights. Only tasked:loot includes it: a tasked:random promises something."
+          "description": "The chance of nothing on a throw, against the positive weights. Only tenet:loot includes it: a tenet:random promises something."
         },
         "lootSize": {
           "type": "integer",
@@ -321,11 +321,11 @@
                     {
                       "type": "object",
                       "required": ["type"],
-                      "properties": { "type": { "const": "tasked:choice" } }
+                      "properties": { "type": { "const": "tenet:choice" } }
                     }
                   ]
                 },
-                "description": "The reward this entry grants. All of anyType except two things. `conditions` cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. And `tasked:choice` cannot be an entry at all: a roll hands its entries out rather than offering them, so a choice entry is skipped. Put conditions on the table reward itself, and a choice on a quest."
+                "description": "The reward this entry grants. All of anyType except two things. `conditions` cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. And `tenet:choice` cannot be an entry at all: a roll hands its entries out rather than offering them, so a choice entry is skipped. Put conditions on the table reward itself, and a choice on a quest."
               }
             }
           }
@@ -339,52 +339,52 @@
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": { "type": "string", "description": "The condition type's id, e.g. tasked:stage. The id decides which of the fields below mean anything." },
+        "type": { "type": "string", "description": "The condition type's id, e.g. tenet:stage. The id decides which of the fields below mean anything." },
         "item": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:item (condition) - the item to have."
+          "description": "tenet:item (condition) - the item to have."
         },
         "count": {
           "type": "integer",
           "minimum": 1,
           "maximum": 6400,
           "default": 1,
-          "description": "tasked:item and tasked:item_tag (condition) - how many of them."
+          "description": "tenet:item and tenet:item_tag (condition) - how many of them."
         },
         "components": {
           "type": "object",
-          "description": "tasked:item (condition) - 1.21 data components, as on a task's item.",
+          "description": "tenet:item (condition) - 1.21 data components, as on a task's item.",
           "additionalProperties": true
         },
         "match": {
           "enum": ["none", "fuzzy", "strict"],
           "default": "strict",
-          "description": "tasked:item (condition) - how closely a carried stack must match."
+          "description": "tenet:item (condition) - how closely a carried stack must match."
         },
         "tag": {
           "type": "string",
-          "description": "tasked:item_tag (condition) - an item tag; any item in it counts."
+          "description": "tenet:item_tag (condition) - an item tag; any item in it counts."
         },
         "objective": {
           "type": "string",
-          "description": "tasked:score (condition) - the scoreboard objective's name. An objective that does not exist reads as zero, so a typo locks the gate."
+          "description": "tenet:score (condition) - the scoreboard objective's name. An objective that does not exist reads as zero, so a typo locks the gate."
         },
         "min": {
           "type": "integer",
           "minimum": 1,
-          "description": "tasked:score and tasked:party_size (condition) - the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it. tasked:party_size is capped at 1000; tasked:score has no ceiling."
+          "description": "tenet:score and tenet:party_size (condition) - the number to reach: a score, or the members of the party online now. At least 1, so an objective that does not exist (which reads as 0) locks the gate rather than opening it. tenet:party_size is capped at 1000; tenet:score has no ceiling."
         },
         "advancement": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:advancement (condition) - the advancement to have earned."
+          "description": "tenet:advancement (condition) - the advancement to have earned."
         },
         "criterion": {
           "type": "string",
-          "description": "tasked:advancement (condition) - require one criterion of it instead of the whole advancement."
+          "description": "tenet:advancement (condition) - require one criterion of it instead of the whole advancement."
         },
         "stage": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:stage (condition) - the stage to have."
+          "description": "tenet:stage (condition) - the stage to have."
         }
       }
     },
@@ -394,7 +394,7 @@
       "type": "object",
       "required": ["type"],
       "properties": {
-        "type": { "type": "string", "description": "The type's id, e.g. tasked:item. The id decides which of the fields below mean anything." },
+        "type": { "type": "string", "description": "The type's id, e.g. tenet:item. The id decides which of the fields below mean anything." },
 
         "optional": {
           "type": "boolean",
@@ -415,137 +415,137 @@
 
         "item": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:item (task and reward) - the item to hand over, or to give."
+          "description": "tenet:item (task and reward) - the item to hand over, or to give."
         },
         "count": {
           "type": "integer",
           "minimum": 1,
           "maximum": 6400,
           "default": 1,
-          "description": "tasked:item and tasked:item_tag (tasks), tasked:item (reward) - how many."
+          "description": "tenet:item and tenet:item_tag (tasks), tenet:item (reward) - how many."
         },
         "components": {
           "type": "object",
-          "description": "tasked:item (task and reward) - 1.21 data components, keyed by component id in the datapack's own spelling. A text component's value is a string holding JSON, as the codec writes it -- the editor writes that form when you pick a renamed item.",
+          "description": "tenet:item (task and reward) - 1.21 data components, keyed by component id in the datapack's own spelling. A text component's value is a string holding JSON, as the codec writes it -- the editor writes that form when you pick a renamed item.",
           "additionalProperties": true
         },
         "consumeItems": {
           "type": "boolean",
-          "description": "tasked:item and tasked:item_tag (tasks) - whether handing the task in takes the items. Falls back to the chapter's defaultConsumeItems."
+          "description": "tenet:item and tenet:item_tag (tasks) - whether handing the task in takes the items. Falls back to the chapter's defaultConsumeItems."
         },
         "match": {
           "enum": ["none", "fuzzy", "strict"],
-          "description": "tasked:item (task) - how closely a carried stack must match: none ignores its data, fuzzy needs the data it names, strict needs the whole stack."
+          "description": "tenet:item (task) - how closely a carried stack must match: none ignores its data, fuzzy needs the data it names, strict needs the whole stack."
         },
         "onlyFromCrafting": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:item (task) - only items the player crafted themselves count."
+          "description": "tenet:item (task) - only items the player crafted themselves count."
         },
         "tag": {
           "type": "string",
-          "description": "tasked:item_tag (task) - an item tag; any item in it counts."
+          "description": "tenet:item_tag (task) - an item tag; any item in it counts."
         },
         "title": {
           "$ref": "#/definitions/text",
-          "description": "tasked:checkmark (task) - the label on the button a player presses."
+          "description": "tenet:checkmark (task) - the label on the button a player presses."
         },
         "dimension": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:dimension and tasked:location (tasks) - the dimension the player has to be in, or the one the location box is in."
+          "description": "tenet:dimension and tenet:location (tasks) - the dimension the player has to be in, or the one the location box is in."
         },
         "biome": {
           "type": "string",
-          "description": "tasked:biome (task) - the biome to stand in; a #tag counts any biome of it."
+          "description": "tenet:biome (task) - the biome to stand in; a #tag counts any biome of it."
         },
         "structure": {
           "type": "string",
-          "description": "tasked:structure (task) - the structure to be inside; a #tag counts any of them."
+          "description": "tenet:structure (task) - the structure to be inside; a #tag counts any of them."
         },
         "advancement": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:advancement (task and reward) - the advancement to earn, or to award."
+          "description": "tenet:advancement (task and reward) - the advancement to earn, or to award."
         },
         "criterion": {
           "type": "string",
-          "description": "tasked:advancement (task and reward) - one criterion of it instead of the whole advancement; empty for the whole one."
+          "description": "tenet:advancement (task and reward) - one criterion of it instead of the whole advancement; empty for the whole one."
         },
         "stat": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:stat (task) - which vanilla statistic to watch."
+          "description": "tenet:stat (task) - which vanilla statistic to watch."
         },
         "value": {
           "type": "integer",
-          "description": "tasked:stat, tasked:xp, tasked:kill and tasked:custom (tasks) - the number that counts as enough: the statistic's value, experience handed over, kills, or the handler's count."
+          "description": "tenet:stat, tenet:xp, tenet:kill and tenet:custom (tasks) - the number that counts as enough: the statistic's value, experience handed over, kills, or the handler's count."
         },
         "ignoreDimension": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:location (task) - count the box anywhere, instead of only in the dimension above."
+          "description": "tenet:location (task) - count the box anywhere, instead of only in the dimension above."
         },
         "position": {
           "type": "array",
           "items": { "type": "integer" },
           "minItems": 3,
           "maxItems": 3,
-          "description": "tasked:location (task) - one corner of the box, in blocks, as [x, y, z]."
+          "description": "tenet:location (task) - one corner of the box, in blocks, as [x, y, z]."
         },
         "size": {
           "type": "array",
           "items": { "type": "integer" },
           "minItems": 3,
           "maxItems": 3,
-          "description": "tasked:location (task) - how far the box reaches from that corner, as [x, y, z]."
+          "description": "tenet:location (task) - how far the box reaches from that corner, as [x, y, z]."
         },
         "points": {
           "type": "boolean",
           "default": true,
-          "description": "tasked:xp (task) - whether the count is experience points (true, the default) or whole levels (false)."
+          "description": "tenet:xp (task) - whether the count is experience points (true, the default) or whole levels (false)."
         },
         "fluid": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:fluid (task) - the fluid to hand over, carried in buckets."
+          "description": "tenet:fluid (task) - the fluid to hand over, carried in buckets."
         },
         "amount": {
           "type": "integer",
           "minimum": 1,
-          "description": "tasked:fluid (task) - how much of it, in millibuckets; a bucket is a thousand. tasked:xp (reward) - points, or levels, to give."
+          "description": "tenet:fluid (task) - how much of it, in millibuckets; a bucket is a thousand. tenet:xp (reward) - points, or levels, to give."
         },
         "observeType": {
           "enum": ["block", "block_tag", "block_state", "block_entity", "block_entity_type",
                    "entity_type", "entity_type_tag"],
-          "description": "tasked:observation (task) - what counts as looking: a block, a tag of them, one block state, a block entity, or an entity. The target below follows this."
+          "description": "tenet:observation (task) - what counts as looking: a block, a tag of them, one block state, a block entity, or an entity. The target below follows this."
         },
         "toObserve": {
           "type": "string",
-          "description": "tasked:observation (task) - the block or entity to look at."
+          "description": "tenet:observation (task) - the block or entity to look at."
         },
         "timer": {
           "type": "integer",
           "minimum": 0,
           "maximum": 1200,
           "default": 20,
-          "description": "tasked:observation (task) - how long to look at it, in ticks, twenty to the second."
+          "description": "tenet:observation (task) - how long to look at it, in ticks, twenty to the second."
         },
         "entity": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:kill (task) - the mob to kill."
+          "description": "tenet:kill (task) - the mob to kill."
         },
         "entityTypeTag": {
           "type": "string",
-          "description": "tasked:kill (task) - or an entity tag, to count any mob in it. Its own field rather than a # in `entity`, so a tag where an id is expected is an error here as it is everywhere else."
+          "description": "tenet:kill (task) - or an entity tag, to count any mob in it. Its own field rather than a # in `entity`, so a tag where an id is expected is an error here as it is everywhere else."
         },
         "customName": {
           "type": "string",
-          "description": "tasked:kill (task) - only counts a mob with this name."
+          "description": "tenet:kill (task) - only counts a mob with this name."
         },
         "nbtFilter": {
           "type": "string",
-          "description": "tasked:kill (task) - an SNBT filter, for the mobs an id cannot pick out."
+          "description": "tenet:kill (task) - an SNBT filter, for the mobs an id cannot pick out."
         },
         "id": {
           "type": "string",
-          "description": "tasked:custom (task and reward) - the id a mod or a script registered a handler for. The validator warns when this build has nothing registered for it."
+          "description": "tenet:custom (task and reward) - the id a mod or a script registered a handler for. The validator warns when this build has nothing registered for it."
         },
 
         "team": {
@@ -572,50 +572,50 @@
           "minimum": 0,
           "maximum": 6400,
           "default": 0,
-          "description": "tasked:item (reward) - up to this many more, rolled at random on top of the count."
+          "description": "tenet:item (reward) - up to this many more, rolled at random on top of the count."
         },
         "onlyOne": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:item (reward) - skip it if the player already carries this item."
+          "description": "tenet:item (reward) - skip it if the player already carries this item."
         },
         "levels": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:xp (reward) - give whole levels rather than points, which is the default. The task's own switch is `points`, and it reads the other way: true there counts points."
+          "description": "tenet:xp (reward) - give whole levels rather than points, which is the default. The task's own switch is `points`, and it reads the other way: true there counts points."
         },
         "table": {
           "type": "string",
-          "description": "tasked:random, tasked:loot, tasked:all_table and tasked:choice (rewards) - the reward table to roll, by id: a file under reward_tables/, named without its .json suffix. The roll happens when the reward is collected."
+          "description": "tenet:random, tenet:loot, tenet:all_table and tenet:choice (rewards) - the reward table to roll, by id: a file under reward_tables/, named without its .json suffix. The roll happens when the reward is collected."
         },
         "inline": {
           "$ref": "#/definitions/rewardTable",
-          "description": "tasked:random, tasked:loot, tasked:all_table and tasked:choice (rewards) - the table itself, for a reward that is its own roll."
+          "description": "tenet:random, tenet:loot, tenet:all_table and tenet:choice (rewards) - the table itself, for a reward that is its own roll."
         },
         "permissionLevel": {
           "type": "integer",
           "minimum": 0,
           "maximum": 4,
           "default": 2,
-          "description": "tasked:command (reward) - the permission level the command runs at; 2 is a command block's."
+          "description": "tenet:command (reward) - the permission level the command runs at; 2 is a command block's."
         },
         "command": {
           "type": "string",
-          "description": "tasked:command (reward) - run as the player when the reward is collected, without the leading slash."
+          "description": "tenet:command (reward) - run as the player when the reward is collected, without the leading slash."
         },
         "silent": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:command (reward) - do not say in chat that it ran."
+          "description": "tenet:command (reward) - do not say in chat that it ran."
         },
         "stage": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tasked:stage (task and reward) - the stage the player has to have, or the one to set. Any id: a stage exists by being granted, so there is no list to pick from and nothing to validate."
+          "description": "tenet:stage (task and reward) - the stage the player has to have, or the one to set. Any id: a stage exists by being granted, so there is no list to pick from and nothing to validate."
         },
         "remove": {
           "type": "boolean",
           "default": false,
-          "description": "tasked:stage (reward) - take the stage away instead of granting it."
+          "description": "tenet:stage (reward) - take the stage away instead of granting it."
         }
       }
     }

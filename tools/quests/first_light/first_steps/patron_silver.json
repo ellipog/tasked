@@ -22,13 +22,13 @@
   "exclusiveGroup": "the_patrons",
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Take the silver patron's coin"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:iron_block",
       "count": 2
     }

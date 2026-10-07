@@ -1,21 +1,21 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ellipog.dev/tasked/_schema/reward_table.schema.json",
-  "title": "Tasked reward table",
-  "description": "One file under config/tasked/quests/reward_tables/, named after the table's id: dice.json is the table a `tasked:random`, `tasked:loot`, `tasked:all_table` or `tasked:choice` reward points at with `\"table\": \"dice\"`. A roll of rewards: a weight-zero entry is always granted, every positive weight shares the rest of the probability space, and `lootSize` is how many times the dice are thrown.",
+  "$id": "https://ellipog.dev/tenet/_schema/reward_table.schema.json",
+  "title": "Tenet reward table",
+  "description": "One file under config/tenet/quests/reward_tables/, named after the table's id: dice.json is the table a `tenet:random`, `tenet:loot`, `tenet:all_table` or `tenet:choice` reward points at with `\"table\": \"dice\"`. A roll of rewards: a weight-zero entry is always granted, every positive weight shares the rest of the probability space, and `lootSize` is how many times the dice are thrown.",
   "type": "object",
   "additionalProperties": false,
   "required": ["entries"],
   "properties": {
     "$schema": {
       "type": "string",
-      "description": "Ignored by Tasked. For your editor, so it can autocomplete the rest of this file."
+      "description": "Ignored by Tenet. For your editor, so it can autocomplete the rest of this file."
     },
     "emptyWeight": {
       "type": "number",
       "minimum": 0,
       "default": 0,
-      "description": "The chance of nothing on a throw, against the positive weights. Only tasked:loot includes it: a tasked:random promises something."
+      "description": "The chance of nothing on a throw, against the positive weights. Only tenet:loot includes it: a tenet:random promises something."
     },
     "lootSize": {
       "type": "integer",
@@ -57,11 +57,11 @@
                 {
                   "type": "object",
                   "required": ["type"],
-                  "properties": { "type": { "const": "tasked:choice" } }
+                  "properties": { "type": { "const": "tenet:choice" } }
                 }
               ]
             },
-            "description": "The reward this entry grants. Every field a quest's own reward may carry, except two. `conditions` cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. And `tasked:choice` cannot be an entry at all: a roll hands its entries out rather than offering them, so a choice entry is skipped. Put conditions on the table reward itself, and a choice on a quest."
+            "description": "The reward this entry grants. Every field a quest's own reward may carry, except two. `conditions` cannot mean anything here: an entry is handed out by the roll rather than claimed, so a gate on it would be validated and then ignored. And `tenet:choice` cannot be an entry at all: a roll hands its entries out rather than offering them, so a choice entry is skipped. Put conditions on the table reward itself, and a choice on a quest."
           }
         }
       }

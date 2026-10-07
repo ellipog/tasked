@@ -37,13 +37,13 @@
   "prerequisiteMode": "one_completed",
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Close the ledger"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 25
     }
   ]

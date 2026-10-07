@@ -1,4 +1,4 @@
-# Tasked
+# Tenet
 
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
@@ -6,7 +6,7 @@ ground-up replacement for FTB Quests — not a port of it, and not a reimplement
 > **Status: 0.1.2 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
 > the progression engine, server-authoritative sync, the quest book and the in-game editor all work
 > on both loaders, but the version is below 1.0 on purpose: a break in the quest format needs only a
-> minor bump, so read the release notes before upgrading. Tasked ships no quests of its own: it is an
+> minor bump, so read the release notes before upgrading. Tenet ships no quests of its own: it is an
 > engine, and the worked questline in `tools/quests/` is what an author reads to learn the format.
 
 ## What it does
@@ -39,15 +39,15 @@ on hover.
 `LINEAR` or `FLEXIBLE`; quests can repeat on a cooldown, run their tasks sequentially or
 all-optional, stay hidden until revealed, gate on a per-player stage, and branch exclusively —
 either by a named group or by a cap on completable dependants. Progress is recomputed from
-completed quests, so editing a file cannot leave a save inconsistent. `/tasked reload` re-runs the
+completed quests, so editing a file cannot leave a save inconsistent. `/tenet reload` re-runs the
 load without a restart.
 
 **Parties share progress.** Built on Armature's team API. A party chooses how its members' counts
 combine — `ONE_MEMBER` (the default), `POOLED`, or `OWNER_ONLY` — and progress, stages and claims
-are server-authoritative. `/tasked party` covers create, invite, accept and decline, joining an open
+are server-authoritative. `/tenet party` covers create, invite, accept and decline, joining an open
 party, rename, transfer and hand-over, uninvite, the two membership settings (`open` and
-`member-invites`), leave, kick, disband and mode. Bare `/tasked party` also reports which source the
-parties are being read from, which is how an operator tells Tasked's own teams from another mod's.
+`member-invites`), leave, kick, disband and mode. Bare `/tenet party` also reports which source the
+parties are being read from, which is how an operator tells Tenet's own teams from another mod's.
 
 **The quest book** opens from the quest book item or the **B** key: a pannable, zoomable canvas of
 nodes with per-quest shape, size and icon scale, styled dependency lines, markdown quest
@@ -65,10 +65,10 @@ chapter rather than one per quest. Every edit is written as it is made, so Ctrl+
 than saving. The server re-checks permission and validates before writing: no quest file is written by
 the client, and the player's own look and text size are the client's own files.
 
-**For addons and packs.** `TaskedEvents` publishes quest, task, claim and stage events, and
+**For addons and packs.** `TenetEvents` publishes quest, task, claim and stage events, and
 `TaskTypes.register` / `RewardTypes.register` / `ConditionTypes.register` add custom types with
-their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked also registers a
-`Tasked` script binding and a `TaskedEvents` event group for pack scripting.
+their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tenet also registers a
+`Tenet` script binding and a `TenetEvents` event group for pack scripting.
 
 ## Requirements
 
@@ -81,13 +81,13 @@ their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tasked al
 | Armature | 0.1.1+, required on both loaders |
 | KubeJS | optional, NeoForge only, 2101.7.2+ |
 
-Tasked is built on **Armature**, a standalone library and UI toolkit. Both metadata files declare
+Tenet is built on **Armature**, a standalone library and UI toolkit. Both metadata files declare
 Armature as a required dependency, so install both mods — the loader names Armature if it is
 missing.
 
 ## Building
 
-Tasked compiles against Armature's published `armature-common` artifact, which Armature's release
+Tenet compiles against Armature's published `armature-common` artifact, which Armature's release
 workflow publishes to its own Maven repository on every tag. So this is the whole of it:
 
 ```cmd
@@ -104,14 +104,14 @@ it locally first. `mavenLocal` is declared ahead of the remote repository, so th
 cd ..\armature
 gradlew build publishToMavenLocal
 
-cd ..\tasked
+cd ..\tenet
 gradlew build
 ```
 
 ### Writing a handler mod
 
-Tasked's own API is on the same repository, because a separate mod can register its own
-`tasked:custom` task and reward types — the arrangement [docs/authoring/tasks.md](docs/authoring/tasks.md)
+Tenet's own API is on the same repository, because a separate mod can register its own
+`tenet:custom` task and reward types — the arrangement [docs/authoring/tasks.md](docs/authoring/tasks.md)
 describes as *"a pack shipping a handler mod as an optional dependency"*:
 
 ```groovy
@@ -120,9 +120,9 @@ repositories {
 }
 
 dependencies {
-    // TaskedScripts, TaskedEvents and the CustomTask / CustomReward registries.
-    compileOnly 'dev.ellipog:tasked-common-1.21.1:0.1.2'
-    // TaskedEvents extends Armature's Event, so that one is needed beside it.
+    // TenetScripts, TenetEvents and the CustomTask / CustomReward registries.
+    compileOnly 'dev.ellipog:tenet-common-1.21.1:0.1.2'
+    // TenetEvents extends Armature's Event, so that one is needed beside it.
     compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.2'
 }
 ```
@@ -132,10 +132,10 @@ dependencies {
 `runtimeOnly` in a dev run.
 
 A KubeJS pack needs none of this. Scripts register the same handlers through the plugin KubeJS finds
-inside Tasked's jar, which is [docs/authoring/kubejs.md](docs/authoring/kubejs.md).
+inside Tenet's jar, which is [docs/authoring/kubejs.md](docs/authoring/kubejs.md).
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tasked-fabric-1.21.1-0.1.2.jar`) — the `-sources` jars are not mods. The test
+(`tenet-fabric-1.21.1-0.1.2.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile
@@ -150,7 +150,7 @@ gradlew deployAll        :: both
 ```
 
 Each one deletes the previous copies from the profile before copying, so you never end up with
-`tasked-...jar` and `tasked-... (1).jar` sitting side by side — Minecraft picks whichever it likes,
+`tenet-...jar` and `tenet-... (1).jar` sitting side by side — Minecraft picks whichever it likes,
 and the resulting bug hunt is never worth it.
 
 Because Armature is a required dependency, its jars have to reach the profile too; run `deployAll`
@@ -158,8 +158,8 @@ in both repositories. If your profiles are named something else, edit these two 
 `gradle.properties`:
 
 ```properties
-testModsDirFabric=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tasked Fabric/mods
-testModsDirNeoForge=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tasked NeoForge/mods
+testModsDirFabric=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tenet Fabric/mods
+testModsDirNeoForge=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tenet NeoForge/mods
 ```
 
 ## Layout
@@ -181,7 +181,7 @@ by convention.
 folder format, every field on a quest, the fifteen task and ten reward types, what the validator
 checks, and the KubeJS binding. The five per-kind schemas under `tools/quests/_schema/` — group,
 chapter, quest, index and reward table — are the machine-readable field reference, published at
-`https://ellipog.dev/tasked/_schema/`; `docs/tasked-quests.schema.json` is the older one-file
+`https://ellipog.dev/tenet/_schema/`; `docs/tenet-quests.schema.json` is the older one-file
 format's, published under `_legacy/`. `tools/README.md` describes the worked questline — one
 chapter, `first_light/first_steps`, laid out as an orrery and carrying every field the format has —
 and the two scripts that regenerate and seed it.

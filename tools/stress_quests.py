@@ -35,9 +35,9 @@ a function of the shapes it draws and the lines it routes, so:
 --------------------------------------------------------------------------
 Usage
 
-    python tasked/tools/stress_quests.py <dir> [<dir>...]     write a pack into each directory
-    python tasked/tools/stress_quests.py --dry-run <dir>      report what would be written
-    python tasked/tools/stress_quests.py --quests 2000 <dir>  a different size
+    python tenet/tools/stress_quests.py <dir> [<dir>...]     write a pack into each directory
+    python tenet/tools/stress_quests.py --dry-run <dir>      report what would be written
+    python tenet/tools/stress_quests.py --quests 2000 <dir>  a different size
 
 Unlike `seed_quests.py` this **replaces** its own group outright, because it is generated content and
 there is nothing of yours in it to preserve. It never touches anything outside the group directory it
@@ -101,8 +101,8 @@ ITEMS = (
 #: Task kinds to cycle through, with the fields each one actually declares.
 #:
 #: **Every one of these was guessed wrong once**, and it cost a 1034-file pack that loaded 98 of them:
-#: `tasked:xp` takes `value` and not `amount`, and the statistic task is `tasked:stat` -- not
-#: `tasked:statistic` -- whose fields are `stat` and `value`. The schemas do not catch it, because they
+#: `tenet:xp` takes `value` and not `amount`, and the statistic task is `tenet:stat` -- not
+#: `tenet:statistic` -- whose fields are `stat` and `value`. The schemas do not catch it, because they
 #: validate the *envelope* and cannot know what a codec wants. So these names come from the task classes
 #: themselves (`quest/task/*.java`, each declaring a `TYPE` and a `FIELDS` set) rather than from the schema.
 TASK_KINDS = ("item", "xp", "stat", "kill")
@@ -118,11 +118,11 @@ SPACING = 48
 #: What each **task** type accepts, read from the classes that declare them.
 #:
 #: **The schemas cannot check this and that is the whole reason these tables are here.** They validate the
-#: *envelope* — a `type` string and a bag of fields — and have no way to know that `tasked:xp` wants `value`
-#: while `tasked:item` wants `count`. A generated pack that gets it wrong passes every schema and then loads
-#: 98 files out of 1034, with `these fields do not form a tasked:xp` as the only clue.
+#: *envelope* — a `type` string and a bag of fields — and have no way to know that `tenet:xp` wants `value`
+#: while `tenet:item` wants `count`. A generated pack that gets it wrong passes every schema and then loads
+#: 98 files out of 1034, with `these fields do not form a tenet:xp` as the only clue.
 #:
-#: **Tasks and rewards are separate tables because the ids collide.** `tasked:xp` is a task *and* a reward,
+#: **Tasks and rewards are separate tables because the ids collide.** `tenet:xp` is a task *and* a reward,
 #: in two registries, with two codecs — the task counts by `value` and the reward by `amount`. One table keyed
 #: on the id could only be right for one of them, which is exactly the trap: a name that is correct on the
 #: task side is a refusal on the reward side.
@@ -130,16 +130,16 @@ SPACING = 48
 #: Kept deliberately small: only the types this generator emits. A type that is not here is not checked,
 #: which is honest — this is a guard on what the script writes, not a second copy of the mod's registry.
 TASK_FIELDS = {
-    "tasked:item": {"item", "count", "consumeItems", "match", "onlyFromCrafting"},
-    "tasked:xp": {"value", "points"},
-    "tasked:stat": {"stat", "value"},
-    "tasked:kill": {"entity", "entityTypeTag", "customName", "nbtFilter", "count"},
+    "tenet:item": {"item", "count", "consumeItems", "match", "onlyFromCrafting"},
+    "tenet:xp": {"value", "points"},
+    "tenet:stat": {"stat", "value"},
+    "tenet:kill": {"entity", "entityTypeTag", "customName", "nbtFilter", "count"},
 }
 
 #: What each **reward** type accepts. See `TASK_FIELDS` on why this is not one table.
 REWARD_FIELDS = {
-    "tasked:item": {"item", "count", "match", "components"},
-    "tasked:xp": {"amount", "levels"},
+    "tenet:item": {"item", "count", "match", "components"},
+    "tenet:xp": {"amount", "levels"},
 }
 
 
@@ -160,23 +160,23 @@ def task_for(kind, item, count):
     appears. Those are the worked example's job.
     """
     if kind == "item":
-        return {"type": "tasked:item", "item": item, "count": count, "consumeItems": False}
+        return {"type": "tenet:item", "item": item, "count": count, "consumeItems": False}
     if kind == "xp":
         # `value`, not `amount` -- and the codec clamps it to 1..100000.
-        return {"type": "tasked:xp", "value": count * 10}
+        return {"type": "tenet:xp", "value": count * 10}
     if kind == "stat":
-        # `tasked:stat`, not `tasked:statistic`, and its fields are `stat` and `value`.
-        return {"type": "tasked:stat", "stat": "minecraft:mine_block", "value": count}
-    return {"type": "tasked:kill", "entity": "minecraft:zombie", "count": count}
+        # `tenet:stat`, not `tenet:statistic`, and its fields are `stat` and `value`.
+        return {"type": "tenet:stat", "stat": "minecraft:mine_block", "value": count}
+    return {"type": "tenet:kill", "entity": "minecraft:zombie", "count": count}
 
 
 def reward_for(index, item):
     """A reward, alternating between the two kinds that need one field."""
     if index % 3 == 0:
-        # `amount`, **not** the `value` the xp *task* takes: the two registries share the id `tasked:xp` and
+        # `amount`, **not** the `value` the xp *task* takes: the two registries share the id `tenet:xp` and
         # have separate codecs, so a name that is right on the task side is a refusal here.
-        return {"type": "tasked:xp", "amount": 25}
-    return {"type": "tasked:item", "item": item}
+        return {"type": "tenet:xp", "amount": 25}
+    return {"type": "tenet:item", "item": item}
 
 
 def quest_id(chapter_index, quest_index):
@@ -354,7 +354,7 @@ def write_pack(target, chapters, dry_run):
         "id": GROUP_ID,
         "title": GROUP_TITLE,
         "description": [
-            "Generated by `tasked/tools/stress_quests.py` for measurement, not for reading.",
+            "Generated by `tenet/tools/stress_quests.py` for measurement, not for reading.",
             "",
             "Every node outline, every line form, arrow head, arrow place, density, weight and dash,",
             "several prerequisite modes and two linear chapters -- over a randomised dependency graph",
@@ -504,7 +504,7 @@ def verify_pack(target):
             else:
                 ids[qid] = f"{chapter_dir.name}/{name}"
             # **The check the schema cannot make.** A `type` the mod does not register, or a field its codec
-            # does not declare, is refused by the loader as "these fields do not form a tasked:xp" -- which
+            # does not declare, is refused by the loader as "these fields do not form a tenet:xp" -- which
             # says neither which field is wrong nor what it should be. Tasks and rewards go through their own
             # tables, because the same id means different fields in each registry.
             for kind, fields_of in (("tasks", TASK_FIELDS), ("rewards", REWARD_FIELDS)):
@@ -558,7 +558,7 @@ def verify_pack(target):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a large synthetic pack for measurement.")
     parser.add_argument("targets", nargs="*", metavar="DIR",
-                        help="config/tasked/quests directories to write into")
+                        help="config/tenet/quests directories to write into")
     parser.add_argument("--workspace", action="store_true",
                         help="write into this repo's test combos and both Modrinth profiles")
     parser.add_argument("--quests", type=int, default=CHAPTERS * PER_CHAPTER,
@@ -574,13 +574,13 @@ def main() -> int:
     targets = [pathlib.Path(t) for t in args.targets]
     if args.workspace:
         root = pathlib.Path(__file__).resolve().parents[2]
-        targets += [root / "testserver/combos/tasked/fabric/mods/../config/tasked/quests",
-                    root / "testserver/combos/tasked/neoforge/mods/../config/tasked/quests"]
+        targets += [root / "testserver/combos/tenet/fabric/mods/../config/tenet/quests",
+                    root / "testserver/combos/tenet/neoforge/mods/../config/tenet/quests"]
         profiles = pathlib.Path.home() / "AppData" / "Roaming" / "ModrinthApp" / "profiles"
-        for name in ("Tasked Fabric", "Tasked NeoForge"):
+        for name in ("Tenet Fabric", "Tenet NeoForge"):
             profile = profiles / name
             if profile.is_dir():
-                targets.append(profile / "config" / "tasked" / "quests")
+                targets.append(profile / "config" / "tenet" / "quests")
     if not targets:
         parser.error("name at least one directory, or pass --workspace")
 

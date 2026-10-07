@@ -28,14 +28,14 @@
   },
   "tasks": [
     {
-      "type": "tasked:kill",
+      "type": "tenet:kill",
       "entityTypeTag": "minecraft:undead",
       "value": 12
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:gold_ingot",
       "count": 3
     }

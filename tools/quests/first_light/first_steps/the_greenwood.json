@@ -27,17 +27,17 @@
   },
   "tasks": [
     {
-      "type": "tasked:biome",
+      "type": "tenet:biome",
       "biome": "#minecraft:is_forest"
     },
     {
-      "type": "tasked:biome",
+      "type": "tenet:biome",
       "biome": "minecraft:desert"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:apple",
       "count": 4
     }

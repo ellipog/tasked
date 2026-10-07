@@ -4,7 +4,7 @@
   "title": "The Beacon Lit",
   "subtitle": "A custom task, and the warning it carries",
   "description": [
-    "A `tasked:custom` task measures whatever a registered handler",
+    "A `tenet:custom` task measures whatever a registered handler",
     "answers. Nothing outside a handler can advance it, so this quest",
     "will not complete in a build without one -- and that is not an",
     "error: the validator warns that nothing provides the id, which is",
@@ -28,14 +28,14 @@
   ],
   "tasks": [
     {
-      "type": "tasked:custom",
+      "type": "tenet:custom",
       "id": "first_light:beacon_lit",
       "value": 1
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 25
     }
   ]

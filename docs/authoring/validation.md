@@ -1,7 +1,7 @@
 # Validation
 
 A problem in a quest file is cheap to make and expensive to find — a typo'd field name, a dependency
-that points at a quest that was renamed, a cycle nobody can unlock. Tasked's answer is to read the
+that points at a quest that was renamed, a cycle nobody can unlock. Tenet's answer is to read the
 files before anything tries to trust them, and to say what is wrong in the format a compiler uses:
 
 ```
@@ -52,7 +52,7 @@ are only visible once every file is read:
   single file shows: chapter A waits on chapter B while B is finished by a quest inside A.
 
 > [!TIP]
-> `/tasked types` prints every task, reward and [[tasked:authoring/conditions|condition]] type this
+> `/tenet types` prints every task, reward and [[tenet:authoring/conditions|condition]] type this
 > build has, and the field names each one takes — the fastest way to check a field name without
 > opening a schema, and the list the validator itself uses.
 
@@ -63,7 +63,7 @@ with an error costs that quest: the chapter it sits in still opens with the rest
 reports the tally:
 
 ```cmd
-/tasked reload
+/tenet reload
 ```
 
 Two things cost more than one file, and both are said in the log rather than left to be discovered:
@@ -80,7 +80,7 @@ Two things cost more than one file, and both are said in the log rather than lef
 
 A root `index.json` is a third, and it is the one that is read *around* rather than skipped: one that
 cannot declare the root is read as if it were not there, and the tree loads by folder name — see
-[[tasked:authoring/quest-files]].
+[[tenet:authoring/quest-files]].
 
 > [!WARNING]
 > A file can decode cleanly and still be wrong — a circular dependency is the usual one. Reload counts
@@ -91,12 +91,12 @@ the round trip through the book cannot produce a file the loader would reject.
 
 ## Finding the problem when the message is not enough
 
-`/tasked quest <id>` prints one quest as the engine sees it — where it is, what it depends on, which
+`/tenet quest <id>` prints one quest as the engine sees it — where it is, what it depends on, which
 flags are set — which is what tells you whether a file loaded as written or was overridden by an
 inherited default:
 
 ```cmd
-/tasked quest punch_a_tree
+/tenet quest punch_a_tree
 ```
 
 Two things cost more than one file, and both are said in the log rather than left to be discovered:
@@ -113,9 +113,9 @@ Two things cost more than one file, and both are said in the log rather than lef
 
 A root `index.json` is a third, and it is the one that is read *around* rather than skipped: one that
 cannot declare the root is read as if it were not there, and the tree loads by folder name — see
-[[tasked:authoring/quest-files]].
+[[tenet:authoring/quest-files]].
 
-`/tasked progress` prints the tree from the player's point of view: each quest's state, and every task
+`/tenet progress` prints the tree from the player's point of view: each quest's state, and every task
 with its recorded count against what it needs. A task that shows `0/8` while the player carries eight
 logs is a matching or consumption question, not a loading one.
 

@@ -28,18 +28,18 @@
   },
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Graduate"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:stage",
+      "type": "tenet:stage",
       "stage": "first_light:sworn",
       "remove": true
     },
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 30,
       "levels": true
     }

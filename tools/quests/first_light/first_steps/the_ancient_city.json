@@ -27,13 +27,13 @@
   },
   "tasks": [
     {
-      "type": "tasked:structure",
+      "type": "tenet:structure",
       "structure": "minecraft:ancient_city"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:echo_shard"
     }
   ]

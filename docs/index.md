@@ -1,12 +1,12 @@
-# Tasked documentation
+# Tenet documentation
 
-Tasked is a questing engine for Minecraft 1.21.1, on Fabric and NeoForge. A pack author describes a
-[[quest]] line in JSON, Tasked draws it on a pannable [[canvas]], and the server decides what counts
+Tenet is a questing engine for Minecraft 1.21.1, on Fabric and NeoForge. A pack author describes a
+[[quest]] line in JSON, Tenet draws it on a pannable [[canvas]], and the server decides what counts
 as done — the client renders what it is told and nothing more, so no player can complete a quest by
 editing their own game.
 
 > [!NOTE]
-> **Tasked is at 0.1.4 — pre-1.0 — and everything these pages describe works on both loaders, except
+> **Tenet is at 0.1.4 — pre-1.0 — and everything these pages describe works on both loaders, except
 > where a page says otherwise** (the KubeJS binding is NeoForge-only, and its page says so). The
 > quest folder format and its [[validator]], the progression engine, server-authoritative sync, the
 > quest book and its in-game editor are all built, but the version is below 1.0 on purpose: a break
@@ -20,10 +20,10 @@ editing their own game.
 | Minecraft | 1.21.1, on Fabric or NeoForge |
 | Fabric | Fabric Loader 0.16.9+, with Fabric API 0.109.0+1.21.1 |
 | NeoForge | 21.1.252+ |
-| Armature | 0.1.1+, required on both loaders — [[armature:index]] is the library Tasked is built on |
-| KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tasked:authoring/kubejs]] |
+| Armature | 0.1.1+, required on both loaders — [[armature:index]] is the library Tenet is built on |
+| KubeJS | optional, NeoForge only, 2101.7.2+ — see [[tenet:authoring/kubejs]] |
 
-Tasked ships no questlines of its own. It is an engine, and installing it does not put somebody else's
+Tenet ships no questlines of its own. It is an engine, and installing it does not put somebody else's
 content in your config; the worked questline lives in the repository under `tools/quests/`, as
 authoring material for a pack's first chapter.
 
@@ -31,26 +31,26 @@ authoring material for a pack's first chapter.
 
 | Page | What it is |
 |---|---|
-| [[tasked:authoring/quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
-| [[tasked:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
-| [[tasked:authoring/tasks]] | The fifteen task types, and what each one counts |
-| [[tasked:authoring/rewards]] | The ten reward types, and the reward tables behind four of them |
-| [[tasked:authoring/conditions]] | The six condition types — gating a task or a reward on an item, a tag, a score, an advancement, a stage or a party's size |
-| [[tasked:authoring/languages]] | Shipping a questline in more than one language: `lang/<locale>.json`, which file a player gets, and the keys |
-| [[tasked:authoring/validation]] | What the validator checks, and what a mistake reads like |
-| [[tasked:commands]] | The `/tasked` commands, for players and operators |
-| [[tasked:authoring/kubejs]] | Driving a questline from a KubeJS script |
+| [[tenet:authoring/quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
+| [[tenet:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
+| [[tenet:authoring/tasks]] | The fifteen task types, and what each one counts |
+| [[tenet:authoring/rewards]] | The ten reward types, and the reward tables behind four of them |
+| [[tenet:authoring/conditions]] | The six condition types — gating a task or a reward on an item, a tag, a score, an advancement, a stage or a party's size |
+| [[tenet:authoring/languages]] | Shipping a questline in more than one language: `lang/<locale>.json`, which file a player gets, and the keys |
+| [[tenet:authoring/validation]] | What the validator checks, and what a mistake reads like |
+| [[tenet:commands]] | The `/tenet` commands, for players and operators |
+| [[tenet:authoring/kubejs]] | Driving a questline from a KubeJS script |
 
 ## From files to a running questline
 
 <Steps>
   <Step title="Write the quest files">
-    A pack is folders and JSON under `config/tasked/quests/`. The shape of that tree is the subject of
-    [[tasked:authoring/quest-files]]; the short version is one folder per [[chapter]], one file per quest.
+    A pack is folders and JSON under `config/tenet/quests/`. The shape of that tree is the subject of
+    [[tenet:authoring/quest-files]]; the short version is one folder per [[chapter]], one file per quest.
   </Step>
   <Step title="Load it">
     ```cmd
-    /tasked reload
+    /tenet reload
     ```
 
     Reads the folder without a restart and reports what loaded, what it refused, and why.

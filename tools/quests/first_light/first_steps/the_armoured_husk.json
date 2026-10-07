@@ -28,7 +28,7 @@
   },
   "tasks": [
     {
-      "type": "tasked:kill",
+      "type": "tenet:kill",
       "entity": "minecraft:zombie",
       "nbtFilter": "{IsBaby:1b}",
       "value": 3
@@ -36,7 +36,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:iron_ingot",
       "count": 6
     }

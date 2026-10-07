@@ -28,13 +28,13 @@
   },
   "tasks": [
     {
-      "type": "tasked:structure",
+      "type": "tenet:structure",
       "structure": "#minecraft:village"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:item",
+      "type": "tenet:item",
       "item": "minecraft:emerald",
       "count": 3
     }

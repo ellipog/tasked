@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://ellipog.dev/tasked/_schema/index.schema.json",
-  "title": "Tasked quest root manifest",
-  "description": "The quest root's index.json, under config/tasked/quests/. Lists the top level of the quest book, in order. Absent means the tree is ordered the old way: group folders by name, which is how every pack written before this file existed still loads. Each entry names exactly one of a group, a chapter that belongs to no group, or a version-1 file.",
+  "$id": "https://ellipog.dev/tenet/_schema/index.schema.json",
+  "title": "Tenet quest root manifest",
+  "description": "The quest root's index.json, under config/tenet/quests/. Lists the top level of the quest book, in order. Absent means the tree is ordered the old way: group folders by name, which is how every pack written before this file existed still loads. Each entry names exactly one of a group, a chapter that belongs to no group, or a version-1 file.",
   "type": "object",
   "required": ["entries"],
   "additionalProperties": false,

@@ -26,12 +26,12 @@
   ],
   "tasks": [
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "block_state",
       "toObserve": "minecraft:oak_log[axis=y]"
     },
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "block_entity",
       "toObserve": "{}",
       "timer": 60,
@@ -40,7 +40,7 @@
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

@@ -2,7 +2,7 @@
   "$schema": "../../_schema/quest.schema.json",
   "id": "the_calling",
   "title": {
-    "translate": "tasked.example.first_light.the_calling",
+    "translate": "tenet.example.first_light.the_calling",
     "fallback": "The Calling"
   },
   "subtitle": "A stage granted, and a title in the other spelling",
@@ -27,17 +27,17 @@
   ],
   "tasks": [
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Answer the calling"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:stage",
+      "type": "tenet:stage",
       "stage": "first_light:sworn"
     },
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

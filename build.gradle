@@ -34,7 +34,7 @@ def registerDeploy = { String taskName, String subproject, String jarTask, Strin
             // is a path on *this* machine, and `project.file()` on a Windows path containing a space
             // throws URISyntaxException -- on Linux, during *configuration*, which fails every task
             // in the build rather than only this one. See armature/build.gradle, where the same line
-            // cost a CI run: "Tasked Fabric" has a space in it and the runner could not configure.
+            // cost a CI run: "Tenet Fabric" has a space in it and the runner could not configure.
             def modsDir = project.file(configured)
 
             def built = sub.tasks.named(jarTask).get().archiveFile.get().asFile
@@ -99,8 +99,8 @@ tasks.register('deployAll') {
 // repository, once per subproject. This is the name that says what it does, and it exists so the
 // workflow does not have to know Gradle's spelling. See armature's copy for the long version.
 //
-// Every module, not `:common` alone: a handler mod's dev run resolves tasked-fabric or
-// tasked-neoforge, while compiling against tasked-common is what registering a task type needs.
+// Every module, not `:common` alone: a handler mod's dev run resolves tenet-fabric or
+// tenet-neoforge, while compiling against tenet-common is what registering a task type needs.
 // ---------------------------------------------------------------------------
 tasks.register('publishToLocalRepo') {
     group = 'publishing'

@@ -4,19 +4,19 @@
     "version": "${version}",
     "name": "${mod_name}",
     "description": "${description}",
-    "icon": "assets/tasked/icon.png",
+    "icon": "assets/tenet/icon.png",
     "authors": [
         "${mod_author}"
     ],
     "contact": {
         "homepage": "https://ellipog.dev",
-        "sources": "https://github.com/ellipog/tasked",
-        "issues": "https://github.com/ellipog/tasked/issues"
+        "sources": "https://github.com/ellipog/tenet",
+        "issues": "https://github.com/ellipog/tenet/issues"
     },
     "custom": {
         "modmenu": {
             "links": {
-                "modmenu.wiki": "https://ellipog.dev/docs/tasked/",
+                "modmenu.wiki": "https://ellipog.dev/docs/tenet/",
                 "modmenu.discord": "https://discord.gg/nA6pm9JHd6"
             }
         }
@@ -25,19 +25,19 @@
     "environment": "*",
     "entrypoints": {
         "main": [
-            "dev.ellipog.tasked.fabric.TaskedFabric"
+            "dev.ellipog.tenet.fabric.TenetFabric"
         ],
         "client": [
-            "dev.ellipog.tasked.fabric.TaskedFabricClient"
+            "dev.ellipog.tenet.fabric.TenetFabricClient"
         ],
         "emi": [
-            "dev.ellipog.tasked.client.viewer.emi.TaskedEmiPlugin"
+            "dev.ellipog.tenet.client.viewer.emi.TenetEmiPlugin"
         ],
         "jei_mod_plugin": [
-            "dev.ellipog.tasked.client.viewer.jei.TaskedJeiPlugin"
+            "dev.ellipog.tenet.client.viewer.jei.TenetJeiPlugin"
         ],
         "rei_client": [
-            "dev.ellipog.tasked.client.viewer.rei.TaskedReiPlugin"
+            "dev.ellipog.tenet.client.viewer.rei.TenetReiPlugin"
         ]
     },
     "depends": {

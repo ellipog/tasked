@@ -31,20 +31,20 @@
   },
   "tasks": [
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "block",
       "toObserve": "minecraft:lantern",
       "timer": 40
     },
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "block_tag",
       "toObserve": "minecraft:logs"
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]

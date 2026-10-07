@@ -31,25 +31,25 @@
   },
   "tasks": [
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "block_entity_type",
       "toObserve": "minecraft:lectern"
     },
     {
-      "type": "tasked:observation",
+      "type": "tenet:observation",
       "observeType": "entity_type",
       "toObserve": "minecraft:villager",
       "timer": 40
     },
     {
-      "type": "tasked:checkmark",
+      "type": "tenet:checkmark",
       "title": "Close the book",
       "optional": true
     }
   ],
   "rewards": [
     {
-      "type": "tasked:xp",
+      "type": "tenet:xp",
       "amount": 20
     }
   ]
