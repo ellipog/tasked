@@ -78,7 +78,7 @@ class QuestBookLayerTest {
     @DisplayName("edit mode alone draws no overlay, whatever has been counted")
     void editModeDrawsNoOverlay() {
         String[] counters = { "fills 41", "texts 12" };
-        assertEquals(0, QuestBookScreen.devOverlayLines(false, counters, 144, 6_000_000L).length,
+        assertEquals(0, QuestBookScreen.devOverlayLines(false, counters, 144, 6_000_000L, 100).length,
                 "without the operator's switch there is nothing to draw -- the counters are not edit mode's");
     }
 
@@ -86,8 +86,8 @@ class QuestBookLayerTest {
     @DisplayName("the command draws the frame rate first, then every counter in its own order")
     void theCommandDrawsTheFrameRateAndTheCounters() {
         String[] counters = { "fills 41", "texts 12" };
-        assertArrayEquals(new String[] { "fps 144   6 ms", "fills 41", "texts 12" },
-                QuestBookScreen.devOverlayLines(true, counters, 144, 6_000_000L));
+        assertArrayEquals(new String[] { "fps 144   6 ms   100%", "fills 41", "texts 12" },
+                QuestBookScreen.devOverlayLines(true, counters, 144, 6_000_000L, 100));
     }
 
     @Test
@@ -96,7 +96,28 @@ class QuestBookLayerTest {
         // The counters are written once a second by a counting renderer; the frame rate is the game's own
         // and is there on the first frame. An overlay that waited for the counters would appear a second
         // after the gesture that asked for it.
-        assertArrayEquals(new String[] { "fps 60   16 ms" },
-                QuestBookScreen.devOverlayLines(true, new String[0], 60, 16_500_000L));
+        assertArrayEquals(new String[] { "fps 60   16 ms   100%" },
+                QuestBookScreen.devOverlayLines(true, new String[0], 60, 16_500_000L, 100));
+    }
+
+    @Test
+    @DisplayName("the zoom is on the frame-rate line, because every reading is taken at one")
+    void theZoomIsOnTheFrameRateLine() {
+        // **The header's percentage is quest completion, not scale.** Filing a canvas reading under the wrong
+        // zoom is a mistake this project has already made once, and the reading's whole meaning depends on
+        // which zoom it was taken at -- the canvas's cost is a function of exactly that.
+        assertArrayEquals(new String[] { "fps 144   6 ms   35%" },
+                QuestBookScreen.devOverlayLines(true, new String[0], 144, 6_000_000L, 35),
+                "the scale travels with the frame it describes");
+    }
+
+    @Test
+    @DisplayName("with no canvas drawn the scale is absent rather than zero")
+    void noCanvasMeansNoScale() {
+        // -1 is the caller's "there is no canvas on this screen": a screen that draws no canvas has no zoom,
+        // and printing `0%` would be a reading of something that does not exist.
+        assertArrayEquals(new String[] { "fps 144   6 ms" },
+                QuestBookScreen.devOverlayLines(true, new String[0], 144, 6_000_000L, -1),
+                "an absent zoom prints nothing, not a zero");
     }
 }

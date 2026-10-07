@@ -18636,7 +18636,8 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         String[] lines = devOverlayLines(true, dev.ellipog.tasked.client.dev.CountingRenderer.summary(),
-                minecraft.getFps(), minecraft.getFrameTimeNs());
+                minecraft.getFps(), minecraft.getFrameTimeNs(),
+                Math.round(viewport().scale() * 100F));
         if (lines.length == 0) {
             return;
         }
@@ -18675,8 +18676,9 @@ public final class QuestBookScreen extends ArmatureScreen
      * @param counted    the last reported frame's counters, from {@code CountingRenderer.summary()}
      * @param fps        {@code Minecraft.getFps()} — the game's own number, not a second answer to it
      * @param frameNanos the whole frame in nanoseconds, which has no ceiling where the frame rate does
+     * @param zoom       the canvas's scale, as a percentage, or -1 when no canvas is drawn
      */
-    static String[] devOverlayLines(boolean vitals, String[] counted, int fps, long frameNanos) {
+    static String[] devOverlayLines(boolean vitals, String[] counted, int fps, long frameNanos, int zoom) {
         if (!vitals) {
             return new String[0];
         }
@@ -18685,7 +18687,14 @@ public final class QuestBookScreen extends ArmatureScreen
         // capped: with vsync on, or a maximum frame rate set, it reports the cap rather than the work, so
         // a change that halves the frame's cost can leave the number exactly where it was.
         // `getFrameTimeNs` is the whole frame in milliseconds and has no ceiling.
-        lines[0] = "fps " + fps + "   " + (frameNanos / 1_000_000L) + " ms";
+        //
+        // The zoom is on this line rather than in the counters because it is the same kind of number: a fact
+        // about the frame rather than a count of what it drew. It is here at all because every reading this
+        // overlay exists for is taken *at a zoom* -- the canvas's whole cost is a function of one -- and the
+        // header's own percentage is quest completion, not scale. Reading the wrong number off the screen and
+        // filing a row under it is a mistake this project has already made once.
+        String scale = zoom < 0 ? "" : "   " + zoom + "%";
+        lines[0] = "fps " + fps + "   " + (frameNanos / 1_000_000L) + " ms" + scale;
         System.arraycopy(counted, 0, lines, 1, counted.length);
         return lines;
     }
