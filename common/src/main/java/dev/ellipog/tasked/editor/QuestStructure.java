@@ -807,6 +807,24 @@ public final class QuestStructure {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
+    /**
+     * Every quest id in the whole pack, so an editor can mint one nothing else is using.
+     *
+     * <h2>Why a chapter cannot answer this about itself</h2>
+     *
+     * <p>An id is the key a player's progress is stored against, and the loader resolves it <b>pack-wide</b>:
+     * two quests in two chapters that declare the same id are not two quests with one name, they are one
+     * record shared by both. The first is kept and the second becomes unreachable — it is drawn, it can be
+     * clicked, and its progress is whatever the other one's is.
+     *
+     * <p>An editor that minted against its own chapter alone therefore produced that state by naming a new
+     * quest {@code quest} while another chapter already had one. The check has to see the pack, and this is
+     * the loader's own walk rather than a second opinion about what is on disk.
+     */
+    public static Set<String> questIdsInPack(Path root) {
+        return existingIds(root, QuestFiles.Kind.QUEST);
+    }
+
     private static int indexOfChapter(Path root, String group, String chapter) {
         if (group.isEmpty()) {
             List<Entry> entries = readIndex(root);

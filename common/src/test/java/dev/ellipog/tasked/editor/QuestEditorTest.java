@@ -15,6 +15,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -30,10 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * neighbourhood: a create that adds a name to the manifest without a file, a delete that loses the file,
  * an undo that restores a chapter the disk does not agree with, a save that writes something the loader
  * will refuse on the next reload. None of them need a client to catch, and a client could not catch them
- * cheaply — which is why the model is game-free and the screen is not where this lives.
+ * cheaply â€” which is why the model is game-free and the screen is not where this lives.
  *
  * <p>The fixture is a real chapter on disk, built by {@link #chapter()} the way the examples are laid
- * out — folder per chapter, manifest listing file names, one file per quest — because the editor walks
+ * out â€” folder per chapter, manifest listing file names, one file per quest â€” because the editor walks
  * the tree with the loader's own discovery and a fixture that is not the real shape would test nothing.
  */
 @DisplayName("A chapter, open for editing")
@@ -73,7 +74,7 @@ class QuestEditorTest {
 
     @BeforeAll
     static void bootstrapMinecraft() {
-        // `save()` runs the loader's own validator, and the validator checks that a named item exists —
+        // `save()` runs the loader's own validator, and the validator checks that a named item exists â€”
         // which reads `BuiltInRegistries.ITEM`, empty until vanilla has registered its items. Without
         // this the save tests would fail on a registry rather than on the editor, and worse, the failed
         // class initialiser poisons every other test in the same JVM. See the helper's own note, which
@@ -99,6 +100,85 @@ class QuestEditorTest {
 
     private QuestEditor open() {
         return QuestEditor.open(root, "first_steps").orElseThrow();
+    }
+
+    /**
+     * A second chapter, in its own group, holding a quest whose id is one this editor would mint.
+     *
+     * <p>Written rather than built into the fixture because it exists for one question â€” whether an id is
+     * free <i>in the pack</i> â€” and every other test in this class is about a chapter on its own.
+     */
+    private void anotherChapterWithQuestId(String id) throws IOException {
+        Path group = root.resolve("later");
+        Path folder = group.resolve("second_steps");
+        Files.createDirectories(folder);
+        Files.writeString(group.resolve("group.json"), """
+                { "id": "later", "title": "Later", "chapters": [ "second_steps" ] }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"), """
+                {
+                  "$schema": "../../_schema/chapter.schema.json",
+                  "id": "second_steps",
+                  "title": "Second Steps",
+                  "quests": [ "elsewhere.json" ]
+                }
+                """, StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("elsewhere.json"), """
+                {
+                  "id": "%s",
+                  "title": "Elsewhere",
+                  "x": 0,
+                  "y": 0,
+                  "icon": { "item": "minecraft:stick" }
+                }
+                """.formatted(id), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    @DisplayName("a created id is free across the whole pack, not only this chapter")
+    void aCreatedIdIsFreeAcrossThePack() throws IOException {
+        // **The collision this prevents.** `freeId` checked this chapter's manifest and this chapter's
+        // folder, and an id is the key a player's progress is stored against â€” resolved pack-wide by the
+        // loader. So a create here that landed on another chapter's id produced one progress record shared
+        // by two quests: the first kept, the second drawn and clickable and never able to advance on its
+        // own. Nothing refused it, because the id was free where the editor looked.
+        anotherChapterWithQuestId("quest");
+        QuestEditor editor = open();
+
+        String created = editor.create(0, 0);
+
+        assertNotEquals("quest", created,
+                "another chapter already has a quest called `quest`, and two quests cannot share one id");
+        assertEquals("quest_2", created,
+                "and the next free name is the numbered one, so the id is still recognisable");
+    }
+
+    @Test
+    @DisplayName("a created id is still free when the collision is in this chapter")
+    void aCreatedIdAvoidsThisChapterToo() {
+        // The chapter-local half, which already worked: the fix must not lose it while gaining the pack.
+        QuestEditor editor = open();
+        String first = editor.create(0, 0);
+        String second = editor.create(0, 0);
+
+        assertEquals("quest", first);
+        assertNotEquals(first, second, "two creates in one chapter cannot share an id either");
+        assertEquals("quest_2", second);
+    }
+
+    @Test
+    @DisplayName("a duplicated id is free across the whole pack too")
+    void aDuplicatedIdIsFreeAcrossThePack() throws IOException {
+        // The same question asked by duplicate and paste, which mint through the same helper: a copy of
+        // `one` must not land on another chapter's `one_copy`.
+        anotherChapterWithQuestId("one_copy");
+        QuestEditor editor = open();
+
+        String copy = editor.duplicate("one");
+
+        assertNotEquals("one_copy", copy,
+                "another chapter has `one_copy`, so the copy needs a different name");
+        assertEquals("one_copy_2", copy);
     }
 
     // ------------------------------------------------------------------

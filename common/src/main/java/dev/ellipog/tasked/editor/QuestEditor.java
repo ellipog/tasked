@@ -1162,18 +1162,43 @@ public final class QuestEditor {
     // Small helpers
     // ------------------------------------------------------------------
 
-    /** An id no file in this chapter uses, from a base name. */
+    /**
+     * An id nothing in the <b>pack</b> uses, from a base name.
+     *
+     * <h2>Why this is not a question about this chapter</h2>
+     *
+     * <p>It used to check this chapter's manifest and this chapter's folder, and that is the wrong scope for
+     * the key it is minting. An id is what a player's progress is stored against and the loader resolves it
+     * pack-wide, so a create in one chapter that landed on another chapter's id produced <b>one progress
+     * record shared by two quests</b> — the first kept, the second drawn and clickable and never able to
+     * advance on its own. Nothing refused it: the id was free where the editor looked, and the collision was
+     * only visible from outside that chapter.
+     *
+     * <p>So the set is the loader's own walk of the whole pack, which is the same discovery that decides the
+     * collision at load time. It is read once per call rather than kept, because the pack changes under this
+     * editor: another author's save, a reload, or a file dropped in by hand all move it, and an id set
+     * captured at open time would go on answering from the tree as it was.
+     */
     private String freeId(String base) {
-        if (!quests.containsKey(base) && !Files.exists(pathOf(base))) {
+        java.util.Set<String> packWide = QuestStructure.questIdsInPack(root);
+        if (free(base, packWide)) {
             return base;
         }
         for (int n = 2; n < 1000; n++) {
             String candidate = base + "_" + n;
-            if (!quests.containsKey(candidate) && !Files.exists(pathOf(candidate))) {
+            if (free(candidate, packWide)) {
                 return candidate;
             }
         }
-        return base + "_" + System.currentTimeMillis();
+        // Still distinct even in the pathological case: a timestamp is not an id anybody else is using, and
+        // a duplicate here is worse than an ugly name -- see the class note above.
+        String fallback = base + "_" + System.currentTimeMillis();
+        return free(fallback, packWide) ? fallback : fallback + "_" + System.nanoTime();
+    }
+
+    /** Whether this id is unused across the pack and not one this editor is already holding. */
+    private boolean free(String candidate, java.util.Set<String> packWide) {
+        return !packWide.contains(candidate) && !quests.containsKey(candidate);
     }
 
     /**
