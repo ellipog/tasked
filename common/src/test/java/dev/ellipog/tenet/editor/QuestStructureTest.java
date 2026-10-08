@@ -324,6 +324,26 @@ class QuestStructureTest {
         assertFalse(Files.exists(root().resolve(QuestFiles.INDEX_MANIFEST)), "and nothing was written");
     }
 
+    @Test
+    @DisplayName("a group id that is a path is refused before anything is resolved")
+    void aGroupIdThatIsAPathIsRefused() throws IOException {
+        // The id arrives from a payload and is joined to the root to make a path: to find the group's
+        // manifest and, for the edits that write one, to write beside it. A name that is really a path
+        // resolved outside the quest tree, and the only thing stopping it doing harm was that a
+        // `group.json` has to exist at the traversed place. The rule is asked first now, as the table
+        // side's own is.
+        tree();
+
+        QuestStructure.Outcome created = QuestStructure.createChapter(root(), "../..", 0, "stray", null);
+        assertFalse(created.ok(), "a group is named by a bare folder name");
+        assertTrue(created.refusal().contains("only a-z"), created.refusal());
+        assertFalse(Files.exists(root().getParent().resolve("stray")), "and nothing was made outside");
+
+        QuestStructure.Outcome moved = QuestStructure.moveChapter(root(), "one", "../..", 0);
+        assertFalse(moved.ok(), "the same rule on the way in as on the way out");
+        assertTrue(Files.isRegularFile(root().resolve("alpha/one/chapter.json")), "and nothing moved");
+    }
+
     // ------------------------------------------------------------------
     // Renaming
     // ------------------------------------------------------------------
@@ -344,6 +364,38 @@ class QuestStructureTest {
                 + manifest);
         assertTrue(manifest.contains("\"one\""), manifest);
         assertTrue(groupChapters("alpha").contains("uno"), groupChapters("alpha"));
+    }
+
+    @Test
+    @DisplayName("a chapter may not be made under a name another chapter used to have")
+    void aCreateRefusesAnotherChaptersAlias() throws IOException {
+        // A rename keeps the old id as an alias, and the loader claims ids and aliases in one namespace: an
+        // id that is another chapter's alias is a duplicate, and the later entry is not loaded at all. The
+        // check was against folder names, so the editor accepted this -- from the UI, in two steps -- and
+        // the loader dropped the new chapter.
+        tree();
+        assertTrue(QuestStructure.renameChapter(root(), "two", "delta", null).ok());
+
+        QuestStructure.Outcome refused = QuestStructure.createChapter(root(), "beta", 0, "two", "Two");
+
+        assertFalse(refused.ok(), "the old name is still claimed");
+        assertTrue(refused.refusal().contains("old name"), refused.refusal());
+        assertFalse(Files.exists(root().resolve("beta/two")), "so nothing was created");
+    }
+
+    @Test
+    @DisplayName("renaming a chapter back to a name it used to have is allowed")
+    void renamingBackToAFormerIdIsAllowed() throws IOException {
+        // The other half, and the reason the check needs to know which entry is being renamed: a rename back
+        // is the ordinary way to undo a rename, and the name it is going back to is its own alias.
+        tree();
+        assertTrue(QuestStructure.renameChapter(root(), "two", "delta", null).ok());
+
+        QuestStructure.Outcome back = QuestStructure.renameChapter(root(), "delta", "two", null);
+
+        assertTrue(back.ok(), "renaming back is not a collision with itself: " + back.refusal());
+        assertTrue(Files.isRegularFile(root().resolve("beta/two/chapter.json")), "the folder is back");
+        assertFalse(Files.exists(root().resolve("beta/delta")), "and the one it had is gone");
     }
 
     // ------------------------------------------------------------------
@@ -379,6 +431,64 @@ class QuestStructureTest {
         assertFalse(Files.exists(root().resolve("alpha/one_copy")),
                 "undoing a duplicate takes the whole copy, not just its files");
         assertTrue(Files.isRegularFile(root().resolve("alpha/one/chapter.json")), "the original stays");
+    }
+
+    @Test
+    @DisplayName("two files declaring one id are copied as two, and the manifest matches the files")
+    void duplicatingAChapterWithTwoQuestsOfOneIdCopiesBoth() throws IOException {
+        // The format allows two files to declare one id -- the load reports it and drops the second at the
+        // index -- and the copy's fresh ids were re-derived by matching the source id: both matched the first
+        // entry, so one copy overwrote the other while the manifest listed a file that was never written.
+        write("alpha/group.json", group("alpha", "[\"one\"]"));
+        write("alpha/one/chapter.json", chapter("one", "[\"first.json\", \"second.json\"]"));
+        write("alpha/one/first.json", quest("twin", ""));
+        write("alpha/one/second.json", quest("twin", ", \"dependsOn\": [\"twin\"]"));
+
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        EditorOps.Applied outcome = EditorOps.apply(editor,
+                new EditorOp.DuplicateChapter("one", "one_copy", "One Copy"));
+
+        assertTrue(outcome.ok(), outcome.messages().toString());
+        String manifest = Files.readString(root().resolve("alpha/one_copy/chapter.json"),
+                StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("twin_copy.json"), manifest);
+        assertTrue(manifest.contains("twin_copy2.json"), manifest);
+        assertTrue(Files.isRegularFile(root().resolve("alpha/one_copy/twin_copy.json")),
+                "both files the manifest names are there");
+        assertTrue(Files.isRegularFile(root().resolve("alpha/one_copy/twin_copy2.json")));
+        String second = Files.readString(root().resolve("alpha/one_copy/twin_copy2.json"),
+                StandardCharsets.UTF_8);
+        assertTrue(second.contains("\"twin_copy\""),
+                "a reference to the shared id resolves to the first claim, as the loader resolves it: "
+                        + second);
+    }
+
+    @Test
+    @DisplayName("a duplicated group's quests wait on the copies, across chapters")
+    void duplicatingAGroupRemapsItsCrossChapterReferences() throws IOException {
+        // **The copy that was not self-contained.** A quest in the copied chapter 2 depending on one in the
+        // copied chapter 1 is a dependency between the quests being copied, and the remap was built per
+        // chapter -- so the copy went on waiting on the original, and two roads followed the other pack's
+        // chapters instead of one self-contained copy.
+        write("alpha/group.json", group("alpha", "[\"one\", \"two\"]"));
+        write("alpha/one/chapter.json", chapter("one", "[\"first.json\"]"));
+        write("alpha/one/first.json", quest("first", ""));
+        write("alpha/two/chapter.json", chapter("two", "[\"second.json\"]"));
+        write("alpha/two/second.json", quest("second", ", \"dependsOn\": [\"first\"]"));
+
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        EditorOps.Applied outcome = EditorOps.apply(editor,
+                new EditorOp.DuplicateGroup("alpha", "alpha_copy", "Alpha Copy"));
+
+        assertTrue(outcome.ok(), outcome.messages().toString());
+        String copied = Files.readString(root().resolve("alpha_copy/two_copy/second_copy.json"),
+                StandardCharsets.UTF_8);
+        assertTrue(copied.contains("\"first_copy\""),
+                "the copy waits on the copy in the other chapter: " + copied);
+        assertFalse(copied.contains("\"first\""),
+                "and not on the original, which is what self-contained means: " + copied);
+        String original = Files.readString(root().resolve("alpha/two/second.json"), StandardCharsets.UTF_8);
+        assertTrue(original.contains("\"first\""), original);
     }
 
     // ------------------------------------------------------------------

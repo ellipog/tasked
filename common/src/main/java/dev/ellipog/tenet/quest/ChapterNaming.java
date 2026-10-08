@@ -23,8 +23,10 @@ import java.util.Collection;
  * server's own copy of the rule was folded into it; it names nothing client-side, which is why it can.
  *
  * <p>The collision check is the one part that is not shared: {@link #problemWith(String, Collection)}
- * adds it for the book, whose list carries ids <i>and aliases</i>, and the server asks
- * {@link #problemWith(String)} and words its own, because its list is the index's ids and nothing else.
+ * adds it for the card, whose list is the live ids that client can see — <b>not</b> their aliases, which
+ * the synced tree does not carry — and the server asks {@link #problemWith(String)} and words its own
+ * sentence, because its list is built from the manifests and therefore holds the aliases too. The card is
+ * advisory either way: the server's answer is the one that decides.
  */
 public final class ChapterNaming {
 
@@ -38,11 +40,30 @@ public final class ChapterNaming {
      * @param id what the author typed, or the name the server was asked to create
      */
     public static String problemWith(String id) {
-        if (id == null || id.isBlank()) {
-            return "an id is needed - it becomes the folder's name";
+        String problem = nameProblem(id);
+        if (problem != null) {
+            return problem;
         }
         if (id.length() > MAX_LENGTH) {
             return "an id may be at most " + MAX_LENGTH + " characters";
+        }
+        return null;
+    }
+
+    /**
+     * Why this is not a usable <b>name</b> at all, or null — the rule without the length limit.
+     *
+     * <h2>Split out for the callers that are naming a file rather than declaring an id</h2>
+     *
+     * <p>A name that is really a path is a write somewhere else: the editor joins an id to a folder to
+     * make a file, and `../` in it reaches out of the quest tree. That rule has nothing to do with how
+     * long an id may be, and the callers that mint a <i>fresh</i> name shorten an over-long base instead
+     * of refusing it — so the two halves are asked separately. The length limit is
+     * {@link #problemWith}'s.
+     */
+    public static String nameProblem(String id) {
+        if (id == null || id.isBlank()) {
+            return "an id is needed - it becomes the folder's name";
         }
         // **The character rule is also the deleted-suffix rule, and that is why there is no second
         // check here.** There used to be one — "an id may not end with .deleted" — and it was
@@ -63,10 +84,20 @@ public final class ChapterNaming {
     }
 
     /**
-     * The same, plus the book's collision check.
+     * The same, plus the collision check against the names of the same kind.
+     *
+     * <p>The list has to carry <b>ids and aliases</b> to be the whole answer: the loader claims the two in
+     * one map per kind, so a new chapter whose id is another chapter's old name is reported as a duplicate
+     * and the later entry is not loaded at all. The card's own list is the live ids it can see — it is
+     * advisory, and a second client or a hand-edited file can be ahead of it — so the server asks the same
+     * question again in {@code QuestStructure.idProblem}, against a set it builds from the manifests. The
+     * server's answer is the one that decides.
+     *
+     * <p>A caller renaming something leaves that thing's own id out of {@code existing}: a list that
+     * contained it reported the name the thing already had as taken. See the card's own list.
      *
      * @param id       what the author typed
-     * @param existing every id the tree already uses <i>of the same kind</i>, ids and aliases
+     * @param existing every name the tree already uses <i>of the same kind</i>: ids and aliases
      */
     public static String problemWith(String id, Collection<String> existing) {
         String problem = problemWith(id);
@@ -87,12 +118,30 @@ public final class ChapterNaming {
      * it copies a chapter or a group, which is the other reason this is here rather than in the card.
      */
     public static String suggested(String base, String suffix, Collection<String> taken) {
-        String candidate = base + suffix;
+        String candidate = candidateFor(base, suffix, 0);
         int n = 2;
         while (taken != null && taken.contains(candidate)) {
-            candidate = base + suffix + n++;
+            candidate = candidateFor(base, suffix, n++);
         }
         return candidate;
+    }
+
+    /**
+     * One candidate, with the base shortened so the whole thing fits the id rule.
+     *
+     * <p><b>Why the base is what gets shortened.</b> The counter is appended after the stem, so the stem
+     * has to leave room for the suffix <i>and</i> for the digits — and the digits are never truncated, or
+     * two counters could shorten to one string and the search above would never end. Truncating the
+     * finished candidate instead is exactly that bug: a base already at the limit swallows the suffix, so
+     * every counter returns the base and the loop spins.
+     *
+     * @param counter the number appended, or 0 for the first candidate, which carries none
+     */
+    private static String candidateFor(String base, String suffix, int counter) {
+        String digits = counter == 0 ? "" : String.valueOf(counter);
+        int room = Math.max(1, MAX_LENGTH - suffix.length() - digits.length());
+        String stem = base.length() <= room ? base : base.substring(0, room);
+        return stem + suffix + digits;
     }
 
     private ChapterNaming() {

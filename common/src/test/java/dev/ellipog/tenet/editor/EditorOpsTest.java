@@ -526,6 +526,28 @@ class EditorOpsTest {
     }
 
     @Test
+    @DisplayName("an undone create leaves an earlier copy alone, and the save does not eat it either")
+    void anUndoneCreateLeavesTheDeletesCopyAlone() throws IOException {
+        // The op layer adds a save to the model's undo, and a save is where a refused edit is abandoned -- so
+        // the copy has to survive that too. The tombstone is put there by hand because the mint no longer
+        // lands on a name a removed copy holds; what is being pinned is the undo's own rename, which carried
+        // REPLACE_EXISTING and destroyed whatever carried that name.
+        QuestEditor editor = open();
+        assertTrue(EditorOps.apply(editor, new EditorOp.Create(10, 10)).ok());
+        Path file = folder.resolve("quest.json");
+        assertTrue(Files.isRegularFile(file), "the create wrote it");
+
+        Path earlier = folder.resolve("quest.json.deleted");
+        Files.writeString(earlier, "an earlier copy", StandardCharsets.UTF_8);
+
+        assertTrue(EditorOps.apply(editor, new EditorOp.Undo()).ok(), "the create is undone");
+
+        assertEquals("an earlier copy", Files.readString(earlier, StandardCharsets.UTF_8),
+                "and the copy that was already there was not overwritten by the undo");
+        assertFalse(Files.exists(file), "the created file is out of the way");
+    }
+
+    @Test
     @DisplayName("an undo that cannot put the folder back is a refusal, and the retry converges")
     void anUndoThatCannotFinishSaysSo() throws IOException {
         // **The silent half-reversal.** `QuestStructure.runForUndo` caught every failure and logged it,

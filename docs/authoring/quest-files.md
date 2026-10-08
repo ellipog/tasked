@@ -211,6 +211,12 @@ An id is lowercase letters, digits and underscores, at most 64 characters, and i
 renamed to. It appears in player progress files, which is the whole reason `aliases` exists: a renamed
 quest, chapter or group lists its former ids, and nothing that referenced the old name breaks.
 
+An id and an alias are **one namespace** per kind: a quest may not take an id another quest holds as an
+alias, and a chapter may not take one another chapter holds. A clash is reported at load and the later
+entry is not loaded at all, so the editor refuses it before the write. That is also why renaming
+something back to a name it used to have is allowed while renaming it onto somebody else's old name is
+not.
+
 > [!CAUTION]
 > **Renaming an id without an alias orphans the progress stored under the old one.** A player keeps
 > the completion; the quest no longer recognises it, so it reads as incomplete and their rewards for
@@ -220,16 +226,26 @@ quest, chapter or group lists its former ids, and nothing that referenced the ol
 
 A delete in the editor is a **rename**, never an erase: a quest file becomes `<name>.json.deleted`, a
 chapter's or a group's whole folder becomes `<name>.deleted` with everything inside it, and a reward
-table becomes `<name>.json.deleted`. A second removal of the same name does not overwrite the first copy
-— it is numbered, `<name>.deleted.2` — so nothing an author asked to keep is ever lost. The loader skips
-that suffix at every level, exactly as it skips the `_` prefix, so a pack with removed content in it
-still loads.
+table becomes `<name>.json.deleted`. A chapter's, a group's and a table's copy is **numbered** when that
+name is already set aside — `<name>.deleted`, then `<name>.deleted.2` — so a second removal cannot
+overwrite the first copy. A quest file's copy is the plain `<name>.json.deleted`, because an undo finds
+it by that exact name, and a second removal of that name is **refused** with a sentence naming the copy
+in the way rather than numbered. The loader skips that suffix at every level, exactly as it skips the `_`
+prefix, so a pack with removed content in it still loads.
 
-`Ctrl+Z` puts it back, and it is one history step like any other edit. The history is the **server's**,
-so it does not survive a restart, and `/tenet reload` drops it deliberately — the copies on disk survive
-both, and `/tenet removed` lists them with the name each would come back as. `/tenet restore <path>`
-takes one back: the file or folder returns under its own name and is listed again in the manifest it
-belonged to. Both take permission level 2, like `reload`; see [[tenet:commands]].
+**A removed copy's names are still taken.** A new quest is never minted under a name, an id or an alias
+that a set-aside copy holds: the id would inherit the removed quest's stored progress (progress is keyed
+by id, and an id no loaded quest claims is kept), and the file would sit beside a copy of its own name,
+which makes it undeletable until that copy is moved. Bring the removed quest back with `Ctrl+Z` or
+`/tenet restore` instead.
+
+`Ctrl+Z` puts a chapter's own edit back — a deleted quest file, a deleted chapter or group, a table's
+field edit — and it is one history step like any other edit. A **table** delete is the one removal that
+is not on that trail: put it back with `/tenet restore`. The history is the **server's**, so it does not
+survive a restart, and `/tenet reload` drops it deliberately — the copies on disk survive both, and
+`/tenet removed` lists them with the name each would come back as. `/tenet restore <path>` takes one
+back: the file or folder returns under its own name and is listed again in the manifest it belonged to.
+Both take permission level 2, like `reload`; see [[tenet:commands]].
 
 ## Reward tables
 

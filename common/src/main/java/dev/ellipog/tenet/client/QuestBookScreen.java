@@ -13353,7 +13353,19 @@ public final class QuestBookScreen extends ArmatureScreen
         return chapters().getOrDefault(naming.targetId(), "");
     }
 
-    /** Every id of the kind being named: what the collision check is against. */
+    /**
+     * Every id of the kind being named: what the card's collision check is against.
+     *
+     * <h2>What it is not, and why the rename case drops its own name</h2>
+     *
+     * <p>Ids only: the synced tree carries no aliases, so the card cannot see them — and an id that is
+     * another chapter's alias is a clash the loader refuses, which is why the server asks the same question
+     * again against a set it builds from the manifests. The server's answer is the one that decides.
+     *
+     * <p>A rename leaves the thing's own id out, because a list that contained it made the card open red on
+     * the name it already had and refused a title-only rename through this card. Renaming to a name it used
+     * to have is legal too, and the server's check is where that is known.
+     */
     private List<String> namingTakenIds() {
         List<String> taken = new ArrayList<>();
         if (naming == null) {
@@ -13366,6 +13378,9 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         else {
             taken.addAll(chapters().keySet());
+        }
+        if (naming.mode() == NamingMode.RENAME) {
+            taken.remove(naming.targetId());
         }
         return taken;
     }

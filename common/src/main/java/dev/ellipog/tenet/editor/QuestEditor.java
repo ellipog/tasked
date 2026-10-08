@@ -9,6 +9,7 @@ import dev.ellipog.armature.api.data.JsonParseException;
 import dev.ellipog.armature.api.data.JsonWrite;
 import dev.ellipog.armature.api.data.Problems;
 import dev.ellipog.tenet.Constants;
+import dev.ellipog.tenet.quest.ChapterNaming;
 import dev.ellipog.tenet.quest.ParsedFiles;
 import dev.ellipog.tenet.quest.QuestFiles;
 import dev.ellipog.tenet.quest.QuestShape;
@@ -127,6 +128,16 @@ public final class QuestEditor {
     private boolean grouping;
 
     /**
+     * The asides the open {@link #group} is making, or null when no group is open.
+     *
+     * <p>The group takes its one snapshot <i>before</i> the gesture starts, so a delete inside it has no
+     * entry of its own to record into — and a batch of deletes that could not name its own copies would
+     * put them back from the snapshot's text rather than moving the bytes. This is that entry's map,
+     * filled as the gesture goes. See {@link Snapshot} and {@link #pushAside}.
+     */
+    private Map<Path, Path> groupAsides;
+
+    /**
      * One step of this chapter's history.
      *
      * <h2>Two kinds, because two kinds of edit exist</h2>
@@ -143,8 +154,28 @@ public final class QuestEditor {
     private sealed interface History permits Snapshot, Structural {
     }
 
-    /** The chapter's files, text by path. Everything an undo of a field edit has to put back. */
-    private record Snapshot(Map<Path, String> files) implements History {
+    /**
+     * The chapter's files, text by path, and the asides a delete made on the way.
+     *
+     * <h2>Why the asides are recorded rather than looked up by name</h2>
+     *
+     * <p>A delete renames a quest file to {@code <name>.json.deleted} and an undo moves that copy back.
+     * Finding it by name alone is wrong in a way that costs the author their file: a second quest can be
+     * made under a name a removed copy still holds, and an entry that merely looks for
+     * {@code <name>.json.deleted} will move <i>that</i> copy — and the redo after it writes the snapshot's
+     * text over what it moved, so the removed copy is gone for good. So a delete records the path it set
+     * aside, in the entry that reverses it, and {@link #restore} moves only a copy its own entry made. An
+     * entry with none (a field edit, a create) writes the text it holds and leaves every tombstone alone.
+     *
+     * @param files  the chapter's files as text, which is what an undo has to put back
+     * @param asides file → the path it was set aside as, for the deletes this entry reverses
+     */
+    private record Snapshot(Map<Path, String> files, Map<Path, Path> asides) implements History {
+
+        /** The ordinary case: nothing was set aside, so an undo has only text to put back. */
+        Snapshot(Map<Path, String> files) {
+            this(files, Map.of());
+        }
     }
 
     /** A structural edit, with the steps that reverse it. */
@@ -760,6 +791,11 @@ public final class QuestEditor {
      */
     public String create(double x, double y) {
         String id = freeId("quest");
+        if (id == null) {
+            // Unreachable: the base is this class's own literal, which is a name. Refused rather than
+            // joined to a path, because a name that is not a name is a write somewhere else.
+            return null;
+        }
         push();
 
         JsonObject root = new JsonObject();
@@ -802,6 +838,13 @@ public final class QuestEditor {
             return null;
         }
         String copyId = freeId(id + "_copy");
+        if (copyId == null) {
+            // A quest file that declares an id this build would refuse -- a separator, a capital, a dot --
+            // is not a name to build a second file from. The load reports the file itself, which is where
+            // the author can fix it.
+            Constants.LOG.warn("tenet: \"{}\" is not a usable id, so nothing was duplicated.", id);
+            return null;
+        }
         push();
 
         Path path = pathOf(copyId);
@@ -841,6 +884,16 @@ public final class QuestEditor {
                 && !tree.get("id").getAsString().isBlank()
                 ? tree.get("id").getAsString() : "quest";
         String id = freeId(base);
+        if (id == null) {
+            // **The name rule, before anything is written.** The tree arrives from a client, the id becomes
+            // a file name, and `JsonWrite` creates the folders in that path and replaces what it finds --
+            // so a tree naming `../../x` would write outside the quest folder and destroy whatever `.json`
+            // was there, before the save ever validated it. The table side refuses the same thing in the
+            // same place; see `ServerTables.idProblem`.
+            Constants.LOG.warn("tenet: a pasted tree names the id \"{}\", which is not a usable name, so"
+                    + " nothing was pasted.", base);
+            return null;
+        }
         push();
 
         Path path = pathOf(id);
@@ -915,8 +968,9 @@ public final class QuestEditor {
         }
         // Before anything moves: the snapshot is the state an undo has to put back, so it has to be
         // taken while the chapter still holds the quest. Removing first and snapshotting second is an
-        // undo that restores the deletion.
-        push();
+        // undo that restores the deletion. The copy's own name goes in with it, so the undo moves this
+        // delete's copy rather than whichever file happens to carry that name. See `Snapshot`.
+        pushAside(gone.file(), aside);
         quests.remove(id);
         try {
             Files.move(gone.file(), aside);
@@ -954,6 +1008,12 @@ public final class QuestEditor {
                         + " Ctrl+Z restores it");
             }
         }
+        // The quest is gone from the model, so the two maps that name its file go with it. A stale entry
+        // is what makes a later create or paste that lands on this id write the removed file's name while
+        // the manifest lists `<id>.json` -- a chapter that names a file it does not hold. `free` now keeps
+        // a mint off a tombstone's name, so this is the half that also covers a copy removed by hand.
+        stems.remove(id);
+        byStem.remove(stem);
         return Deletion.done();
     }
 
@@ -1132,6 +1192,28 @@ public final class QuestEditor {
     }
 
     /**
+     * The same, for a delete: the state to put back <b>and</b> the copy it is about to set aside.
+     *
+     * <p>An entry that only knew the file's name would move whichever {@code <name>.json.deleted} it found
+     * — see {@link Snapshot} for what that costs. Inside a {@link #group} the delete has no entry of its
+     * own to record into, so the path goes into the group's map instead.
+     *
+     * @param restored the file being moved out of the way
+     * @param aside    where this delete is putting it
+     */
+    private void pushAside(Path restored, Path aside) {
+        if (grouping) {
+            if (groupAsides != null) {
+                groupAsides.put(restored, aside);
+            }
+            return;
+        }
+        undo.push(new Snapshot(snapshotFiles().files(), Map.of(restored, aside)));
+        trim();
+        redo.clear();
+    }
+
+    /**
      * Records a structural edit on this history, so Ctrl+Z reaches it.
      *
      * <p>Called by {@link EditorOps} after {@link QuestStructure} has already performed the edit: the
@@ -1174,13 +1256,21 @@ public final class QuestEditor {
         if (grouping) {
             throw new IllegalStateException("a group cannot nest: one snapshot is the whole point");
         }
-        push();
+        // The one snapshot the gesture costs, with a map the deletes inside it fill as they go: a batch of
+        // deletes that could not name its own copies would put them back from text instead of moving the
+        // bytes. See `Snapshot`.
+        Map<Path, Path> asides = new LinkedHashMap<>();
+        undo.push(new Snapshot(snapshotFiles().files(), asides));
+        trim();
+        redo.clear();
         grouping = true;
+        groupAsides = asides;
         try {
             work.run();
         }
         finally {
             grouping = false;
+            groupAsides = null;
         }
     }
 
@@ -1351,6 +1441,7 @@ public final class QuestEditor {
         // of files rather than different contents in the ones that were read. See ParsedFiles.
         ParsedFiles.clear();
         Map<Path, String> files = snapshot.files();
+        Map<Path, Path> asides = snapshot.asides();
         boolean whole = true;
 
         for (Map.Entry<Path, String> entry : files.entrySet()) {
@@ -1359,12 +1450,15 @@ public final class QuestEditor {
             }
             // Renamed away by a delete, so it comes back by being renamed back -- which is what makes an
             // undo restore the *file*, byte for byte and in the author's own formatting, rather than a
-            // re-serialisation of it that happens to hold the same data. A file that is not there at all
-            // (an undo across a session, or one somebody removed by hand) is written from the snapshot.
-            Path deleted = entry.getKey().resolveSibling(entry.getKey().getFileName() + ".deleted");
+            // re-serialisation of it that happens to hold the same data. **Only a copy this entry made**:
+            // the path comes from the delete that recorded it, so an undo cannot move a tombstone that
+            // belongs to somebody else -- a second quest under a name a removed copy still holds, which is
+            // reachable and used to cost the author the removed file. An entry with no record (a field
+            // edit, a create, a redo) writes the text it holds and leaves every tombstone where it is.
+            Path recorded = asides.get(entry.getKey());
             try {
-                if (Files.isRegularFile(deleted)) {
-                    Files.move(deleted, entry.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                if (recorded != null && Files.isRegularFile(recorded)) {
+                    Files.move(recorded, entry.getKey(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 }
                 else {
                     // The snapshot's text, verbatim, through JsonWrite rather than a plain writeString.
@@ -1387,9 +1481,13 @@ public final class QuestEditor {
         for (JsonFile quest : List.copyOf(quests.values())) {
             if (!files.containsKey(quest.file())) {
                 try {
-                    Files.move(quest.file(), quest.file().resolveSibling(
-                            quest.file().getFileName() + ".deleted"),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    // A file the model holds and the snapshot does not is being set aside again -- so it
+                    // goes to a **numbered** name, through the one place that name is decided, and it can
+                    // never replace a copy that is already there. Writing the fixed `<name>.json.deleted`
+                    // with REPLACE_EXISTING is what destroyed an author's earlier copy; `asidePath` returns
+                    // a name that is free by construction, and no REPLACE_EXISTING means a race fails loudly
+                    // rather than quietly overwriting.
+                    Files.move(quest.file(), QuestFiles.asidePath(quest.file()));
                 }
                 catch (IOException e) {
                     Constants.LOG.warn("tenet: {} could not be put back to deleted by an undo.",
@@ -1560,27 +1658,70 @@ public final class QuestEditor {
      * collision at load time. It is read once per call rather than kept, because the pack changes under this
      * editor: another author's save, a reload, or a file dropped in by hand all move it, and an id set
      * captured at open time would go on answering from the tree as it was.
+     *
+     * <h2>A name, not a path, and never longer than the rule</h2>
+     *
+     * <p>The base arrives from outside on two of the three callers — a pasted tree's own id, and a quest
+     * file that declares an id this build would refuse — and what comes back becomes a <b>file name</b>. So
+     * a base that is not a bare name is refused rather than joined to the folder (see
+     * {@link ChapterNaming#nameProblem}), and the name built from it is shortened to leave room for the
+     * suffix, so no candidate here can be longer than an id may be. Null means "that is not a name", which
+     * every caller refuses before it writes anything.
      */
     private String freeId(String base) {
-        java.util.Set<String> packWide = QuestStructure.questIdsInPack(root);
-        if (free(base, packWide)) {
+        if (ChapterNaming.nameProblem(base) != null) {
+            return null;
+        }
+        java.util.Set<String> packWide = QuestStructure.questNamesInPack(root);
+        // The base itself first, when it already fits: shortening a name that needs no shortening would
+        // rename a pasted quest for no reason. Only a candidate that has to carry a suffix needs the room.
+        if (base.length() <= ChapterNaming.MAX_LENGTH && free(base, packWide)) {
             return base;
         }
+        String stem = fit(base, 4);  // "_999", the longest suffix the loop below adds
+        if (free(stem, packWide)) {
+            return stem;
+        }
         for (int n = 2; n < 1000; n++) {
-            String candidate = base + "_" + n;
+            String candidate = stem + "_" + n;
             if (free(candidate, packWide)) {
                 return candidate;
             }
         }
-        // Still distinct even in the pathological case: a timestamp is not an id anybody else is using, and
-        // a duplicate here is worse than an ugly name -- see the class note above.
-        String fallback = base + "_" + System.currentTimeMillis();
-        return free(fallback, packWide) ? fallback : fallback + "_" + System.nanoTime();
+        // Still distinct even in the pathological case: a clock reading is not an id anybody else is using,
+        // and a duplicate here is worse than an ugly name -- see the class note above. The base is what gets
+        // shortened, so the digits survive: truncating the reading itself could land on a name already taken.
+        String fallback = fit(base, 14) + "_" + System.currentTimeMillis();
+        if (free(fallback, packWide)) {
+            return fallback;
+        }
+        return fit(base, 20) + "_" + System.nanoTime();
     }
 
-    /** Whether this id is unused across the pack and not one this editor is already holding. */
+    /** A name shortened to leave {@code reserve} characters for a suffix, and never shortened to nothing. */
+    private static String fit(String name, int reserve) {
+        int room = Math.max(1, ChapterNaming.MAX_LENGTH - reserve);
+        return name.length() <= room ? name : name.substring(0, room);
+    }
+
+    /**
+     * Whether this id is unused across the pack, by this editor's own names, and by the disk.
+     *
+     * <h2>Three questions, because the id becomes a file name</h2>
+     *
+     * <p>The pack-wide set answers "does another quest already answer to this id, hold it as an alias, or
+     * still carry it inside a removed copy" — see {@code QuestStructure.questIdsInPack}, which is the mint
+     * pool rather than the loader's vocabulary. The two local questions are about the file the id will
+     * name: {@link #stems} catches a live file whose declared id differs from its name (a pack a tool
+     * named), and {@code Files.exists} catches everything the scan could not read at all — an unparseable
+     * file, a directory, or a file somebody put there since. A mint that skipped either one wrote over the
+     * author's own file, and the load then reported a chapter holding one file and listing another.
+     */
     private boolean free(String candidate, java.util.Set<String> packWide) {
-        return !packWide.contains(candidate) && !quests.containsKey(candidate);
+        return !packWide.contains(candidate)
+                && !quests.containsKey(candidate)
+                && !stems.containsValue(candidate)
+                && !Files.exists(pathOf(candidate));
     }
 
     /**

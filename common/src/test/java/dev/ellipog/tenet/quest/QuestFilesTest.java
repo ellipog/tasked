@@ -1194,6 +1194,27 @@ class QuestFilesTest {
             assertEquals(null, QuestFiles.resolveRemoved(root, null), "and nothing at all");
             assertEquals(null, QuestFiles.resolveRemoved(root, "."), "the root itself is not a tombstone");
         }
+
+        @Test
+        @DisplayName("a tombstone inside a tombstone resolves to nothing")
+        void aTombstoneInsideATombstoneIsRefused(@TempDir Path root) throws IOException {
+            // **A restore that hid the copy it restored.** `alpha.deleted/one.deleted` is a chapter whose
+            // parent is set aside: putting it back moved the folder into a tree every walk skips, the edit
+            // reported success, and the copy left `/tenet removed` as well -- because that listing does not
+            // descend a tombstone either. The reserved tables folder is deliberately not in this rule: it is
+            // where a table tombstone lives, and it is skipped as book content rather than as storage.
+            write(root, "alpha.deleted/group.json", group("alpha", "[]"));
+            write(root, "alpha.deleted/one.deleted/chapter.json", chapter("one", "[]"));
+            write(root, "live/kept/gone.json.deleted", quest("gone"));
+            write(root, "reward_tables/ores.json.deleted", "{}");
+
+            assertEquals(null, QuestFiles.resolveRemoved(root, "alpha.deleted/one.deleted"),
+                    "its parent is set aside, so nothing can be put back there");
+            assertNotNull(QuestFiles.resolveRemoved(root, "live/kept/gone.json.deleted"),
+                    "a tombstone in a live chapter still resolves");
+            assertNotNull(QuestFiles.resolveRemoved(root, "reward_tables/ores.json.deleted"),
+                    "and so does a table's, whose parent is the reserved folder");
+        }
     }
 
     @Nested
@@ -1283,6 +1304,29 @@ class QuestFilesTest {
             assertEquals(java.util.Set.of("real"), idsOf(root),
                     "a skipped name contributes nothing, and a file that will not parse contributes"
                             + " nothing rather than failing the scan -- the load reports it at its own line");
+        }
+
+        @Test
+        @DisplayName("what is set aside, what a quest answers to as an alias, and a broken file's name")
+        void setAsideAndAliasesAreTaken(@TempDir Path root) throws IOException {
+            // **The mint's own question, which is not the loader's.** `allQuestIds` answers "what would the
+            // loader read", and three names it leaves out are names the loader nonetheless treats as taken:
+            // a removed copy's (its file name *and* the id inside it -- the two differ in a pack a tool
+            // named), a live quest's alias (one namespace with the ids: the later entry is not loaded at
+            // all), and an unreadable file's own name, which is what a mint would write over.
+            write(root, "getting_started/first_steps/gone.json.deleted", quest("gone"));
+            write(root, "getting_started/first_steps/first_tree.json.deleted", quest("58b556d40904e3b3"));
+            write(root, "getting_started/first_steps/aliased.json", """
+                    { "id": "aliased", "title": "Aliased", "aliases": [ "old_name" ] }
+                    """);
+            write(root, "getting_started/first_steps/broken.json", "{ not json at all");
+
+            assertEquals(java.util.Set.of("aliased"), idsOf(root),
+                    "the loader's own answer is unchanged: a tombstone and a broken file contribute nothing");
+            assertEquals(java.util.Set.of("aliased", "old_name", "gone", "58b556d40904e3b3",
+                            "first_tree", "broken"),
+                    QuestFiles.takenNames(root, new Problems()),
+                    "and the mint's answer is every name any of them holds");
         }
     }
 }

@@ -6,8 +6,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The naming rules, which are the loader's rules plus the filesystem's.
@@ -74,5 +76,24 @@ class ChapterNamingTest {
         assertEquals("one_copy2", ChapterNaming.suggested("one", "_copy", List.of("one_copy")));
         assertEquals("one_copy3", ChapterNaming.suggested("one", "_copy",
                 List.of("one_copy", "one_copy2")));
+    }
+
+    @Test
+    @DisplayName("a suggestion from a base at the limit still fits the rule, and still counts")
+    void suggestedAlwaysFitsTheIdRule() {
+        // **Why the base is what gets shortened.** Appending `_copy` to a 64-character id gave a name the
+        // validator refuses, so duplicating a chapter with a long id was refused with a sentence about a
+        // chapter the author never named -- and a card that pre-fills one opens on a name it marks invalid.
+        // Shortening the *finished* candidate instead is worse than useless: the base swallows the suffix,
+        // every counter returns the same string, and the search for a free name never ends.
+        String long_ = "a".repeat(ChapterNaming.MAX_LENGTH);
+        String first = ChapterNaming.suggested(long_, "_copy", List.of());
+        assertEquals(ChapterNaming.MAX_LENGTH, first.length(), first);
+        assertNull(ChapterNaming.problemWith(first), first);
+
+        String second = ChapterNaming.suggested(long_, "_copy", List.of(first));
+        assertTrue(second.length() <= ChapterNaming.MAX_LENGTH, second);
+        assertNotEquals(first, second, "a second candidate is a different name, not the first truncated");
+        assertNull(ChapterNaming.problemWith(second), second);
     }
 }

@@ -748,6 +748,227 @@ class QuestEditorTest {
     }
 
     @Test
+    @DisplayName("an undo sets a created quest aside beside a copy already there, and never over it")
+    void undoingACreateNeverDestroysAnEarlierAside() throws IOException {
+        // **The one that lost an author's file.** The undo renamed a file the snapshot does not hold to the
+        // fixed `<name>.json.deleted`, with REPLACE_EXISTING -- while the delete refuses exactly that
+        // collision. So a quest deleted and then created again under the same id had its copy destroyed by
+        // the next Ctrl+Z, and the Ctrl+Z after that restored the wrong bytes and called the delete undone.
+        QuestEditor editor = open();
+        String id = editor.create(10, 10);
+        Path file = editor.pathOf(id);
+        Path earlier = file.resolveSibling(file.getFileName() + ".deleted");
+        Files.writeString(earlier, "an earlier copy, which nothing may overwrite", StandardCharsets.UTF_8);
+
+        assertTrue(editor.undo(), "the create is undone");
+
+        assertFalse(Files.exists(file), "the created file is out of the way");
+        assertEquals("an earlier copy, which nothing may overwrite",
+                Files.readString(earlier, StandardCharsets.UTF_8),
+                "and the copy that was already there is untouched");
+        assertTrue(Files.isRegularFile(file.resolveSibling(file.getFileName() + ".deleted.2")),
+                "so the file the undo set aside went to a numbered name, which is what asidePath is for");
+    }
+
+    @Test
+    @DisplayName("two undos and two redos around a delete leave the removed copy where it is")
+    void theRedoOfACreateDoesNotConsumeTheDeletesAside() throws IOException {
+        // **Why numbering the copy is not the whole fix.** The first loop brought a missing file back by
+        // moving `<name>.json.deleted` -- *any* copy with that name -- so the redo of a create could move the
+        // delete's own copy into place and then write the snapshot's text over it. The author's removed copy
+        // was consumed by a keypress that was not about it. So the entry that reverses a delete records the
+        // copy it made, and an entry without one writes the text it holds and leaves every copy alone.
+        QuestEditor editor = open();
+        String before = Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8);
+
+        assertTrue(editor.delete("two").ok());
+        Path aside = editor.pathOf("two").resolveSibling("two.json.deleted");
+        String removed = Files.readString(aside, StandardCharsets.UTF_8);
+        String made = editor.create(10, 10);
+
+        assertTrue(editor.undo(), "the create is undone");
+        assertTrue(editor.undo(), "and the delete after it");
+        assertEquals(before, Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8),
+                "the deleted file is back, byte for byte, from the copy the delete made");
+
+        assertTrue(editor.redo(), "redo the delete");
+        assertTrue(editor.redo(), "and redo the create");
+        assertEquals(removed, Files.readString(aside, StandardCharsets.UTF_8),
+                "the removed copy is still the bytes the delete set aside, which is the whole point");
+        assertEquals(java.util.List.of("one", made), editor.questIds(),
+                "the chapter is back where the two redos put it, and nothing was resurrected twice");
+    }
+
+    @Test
+    @DisplayName("a removed quest's name is not minted again, so the new quest can be deleted in turn")
+    void aRemovedQuestsNameIsNotTaken() throws IOException {
+        // **The in-game four presses.** A tombstone is skipped by every walk, so the id it declared looked
+        // free: the next `+` landed on it again -- inheriting the removed quest's stored progress, because
+        // progress is keyed by id and an id no loaded quest claims is kept -- and then could not be deleted,
+        // because the delete refuses a name a copy already holds. Two faults, one mint.
+        QuestEditor editor = open();
+        String first = editor.create(10, 10);
+        assertTrue(editor.delete(first).ok());
+        Path aside = editor.folder().resolve(first + ".json.deleted");
+        String removed = Files.readString(aside, StandardCharsets.UTF_8);
+
+        String second = editor.create(20, 20);
+
+        assertNotEquals(first, second, "a removed quest's name is not free");
+        assertEquals(removed, Files.readString(aside, StandardCharsets.UTF_8), "its copy is untouched");
+        assertTrue(editor.delete(second).ok(), "and the quest just made can be deleted in turn");
+    }
+
+    @Test
+    @DisplayName("a pasted tree does not take the id a removed copy still declares")
+    void aRemovedQuestsDeclaredIdIsNotTaken(@TempDir Path dir) throws IOException {
+        // The converted-pack shape, where the id a file declares and the name it is written under differ.
+        // The tombstone's declared id is a name a mint must not take, and so is the file it was written as:
+        // taking either one gave the new quest the removed quest's progress, and taking the file name gave
+        // the chapter a manifest entry naming a file that was never written.
+        Path folder = convertedChapter(dir, "first_tree.json");
+        Path root = dir.resolve("quests");
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        JsonObject tree = editor.quest("58b556d40904e3b3").root().deepCopy();
+
+        assertTrue(editor.delete("58b556d40904e3b3").ok());
+        Path aside = folder.resolve("first_tree.json.deleted");
+        String removed = Files.readString(aside, StandardCharsets.UTF_8);
+
+        String made = editor.paste(tree, 10, 10);
+
+        assertNotEquals("58b556d40904e3b3", made, "the id the removed copy declares is taken");
+        assertTrue(Files.isRegularFile(folder.resolve(made + ".json")),
+                "the pasted copy lands under its own file name");
+        assertEquals(removed, Files.readString(aside, StandardCharsets.UTF_8),
+                "and the removed copy is untouched");
+        assertTrue(editor.save().ok(), "the manifest is written on a save, like every other edit");
+        assertTrue(dev.ellipog.tenet.quest.QuestFiles.discover(root).ok(),
+                "so the chapter still describes itself");
+    }
+
+    @Test
+    @DisplayName("a create does not take an id another quest holds as an alias")
+    void aMintAvoidsAQuestAlias() throws IOException {
+        // Ids and aliases are one namespace to the loader: `claimIdentifier` finds the alias and the later
+        // entry is not loaded at all. The panel's `aliases` row is editable, so one typed alias and one press
+        // used to make a quest that never appears.
+        Files.writeString(root.resolve("getting_started").resolve("first_steps").resolve("one.json"), """
+                {
+                  "id": "one",
+                  "title": "One",
+                  "x": 0,
+                  "y": 0,
+                  "aliases": [ "quest" ],
+                  "icon": { "item": "minecraft:oak_log" }
+                }
+                """, StandardCharsets.UTF_8);
+
+        QuestEditor editor = open();
+        String made = editor.create(10, 10);
+
+        assertNotEquals("quest", made, "an alias is a name somebody already answers to");
+        assertEquals("quest_2", made, "so the mint steps past it");
+    }
+
+    @Test
+    @DisplayName("a create never writes over a file whose name it would mint, but whose id is another")
+    void aCreateNeverWritesOverAFileNamedLikeTheId(@TempDir Path dir) throws IOException {
+        // The mint asked only about ids, so a file *called* `quest.json` that declares an id of its own -- a
+        // pack a tool named, which is the shape this editor was taught to write back to -- was invisible to
+        // it: the create wrote its own quest over the author's file.
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(root.resolve("getting_started").resolve("group.json"),
+                "{ \"id\": \"getting_started\", \"title\": \"Getting Started\","
+                        + " \"chapters\": [ \"first_steps\" ] }", StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\","
+                        + " \"quests\": [ \"quest.json\" ] }", StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("quest.json"),
+                "{ \"id\": \"something_else\", \"title\": \"Named by a tool\", \"x\": 0, \"y\": 0 }",
+                StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        String made = editor.create(10, 10);
+
+        assertNotEquals("quest", made, "the file name is a name too");
+        assertTrue(Files.readString(folder.resolve("quest.json"), StandardCharsets.UTF_8)
+                .contains("something_else"), "and the author's file is untouched");
+    }
+
+    @Test
+    @DisplayName("a create steps past a quest file that does not parse")
+    void aCreateStepsPastAnUnreadableFile(@TempDir Path dir) throws IOException {
+        // The one file the scan cannot name: it reads it, fails, and used to contribute nothing. Its own name
+        // can be known even when its contents cannot, and that name is what the create would write over.
+        Path root = dir.resolve("quests");
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        Files.createDirectories(folder);
+        Files.writeString(root.resolve("getting_started").resolve("group.json"),
+                "{ \"id\": \"getting_started\", \"title\": \"Getting Started\","
+                        + " \"chapters\": [ \"first_steps\" ] }", StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("chapter.json"),
+                "{ \"id\": \"first_steps\", \"title\": \"First Steps\","
+                        + " \"quests\": [ \"quest.json\" ] }", StandardCharsets.UTF_8);
+        Files.writeString(folder.resolve("quest.json"), "{ this is not json", StandardCharsets.UTF_8);
+
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        String made = editor.create(10, 10);
+
+        assertNotEquals("quest", made, "the unreadable file's name is taken");
+        assertEquals("{ this is not json",
+                Files.readString(folder.resolve("quest.json"), StandardCharsets.UTF_8),
+                "and it is left exactly as it was");
+    }
+
+    @Test
+    @DisplayName("a delete forgets the file name it removed, so a later paste writes its own")
+    void deleteForgetsTheFileNameItRemoved(@TempDir Path dir) throws IOException {
+        // The declared id and the file name are two strings, and the delete has to drop both names from the
+        // model. Keeping the file name made a later paste of that id write `first_tree.json` while the
+        // manifest listed `58b556d40904e3b3.json`: a chapter naming a file it does not hold, and holding a
+        // file it does not name. Reachable once the copy is gone -- moved away by hand, which is what the
+        // refusal the delete gives tells the author to do.
+        Path folder = convertedChapter(dir, "first_tree.json");
+        Path root = dir.resolve("quests");
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        JsonObject tree = editor.quest("58b556d40904e3b3").root().deepCopy();
+
+        assertTrue(editor.delete("58b556d40904e3b3").ok());
+        Files.delete(folder.resolve("first_tree.json.deleted"));
+
+        String made = editor.paste(tree, 10, 10);
+
+        assertEquals("58b556d40904e3b3", made, "with the copy gone, the id is free again");
+        assertTrue(Files.isRegularFile(folder.resolve("58b556d40904e3b3.json")),
+                "and it is written under the id, not under the removed file's name");
+        assertTrue(editor.save().ok());
+        assertTrue(dev.ellipog.tenet.quest.QuestFiles.discover(root).ok(),
+                "so the chapter names the file it holds");
+    }
+
+    @Test
+    @DisplayName("a pasted tree whose id is a path is refused before anything is written")
+    void pasteRefusesANameThatIsAPath(@TempDir Path dir) throws IOException {
+        // The id becomes a file name and the tree arrives from a client: `JsonWrite` creates the folders in
+        // that path and replaces what it finds, so `../../escaped` wrote outside the chapter folder and
+        // destroyed whatever `.json` was there -- before the save ever validated it. The table side refuses
+        // the same thing in the same place.
+        Path root = dir.resolve("quests");
+        convertedChapter(dir, "first_tree.json");
+        QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
+        JsonObject tree = editor.quest("58b556d40904e3b3").root().deepCopy();
+        tree.addProperty("id", "../../escaped");
+
+        assertNull(editor.paste(tree, 10, 10), "a name that is a path is not a name");
+        assertFalse(Files.exists(root.resolve("escaped.json")), "nothing was written outside the folder");
+        assertFalse(Files.exists(root.resolve("escaped.json.deleted")), "nor parked there afterwards");
+        assertFalse(editor.dirty(), "and no history step was taken for it");
+    }
+
+    @Test
     @DisplayName("a new edit forgets the redo trail")
     void redoTrailIsCleared() {
         QuestEditor editor = open();

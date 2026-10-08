@@ -92,7 +92,8 @@ or a group's whole folder becomes `<name>.deleted`, and a reward table becomes `
 loader skips that suffix everywhere, so a pack with removed content in it still loads.
 
 **Ctrl+Z takes it back**, and the restore is one history step per chapter — the same key as any other
-edit. The history is the *server's*, though, so it does not survive a restart, and `/tenet reload` drops
+edit. A **table** delete is the exception: it is not on that trail, and the pair below is how it comes
+back. The history is the *server's*, though, so it does not survive a restart, and `/tenet reload` drops
 it on purpose; after sixty further edits in that chapter the step has fallen off the end. The copy on
 disk survives all three, which is what makes the pair below the way back:
 

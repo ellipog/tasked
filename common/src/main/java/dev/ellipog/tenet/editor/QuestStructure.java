@@ -22,7 +22,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -146,6 +145,10 @@ public final class QuestStructure {
         Path source = found.get();
         String fromGroup = groupIdOf(root, source);
         String target = toGroup == null ? "" : toGroup;
+        String named = groupNameProblem(target);
+        if (named != null) {
+            return Outcome.refused(named);
+        }
         if (fromGroup.equals(target)) {
             // A move within one group is an order change inside its chapters array, which is what the
             // row drag inside a group already sends. Doing it here as well keeps the menu's "move to
@@ -216,11 +219,15 @@ public final class QuestStructure {
 
     /** Creates a chapter, in a group or at the root, empty. */
     public static Outcome createChapter(Path root, String group, int index, String id, String title) {
-        String problem = idProblem(root, "chapter", id);
+        String problem = idProblem(root, "chapter", id, null);
         if (problem != null) {
             return Outcome.refused(problem);
         }
         String target = group == null ? "" : group;
+        String named = groupNameProblem(target);
+        if (named != null) {
+            return Outcome.refused(named);
+        }
         Path folder;
         if (target.isEmpty()) {
             folder = root.resolve(id);
@@ -254,7 +261,7 @@ public final class QuestStructure {
 
     /** Creates an empty group. */
     public static Outcome createGroup(Path root, String id, String title) {
-        String problem = idProblem(root, "group", id);
+        String problem = idProblem(root, "group", id, null);
         if (problem != null) {
             return Outcome.refused(problem);
         }
@@ -280,7 +287,7 @@ public final class QuestStructure {
             return Outcome.refused("no chapter called \"" + id + "\"");
         }
         if (!id.equals(newId)) {
-            String problem = idProblem(root, "chapter", newId);
+            String problem = idProblem(root, "chapter", newId, id);
             if (problem != null) {
                 return Outcome.refused(problem);
             }
@@ -321,7 +328,7 @@ public final class QuestStructure {
             return Outcome.refused("no group called \"" + id + "\"");
         }
         if (!id.equals(newId)) {
-            String problem = idProblem(root, "group", newId);
+            String problem = idProblem(root, "group", newId, id);
             if (problem != null) {
                 return Outcome.refused(problem);
             }
@@ -347,13 +354,21 @@ public final class QuestStructure {
         return edit.finish(null, newId, null, id);
     }
 
-    /** Duplicates a chapter beside itself, re-id'ing every quest inside so nothing collides. */
+    /**
+     * Duplicates a chapter beside itself, re-id'ing every quest inside so nothing collides.
+     *
+     * <p>Each declaration is paired with its own fresh id <b>once</b>, and both the file written and the
+     * manifest entry come from that pairing. Re-deriving the pairing by matching the source id was wrong
+     * for two files that declare one id — which the format allows, and the load reports — because both
+     * matched the first entry: one copy overwrote the other, and the copy's manifest listed a file that was
+     * never written.
+     */
     public static Outcome duplicateChapter(Path root, String id, String newId, String newTitle) {
         Optional<Path> found = chapterFolder(root, id);
         if (found.isEmpty()) {
             return Outcome.refused("no chapter called \"" + id + "\"");
         }
-        String problem = idProblem(root, "chapter", newId);
+        String problem = idProblem(root, "chapter", newId, null);
         if (problem != null) {
             return Outcome.refused(problem);
         }
@@ -364,31 +379,27 @@ public final class QuestStructure {
             return Outcome.refused("\"" + newId + "\" is already a folder in that place");
         }
 
-        Set<String> taken = questIdsInPack(root);
-        List<QuestFiles.Declaration> chapterQuests = questsOf(root, folder);
-        List<String> names = new ArrayList<>();
-        List<ReId> reIds = new ArrayList<>();
-        for (QuestFiles.Declaration quest : chapterQuests) {
-            String fileName = quest.path().getFileName().toString();
-            String questId = quest.id() == null ? fileName : quest.id();
-            String fresh = ChapterNaming.suggested(questId, "_copy", taken);
+        Set<String> taken = questNamesInPack(root);
+        List<Copy> copies = new ArrayList<>();
+        List<ReId> raw = new ArrayList<>();
+        for (QuestFiles.Declaration quest : questsOf(root, folder)) {
+            String declared = declaredIdOf(quest);
+            String fresh = ChapterNaming.suggested(declared, "_copy", taken);
             taken.add(fresh);
-            names.add(fresh + QuestEditor.SUFFIX);
-            reIds.add(new ReId(questId, fresh));
+            copies.add(new Copy(quest, declared, fresh));
+            raw.add(new ReId(declared, fresh));
         }
+        List<String> names = copies.stream().map(one -> one.fresh() + QuestEditor.SUFFIX).toList();
+        List<ReId> reIds = firstClaims(raw);
 
         Edit edit = new Edit();
         edit.forget(newId);
         edit.creates(copy);
         edit.writeText(copy.resolve(QuestFiles.CHAPTER_MANIFEST),
                 copiedChapterJson(folder, newId, newTitle, names, reIds, List.of()));
-        for (QuestFiles.Declaration quest : chapterQuests) {
-            String fileName = quest.path().getFileName().toString();
-            String questId = quest.id() == null ? fileName : quest.id();
-            String fresh = reIds.stream().filter(r -> r.from().equals(questId)).findFirst()
-                    .map(ReId::to).orElse(questId);
-            edit.writeText(copy.resolve(fresh + QuestEditor.SUFFIX),
-                    copiedQuestJson(quest, fresh, reIds));
+        for (Copy one : copies) {
+            edit.writeText(copy.resolve(one.fresh() + QuestEditor.SUFFIX),
+                    copiedQuestJson(one.quest(), one.fresh(), reIds));
         }
         int at = indexOfChapter(root, group, id);
         if (group.isEmpty()) {
@@ -400,13 +411,23 @@ public final class QuestStructure {
         return edit.finish(newId, group, null, null);
     }
 
-    /** Duplicates a group beside itself, re-id'ing the group, its chapters and every quest in them. */
+    /**
+     * Duplicates a group beside itself, re-id'ing the group, its chapters and every quest in them.
+     *
+     * <h2>One re-id map for the whole group</h2>
+     *
+     * <p>A quest in the copied chapter 2 that depends on a quest in the copied chapter 1 is a dependency
+     * <i>between the quests being copied</i>, and a map built per chapter left it pointing at the original:
+     * the copy was not self-contained, and two roads followed the other pack's chapters. So the map is
+     * built across every chapter of the group before anything is written. A shared id resolves to the
+     * first declaration that claimed it, which is the loader's own first-wins resolution for a duplicate.
+     */
     public static Outcome duplicateGroup(Path root, String id, String newId, String newTitle) {
         Optional<Path> found = groupFolder(root, id);
         if (found.isEmpty()) {
             return Outcome.refused("no group called \"" + id + "\"");
         }
-        String problem = idProblem(root, "group", newId);
+        String problem = idProblem(root, "group", newId, null);
         if (problem != null) {
             return Outcome.refused(problem);
         }
@@ -416,8 +437,9 @@ public final class QuestStructure {
             return Outcome.refused("\"" + newId + "\" is already a folder at the root");
         }
 
-        Set<String> chapterIds = existingIds(root, QuestFiles.Kind.CHAPTER);
-        Set<String> questIds = questIdsInPack(root);
+        // The names a copied chapter may take: live ids *and* aliases, because the loader claims the two in
+        // one namespace and would drop a chapter that took an old name of another.
+        Set<String> chapterIds = existingNames(root, QuestFiles.Kind.CHAPTER);
         List<String> sourceChapters = groupChapterNames(root, id);
         List<String> newChapters = new ArrayList<>();
         List<Rename> chapterRenames = new ArrayList<>();
@@ -428,32 +450,34 @@ public final class QuestStructure {
             chapterRenames.add(new Rename(chapter, fresh));
         }
 
+        Set<String> questIds = questNamesInPack(root);
+        List<Placed> placed = new ArrayList<>();
+        List<ReId> raw = new ArrayList<>();
+        for (Rename rename : chapterRenames) {
+            for (QuestFiles.Declaration quest : questsOf(root, folder.resolve(rename.from()))) {
+                String declared = declaredIdOf(quest);
+                String fresh = ChapterNaming.suggested(declared, "_copy", questIds);
+                questIds.add(fresh);
+                placed.add(new Placed(rename.to(), quest, declared, fresh));
+                raw.add(new ReId(declared, fresh));
+            }
+        }
+        List<ReId> reIds = firstClaims(raw);
+
         Edit edit = new Edit();
         edit.forget(newChapters);
         edit.creates(copy);
         edit.writeText(copy.resolve(QuestFiles.GROUP_MANIFEST), groupJson(newId, newTitle, newChapters));
         for (Rename rename : chapterRenames) {
-            Path sourceChapter = folder.resolve(rename.from());
-            List<QuestFiles.Declaration> quests = questsOf(root, sourceChapter);
-            List<String> names = new ArrayList<>();
-            List<ReId> reIds = new ArrayList<>();
-            for (QuestFiles.Declaration quest : quests) {
-                String fileName = quest.path().getFileName().toString();
-                String questId = quest.id() == null ? fileName : quest.id();
-                String fresh = ChapterNaming.suggested(questId, "_copy", questIds);
-                questIds.add(fresh);
-                names.add(fresh + QuestEditor.SUFFIX);
-                reIds.add(new ReId(questId, fresh));
-            }
+            List<Placed> inChapter = placed.stream().filter(one -> one.chapter().equals(rename.to()))
+                    .toList();
+            List<String> names = inChapter.stream().map(one -> one.fresh() + QuestEditor.SUFFIX).toList();
             edit.writeText(copy.resolve(rename.to()).resolve(QuestFiles.CHAPTER_MANIFEST),
-                    copiedChapterJson(sourceChapter, rename.to(), rename.to(), names, reIds, chapterRenames));
-            for (QuestFiles.Declaration quest : quests) {
-                String fileName = quest.path().getFileName().toString();
-                String questId = quest.id() == null ? fileName : quest.id();
-                String fresh = reIds.stream().filter(r -> r.from().equals(questId)).findFirst()
-                        .map(ReId::to).orElse(questId);
-                edit.writeText(copy.resolve(rename.to()).resolve(fresh + QuestEditor.SUFFIX),
-                        copiedQuestJson(quest, fresh, reIds));
+                    copiedChapterJson(folder.resolve(rename.from()), rename.to(), rename.to(), names, reIds,
+                            chapterRenames));
+            for (Placed one : inChapter) {
+                edit.writeText(copy.resolve(rename.to()).resolve(one.fresh() + QuestEditor.SUFFIX),
+                        copiedQuestJson(one.quest(), one.fresh(), reIds));
             }
         }
         edit.writeIndex(root, entries -> insertEntry(entries, "group", newId,
@@ -801,6 +825,51 @@ public final class QuestStructure {
     private record ReId(String from, String to) {
     }
 
+    /** One quest being copied: where it came from, the id it declares, and the id its copy takes. */
+    private record Copy(QuestFiles.Declaration quest, String declared, String fresh) {
+    }
+
+    /** The same, with the chapter of the copy it lands in. */
+    private record Placed(String chapter, QuestFiles.Declaration quest, String declared, String fresh) {
+    }
+
+    /**
+     * The id a declaration answers to, falling back to its file's <b>stem</b> when it declares none.
+     *
+     * <p>The fallback used to be the file name with its suffix, so an id-less quest duplicated into
+     * {@code first_tree.json_copy.json} with an id carrying a dot — a file the validator refuses, which
+     * made duplicating any chapter holding one impossible. The stem is the name the id scan keys such a
+     * file by as well, so the two now agree.
+     */
+    private static String declaredIdOf(QuestFiles.Declaration quest) {
+        String declared = quest.id();
+        if (declared != null && !declared.isBlank()) {
+            return declared;
+        }
+        String fileName = quest.path().getFileName().toString();
+        return fileName.endsWith(QuestEditor.SUFFIX)
+                ? fileName.substring(0, fileName.length() - QuestEditor.SUFFIX.length())
+                : fileName;
+    }
+
+    /**
+     * One entry per declared id, the first claim winning.
+     *
+     * <p>Two files may declare one id — the format allows it and the load reports it — and the remap is a
+     * lookup by that id, so a second entry for it would silently override the first. First-wins is what the
+     * loader itself resolves such an id to, so the copy's references land where the original's do.
+     */
+    private static List<ReId> firstClaims(List<ReId> all) {
+        List<ReId> out = new ArrayList<>();
+        Set<String> claimed = new LinkedHashSet<>();
+        for (ReId one : all) {
+            if (claimed.add(one.from())) {
+                out.add(one);
+            }
+        }
+        return out;
+    }
+
     private static Optional<Path> chapterFolder(Path root, String id) {
         for (Path group : rootFolders(root)) {
             if (Files.isRegularFile(group.resolve(QuestFiles.GROUP_MANIFEST))) {
@@ -821,6 +890,19 @@ public final class QuestStructure {
         Path folder = root.resolve(id);
         return Files.isRegularFile(folder.resolve(QuestFiles.GROUP_MANIFEST))
                 ? Optional.of(folder) : Optional.empty();
+    }
+
+    /**
+     * Why a group id from an op cannot be used, or null — including for "no group", which is empty.
+     *
+     * <p>The id arrives from a payload and is joined to the root to make a path: to find the group's
+     * manifest, and for the edits that write one, to write beside it. A name that is really a path
+     * ({@code ../..}) resolves outside the quest tree, and the only reason it cannot already do harm is
+     * that a {@code group.json} has to exist at the traversed place. {@link ChapterNaming#nameProblem} is
+     * the rule, asked before anything is resolved — the same one the table side states for a table id.
+     */
+    private static String groupNameProblem(String group) {
+        return group == null || group.isEmpty() ? null : ChapterNaming.nameProblem(group);
     }
 
     /** The group a chapter folder is in, or empty for a chapter at the root. */
@@ -873,17 +955,52 @@ public final class QuestStructure {
     }
 
     /**
-     * Every id of one kind in the tree, from the loader's own walk.
+     * One chapter's or group's names: the id its folder declares, and the aliases beside it.
      *
-     * <p>For groups and chapters that is the right question and the whole of it: a chapter <i>is</i> a
-     * folder the walk reaches, so a chapter the walk cannot see is one that cannot be opened either. Quests
-     * are the case where it is not — see {@link #questIdsInPack}.
+     * <p>The aliases are carried because the loader claims an id and an alias in <b>one map per kind</b>
+     * ({@code QuestIndex.claimIdentifier} and {@code claimAlias}), so a new chapter whose id is another
+     * chapter's old name is a duplicate: the later entry is reported and not loaded. A check against folder
+     * names alone therefore let the editor write a pack the loader refuses, from the UI — rename a chapter,
+     * then make one under the name it used to have.
      */
-    private static Set<String> existingIds(Path root, QuestFiles.Kind kind) {
-        return QuestFiles.discover(root).of(kind).stream()
-                .map(QuestFiles.Declaration::id)
-                .filter(id -> id != null)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+    private record Declared(String id, Set<String> aliases) {
+    }
+
+    /** Every chapter's or group's names, from the loader's own walk. */
+    private static List<Declared> declaredNames(Path root, QuestFiles.Kind kind) {
+        List<Declared> out = new ArrayList<>();
+        for (QuestFiles.Declaration declaration : QuestFiles.discover(root).of(kind)) {
+            Set<String> aliases = new LinkedHashSet<>();
+            declaration.document().get("$.aliases").ifPresent(list -> {
+                if (list.isJsonArray()) {
+                    for (JsonElement alias : list.getAsJsonArray()) {
+                        if (alias.isJsonPrimitive() && alias.getAsJsonPrimitive().isString()
+                                && !alias.getAsString().isBlank()) {
+                            aliases.add(alias.getAsString());
+                        }
+                    }
+                }
+            });
+            out.add(new Declared(declaration.id(), aliases));
+        }
+        return out;
+    }
+
+    /**
+     * Every name of one kind: the live ids and every alias, which is one namespace to the loader.
+     *
+     * <p>What a mint must avoid — a duplicated group's chapter ids come from here, for the same reason the
+     * create and rename checks ask it.
+     */
+    private static Set<String> existingNames(Path root, QuestFiles.Kind kind) {
+        Set<String> names = new LinkedHashSet<>();
+        for (Declared declared : declaredNames(root, kind)) {
+            if (declared.id() != null) {
+                names.add(declared.id());
+            }
+            names.addAll(declared.aliases());
+        }
+        return names;
     }
 
     /**
@@ -901,15 +1018,18 @@ public final class QuestStructure {
      *
      * <h2>Why it is the files and not the loader's walk</h2>
      *
-     * <p>It used to be {@code existingIds(root, QUEST)} — the loader's own discovery — and that is the
+     * <p>It used to be the loader's own discovery of quests, and that is the
      * wrong set for the key being minted. Discovery reports what the loader <i>will read</i>, so a pack the
      * loader is unhappy with hides ids that are nonetheless written down: a quest file its chapter's
      * {@code quests} list does not mention, a folder inside a chapter folder, a whole subtree under a
      * manifest that will not parse, and every quest inside a version-1 flat file, whose declaration is one
      * {@code FLAT_V1} entry and not a quest at all. The author fixing those errors later finds a collision
      * the editor created while it was looking at the same folder. So the scan is
-     * {@link QuestFiles#allQuestIds}, which reads every file the loader <i>would</i> read if the pack were
-     * well-formed.
+     * {@link QuestFiles#takenNames}, which reads every file the loader <i>would</i> read if the pack were
+     * well-formed — and, past the loader's own vocabulary, the names a removed copy still holds and every
+     * alias a quest answers to. Both are names the loader treats as taken: a quest under an id a tombstone
+     * declares inherits the removed quest's stored progress, and one under an id another quest holds as an
+     * alias does not load at all. See {@link QuestFiles#takenNames} for each case.
      *
      * <p><b>The loaded index is deliberately not consulted, and neither are the open editors.</b> The disk
      * is the authority the loader itself reads, and this scan is fresher than the index: a file edited by
@@ -920,8 +1040,8 @@ public final class QuestStructure {
      * outlives one chapter, and a name refused because another world's questline once held it is a
      * different bug from the one this prevents.
      */
-    public static Set<String> questIdsInPack(Path root) {
-        return QuestFiles.allQuestIds(root, new Problems());
+    public static Set<String> questNamesInPack(Path root) {
+        return QuestFiles.takenNames(root, new Problems());
     }
 
     private static int indexOfChapter(Path root, String group, String chapter) {
@@ -1394,21 +1514,37 @@ public final class QuestStructure {
     // ------------------------------------------------------------------
 
     /**
-     * Why an id is not usable for a new chapter or group, or null when it is.
+     * Why a name is not usable for a new chapter or group, or null when it is.
      *
-     * <p>The rule is {@link ChapterNaming}'s, which is where the book asks the same question: one home
-     * for it, and one wording, so a name refused here reads as the card would have put it. The collision
-     * sentence stays here because this list is the index's own ids -- the book's carries aliases too,
-     * which is why it says so and this does not.
+     * <p>The rule is {@link ChapterNaming}'s, which is where the card asks the same question: one home for
+     * it and one wording, so a name refused here reads as the card would have put it. The collision
+     * sentences are this class's, because this list is built from the manifests — ids <i>and</i> aliases,
+     * which the loader claims in one namespace — and the two cases are different news: a live name is a
+     * chapter or a group the author can go and look at, while an alias is a name something <i>used to</i>
+     * have, and saying "already called" about one sends them looking for a thing that is not there.
+     *
+     * @param except the entry being renamed, whose own id and aliases are not a clash with itself, or null
      */
-    private static String idProblem(Path root, String kind, String id) {
+    private static String idProblem(Path root, String kind, String id, String except) {
         String problem = ChapterNaming.problemWith(id);
         if (problem != null) {
             return problem;
         }
-        if (existingIds(root, kind.equals("group") ? QuestFiles.Kind.GROUP : QuestFiles.Kind.CHAPTER)
-                .contains(id)) {
-            return "there is already a " + kind + " called \"" + id + "\"";
+        QuestFiles.Kind of = kind.equals("group") ? QuestFiles.Kind.GROUP : QuestFiles.Kind.CHAPTER;
+        for (Declared declared : declaredNames(root, of)) {
+            if (declared.id() != null && declared.id().equals(except)) {
+                // The entry being renamed. Renaming it back to a name it used to have is the ordinary way
+                // to undo a rename, and `keepAlias` drops that name from its list in the same edit -- so
+                // its own id and its own aliases are not a clash with itself.
+                continue;
+            }
+            if (id.equals(declared.id())) {
+                return "there is already a " + kind + " called \"" + id + "\"";
+            }
+            if (declared.aliases().contains(id)) {
+                return "\"" + id + "\" is an old name of another " + kind
+                        + " - an id and an alias are one namespace, so pick another";
+            }
         }
         return null;
     }

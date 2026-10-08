@@ -28,8 +28,9 @@ own line, and the enclosing task's codec does not repeat it — a condition whos
 is one error listing the condition types, not two messages saying it twice.
 
 **Cross-file checks happen when the whole tree is known.** A file on its own cannot know that an id is
-duplicated in another file, or that a `dependsOn` names a quest nobody wrote, or that two quests depend
-on each other in a circle. Those are checked against the assembled tree, after every file has been
+duplicated in another file — or that it collides with another thing's `aliases`, which the loader claims
+in the same namespace per kind — or that a `dependsOn` names a quest nobody wrote, or that two quests
+depend on each other in a circle. Those are checked against the assembled tree, after every file has been
 read.
 
 **A chapter's own gate is checked in both passes, for the same split.** The per-file validator checks

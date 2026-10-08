@@ -353,6 +353,18 @@ public final class QuestFiles {
         if (candidate.equals(root) || !candidate.startsWith(root)) {
             return null;
         }
+        // **Every folder between the root and the copy has to be live.** A tombstone inside a tombstone —
+        // `alpha.deleted/one.deleted` — is a copy whose parent is set aside, so restoring it would move it
+        // into a folder every walk skips: the edit reports success, the chapter never appears, and the copy
+        // vanishes from `/tenet removed` too, because that listing does not descend a tombstone either. The
+        // reserved `reward_tables` folder is deliberately not in this rule: it is where a table tombstone
+        // lives, and it is skipped as *book content* rather than as storage.
+        for (Path at = candidate.getParent(); at != null && !at.equals(root); at = at.getParent()) {
+            String name = at.getFileName() == null ? "" : at.getFileName().toString();
+            if (isDeletedName(name) || DeclaredPaths.isIgnoredName(name)) {
+                return null;
+            }
+        }
         if (restoredName(candidate.getFileName().toString()) == null) {
             return null;
         }
@@ -490,12 +502,71 @@ public final class QuestFiles {
      *
      * <p>A file that cannot be read contributes nothing rather than failing the scan: the caller is minting
      * a name, and refusing to mint because one file in somebody's pack is unreadable would make the editor
-     * unusable. The problem is reported where every other read problem is, at the load.
+     * unusable. The problem is reported where every other read problem is, at the load. {@link #takenNames}
+     * is the mint's own question and does count that file's name — see there.
      */
     public static Set<String> allQuestIds(Path questRoot, Problems problems) {
+        return scan(questRoot, problems).ids();
+    }
+
+    /**
+     * Every name a freshly minted quest id must not take.
+     *
+     * <h2>Why this is more than {@link #allQuestIds}</h2>
+     *
+     * <p>{@code allQuestIds} answers "what ids would the loader read", and a mint that stopped there took
+     * three names it should not have:
+     *
+     * <ul>
+     *   <li><b>A removed copy's name and id.</b> A tombstone is skipped by every walk, so its id looks free
+     *       — and a quest created under it inherits the removed quest's stored progress (progress is keyed
+     *       by id, and an id no loaded quest claims is deliberately kept), then cannot be deleted, because
+     *       the delete refuses a name a copy already holds. Its declared id matters as much as its file
+     *       name: the two differ in a pack a tool named, and the file a mint writes is named from the id.
+     *       </li>
+     *   <li><b>An alias.</b> Ids and aliases are one namespace per kind — the loader claims both in one map
+     *       and the later entry is not loaded at all — so a new quest whose id is another quest's former id
+     *       is a quest that never appears. The panel's {@code aliases} row is editable, so this is one
+     *       typed alias and one press away.</li>
+     *   <li><b>An unreadable file's name.</b> Its declared id cannot be known, but the file's own name can,
+     *       and that is the name a mint would write over.</li>
+     * </ul>
+     *
+     * <p>Aliases of <i>chapters and groups</i> are not here: they are a different namespace, and
+     * {@code QuestStructure}'s own name check is where those are claimed.
+     */
+    public static Set<String> takenNames(Path questRoot, Problems problems) {
+        Scan scan = scan(questRoot, problems);
+        Set<String> taken = new LinkedHashSet<>(scan.ids());
+        taken.addAll(scan.aliases());
+        taken.addAll(scan.asides());
+        taken.addAll(scan.unreadable());
+        return taken;
+    }
+
+    /**
+     * What one walk of the tree found, in the four sets a mint cares about.
+     *
+     * <p>One walk rather than four: they are the same listing read for different questions, and the sets
+     * have to agree about which files were looked at, or a mint would answer from a different tree than the
+     * one it just read.
+     *
+     * @param ids        what {@link #allQuestIds} returns — the loader's own vocabulary
+     * @param aliases    every {@code aliases} entry a readable quest file declares
+     * @param asides     the file name and the declared id of every set-aside quest file
+     * @param unreadable the file name of every quest file that would not parse
+     */
+    private record Scan(Set<String> ids, Set<String> aliases, Set<String> asides, Set<String> unreadable) {
+    }
+
+    /** The one walk. See {@link #allQuestIds} and {@link #takenNames} for what each set is for. */
+    private static Scan scan(Path questRoot, Problems problems) {
         Set<String> ids = new LinkedHashSet<>();
+        Set<String> aliases = new LinkedHashSet<>();
+        Set<String> asides = new LinkedHashSet<>();
+        Set<String> unreadable = new LinkedHashSet<>();
         if (questRoot == null || !Files.isDirectory(questRoot)) {
-            return ids;
+            return new Scan(Set.of(), Set.of(), Set.of(), Set.of());
         }
         try {
             Files.walkFileTree(questRoot, new SimpleFileVisitor<Path>() {
@@ -514,12 +585,41 @@ public final class QuestFiles {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
                     String name = file.getFileName().toString();
-                    if (!attributes.isRegularFile() || !isQuestFile(name) || isDeletedName(name)
-                            || DeclaredPaths.isIgnoredName(name) || isManifestName(name)) {
+                    if (!attributes.isRegularFile() || DeclaredPaths.isIgnoredName(name)) {
                         return FileVisitResult.CONTINUE;
                     }
-                    parse(file, display(questRoot, file), problems)
-                            .ifPresent(document -> collectIds(document, name, ids));
+                    // **The tombstone is asked about before `isQuestFile`.** A set-aside file does not end
+                    // in `.json` — `two.json.deleted` does not — so the loader's own "is this content" test
+                    // answers no, and a branch placed after it is a branch that never runs. It was, and the
+                    // two tests below it failed for exactly that reason.
+                    if (isDeletedName(name)) {
+                        // A set-aside quest file: no live id, but a name a mint must not take. The `_` rule
+                        // was asked first, so a tombstone of a note is left out, exactly as the listing
+                        // leaves it out.
+                        String back = restoredName(name);
+                        if (back != null && isQuestFile(back)) {
+                            asides.add(stemOf(back));
+                            parse(file, display(questRoot, file), problems).ifPresent(document -> {
+                                String declared = stringAt(document, "$.id");
+                                if (declared != null && !declared.isBlank()) {
+                                    asides.add(declared);
+                                }
+                            });
+                        }
+                        return FileVisitResult.CONTINUE;
+                    }
+                    if (!isQuestFile(name) || isManifestName(name)) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    Optional<JsonDocument> parsed = parse(file, display(questRoot, file), problems);
+                    if (parsed.isPresent()) {
+                        collectIds(parsed.get(), name, ids, aliases);
+                    }
+                    else {
+                        // Its declared id cannot be known; its name can, and the name is what a mint would
+                        // write over.
+                        unreadable.add(stemOf(name));
+                    }
                     return FileVisitResult.CONTINUE;
                 }
 
@@ -537,19 +637,24 @@ public final class QuestFiles {
                     DataProblem.Severity.WARNING, "the quest folder could not be walked completely ("
                             + e.getMessage() + "), so some ids are not known to the editor");
         }
-        return ids;
+        return new Scan(ids, aliases, asides, unreadable);
     }
 
     /**
-     * The quest ids one file declares: its own, or the ones nested inside a version-1 file.
+     * The quest ids one file declares: its own, or the ones nested inside a version-1 file — and every
+     * alias they answer to.
      *
      * <p>A version-1 flat file is a whole tree in one document —
      * {@code chapterGroups[].chapters[].quests[]} — so its root declares no {@code id} at all, and reading
      * only {@code $.id} would see none of the quests inside it. That is the case that matters most here:
      * a pack converted from another mod is exactly where the flat layout and a freshly minted id meet. The
      * paths come from {@link QuestValidator}, which is where this format's paths are written down.
+     *
+     * <p>The aliases travel with the ids because the loader claims them in one namespace: a mint that took
+     * an alias produced a quest that does not load. See {@link #takenNames}.
      */
-    private static void collectIds(JsonDocument document, String fileName, Set<String> ids) {
+    private static void collectIds(JsonDocument document, String fileName, Set<String> ids,
+                                   Set<String> aliases) {
         JsonElement groups = document.get("$.chapterGroups").orElse(null);
         if (groups != null && groups.isJsonArray()) {
             for (int g = 0; g < groups.getAsJsonArray().size(); g++) {
@@ -564,7 +669,9 @@ public final class QuestFiles {
                         continue;
                     }
                     for (int q = 0; q < quests.getAsJsonArray().size(); q++) {
-                        addId(document.get(QuestValidator.questPath(g, c, q) + ".id").orElse(null), ids);
+                        String at = QuestValidator.questPath(g, c, q);
+                        addId(document.get(at + ".id").orElse(null), ids);
+                        addAliases(document, at + ".aliases", aliases);
                     }
                 }
             }
@@ -574,6 +681,18 @@ public final class QuestFiles {
         // an id-less file by as well, so a create that ignored the stem could still land on one.
         String declared = stringAt(document, "$.id");
         ids.add(declared == null || declared.isBlank() ? stemOf(fileName) : declared);
+        addAliases(document, "$.aliases", aliases);
+    }
+
+    /** Every name an {@code aliases} array holds, when it is one. */
+    private static void addAliases(JsonDocument document, String path, Set<String> aliases) {
+        JsonElement list = document.get(path).orElse(null);
+        if (list == null || !list.isJsonArray()) {
+            return;
+        }
+        for (JsonElement alias : list.getAsJsonArray()) {
+            addId(alias, aliases);
+        }
     }
 
     /** One id, if it is a string worth remembering. */
