@@ -220,14 +220,92 @@ class HudLayoutTest {
     }
 
     @Test
-    @DisplayName("every element's sprite fits inside its box, inset on every side")
+    @DisplayName("every control's sprite fits inside its box, inset on every side")
     void everySpriteFitsItsBox() {
         for (HudElement element : HudElement.values()) {
+            // A drawn element has no sprite and no box to inset one into: its own drawing decides where its
+            // icon goes, and the entry carries a zero inset for that reason. Only a control fills the table's
+            // box with a sprite.
+            if (element.kind() != HudElement.Kind.CONTROL) {
+                assertEquals(0, element.iconInset(),
+                        element + " is drawn by the HUD and still declares a sprite inset");
+                continue;
+            }
             assertTrue(element.iconInset() > 0,
                     element + " has no inset, so its sprite would touch its own edge");
             assertTrue(element.iconInset() * 2 <= Math.min(element.width(), element.height()),
                     element + " draws a " + (element.width() - element.iconInset() * 2) + "-pixel sprite in a "
                             + element.width() + "-pixel box");
+        }
+    }
+
+    /**
+     * A drawn element is as big as what it holds, so the box is the caller's size rather than the entry's.
+     *
+     * <h2>Why the size is asserted as well as the position</h2>
+     *
+     * <p>Because the clamp's arithmetic is {@code screenWidth - width}, and a version that clamped against
+     * the element's own table size while drawing the measured one would put a six-pin panel half off the
+     * window -- while every position assertion here still passed, because the position it landed at is a
+     * legal one for a box of the wrong size. The size is therefore part of the claim.
+     */
+    @Test
+    @DisplayName("a box the caller measured is clamped against its own size, however big that is")
+    void aMeasuredBoxIsClampedToo() {
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                for (int boxWidth : new int[] {1, 40, PinnedPanelLayout.MAX_WIDTH, 4000}) {
+                    for (int boxHeight : new int[] {1, 14, 300, 4000}) {
+                        BookGeometry.Rect box = HudLayout.boxAt(-99, 9999, boxWidth, boxHeight, width, height);
+                        assertEquals(boxWidth, box.width(), "the size is the caller's, never rewritten");
+                        assertEquals(boxHeight, box.height(), "the same, vertically");
+                        assertTrue(box.x() >= 0 && box.right() <= Math.max(width, boxWidth),
+                                "a " + boxWidth + "-wide box on a " + width + "-wide window landed at " + box);
+                        assertTrue(box.y() >= 0 && box.bottom() <= Math.max(height, boxHeight),
+                                "a " + boxHeight + "-tall box on a " + height + "-tall window landed at " + box);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("the element form is the measured form with the entry's own size")
+    void theElementFormIsTheMeasuredForm() {
+        for (HudElement element : HudElement.values()) {
+            for (int width : WIDTHS) {
+                for (int height : HEIGHTS) {
+                    for (int x : new int[] {-40, 0, 55, 9000}) {
+                        assertEquals(
+                                HudLayout.boxAt(x, 12, element.width(), element.height(), width, height),
+                                HudLayout.boxAt(element, width, height, x, 12),
+                                element + " has two answers to what its box is");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The shipped layout does not put one element over another.
+     *
+     * <p>A default is what a player sees before they have moved anything, and a client whose pinned panel and
+     * whose notices are drawn on top of each other on the first quest completed reads as a broken mod rather
+     * than as a setting they have not visited yet. The editor is where the two are separated by hand; this is
+     * the claim that nobody has to.
+     */
+    @Test
+    @DisplayName("the two HUD elements do not ship on top of each other")
+    void theDefaultsDoNotSitOnEachOther() {
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                BookGeometry.Rect pinned = HudLayout.boxAt(HudElement.PINNED_QUESTS, width, height,
+                        HudElement.PINNED_QUESTS.defaultX(), HudElement.PINNED_QUESTS.defaultY());
+                BookGeometry.Rect notices = HudLayout.boxAt(HudElement.NOTIFICATIONS, width, height,
+                        HudElement.NOTIFICATIONS.defaultX(), HudElement.NOTIFICATIONS.defaultY());
+                assertFalse(overlaps(pinned, notices), "the shipped layout draws the pinned panel over the"
+                        + " notices at " + width + "x" + height + ": " + pinned + " and " + notices);
+            }
         }
     }
 

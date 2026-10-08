@@ -122,7 +122,10 @@ class HudSettingsTest {
     @DisplayName("a file written by a newer build keeps the entries this one knows")
     void unknownElementsCostTheirEntry(@TempDir Path dir) throws IOException {
         Path file = dir.resolve(HudSettings.FILE_NAME);
-        Files.writeString(file, "{\"elements\":{\"pinned_quests\":{\"x\":9,\"y\":9},"
+        // `not_a_thing` rather than a plausible-looking id: this test used `pinned_quests` while that was a
+        // name no build had, and it stopped testing anything the moment the element arrived -- silently, by
+        // passing the wrong count. A key this build genuinely does not define is what the case is about.
+        Files.writeString(file, "{\"elements\":{\"not_a_thing\":{\"x\":9,\"y\":9},"
                 + "\"inventory_button\":{\"x\":7,\"y\":8}}}", StandardCharsets.UTF_8);
         HudSettings.load(file);
 

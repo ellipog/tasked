@@ -1,13 +1,16 @@
 package dev.ellipog.tenet.client;
 
 import dev.ellipog.tenet.client.dev.QuestWalks;
-import dev.ellipog.tenet.client.dev.ToastStack;
+import dev.ellipog.tenet.client.hud.HudElement;
+import dev.ellipog.tenet.client.hud.HudOverlay;
+import dev.ellipog.tenet.client.hud.HudSettings;
 import dev.ellipog.tenet.quest.reward.RewardAutoClaim;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.Util;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -17,7 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The one detector of completions and claims, and the client half that says so.
+ * The one detector of completions, tasks, claims and chapters, and the client half that says so.
  *
  * <h2>Why there is exactly one</h2>
  *
@@ -26,12 +29,23 @@ import java.util.UUID;
  * completion twice whenever it was open. This class owns the diff ({@link QuestNotifications}) and
  * the book is a <b>sink</b>: it is asked to show the sentence, it does not decide that there is one.
  *
- * <h2>The two sinks, and why the routing is here</h2>
+ * <h2>The three sinks, and why the routing is here</h2>
  *
  * <p>The book's own stack is the right notice while the book is on screen — chat is unreadable
- * behind a screen, and the stack is themed and tested. A player who is not looking at the book gets
- * a real toast ({@link QuestToast}), which the game draws over whatever they are doing. Both carry
- * the same sentence, so the two can never disagree about what happened.
+ * behind a screen, and the stack is themed and tested. A player who is not looking at the book is
+ * told the same sentence one of two ways: as a row on the HUD's own notice element, where they put
+ * it, or — if they have switched that element off — as a real toast ({@link QuestToast}), which the
+ * game draws over whatever they are doing. All three carry the same sentence, so they can never
+ * disagree about what happened, and this method is the only place the three are chosen between.
+ *
+ * <h2>One ordered list, biggest news first</h2>
+ *
+ * <p>A claim-all, a party's shared progress or a counter finishing several tasks can move a dozen
+ * things in one sample, and the cap means only the first few are told. So the notices are <b>ordered by
+ * significance before the cap is applied</b>: a chapter finishing, then a quest finishing, then the tasks
+ * that arrived. Ordered by id or by the cache's own walk, the one notice that matters most would be the one
+ * a burst dropped. The cap itself is the book's stack's own number, so the two sinks bound a burst
+ * identically.
  *
  * <h2>Lifecycle, which is where the interesting bugs are</h2>
  *
@@ -86,19 +100,50 @@ public final class QuestNotifier {
         // what moved. See ProgressTouch for why the flag travels with the ids, and the diff's
         // sampleSome for why a partial sample must not be pruned like a whole one.
         ClientQuestCache.ProgressTouch touch = ClientQuestCache.lastProgressTouch();
-        List<QuestNotifications.Notice> notices = touch.full()
+        // The chapters are asked on both paths, and that is not a shortcut: the server sends the chapter map
+        // whole in a delta as well as a full sync, so this is the one part of the message that is never
+        // partial. See QuestSync's own note where it writes the map.
+        List<QuestNotifications.Notice> chapters = DIFF.chapters(chapterSnapshots());
+        List<QuestNotifications.Notice> quests = touch.full()
                 ? DIFF.sample(snapshots())
                 : DIFF.sampleSome(touch.ids(), snapshotsOf(touch.ids()));
-        if (notices.isEmpty()) {
+        if (chapters.isEmpty() && quests.isEmpty()) {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        for (int i = 0; i < Math.min(notices.size(), MAX_PER_SAMPLE); i++) {
-            announce(minecraft, notices.get(i));
+        for (QuestNotifications.Notice notice : bySignificance(chapters, quests)) {
+            announce(minecraft, notice);
         }
     }
 
-    /** The cache, as the diff reads it: identity, state, what is waiting, and the author's silence. */
+    /**
+     * Every notice, ordered so that the cap spends itself on the biggest news.
+     *
+     * <p>Chapters first, then the quests, then the tasks — and the two passes over the quest list are what
+     * makes that one order rather than three lists to keep in step. The cap is applied by the caller, on this
+     * list, which is the whole point of building it.
+     */
+    private static List<QuestNotifications.Notice> bySignificance(
+            List<QuestNotifications.Notice> chapters, List<QuestNotifications.Notice> quests) {
+        List<QuestNotifications.Notice> ordered = new ArrayList<>(
+                Math.min(chapters.size() + quests.size(), MAX_PER_SAMPLE));
+        for (QuestNotifications.Notice notice : chapters) {
+            ordered.add(notice);
+        }
+        for (QuestNotifications.Notice notice : quests) {
+            if (!notice.namesTask()) {
+                ordered.add(notice);
+            }
+        }
+        for (QuestNotifications.Notice notice : quests) {
+            if (notice.namesTask()) {
+                ordered.add(notice);
+            }
+        }
+        return ordered.size() <= MAX_PER_SAMPLE ? ordered : ordered.subList(0, MAX_PER_SAMPLE);
+    }
+
+    /** The cache, as the diff reads it: identity, state, what is waiting, the author's silence, the tasks. */
     private static List<QuestNotifications.Snapshot> snapshots() {
         UUID self = selfId();
         List<QuestNotifications.Snapshot> snapshots = new ArrayList<>();
@@ -139,11 +184,36 @@ public final class QuestNotifier {
     /** One entry as the diff needs it — the one description of what a snapshot is. */
     private static QuestNotifications.Snapshot snapshotOf(ClientQuestCache.Entry entry, UUID self) {
         RewardAutoClaim mode = entry.effectiveAutoClaim();
+        List<Boolean> tasks = new ArrayList<>(entry.tasks().size());
+        for (int i = 0; i < entry.tasks().size(); i++) {
+            // The public predicate rather than the entry-taking overload, which is the cache's own: the rule
+            // for "is this task finished" must have one reader, and that reader is the cache.
+            tasks.add(ClientQuestCache.taskDone(entry.id(), i));
+        }
         return new QuestNotifications.Snapshot(
                 entry.id(),
                 ClientQuestCache.stateOf(entry.id()),
                 self != null && ClientQuestCache.canClaimFor(self, entry.id()),
-                mode.automatic() && !mode.notifies());
+                mode.automatic() && !mode.notifies(),
+                tasks);
+    }
+
+    /**
+     * Every chapter, as the diff reads it.
+     *
+     * <p>Walked from {@code chapters()} rather than counted from the quests the sample happens to hold: a
+     * chapter whose last quest was removed from the tree is still a chapter, and a chapter state the server
+     * computed is what the notice is about — see {@code ClientQuestCache.chapterStateOf} for why deriving one
+     * here would disagree with the server for the person most likely to notice.
+     */
+    private static List<QuestNotifications.ChapterSnapshot> chapterSnapshots() {
+        List<QuestNotifications.ChapterSnapshot> snapshots = new ArrayList<>();
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            snapshots.add(new QuestNotifications.ChapterSnapshot(chapter.id(),
+                    ClientQuestCache.chapterStateOf(chapter.id())));
+        }
+        QuestWalks.walked("notifier.chapters", snapshots.size());
+        return snapshots;
     }
 
     /** The local player's id, or null where there is none to be had. */
@@ -152,13 +222,18 @@ public final class QuestNotifier {
         return minecraft.player == null ? null : minecraft.player.getUUID();
     }
 
+    /**
+     * One notice, as the three sinks need it.
+     *
+     * <p>The four facts travel together because they are one thing said three ways: the sentence the book's
+     * stack and the HUD's draw, and the label, title, icon and token a {@code QuestToast} needs. Resolved
+     * once, so a notice that reached the HUD and one that reached the toast cannot say different words.
+     */
+    private record Said(Component message, String token, ItemStack icon, Component label, Component title) {
+    }
+
     /** Says one notice the way its moment asks for. */
     private static void announce(Minecraft minecraft, QuestNotifications.Notice notice) {
-        ClientQuestCache.Entry entry = ClientQuestCache.entry(notice.questId());
-        if (entry == null) {
-            return;   // the tree moved between the sample and here; nothing to name
-        }
-
         if (notice.kind() == QuestNotifications.Kind.CLAIMED) {
             // The server confirmed it: what was owed is not any more. Played here rather than on the
             // press, because a refusal is not a claim and a press that is refused must stay silent.
@@ -167,16 +242,32 @@ public final class QuestNotifier {
             return;
         }
 
-        Component message = Component.translatable("tenet.quest.completed", entry.titleText());
+        Said said = switch (notice.kind()) {
+            case COMPLETED -> questSaid(notice.subjectId());
+            case TASK_COMPLETED -> taskSaid(notice);
+            case CHAPTER_COMPLETED -> chapterSaid(notice.subjectId());
+            // Answered above, by the sound and the early return: a claim says nothing.
+            case CLAIMED -> null;
+        };
+        if (said == null) {
+            return;   // the tree moved between the sample and here; nothing to name
+        }
+
         if (minecraft.screen instanceof QuestBookScreen book) {
-            book.notifyQuestCompleted(message);
-        } else if (minecraft.getToasts().getToast(QuestToast.class, QuestToast.tokenFor(entry.id()))
-                == null) {
+            book.notifyNotice(said.message());
+        }
+        else if (HudSettings.on(HudElement.NOTIFICATIONS)) {
+            // The HUD's own stack, where the player put it. Not a toast as well: the element being on is
+            // the player saying that is where they want to read it, and two sinks for one event is the
+            // duplicate this class exists to prevent, one screen over.
+            HudOverlay.notice(said.message().getString(), false, Util.getMillis());
+        }
+        else if (minecraft.getToasts().getToast(QuestToast.class, said.token()) == null) {
             // Not already being announced: a repeatable quest finished twice in quick succession is
-            // told once, and the token is what makes the two notices the same notice.
-            ItemStack icon = entry.icon();
+            // told once, and the token is what makes the two notices the same notice. One token per kind,
+            // so a quest's completion and a task of it are not confused for each other.
             minecraft.getToasts().addToast(
-                    new QuestToast(entry.id(), icon, Component.literal(entry.titleText())));
+                    new QuestToast(said.token(), said.icon(), said.label(), said.title()));
         }
         // A soft chime rather than the advancement fanfare this first shipped with: a pack with a
         // hundred quests plays this a hundred times, and the challenge sting is a celebration-sized
@@ -184,6 +275,57 @@ public final class QuestNotifier {
         // which is what a completion notice is.
         minecraft.getSoundManager().play(
                 SimpleSoundInstance.forUI(SoundEvents.EXPERIENCE_ORB_PICKUP, 1.0F, 0.6F));
+    }
+
+    /** A quest's completion, or null for one the tree no longer holds. */
+    private static Said questSaid(String questId) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
+        if (entry == null) {
+            return null;
+        }
+        return new Said(
+                Component.translatable("tenet.quest.completed", entry.titleText()),
+                QuestToast.tokenFor(questId),
+                entry.icon(),
+                Component.translatable("tenet.toast.completed"),
+                Component.literal(entry.titleText()));
+    }
+
+    /**
+     * A task's completion, or null for one the tree no longer holds.
+     *
+     * <p>The sentence names the task rather than the quest, because "a quest moved" is not news to somebody
+     * who is collecting ten logs -- and {@code TaskEntry.text} is the one derivation of that sentence, so the
+     * row the HUD draws and the notice here cannot word it two ways.
+     */
+    private static Said taskSaid(QuestNotifications.Notice notice) {
+        ClientQuestCache.Entry entry = ClientQuestCache.entry(notice.subjectId());
+        if (entry == null || notice.index() < 0 || notice.index() >= entry.tasks().size()) {
+            return null;
+        }
+        ClientQuestCache.TaskEntry task = entry.tasks().get(notice.index());
+        String text = task.text().getString();
+        return new Said(
+                Component.translatable("tenet.notice.task_completed", text),
+                QuestToast.tokenForTask(notice.subjectId(), notice.index()),
+                task.icon(),
+                Component.translatable("tenet.toast.task_completed"),
+                Component.literal(text));
+    }
+
+    /** A chapter's completion, or null for one the tree no longer lists. */
+    private static Said chapterSaid(String chapterId) {
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            if (chapter.id().equals(chapterId)) {
+                return new Said(
+                        Component.translatable("tenet.notice.chapter_completed", chapter.titleText()),
+                        QuestToast.tokenForChapter(chapterId),
+                        chapter.icon(),
+                        Component.translatable("tenet.toast.chapter_completed"),
+                        Component.literal(chapter.titleText()));
+            }
+        }
+        return null;
     }
 
     /**
@@ -238,7 +380,9 @@ public final class QuestNotifier {
      * Forgets everything.
      *
      * <p>Called from each loader's disconnect hook, beside {@code ClientQuestCache.clear()}: the
-     * cache empties itself, and this must not outlive it.
+     * cache empties itself, and this must not outlive it. The HUD's own notice stack is cleared beside it,
+     * by the same hook, for the same reason -- a sentence about the world just left must not be the first
+     * thing read in the next one.
      */
     public static void reset() {
         DIFF.reset();

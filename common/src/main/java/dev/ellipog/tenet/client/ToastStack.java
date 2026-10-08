@@ -1,18 +1,24 @@
-package dev.ellipog.tenet.client.dev;
+package dev.ellipog.tenet.client;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The book's own transient messages: what the screen says, said where the reader can see it.
+ * A stack of transient sentences, and how long one of them stays.
  *
  * <h2>Why chat is not enough</h2>
  *
- * <p>Every sentence the screen produces -- an op refused, a row moved, a claim that found nothing -- went to
- * chat, and chat is not on screen while a screen is open: the HUD is not drawn behind one. So the one place
- * those messages matter most, the quest book itself, was the one place they could not be read. A toast is
- * the same sentence drawn on the book, gone after a few seconds, and chat keeps its copy for a player who
- * is not looking at the book.
+ * <p>Every sentence the book's screen produces -- an op refused, a row moved, a claim that found nothing --
+ * went to chat. So the one place those messages matter most, the quest book itself, was the one place they
+ * could not be read while it was open. A toast is the same sentence drawn over the book, gone after a few
+ * seconds, and chat keeps its copy for a player who is not looking at the book.
+ *
+ * <h2>Its two readers, and why it moved out of {@code dev}</h2>
+ *
+ * <p>The book draws one of these, and so does the HUD's notice element: a player who is not looking at the
+ * book is told the same sentence where they chose to have it. Both want the same lifetime, the same cap and
+ * the same fade, so there is one class rather than two -- and it lives in {@code client} rather than
+ * {@code client.dev}, because a package named for the author's tools is not where a player's notice belongs.
  *
  * <p>Game-free bookkeeping and nothing else: the caller supplies the time and measures its own text. The
  * order is oldest first, so the drawing can anchor the newest at the bottom and let the ones already being
@@ -80,6 +86,17 @@ public final class ToastStack {
     /** Drops what has faded out. Called every tick; cheap when there is nothing to drop. */
     public void expire(long now) {
         toasts.removeIf(toast -> toast.alpha(now) <= 0F);
+    }
+
+    /**
+     * Forgets everything, faded or not.
+     *
+     * <p>For a disconnect, and it is not the same act as {@link #expire}: a notice is about something that
+     * just happened in <i>this</i> world, so a sentence still on screen when the next one is joined would be
+     * the previous server's news. Expiring would leave that to a timer nobody is watching.
+     */
+    public void clear() {
+        toasts.clear();
     }
 
     /** What is still visible, oldest first. */

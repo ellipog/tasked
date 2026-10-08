@@ -45,6 +45,7 @@ import dev.ellipog.tenet.net.TenetNetworking;
 import dev.ellipog.tenet.client.ClientChapterReplica;
 import dev.ellipog.tenet.client.ClientEditReplies;
 import dev.ellipog.tenet.client.hud.HudEditScreen;
+import dev.ellipog.tenet.client.hud.PinnedQuests;
 import dev.ellipog.tenet.client.viewer.QuestBookFocus;
 import dev.ellipog.tenet.client.viewer.RecipeLookups;
 import dev.ellipog.tenet.client.dev.HexColour;
@@ -83,7 +84,6 @@ import dev.ellipog.tenet.client.dev.SidebarDrag;
 import dev.ellipog.tenet.client.dev.TexturePicker;
 import dev.ellipog.tenet.client.dev.ToolsLayout;
 import dev.ellipog.tenet.client.dev.ToolsPanel;
-import dev.ellipog.tenet.client.dev.ToastStack;
 import dev.ellipog.tenet.editor.EditorSession;
 import dev.ellipog.tenet.editor.QuestEditor;
 import dev.ellipog.tenet.net.PartySnapshot;
@@ -1950,14 +1950,18 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Says a quest just completed, in the book's own stack.
+     * Says something just happened, in the book's own stack.
      *
-     * <p>Called by {@code QuestNotifier} -- the one detector -- when this screen is the one on screen.
-     * The screen used to diff the cache itself; it is a sink now, which is what lets a completion
-     * while the book is closed be announced by the notifier's toast, and keeps the two from both
-     * speaking for one event.
+     * <p>Called by {@code QuestNotifier} -- the one detector -- when this screen is the one on screen, for
+     * every kind of notice it produces: a quest done, a task of one done, a chapter done. The screen used to
+     * diff the cache itself; it is a sink now, which is what lets a completion while the book is closed be
+     * announced by the notifier's own sink, and keeps the two from both speaking for one event.
+     *
+     * <p>It was {@code notifyQuestCompleted} while a completion was the only notice there was. The name says
+     * what it does now rather than what it was written for, because a method named for one of its three
+     * callers is a method somebody will write a sibling of.
      */
-    void notifyQuestCompleted(Component message) {
+    void notifyNotice(Component message) {
         toast(message.getString(), false);
     }
 
@@ -9286,6 +9290,29 @@ public final class QuestBookScreen extends ArmatureScreen
                     .tooltip(Component.translatable("tenet.screen.back_to_the_quest_you_came_from"));
         }
 
+        // The pin, left of the back arrow and on the same band. It is here rather than in the footer because
+        // the footer is about the quest's *progress* -- Submit, Claim -- while this is about the reader's own
+        // screen, which is the same distinction the settings card draws; and it is here rather than in the
+        // editor's header marks because **an operator reads every quest in the editor**: a reader-only
+        // control would be one the person most likely to pin a quest could never press. The editor's marks
+        // hug their own text at the other end of this band, so the two do not share a corner -- which is the
+        // same reason the back arrow is placed before either of them.
+        //
+        // The star is the font's own, verified present in the measured glyph list: the two characters are
+        // what a player reads as "pinned" and "not", and a drawn texture here would be new art for a control
+        // whose whole state is one bit. `CheckGlyphs` scans literals, so this is the one place the pair is
+        // written. It is deliberately not the viewer's star: that one means "favourite in EMI's sidebar",
+        // and the tooltip below is what tells the two apart.
+        boolean pinned = PinnedQuests.isPinned(entry.id());
+        ArmatureButton pin = control(headerPinSlot(card), Component.literal(pinned ? "\u2605" : "\u2606"),
+                () -> pressPin(entry.id()));
+        if (pin != null) {
+            pin.accent(pinned)
+                    .tooltip(Component.translatable(pinned
+                            ? "tenet.screen.unpin_from_hud"
+                            : "tenet.screen.pin_to_hud"));
+        }
+
         // An author opening a quest gets the editor, not the reader: the same card, with the fields
         // editable in place and the gameplay buttons gone. The reader's view is untouched for everyone
         // who may not edit.
@@ -14150,6 +14177,7 @@ public final class QuestBookScreen extends ArmatureScreen
         String many = targets.size() > 1 ? " " + targets.size() + " quests" : "";
         List<MenuItem> items = new ArrayList<>();
         items.add(MenuItem.of("Open", () -> openOverlay(id)));
+        items.addAll(pinItems(targets, many));
         items.add(MenuItem.of("Duplicate" + many, () -> duplicateSelection(targets)));
         items.add(MenuItem.of("Copy" + many, this::copySelection));
         if (targets.size() == 1) {
@@ -14175,6 +14203,116 @@ public final class QuestBookScreen extends ArmatureScreen
                         }));
         return items;
     }
+
+    // ------------------------------------------------------------------
+    // Pinning to the HUD
+    // ------------------------------------------------------------------
+
+    /**
+     * The node menu's pinning rows: one, two or none, depending on what the selection already is.
+     *
+     * <h2>Why the rows change rather than one row that toggles</h2>
+     *
+     * <p>Because "pin" and "unpin" are two different acts and a single row whose label flipped would be one
+     * control that does the opposite of what a player last read. It is the same rule the fold control follows
+     * -- two labels, because it is two acts -- and it costs a row that is simply absent when it means
+     * nothing.
+     *
+     * <p><b>Focus is its own row, and that is the panel's whole model.</b> The head of the list is drawn in
+     * full and the rest as names, so a player with six pins needs a way to bring one forward that is not
+     * "unpin it and pin it again" -- which would also reorder the rest. Pinning something already pinned
+     * does the same thing, so the two roads agree by construction.
+     *
+     * <p>Labels are literals, like every other row in this menu: it is English-only throughout, and one
+     * translatable row among eight would be a promise the other seven do not keep.
+     */
+    private List<MenuItem> pinItems(List<String> targets, String many) {
+        boolean allPinned = true;
+        boolean anyBehind = false;
+        for (String target : targets) {
+            boolean pinned = PinnedQuests.isPinned(target);
+            allPinned &= pinned;
+            anyBehind |= pinned && !PinnedQuests.isFocused(target);
+        }
+
+        List<MenuItem> items = new ArrayList<>();
+        if (!allPinned) {
+            items.add(MenuItem.of("Pin" + many + " to HUD", () -> pinAll(targets)));
+        }
+        if (anyBehind) {
+            items.add(MenuItem.of("Focus on HUD", () -> promoteAll(targets)));
+        }
+        if (allPinned) {
+            items.add(MenuItem.of("Unpin" + many + " from HUD", () -> unpinAll(targets)));
+        }
+        return items;
+    }
+
+    /** Pins every target, and says so when the panel is full rather than dropping one of somebody's pins. */
+    private void pinAll(List<String> targets) {
+        boolean refused = false;
+        for (String target : targets) {
+            if (!PinnedQuests.pin(target)) {
+                refused = true;
+            }
+        }
+        if (refused) {
+            toast(Component.translatable("tenet.screen.hud_pins_full", PinnedQuests.MAX_PINS).getString(),
+                    true);
+        }
+    }
+
+    private void promoteAll(List<String> targets) {
+        for (String target : targets) {
+            PinnedQuests.promote(target);
+        }
+    }
+
+    private void unpinAll(List<String> targets) {
+        for (String target : targets) {
+            PinnedQuests.unpin(target);
+        }
+    }
+
+    /**
+     * The header's own pin control: pin, or unpin, and rebuild so the star follows.
+     *
+     * <p>Rebuilt rather than redrawn from a field, which is the whole reason there is no field: the control's
+     * two states are one predicate read from the store, so a star that disagreed with what is pinned would
+     * need a second place to have been written.
+     */
+    private void pressPin(String questId) {
+        if (PinnedQuests.isPinned(questId)) {
+            PinnedQuests.unpin(questId);
+        }
+        else if (!PinnedQuests.pin(questId)) {
+            toast(Component.translatable("tenet.screen.hud_pins_full", PinnedQuests.MAX_PINS).getString(),
+                    true);
+        }
+        rebuildWidgets();
+    }
+
+    /**
+     * Where the header's pin sits: the back arrow's own box, one control and one gap to its left.
+     *
+     * <p>Derived here rather than in {@code BookGeometry}, and that is a deliberate limit rather than an
+     * oversight: the geometry class exists for rectangles the sweep can assert <i>between elements</i>, and
+     * this one's only neighbour is the back arrow -- which is placed by hand two lines above it, in the same
+     * method, so a second derivation would be a copy of the number rather than a rule. The two do not
+     * overlap, and {@code BookGeometryTest} does not need to know that a header control is 20 pixels.
+     */
+    private static BookGeometry.Rect headerPinSlot(BookGeometry.Rect card) {
+        int size = HEADER_CONTROL;
+        return BookGeometry.Rect.at(
+                card.right() - BookGeometry.MODAL_INSET - size - HEADER_CONTROL_GAP - size,
+                card.y() + 13, size, size);
+    }
+
+    /** The header's square controls: the back arrow's own size, and the pin's. */
+    private static final int HEADER_CONTROL = 20;
+
+    /** The clear space between two of them. */
+    private static final int HEADER_CONTROL_GAP = 4;
 
     /** "(3 quests, 1 dependent)", counted the same way the sidebar's delete note is. */
     private static String questDeleteNote(List<String> targets) {
@@ -28495,26 +28633,18 @@ public final class QuestBookScreen extends ArmatureScreen
         if (visible.isEmpty()) {
             return;
         }
-        int line = 14;
-        int gap = 3;
         // A quarter of the book, capped: the box has to be narrow enough not to read as a dialogue and wide
         // enough for a sentence. It was a quarter of the centred card, which was a quarter of the whole
         // window at a reader's size -- so this is the same number at the same size and an honest one at any
-        // other, rather than a card the class no longer has.
-        int boxWidth = Math.min(Math.max(90, geometry().panel().width() / 4), 240);
-        for (int i = 0; i < visible.size(); i++) {
-            ToastStack.Toast toast = visible.get(i);
-            int fromBottom = visible.size() - 1 - i;
-            int y = height - 10 - line - fromBottom * (line + gap);
-            BookGeometry.Rect box = BookGeometry.Rect.at((width - boxWidth) / 2, y, boxWidth, line);
-            float alpha = toast.alpha(now, ClientAppearance.LOOK.motion());
-            int colour = toast.error() ? ArmatureTheme.blocked() : ArmatureTheme.body();
-            ArmatureTheme.panel(r, box.x(), box.y(), box.width(), box.height(),
-                    Colour.alphaOf(ArmatureTheme.raised(), alpha),
-                    Colour.alphaOf(toast.error() ? ArmatureTheme.blocked() : ArmatureTheme.panelEdge(), alpha));
-            r.text(Measure.truncate(toast.text(), box.width() - 8, textMeasure(r)), box.x() + 4,
-                    box.y() + (line - 8) / 2, Colour.alphaOf(colour, alpha));
-        }
+        // other, rather than a card the class no longer has. The two bounds are `ToastArt`'s, because the
+        // HUD's notice element is the second caller and the two must not disagree about what a notice is.
+        int boxWidth = Math.min(Math.max(ToastArt.MIN_WIDTH, geometry().panel().width() / 4),
+                ToastArt.MAX_WIDTH);
+        // Anchored to the window's bottom edge, newest where the eye is, growing upward -- and the drawing
+        // itself is `ToastArt`'s, shared with the HUD's own stack. See that class for why.
+        int firstTop = height - 10 - ToastArt.LINE - (visible.size() - 1) * (ToastArt.LINE + ToastArt.GAP);
+        ToastArt.draw(r, textMeasure(r), visible, (width - boxWidth) / 2, firstTop, boxWidth,
+                ClientAppearance.LOOK.motion(), now);
     }
 
     /**

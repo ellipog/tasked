@@ -138,12 +138,29 @@ public final class HudLayout {
      *
      * <p>What a drop asks -- the pointer put the box <i>here</i>, so what is written is where the element
      * visibly is rather than where the cursor went.
+     *
+     * <p>Takes the size separately rather than from the element, because two of the four are as big as what
+     * they hold: a pin list and a notice stack are measured every frame, and a box clamped against the
+     * table's starting size would leave a drawn element hanging off the window the moment its content grew.
+     * See {@link #boxAt(int, int, int, int, int, int)}.
      */
     public static BookGeometry.Rect boxAt(HudElement element, int screenWidth, int screenHeight, int x, int y) {
+        return boxAt(x, y, element.width(), element.height(), screenWidth, screenHeight);
+    }
+
+    /**
+     * The same, for a size the caller measured: one place either way.
+     *
+     * <p>The clamp is {@link #placed}'s, and it is deliberately the whole of the rule -- including when the
+     * content is wider than the window, where the answer is a box at zero that overflows rather than a box
+     * cut in half that answers for a size nothing drew. Same reading as {@link #MIN_CHROME_WIDTH}.
+     */
+    public static BookGeometry.Rect boxAt(int x, int y, int width, int height,
+                                          int screenWidth, int screenHeight) {
         return BookGeometry.Rect.at(
-                placed(x, screenWidth - element.width()),
-                placed(y, screenHeight - element.height()),
-                element.width(), element.height());
+                placed(x, screenWidth - width),
+                placed(y, screenHeight - height),
+                width, height);
     }
 
     /** One row's label line. */

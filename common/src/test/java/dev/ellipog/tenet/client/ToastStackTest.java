@@ -1,4 +1,4 @@
-package dev.ellipog.tenet.client.dev;
+package dev.ellipog.tenet.client;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

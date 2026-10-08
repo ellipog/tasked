@@ -4,6 +4,7 @@ import dev.ellipog.armature.client.ArmatureButton;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.tenet.QuestBook;
+import dev.ellipog.tenet.client.BookGeometry;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
@@ -61,10 +62,13 @@ public final class HudElementPreview extends ArmatureButton {
         this.element = element;
         this.screen = screen;
 
-        // The one place that knows what an element looks like before anything draws it, and it borrows the
-        // real control's own icon rather than describing one. Pinning adds its own arm here. The inset is
-        // the element's, so the preview and the button in the inventory fill their boxes the same way.
-        if (element == HudElement.INVENTORY_BUTTON) {
+        // The one place that knows what a control looks like before anything draws it, and it borrows the
+        // real control's own icon rather than describing one. The inset is the element's, so the preview and
+        // the button in the inventory fill their boxes the same way.
+        //
+        // Only a control: a drawn element has no widget on anybody's screen to borrow from, and its own
+        // drawing is what `draw` delegates to below.
+        if (element.kind() == HudElement.Kind.CONTROL) {
             icon(new ItemStack(QuestBook.ITEM)).iconInset(element.iconInset());
         }
     }
@@ -75,11 +79,30 @@ public final class HudElementPreview extends ArmatureButton {
     }
 
     /**
-     * The control, with a ring around it.
+     * Takes the size the element is really drawn at.
+     *
+     * <p>What a drawn element needs and a control does not: the two are as big as what they hold, so the
+     * screen asks {@code HudOverlay} every frame and hands the answer here. The base class's box is what the
+     * drag clamps against and what the game will draw, so a preview at the table's starting size would be
+     * grabbed in one place and drawn in another.
+     */
+    void resize(int width, int height) {
+        setWidth(width);
+        setHeight(height);
+    }
+
+    /**
+     * The control, with a ring around it -- or the element's own drawing, with the same ring.
      *
      * <p>Drawn here rather than by the screen because a widget cannot draw outside itself and the ring is
      * outside the box by a pixel or two -- and because the ring belongs to the thing it rings: a screen that
      * drew rings for its widget would have to know where every widget ended up, which it already does, twice.
+     *
+     * <p><b>A drawn element is drawn by the HUD's own switch</b>, through {@code HudOverlay.paint}, and that
+     * is the whole point of the branch: a pin list in the editor and a pin list in the world are one
+     * description, so the editor cannot show a panel the game does not draw. The other face of that switch,
+     * {@code EDITOR}, is what supplies the stand-in sentence when there is nothing pinned -- a preview is also
+     * the one place a player has to be able to find an element that has nothing to say yet.
      */
     @Override
     public void draw(GuiRenderer renderer, long nowMillis) {
@@ -91,6 +114,12 @@ public final class HudElementPreview extends ArmatureButton {
         ArmatureTheme.fillSurface(renderer, getX() - 2, getY() - 2, width + 4, height + 4, ring,
                 ArmatureTheme.current().cornerRadius() + 2, ArmatureTheme.CORNERS_ALL);
 
+        if (element.kind() == HudElement.Kind.HUD) {
+            HudOverlay.paint(element, renderer,
+                    BookGeometry.Rect.at(getX(), getY(), width, height),
+                    screen.frameMeasure(), HudOverlay.Face.EDITOR, nowMillis);
+            return;
+        }
         super.draw(renderer, nowMillis);
     }
 

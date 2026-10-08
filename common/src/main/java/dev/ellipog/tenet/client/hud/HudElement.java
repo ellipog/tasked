@@ -5,9 +5,9 @@ package dev.ellipog.tenet.client.hud;
  *
  * <h2>Why a table rather than a setting per thing</h2>
  *
- * <p>Because there are already two of them and there will be more. The book's button appears over the
- * player's inventory; a pinned quests panel is coming and sits on the HUD. Both want the same three answers
- * -- is it drawn, where is it, what does it default to -- and both want the same editor to change them.
+ * <p>Because there are four of them and there will be more. The book's button appears over the player's
+ * inventory; the pinned quests and the notices sit on the HUD. All of them want the same three answers -- is
+ * it drawn, where is it, what does it default to -- and all of them want the same editor to change them.
  * Written per thing, that is a class each and the editor learns about each one; written as a table, the
  * editor walks {@link #values()} and a new element is one line here plus its own drawing.
  *
@@ -25,17 +25,68 @@ package dev.ellipog.tenet.client.hud;
  * editor and the game. The user-visible symptom was exactly that, and a straight position in one space
  * cannot have it.
  *
- * <h2>What is deliberately absent</h2>
+ * <h2>What a box here means, now that two of the four are not boxes</h2>
  *
- * <p>No drawing. The two elements do not draw the same way and neither of them draws <i>here</i> -- the
- * button is an {@code ArmatureButton} on a screen, and the pinned panel will be drawn by the HUD -- so a
- * drawing hook with one real caller would be a seam in search of a second one. The editor knows how to draw
- * the button because it holds the real control; see {@code HudElementPreview}.
+ * <p>{@link #width()} and {@link #height()} are a <b>control's</b> real box and, for a drawn element, only
+ * the size the editor falls back to before it has asked for the content's own. A pin list and a notice stack
+ * are as tall as what they hold, so their live size comes from {@code HudOverlay}'s own measurement -- one
+ * per frame, clamped against the window like every other position here. The distinction is {@link Kind},
+ * and it is why the editor's preview no longer asks "is this the button" but "is this a control or drawn".
+ *
+ * <h2>Where the drawing lives, and why not here</h2>
+ *
+ * <p>A control draws itself -- the button is an {@code ArmatureButton} on somebody else's screen and knows
+ * what it looks like -- while the two HUD elements are drawn by the HUD, which needs a renderer and a window
+ * this enum has none of. So the drawing is {@code HudOverlay}'s, as one exhaustive switch per question (what
+ * size, and paint), and a fifth element fails to compile until both answer for it. That is the shape this
+ * table wanted all along: the note here used to say a drawing hook would wait for a second real caller, and
+ * the HUD's own two are it.
  */
 public enum HudElement {
 
-    /** The quest book's button, in the window's top-left corner. */
-    INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true);
+    /** The quest book's button, in the window's top-left corner. Drawn by the inventory screen. */
+    INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true, Kind.CONTROL),
+
+    /**
+     * The pinned quests, on the HUD.
+     *
+     * <p>On by default and harmless while it is: nothing pinned draws nothing, so a player who never pins a
+     * quest never sees it. The box below is the editor's starting size; the real one follows what is pinned,
+     * so it is as small as what it holds.
+     */
+    PINNED_QUESTS("pinned_quests", 4, 4, 150, 34, 0, true, Kind.HUD),
+
+    /**
+     * The mod's own notices, on the HUD: a task done, a quest done, a chapter done.
+     *
+     * <p>On by default, and that is the one default here with a consequence worth stating: while it is on, a
+     * completion reaches a player as a row where they put this element rather than as a vanilla toast. A
+     * player who preferred the toast turns the switch off in the HUD editor and gets it back -- see
+     * {@code QuestNotifier} for the routing, which is the only place the two are chosen between.
+     *
+     * <p>Its default y clears {@link #PINNED_QUESTS}'s default box, so a player who pins something and
+     * completes something on their first session does not find the two drawn over each other.
+     */
+    NOTIFICATIONS("notifications", 4, 44, 150, 14, 0, true, Kind.HUD);
+
+    /** How an element is drawn, which is the one question the editor has to ask about it. */
+    public enum Kind {
+
+        /**
+         * A control on somebody else's screen: the element's box is real, and the thing draws itself.
+         *
+         * <p>Its size never changes, so its box is the whole answer and the editor holds the real widget.
+         */
+        CONTROL,
+
+        /**
+         * Drawn by the HUD, and as big as its content.
+         *
+         * <p>The box in this table is the starting size; {@code HudOverlay} measures the live one every
+         * frame, and the editor's preview is resized from that so what is grabbed is what is drawn.
+         */
+        HUD
+    }
 
     private final String id;
     private final int defaultX;
@@ -44,8 +95,10 @@ public enum HudElement {
     private final int height;
     private final int iconInset;
     private final boolean defaultOn;
+    private final Kind kind;
 
-    HudElement(String id, int defaultX, int defaultY, int width, int height, int iconInset, boolean defaultOn) {
+    HudElement(String id, int defaultX, int defaultY, int width, int height, int iconInset, boolean defaultOn,
+               Kind kind) {
         this.id = id;
         this.defaultX = defaultX;
         this.defaultY = defaultY;
@@ -53,6 +106,7 @@ public enum HudElement {
         this.height = height;
         this.iconInset = iconInset;
         this.defaultOn = defaultOn;
+        this.kind = kind;
     }
 
     /** The key this element is stored under in {@code hud.json}. */
@@ -70,7 +124,11 @@ public enum HudElement {
         return defaultY;
     }
 
-    /** The box the element occupies, which is also its hit target in the editor. */
+    /**
+     * The box the element occupies: a control's real one, and a drawn element's starting one.
+     *
+     * <p>Which of the two this is depends on {@link #kind()}; see the class note.
+     */
     public int width() {
         return width;
     }
@@ -78,6 +136,11 @@ public enum HudElement {
     /** The same, vertically. */
     public int height() {
         return height;
+    }
+
+    /** How this element is drawn, and so how its size is decided. */
+    public Kind kind() {
+        return kind;
     }
 
     /**
@@ -90,6 +153,10 @@ public enum HudElement {
      * to prevent -- two descriptions of one appearance. It is also what decides how much of a small
      * element the sprite fills: a 16-pixel button with an inset of two draws a 12-pixel sprite, which is
      * the size a 16-pixel slot's item wants.
+     *
+     * <p>Zero for a drawn element, and not because it has no sprite: it has no <i>box to inset a sprite
+     * in</i>. Its own drawing decides where its icon goes, so a number here would be a second opinion about
+     * an appearance nothing reads it for.
      */
     public int iconInset() {
         return iconInset;
@@ -106,6 +173,11 @@ public enum HudElement {
      * <p>One place decides what an element is called, so a rename here renames the label, the editor's row
      * and the language key together -- and {@code HudSettingsTest} pins the shape, because a derived key
      * that has drifted from the language file is a row that reads as {@code tenet.hud.inventory_button}.
+     *
+     * <p><b>Derived by concatenation, which is why {@code tenet.hud.} is not a swept namespace.</b>
+     * {@code LangSweepTest} reads a key it can see whole, and this one is a prefix plus an id: sweeping the
+     * namespace would report every one of these labels as an orphan. The keys' existence is pinned by
+     * {@code HudElementTest} instead, which is the check that sweep cannot make here.
      */
     public String labelKey() {
         return "tenet.hud." + id;

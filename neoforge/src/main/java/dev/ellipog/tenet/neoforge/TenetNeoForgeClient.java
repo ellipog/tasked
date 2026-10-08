@@ -28,15 +28,20 @@ import dev.ellipog.tenet.client.ObservationWatcher;
 import dev.ellipog.tenet.client.QuestBookScreen;
 import dev.ellipog.tenet.client.QuestNotifier;
 import dev.ellipog.tenet.client.hud.HudEditScreen;
+import dev.ellipog.tenet.client.hud.HudOverlay;
 import dev.ellipog.tenet.client.hud.HudSettings;
+import dev.ellipog.tenet.client.hud.PinnedQuests;
 
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
+
+import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
 
 /**
  * NeoForge's client half.
@@ -89,6 +94,17 @@ public final class TenetNeoForgeClient {
 
         // And the layout those lines read, before anything can draw it -- see the Fabric side.
         HudSettings.loadFromConfig();
+        // And which quests are pinned, beside it and for the same reason.
+        PinnedQuests.loadFromConfig();
+
+        // The HUD's own elements: the pinned quests and the notices. The same one line as the Fabric side,
+        // over this loader's event rather than its callback, and the same `HudOverlay` on the other side of
+        // it -- so the two loaders cannot draw two different HUDs. `Post` rather than `Pre` because these are
+        // Tenet's own elements and they belong over vanilla's HUD, not under it.
+        NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post event) -> {
+            var graphics = event.getGuiGraphics();
+            HudOverlay.render(new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight());
+        });
 
         // No developer screen and no F9: the tools are a panel in the book, reached from its header.
         DevMode.loadFromConfig();
@@ -119,6 +135,9 @@ public final class TenetNeoForgeClient {
             // The notice half: the one detector of completions and claims, which speaks whether or not
             // the book is open. See QuestNotifier.
             QuestNotifier.tick();
+            // And the HUD's two halves of the same bookkeeping -- see the Fabric side.
+            PinnedQuests.tick();
+            HudOverlay.tick();
             // The language half: a player who changed language in the options is told to the server, so
             // the book follows them without a reconnect. Guarded on being in a world, because there is
             // no connection to send on before one and the server answers a join on its own.
@@ -156,6 +175,8 @@ public final class TenetNeoForgeClient {
             // And the completion diff, or the next server's progress would be read against this one's
             // states. See the Fabric side's comment.
             QuestNotifier.reset();
+            // And the notices drawn on the HUD -- see the Fabric side for why the pins stay.
+            HudOverlay.clear();
             TenetNetworking.forgetTransfers();
         });
 

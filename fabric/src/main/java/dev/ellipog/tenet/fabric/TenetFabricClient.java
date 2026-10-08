@@ -28,13 +28,18 @@ import dev.ellipog.tenet.client.ObservationWatcher;
 import dev.ellipog.tenet.client.QuestBookScreen;
 import dev.ellipog.tenet.client.QuestNotifier;
 import dev.ellipog.tenet.client.hud.HudEditScreen;
+import dev.ellipog.tenet.client.hud.HudOverlay;
 import dev.ellipog.tenet.client.hud.HudSettings;
+import dev.ellipog.tenet.client.hud.PinnedQuests;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
+
+import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
 
 /**
  * Fabric's client half.
@@ -42,12 +47,14 @@ import net.fabricmc.fabric.api.client.screen.v1.Screens;
  * <p>Separate from {@link TenetFabric} so a dedicated server never loads this class, and so never
  * tries to load {@code KeyMapping}, {@code Screen} or {@code ClientPlayNetworking}.
  *
- * <h2>Four things, and each has a reason for being here</h2>
+ * <h2>Five things, and each has a reason for being here</h2>
  *
  * <ul>
  *   <li><b>The screen</b>, registered before the key is declared — or the key would open nothing.</li>
  *   <li><b>The key mapping</b>, declared through Armature so NeoForge's different timing is not this
  *       class's problem.</li>
+ *   <li><b>The HUD</b>, which is the one thing here that draws outside a screen: Fabric hands a frame's
+ *       context to {@code HudRenderCallback}, and everything about what to draw with it is Tenet's.</li>
  *   <li><b>The client tick</b>, which advances the tick counter cooldowns count down from, and polls
  *       the key.</li>
  *   <li><b>The disconnect hook</b>, which clears the cache. Without it, leaving one server and joining
@@ -99,6 +106,17 @@ public final class TenetFabricClient implements ClientModInitializer {
         // the settings below: an inventory opened in the first second of a session must not draw its
         // button somewhere else because the file had not been read yet.
         HudSettings.loadFromConfig();
+        // And which quests are pinned, beside it and for the same reason: a HUD drawn in the first second
+        // must not show an empty panel because the file had not been read yet.
+        PinnedQuests.loadFromConfig();
+
+        // The HUD's own elements: the pinned quests and the notices. This is the seam the round that built
+        // the editor deliberately left unattached -- "nothing is drawn on the HUD by this round" -- and it is
+        // one line because everything it draws is Tenet's: the hook hands over a drawing context, the wrapper
+        // turns it into the toolkit's renderer, and `HudOverlay` decides what is on and where. The game does
+        // not call this while the GUI is hidden, so F1 needs no guard from here.
+        HudRenderCallback.EVENT.register((graphics, tickDelta) -> HudOverlay.render(
+                new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight()));
 
         // The developer screen and its F9 key are gone: the tools are a panel inside the book now,
         // reached from its header by a player who may edit. A key that opened a *different* screen was
@@ -135,6 +153,11 @@ public final class TenetFabricClient implements ClientModInitializer {
             // The notice half: the one detector of completions and claims, which speaks whether or not
             // the book is open. See QuestNotifier.
             QuestNotifier.tick();
+            // The HUD's two halves of the same bookkeeping: what is pinned is checked against the tree
+            // once per revision, and the notices on screen are aged out. Both read a value rather than a
+            // screen, so neither needs a window to be open.
+            PinnedQuests.tick();
+            HudOverlay.tick();
             // The language half: a player who changed language in the options is told to the server, so
             // the book follows them without a reconnect. Guarded on being in a world, because there is
             // no connection to send on before one and the server answers a join on its own.
@@ -178,6 +201,11 @@ public final class TenetFabricClient implements ClientModInitializer {
             // states and a quest that was locked here and complete there would announce a completion
             // that never happened in front of this player.
             QuestNotifier.reset();
+            // And the notices drawn on the HUD: a sentence about the world just left must not be the first
+            // thing read in the next one. The pinned quests are deliberately *not* cleared here -- they are
+            // the player's own list and outlive a world, which is why `PinnedQuests.tick` refuses to prune
+            // against an empty tree rather than being asked to skip one.
+            HudOverlay.clear();
             TenetNetworking.forgetTransfers();
         });
 

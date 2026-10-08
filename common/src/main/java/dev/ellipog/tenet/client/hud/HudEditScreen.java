@@ -14,6 +14,7 @@ import dev.ellipog.tenet.client.BookGeometry;
 
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.network.chat.Component;
+import net.minecraft.Util;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -138,13 +139,24 @@ public final class HudEditScreen extends ArmatureScreen {
 
     @Override
     protected void renderContent(GuiRenderer renderer, int mouseX, int mouseY, float partialTick) {
-        Measure measure = Measure.of(renderer::textWidth, renderer.lineHeight());
+        // Kept for the widget pass, which runs after this one: a preview of a *drawn* element draws itself
+        // through `HudOverlay`, and that needs the frame's measure. Read from the renderer in force rather
+        // than remembered, for the same reason every position here is asked for rather than stored.
+        frameMeasure = Measure.of(renderer::textWidth, renderer.lineHeight());
+        long now = Util.getMillis();
 
         for (HudElement element : HudElement.values()) {
-            follow(element, mouseX, mouseY);
+            follow(element, mouseX, mouseY, frameMeasure, now);
         }
-        drawChrome(renderer, chrome(), measure);
+        drawChrome(renderer, chrome(), frameMeasure);
     }
+
+    /** The measure this frame is drawing with; see {@link #renderContent}. */
+    Measure frameMeasure() {
+        return frameMeasure;
+    }
+
+    private Measure frameMeasure;
 
     /**
      * Where each element draws: where it is stored, or the pointer while a row has armed it.
@@ -154,13 +166,24 @@ public final class HudEditScreen extends ArmatureScreen {
      * elements pulled inside it on the next frame instead of leaving one off the edge until something else
      * happens to move it.
      *
+     * <p><b>The size is refreshed here too, and only for a drawn element.</b> A later round made two of the
+     * four as big as what they hold, so a preview left at the size its table entry ships would be a box the
+     * game never draws -- grabbed in one place and drawn in another, which is the class of fault this
+     * editor was rebuilt to remove. {@code HudOverlay} is the only thing that measures them, so it is asked,
+     * with the editor's own face: an element with nothing pinned still gets the sample's box, which is what
+     * keeps it reachable. A control's size is a constant and is left as it is.
+     *
      * <p>Skipped for an element the widget pass is currently carrying: that one is where the pointer put it,
      * and putting it back to the stored position every frame would fight the drag that has not finished.
      */
-    private void follow(HudElement element, int mouseX, int mouseY) {
+    private void follow(HudElement element, int mouseX, int mouseY, Measure measure, long now) {
         HudElementPreview preview = previews.get(element);
         if (preview == null || preview.isHeld()) {
             return;
+        }
+        if (element.kind() == HudElement.Kind.HUD) {
+            HudOverlay.Size size = HudOverlay.size(element, measure, HudOverlay.Face.EDITOR, now);
+            preview.resize(size.width(), size.height());
         }
         if (element == armed) {
             // Centred under the pointer: a thing being carried is carried by its middle, and an offset grab
@@ -169,8 +192,8 @@ public final class HudEditScreen extends ArmatureScreen {
                     HudLayout.placed(mouseY - preview.getHeight() / 2, height - preview.getHeight()));
             return;
         }
-        BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
-                HudSettings.x(element), HudSettings.y(element));
+        BookGeometry.Rect box = HudLayout.boxAt(HudSettings.x(element), HudSettings.y(element),
+                preview.getWidth(), preview.getHeight(), width, height);
         preview.at(box.x(), box.y());
     }
 

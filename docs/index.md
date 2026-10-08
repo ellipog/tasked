@@ -31,6 +31,7 @@ authoring material for a pack's first chapter.
 
 | Page | What it is |
 |---|---|
+| [[tenet:hud]] | The HUD: pinning quests to it, the notices it shows, and the editor that places them |
 | [[tenet:authoring/quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
 | [[tenet:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
 | [[tenet:authoring/tasks]] | The fifteen task types, and what each one counts |
