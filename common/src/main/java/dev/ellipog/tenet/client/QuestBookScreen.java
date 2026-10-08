@@ -920,6 +920,21 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private String tableConfirmDelete;
 
+    /**
+     * The same, for the Assets panel's own {@code ×}.
+     *
+     * <p>A field of its own rather than {@link #tableConfirmDelete}, and that is the point: the two panels
+     * are two surfaces that both list tables, and one field would let an arm made in one of them fire on
+     * the first press in the other. The rule is "the control that asked is the control that confirms", and
+     * sharing the arming is how that stops being true.
+     *
+     * <p>The Assets panel was the last destructive control in this book with no second press at all:
+     * {@code deleteTable} straight from the press, one chip from Copy, with no status line and no arm.
+     * Nothing found it, because the browser's {@code ×} <i>does</i> ask and the two verbs read as one
+     * control in two places -- which is exactly the fault a check for this rule has to catch.
+     */
+    private String assetsConfirmRemove;
+
 
     /**
      * The table ops this client has sent and not yet heard about, oldest first.
@@ -2339,6 +2354,30 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Whether the modal's Delete has been pressed once and is waiting for the confirming second. */
     private boolean confirmingDelete;
+
+    /**
+     * The card's armed entry removal: which row's cross asked, or null.
+     *
+     * <p>Keyed by the row's own path, because that is what the press names — and consumed by the <b>next</b>
+     * press whatever it is, because a path is a position rather than an id: an arm that outlived the row it
+     * named would be spent on whatever moved into that position. {@code pressEditTarget} takes it at the
+     * top, which is the one door every card press comes through.
+     *
+     * <p>The table editor's own entry cross has asked twice since it was written, and the comment there
+     * says it is "the same confirm-in-place the inline table's removal uses" — but the card's rows, which
+     * are the same control in the other panel, did not ask at all.
+     */
+    private String entryConfirmRemove;
+
+    /**
+     * The Delete key's own two-press rule, which is the same rule.
+     *
+     * <p>Held as an object rather than a boolean because it also remembers <b>which</b> quests were named,
+     * and that is the part a field cannot express: a boolean would let the confirming press delete a
+     * selection the author was never asked about. See {@link ArmedDelete}, which is where the rule lives
+     * so it can be tested without a running client.
+     */
+    private final ArmedDelete armedDelete = new ArmedDelete();
 
     /** The modal's Delete, so a press anywhere else can disarm it. The party's Disband set the shape. */
     private ArmatureButton questDeleteButton;
@@ -10730,6 +10769,12 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private void pressEditTarget(EditTarget target, double mouseX, double mouseY) {
         JsonObject quest = replicaQuest();
+        // **The armed entry removal is consumed by this press, whatever it turns out to be.** Read into a
+        // local and cleared here rather than inside the two cases, because "any other press disarms" is the
+        // rule the card's own Delete follows: a cross that asked and then survived a press somewhere else
+        // would remove a row on one press, and the row it named is a position in a list that may have moved.
+        String armedEntry = entryConfirmRemove;
+        entryConfirmRemove = null;
         switch (target.action()) {
             case FLAG -> {
                 if (quest != null && editTarget() != null) {
@@ -10750,7 +10795,17 @@ public final class QuestBookScreen extends ArmatureScreen
             case ADD_TASK -> openTypePicker("tasks");
             case ADD_REWARD -> openTypePicker("rewards");
             case CONDITION_ADD -> openConditionTypePicker(target.path());
-            case CONDITION_REMOVE -> removeCondition(target.path());
+            case CONDITION_REMOVE -> {
+                // One press, and the condition is gone from the entry -- so it asks first, like every other
+                // cross in the book. See `entryConfirmRemove` for why the arm is a path and why it dies with
+                // the next press.
+                if (!target.path().equals(armedEntry)) {
+                    entryConfirmRemove = target.path();
+                    status("Press again to remove this condition", true);
+                    return;
+                }
+                removeCondition(target.path());
+            }
             // The form's own controls: a nudge, a cycle, and the button that fills a box from where the
             // player stands. Each is one press and one op -- see the methods for what each one sends.
             case STEP_UP -> nudge(target, 1);
@@ -10763,6 +10818,13 @@ public final class QuestBookScreen extends ArmatureScreen
                     target.box(), target.textX(), target.textY(), "", null, -1), mouseX, mouseY);
             case PICK_DEP -> armDependencyPick();
             case REMOVE_DEP -> {
+                // The same cross, on the same edge, as the canvas menu's "Delete dependency" -- which asks
+                // twice. One of the two had to be wrong; this is the one that was.
+                if (!target.path().equals(armedEntry)) {
+                    entryConfirmRemove = target.path();
+                    status("Press again to remove the requirement \"" + target.path() + "\"", true);
+                    return;
+                }
                 if (quest != null && editTarget() != null) {
                     List<String> remaining = QuestPanelLayout.strings(quest, "dependsOn").stream()
                             .filter(each -> !each.equals(target.path())).toList();
@@ -10774,7 +10836,17 @@ public final class QuestBookScreen extends ArmatureScreen
             case NAVIGATE_DEP -> navigateToQuest(target.path());
             case LOCATE_DEP -> locateOnCanvas(target.path());
             case COPY_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), true);
-            case REMOVE_ENTRY -> pressEntry("h:" + target.member() + "." + target.index(), false);
+            case REMOVE_ENTRY -> {
+                // The same rule as the condition's cross one case up, and the same arm: a task or a reward
+                // row's own removal asks before it takes the entry away.
+                String entry = "h:" + target.member() + "." + target.index();
+                if (!entry.equals(armedEntry)) {
+                    entryConfirmRemove = entry;
+                    status("Press again to remove this entry", true);
+                    return;
+                }
+                pressEntry(entry, false);
+            }
             case DRAG_ENTRY -> {
                 // The press claims the row; whether it becomes a drag is the threshold's, further on.
                 // The press's own coordinates are recorded because the threshold compares against them,
@@ -17467,7 +17539,20 @@ public final class QuestBookScreen extends ArmatureScreen
             // the server, which is where that guard lives.
             case ASSETS_NEW -> createTable();
             case ASSETS_COPY -> duplicateTable(target.path());
-            case ASSETS_REMOVE -> deleteTable(target.path());
+            case ASSETS_REMOVE -> {
+                // **It asks first, as the browser's own `×` does.** This was the one destructive control in
+                // the book that acted on a single press: a `×` the width of a character, one chip from
+                // Copy, on a row whose press also opens the table. The server's referrer guard refuses a
+                // table something still points at, which is not the same thing as asking -- an unreferenced
+                // table is the ordinary case, and one press was enough to rename it out of the way.
+                if (!target.path().equals(assetsConfirmRemove)) {
+                    assetsConfirmRemove = target.path();
+                    status("Press again to remove \"" + target.path() + "\"", true);
+                    return;
+                }
+                assetsConfirmRemove = null;
+                deleteTable(target.path());
+            }
             case ASSETS_ROW -> {
                 switch (assetsSection) {
                     case TABLES -> openTableEditorOn(target.path());
@@ -18204,6 +18289,10 @@ public final class QuestBookScreen extends ArmatureScreen
         // would answer a press on a row that is no longer on screen.
         assetsTargets.clear();
         assetsBody.setScrollY(0);
+        // An arm made in the Assets panel is that panel's, so it goes when the panel does: left behind, the
+        // next table of the same name would be removed on one press by a chip nobody had asked about.
+        assetsConfirmRemove = null;
+        entryConfirmRemove = null;
         confirmingDelete = false;
         settingsOpen = false;
         draggingSlider = null;
@@ -24102,6 +24191,10 @@ public final class QuestBookScreen extends ArmatureScreen
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // A press anywhere is "no" to an armed delete, which is the rule the menu's own Delete states: any
+        // other press disarms. A press that selects a node does not need to re-arm by hand -- the next
+        // Delete key press asks about the selection it made.
+        armedDelete.disarm();
         fieldDrag = false;
         pressedLink = null;
         // Every gesture starts by forgetting the last one's: a press that ended over a column must not make
@@ -25653,6 +25746,12 @@ public final class QuestBookScreen extends ArmatureScreen
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // **Any other key means "no".** An armed delete names a selection, and a key pressed between the
+        // two is the author having moved on: the same "any other press disarms" rule the menus follow.
+        // Delete and Backspace are the pair `ArmedDelete` owns, so they are left to answer for themselves.
+        if (keyCode != GLFW.GLFW_KEY_DELETE && keyCode != GLFW.GLFW_KEY_BACKSPACE) {
+            armedDelete.disarm();
+        }
         // **The dropdown first, on the press's own rule.** A menu is the innermost thing on screen while it
         // is open, so Escape closes it and not what it was opened over -- which is what this line's own
         // comment has always said, and what it did not do: it stood below the table panels' Escape
@@ -26091,12 +26190,19 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         if ((keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE)
                 && selectedQuest != null) {
-            // The selection clears here rather than when the answer arrives: the node is on its way out, and a
-            // canvas highlighting a quest the server has already been asked to remove is a highlight of
-            // something that is about to not be there.
-            deleteSelection(selection());
-            selectedQuest = null;
-            multiSelection.clear();
+            // **The first press asks, the second deletes.** This key used to be the one destructive
+            // control in the book that acted on a single press — and the one that reaches furthest, since
+            // Ctrl+A then Delete takes a whole chapter. `ArmedDelete` holds the rule, the ids that were
+            // named and the chapter they were named in, so a second press deletes exactly what the
+            // sentence described and nothing else.
+            List<String> targets = selection();
+            switch (armedDelete.press(effectiveChapter(), targets, Util.getMillis())) {
+                case ArmedDelete.Armed ignored -> authorReport("Press Delete again to remove"
+                        + questDeleteNote(targets) + " - Ctrl+Z takes it back");
+                case ArmedDelete.Confirmed confirmed -> deleteSelection(confirmed.ids());
+                case ArmedDelete.Nothing ignored -> {
+                }
+            }
             return true;
         }
 

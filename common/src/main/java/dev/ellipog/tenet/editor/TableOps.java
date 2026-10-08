@@ -74,6 +74,10 @@ public final class TableOps {
                 json.addProperty("kind", KIND_PREFIX + "Delete");
                 json.addProperty("id", delete.id());
             }
+            case TableOp.Restore restore -> {
+                json.addProperty("kind", KIND_PREFIX + "Restore");
+                json.addProperty("path", restore.path());
+            }
             case TableOp.Select select -> {
                 json.addProperty("kind", KIND_PREFIX + "Select");
                 json.add("owner", writeOwner(select.owner()));
@@ -123,6 +127,7 @@ public final class TableOps {
                                 ? json.getAsJsonObject("root") : null);
                 case KIND_PREFIX + "Duplicate" -> new TableOp.Duplicate(text(json, "id"), text(json, "newId"));
                 case KIND_PREFIX + "Delete" -> new TableOp.Delete(text(json, "id"));
+                case KIND_PREFIX + "Restore" -> new TableOp.Restore(text(json, "path"));
                 case KIND_PREFIX + "Select" -> new TableOp.Select(
                         readOwner(json.getAsJsonObject("owner")), text(json, "owningPath"),
                         nullableText(json, "table"));

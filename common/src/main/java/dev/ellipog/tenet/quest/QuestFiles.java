@@ -147,12 +147,221 @@ public final class QuestFiles {
      * skips the underscore prefix. The two rules are different in kind: {@code _} means "not content,
      * deliberately", and {@code .deleted} means "content that was removed, kept in case". Both mean
      * the walk must not read it.
+     *
+     * <p>There are <b>two spellings</b> of it, and this constant is the stem of both. A quest's aside is
+     * the fixed {@code <stem>.json.deleted}, because an undo finds it by that exact name; a chapter's or
+     * a group's is numbered — {@code <id>.deleted}, then {@code <id>.deleted.2} — because a structural
+     * edit's own steps can name the copy they made. See {@link #isDeletedName}, which has to answer for
+     * both: the numbered form is written by this mod's own undo, so a rule that only knew the plain
+     * suffix would let the walk read a folder the editor had just put aside.
      */
     public static final String DELETED_SUFFIX = ".deleted";
 
-    /** Whether a single name is a recoverable delete, and so skipped wherever it appears. */
+    /**
+     * Whether a single name is a recoverable delete, and so skipped wherever it appears.
+     *
+     * <p>Both spellings count: {@code <name>.deleted} and the numbered {@code <name>.deleted.2} that
+     * {@code QuestStructure.aside} writes rather than overwrite a copy already there. The two are one
+     * fact — content that was removed and kept in case — so they have to be one answer, or the walk
+     * reads the tombstone as book content and the editor writes it into {@code index.json}.
+     */
     public static boolean isDeletedName(String name) {
-        return name != null && name.endsWith(DELETED_SUFFIX);
+        if (name == null) {
+            return false;
+        }
+        if (name.endsWith(DELETED_SUFFIX)) {
+            return true;
+        }
+        int at = name.lastIndexOf(DELETED_SUFFIX + ".");
+        return at >= 0 && allDigits(name, at + DELETED_SUFFIX.length() + 1);
+    }
+
+    /** Whether every character from {@code from} to the end is a decimal digit, and there is one. */
+    private static boolean allDigits(String name, int from) {
+        if (from >= name.length()) {
+            return false;
+        }
+        for (int i = from; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Where a set-aside copy of this path goes, without ever overwriting one already there.
+     *
+     * <h2>Why the name is decided here rather than at each caller</h2>
+     *
+     * <p>Because {@link #isDeletedName} has to recognise whatever this writes, and the two were written
+     * apart: this numbered a second copy — {@code <name>.deleted}, then {@code <name>.deleted.2} — while
+     * the skip rule knew only the plain suffix, so a tombstone the editor had just made read as book
+     * content. The pair is one fact in two halves, so it lives in one place.
+     *
+     * <p>Numbering rather than refusing, and rather than replacing: a copy already there is an author's
+     * file, and the only operation that cannot lose it is a name that does not collide.
+     */
+    public static Path asidePath(Path path) {
+        Path candidate = path.resolveSibling(path.getFileName() + DELETED_SUFFIX);
+        int n = 2;
+        while (Files.exists(candidate)) {
+            candidate = path.resolveSibling(path.getFileName() + DELETED_SUFFIX + "." + n++);
+        }
+        return candidate;
+    }
+
+    /**
+     * The name a set-aside copy comes back as, or null when the name is not one.
+     *
+     * <p>The inverse of {@link #asidePath}, for a caller that has a tombstone and wants to say what
+     * restoring it would make. Both spellings are stripped, and a name that is neither returns null
+     * rather than a guess.
+     */
+    public static String restoredName(String name) {
+        if (name == null) {
+            return null;
+        }
+        if (name.endsWith(DELETED_SUFFIX)) {
+            return orNull(name.substring(0, name.length() - DELETED_SUFFIX.length()));
+        }
+        int at = name.lastIndexOf(DELETED_SUFFIX + ".");
+        if (at >= 0 && allDigits(name, at + DELETED_SUFFIX.length() + 1)) {
+            return orNull(name.substring(0, at));
+        }
+        return null;
+    }
+
+    /** A name that is only the suffix restores to nothing, which is not a name. */
+    private static String orNull(String name) {
+        return name == null || name.isEmpty() ? null : name;
+    }
+
+    /**
+     * Every recoverable delete under this root: what is set aside, and what each would come back as.
+     *
+     * <h2>Why the editor cannot answer this and this can</h2>
+     *
+     * <p>Because the editor's tree <i>skips</i> tombstones — deliberately, so a deleted chapter is not book
+     * content — and a skip is not a listing. So the one thing an author needs after the history is gone (a
+     * server restart, a reload, sixty further edits) is the one thing nothing would tell them: that their
+     * work is still on disk, under a name with a suffix on the end.
+     *
+     * <p>Name-sorted, and never descending into a tombstone: a set-aside chapter folder holds its quests
+     * inside it, and offering each of those separately would be offering to restore a file into a folder
+     * that is itself set aside. The chapter is the thing to restore; its quests come with it.
+     */
+    public static List<Removed> removedFiles(Path questRoot) {
+        if (questRoot == null || !Files.isDirectory(questRoot)) {
+            return List.of();
+        }
+        List<Removed> found = new ArrayList<>();
+        for (Path entry : orEmpty(listSorted(questRoot))) {
+            String name = entry.getFileName().toString();
+            // The tables' folder is reserved rather than book content, and it is read below; the `_` rule
+            // means deliberately out of the way, and a tombstone of a note is not an author's work.
+            if (DeclaredPaths.isIgnoredName(name) || isReservedName(name)) {
+                continue;
+            }
+            if (isDeletedName(name)) {
+                found.add(whatWas(questRoot, entry));
+                continue;
+            }
+            if (!Files.isDirectory(entry)) {
+                continue;
+            }
+            if (Files.isRegularFile(entry.resolve(GROUP_MANIFEST))) {
+                for (Path child : orEmpty(listSorted(entry))) {
+                    String childName = child.getFileName().toString();
+                    if (DeclaredPaths.isIgnoredName(childName) || childName.equals(GROUP_MANIFEST)) {
+                        continue;
+                    }
+                    if (isDeletedName(childName)) {
+                        found.add(whatWas(questRoot, child));
+                    }
+                    else if (Files.isDirectory(child)
+                            && Files.isRegularFile(child.resolve(CHAPTER_MANIFEST))) {
+                        found.addAll(questTombstones(questRoot, child));
+                    }
+                }
+            }
+            else if (Files.isRegularFile(entry.resolve(CHAPTER_MANIFEST))) {
+                found.addAll(questTombstones(questRoot, entry));
+            }
+        }
+        for (Path entry : orEmpty(listSorted(questRoot.resolve(REWARD_TABLES_DIRECTORY)))) {
+            String name = entry.getFileName().toString();
+            String back = restoredName(name);
+            if (Files.isRegularFile(entry) && back != null && isQuestFile(back)) {
+                found.add(new Removed(display(questRoot, entry), Removed.Kind.TABLE, back, null));
+            }
+        }
+        found.sort(Comparator.comparing(Removed::path));
+        return List.copyOf(found);
+    }
+
+    /** The quest files set aside inside one live chapter folder. */
+    private static List<Removed> questTombstones(Path root, Path chapter) {
+        List<Removed> found = new ArrayList<>();
+        String holds = chapter.getFileName().toString();
+        for (Path entry : orEmpty(listSorted(chapter))) {
+            String name = entry.getFileName().toString();
+            String back = restoredName(name);
+            if (Files.isRegularFile(entry) && back != null && isQuestFile(back)) {
+                found.add(new Removed(display(root, entry), Removed.Kind.QUEST, back, holds));
+            }
+        }
+        return found;
+    }
+
+    /** What one tombstone was, told by what is inside it. */
+    private static Removed whatWas(Path root, Path entry) {
+        String name = entry.getFileName().toString();
+        String back = restoredName(name);
+        Removed.Kind kind = Files.isRegularFile(entry.resolve(GROUP_MANIFEST)) ? Removed.Kind.GROUP
+                : Files.isRegularFile(entry.resolve(CHAPTER_MANIFEST)) ? Removed.Kind.CHAPTER
+                : Removed.Kind.QUEST;
+        return new Removed(display(root, entry), kind, back == null ? name : back, null);
+    }
+
+    /**
+     * The file a relative name from a listing names, when it is a recoverable delete under this root.
+     *
+     * <h2>Containment is the point, not a formality</h2>
+     *
+     * <p>The name arrives from a command or from a payload, and it is about to be <b>moved</b>. A restore
+     * that resolved {@code ../../server.properties} would be a file move aimed outside the quest folder by
+     * whatever the caller typed — so the normalised result has to stay under the root, the name has to be
+     * a tombstone, and the thing it names has to exist. Three questions, and all three have to be yes.
+     *
+     * @return the absolute path, or null when the name is not a set-aside thing under this root
+     */
+    public static Path resolveRemoved(Path questRoot, String relative) {
+        if (questRoot == null || relative == null || relative.isBlank()) {
+            return null;
+        }
+        Path root = questRoot.toAbsolutePath().normalize();
+        Path candidate;
+        try {
+            candidate = root.resolve(relative).normalize();
+        }
+        catch (RuntimeException invalid) {
+            // An invalid path for this filesystem, which is a refusal rather than a crash in a command.
+            return null;
+        }
+        if (candidate.equals(root) || !candidate.startsWith(root)) {
+            return null;
+        }
+        if (restoredName(candidate.getFileName().toString()) == null) {
+            return null;
+        }
+        return Files.exists(candidate) ? candidate : null;
+    }
+
+    /** A list that may be null, which is how {@link #listSorted} answers a directory it could not read. */
+    private static List<Path> orEmpty(List<Path> entries) {
+        return entries == null ? List.of() : entries;
     }
 
     /**

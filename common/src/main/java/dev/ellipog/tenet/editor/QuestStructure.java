@@ -495,6 +495,71 @@ public final class QuestStructure {
         return edit.finish(null, null, null, id);
     }
 
+    /**
+     * Puts a set-aside chapter or group back: the folder moves back, and the manifest names it again.
+     *
+     * <h2>The inverse of a delete, with no history behind it</h2>
+     *
+     * <p>A delete's own undo lives in the acting chapter's history — which is the server's, in memory, and
+     * gone after a restart, a reload, or sixty further edits. The folder it set aside is still there, so
+     * the way back exists on disk and nothing could reach it: every walk skips a tombstone, so the tree
+     * the editor draws does not know it is there, and the author has no id to ask for.
+     *
+     * <p>So this is the same two steps the delete's reverse steps are — the folder moves, the manifest
+     * lists it — built from what is on disk instead of from a record of what happened. It is an
+     * {@link Edit} like every other structural change, which is what makes it one history step and one
+     * Ctrl+Z: a restore that could not be taken back would be its own small trap.
+     *
+     * @param relative the tombstone's path relative to the root, as {@code QuestFiles.removedFiles} prints
+     *                 it — the same name the delete left it under
+     */
+    public static Outcome restoreRemoved(Path root, String relative) {
+        Path aside = QuestFiles.resolveRemoved(root, relative);
+        if (aside == null) {
+            return Outcome.refused("\"" + relative + "\" is not a removed file under the quest folder -"
+                    + " see /tenet removed for the names that are");
+        }
+        if (Files.isRegularFile(aside.resolve(QuestFiles.GROUP_MANIFEST))) {
+            return restoreFolder(root, aside, true);
+        }
+        if (Files.isRegularFile(aside.resolve(QuestFiles.CHAPTER_MANIFEST))) {
+            return restoreFolder(root, aside, false);
+        }
+        return Outcome.refused("\"" + relative + "\" is not a set-aside chapter or group");
+    }
+
+    /** One folder back: a group into the index, or a chapter into its group's list or the index. */
+    private static Outcome restoreFolder(Path root, Path aside, boolean group) {
+        String id = QuestFiles.restoredName(aside.getFileName().toString());
+        if (id == null || id.isBlank()) {
+            return Outcome.refused("\"" + aside.getFileName() + "\" does not name a folder to put back");
+        }
+        Path folder = aside.resolveSibling(id);
+        if (Files.exists(folder)) {
+            // The one refusal that has to be here rather than at the caller: the move would have to
+            // replace a folder, and a folder is somebody's work. The tombstone stays where it is.
+            return Outcome.refused("there is already a \"" + id + "\" there, so nothing was put back");
+        }
+        Edit edit = new Edit();
+        if (group) {
+            edit.move(aside, folder);
+            edit.writeIndex(root, entries -> insertEntry(entries, "group", id, Integer.MAX_VALUE));
+            return edit.finish(null, id, null, null);
+        }
+        // The group it was in is the folder it is set aside beside -- a rename does not move a folder, and
+        // `aside` is a sibling of the folder the delete moved away.
+        String in = groupIdOf(root, aside);
+        edit.forget(id);
+        edit.move(aside, folder);
+        if (in.isEmpty()) {
+            edit.writeIndex(root, entries -> insertEntry(entries, "chapter", id, Integer.MAX_VALUE));
+        }
+        else {
+            edit.write(updateGroupChapters(root, in, names -> insert(names, id, Integer.MAX_VALUE)));
+        }
+        return edit.finish(id, in, null, null);
+    }
+
     // ------------------------------------------------------------------
     // The step builder
     // ------------------------------------------------------------------
@@ -534,8 +599,7 @@ public final class QuestStructure {
 
         void setAside(Path path) {
             forward.add(new Step.SetAside(path));
-            Path aside = aside(path);
-            reverse.add(0, new Step.Move(aside, path));
+            reverse.add(0, new Step.Move(QuestFiles.asidePath(path), path));
         }
 
         /** Writes an existing file: its current text is captured now, for the reverse direction. */
@@ -651,8 +715,8 @@ public final class QuestStructure {
                     // manifest is a chapter whose folder no longer says what is in it, and a crash is
                     // exactly when that would happen -- see JsonWrite for the window it closes.
                     case Step.Write write -> JsonWrite.atomically(write.path(), write.content());
-                    case Step.SetAside setAside -> Files.move(setAside.path(), aside(setAside.path()),
-                            StandardCopyOption.REPLACE_EXISTING);
+                    case Step.SetAside setAside -> Files.move(setAside.path(),
+                            QuestFiles.asidePath(setAside.path()), StandardCopyOption.REPLACE_EXISTING);
                 }
                 return null;
             }
@@ -660,33 +724,46 @@ public final class QuestStructure {
                 return "the filesystem refused it: " + e.getMessage();
             }
         }
+    }
 
-        /** Where a put-aside path goes, without ever overwriting one already there. */
-        private static Path aside(Path path) {
-            Path candidate = path.resolveSibling(path.getFileName() + QuestFiles.DELETED_SUFFIX);
-            int n = 2;
-            while (Files.exists(candidate)) {
-                candidate = path.resolveSibling(path.getFileName() + QuestFiles.DELETED_SUFFIX + "." + n++);
+    /**
+     * Runs a structure's reverse steps, for an undo.
+     *
+     * <h2>Every step is attempted, and the caller is told what failed</h2>
+     *
+     * <p>Both halves matter. <b>Every step</b>, because a reversal that stopped at the first failure could
+     * not converge on a retry: the steps before it have already been done, so re-running the list would
+     * fail at the same place forever. Attempting them all means the already-done ones fail harmlessly and
+     * the step that was blocked runs the moment the file is unlocked, which is what an author wants after
+     * a "the folder is in use" — the ordinary way one of these fails. <b>And the caller is told</b>,
+     * because this used to return nothing at all: the undo reported success, the chapter stayed half
+     * reversed, and only the server log knew.
+     *
+     * @return the first step that could not be run, or null when every one of them did
+     */
+    public static String undo(Structure structure) {
+        return runAll(structure.reverse());
+    }
+
+    /** Runs a structure's forward steps again, for a redo. The same rule as {@link #undo}. */
+    public static String redo(Structure structure) {
+        return runAll(structure.forward());
+    }
+
+    /** Every step in order, remembering the first refusal. */
+    private static String runAll(List<Step> steps) {
+        String firstFailure = null;
+        for (Step step : steps) {
+            String failure = runForUndo(step);
+            if (failure != null && firstFailure == null) {
+                firstFailure = failure;
             }
-            return candidate;
         }
+        return firstFailure;
     }
 
-    /** Runs a structure's reverse steps, for an undo. */
-    public static void undo(Structure structure) {
-        for (Step step : structure.reverse()) {
-            runForUndo(step);
-        }
-    }
-
-    /** Runs a structure's forward steps again, for a redo. */
-    public static void redo(Structure structure) {
-        for (Step step : structure.forward()) {
-            runForUndo(step);
-        }
-    }
-
-    private static void runForUndo(Step step) {
+    /** @return why the step could not be run, or null when it did */
+    private static String runForUndo(Step step) {
         try {
             switch (step) {
                 case Step.Move move -> {
@@ -698,19 +775,15 @@ public final class QuestStructure {
                 // itself be truncated would turn a recoverable mistake into an unrecoverable one.
                 case Step.Write write -> JsonWrite.atomically(write.path(), write.content());
                 case Step.SetAside setAside -> {
-                    Path aside = setAside.path().resolveSibling(
-                            setAside.path().getFileName() + QuestFiles.DELETED_SUFFIX);
-                    int n = 2;
-                    while (Files.exists(aside)) {
-                        aside = setAside.path().resolveSibling(
-                                setAside.path().getFileName() + QuestFiles.DELETED_SUFFIX + "." + n++);
-                    }
-                    Files.move(setAside.path(), aside, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(setAside.path(), QuestFiles.asidePath(setAside.path()),
+                            StandardCopyOption.REPLACE_EXISTING);
                 }
             }
+            return null;
         }
         catch (IOException | RuntimeException e) {
             dev.ellipog.tenet.Constants.LOG.warn("tenet: a structural undo step failed: {}", step, e);
+            return "the filesystem refused a step: " + e.getMessage();
         }
     }
 

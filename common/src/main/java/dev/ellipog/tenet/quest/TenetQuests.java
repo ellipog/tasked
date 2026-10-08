@@ -2,9 +2,12 @@ package dev.ellipog.tenet.quest;
 
 import dev.ellipog.armature.api.ArmatureApi;
 import dev.ellipog.armature.api.data.Problems;
+import dev.ellipog.tenet.editor.EditorOp;
+import dev.ellipog.tenet.editor.EditorOps;
 import dev.ellipog.tenet.editor.QuestEditor;
 import dev.ellipog.tenet.editor.ServerEditors;
 import dev.ellipog.tenet.editor.ServerTables;
+import dev.ellipog.tenet.editor.TableOp;
 import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.tenet.Constants;
 import dev.ellipog.tenet.Tenet;
@@ -103,8 +106,7 @@ public final class TenetQuests {
      * the index must be reading the same files, and two places resolving that path is two places to get it
      * wrong. Dropped by {@code /tenet reload} and nothing else — see {@link ServerEditors#forget}.
      */
-    private static final ServerEditors EDITORS =
-            new ServerEditors(() -> QuestEditor.root(ArmatureApi.platform().configDir()));
+    private static final ServerEditors EDITORS = new ServerEditors(TenetQuests::questRoot);
 
     /**
      * The reward tables this server has open for editing.
@@ -115,11 +117,16 @@ public final class TenetQuests {
      */
     private static final ServerTables TABLES = new ServerTables(
             EDITORS,
-            () -> QuestEditor.root(ArmatureApi.platform().configDir()),
+            TenetQuests::questRoot,
             TenetQuests::rewardTables,
             TenetQuests::index);
 
     private TenetQuests() {
+    }
+
+    /** Where the quest files live: one expression, so no two callers can disagree about the folder. */
+    private static java.nio.file.Path questRoot() {
+        return QuestEditor.root(ArmatureApi.platform().configDir());
     }
 
     /** The chapters open for editing on this server. */
@@ -130,6 +137,47 @@ public final class TenetQuests {
     /** The reward tables open for editing on this server. */
     public static ServerTables tables() {
         return TABLES;
+    }
+
+    /**
+     * Every recoverable delete under the quest folder: what is set aside, and what each would come back as.
+     *
+     * <p>Read off the disk rather than from any model, because that is the whole point of it: the editors'
+     * trees skip tombstones, and the history that recorded the delete is the server's memory. The copy is
+     * the only durable thing, so the copy is what is listed.
+     */
+    public static List<Removed> removed() {
+        return QuestFiles.removedFiles(questRoot());
+    }
+
+    /**
+     * Puts one set-aside thing back, through the family of op that owns it.
+     *
+     * <h2>Why the listing decides the route</h2>
+     *
+     * <p>Because the kind is a fact about what is on disk, and the listing is the one place that has
+     * already looked: a table is a {@code TableOp} over a file, a quest file is a chapter's own model (so it
+     * needs the chapter that holds it, which is the folder the tombstone sits in), and a folder is a shape
+     * change that needs no session at all — which is the state a book with no chapters is in, and the one
+     * where a restore matters most.
+     *
+     * <p>An unknown name is refused with a sentence naming the command that lists the real ones, rather
+     * than with a filesystem error.
+     */
+    public static EditorOps.Applied restore(String path) {
+        Removed wanted = removed().stream()
+                .filter(each -> each.path().equals(path))
+                .findFirst()
+                .orElse(null);
+        if (wanted == null) {
+            return EditorOps.Applied.refused("nothing is set aside under \"" + path
+                    + "\" - /tenet removed lists the names that are");
+        }
+        return switch (wanted.kind()) {
+            case TABLE -> TABLES.apply(new TableOp.Restore(path));
+            case QUEST -> EDITORS.apply(wanted.chapter(), new EditorOp.RestoreRemoved(path));
+            case GROUP, CHAPTER -> EDITORS.apply("", new EditorOp.RestoreRemoved(path));
+        };
     }
 
     /** The current questline, or an empty index if nothing has loaded yet. Never null. */

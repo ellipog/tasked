@@ -27,7 +27,18 @@ public final class ArmedPress {
     /** How long a first press stays armed. */
     public static final long WINDOW_MILLIS = 3000L;
 
-    /** When the arming press happened, or zero when idle. */
+    /**
+     * Whether a first press is waiting for a second.
+     *
+     * <p>A flag of its own rather than "the stamp is not zero", which is what this used to be: a clock
+     * reading exactly zero is a real reading (the first millisecond of a JVM), and with the stamp as the
+     * sentinel the first press at that instant armed nothing and said it had not. Nobody could reach it
+     * and nothing was wrong because of it, which is the kind of guard that is worth removing while it is
+     * in front of you rather than remembering.
+     */
+    private boolean armed;
+
+    /** When the arming press happened; only read while {@link #armed}. */
     private long armedAt;
 
     /**
@@ -41,13 +52,14 @@ public final class ArmedPress {
             disarm();
             return true;
         }
+        armed = true;
         armedAt = nowMillis;
         return false;
     }
 
     /** Whether a first press is waiting for a second, right now. */
     public boolean armed(long nowMillis) {
-        return armedAt != 0L && nowMillis - armedAt <= WINDOW_MILLIS;
+        return armed && nowMillis - armedAt <= WINDOW_MILLIS;
     }
 
     /**
@@ -57,11 +69,12 @@ public final class ArmedPress {
      * idle one — and a caller restoring a label on "not armed" would restore it on every frame.
      */
     public boolean lapsed(long nowMillis) {
-        return armedAt != 0L && !armed(nowMillis);
+        return armed && !armed(nowMillis);
     }
 
     /** Forgets an armed press. Called by anything that means "no", and by a rebuild. */
     public void disarm() {
+        armed = false;
         armedAt = 0L;
     }
 }

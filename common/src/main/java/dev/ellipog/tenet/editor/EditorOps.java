@@ -5,8 +5,11 @@ import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
+import dev.ellipog.tenet.quest.QuestFiles;
 import dev.ellipog.tenet.quest.TreeRefresh;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -183,6 +186,10 @@ public final class EditorOps {
                 json.addProperty("kind", "deleteGroup");
                 json.addProperty("group", delete.group());
             }
+            case EditorOp.RestoreRemoved restore -> {
+                json.addProperty("kind", "restoreRemoved");
+                json.addProperty("path", restore.path());
+            }
         }
         return json;
     }
@@ -242,6 +249,7 @@ public final class EditorOps {
                         text(json, "newId"), nullableText(json, "title"));
                 case "deleteChapter" -> new EditorOp.DeleteChapter(text(json, "chapter"));
                 case "deleteGroup" -> new EditorOp.DeleteGroup(text(json, "group"));
+                case "restoreRemoved" -> new EditorOp.RestoreRemoved(text(json, "path"));
                 case "undo" -> new EditorOp.Undo();
                 case "redo" -> new EditorOp.Redo();
                 case "batch" -> readBatch(json);
@@ -439,6 +447,10 @@ public final class EditorOps {
             case EditorOp.DuplicateGroup ignored -> false;
             case EditorOp.DeleteChapter ignored -> false;
             case EditorOp.DeleteGroup ignored -> false;
+            // A restore is a shape change when it is a folder and a file write when it is a quest, so it
+            // cannot be one element of a snapshot either way -- and a batch is a gesture about quests the
+            // author has selected, which a tombstone is not.
+            case EditorOp.RestoreRemoved ignored -> false;
         };
     }
 
@@ -461,6 +473,7 @@ public final class EditorOps {
             case EditorOp.DuplicateGroup ignored -> "copying a group";
             case EditorOp.DeleteChapter ignored -> "deleting a chapter";
             case EditorOp.DeleteGroup ignored -> "deleting a group";
+            case EditorOp.RestoreRemoved ignored -> "putting a removed file back";
             default -> "one of those edits";
         };
     }
@@ -553,6 +566,9 @@ public final class EditorOps {
             case EditorOp.DuplicateGroup ignored -> TreeRefresh.Touch.CONTENT;
             case EditorOp.DeleteChapter ignored -> TreeRefresh.Touch.CONTENT;
             case EditorOp.DeleteGroup ignored -> TreeRefresh.Touch.CONTENT;
+            // A restored quest file arrives as a new id, and a restored chapter or group is one more of
+            // those: a delta is keyed by id, so neither needs the heavy constant.
+            case EditorOp.RestoreRemoved ignored -> TreeRefresh.Touch.CONTENT;
 
             // A row's position moves, or a snapshot rolls one back to somewhere unknown.
             case EditorOp.Insert ignored -> TreeRefresh.Touch.FULL;
@@ -689,7 +705,14 @@ public final class EditorOps {
             // A root-level settings write: the file itself is what changes, like the structural kinds,
             // so it takes their path -- there is no chapter model to save and no meta to report.
             case EditorOp.SetIndex ignored -> structural(editor, op);
-            case EditorOp.Delete delete -> finish(editor, op, editor.delete(delete.id()), null, save);
+            case EditorOp.Delete delete -> {
+                // **The one op that answers with its own sentence.** A delete has three ways to refuse --
+                // the quest is not open, a copy is already set aside, the file could not be moved -- and
+                // they need three different things done about them. Flattened into the generic "that edit
+                // would change nothing", a bulk delete could do nothing at all and say nothing useful.
+                QuestEditor.Deletion deletion = editor.delete(delete.id());
+                yield finish(editor, op, deletion.ok(), null, save, deletion.refusal());
+            }
             // A batch is handled as a whole, and never as an element of itself: `joinable` refused that
             // before the group was opened.
             case EditorOp.Batch batch -> applyBatch(editor, batch);
@@ -705,6 +728,10 @@ public final class EditorOps {
             case EditorOp.DuplicateGroup ignored -> structural(editor, op);
             case EditorOp.DeleteChapter ignored -> structural(editor, op);
             case EditorOp.DeleteGroup ignored -> structural(editor, op);
+            // A restore is two operations wearing one name -- a folder is a shape change and a quest file
+            // is this chapter's own model -- and which one it is is a fact about the disk. So it is asked
+            // there rather than carried on the wire: the client is not the authority on the tree.
+            case EditorOp.RestoreRemoved restore -> restoreRemoved(editor, restore);
             case EditorOp.Undo ignored -> history(editor, editor.undo(), "nothing to undo in this chapter");
             case EditorOp.Redo ignored -> history(editor, editor.redo(), "nothing to redo in this chapter");
         };
@@ -737,6 +764,7 @@ public final class EditorOps {
                     duplicate.id(), duplicate.newId(), duplicate.newTitle());
             case EditorOp.DeleteChapter delete -> QuestStructure.deleteChapter(root, delete.id());
             case EditorOp.DeleteGroup delete -> QuestStructure.deleteGroup(root, delete.group());
+            case EditorOp.RestoreRemoved restore -> QuestStructure.restoreRemoved(root, restore.path());
             default -> null;
         };
     }
@@ -799,14 +827,49 @@ public final class EditorOps {
     }
 
     /**
+     * One restore, routed by what is actually on disk.
+     *
+     * <h2>Why the containment check is here rather than at each caller</h2>
+     *
+     * <p>Because this is the only place that knows the quest root and holds the path, and the path arrives
+     * from outside: a command, or a payload from a client. {@link QuestFiles#resolveRemoved} answers "is
+     * this a set-aside thing under this root, and where is it" — one question with one answer, so a folder
+     * and a file cannot be validated by two different rules that drift.
+     */
+    private static Applied restoreRemoved(QuestEditor editor, EditorOp.RestoreRemoved restore) {
+        Path aside = QuestFiles.resolveRemoved(editor.treeRoot(), restore.path());
+        if (aside == null) {
+            return Applied.refused("\"" + restore.path() + "\" is not a removed file under the quest"
+                    + " folder - see /tenet removed for the names that are");
+        }
+        if (Files.isDirectory(aside)) {
+            return structural(editor, restore);
+        }
+        QuestEditor.Deletion restored = editor.restoreAside(aside);
+        return finish(editor, restore, restored.ok(), null, true, restored.refusal());
+    }
+
+    /**
      * What an undo or a redo did, told the same way a structural edit is told.
      *
      * <p>The meta of a reversed structure is its <b>reverse</b> meta — the id the thing has now, not the
      * id the edit gave it — which is what keeps the editor cache right when Ctrl+Z moves a chapter back.
      * A field edit has no meta, and reports none.
+     *
+     * <p><b>A reversal that failed is a refusal with its own sentence</b>, and it is read first: the two
+     * ways this key can do nothing are "there was nothing behind it" and "the filesystem would not put it
+     * back", and only the first is the author's fault or the author's business. Reporting the second as
+     * the first is how a chapter left half reversed read as a key that had nothing to do.
      */
     private static Applied history(QuestEditor editor, boolean changed, String nothing) {
         QuestStructure.Structure.Meta meta = editor.takeLastMeta();
+        // Read before the `changed` branch, because a reversal that failed is the case this exists for:
+        // `changed` is false for it -- nothing was put back -- and reporting "nothing to undo in this
+        // chapter" over a chapter that is half reversed is the lie this replaces.
+        String failure = editor.takeLastFailure();
+        if (failure != null) {
+            return new Applied(false, null, List.of(failure), null, null, List.of());
+        }
         if (!changed) {
             // The sentence is the caller's, because the two halves of the key have two reasons: an undo
             // with nothing behind it and a redo with nothing ahead of it are different news, and "that
@@ -839,9 +902,22 @@ public final class EditorOps {
      */
     private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId,
                                   boolean save) {
+        return finish(editor, op, changed, madeId, save, null);
+    }
+
+    /**
+     * The same, for an op whose failure has its own sentence.
+     *
+     * <p>Only {@link EditorOp.Delete} passes one, and the reason is that its three refusals need three
+     * different actions: a copy to restore or remove, a file that would not move, a manifest that does not
+     * name the file. "That edit would change nothing" is true of all three and useful for none.
+     */
+    private static Applied finish(QuestEditor editor, EditorOp op, boolean changed, String madeId,
+                                  boolean save, String refusal) {
         String about = madeId != null ? madeId : op.quest();
         if (!changed) {
-            return new Applied(false, about, List.of("that edit would change nothing"), null, null, List.of());
+            return new Applied(false, about, List.of(refusal == null ? "that edit would change nothing"
+                    : refusal), null, null, List.of());
         }
         if (!save) {
             // A batch element: the chapter is left dirty for the one save at the end, and the validation

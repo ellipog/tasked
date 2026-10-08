@@ -148,6 +148,21 @@ class EditorOpsTest {
         roundTrip(editor, new EditorOp.Delete("two"));
         roundTrip(editor, new EditorOp.Undo());
         roundTrip(editor, new EditorOp.Redo());
+        // **The structural kinds, which had no round trip at all.** They are the ones whose payload is a
+        // *name* rather than a value, so a codec that lost one would move, rename or delete the wrong
+        // chapter -- and nothing asserted any of them. A restore is the newest of the family and carries a
+        // path, which is the field most easily dropped and the one whose loss would be silent.
+        roundTrip(editor, new EditorOp.MoveChapter("first_steps", "getting_started", 0));
+        roundTrip(editor, new EditorOp.MoveGroup("getting_started", 0));
+        roundTrip(editor, new EditorOp.CreateChapter("getting_started", 0, "new_chapter", "New"));
+        roundTrip(editor, new EditorOp.CreateGroup("new_group", "New Group"));
+        roundTrip(editor, new EditorOp.RenameChapter("first_steps", "renamed", "Renamed"));
+        roundTrip(editor, new EditorOp.RenameGroup("getting_started", "renamed", "Renamed"));
+        roundTrip(editor, new EditorOp.DuplicateChapter("first_steps", "first_copy", "Copy"));
+        roundTrip(editor, new EditorOp.DuplicateGroup("getting_started", "getting_copy", "Copy"));
+        roundTrip(editor, new EditorOp.DeleteChapter("first_steps"));
+        roundTrip(editor, new EditorOp.DeleteGroup("getting_started"));
+        roundTrip(editor, new EditorOp.RestoreRemoved("getting_started/first_steps.deleted"));
     }
 
     /** A quest tree from somewhere else: the shape the clipboard carries across chapters. */
@@ -478,6 +493,75 @@ class EditorOpsTest {
         assertFalse(Files.exists(folder.resolve("two.json")));
         assertTrue(Files.exists(folder.resolve("two.json.deleted")), "recoverable means the bytes are still "
                 + "there, which is the thing an author has no other way of getting back");
+    }
+
+    @Test
+    @DisplayName("an undo that cannot put the folder back is a refusal, and the retry converges")
+    void anUndoThatCannotFinishSaysSo() throws IOException {
+        // **The silent half-reversal.** `QuestStructure.runForUndo` caught every failure and logged it,
+        // and `QuestEditor.undo` returned true regardless -- so a Ctrl+Z whose folder move was refused
+        // reported itself as accepted while the chapter stayed set aside. The author saw "undone"; only
+        // the server log knew otherwise.
+        QuestEditor editor = open();
+        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("first_steps")).ok());
+        Path aside = root.resolve("getting_started").resolve("first_steps.deleted");
+        assertTrue(Files.isDirectory(aside), "the folder is set aside, which is what the undo moves back");
+
+        // Something else has taken the name the chapter has to come back to, and it is not empty, so the
+        // move cannot replace it. That is the ordinary shape of this failure: a program holding the
+        // folder, or a copy of it put back by hand.
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve("in-the-way.txt"), "not a chapter", StandardCharsets.UTF_8);
+
+        EditorOps.Applied refused = EditorOps.apply(editor, new EditorOp.Undo());
+
+        assertFalse(refused.ok(), "the chapter could not be put back, so the undo did not happen");
+        assertTrue(refused.messages().get(0).contains("could not be put back"),
+                () -> "and the sentence says which half failed: " + refused.messages());
+        assertTrue(Files.isDirectory(aside), "the copy is still where the undo needs it");
+
+        // **And the step is still on the history**, which is what makes the retry the author will press
+        // converge: the manifest step has already run and re-running it is harmless, and the folder move is
+        // the one that now works. Consuming the step would have made Ctrl+Z a key that did nothing twice.
+        Files.delete(folder.resolve("in-the-way.txt"));
+        Files.delete(folder);
+        EditorOps.Applied retried = EditorOps.apply(editor, new EditorOp.Undo());
+
+        assertTrue(retried.ok(), () -> "the retry converged: " + retried.messages());
+        assertTrue(Files.isRegularFile(folder.resolve("chapter.json")), "the chapter is back");
+        assertFalse(Files.exists(aside), "and the aside copy is gone, because it was moved back");
+    }
+
+    @Test
+    @DisplayName("a delete that refuses says why, and a batch of them carries the element's own sentence")
+    void aRefusedDeleteSaysWhy() throws IOException {
+        // **The message a bulk delete needs.** A stale `two.json.deleted` beside the file is the ordinary
+        // way in -- a delete whose undo was never pressed, or a copy an author left by hand -- and it makes
+        // the delete refuse. Flattened into "that edit would change nothing", Ctrl+A then Delete did
+        // nothing at all and said nothing an author could act on: the reason was in the server log and
+        // nowhere else.
+        QuestEditor editor = open();
+        Files.writeString(folder.resolve("two.json.deleted"), "an earlier copy",
+                StandardCharsets.UTF_8);
+
+        EditorOps.Applied single = EditorOps.apply(editor, new EditorOp.Delete("two"));
+        assertFalse(single.ok());
+        assertTrue(single.messages().get(0).contains("two.json.deleted"),
+                () -> "the sentence names the copy that is in the way: " + single.messages());
+
+        // And as one element of a gesture, which is how the key reaches it: the batch is abandoned whole
+        // and the element's sentence is what the author reads.
+        EditorOps.Applied batch = EditorOps.apply(editor, EditorOps.batch(List.of(
+                new EditorOp.Delete("one"), new EditorOp.Delete("two"))));
+
+        assertFalse(batch.ok(), "one element refusing abandons the gesture");
+        assertTrue(batch.messages().get(0).contains("two.json.deleted"),
+                () -> "and the batch says which element refused: " + batch.messages());
+        assertEquals(List.of("one", "two"), editor.questIds(), "nothing was deleted");
+        assertTrue(Files.isRegularFile(folder.resolve("one.json")),
+                "including the element that had already moved its file: the batch puts the disk back");
+        assertFalse(Files.exists(folder.resolve("one.json.deleted")), "with no copy left behind");
+        assertFalse(editor.canUndo(), "and no history step");
     }
 
     @Test

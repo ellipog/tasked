@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import dev.ellipog.tenet.Constants;
+import dev.ellipog.tenet.quest.QuestFiles;
 import dev.ellipog.tenet.quest.QuestIndex;
 import dev.ellipog.tenet.quest.QuestReward;
 import dev.ellipog.tenet.quest.loot.InlineTables;
@@ -14,7 +15,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -126,8 +126,95 @@ public final class ServerTables {
 
     /** Where a named table lives. */
     public Path fileOf(String id) {
-        return root.get().resolve(dev.ellipog.tenet.quest.QuestFiles.REWARD_TABLES_DIRECTORY)
-                .resolve(id + ".json");
+        return root.get().resolve(QuestFiles.REWARD_TABLES_DIRECTORY).resolve(id + ".json");
+    }
+
+    /**
+     * Why a table id cannot be used as a file name, or null when it can.
+     *
+     * <h2>What this is for, and what it deliberately is not</h2>
+     *
+     * <p>The id is joined to the tables folder to make both the file and its {@code .deleted} aside, and
+     * it arrives from the wire — so a name that is really a <b>path</b> is a rename of somebody else's
+     * file. {@code "../getting_started/first_steps/one"} passed every check there was: the existence test
+     * found the quest, and the delete moved it, because the aside is a sibling of whatever the id named.
+     * Nothing here judges <i>spelling</i>, though: a pack whose tables are called
+     * {@code My Table.json} keeps working, where a letters-and-digits rule would have taken those tables
+     * away from the editor. The one spelling rule is {@link #newIdProblem}'s, and only for a name that is
+     * about to be <i>made</i>.
+     */
+    private String idProblem(String id) {
+        if (id == null || id.isBlank()) {
+            return "a table needs a name";
+        }
+        if (id.indexOf('/') >= 0 || id.indexOf('\\') >= 0 || id.contains("..") || id.equals(".")) {
+            return "\"" + id + "\" is not a table name - a name has no folders in it";
+        }
+        // Belt and braces over the rule above, because this is the one that actually holds: whatever the
+        // name looks like, the file it makes has to be a direct child of the tables folder. A drive-
+        // relative name is the case the character check does not catch.
+        Path file = fileOf(id);
+        Path tables = root.get().resolve(QuestFiles.REWARD_TABLES_DIRECTORY);
+        if (!file.normalize().getParent().equals(tables.normalize())) {
+            return "\"" + id + "\" is not a table name - it does not name a file in reward_tables/";
+        }
+        return null;
+    }
+
+    /**
+     * The same, for a name that is about to become a new file.
+     *
+     * <p>One extra rule, and it is the loader's own: a name beginning with {@code _} is skipped by every
+     * walk, so a table made under one is a file nothing lists and no reward can name. That is the same
+     * fault {@code ChapterNaming} refuses for a chapter, and it is refused here for the same reason.
+     */
+    private String newIdProblem(String id) {
+        String problem = idProblem(id);
+        if (problem != null) {
+            return problem;
+        }
+        if (id.startsWith("_")) {
+            return "a table name may not begin with _ - the loader skips every name beginning with it";
+        }
+        return null;
+    }
+
+    /** The id an address names, when it names one by name: a handle is minted and is no path at all. */
+    private String addressProblem(TableAddress address) {
+        if (address == null) {
+            return "that edit names no table";
+        }
+        return address.tableId().map(this::idProblem).orElse(null);
+    }
+
+    /**
+     * Why the names in this op cannot be used, or null.
+     *
+     * <p>Every op is classified by hand rather than defaulted into "fine", the way {@code EditorOps}'s
+     * own switch is: a kind added later that carries a name has to be answered for here, and a default
+     * would make that silent.
+     */
+    private String opIdProblem(TableOp op) {
+        return switch (op) {
+            case TableOp.Create create -> newIdProblem(create.id());
+            case TableOp.Duplicate duplicate -> {
+                String from = idProblem(duplicate.id());
+                yield from != null ? from : newIdProblem(duplicate.newId());
+            }
+            case TableOp.Delete delete -> idProblem(delete.id());
+            // A restore names a *path* rather than an id, and its containment check is
+            // `QuestFiles.resolveRemoved`: resolved against the root, refused unless it stays under it and
+            // is a tombstone. Asking the id rule here would judge the wrong kind of name.
+            case TableOp.Restore ignored -> null;
+            case TableOp.Select select -> idProblem(select.tableId());
+            case TableOp.Set set -> addressProblem(set.address());
+            case TableOp.SetFields fields -> addressProblem(fields.address());
+            case TableOp.Insert insert -> addressProblem(insert.address());
+            case TableOp.Remove remove -> addressProblem(remove.address());
+            case TableOp.Move move -> addressProblem(move.address());
+            case TableOp.Undo undo -> addressProblem(undo.address());
+            case TableOp.Redo redo -> addressProblem(redo.address());
+        };
     }
 
     // ------------------------------------------------------------------
@@ -144,6 +231,12 @@ public final class ServerTables {
     public EditorOps.Applied apply(TableOp op) {
         if (op == null) {
             return EditorOps.Applied.refused("that is not a table edit this version knows");
+        }
+        // Before anything is opened, written or moved: a name that is really a path is refused here, and
+        // this is the only place that can say so for every kind of op at once.
+        String problem = opIdProblem(op);
+        if (problem != null) {
+            return EditorOps.Applied.refused(problem);
         }
         try {
             return applyOne(op);
@@ -237,6 +330,7 @@ public final class ServerTables {
             case TableOp.Create create -> create(create);
             case TableOp.Duplicate duplicate -> duplicate(duplicate);
             case TableOp.Delete delete -> delete(delete);
+            case TableOp.Restore restore -> restore(restore);
             case TableOp.Select select -> select(select);
         };
     }
@@ -338,19 +432,58 @@ public final class ServerTables {
         try {
             Path file = fileOf(delete.id());
             // Renamed rather than removed, the way a quest is: a file deleted by a program is not
-            // recoverable, and a press is one keystroke away from a mis-click. REPLACE_EXISTING because
-            // the tombstone of an earlier delete of the same name is worth less than this one.
-            Files.move(file, file.resolveSibling(delete.id() + ".json.deleted"),
-                    StandardCopyOption.REPLACE_EXISTING);
+            // recoverable, and a press is one keystroke away from a mis-click. **And numbered rather than
+            // replaced**, which is what this did: `REPLACE_EXISTING` destroyed an earlier tombstone of the
+            // same name, and a tombstone is the author's own file -- the one thing a delete is not allowed
+            // to throw away. `QuestFiles.asidePath` is the one place the name is decided, so the skip rule
+            // and the name it has to recognise cannot drift apart again.
+            Path aside = QuestFiles.asidePath(file);
+            Files.move(file, aside);
+            open.remove(delete.id());
+            Constants.LOG.info("tenet: reward table \"{}\" was set aside as {}", delete.id(),
+                    aside.getFileName());
+            return new EditorOps.Applied(true, null,
+                    List.of("removed \"" + delete.id() + "\" - the file is beside it as "
+                            + aside.getFileName()), null, null, List.of());
         }
         catch (IOException failed) {
             return EditorOps.Applied.refused("reward_tables/" + delete.id() + ".json could not be moved"
                     + " out of the way: " + failed.getMessage());
         }
-        open.remove(delete.id());
+    }
+
+    /**
+     * A set-aside table put back.
+     *
+     * <p>One move, because a table is addressed by its own file name: there is no list to add it to, which
+     * makes this the shortest of the restores. Containment and the tombstone check are
+     * {@link QuestFiles#resolveRemoved}'s — the same rule the delete's id rule enforces from the other
+     * side, so a path from a command cannot reach a file outside the tables folder.
+     */
+    private EditorOps.Applied restore(TableOp.Restore restore) {
+        Path aside = QuestFiles.resolveRemoved(root.get(), restore.path());
+        if (aside == null) {
+            return EditorOps.Applied.refused("\"" + restore.path() + "\" is not a removed file under the"
+                    + " quest folder - see /tenet removed for the names that are");
+        }
+        if (!root.get().resolve(QuestFiles.REWARD_TABLES_DIRECTORY).equals(aside.getParent())) {
+            return EditorOps.Applied.refused("\"" + restore.path() + "\" is not a reward table");
+        }
+        String name = QuestFiles.restoredName(aside.getFileName().toString());
+        Path back = aside.resolveSibling(name);
+        if (Files.exists(back)) {
+            return EditorOps.Applied.refused(name + " is already there, so nothing was put back");
+        }
+        try {
+            Files.move(aside, back);
+        }
+        catch (IOException failed) {
+            return EditorOps.Applied.refused(name + " could not be put back: " + failed.getMessage());
+        }
+        String id = name.endsWith(".json") ? name.substring(0, name.length() - ".json".length()) : name;
+        Constants.LOG.info("tenet: reward table \"{}\" was put back from {}", id, aside.getFileName());
         return new EditorOps.Applied(true, null,
-                List.of("removed \"" + delete.id() + "\" - the file is beside it as .json.deleted"),
-                null, null, List.of());
+                List.of("put \"" + id + "\" back - it is a table again"), null, null, List.of());
     }
 
     /**

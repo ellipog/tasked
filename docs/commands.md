@@ -2,11 +2,11 @@
 
 Everything Tenet can be asked from the command line is under `/tenet`. Player actions — submitting,
 claiming, and everything under `party` — are for whoever is playing. The commands that change the
-quest files or operator state (`reload`, `complete`, `reset`, `rewards block|unblock`, `stage
-add|remove`, and naming another player in `stage list`) ask for permission level 2, a command
-block's level — and so does everything under `table`, the reads included, along with `config`:
-they name the server's own file paths and table ids. The three diagnostics in their own table below
-take the same level, because they read the server's own costs rather than a player's.
+quest files or operator state (`reload`, `removed`, `restore`, `complete`, `reset`, `rewards
+block|unblock`, `stage add|remove`, and naming another player in `stage list`) ask for permission level
+2, a command block's level — and so does everything under `table`, the reads included, along with
+`config`: they name the server's own file paths and table ids. The three diagnostics in their own table
+below take the same level, because they read the server's own costs rather than a player's.
 
 ## For players
 
@@ -26,6 +26,8 @@ take the same level, because they read the server's own costs rather than a play
 | Command | What it does |
 |---|---|
 | `/tenet reload` | Re-read the quest folder without a restart, and re-sync every connected player. Reports how many files loaded, and how many had errors. |
+| `/tenet removed` | Every recoverable delete under the quest folder — the copy a delete sets aside, and the name each would come back as. See [removing something](index.md#removing-something-and-getting-it-back). |
+| `/tenet restore <path>` | Put one of those back, using the path `/tenet removed` printed. The file or folder returns under its own name and is listed again where it belongs, and every connected player's tree is refreshed — no reload, so the undo history survives it. |
 | `/tenet complete <quest>` | Mark a quest complete for the team. It checks that the quest is playable and its stage gate is met, but it does not evaluate the tasks — that is what it is for. Rewards are left waiting to be claimed. |
 | `/tenet reset [quest]` | Clear progress — one quest, or the whole tree when no quest is named. Run it as a player: progress belongs to a team, and the console is not in one. |
 | `/tenet rewards block` / `unblock` | Hold or release the team's rewards. A held team collects nothing: the automatic payouts stop and every claim is refused, except for rewards marked `ignoreRewardBlocking`. |

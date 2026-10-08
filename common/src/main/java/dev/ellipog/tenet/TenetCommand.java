@@ -9,6 +9,8 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.ellipog.armature.api.ArmatureApi;
 import dev.ellipog.armature.api.config.ArmatureConfig;
 import dev.ellipog.armature.api.config.TeamSettings;
+import dev.ellipog.tenet.editor.EditorOp;
+import dev.ellipog.tenet.editor.EditorOps;
 import dev.ellipog.tenet.progress.ProgressService;
 import dev.ellipog.tenet.progress.ProgressionEngine;
 import dev.ellipog.tenet.progress.QuestState;
@@ -23,6 +25,7 @@ import dev.ellipog.tenet.quest.QuestReward;
 import dev.ellipog.tenet.quest.QuestSettings;
 import dev.ellipog.tenet.quest.QuestTask;
 import dev.ellipog.tenet.quest.TenetQuests;
+import dev.ellipog.tenet.quest.TreeRefresh;
 import dev.ellipog.tenet.quest.condition.ConditionTypes;
 import dev.ellipog.tenet.quest.reward.RewardTypes;
 import dev.ellipog.tenet.quest.task.TaskTypes;
@@ -75,6 +78,19 @@ public final class TenetCommand {
                 .then(Commands.literal("reload")
                         .requires(QuestAuthority.mayEdit())
                         .executes(TenetCommand::reload))
+
+                // What a delete left behind, and the way back to it. An operator's pair, like `reload`:
+                // both are about the server's own files, and the copy a delete sets aside is invisible to
+                // every screen -- the editor's tree skips tombstones by design, and the history that
+                // recorded the delete is the server's memory rather than anything on disk.
+                .then(Commands.literal("removed")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(TenetCommand::removed))
+
+                .then(Commands.literal("restore")
+                        .requires(QuestAuthority.mayEdit())
+                        .then(Commands.argument("path", StringArgumentType.string())
+                                .executes(TenetCommand::restore)))
 
                 // Where the server's settings live and what is in force. Read-only, and still an
                 // operator's read-out rather than a player's: it names server file paths and the pack's
@@ -363,6 +379,60 @@ public final class TenetCommand {
                 } + "). Temporary diagnostic: it only affects a client sharing this JVM, so singleplayer."),
                 false);
         return 1;
+    }
+
+    /**
+     * Every recoverable delete under the quest folder.
+     *
+     * <h2>Why this is a command rather than a panel</h2>
+     *
+     * <p>Because nothing else can produce the list. A tombstone is skipped by every walk — that is what
+     * makes a delete a delete — so the editor's tree does not know it is there, and the one fact an author
+     * needs after the history is gone (their work is still on disk) is a fact no screen shows. It is an
+     * operator's read-out for the same reason {@code reload} is: it names the server's own files.
+     */
+    private static int removed(CommandContext<CommandSourceStack> context) {
+        List<dev.ellipog.tenet.quest.Removed> removed = TenetQuests.removed();
+        if (removed.isEmpty()) {
+            context.getSource().sendSuccess(() -> Component.literal(
+                    "Nothing is set aside: no quest file, chapter, group or table has been removed."), false);
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.literal(removed.size()
+                + (removed.size() == 1 ? " thing is" : " things are")
+                + " set aside under the quest folder:"), false);
+        for (dev.ellipog.tenet.quest.Removed each : removed) {
+            context.getSource().sendSuccess(() -> Component.literal("  " + each.sentence()), false);
+        }
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Put one back with /tenet restore <path>, using the path above."), false);
+        return removed.size();
+    }
+
+    /**
+     * Puts one set-aside thing back.
+     *
+     * <p>Through the ops every other file change travels through, rather than by reaching for the
+     * filesystem here: the path is resolved and refused by the model that owns the root, the write is
+     * validated the way every edit is, and the tree is re-synced by the same coalesced refresh an edit
+     * arms — so a restored chapter appears for everybody without a reload, and without the reload throwing
+     * the undo history away.
+     */
+    private static int restore(CommandContext<CommandSourceStack> context) {
+        String path = StringArgumentType.getString(context, "path");
+        EditorOps.Applied applied = TenetQuests.restore(path);
+        if (applied.ok()) {
+            TreeRefresh.request(EditorOps.reachOf(new EditorOp.RestoreRemoved(path)));
+        }
+        for (String line : applied.messages()) {
+            if (applied.ok()) {
+                context.getSource().sendSuccess(() -> Component.literal(line), false);
+            }
+            else {
+                context.getSource().sendFailure(Component.literal(line));
+            }
+        }
+        return applied.ok() ? 1 : 0;
     }
 
     private static int reload(CommandContext<CommandSourceStack> context) {

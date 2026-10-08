@@ -40,7 +40,23 @@ class ChapterNamingTest {
         assertNotNull(ChapterNaming.problemWith("Upper", TAKEN), "capitals");
         assertNotNull(ChapterNaming.problemWith("with-dash", TAKEN), "a dash");
         assertNotNull(ChapterNaming.problemWith("a".repeat(65), TAKEN), "too long");
-        assertNotNull(ChapterNaming.problemWith("gone.deleted", TAKEN), "the deleted suffix");
+    }
+
+    /**
+     * Both tombstone spellings are refused, and the reason is the character rather than a suffix rule.
+     *
+     * <p>The assertion used to read "the deleted suffix", and it passed because of the dot — which is
+     * the whole story: a name that cannot contain {@code .} cannot be spelled the way
+     * {@code QuestFiles.isDeletedName} is spelled, so the character rule is the rule, and the case
+     * worth keeping is that the <i>numbered</i> form is refused too.
+     */
+    @Test
+    @DisplayName("an id cannot be spelled the way a tombstone is, either spelling")
+    void refusesTheTombstoneSpellings() {
+        assertNotNull(ChapterNaming.problemWith("gone.deleted", TAKEN), "the plain suffix");
+        assertNotNull(ChapterNaming.problemWith("gone.deleted.2", TAKEN), "a numbered aside");
+        assertNull(ChapterNaming.problemWith("gone_deleted", TAKEN),
+                "an underscore spelling is a real id: only the suffix makes a tombstone");
     }
 
     @Test

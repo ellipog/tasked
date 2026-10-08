@@ -44,6 +44,12 @@ public final class ChapterNaming {
         if (id.length() > MAX_LENGTH) {
             return "an id may be at most " + MAX_LENGTH + " characters";
         }
+        // **The character rule is also the deleted-suffix rule, and that is why there is no second
+        // check here.** There used to be one — "an id may not end with .deleted" — and it was
+        // unreachable: `.deleted` and `.deleted.2` both carry a dot, and this loop refuses the dot
+        // first, so the branch could never be the answer. Dead code that reads as a live rule is worse
+        // than no rule, so the fact is stated here instead: a name cannot be spelled the way a tombstone
+        // is spelled, and the message the author gets names the character.
         for (int i = 0; i < id.length(); i++) {
             char c = id.charAt(i);
             if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
@@ -52,10 +58,6 @@ public final class ChapterNaming {
         }
         if (id.startsWith("_")) {
             return "an id may not begin with _ - the loader skips every name beginning with it";
-        }
-        if (QuestFiles.isDeletedName(id)) {
-            return "an id may not end with " + QuestFiles.DELETED_SUFFIX
-                    + " - that is what a removed chapter is renamed to";
         }
         return null;
     }

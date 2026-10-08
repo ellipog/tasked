@@ -412,6 +412,114 @@ class QuestStructureTest {
     }
 
     @Test
+    @DisplayName("a numbered aside is never declared as a root entry, however the index is written")
+    void aNumberedAsideIsNotWrittenIntoTheIndex() throws IOException {
+        // **The failure this hid.** `aside()` numbers a second set-aside rather than overwrite the first —
+        // `one.deleted`, then `one.deleted.2` — and this mod's own undo writes the numbered one: create a
+        // chapter, undo it, create it again, undo it again. The folder holds a `chapter.json`, so a skip
+        // rule that only knew the plain suffix read it as a root chapter, and `bootEntries` — which is
+        // what a tree with no index uses to learn the root's order — carried it into the file the next
+        // structural edit writes. A deleted chapter came back as book content the loader then refused.
+        tree();
+        write("one.deleted/chapter.json", chapter("one", "[]"));
+        write("one.deleted.2/chapter.json", chapter("one", "[]"));
+
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        EditorOps.Applied applied = EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma"));
+        assertTrue(applied.ok(), applied.messages().toString());
+
+        String index = indexText();
+        assertFalse(index.contains("deleted"),
+                "a tombstone is not an entry, in either spelling: " + index);
+        assertTrue(index.contains("\"gamma\""), "and the edit itself is what was written: " + index);
+    }
+
+    @Test
+    @DisplayName("undoing a create twice sets the folder aside twice, and destroys neither copy")
+    void undoingACreateTwiceKeepsBothCopies() throws IOException {
+        // **How the numbered spelling is reached, with no delete anywhere in the story.** Create a group,
+        // Ctrl+Z, create it again, Ctrl+Z: `aside()` will not overwrite the copy the first undo made, so
+        // the second lands beside it as `<name>.deleted.2`. That route is the reason the skip rule has to
+        // answer for the numbered form — it is not an exotic state, it is two presses of the same key.
+        tree();
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+
+        assertTrue(EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok());
+        assertTrue(editor.undo(), "the create is on the history");
+        assertTrue(Files.isRegularFile(root().resolve("gamma.deleted/group.json")),
+                "the folder is put aside rather than erased");
+
+        assertTrue(EditorOps.apply(editor, new EditorOp.CreateGroup("gamma", "Gamma")).ok(),
+                "the name is free again, because a tombstone is not content");
+        assertTrue(editor.undo());
+        assertTrue(Files.isRegularFile(root().resolve("gamma.deleted/group.json")),
+                "the first copy is untouched");
+        assertTrue(Files.isRegularFile(root().resolve("gamma.deleted.2/group.json")),
+                "and the second is beside it, which is what numbering is for");
+        assertFalse(Files.exists(root().resolve("gamma")), "neither undo left the live folder behind");
+    }
+
+    @Test
+    @DisplayName("a set-aside chapter is put back by name, and the restore is one Ctrl+Z")
+    void restoresASetAsideChapter() throws IOException {
+        // The inverse of the delete above, asked for by name rather than by history -- which is the whole
+        // point of it: the history is the server's memory and the copy is on disk.
+        tree();
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("one")).ok());
+
+        EditorOps.Applied restored = EditorOps.apply(editor,
+                new EditorOp.RestoreRemoved("alpha/one.deleted"));
+
+        assertTrue(restored.ok(), restored.messages().toString());
+        assertTrue(Files.isRegularFile(root().resolve("alpha/one/first.json")),
+                "the folder is back with its quests inside");
+        assertFalse(Files.exists(root().resolve("alpha/one.deleted")), "and the copy is gone");
+        assertTrue(groupChapters("alpha").contains("one"), groupChapters("alpha"));
+
+        // One Ctrl+Z, the same key as ever: a restore is a structural edit like any other.
+        assertTrue(editor.undo());
+        assertFalse(Files.exists(root().resolve("alpha/one")));
+        assertTrue(Files.isDirectory(root().resolve("alpha/one.deleted")), "and it is set aside again");
+    }
+
+    @Test
+    @DisplayName("a set-aside group is put back, index entry and all")
+    void restoresASetAsideGroup() throws IOException {
+        tree();
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteGroup("beta")).ok());
+        assertTrue(Files.isDirectory(root().resolve("beta.deleted")));
+
+        EditorOps.Applied restored = EditorOps.apply(editor,
+                new EditorOp.RestoreRemoved("beta.deleted"));
+
+        assertTrue(restored.ok(), restored.messages().toString());
+        assertTrue(Files.isRegularFile(root().resolve("beta/two/chapter.json")), "the group is back");
+        assertTrue(indexText().contains("\"beta\""), "and the index names it again: " + indexText());
+    }
+
+    @Test
+    @DisplayName("a restore refuses a name that is taken, and anything that is not set aside")
+    void aRestoreRefusesWhatItCannotDo() throws IOException {
+        tree();
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        assertTrue(EditorOps.apply(editor, new EditorOp.DeleteChapter("one")).ok());
+        Files.createDirectories(root().resolve("alpha/one"));
+
+        EditorOps.Applied taken = EditorOps.apply(editor,
+                new EditorOp.RestoreRemoved("alpha/one.deleted"));
+        assertFalse(taken.ok(), "the folder would have been overwritten");
+        assertTrue(taken.messages().get(0).contains("already"), taken.messages().toString());
+        assertTrue(Files.isDirectory(root().resolve("alpha/one.deleted")), "and the copy stays put");
+
+        assertFalse(EditorOps.apply(editor, new EditorOp.RestoreRemoved("alpha/one")).ok(),
+                "a live folder is not a tombstone");
+        assertFalse(EditorOps.apply(editor, new EditorOp.RestoreRemoved("../outside")).ok(),
+                "nor is anything outside the root");
+    }
+
+    @Test
     @DisplayName("a book setting is written into index.json, and every other declaration survives")
     void aBookSettingIsWritten() throws IOException {
         tree();

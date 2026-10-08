@@ -113,6 +113,16 @@ public final class QuestEditor {
     /** The meta of the last structural undo or redo. See {@link #takeLastMeta()}. */
     private QuestStructure.Structure.Meta lastMeta;
 
+    /**
+     * Why the last undo or redo could not finish, or null.
+     *
+     * <p>Its own field rather than a {@code false} return, because {@code false} already means "there was
+     * nothing to undo" and the two are different news: one is a key with nothing behind it, the other is a
+     * file that would not move. Both used to reach the author as the first, which is how a Ctrl+Z that did
+     * nothing looked like a Ctrl+Z that had nothing to do.
+     */
+    private String lastFailure;
+
     /** Whether a {@link #group} is open: its mutations join that one history step. See {@link #push}. */
     private boolean grouping;
 
@@ -729,11 +739,20 @@ public final class QuestEditor {
      * look for one name. A variable aside would be an undo that restores whichever stale copy it found
      * first. Refusing costs a sentence and a manual move, and it is the only one of the two that cannot
      * destroy a file the author asked to keep.
+     *
+     * <h2>Why this answers with a sentence rather than a boolean</h2>
+     *
+     * <p>Because it has three ways to refuse and they need three different sentences: the quest is not
+     * open here, a copy is already set aside, or the file could not be moved. A boolean flattened all
+     * three into the caller's one message — {@code "that edit would change nothing"} — which for a bulk
+     * delete meant that Ctrl+A then Delete could do <b>nothing at all</b> while telling the author that
+     * nothing had changed, with no way to learn that a single stale {@code .json.deleted} copy was in the
+     * way. The log had it; the person pressing the key did not.
      */
-    public boolean delete(String id) {
+    public Deletion delete(String id) {
         JsonFile gone = quests.get(id);
         if (gone == null) {
-            return false;
+            return Deletion.refused("no quest \"" + id + "\" is open in this chapter");
         }
         String stem = stemOf(id);
         Path aside = gone.file().resolveSibling(stem + SUFFIX + QuestFiles.DELETED_SUFFIX);
@@ -742,7 +761,8 @@ public final class QuestEditor {
             // edit that failed, it is one that never started.
             Constants.LOG.warn("tenet: {} is already there, so {} was not deleted - moving it would have"
                     + " destroyed it. Restore or remove that copy first.", aside, gone.file());
-            return false;
+            return Deletion.refused(aside.getFileName() + " is already in that folder, and moving it"
+                    + " would have destroyed that copy - restore or remove it first");
         }
         // Before anything moves: the snapshot is the state an undo has to put back, so it has to be
         // taken while the chapter still holds the quest. Removing first and snapshotting second is an
@@ -757,29 +777,112 @@ public final class QuestEditor {
                     gone.file(), e);
             quests.put(id, gone);
             undo.pop();
-            return false;
+            return Deletion.refused(gone.file().getFileName() + " could not be moved out of the way: "
+                    + e.getMessage());
         }
         if (!manifest.removeString("quests", stem + SUFFIX)) {
             // The file moved but its name was not in the list, so the manifest no longer describes the
-            // folder. The move goes back rather than staying: `false` has to mean "nothing changed", or a
-            // caller cannot tell a refusal from a half-delete -- and a file the loader reports as missing
+            // folder. The move goes back rather than staying: a refusal has to mean "nothing changed", or a
+            // caller cannot tell it from a half-delete -- and a file the loader reports as missing
             // is one nobody can find.
             quests.put(id, gone);
             try {
                 Files.move(aside, gone.file(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 // Nothing changed after all, so the snapshot of a state we never left is a lie.
                 undo.pop();
+                return Deletion.refused("this chapter's \"" + MANIFEST + "\" does not list "
+                        + stem + SUFFIX + ", so nothing was deleted and the file is back where it was");
             }
             catch (IOException e) {
                 // Left where it is, and the snapshot stays -- deliberately. `restore` looks for exactly
                 // this name, so Ctrl+Z is still the way back rather than a copy sitting in the folder
-                // under a name the author has to think of.
+                // under a name the author has to think of. The sentence says which way back, because this
+                // is the one refusal that is not a no-op.
                 Constants.LOG.warn("tenet: {} could not be put back and is at {}; undo still restores it.",
                         gone.file(), aside, e);
+                return Deletion.refused("this chapter's \"" + MANIFEST + "\" does not list "
+                        + stem + SUFFIX + ", and " + aside.getFileName() + " could not be put back -"
+                        + " Ctrl+Z restores it");
             }
-            return false;
         }
-        return true;
+        return Deletion.done();
+    }
+
+    /**
+     * What a delete did, or the sentence saying why it did not.
+     *
+     * <p>The shape {@code QuestStructure.Outcome} already has, for the same reason: a caller that can only
+     * ask "did it work" has nothing to tell the author, and this is the one edit whose refusal the author
+     * has to act on — a copy to move, a file to unlock, or a key to press.
+     */
+    public record Deletion(boolean ok, String refusal) {
+
+        static Deletion done() {
+            return new Deletion(true, null);
+        }
+
+        static Deletion refused(String why) {
+            return new Deletion(false, why);
+        }
+    }
+
+    /**
+     * Puts a set-aside quest file back, and names it in the chapter's list again.
+     *
+     * <h2>Why this exists when {@link #restore} already puts files back</h2>
+     *
+     * <p>Because {@code restore} puts back what a <i>snapshot</i> holds, and a snapshot lives in the undo
+     * history — which is exactly what is gone by the time an author needs this: a server restart, a
+     * {@code /tenet reload}, or sixty further edits in this chapter. This is the same operation with no
+     * history behind it, asked for by name: the file moves back, and the manifest lists it, because a file
+     * the loader is not told about is a file that never loads.
+     *
+     * <p>The inverse of {@link #delete}, and the same three refusals in the same order: not a set-aside
+     * quest file, not in this chapter's folder, or the name it would come back to is taken. All three are
+     * refusals rather than overwrites, because the one thing a restore may not do is lose a file.
+     *
+     * @param aside the tombstone's own path, resolved by the caller against the quest root
+     */
+    public Deletion restoreAside(Path aside) {
+        String stem = aside == null ? null : QuestFiles.restoredName(aside.getFileName().toString());
+        if (stem == null || !stem.endsWith(SUFFIX)) {
+            return Deletion.refused("\"" + (aside == null ? "" : aside.getFileName())
+                    + "\" is not a set-aside quest file");
+        }
+        if (!folder.equals(aside.getParent())) {
+            return Deletion.refused("\"" + aside.getFileName() + "\" is not in this chapter's folder");
+        }
+        if (!Files.isRegularFile(aside)) {
+            return Deletion.refused("\"" + aside.getFileName() + "\" is not a file there");
+        }
+        Path back = folder.resolve(stem);
+        if (Files.exists(back)) {
+            return Deletion.refused(back.getFileName() + " is already in this folder, so nothing was"
+                    + " put back");
+        }
+        // One history step, so the restore is undoable like every other edit: the delete it reverses is
+        // not the only way in, and an author who restores the wrong copy has the same key as ever.
+        push();
+        try {
+            Files.move(aside, back);
+        }
+        catch (IOException e) {
+            Constants.LOG.warn("tenet: {} could not be put back.", aside, e);
+            undo.pop();
+            return Deletion.refused(aside.getFileName() + " could not be put back: " + e.getMessage());
+        }
+        manifest.addString("quests", stem);
+        // **The restored file has to be in the model before the save.** An abandoned save puts the disk
+        // back from the snapshot, and `restore` sets aside the files the model holds that the snapshot does
+        // not: a file the model never saw is one nothing puts back, so a refused save would leave it on
+        // disk with no manifest entry -- an error the loader reports on every load.
+        reloadQuests();
+        SaveResult saved = save();
+        if (!saved.ok()) {
+            abandon();
+            return Deletion.refused(String.join("; ", saved.messages()));
+        }
+        return Deletion.done();
     }
 
     // ------------------------------------------------------------------
@@ -797,37 +900,69 @@ public final class QuestEditor {
     /** Puts the chapter back to how it was before the last change. */
     public boolean undo() {
         lastMeta = null;
+        lastFailure = null;
         if (undo.isEmpty()) {
             return false;
         }
         History history = undo.pop();
         if (history instanceof Structural structural) {
-            // The structure carries both directions, so redo is the same record run forwards.
-            QuestStructure.undo(structural.structure());
+            // The structure carries both directions, so redo is the same record run forwards. A reversal
+            // that could not finish goes back on the trail rather than being consumed: the steps that did
+            // run are already done and a second Ctrl+Z converges on the rest, which is what an author
+            // wants after unlocking the file that was in the way.
+            String refused = QuestStructure.undo(structural.structure());
+            if (refused != null) {
+                undo.push(history);
+                lastFailure = "that edit could not be put back completely - " + refused
+                        + ". Ctrl+Z tries again";
+                return false;
+            }
             redo.push(history);
             lastMeta = structural.structure().reverseMeta();
             return true;
         }
         redo.push(snapshotFiles());
-        restore((Snapshot) history);
+        if (!restore((Snapshot) history)) {
+            // The trail goes back exactly as it was found, and the step stays on it: `restore` re-attempts
+            // every file it has to put back and skips the ones already back, so the retry converges rather
+            // than repeating itself -- the same rule the structural half follows.
+            redo.pop();
+            undo.push(history);
+            lastFailure = "the chapter's files could not all be put back - the server log names the file"
+                    + " that failed, and Ctrl+Z tries again";
+            return false;
+        }
         return true;
     }
 
     /** The same, forward. */
     public boolean redo() {
         lastMeta = null;
+        lastFailure = null;
         if (redo.isEmpty()) {
             return false;
         }
         History history = redo.pop();
         if (history instanceof Structural structural) {
-            QuestStructure.redo(structural.structure());
+            String refused = QuestStructure.redo(structural.structure());
+            if (refused != null) {
+                redo.push(history);
+                lastFailure = "that edit could not be repeated completely - " + refused
+                        + ". Ctrl+Y tries again";
+                return false;
+            }
             undo.push(history);
             lastMeta = structural.structure().forwardMeta();
             return true;
         }
         undo.push(snapshotFiles());
-        restore((Snapshot) history);
+        if (!restore((Snapshot) history)) {
+            undo.pop();
+            redo.push(history);
+            lastFailure = "the chapter's files could not all be put back - the server log names the file"
+                    + " that failed, and Ctrl+Y tries again";
+            return false;
+        }
         return true;
     }
 
@@ -940,6 +1075,9 @@ public final class QuestEditor {
         }
         History history = undo.pop();
         if (history instanceof Snapshot snapshot) {
+            // The result is deliberately dropped here and only here: this path is already reporting a
+            // refusal, so nothing is being told the edit succeeded, and the per-file failures are in the
+            // log. An undo is the path where "did it really come back" is the whole question.
             restore(snapshot);
             return;
         }
@@ -993,6 +1131,18 @@ public final class QuestEditor {
     }
 
     /**
+     * The sentence for a reversal that could not finish, taken once.
+     *
+     * <p>The same one-shot idiom as {@link #takeLastMeta}, and for the same reason: it describes one step,
+     * and leaving it set would make the next question about a later undo read the previous answer.
+     */
+    String takeLastFailure() {
+        String failure = lastFailure;
+        lastFailure = null;
+        return failure;
+    }
+
+    /**
      * Re-reads this chapter's own files, after a structural edit rewrote one of them.
      *
      * <p>Those edits write manifests this editor is holding in memory: a group's {@code chapters} list,
@@ -1040,13 +1190,19 @@ public final class QuestEditor {
      * not is written back (an undone delete), and one the folder holds but the snapshot does not is
      * renamed out of the way again (an undone create). Doing it through the disk rather than only in
      * memory is what makes the canvas, the loader and the files agree after an undo.
+     *
+     * @return whether every file it had to put back went back. A false here is the difference between a
+     *     Ctrl+Z that worked and one that only looks as though it did, and the caller has to be able to
+     *     say which: a restore that stops half way used to return normally, and the op layer reported the
+     *     undo as accepted while a chapter sat half-restored on disk.
      */
-    private void restore(Snapshot snapshot) {
+    private boolean restore(Snapshot snapshot) {
         // Everything, not one file: an undo puts a whole chapter back, which can have moved, renamed,
         // recreated or set aside any of its files -- so what is on disk afterwards is a different *set*
         // of files rather than different contents in the ones that were read. See ParsedFiles.
         ParsedFiles.clear();
         Map<Path, String> files = snapshot.files();
+        boolean whole = true;
 
         for (Map.Entry<Path, String> entry : files.entrySet()) {
             if (Files.isRegularFile(entry.getKey())) {
@@ -1071,8 +1227,11 @@ public final class QuestEditor {
                 }
             }
             catch (IOException e) {
+                // **Every file is attempted, not just up to the first failure.** Returning here left the
+                // rest of the chapter unrecovered for one locked file, which turns one bad path into a
+                // half-restored chapter; the caller is told instead, and Ctrl+Z converges on a retry.
                 Constants.LOG.warn("tenet: {} could not be restored by an undo.", entry.getKey(), e);
-                return;
+                whole = false;
             }
         }
 
@@ -1086,6 +1245,7 @@ public final class QuestEditor {
                 catch (IOException e) {
                     Constants.LOG.warn("tenet: {} could not be put back to deleted by an undo.",
                             quest.file(), e);
+                    whole = false;
                 }
             }
         }
@@ -1106,6 +1266,7 @@ public final class QuestEditor {
             }
             quest.replaceWith(files.get(quest.file()));
         }
+        return whole;
     }
 
     // ------------------------------------------------------------------

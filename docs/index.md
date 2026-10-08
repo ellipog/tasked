@@ -75,3 +75,27 @@ Book and Chapter tabs live; `Assets` opens the pack's own files; `Edit` latches 
 else. That is the in-game editor, and it writes the same files these pages describe: the server
 re-checks the permission and validates before anything lands on disk, so no quest file is written by the
 client — the player's own look and text size live in files the client owns.
+
+## Removing something, and getting it back
+
+**Every control that takes something away asks twice.** The quest card's `Delete`, the node and
+dependency menus, the chapter and group menus, an entry's `×`, the table browser's `×`, the Assets
+panel's `×` and the `Delete` key all arm on the first press and act on the second, and the ones that
+remove a whole chapter or group say what goes with it — `Really delete? (70 quests, 3 dependent)` — before
+they do. Nothing is erased when they act: a quest file is renamed to `<name>.json.deleted`, a chapter's
+or a group's whole folder becomes `<name>.deleted`, and a reward table becomes `<name>.json.deleted`. The
+loader skips that suffix everywhere, so a pack with removed content in it still loads.
+
+**Ctrl+Z takes it back**, and the restore is one history step per chapter — the same key as any other
+edit. The history is the *server's*, though, so it does not survive a restart, and `/tenet reload` drops
+it on purpose; after sixty further edits in that chapter the step has fallen off the end. The copy on
+disk survives all three, which is what makes the pair below the way back:
+
+| Command | What it does |
+|---|---|
+| `/tenet removed` | Everything set aside under the quest folder, with the name each would come back as. |
+| `/tenet restore <path>` | Puts one back, exactly as it was, and re-lists it where it belongs. |
+
+Neither is offered in the book, because a tombstone is skipped by every walk the editor draws from: the
+tree genuinely does not know it is there, and a panel that listed things the tree cannot see would be a
+second opinion about the pack. Both take permission level 2, like `reload`.

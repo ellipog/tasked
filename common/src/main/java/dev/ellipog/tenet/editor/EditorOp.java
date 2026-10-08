@@ -17,8 +17,9 @@ import java.util.List;
  * underneath, the same class on both sides.
  *
  * <p>The kinds are exactly the model's public edits and no more: a field, a position, a new quest, a copy, a
- * delete, and the two halves of undo. A panel that wants to do something not in this list would be growing a
- * second way to change a file, which is the thing T9's notes spent a table on avoiding.
+ * delete, a set-aside thing put back, and the two halves of undo. A panel that wants to do something not in
+ * this list would be growing a second way to change a file, which is the thing T9's notes spent a table on
+ * avoiding.
  *
  * <h2>Sealed, so the compiler holds the list</h2>
  *
@@ -254,5 +255,29 @@ public sealed interface EditorOp {
 
     /** Removes a group recoverably, its chapters with it. */
     record DeleteGroup(String group) implements EditorOp {
+    }
+
+    /**
+     * Puts a set-aside thing back, named by its path relative to the quest root.
+     *
+     * <h2>Why this is about something that is not in the tree</h2>
+     *
+     * <p>Because a tombstone is skipped by every walk — that is what makes a delete a delete — so nothing
+     * else in this vocabulary can name one, and no id describes it: it is {@code first_steps.deleted}, and
+     * the folder that says which chapter it was is the one it is no longer in.
+     *
+     * <h2>Why it has to exist at all</h2>
+     *
+     * <p>The undo history is the server's and the server does not keep it. A restart, a {@code /tenet
+     * reload}, or sixty further edits in that chapter take Ctrl+Z away — and the copy the delete made is
+     * still on disk, which is the whole point of the rename. Until this op, the only way back to an
+     * author's work was a file manager and the knowledge that {@code .deleted} is where it went.
+     *
+     * <p>Structural, because a chapter or a group is a folder: it goes through {@code QuestStructure} like
+     * the other shape changes, so it is recorded on the acting chapter's history and Ctrl+Z takes the
+     * restore back. A quest file is not — that one is {@code QuestEditor.restoreAside}, the inverse of the
+     * delete that set it aside.
+     */
+    record RestoreRemoved(String path) implements EditorOp {
     }
 }

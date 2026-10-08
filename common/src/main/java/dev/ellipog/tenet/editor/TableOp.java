@@ -76,6 +76,17 @@ public sealed interface TableOp {
     }
 
     /**
+     * Puts a set-aside table back, named by its path relative to the quest root.
+     *
+     * <p>The inverse of {@link Delete}, and for the same reason {@code EditorOp.RestoreRemoved} exists: the
+     * delete is recoverable on disk and nothing in the game could reach it, because a tombstone is skipped
+     * by the reader that would list it. There is no manifest to update — a table is addressed by its own
+     * file name — so this is the one restore that is a single move.
+     */
+    record Restore(String path) implements TableOp {
+    }
+
+    /**
      * Points a reward at a named table, or clears it.
      *
      * <p>One op rather than a write and a removal, because it is one intent: {@code tableId} empty

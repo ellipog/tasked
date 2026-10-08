@@ -141,6 +141,59 @@ class ServerEditorsTest {
     }
 
     @Test
+    @DisplayName("deleting the last chapter keeps a way back, with no chapter left to name")
+    void theLastChapterIsStillUndoable() throws IOException {
+        // **The hole this closes.** `follow` moves the acting history onto the first surviving chapter, and
+        // when there is none it dropped it -- so deleting the only chapter in a book left a Ctrl+Z that did
+        // nothing, at the exact moment an author wants it, while the folder sat beside the tree as
+        // `first_steps.deleted`. The client's effective chapter is empty now, so the op names none, which is
+        // why the history has to be reachable without a session.
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        assertTrue(editors.apply("first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
+        assertFalse(Files.exists(folder), "the chapter is out of the tree");
+        assertTrue(Files.isRegularFile(root.resolve("getting_started/first_steps.deleted/chapter.json")),
+                "and set aside, which is what makes an undo possible at all");
+
+        EditorOps.Applied undone = editors.apply("", new EditorOp.Undo());
+
+        assertTrue(undone.ok(), () -> "the last chapter's delete is undoable: " + undone.messages());
+        assertTrue(Files.isRegularFile(folder.resolve("chapter.json")), "the chapter is back");
+        assertTrue(Files.isRegularFile(folder.resolve("one.json")), "with its quests");
+        assertFalse(Files.exists(root.resolve("getting_started/first_steps.deleted")), "and no copy left");
+        assertTrue(editors.isOpen("first_steps"), "and it is open again, under its own id");
+
+        // **And the history came across rather than being thrown away**: the delete is now ahead of it, so
+        // Ctrl+Y puts the chapter away again.
+        assertTrue(editors.apply("first_steps", new EditorOp.Redo()).ok(),
+                "the rest of that history is not stranded either");
+        assertFalse(Files.exists(folder), "so the redo takes the chapter out again");
+    }
+
+    @Test
+    @DisplayName("a restore is the way back when the history is gone, which is what a restart leaves")
+    void aRestoreWorksWithNoHistory() throws IOException {
+        // **The case the whole pair exists for.** `/tenet reload` drops every open editor, and a server
+        // restart does the same by ending the process -- so the delete's own undo is gone while the folder
+        // it set aside is still on disk. Nothing else in the game can reach it: every walk skips a
+        // tombstone, so the tree the editor draws does not know it is there.
+        Path folder = root.resolve("getting_started").resolve("first_steps");
+        assertTrue(editors.apply("first_steps", new EditorOp.DeleteChapter("first_steps")).ok());
+        editors.forget();
+        assertFalse(editors.isOpen("first_steps"), "the model is gone, which is what a restart leaves");
+
+        EditorOps.Applied restored = editors.apply("",
+                new EditorOp.RestoreRemoved("getting_started/first_steps.deleted"));
+
+        assertTrue(restored.ok(), () -> "a restore needs no history: " + restored.messages());
+        assertTrue(Files.isRegularFile(folder.resolve("chapter.json")), "the chapter is back");
+        assertTrue(Files.isRegularFile(folder.resolve("one.json")), "with its quests");
+        assertFalse(editors.isOpen("first_steps"),
+                "a sessionless restore opens no session -- the same as the first chapter a book is given");
+        assertTrue(editors.apply("first_steps", setTitle("Second")).ok(),
+                "and the chapter it put back is editable, which is what a restore is for");
+    }
+
+    @Test
     @DisplayName("a replica carries each quest's own tree, opened by the read itself")
     void theReplicaIsTheFiles() {
         var all = editors.replica("first_steps");

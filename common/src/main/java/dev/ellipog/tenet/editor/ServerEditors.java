@@ -33,6 +33,14 @@ public final class ServerEditors {
     private final Supplier<Path> root;
     private final Map<String, QuestEditor> open = new LinkedHashMap<>();
 
+    /**
+     * The editor whose own chapter has just been deleted, when it was the last one in the book.
+     *
+     * <p>Kept because it is the only thing that can still reverse the delete. See
+     * {@link #applyWithoutChapter} for the state this exists for, and {@link #follow} for where it is set.
+     */
+    private QuestEditor orphan;
+
     /** @param root where the quest files live, resolved when a chapter is first opened */
     public ServerEditors(Supplier<Path> root) {
         this.root = Objects.requireNonNull(root, "root");
@@ -56,8 +64,9 @@ public final class ServerEditors {
             // No session, which is the state of a questline with no chapters: there is no editor to
             // open and no history to record on, but a structural edit can still be applied — that is how
             // the first chapter gets made. Every other kind is refused there with a sentence, because an
-            // edit to a chapter needs one to edit. See `EditorOps.applyWithoutSession`.
-            return EditorOps.applyWithoutSession(root.get(), op);
+            // edit to a chapter needs one to edit. See `EditorOps.applyWithoutSession`, and
+            // `applyWithoutChapter` for the one op that is neither.
+            return applyWithoutChapter(op);
         }
         QuestEditor editor = open(chapter).orElse(null);
         if (editor == null) {
@@ -79,9 +88,50 @@ public final class ServerEditors {
             }
         }
         EditorOps.Applied applied = EditorOps.apply(editor, op);
+        if (applied.ok()) {
+            // A chapter is being edited again, so the history kept for a book with none is not the way
+            // back to anything: the client names its own chapter from here on.
+            orphan = null;
+        }
         if (applied.ok() && touchesStructure(applied)) {
             follow(chapter, editor, applied);
         }
+        return applied;
+    }
+
+    /**
+     * An op that arrived with no chapter to name.
+     *
+     * <h2>Two states, and they are not the same state</h2>
+     *
+     * <p>A book with no chapters can still be given its first one, which is what
+     * {@link EditorOps#applyWithoutSession} is for. And a book whose <b>last</b> chapter has just been
+     * deleted is the one state where a Ctrl+Z has something to reach and no session to reach it through:
+     * the client's effective chapter is empty, so the op names none, and answering "this edit belongs to a
+     * chapter, and there is none yet" is a sentence about a chapter sitting right there under a
+     * {@code .deleted} name. So the editor that recorded the delete is kept for exactly this, and only for
+     * the two keys that carry no chapter of their own.
+     *
+     * <p>An undo that puts the chapter back re-opens it under its own id and carries the history across,
+     * so the rest of that history is not stranded either.
+     */
+    private EditorOps.Applied applyWithoutChapter(EditorOp op) {
+        if (orphan == null || !(op instanceof EditorOp.Undo || op instanceof EditorOp.Redo)) {
+            return EditorOps.applyWithoutSession(root.get(), op);
+        }
+        EditorOps.Applied applied = EditorOps.apply(orphan, op);
+        String back = applied.chapterId();
+        if (!applied.ok() || back == null || back.isBlank()) {
+            return applied;
+        }
+        QuestEditor reopened = QuestEditor.open(root.get(), back).orElse(null);
+        if (reopened == null) {
+            return applied;
+        }
+        reopened.adopt(orphan);
+        reopened.refresh();
+        open.put(back, reopened);
+        orphan = null;
         return applied;
     }
 
@@ -157,6 +207,11 @@ public final class ServerEditors {
      * history moves to the first chapter that survives, so the delete is still the thing the next Ctrl+Z
      * undoes. That is a deliberate trade: the surviving chapter's own edit history is replaced by the
      * history of the action the player just took, which is the one they are about to want back.
+     *
+     * <p><b>And when no chapter survives</b>, which is one chapter deleted from a one-chapter book, there
+     * is nowhere to move it to — so it stays here, under no chapter's name, and
+     * {@link #applyWithoutChapter} is what reaches it. Dropping it instead, which is what this did, made
+     * the delete of the <i>only</i> chapter the one edit in the book that could not be taken back in game.
      */
     private void follow(String session, QuestEditor acting, EditorOps.Applied applied) {
         boolean actingMoved = applied.forget().contains(session);
@@ -178,8 +233,13 @@ public final class ServerEditors {
             fresh = target == null ? null : QuestEditor.open(root.get(), target).orElse(null);
         }
         if (fresh == null) {
+            // **The last chapter in the book, deleted.** There is no surviving chapter for the history to
+            // move to, and dropping it is what made Ctrl+Z do nothing at the one moment an author wants it
+            // most. It is kept instead, under no chapter's name, and `applyWithoutChapter` reaches it.
+            orphan = acting;
             return;
         }
+        orphan = null;
         fresh.adopt(acting);
         fresh.refresh();
         open.put(target, fresh);
@@ -275,6 +335,7 @@ public final class ServerEditors {
      */
     public void forget() {
         open.clear();
+        orphan = null;
     }
 
     /** Whether a chapter is open. For tests, and for a log line when one is dropped. */

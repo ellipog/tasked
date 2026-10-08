@@ -151,16 +151,21 @@ quest, chapter or group lists its former ids, and nothing that referenced the ol
 > **Renaming an id without an alias orphans the progress stored under the old one.** A player keeps
 > the completion; the quest no longer recognises it, so it reads as incomplete and their rewards for
 > it are gone. Add the old id to `aliases` in the same edit, and there is nothing to fix.
-**A broken one is read the same way, and says so.** A file that will not parse, or whose `entries` is
-not a list, cannot say what the root is — so the tree is read as if the file were not there, with one
-error naming it and one warning saying what was done instead: every folder at the root is a group, in
-folder-name order, and anything this file would have left out is loaded instead. That rule has one cost
-worth knowing, and the warning names it: a chapter that only `index.json` declares is a folder with no
-`group.json`, so with the manifest unreadable there is nothing left that says it is a chapter, and it is
-reported as a folder that is not one. An `entries` list that is *declared* is still believed, even when
-an entry in it resolves to nothing — that is a per-entry fault, and falling back there would load
-content the file deliberately left out.
 
+## Removing something, and getting it back
+
+A delete in the editor is a **rename**, never an erase: a quest file becomes `<name>.json.deleted`, a
+chapter's or a group's whole folder becomes `<name>.deleted` with everything inside it, and a reward
+table becomes `<name>.json.deleted`. A second removal of the same name does not overwrite the first copy
+— it is numbered, `<name>.deleted.2` — so nothing an author asked to keep is ever lost. The loader skips
+that suffix at every level, exactly as it skips the `_` prefix, so a pack with removed content in it
+still loads.
+
+`Ctrl+Z` puts it back, and it is one history step like any other edit. The history is the **server's**,
+so it does not survive a restart, and `/tenet reload` drops it deliberately — the copies on disk survive
+both, and `/tenet removed` lists them with the name each would come back as. `/tenet restore <path>`
+takes one back: the file or folder returns under its own name and is listed again in the manifest it
+belonged to. Both take permission level 2, like `reload`; see [[tenet:commands]].
 
 ## Reward tables
 

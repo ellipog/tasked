@@ -372,4 +372,117 @@ class TableEditorTest {
         assertTrue(String.join("\n", applied.messages()).contains("nowhere"),
                 "the refusal names the table: " + applied.messages());
     }
+
+    private ServerTables tables() {
+        return new ServerTables(new ServerEditors(() -> root), () -> root, this::loaded,
+                () -> QuestIndex.build(List.of(), new dev.ellipog.armature.api.data.Problems()));
+    }
+
+    @Test
+    @DisplayName("deleting a table twice keeps both copies: the second is numbered, not written over")
+    void aTableDeleteNeverReplacesAnEarlierCopy() throws IOException {
+        // **The one place in this mod that destroyed a tombstone.** The move carried `REPLACE_EXISTING`,
+        // so a table deleted, re-made and deleted again lost the first copy for good -- and a tombstone is
+        // the author's own file, which is the one thing a delete is not allowed to throw away. Nothing
+        // asserted it either, which is why it survived: the round trip below tests the op's shape, not what
+        // it does to a folder.
+        ServerTables tables = tables();
+        Path file = root.resolve("reward_tables/ores.json");
+        Path first = root.resolve("reward_tables/ores.json.deleted");
+        String original = Files.readString(file, StandardCharsets.UTF_8);
+
+        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(Files.isRegularFile(first), "the file is set aside rather than erased");
+        assertEquals(original, Files.readString(first, StandardCharsets.UTF_8), "byte for byte");
+
+        // A second table of the same name, deleted the same way.
+        Files.writeString(file, TABLE, StandardCharsets.UTF_8);
+        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+
+        assertTrue(Files.isRegularFile(first), "the first copy is still there");
+        assertEquals(original, Files.readString(first, StandardCharsets.UTF_8), "and untouched");
+        assertTrue(Files.isRegularFile(root.resolve("reward_tables/ores.json.deleted.2")),
+                "and the second is numbered beside it, which is the rule `isDeletedName` answers for");
+    }
+
+    @Test
+    @DisplayName("a set-aside table is put back by name, byte for byte")
+    void restoresASetAsideTable() throws IOException {
+        ServerTables tables = tables();
+        Path file = root.resolve("reward_tables/ores.json");
+        String original = Files.readString(file, StandardCharsets.UTF_8);
+        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+
+        EditorOps.Applied restored = tables.apply(new TableOp.Restore("reward_tables/ores.json.deleted"));
+
+        assertTrue(restored.ok(), restored.messages().toString());
+        assertEquals(original, Files.readString(file, StandardCharsets.UTF_8), "byte for byte");
+        assertFalse(Files.exists(root.resolve("reward_tables/ores.json.deleted")), "and no copy left");
+
+        // And the numbering is honoured: whichever copy is named is the one that comes back, under the
+        // name the file had -- so a second delete is not a reason to lose the first copy.
+        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        Files.writeString(file, TABLE, StandardCharsets.UTF_8);
+        assertTrue(tables.apply(new TableOp.Delete("ores")).ok());
+        assertTrue(tables.apply(new TableOp.Restore("reward_tables/ores.json.deleted.2")).ok());
+        assertTrue(Files.isRegularFile(file), "the numbered copy comes back under its own name");
+        assertTrue(Files.isRegularFile(root.resolve("reward_tables/ores.json.deleted")),
+                "and the first copy is untouched");
+    }
+
+    @Test
+    @DisplayName("a table restore refuses a path that is not a set-aside table under the root")
+    void aTableRestoreRefusesWhatItCannotDo() throws IOException {
+        // The same containment rule the delete's id rule enforces from the other side: the name arrives
+        // from a command, and a restore moves a file.
+        ServerTables tables = tables();
+
+        assertFalse(tables.apply(new TableOp.Restore("../beside.json.deleted")).ok(),
+                "outside the root");
+        assertFalse(tables.apply(new TableOp.Restore("getting_started/first_steps/one.json")).ok(),
+                "a live file is not a tombstone");
+        assertFalse(tables.apply(new TableOp.Restore("reward_tables/nowhere.json.deleted")).ok(),
+                "and a name that is not there is not a table");
+        assertTrue(Files.isRegularFile(root.resolve("getting_started/first_steps/one.json")),
+                "and nothing was moved");
+    }
+
+    @Test
+    @DisplayName("a table id that is really a path is refused, so a delete cannot rename somebody's quest")
+    void aTableIdThatIsAPathIsRefused() throws IOException {
+        // The id is joined to `reward_tables/` to make both the file and its `.deleted` aside, and it
+        // arrives from the wire: `../getting_started/first_steps/one` passed every check there was -- the
+        // existence test found the quest, and the delete moved it, because the aside is a sibling of
+        // whatever the id happened to name.
+        Path quest = root.resolve("getting_started/first_steps/one.json");
+
+        EditorOps.Applied applied = tables().apply(new TableOp.Delete("../getting_started/first_steps/one"));
+
+        assertFalse(applied.ok(), "a name is not a path");
+        assertTrue(String.join("\n", applied.messages()).contains("no folders"),
+                "and the sentence says which rule it broke: " + applied.messages());
+        assertTrue(Files.isRegularFile(quest), "and the file it named is exactly where it was");
+        assertFalse(Files.exists(quest.resolveSibling("one.json.deleted")), "with no copy beside it");
+    }
+
+    @Test
+    @DisplayName("a name the loader skips is refused for a new table, and allowed for one already there")
+    void anIgnoredNameIsRefusedOnlyWhenMakingOne() throws IOException {
+        // A table called `_draft` is a file no walk reads and no reward can name, so making one is the
+        // fault `ChapterNaming` refuses one level up. An *existing* file with an odd name is a different
+        // question: it is somebody's table, and refusing to edit it would take their pack away from the
+        // editor -- which is why the containment rule judges the path and not the spelling.
+        ServerTables tables = tables();
+
+        EditorOps.Applied made = tables.apply(new TableOp.Create("_draft",
+                JsonParser.parseString("{ \"entries\": [] }").getAsJsonObject()));
+        assertFalse(made.ok(), "a name the loader skips is not a table");
+        assertFalse(Files.exists(root.resolve("reward_tables/_draft.json")), "and nothing was written");
+
+        // The odd name that exists is editable, because the id is a name in the tables folder.
+        Files.writeString(root.resolve("reward_tables/My Table.json"), TABLE, StandardCharsets.UTF_8);
+        assertTrue(tables.apply(new TableOp.Set(TableAddress.of("My Table"), "entries.0.weight",
+                new com.google.gson.JsonPrimitive(7))).ok(),
+                "an existing name is somebody's table, whatever it is spelled like");
+    }
 }

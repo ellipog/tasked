@@ -65,6 +65,12 @@ chapter rather than one per quest. Every edit is written as it is made, so Ctrl+
 than saving. The server re-checks permission and validates before writing: no quest file is written by
 the client, and the player's own look and text size are the client's own files.
 
+**Nothing is deleted, and nothing one-shots.** Every control that takes something away asks twice — the
+Delete key included, which arms on the first press and says what it is about to remove — and the delete
+itself is a rename: a quest file, a chapter's whole folder or a table becomes `<name>.deleted`, and the
+loader skips that suffix everywhere. `Ctrl+Z` puts it back, and the copy outlives the history that the
+key uses, so `/tenet removed` lists what is set aside and `/tenet restore <path>` takes one back.
+
 **For addons and packs.** `TenetEvents` publishes quest, task, claim and stage events, and
 `TaskTypes.register` / `RewardTypes.register` / `ConditionTypes.register` add custom types with
 their own codecs and editor forms. On NeoForge, with KubeJS 7 present, Tenet also registers a

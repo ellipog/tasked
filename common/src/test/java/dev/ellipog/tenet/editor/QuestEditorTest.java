@@ -368,14 +368,17 @@ class QuestEditorTest {
         QuestEditor editor = open();
         Path file = editor.pathOf("two");
 
-        assertTrue(editor.delete("two"));
+        assertTrue(editor.delete("two").ok());
         assertEquals(java.util.List.of("one"), editor.questIds());
         assertNull(editor.quest("two"));
         assertFalse(Files.exists(file), "the file is gone from the folder");
         assertTrue(Files.exists(file.resolveSibling("two.json.deleted")),
                 "and is recoverable: a program that deletes an author's file outright is one mis-click"
                         + " from losing an evening's work");
-        assertFalse(editor.delete("two"), "deleting what is not open is refused");
+        QuestEditor.Deletion again = editor.delete("two");
+        assertFalse(again.ok(), "deleting what is not open is refused");
+        assertTrue(again.refusal().contains("two"),
+                "and the sentence names what was asked for: " + again.refusal());
     }
 
     @Test
@@ -392,7 +395,7 @@ class QuestEditorTest {
         QuestEditor editor = QuestEditor.open(root, "first_steps").orElseThrow();
         String before = Files.readString(folder.resolve("first_tree.json"), StandardCharsets.UTF_8);
 
-        assertTrue(editor.delete("58b556d40904e3b3"));
+        assertTrue(editor.delete("58b556d40904e3b3").ok());
 
         assertFalse(Files.exists(folder.resolve("first_tree.json")), "the file is out of the way");
         assertTrue(Files.exists(folder.resolve("first_tree.json.deleted")),
@@ -460,7 +463,10 @@ class QuestEditorTest {
         Path aside = file.resolveSibling("two.json.deleted");
         Files.writeString(aside, "an earlier copy nobody has dealt with", StandardCharsets.UTF_8);
 
-        assertFalse(editor.delete("two"), "deleting would have destroyed that copy");
+        QuestEditor.Deletion refusal = editor.delete("two");
+        assertFalse(refusal.ok(), "deleting would have destroyed that copy");
+        assertTrue(refusal.refusal().contains("two.json.deleted"),
+                "and the sentence names the copy that is in the way: " + refusal.refusal());
 
         assertTrue(Files.isRegularFile(file), "so nothing moved");
         assertEquals("an earlier copy nobody has dealt with",
@@ -474,13 +480,17 @@ class QuestEditorTest {
     @DisplayName("a delete the manifest cannot account for puts the file back")
     void aDeleteThatCannotBeListedIsRolledBack() throws IOException {
         // The manifest is edited out from under the delete, which is the one way to reach the branch that
-        // used to leave a file renamed and a chapter no longer describing its own folder. `false` has to
-        // mean "nothing changed", or a caller cannot tell a refusal from a half-delete.
+        // used to leave a file renamed and a chapter no longer describing its own folder. A refusal has to
+        // mean "nothing changed", or a caller cannot tell it from a half-delete -- and the sentence has to
+        // name the manifest that could not account for it, which is the thing an author can go and fix.
         QuestEditor editor = open();
         assertTrue(editor.setChapter("quests", java.util.List.of("one.json")));
         Path file = editor.pathOf("two");
 
-        assertFalse(editor.delete("two"), "it could not be accounted for, so it is not a delete");
+        QuestEditor.Deletion refusal = editor.delete("two");
+        assertFalse(refusal.ok(), "it could not be accounted for, so it is not a delete");
+        assertTrue(refusal.refusal().contains("chapter.json"),
+                "and the sentence names the list that does not mention the file: " + refusal.refusal());
 
         assertTrue(Files.isRegularFile(file), "the file is back where it was");
         assertFalse(Files.exists(file.resolveSibling("two.json.deleted")),
@@ -507,7 +517,7 @@ class QuestEditorTest {
         assertEquals(java.util.List.of("58b556d40904e3b3"), editor.declaredIds(),
                 "one id, one quest: the second file is not a second entry");
 
-        assertTrue(editor.delete("58b556d40904e3b3"));
+        assertTrue(editor.delete("58b556d40904e3b3").ok());
         assertFalse(Files.exists(folder.resolve("first_tree.json")),
                 "the quest the author was looking at is the one removed");
         assertTrue(Files.isRegularFile(folder.resolve("other.json")),
@@ -538,7 +548,7 @@ class QuestEditorTest {
         QuestEditor editor = open();
         String before = Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8);
 
-        editor.delete("two");
+        assertTrue(editor.delete("two").ok());
         assertFalse(Files.exists(editor.pathOf("two")));
 
         assertTrue(editor.undo());
@@ -546,6 +556,92 @@ class QuestEditorTest {
         assertTrue(Files.isRegularFile(editor.pathOf("two")), "the file is back");
         assertEquals(before, Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8),
                 "byte for byte, which is what makes an undo an undo");
+    }
+
+    @Test
+    @DisplayName("an undo whose file cannot be put back is a refusal, and the retry converges")
+    void anUndoThatCannotRestoreSaysSo() throws IOException {
+        // **The other half of the silent reversal.** `restore` returned at the first failure and the
+        // caller could not tell, so an undo that stopped half way was reported as accepted. It no longer
+        // stops at the first one either: every file is attempted, because one locked file must not leave
+        // the rest of a chapter unrecovered.
+        QuestEditor editor = open();
+        assertTrue(editor.delete("two").ok());
+        Path back = editor.pathOf("two");
+        assertTrue(Files.isRegularFile(back.resolveSibling("two.json.deleted")),
+                "the copy an undo moves back");
+
+        // The name the file has to come back to is taken by something that is not empty, so the move
+        // cannot replace it.
+        Files.createDirectories(back);
+        Files.writeString(back.resolve("in-the-way.txt"), "not a quest", StandardCharsets.UTF_8);
+
+        assertFalse(editor.undo(), "the file could not come back, so the undo did not happen");
+        String failure = editor.takeLastFailure();
+        assertNotNull(failure, "and there is a sentence rather than a bare false");
+        assertTrue(failure.contains("could not all be put back"), failure);
+
+        // The history is left as it was found, so the retry converges once the name is free again.
+        Files.delete(back.resolve("in-the-way.txt"));
+        Files.delete(back);
+        assertTrue(editor.undo(), "the retry puts the file back");
+        assertTrue(Files.isRegularFile(back), "under its own name");
+        assertEquals(java.util.List.of("one", "two"), editor.questIds());
+        assertFalse(Files.exists(back.resolveSibling("two.json.deleted")), "and no copy is left behind");
+    }
+
+    @Test
+    @DisplayName("a set-aside quest file is put back by name, manifest entry and all")
+    void restoresASetAsideQuest() throws IOException {
+        // **The way back after the history is gone.** The undo stack is the server's memory, so a restart,
+        // a `/tenet reload` or sixty further edits take Ctrl+Z away -- while the copy the delete made is
+        // still on disk. This is the same operation asked for by name, which is what `/tenet restore` does
+        // with the name `/tenet removed` printed.
+        QuestEditor editor = open();
+        String before = Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8);
+        assertTrue(editor.delete("two").ok());
+        Path aside = editor.folder().resolve("two.json.deleted");
+        assertTrue(Files.isRegularFile(aside), "the copy the restore moves back");
+
+        assertTrue(editor.restoreAside(aside).ok());
+
+        assertTrue(Files.isRegularFile(editor.pathOf("two")), "the file is back");
+        assertEquals(before, Files.readString(editor.pathOf("two"), StandardCharsets.UTF_8),
+                "byte for byte, because a restore that re-serialised is not a restore");
+        assertEquals(java.util.List.of("one", "two"), editor.questIds(), "and the manifest lists it again");
+        assertFalse(Files.exists(aside), "with no copy left behind");
+
+        // One history step, like every other edit: a restore that could not be taken back would be its own
+        // small trap.
+        assertTrue(editor.canUndo());
+        assertTrue(editor.undo());
+        assertFalse(Files.exists(editor.pathOf("two")), "Ctrl+Z sets it aside again");
+        assertTrue(Files.isRegularFile(aside));
+    }
+
+    @Test
+    @DisplayName("a restore refuses rather than overwrite, and says which rule it broke")
+    void aRestoreRefusesWhatItCannotDo() throws IOException {
+        QuestEditor editor = open();
+        assertTrue(editor.delete("two").ok());
+        Path aside = editor.folder().resolve("two.json.deleted");
+
+        // The name it would come back to is taken: the move would have to replace a file, and a file is
+        // somebody's work -- so the copy stays where it is and the author is told which name is in the way.
+        Files.writeString(editor.pathOf("two"), "{\"id\":\"two\"}", StandardCharsets.UTF_8);
+        QuestEditor.Deletion taken = editor.restoreAside(aside);
+        assertFalse(taken.ok(), "the file would have been overwritten");
+        assertTrue(taken.refusal().contains("already"), taken.refusal());
+        Files.delete(editor.pathOf("two"));
+
+        QuestEditor.Deletion notATombstone = editor.restoreAside(editor.folder().resolve("one.json"));
+        assertFalse(notATombstone.ok(), "a live file is not a set-aside one");
+        assertTrue(notATombstone.refusal().contains("not a set-aside"), notATombstone.refusal());
+
+        QuestEditor.Deletion elsewhere = editor.restoreAside(
+                editor.folder().getParent().resolve("two.json.deleted"));
+        assertFalse(elsewhere.ok(), "and another chapter's copy is not this editor's to move");
+        assertTrue(elsewhere.refusal().contains("not in this chapter"), elsewhere.refusal());
     }
 
     @Test

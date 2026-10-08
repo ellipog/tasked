@@ -864,15 +864,29 @@ class QuestFilesTest {
         }
 
         @Test
-        @DisplayName("deleted folders are skipped at every level, listed or not")
+        @DisplayName("deleted folders are skipped at every level, listed or not, in either spelling")
         void deletedFoldersAreSkipped(@TempDir Path root) throws IOException {
-            // A recoverable delete is a rename to `<name>.deleted`, for a chapter and for a group. The
-            // walk has to skip the suffix everywhere -- and the unlisted-content sweep must not report
-            // it either, or undoing a delete would require editing the manifest by hand.
+            // A recoverable delete is a rename to `<name>.deleted` for a chapter and for a group -- and to
+            // `<name>.deleted.2` when a copy of that name is already set aside, which
+            // `QuestStructure.aside` does rather than overwrite one, and which this mod's own undo writes
+            // (create a chapter, undo it, create it again, undo it again). The walk has to skip *both*
+            // spellings everywhere -- and the unlisted-content sweep must not report either, or undoing a
+            // delete would require editing the manifest by hand.
+            //
+            // **The numbered case is the one that was missing**, and the failure it hid is the worse of
+            // the two: `QuestStructure.bootEntries` filters with the same predicate, so a numbered
+            // tombstone read as a root entry and the next structural edit wrote
+            // `{"chapter": "old_chapter.deleted.2"}` into index.json -- the editor declaring a deleted
+            // folder as book content.
             write(root, "gone.deleted/group.json", group("gone", "[]"));
+            write(root, "gone.deleted.2/group.json", group("gone", "[]"));
             write(root, "live/group.json", group("live", "[\"kept\"]"));
-            write(root, "live/kept/chapter.json", chapter("kept", "[]"));
+            write(root, "live/kept/chapter.json", chapter("kept", "[\"a.json\"]"));
+            write(root, "live/kept/a.json", quest("a"));
+            write(root, "live/kept/gone.json.deleted", quest("gone"));
+            write(root, "live/kept/gone.json.deleted.2", quest("gone"));
             write(root, "live/old_chapter.deleted/chapter.json", chapter("old_chapter", "[]"));
+            write(root, "live/old_chapter.deleted.2/chapter.json", chapter("old_chapter", "[]"));
             write(root, "index.json", index("[{\"group\": \"live\"}]"));
 
             QuestFiles.Discovery found = QuestFiles.discover(root);
@@ -880,6 +894,30 @@ class QuestFilesTest {
             assertTrue(found.ok(), messages(found.problems()));
             assertEquals(List.of("live/group.json"), displays(found, QuestFiles.Kind.GROUP));
             assertEquals(List.of("live/kept/chapter.json"), displays(found, QuestFiles.Kind.CHAPTER));
+            assertEquals(List.of("live/kept/a.json"), displays(found, QuestFiles.Kind.QUEST));
+        }
+
+        @Test
+        @DisplayName("the tombstone predicate answers for both spellings, and for nothing else")
+        void deletedNamesInEitherSpelling(@TempDir Path root) {
+            // The predicate itself, swept by hand, because it is the one rule every skip in this class
+            // reads -- root, group, chapter, the id walk and the reward tables.
+            assertTrue(QuestFiles.isDeletedName("x.deleted"), "the plain suffix");
+            assertTrue(QuestFiles.isDeletedName("x.json.deleted"), "a quest's aside is the same suffix");
+            assertTrue(QuestFiles.isDeletedName("x.deleted.2"), "a numbered aside");
+            assertTrue(QuestFiles.isDeletedName("x.json.deleted.10"), "and a numbered quest aside");
+            assertTrue(QuestFiles.isDeletedName(".deleted"), "the suffix alone is still the suffix");
+            assertTrue(QuestFiles.isDeletedName(".deleted.2"), "and so is a numbered one alone");
+
+            assertFalse(QuestFiles.isDeletedName("x"), "an ordinary name");
+            assertFalse(QuestFiles.isDeletedName("deleted"), "the word without the dot");
+            assertFalse(QuestFiles.isDeletedName("x.deletedx"), "the suffix has to end the name");
+            assertFalse(QuestFiles.isDeletedName("x.deleted."), "a trailing dot names no number");
+            assertFalse(QuestFiles.isDeletedName("x.deleted.two"), "the number has to be a number");
+            assertFalse(QuestFiles.isDeletedName("x.deleted.2.3"), "and there is only one number");
+            assertFalse(QuestFiles.isDeletedName("x.deleted.2x"), "nor may digits run into a name");
+            assertFalse(QuestFiles.isDeletedName(null), "null names nothing");
+            assertFalse(QuestFiles.isDeletedName(""), "and neither does an empty string");
         }
 
         @Test
@@ -1027,6 +1065,7 @@ class QuestFilesTest {
             write(root, "reward_tables/a_first.json", "{}");
             write(root, "reward_tables/notes.txt", "not a table");
             write(root, "reward_tables/old.json.deleted", "{}");
+            write(root, "reward_tables/older.json.deleted.2", "{}");
 
             List<Path> files = QuestFiles.rewardTableFiles(root);
 
@@ -1066,6 +1105,97 @@ class QuestFilesTest {
      * be in the pool. The pool being too <i>small</i> is the failure that costs something: two quests under
      * one id share one progress record, and the second becomes unreachable while still being drawn.
      */
+    @Nested
+    @DisplayName("the removed list")
+    class RemovedList {
+
+        @Test
+        @DisplayName("every spelling is listed once, with the name it would come back as")
+        void everythingSetAside(@TempDir Path root) throws IOException {
+            // **What nothing else would tell an author.** The editor's tree skips tombstones by design, so
+            // after a server restart -- when the undo history is gone -- the fact that their work is still
+            // on disk is a fact no screen shows. This is the list a restore is asked for by name from.
+            write(root, "live/group.json", group("live", "[\"kept\"]"));
+            write(root, "live/kept/chapter.json", chapter("kept", "[\"a.json\"]"));
+            write(root, "live/kept/a.json", quest("a"));
+            write(root, "live/kept/gone.json.deleted", quest("gone"));
+            write(root, "live/kept/gone.json.deleted.2", quest("gone"));
+            write(root, "live/old_chapter.deleted/chapter.json", chapter("old_chapter", "[]"));
+            write(root, "live/old_chapter.deleted/inside.json", quest("inside"));
+            write(root, "gone_group.deleted/group.json", group("gone_group", "[]"));
+            write(root, "reward_tables/ores.json.deleted", "{}");
+            write(root, "reward_tables/ores.json.deleted.2", "{}");
+
+            List<Removed> removed = QuestFiles.removedFiles(root);
+
+            assertEquals(List.of(
+                            "gone_group.deleted",
+                            "live/kept/gone.json.deleted",
+                            "live/kept/gone.json.deleted.2",
+                            "live/old_chapter.deleted",
+                            "reward_tables/ores.json.deleted",
+                            "reward_tables/ores.json.deleted.2"),
+                    removed.stream().map(Removed::path).toList(),
+                    "name-sorted, both spellings, and the quest inside the set-aside chapter is not offered "
+                            + "on its own -- restoring the chapter brings it with it");
+            assertEquals(Removed.Kind.GROUP, removed.get(0).kind());
+            assertEquals("gone_group", removed.get(0).name());
+            assertEquals(Removed.Kind.QUEST, removed.get(1).kind());
+            assertEquals("gone.json", removed.get(1).name(), "the suffix and the number both come off");
+            assertEquals(Removed.Kind.CHAPTER, removed.get(3).kind());
+            assertEquals("old_chapter", removed.get(3).name());
+            assertEquals(Removed.Kind.TABLE, removed.get(4).kind());
+            assertEquals("ores.json", removed.get(4).name());
+            assertTrue(removed.get(0).sentence().contains("gone_group.deleted"),
+                    "the sentence starts with the argument: " + removed.get(0).sentence());
+        }
+
+        @Test
+        @DisplayName("a tree with nothing set aside lists nothing, which is not an error")
+        void nothingSetAside(@TempDir Path root) throws IOException {
+            write(root, "live/group.json", group("live", "[\"kept\"]"));
+            write(root, "live/kept/chapter.json", chapter("kept", "[\"a.json\"]"));
+            write(root, "live/kept/a.json", quest("a"));
+
+            assertEquals(List.of(), QuestFiles.removedFiles(root));
+            assertEquals(List.of(), QuestFiles.removedFiles(root.resolve("nowhere")),
+                    "and a root that is not there is empty rather than a crash");
+        }
+
+        @Test
+        @DisplayName("a note set aside is not offered: only a quest file is content")
+        void onlyQuestFilesInsideAChapter(@TempDir Path root) throws IOException {
+            write(root, "live/group.json", group("live", "[\"kept\"]"));
+            write(root, "live/kept/chapter.json", chapter("kept", "[]"));
+            write(root, "live/kept/notes.txt.deleted", "a note");
+
+            assertEquals(List.of(), QuestFiles.removedFiles(root));
+        }
+
+        @Test
+        @DisplayName("a name resolves only when it is a set-aside thing under this root")
+        void resolveOnlyTombstonesInsideTheRoot(@TempDir Path root) throws IOException {
+            // **The door to a restore, and a restore moves files.** The name arrives from a command or a
+            // payload, so containment is the point rather than a formality: the tombstone beside the root is
+            // the case that would otherwise move somebody else's file.
+            write(root, "live/kept/chapter.json", chapter("kept", "[]"));
+            write(root, "live/kept/gone.json.deleted", quest("gone"));
+            write(root, "../beside.json.deleted", quest("beside"));
+
+            assertEquals(root.resolve("live/kept/gone.json.deleted").toAbsolutePath().normalize(),
+                    QuestFiles.resolveRemoved(root, "live/kept/gone.json.deleted"));
+
+            assertEquals(null, QuestFiles.resolveRemoved(root, "live/kept/gone.json"), "not a tombstone");
+            assertEquals(null, QuestFiles.resolveRemoved(root, "../beside.json.deleted"),
+                    "a tombstone, but not under this root");
+            assertEquals(null, QuestFiles.resolveRemoved(root, "live/kept/nothing.json.deleted"),
+                    "a name that is not there");
+            assertEquals(null, QuestFiles.resolveRemoved(root, ""), "nothing named");
+            assertEquals(null, QuestFiles.resolveRemoved(root, null), "and nothing at all");
+            assertEquals(null, QuestFiles.resolveRemoved(root, "."), "the root itself is not a tombstone");
+        }
+    }
+
     @Nested
     @DisplayName("every id in the tree")
     class EveryId {
