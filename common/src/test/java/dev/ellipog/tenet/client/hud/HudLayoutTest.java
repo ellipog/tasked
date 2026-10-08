@@ -56,7 +56,8 @@ class HudLayoutTest {
             for (int height : HEIGHTS) {
                 for (int x : new int[] {-999, -1, 0, 7, 100, 5000}) {
                     for (int y : new int[] {-60, 0, 33, 4000}) {
-                        BookGeometry.Rect box = HudLayout.boxAt(element, width, height, x, y);
+                        BookGeometry.Rect box = HudLayout.boxAt(element, width, height, x, y,
+                                element.width(), element.height());
                         assertTrue(box.x() >= 0 && box.right() <= Math.max(width, element.width()),
                                 "x " + x + " at " + width + " wide landed at " + box);
                         assertTrue(box.y() >= 0 && box.bottom() <= Math.max(height, element.height()),
@@ -74,7 +75,7 @@ class HudLayoutTest {
             for (int width : WIDTHS) {
                 for (int height : HEIGHTS) {
                     BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
-                            element.defaultX(), element.defaultY());
+                            element.defaultX(), element.defaultY(), element.width(), element.height());
                     assertTrue(box.x() >= 0 && box.right() <= Math.max(width, element.width()),
                             element + "'s default x is off the window at " + width + "x" + height + ": " + box);
                     assertTrue(box.y() >= 0 && box.bottom() <= Math.max(height, element.height()),
@@ -87,10 +88,12 @@ class HudLayoutTest {
     @Test
     @DisplayName("the rows panel is on the window, gives way to a narrow one, and grows with every element")
     void theChromeFitsAndGrows() {
+        java.util.List<HudElement> all = java.util.List.of(HudElement.values());
         for (int width : WIDTHS) {
             for (int height : HEIGHTS) {
                 for (int rows = 1; rows <= 6; rows++) {
-                    BookGeometry.Rect chrome = HudLayout.chrome(width, height, rows);
+                    java.util.List<HudElement> shown = all.subList(0, Math.min(rows, all.size()));
+                    BookGeometry.Rect chrome = HudLayout.chrome(width, height, shown);
                     assertTrue(chrome.x() >= 0 && chrome.y() >= 0, "the rows start off the window: " + chrome);
                     assertTrue(chrome.width() <= HudLayout.CHROME_WIDTH,
                             "the rows are never wider than they need to be: " + chrome);
@@ -112,7 +115,8 @@ class HudLayoutTest {
                     }
 
                     if (rows > 1) {
-                        assertTrue(chrome.height() > HudLayout.chrome(width, height, rows - 1).height(),
+                        assertTrue(chrome.height() > HudLayout.chrome(width, height,
+                                        shown.subList(0, shown.size() - 1)).height(),
                                 "an extra element has to make room for itself");
                     }
                 }
@@ -123,21 +127,27 @@ class HudLayoutTest {
     @Test
     @DisplayName("the rows are inside their panel and never overlap each other")
     void theRowsStayInsideTheirPanel() {
+        java.util.List<HudElement> all = java.util.List.of(HudElement.values());
         for (int rows = 1; rows <= 6; rows++) {
-            BookGeometry.Rect chrome = HudLayout.chrome(640, 480, rows);
+            java.util.List<HudElement> shown = all.subList(0, Math.min(rows, all.size()));
+            BookGeometry.Rect chrome = HudLayout.chrome(640, 480, shown);
             BookGeometry.Rect previous = null;
-            for (int index = 0; index < rows; index++) {
-                BookGeometry.Rect label = HudLayout.label(index, chrome);
-                BookGeometry.Rect toggle = HudLayout.toggle(index, chrome);
-                BookGeometry.Rect move = HudLayout.move(index, chrome);
-                BookGeometry.Rect reset = HudLayout.reset(index, chrome);
+            for (int index = 0; index < shown.size(); index++) {
+                BookGeometry.Rect label = HudLayout.label(index, chrome, shown);
+                BookGeometry.Rect toggle = HudLayout.toggle(index, chrome, shown);
+                BookGeometry.Rect reset = HudLayout.reset(index, chrome, shown);
 
-                for (BookGeometry.Rect box : new BookGeometry.Rect[] {label, toggle, move, reset}) {
+                for (BookGeometry.Rect box : new BookGeometry.Rect[] {label, toggle, reset}) {
                     assertTrue(inside(box, chrome), "row " + index + "'s " + box + " is outside " + chrome);
                 }
-                assertFalse(overlaps(toggle, move), "the switch and Move collide on row " + index);
-                assertFalse(overlaps(move, reset), "Move and Reset collide on row " + index);
+                assertFalse(overlaps(toggle, reset), "the switch and Reset collide on row " + index);
                 assertFalse(overlaps(label, toggle), "the label runs into the switch on row " + index);
+                if (shown.get(index).kind() == HudElement.Kind.HUD) {
+                    BookGeometry.Rect slider = HudLayout.slider(index, chrome, shown);
+                    assertTrue(inside(slider, chrome), "row " + index + "'s slider is outside " + chrome);
+                    assertFalse(overlaps(reset, slider), "the slider runs into Reset on row " + index);
+                    assertEquals(label.width(), slider.width(), "the slider spans the row like the label");
+                }
                 if (previous != null) {
                     assertFalse(overlaps(previous, label), "row " + index + " starts before row " + (index - 1)
                             + " has finished");
@@ -145,9 +155,9 @@ class HudLayoutTest {
                 previous = label;
             }
             assertTrue(inside(HudLayout.done(chrome), chrome), "Done is inside the foot");
-            for (int index = 0; index < rows; index++) {
-                assertFalse(overlaps(HudLayout.done(chrome), HudLayout.move(index, chrome)),
-                        "Done collides with a row's Move at " + rows + " rows");
+            for (int index = 0; index < shown.size(); index++) {
+                assertFalse(overlaps(HudLayout.done(chrome), HudLayout.reset(index, chrome, shown)),
+                        "Done collides with a row's Reset at " + shown.size() + " rows");
             }
         }
     }
@@ -270,16 +280,31 @@ class HudLayoutTest {
     }
 
     @Test
-    @DisplayName("the element form is the measured form with the entry's own size")
+    @DisplayName("the element form is the measured form, placed through the element's anchor")
     void theElementFormIsTheMeasuredForm() {
         for (HudElement element : HudElement.values()) {
             for (int width : WIDTHS) {
                 for (int height : HEIGHTS) {
                     for (int x : new int[] {-40, 0, 55, 9000}) {
-                        assertEquals(
-                                HudLayout.boxAt(x, 12, element.width(), element.height(), width, height),
-                                HudLayout.boxAt(element, width, height, x, 12),
-                                element + " has two answers to what its box is");
+                        for (int boxHeight : new int[] {14, 200, 4000}) {
+                            BookGeometry.Rect box = HudLayout.boxAt(element, width, height, x, 12,
+                                    element.width(), boxHeight);
+                            assertEquals(element.width(), box.width(), "the size is the caller's");
+                            assertEquals(boxHeight, box.height());
+                            if (element.anchor() == HudElement.Anchor.TOP_LEFT) {
+                                assertEquals(
+                                        HudLayout.boxAt(x, 12, element.width(), boxHeight, width, height),
+                                        box, element + " has two answers to what its box is");
+                            }
+                            else {
+                                // A middle-anchored element centres what the top-left form would corner:
+                                // the same x, and a y the stored offset moves equally both ways.
+                                assertEquals(
+                                        HudLayout.boxAt(x, height / 2 + 12 - boxHeight / 2, element.width(),
+                                                boxHeight, width, height),
+                                        box, element + " centres rather than corners");
+                            }
+                        }
                     }
                 }
             }
@@ -287,25 +312,128 @@ class HudLayoutTest {
     }
 
     /**
-     * The shipped layout does not put one element over another.
+     * The middle-anchored element grows from its middle, and a stored position round-trips.
      *
-     * <p>A default is what a player sees before they have moved anything, and a client whose pinned panel and
-     * whose notices are drawn on top of each other on the first quest completed reads as a broken mod rather
-     * than as a setting they have not visited yet. The editor is where the two are separated by hand; this is
-     * the claim that nobody has to.
+     * <p>Because that is the whole of the anchor: a stack that centred itself in the default case and
+     * cornered itself the moment anything about it moved would jump the first time a pin landed, and a
+     * drop that stored a corner the game reads as a centre would move the stack by half its height on
+     * the next frame. Both are asserted here rather than argued about, over the same sweep of windows
+     * as everything else in this file.
+     */
+    @Test
+    @DisplayName("a middle-anchored box stays centred as it grows, and a drop stores its centre")
+    void middleAnchorGrowsBothWays() {
+        HudElement element = HudElement.PINNED_QUESTS;
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                // At the default offset of zero, the middle of the box is the middle of the window --
+                // whatever the box holds. That is the claim "middle-left by default" reduces to.
+                for (int boxHeight : new int[] {14, 100, 300}) {
+                    if (boxHeight > height) {
+                        continue;
+                    }
+                    BookGeometry.Rect box = HudLayout.boxAt(element, width, height, 4, 0, 150, boxHeight);
+                    assertEquals(height / 2, box.y() + box.height() / 2,
+                            "a default stack is centred at " + width + "x" + height + ": " + box);
+                }
+                // A taller stack than the window parks at the top rather than centring off both edges,
+                // which is `placed`'s answer for a box bigger than its limit.
+                BookGeometry.Rect over = HudLayout.boxAt(element, width, height, 4, 0, 150, height + 400);
+                assertEquals(0, over.y(), "an overflowing stack parks at the top: " + over);
+
+                // The round trip a drop depends on: place it, store it, place it again, same box.
+                for (int y : new int[] {-200, -3, 0, 40, 900}) {
+                    BookGeometry.Rect placed = HudLayout.boxAt(element, width, height, 4, y, 150, 120);
+                    int stored = HudLayout.storedY(element, height, placed.y(), placed.height());
+                    BookGeometry.Rect again = HudLayout.boxAt(element, width, height, 4, stored, 150, 120);
+                    assertEquals(placed, again, "a drop at offset " + y + " moved the stack to " + again);
+                }
+                // And the path a real drop takes, which the round trip above does not model: the widget
+                // hands over its corner, not a placed box, and routing that corner through `boxAt` would
+                // read it as a centre-offset a second time -- the box jumping by half its height on release.
+                // A drop clamps the corner first and converts once, so the next frame draws it where the
+                // pointer put it down.
+                for (int corner : new int[] {-50, 0, 200, 1000}) {
+                    int top = HudLayout.placed(corner, height - 120);
+                    int stored = HudLayout.storedY(element, height, top, 120);
+                    BookGeometry.Rect drawn = HudLayout.boxAt(element, width, height, 4, stored, 150, 120);
+                    assertEquals(top, drawn.y(), "a drop at corner " + corner + " drew at " + drawn.y());
+                }
+                // And a top-left element stores the corner it was given, as it always has.
+                BookGeometry.Rect corner = HudLayout.boxAt(HudElement.NOTIFICATIONS, width, height,
+                        9, 44, 150, 14);
+                assertEquals(corner.y(),
+                        HudLayout.storedY(HudElement.NOTIFICATIONS, height, corner.y(), corner.height()));
+            }
+        }
+    }
+
+    /**
+     * The middle default is centred, at every swept size.
+     *
+     * <p>A default is what a player sees before they have moved anything, and "middle-left" that arrived
+     * somewhere else would read as the anchor not working rather than as a setting not yet visited. Every
+     * swept window is taller than the table's own box, so this is the centred case throughout; the parked
+     * case -- a stack taller than its window -- is covered by the round trip below, which sweeps a 4000px
+     * box against the same windows.
+     */
+    @Test
+    @DisplayName("the middle-anchored default is centred wherever it fits")
+    void theMiddleDefaultIsCentred() {
+        HudElement element = HudElement.PINNED_QUESTS;
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
+                        element.defaultX(), element.defaultY(), element.width(), element.height());
+                assertEquals(height / 2, box.y() + box.height() / 2,
+                        "centred at " + width + "x" + height + ": " + box);
+            }
+        }
+    }
+
+    /**
+     * The shipped positions do not start on top of each other at an ordinary size.
+     *
+     * <p>A default is what a player sees before they have moved anything, and a client whose pinned stack
+     * and whose notices are drawn on top of each other on the first quest completed reads as a broken mod
+     * rather than as a setting they have not visited yet. Asserted at one ordinary window rather than swept:
+     * the pins are middle-anchored now, so on a short enough window any two fixed rows meet -- which is what
+     * the editor is for, and what a sweep would misread as a fault.
      */
     @Test
     @DisplayName("the two HUD elements do not ship on top of each other")
     void theDefaultsDoNotSitOnEachOther() {
-        for (int width : WIDTHS) {
-            for (int height : HEIGHTS) {
-                BookGeometry.Rect pinned = HudLayout.boxAt(HudElement.PINNED_QUESTS, width, height,
-                        HudElement.PINNED_QUESTS.defaultX(), HudElement.PINNED_QUESTS.defaultY());
-                BookGeometry.Rect notices = HudLayout.boxAt(HudElement.NOTIFICATIONS, width, height,
-                        HudElement.NOTIFICATIONS.defaultX(), HudElement.NOTIFICATIONS.defaultY());
-                assertFalse(overlaps(pinned, notices), "the shipped layout draws the pinned panel over the"
-                        + " notices at " + width + "x" + height + ": " + pinned + " and " + notices);
+        BookGeometry.Rect pinned = HudLayout.boxAt(HudElement.PINNED_QUESTS, 320, 240,
+                HudElement.PINNED_QUESTS.defaultX(), HudElement.PINNED_QUESTS.defaultY(),
+                HudElement.PINNED_QUESTS.width(), HudElement.PINNED_QUESTS.height());
+        BookGeometry.Rect notices = HudLayout.boxAt(HudElement.NOTIFICATIONS, 320, 240,
+                HudElement.NOTIFICATIONS.defaultX(), HudElement.NOTIFICATIONS.defaultY(),
+                HudElement.NOTIFICATIONS.width(), HudElement.NOTIFICATIONS.height());
+        assertFalse(overlaps(pinned, notices), "the shipped layout draws the pinned stack over the"
+                + " notices at 320x240: " + pinned + " and " + notices);
+    }
+
+    @Test
+    @DisplayName("a drawn row is taller than a control row by exactly its slider line")
+    void hudRowsCarryASliderLine() {
+        assertEquals(HudLayout.ROW_HEIGHT, HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
+                "a control's row is unchanged");
+        assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
+                HudLayout.rowHeight(HudElement.PINNED_QUESTS));
+        assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
+                HudLayout.rowHeight(HudElement.NOTIFICATIONS));
+
+        java.util.List<HudElement> all = java.util.List.of(HudElement.values());
+        BookGeometry.Rect chrome = HudLayout.chrome(640, 480, all);
+        for (int index = 0; index < all.size(); index++) {
+            if (all.get(index).kind() != HudElement.Kind.HUD) {
+                continue;
             }
+            BookGeometry.Rect slider = HudLayout.slider(index, chrome, all);
+            BookGeometry.Rect reset = HudLayout.reset(index, chrome, all);
+            assertEquals(reset.y() + HudLayout.CONTROL_LINE + HudLayout.ROW_GAP, slider.y(),
+                    "the slider sits on its own line under the controls of row " + index);
+            assertEquals(HudLayout.SLIDER_LINE, slider.height());
         }
     }
 

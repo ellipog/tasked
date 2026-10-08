@@ -1,6 +1,9 @@
 package dev.ellipog.tenet.client.hud;
 
+import dev.ellipog.armature.client.ArmatureSlider;
 import dev.ellipog.tenet.client.BookGeometry;
+
+import java.util.List;
 
 /**
  * Where the HUD editor's parts go: the rows panel, and every element's box.
@@ -33,13 +36,13 @@ public final class HudLayout {
     public static final int CHROME_WIDTH = 190;
 
     /** One row is a label line and a control line. */
-    public static final int LABEL_LINE = 12;
+    public static final int LABEL_LINE = 10;
 
     /** The same, for the line holding the switch and the two buttons. */
     public static final int CONTROL_LINE = 18;
 
     /** The gap between one element's row and the next. */
-    public static final int ROW_GAP = 6;
+    public static final int ROW_GAP = 4;
 
     /** One element's whole row. */
     public static final int ROW_HEIGHT = LABEL_LINE + CONTROL_LINE + ROW_GAP;
@@ -54,42 +57,71 @@ public final class HudLayout {
     public static final int SWITCH_HEIGHT = 12;
 
     /** Move and Reset, side by side at the right of a row's control line. */
-    public static final int BUTTON_WIDTH = 46;
+    public static final int BUTTON_WIDTH = 40;
 
     /** The gap between them. */
     public static final int BUTTON_GAP = 4;
 
     /**
+     * A drawn element's background-strength slider, on its own line under its controls.
+     *
+     * <p>From {@code ArmatureSlider}: a compile-time constant, so this stays game-free like the switch's
+     * own. Only drawn elements get the line -- a control draws itself, and a slider for a button's
+     * background would be a control for something nothing reads.
+     */
+    public static final int SLIDER_LINE = ArmatureSlider.HEIGHT;
+
+    /**
      * The narrowest the rows can be and still hold their controls.
      *
-     * <p>A switch, two buttons, the gaps between them and the panel's own margins. Below this the editor
+     * <p>A switch, one button, the gaps between them and the panel's own margins. Below this the editor
      * cannot be drawn honestly -- a control the player cannot reach is worse than a panel that overlaps
      * something -- so the panel stops shrinking here and overflows instead, which is what a window this small
      * gets. Declared after the parts it is made of, because a constant cannot refer forward.
      */
     public static final int MIN_CHROME_WIDTH =
-            INSET + SWITCH_WIDTH + BUTTON_GAP + BUTTON_WIDTH * 2 + BUTTON_GAP + INSET;
+            INSET + SWITCH_WIDTH + BUTTON_GAP + BUTTON_WIDTH + BUTTON_GAP + INSET;
 
     private HudLayout() {
     }
 
     /**
-     * The rows panel, in the bottom-left corner. Its height follows how many elements there are, and its
+     * The rows panel, in the bottom-left corner. Its height follows which elements there are, and its
      * width gives way to a narrow window before its controls do.
      *
      * <p>The label line shrinks first -- it is a name, and a truncated name is still a name -- which is what
      * keeps <i>Done</i> and the two buttons on the window at sizes well below the panel's natural width.
+     * Drawn elements cost an extra slider line each; see {@link #rowHeight}.
      */
-    public static BookGeometry.Rect chrome(int screenWidth, int screenHeight, int rows) {
-        int height = chromeHeight(rows);
+    public static BookGeometry.Rect chrome(int screenWidth, int screenHeight,
+                                           List<HudElement> elements) {
+        int height = chromeHeight(elements);
         int width = Math.max(MIN_CHROME_WIDTH, Math.min(CHROME_WIDTH, screenWidth - INSET * 2));
         return BookGeometry.Rect.at(INSET, Math.max(0, screenHeight - INSET - height), width, height);
     }
 
-    /** The whole height the chrome needs for this many rows, footer included. */
-    public static int chromeHeight(int rows) {
-        int counted = Math.max(1, rows);
-        return INSET * 2 + counted * ROW_HEIGHT + FOOT_HEIGHT;
+    /** The whole height the chrome needs for these rows, footer included. */
+    public static int chromeHeight(List<HudElement> elements) {
+        int height = INSET * 2 + FOOT_HEIGHT;
+        for (HudElement element : elements) {
+            height += rowHeight(element);
+        }
+        return height;
+    }
+
+    /**
+     * One element's whole row: the label, the controls, and -- for a drawn element -- the background slider.
+     *
+     * <p>Per kind rather than one constant, because only a drawn element has a background to strengthen: a
+     * slider line on a control's row would be a control for something nothing reads. The slider needs its
+     * own line the way the switch and the buttons share theirs -- a slider squeezed beside them would be a
+     * 60-pixel track, which is its own minimum and therefore no room to aim in.
+     */
+    public static int rowHeight(HudElement element) {
+        if (element.kind() == HudElement.Kind.HUD) {
+            return LABEL_LINE + CONTROL_LINE + ROW_GAP + SLIDER_LINE + ROW_GAP;
+        }
+        return ROW_HEIGHT;
     }
 
     /**
@@ -142,10 +174,13 @@ public final class HudLayout {
      * <p>Takes the size separately rather than from the element, because two of the four are as big as what
      * they hold: a pin list and a notice stack are measured every frame, and a box clamped against the
      * table's starting size would leave a drawn element hanging off the window the moment its content grew.
-     * See {@link #boxAt(int, int, int, int, int, int)}.
+     * Reads the element's {@code Anchor} for the vertical axis, so render, preview and drop below all place
+     * one element one way -- see {@link #placedTop}.
      */
-    public static BookGeometry.Rect boxAt(HudElement element, int screenWidth, int screenHeight, int x, int y) {
-        return boxAt(x, y, element.width(), element.height(), screenWidth, screenHeight);
+    public static BookGeometry.Rect boxAt(HudElement element, int screenWidth, int screenHeight, int x, int y,
+                                          int width, int height) {
+        return boxAt(x, placedTop(element, screenHeight, y, height), width, height, screenWidth,
+                screenHeight);
     }
 
     /**
@@ -154,6 +189,10 @@ public final class HudLayout {
      * <p>The clamp is {@link #placed}'s, and it is deliberately the whole of the rule -- including when the
      * content is wider than the window, where the answer is a box at zero that overflows rather than a box
      * cut in half that answers for a size nothing drew. Same reading as {@link #MIN_CHROME_WIDTH}.
+     *
+     * <p>Top-left only: this is the primitive the anchored form above converts into. A caller with an
+     * element reaches for {@link #boxAt(HudElement, int, int, int, int, int, int)} instead, which is what
+     * keeps one element placed one way everywhere it is placed.
      */
     public static BookGeometry.Rect boxAt(int x, int y, int width, int height,
                                           int screenWidth, int screenHeight) {
@@ -163,29 +202,73 @@ public final class HudLayout {
                 width, height);
     }
 
+    /**
+     * Where the top of a box goes, from what the file holds.
+     *
+     * <p>Top-left for a top-left element: the stored number <i>is</i> the top. Centred for a middle
+     * element: the stored number is an offset from the window's vertical centre, so the box grows equally
+     * both ways as its content changes height -- and a stack that centred itself only in the default case
+     * would jump the first time anything about it moved.
+     *
+     * <p>Clamped like everything else here: a stack taller than the window parks at the top rather than
+     * centring off both edges, which is {@link #placed}'s answer for a box bigger than its limit.
+     */
+    public static int placedTop(HudElement element, int screenHeight, int y, int height) {
+        if (element.anchor() == HudElement.Anchor.MIDDLE_LEFT) {
+            return placed(screenHeight / 2 + y - height / 2, screenHeight - height);
+        }
+        return placed(y, screenHeight - height);
+    }
+
+    /**
+     * What the file holds, from where a box was put.
+     *
+     * <p>The inverse of {@link #placedTop}, and it has to be: a drop writes the widget's top-left corner,
+     * but a middle-anchored element is <i>read</i> from its centre, so storing the corner would move the
+     * box by half its height on the next frame. Read and write go through the same anchor, which is what
+     * makes a round trip land where the pointer put it down.
+     */
+    public static int storedY(HudElement element, int screenHeight, int top, int height) {
+        if (element.anchor() == HudElement.Anchor.MIDDLE_LEFT) {
+            return top + height / 2 - screenHeight / 2;
+        }
+        return top;
+    }
+
     /** One row's label line. */
-    public static BookGeometry.Rect label(int index, BookGeometry.Rect chrome) {
-        return BookGeometry.Rect.at(chrome.x() + INSET, rowTop(index, chrome),
+    public static BookGeometry.Rect label(int index, BookGeometry.Rect chrome,
+                                          List<HudElement> elements) {
+        return BookGeometry.Rect.at(chrome.x() + INSET, rowTop(index, chrome, elements),
                 Math.max(0, chrome.width() - INSET * 2), LABEL_LINE);
     }
 
     /** The show/hide switch of one row, at the left of its control line. */
-    public static BookGeometry.Rect toggle(int index, BookGeometry.Rect chrome) {
+    public static BookGeometry.Rect toggle(int index, BookGeometry.Rect chrome,
+                                           List<HudElement> elements) {
         return BookGeometry.Rect.at(chrome.x() + INSET,
-                controlTop(index, chrome) + (CONTROL_LINE - SWITCH_HEIGHT) / 2,
+                controlTop(index, chrome, elements) + (CONTROL_LINE - SWITCH_HEIGHT) / 2,
                 SWITCH_WIDTH, SWITCH_HEIGHT);
     }
 
-    /** The Move button of one row. */
-    public static BookGeometry.Rect move(int index, BookGeometry.Rect chrome) {
-        return BookGeometry.Rect.at(reset(index, chrome).x() - BUTTON_GAP - BUTTON_WIDTH,
-                controlTop(index, chrome), BUTTON_WIDTH, CONTROL_LINE);
+    /** The Reset button of one row, against the chrome's right inset. */
+    public static BookGeometry.Rect reset(int index, BookGeometry.Rect chrome,
+                                          List<HudElement> elements) {
+        return BookGeometry.Rect.at(chrome.right() - INSET - BUTTON_WIDTH,
+                controlTop(index, chrome, elements), BUTTON_WIDTH, CONTROL_LINE);
     }
 
-    /** The Reset button of one row, against the chrome's right inset. */
-    public static BookGeometry.Rect reset(int index, BookGeometry.Rect chrome) {
-        return BookGeometry.Rect.at(chrome.right() - INSET - BUTTON_WIDTH, controlTop(index, chrome),
-                BUTTON_WIDTH, CONTROL_LINE);
+    /**
+     * A drawn element's background-strength slider, on its own line under its controls.
+     *
+     * <p>Full inset width, like the label: a slider is aimed along its whole length, and the control line
+     * above is already spoken for. Only meaningful for {@code Kind.HUD} rows -- the screen builds no slider
+     * for a control, so asking this for one is a caller error the same way drawing one would be.
+     */
+    public static BookGeometry.Rect slider(int index, BookGeometry.Rect chrome,
+                                           List<HudElement> elements) {
+        return BookGeometry.Rect.at(chrome.x() + INSET,
+                controlTop(index, chrome, elements) + CONTROL_LINE + ROW_GAP,
+                Math.max(0, chrome.width() - INSET * 2), SLIDER_LINE);
     }
 
     /** Done, in the chrome's foot. */
@@ -194,11 +277,16 @@ public final class HudLayout {
                 chrome.bottom() - INSET - CONTROL_LINE, BUTTON_WIDTH, CONTROL_LINE);
     }
 
-    private static int rowTop(int index, BookGeometry.Rect chrome) {
-        return chrome.y() + INSET + index * ROW_HEIGHT;
+    private static int rowTop(int index, BookGeometry.Rect chrome, List<HudElement> elements) {
+        int top = chrome.y() + INSET;
+        for (int i = 0; i < index && i < elements.size(); i++) {
+            top += rowHeight(elements.get(i));
+        }
+        return top;
     }
 
-    private static int controlTop(int index, BookGeometry.Rect chrome) {
-        return rowTop(index, chrome) + LABEL_LINE;
+    private static int controlTop(int index, BookGeometry.Rect chrome,
+                                  List<HudElement> elements) {
+        return rowTop(index, chrome, elements) + LABEL_LINE;
     }
 }

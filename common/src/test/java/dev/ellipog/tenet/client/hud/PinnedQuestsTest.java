@@ -77,63 +77,47 @@ class PinnedQuestsTest {
         assertEquals(0, PinnedQuests.count());
         assertNull(PinnedQuests.file(), "nothing has been read from anywhere");
         assertFalse(PinnedQuests.isPinned("a"));
-        assertFalse(PinnedQuests.isFocused("a"));
-        assertFalse(PinnedQuests.isFocused(null), "and nothing is focused when nothing is pinned");
     }
 
     @Test
-    @DisplayName("pin puts a quest first, and it is the focus")
+    @DisplayName("pin puts a quest first, in pin order")
     void pinPutsItFirst() {
         assertTrue(PinnedQuests.pin("a"));
         assertTrue(PinnedQuests.isPinned("a"));
-        assertTrue(PinnedQuests.isFocused("a"), "the head is the focus, and a first pin is the head");
 
         assertTrue(PinnedQuests.pin("b"));
         assertEquals(List.of("b", "a"), PinnedQuests.pinned(),
-                "the most recently pinned is the one drawn in full");
-        assertFalse(PinnedQuests.isFocused("a"), "and the older one is a name again");
+                "the most recently pinned draws first");
     }
 
     @Test
-    @DisplayName("pinning something already pinned brings it forward rather than duplicating it")
-    void pinningAgainFocuses() {
+    @DisplayName("pinning something already pinned changes nothing rather than moving it")
+    void pinningAgainIsANoOp() {
         PinnedQuests.pin("a");
         PinnedQuests.pin("b");
         PinnedQuests.pin("c");
 
+        // Every pin is drawn the same way, so there is no front to bring forward to: a call that
+        // reordered the stack would move boxes a player had arranged themselves to read.
         assertTrue(PinnedQuests.pin("a"), "an id already in the list is not a refusal");
-        assertEquals(List.of("a", "c", "b"), PinnedQuests.pinned(),
-                "the store did not write out its own ordering from scratch");
+        assertEquals(List.of("c", "b", "a"), PinnedQuests.pinned(),
+                "and not a reorder either");
         assertEquals(3, PinnedQuests.count(), "and it is one pin, not two");
     }
 
     @Test
-    @DisplayName("unpinning the head leaves the next one focused, and unpinning nothing is not an error")
+    @DisplayName("unpinning removes one and leaves the rest where they are, and unpinning nothing is not an error")
     void unpinLeavesTheRest() {
         PinnedQuests.pin("a");
         PinnedQuests.pin("b");
 
         PinnedQuests.unpin("b");
         assertEquals(List.of("a"), PinnedQuests.pinned());
-        assertTrue(PinnedQuests.isFocused("a"));
 
         PinnedQuests.unpin("b");
         assertEquals(List.of("a"), PinnedQuests.pinned(), "unpinning what is not pinned asks for the state it is in");
         PinnedQuests.unpin(null);
         assertEquals(List.of("a"), PinnedQuests.pinned());
-    }
-
-    @Test
-    @DisplayName("promote brings a pin forward, and an id that is not pinned is not promoted into the list")
-    void promoteOnlyMoves() {
-        PinnedQuests.pin("a");
-        PinnedQuests.pin("b");
-
-        assertTrue(PinnedQuests.promote("a"));
-        assertEquals(List.of("a", "b"), PinnedQuests.pinned());
-        assertFalse(PinnedQuests.promote("c"), "promoting is not pinning");
-        assertEquals(List.of("a", "b"), PinnedQuests.pinned());
-        assertTrue(PinnedQuests.promote("a"), "already at the head is the state asked for");
     }
 
     @Test
@@ -173,7 +157,7 @@ class PinnedQuestsTest {
         PinnedQuests.load(file);
         assertEquals(List.of("b", "a"), PinnedQuests.pinned(),
                 "what the store pinned is what the file said when it was read again");
-        assertTrue(PinnedQuests.isFocused("b"));
+        assertTrue(PinnedQuests.isPinned("b"));
     }
 
     @Test
@@ -264,7 +248,6 @@ class PinnedQuestsTest {
         accept(A);
         PinnedQuests.tick();
         assertEquals(List.of("a"), PinnedQuests.pinned(), "the id this server does not have is dropped");
-        assertTrue(PinnedQuests.isFocused("a"), "and the survivor is the head, which is the player's order");
     }
 
     @Test
@@ -273,11 +256,9 @@ class PinnedQuestsTest {
         accept(A, B);
         PinnedQuests.pin("a");
         PinnedQuests.pin("b");
-        // Put 'a' back at the head, which is what the reader pinned last.
-        PinnedQuests.promote("a");
 
         PinnedQuests.tick();
-        assertEquals(List.of("a", "b"), PinnedQuests.pinned(),
+        assertEquals(List.of("b", "a"), PinnedQuests.pinned(),
                 "the tree's own order is a different order and is not what is stored here");
     }
 

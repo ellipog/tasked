@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 import dev.ellipog.armature.api.client.ArmatureClient;
 import dev.ellipog.armature.client.ArmatureButton;
+import dev.ellipog.armature.client.ArmatureSlider;
 import dev.ellipog.armature.client.ArmatureSwitch;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
@@ -13,10 +14,12 @@ import dev.ellipog.tenet.Tenet;
 import dev.ellipog.tenet.client.BookGeometry;
 
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.Util;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,17 +49,19 @@ import java.util.Map;
  * the ghost's corner was not the real panel's corner, so a number written from one was read from the other
  * and the control moved between the editor and the game. There is one coordinate space now, and no stand-in.
  *
- * <h2>Two ways to move, and why both exist</h2>
+ * <h2>Moving things: drag, and the arrows for the last pixel</h2>
  *
- * <p>Grab the element and drag it, or press {@code Move} in its row and it comes to the pointer: it follows
- * the cursor until the next press, which puts it down where it is. The second is not a convenience: an
- * element can be left lying over the editor's own rows, and coming to the pointer is how one is picked up
- * without hunting for the part of it that nothing is covering. Escape before the drop puts it back.
+ * <p>Grab the element and drag it; the drop writes where the widget's corner is, clamped onto the window.
+ * A press on an element selects it, and the arrows then nudge it a pixel -- ten with Shift -- through the
+ * same clamp, for placing something exactly where a drag overshoots by one. There used to be a {@code Move}
+ * button that carried the element on the pointer, and it went away because everything here is already
+ * grabbable: a second way to move is a second thing to learn, and the arrows cover the precision case the
+ * button was really for.
  *
  * <h2>What is drawn over what, and which of the two answers wins</h2>
  *
  * <p>The rows' panel and labels are the bottom layer, drawn by this screen; the elements are widgets on top
- * of them; and the rows' controls -- a switch, <i>Move</i>, <i>Reset</i>, <i>Done</i> -- are widgets added
+ * of them; and the rows' controls -- a switch, <i>Reset</i>, <i>Done</i> -- are widgets added
  * <b>before</b> the elements. Both halves of that are deliberate, and they are the opposite of each other,
  * because a press is offered to children in the order they were added while drawing goes the other way:
  *
@@ -64,8 +69,8 @@ import java.util.Map;
  *   <li>the controls are asked first, so an element left lying across one cannot make it unreachable. An
  *       unreachable control is the one arrangement that traps a player in this screen;</li>
  *   <li>and so an element left lying across a control is drawn <i>over</i> it. It looks covered and still
- *       answers, which is the better of the two faults -- the row's {@code Move} picks the element up, and
- *       putting it down anywhere the rows are not is a press away.</li>
+ *       answers, which is the better of the two faults -- dragging it by any visible part moves it, and
+ *       putting it down anywhere the rows are not is a release away.</li>
  * </ul>
  */
 public final class HudEditScreen extends ArmatureScreen {
@@ -75,12 +80,9 @@ public final class HudEditScreen extends ArmatureScreen {
 
     private final Map<HudElement, HudElementPreview> previews = new EnumMap<>(HudElement.class);
     private final Map<HudElement, ArmatureSwitch> switches = new EnumMap<>(HudElement.class);
-    private final Map<HudElement, ArmatureButton> moves = new EnumMap<>(HudElement.class);
     private final Map<HudElement, ArmatureButton> resets = new EnumMap<>(HudElement.class);
+    private final Map<HudElement, ArmatureSlider> dims = new EnumMap<>(HudElement.class);
     private ArmatureButton done;
-
-    /** The element a row armed, which follows the pointer until a press puts it down. */
-    private HudElement armed;
 
     /** The element last pressed, so the thing touched and the row that names it are visibly the same one. */
     private HudElement selected;
@@ -116,14 +118,21 @@ public final class HudEditScreen extends ArmatureScreen {
             addRenderableWidget(toggle);
             switches.put(element, toggle);
 
-            ArmatureButton move = new ArmatureButton(0, 0, HudLayout.BUTTON_WIDTH, HudLayout.CONTROL_LINE,
-                    Component.translatable("tenet.hud.move"), () -> arm(element));
             ArmatureButton reset = new ArmatureButton(0, 0, HudLayout.BUTTON_WIDTH, HudLayout.CONTROL_LINE,
                     Component.translatable("tenet.hud.reset"), () -> resetElement(element));
-            addRenderableWidget(move);
             addRenderableWidget(reset);
-            moves.put(element, move);
             resets.put(element, reset);
+
+            // A drawn element's background strength, on its own line under its controls: a slider shares
+            // nothing with the switch beside it the way Move and Reset share a line, and only a drawn
+            // element has a background to strengthen. A control draws itself, so it gets no slider.
+            if (element.kind() == HudElement.Kind.HUD) {
+                ArmatureSlider dim = new ArmatureSlider(0, 0, HudLayout.CHROME_WIDTH, 0.0, 1.0, 0.05,
+                        HudSettings.dim(element));
+                dim.onChange(() -> HudSettings.setDim(element, dim.value()));
+                addRenderableWidget(dim);
+                dims.put(element, dim);
+            }
         }
 
         done = new ArmatureButton(0, 0, HudLayout.BUTTON_WIDTH, HudLayout.CONTROL_LINE,
@@ -159,7 +168,7 @@ public final class HudEditScreen extends ArmatureScreen {
     private Measure frameMeasure;
 
     /**
-     * Where each element draws: where it is stored, or the pointer while a row has armed it.
+     * Where each element draws: where it is stored.
      *
      * <p>Every frame, against the window as it is <i>now</i> -- which is what makes this work at any size.
      * The dimensions are asked for rather than remembered, so a window that has just been resized has its
@@ -185,15 +194,8 @@ public final class HudEditScreen extends ArmatureScreen {
             HudOverlay.Size size = HudOverlay.size(element, measure, HudOverlay.Face.EDITOR, now);
             preview.resize(size.width(), size.height());
         }
-        if (element == armed) {
-            // Centred under the pointer: a thing being carried is carried by its middle, and an offset grab
-            // would drift further from the cursor with every frame.
-            preview.at(HudLayout.placed(mouseX - preview.getWidth() / 2, width - preview.getWidth()),
-                    HudLayout.placed(mouseY - preview.getHeight() / 2, height - preview.getHeight()));
-            return;
-        }
-        BookGeometry.Rect box = HudLayout.boxAt(HudSettings.x(element), HudSettings.y(element),
-                preview.getWidth(), preview.getHeight(), width, height);
+        BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
+                HudSettings.x(element), HudSettings.y(element), preview.getWidth(), preview.getHeight());
         preview.at(box.x(), box.y());
     }
 
@@ -202,8 +204,9 @@ public final class HudEditScreen extends ArmatureScreen {
                 ArmatureTheme.raised(), ArmatureTheme.panelEdge());
 
         int index = 0;
-        for (HudElement element : HudElement.values()) {
-            BookGeometry.Rect label = HudLayout.label(index, chrome);
+        List<HudElement> order = List.of(HudElement.values());
+        for (HudElement element : order) {
+            BookGeometry.Rect label = HudLayout.label(index, chrome, order);
             // The element that was last pressed reads bright, so a row and the thing it names are visibly
             // the same thing -- the rows are words and the elements are icons, and that is the join.
             int ink = element == selected ? ArmatureTheme.title() : ArmatureTheme.body();
@@ -211,9 +214,12 @@ public final class HudEditScreen extends ArmatureScreen {
                             label.width(), measure),
                     label.x(), label.y() + 2, ink);
 
-            place(switches.get(element), HudLayout.toggle(index, chrome));
-            place(moves.get(element), HudLayout.move(index, chrome));
-            place(resets.get(element), HudLayout.reset(index, chrome));
+            place(switches.get(element), HudLayout.toggle(index, chrome, order));
+            place(resets.get(element), HudLayout.reset(index, chrome, order));
+            ArmatureSlider dim = dims.get(element);
+            if (dim != null) {
+                placeSlider(dim, HudLayout.slider(index, chrome, order));
+            }
             index++;
         }
 
@@ -231,29 +237,60 @@ public final class HudEditScreen extends ArmatureScreen {
         }
     }
 
+    /**
+     * Places a background slider, with its width as well as its corner.
+     *
+     * <p>The one control on this screen sized per frame rather than built to size: its width <i>is</i> the
+     * row's content, so a slider built to the chrome's full width would overhang the panel on a narrow
+     * window, and one built to the minimum would leave dead track on a wide one. Buttons keep fixed sizes
+     * because a fixed size is what they are; a slider's width is what it is for.
+     */
+    private static void placeSlider(ArmatureSlider slider, BookGeometry.Rect box) {
+        if (slider != null) {
+            slider.setX(box.x());
+            slider.setY(box.y());
+            slider.setWidth(Math.max(ArmatureSlider.MIN_TRACK, box.width()));
+        }
+    }
+
     // ------------------------------------------------------------------
     // Input
     // ------------------------------------------------------------------
 
-    // There is no `mouseClicked` override here, and that is the whole point of arming an element by moving
-    // it rather than by a mode: while it is armed it is centred on the pointer, so the press that puts it
-    // down lands on the element's own widget and is handled by the widget path -- see `select`. A branch
-    // here that dropped it on a press anywhere would be unreachable, and a drop path nothing can reach is
-    // worse than no path: it reads as supported.
+    // There is no `mouseClicked` override here, and that is the whole point of dragging an element
+    // directly: the widget path carries press, drag and release, so there is no second gesture to keep in
+    // step with the first.
 
     /**
-     * Escape puts a carried element back rather than closing the screen.
+     * Arrows nudge the selected element a pixel -- ten with Shift -- through the same clamp-and-convert
+     * as a drop, and write straight through it.
      *
-     * <p>It is the gesture's own undo: {@code Move} arms something, and the way out of having armed it is the
-     * key that cancels things. A second Escape closes, which is what the key does on every other screen.
+     * <p>Not into a focused slider: the slider spends arrows on its own value, and stealing them would make
+     * a strength unreachable from the keyboard that reaches everything else.
      */
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == InputConstants.KEY_ESCAPE && armed != null) {
-            armed = null;
+        if (selected != null && !(getFocused() instanceof ArmatureSlider)
+                && (keyCode == InputConstants.KEY_UP || keyCode == InputConstants.KEY_DOWN
+                        || keyCode == InputConstants.KEY_LEFT || keyCode == InputConstants.KEY_RIGHT)) {
+            nudgeSelected(keyCode == InputConstants.KEY_LEFT ? -1 : keyCode == InputConstants.KEY_RIGHT ? 1 : 0,
+                    keyCode == InputConstants.KEY_UP ? -1 : keyCode == InputConstants.KEY_DOWN ? 1 : 0,
+                    Screen.hasShiftDown() ? 10 : 1);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    /** Moves the selected element by exact pixels, and writes where it landed. */
+    private void nudgeSelected(int dx, int dy, int step) {
+        HudElementPreview preview = previews.get(selected);
+        if (preview == null) {
+            return;
+        }
+        int left = HudLayout.placed(HudSettings.x(selected) + dx * step, width - preview.getWidth());
+        int top = HudLayout.placed(HudLayout.placedTop(selected, height, HudSettings.y(selected),
+                preview.getHeight()) + dy * step, height - preview.getHeight());
+        HudSettings.setPosition(selected, left, HudLayout.storedY(selected, height, top, preview.getHeight()));
     }
 
     /**
@@ -275,20 +312,6 @@ public final class HudEditScreen extends ArmatureScreen {
     // What the rows and the elements do
     // ------------------------------------------------------------------
 
-    /** The element a row armed: it follows the pointer until a press puts it down. */
-    private void arm(HudElement element) {
-        if (!HudSettings.on(element)) {
-            // It is drawn here but not out there, and somebody who has just asked to move it is about to
-            // look for it. Switching it on is the honest answer, and the switch beside the row follows.
-            HudSettings.setOn(element, true);
-            ArmatureSwitch toggle = switches.get(element);
-            if (toggle != null) {
-                toggle.setSelected(true);
-            }
-        }
-        armed = element;
-    }
-
     private void resetElement(HudElement element) {
         HudSettings.resetElement(element);
         ArmatureSwitch toggle = switches.get(element);
@@ -297,55 +320,49 @@ public final class HudEditScreen extends ArmatureScreen {
             // player asked to have back.
             toggle.setSelected(HudSettings.on(element));
         }
+        ArmatureSlider dim = dims.get(element);
+        if (dim != null) {
+            // And the slider, for the same reason: a dim left where it was after everything else went
+            // home would be a reset that did not.
+            dim.setValue(HudSettings.dim(element));
+        }
     }
 
     /**
      * Writes where an element has been put.
      *
-     * <p>The position, pulled onto the window as it is now -- so a drop near an edge stores where the element
-     * visibly is rather than the coordinate the cursor reached, and a window that changed size since the drag
-     * began cannot have a position written that this frame would refuse to draw.
+     * <p>The widget's corner, clamped onto the window as it is now -- so a drop near an edge stores where
+     * the element visibly is rather than where the cursor went, and a window that changed size since the
+     * drag began cannot have a position written that this frame would refuse to draw. Converted to what
+     * the file holds exactly once, through the element's anchor: routing the corner through
+     * {@code boxAt} instead would read it as a centre-offset a second time, and the box would jump by
+     * half its height on release -- which is the fault this shape exists to prevent.
      */
     void drop(HudElement element) {
         HudElementPreview preview = previews.get(element);
         if (preview == null) {
             return;
         }
-        BookGeometry.Rect box = HudLayout.boxAt(element, width, height, preview.getX(), preview.getY());
-        HudSettings.setPosition(element, box.x(), box.y());
-        armed = null;
+        int left = HudLayout.placed(preview.getX(), width - preview.getWidth());
+        int top = HudLayout.placed(preview.getY(), height - preview.getHeight());
+        HudSettings.setPosition(element, left,
+                HudLayout.storedY(element, height, top, preview.getHeight()));
     }
 
-    /**
-     * A press on an element itself.
-     *
-     * <p>Two cases, and the first is why this is not only about the ring. An armed element follows the
-     * pointer, so the press that puts it down lands <b>on the element's own widget</b> rather than on bare
-     * canvas -- the release is what gets here, by way of the widget's own press-and-release. Persisting from
-     * here is what makes {@code Move} followed by a click do what it looks like it does; without it the
-     * element would be selected, un-armed, and snapped back to where it was, which reads as the button
-     * having done nothing at all.
-     */
+    /** A press on an element itself: it becomes the selected one, for the ring and the arrows. */
     void select(HudElement element) {
         selected = element;
-        if (armed == element) {
-            drop(element);
-            return;
-        }
-        // Grabbing one thing puts any other one back where it was: one element is ever in hand, and an
-        // un-dropped one has no position to keep. Escape does the same thing on purpose.
-        armed = null;
     }
 
-    /** Whether this element is the one being moved or the one last touched, for the ring it draws. */
+    /** Whether this element is the one last touched or being dragged, for the ring it draws. */
     boolean isHighlighted(HudElement element) {
         HudElementPreview preview = previews.get(element);
-        return element == armed || element == selected || (preview != null && preview.isHeld());
+        return element == selected || (preview != null && preview.isHeld());
     }
 
     // ------------------------------------------------------------------
 
     private BookGeometry.Rect chrome() {
-        return HudLayout.chrome(width, height, HudElement.values().length);
+        return HudLayout.chrome(width, height, List.of(HudElement.values()));
     }
 }

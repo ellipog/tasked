@@ -52,6 +52,8 @@ class HudSettingsTest {
             assertTrue(HudSettings.on(element), element + " is drawn before anybody switches it off");
             assertEquals(element.defaultX(), HudSettings.x(element));
             assertEquals(element.defaultY(), HudSettings.y(element));
+            assertEquals(element.defaultDim(), HudSettings.dim(element),
+                    element + " dims at its shipped strength until the slider moves");
         }
         assertEquals(HudElement.INVENTORY_BUTTON, HudElement.named("inventory_button"),
                 "the key the file holds");
@@ -103,6 +105,46 @@ class HudSettingsTest {
         assertTrue(HudSettings.changed().isEmpty(),
                 "and with nothing left to say, the element has no entry at all");
         assertEquals("{\"elements\":{}}", HudSettings.write(HudSettings.changed()));
+    }
+
+    @Test
+    @DisplayName("the dim slider writes a number, clamps it, and forgets it at the default")
+    void dimIsADiffToo(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(HudSettings.FILE_NAME);
+        HudSettings.load(file);
+
+        HudSettings.setDim(HudElement.PINNED_QUESTS, 0.25);
+        assertEquals(0.25, HudSettings.dim(HudElement.PINNED_QUESTS));
+        assertEquals("{\"elements\":{\"pinned_quests\":{\"dim\":0.25}}}",
+                HudSettings.write(HudSettings.changed()),
+                "a dimmed element writes only what it changed");
+
+        // And the file itself round-trips, which is the half the string above cannot see.
+        HudSettings.load(file);
+        assertEquals(0.25, HudSettings.dim(HudElement.PINNED_QUESTS), "the strength survived the file");
+
+        // Clamped rather than refused: a slider cannot produce these, so they arrived by hand, and a file
+        // that silently corrected itself would be one the player cannot read back.
+        HudSettings.setDim(HudElement.PINNED_QUESTS, 2.0);
+        assertEquals(1.0, HudSettings.dim(HudElement.PINNED_QUESTS), "over one pins at full");
+        HudSettings.setDim(HudElement.PINNED_QUESTS, -1.0);
+        assertEquals(0.0, HudSettings.dim(HudElement.PINNED_QUESTS), "under zero pins at none");
+
+        // Back to the default: the field leaves, like every other setting here.
+        HudSettings.setDim(HudElement.PINNED_QUESTS, HudElement.PINNED_QUESTS.defaultDim());
+        assertTrue(HudSettings.changed().isEmpty(), "a default strength is not stored beside itself");
+    }
+
+    @Test
+    @DisplayName("a dim of the wrong type costs its entry and nothing else")
+    void aBadDimCostsTheEntry(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(HudSettings.FILE_NAME);
+        Files.writeString(file, "{\"elements\":{\"pinned_quests\":{\"dim\":\"half\"}}}",
+                StandardCharsets.UTF_8);
+        HudSettings.load(file);
+
+        assertEquals(HudElement.PINNED_QUESTS.defaultDim(), HudSettings.dim(HudElement.PINNED_QUESTS));
+        assertTrue(HudSettings.changed().isEmpty());
     }
 
     @Test

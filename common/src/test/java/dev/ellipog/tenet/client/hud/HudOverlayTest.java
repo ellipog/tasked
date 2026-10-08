@@ -1,5 +1,7 @@
 package dev.ellipog.tenet.client.hud;
 
+import dev.ellipog.armature.client.ArmatureTheme;
+import dev.ellipog.armature.client.ui.kit.Colour;
 import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.tenet.client.BookGeometry;
 import dev.ellipog.tenet.client.ClientQuestCache;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -30,16 +33,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Why these are drawn rather than reasoned about</h2>
  *
- * <p>Because the interesting faults here are visible only in the calls: a panel that measured one box and
- * painted another, a notice row drawn after it had faded, a sample that stopped being drawn the moment
- * nobody had pinned anything — which is the one arrangement where an element cannot be found <i>or</i>
- * grabbed. {@code RecordingRenderer} is the second implementation of the drawing seam, so all of them are
- * assertable with no client at all.
+ * <p>Because the interesting faults here are visible only in the calls: a box that measured one rect and
+ * blurred another, a fill drawn where the world should show through, a notice row drawn after it had
+ * faded, a sample that stopped being drawn the moment nobody had pinned anything — which is the one
+ * arrangement where an element cannot be found <i>or</i> grabbed. {@code RecordingRenderer} is the second
+ * implementation of the drawing seam, so all of them are assertable with no client at all.
  *
  * <h2>What it cannot see</h2>
  *
  * <p>Whether any of it reads well: the colours are the theme's, the glyphs are the font's, and this renderer
- * fixes a character at six pixels. That is a screenshot's job, and {@code TESTING.md} says so.
+ * fixes a character at six pixels. That is a screenshot's job, and {@code TESTING.md} says so. It also
+ * cannot see an actual blur -- the recorder answers the call without softening anything -- so what is
+ * asserted is <i>where</i> the blur was asked for and in what order, which is the half of the contract
+ * that decides whether the right pixels go soft in game.
  */
 @DisplayName("the HUD's own drawing")
 class HudOverlayTest {
@@ -85,14 +91,19 @@ class HudOverlayTest {
                         .getBytes(StandardCharsets.UTF_8), 50L);
     }
 
-    private static BookGeometry.Rect boxOf(HudElement element, RecordingRenderer r, int width, int height) {
+    private static BookGeometry.Rect boxOf(HudElement element, int width, int height) {
         HudOverlay.Size size = HudOverlay.size(element, FONT, HudOverlay.Face.LIVE, NOW);
-        return HudLayout.boxAt(HudSettings.x(element), HudSettings.y(element), size.width(), size.height(),
-                width, height);
+        return HudLayout.boxAt(element, width, height,
+                HudSettings.x(element), HudSettings.y(element), size.width(), size.height());
+    }
+
+    /** Everything a recorder drew, for a failure message: which of these is missing is the whole question. */
+    private static String drawn(RecordingRenderer r) {
+        return r.calls().toString();
     }
 
     @Test
-    @DisplayName("the pinned panel draws nothing live until something is pinned, and a sample in the editor")
+    @DisplayName("the pinned boxes draw nothing live until something is pinned, and a sample in the editor")
     void thePanelIsEmptyUntilSomethingIsPinned() {
         RecordingRenderer live = RecordingRenderer.create();
         HudOverlay.paint(HudElement.PINNED_QUESTS, live, BookGeometry.Rect.at(4, 4, 100, 20), FONT,
@@ -102,23 +113,105 @@ class HudOverlayTest {
         RecordingRenderer editor = RecordingRenderer.create();
         HudOverlay.paint(HudElement.PINNED_QUESTS, editor, BookGeometry.Rect.at(4, 4, 100, 20), FONT,
                 HudOverlay.Face.EDITOR, NOW);
-        assertFalse(editor.fills().isEmpty(), "and in the editor it has a surface to be grabbed by");
-        assertTrue(editor.drewText(Component.translatable(HudElement.PINNED_QUESTS.labelKey()).getString()),
-                "with the panel's own name on it: " + drawn(editor));
-        // A prefix rather than the whole sentence, and the reason is the panel's own rule: the sample is longer
+        assertFalse(editor.shadowedTexts().isEmpty(),
+                "and in the editor it has a surface to be grabbed by: " + drawn(editor));
+        // A prefix rather than the whole sentence, and the reason is the box's own rule: the sample is longer
         // than the box can be, so what is drawn is a truncated form of it. Asserting the whole string would be
-        // asserting that the panel does *not* do the one thing it must -- and whether the sentence resolves to
+        // asserting that the box does *not* do the one thing it must -- and whether the sentence resolves to
         // English or to its own key here depends on whether a language was loaded, so the prefix is the half
         // that is the same either way.
         String sample = Component.translatable("tenet.hud.pinned_sample").getString();
         String opening = sample.substring(0, Math.min(8, sample.length()));
-        assertTrue(editor.texts().stream().anyMatch(call -> call.text().startsWith(opening)),
+        assertTrue(editor.shadowedTexts().stream().anyMatch(call -> call.text().startsWith(opening)),
                 "and a sentence saying why it is empty, beginning " + opening + ": " + drawn(editor));
     }
 
-    /** Everything a recorder drew, for a failure message: which of these is missing is the whole question. */
-    private static String drawn(RecordingRenderer r) {
-        return r.texts().stream().map(RecordingRenderer.Call::text).toList().toString();
+    @Test
+    @DisplayName("each box dims its own rect, at the slider's strength")
+    void eachBoxDimsItsOwnRect() {
+        accept(A, B);
+        PinnedQuests.pin("a");
+        PinnedQuests.pin("b");
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        // The dim the slider ships at, through the same alpha helper the painter uses: what is asserted
+        // is the wiring and the rect, not the theme's own numbers.
+        int wash = Colour.alphaOf(ArmatureTheme.raised(), (float) HudSettings.dim(HudElement.PINNED_QUESTS));
+        List<RecordingRenderer.Call> washes = r.calls().stream()
+                .filter(call -> call.op() == RecordingRenderer.Op.FILL && call.argb() == wash).toList();
+        assertEquals(2, washes.size(), "one dim fill per box, not one for the stack: " + drawn(r));
+
+        BookGeometry.Rect stack = boxOf(HudElement.PINNED_QUESTS, 640, 480);
+        // The two boxes tile the stack with a gap between them: the second starts after the first plus
+        // BOX_GAP, and neither overlaps the other.
+        RecordingRenderer.Call first = washes.get(0);
+        RecordingRenderer.Call second = washes.get(1);
+        assertEquals(stack.x(), first.x(), "the first box starts the column");
+        assertEquals(stack.width(), first.x2() - first.x(), "and spans it");
+        assertTrue(second.y() >= first.y2() + PinnedPanelLayout.BOX_GAP, "with a gap between the two");
+        assertTrue(second.y2() <= stack.y() + stack.height(), "and both inside the measured stack");
+    }
+
+    @Test
+    @DisplayName("dim zero draws edge only: the transparent look stays reachable")
+    void dimZeroDrawsEdgeOnly() {
+        accept(A);
+        PinnedQuests.pin("a");
+        HudSettings.setDim(HudElement.PINNED_QUESTS, 0.0);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        BookGeometry.Rect stack = boxOf(HudElement.PINNED_QUESTS, 640, 480);
+        int centreX = stack.x() + stack.width() / 2;
+        int centreY = stack.y() + stack.height() / 2;
+        assertFalse(r.covered(centreX, centreY),
+                "a zero-alpha fill would be a submission that draws nothing: " + drawn(r));
+        assertTrue(r.covered(stack.x(), stack.y()),
+                "while its own top-left corner is still the edge ink: " + drawn(r));
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Punch a tree")),
+                "and the name is still drawn: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("the notices dim through the same slider, without changing the book's stack")
+    void noticesDimThroughTheSlider() {
+        HudOverlay.notice("Task done: Oak Log", false, NOW);
+        HudSettings.setDim(HudElement.NOTIFICATIONS, 0.5);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 320, 240, NOW);
+
+        // The fade is full at age zero whatever motion says, so the expected wash is the theme's raised
+        // surface at half strength -- computed the way the painter computes it. It sits one pixel inside
+        // the box, because `ToastArt` draws a panel and a panel is a border footprint with its fill inset;
+        // the corner fill is the edge ink, so matching the corner would be asserting the wrong color.
+        int wash = Colour.alphaOf(ArmatureTheme.raised(), 0.5F);
+        BookGeometry.Rect box = boxOf(HudElement.NOTIFICATIONS, 320, 240);
+        int centreX = box.x() + box.width() / 2;
+        int centreY = box.y() + box.height() / 2;
+        assertTrue(r.calls().stream().anyMatch(call -> call.op() == RecordingRenderer.Op.FILL
+                        && call.argb() == wash && call.covers(centreX, centreY)),
+                "the notice box dims with its slider: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("every glyph on a pin box is shadowed, because there is no backdrop behind it")
+    void pinTextIsShadowed() {
+        accept(A, B);
+        PinnedQuests.pin("a");
+        PinnedQuests.pin("b");
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        assertTrue(r.calls().stream().noneMatch(call -> call.op() == RecordingRenderer.Op.TEXT),
+                "a plain glyph on a transparent box is unreadable -- which is what shadowedText is for: "
+                        + drawn(r));
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Punch a tree")),
+                "the quest's name is drawn, with a shadow: " + drawn(r));
     }
 
     @Test
@@ -152,7 +245,7 @@ class HudOverlayTest {
         HudOverlay.render(r, 320, 240, NOW);
         assertTrue(r.drewText("Task done: Oak Log"), "the sentence is the notice");
 
-        BookGeometry.Rect box = boxOf(HudElement.NOTIFICATIONS, r, 320, 240);
+        BookGeometry.Rect box = boxOf(HudElement.NOTIFICATIONS, 320, 240);
         RecordingRenderer.Call drawn = r.callFor("Task done: Oak Log");
         assertEquals(box.x() + ToastArt.PAD, drawn.x(), "the row is drawn inside the box the size was for");
         assertEquals(box.y() + (ToastArt.LINE - 8) / 2, drawn.y());
@@ -218,14 +311,120 @@ class HudOverlayTest {
         RecordingRenderer r = RecordingRenderer.create();
         HudOverlay.render(r, 640, 480, NOW);
 
-        assertTrue(r.drewText("Punch a tree"), "the head's name");
-        assertTrue(r.drewText("0 / 8"), "its task's count, clamped to the target");
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Punch a tree")),
+                "the quest's name: " + drawn(r));
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("0 / 8")),
+                "its task's count, clamped to the target: " + drawn(r));
 
         // The task's own sentence, taken from the accessor the painter reads -- which is the claim: there is
         // one derivation of what a task row says, and the HUD's is the same one the book's rows use. What it
         // resolves to in this test is the item's translation key, because nothing here has a language file.
         String sentence = ClientQuestCache.entry("a").tasks().get(0).text().getString();
-        assertTrue(r.drewText(sentence), "the task's own sentence: " + sentence);
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals(sentence)),
+                "the task's own sentence: " + sentence);
+    }
+
+    @Test
+    @DisplayName("an untouched task draws no bar at all: the bar appearing is the news it started")
+    void untouchedTasksDrawNoBar() {
+        accept(A);
+        PinnedQuests.pin("a");
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("0 / 8")),
+                "the count is there: " + drawn(r));
+        assertTrue(r.calls().stream().noneMatch(call -> call.op() == RecordingRenderer.Op.FILL
+                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT),
+                "but no 2px fill anywhere: a groove along every untouched task would be decoration on rows "
+                        + "with nothing to say: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a started task draws one hairline fill under its text, in the row's ink")
+    void taskBarsAreHairlines() {
+        accept(A, B);
+        PinnedQuests.pin("a");
+        PinnedQuests.pin("b");
+        finishTheFirstTask();
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("8 / 8")),
+                "a counter that reached its target: " + drawn(r));
+        List<RecordingRenderer.Call> bars = r.calls().stream()
+                .filter(call -> call.op() == RecordingRenderer.Op.FILL
+                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
+                .toList();
+        assertEquals(1, bars.size(), "one bar: the checkmark task has no count and so none: " + drawn(r));
+        RecordingRenderer.Call bar = bars.get(0);
+        assertEquals(ArmatureTheme.complete(), bar.argb(), "a finished task wears the completion ink");
+
+        int textY = r.shadowedTexts().stream().filter(call -> call.text().equals("8 / 8")).findFirst()
+                .orElseThrow(() -> new AssertionError("no count text: " + drawn(r))).y();
+        assertTrue(bar.y() > textY, "the bar sits under the sentence it belongs to");
+        assertTrue(bar.x2() - bar.x() > 1, "wider than a pixel: a finished task fills its bar");
+    }
+
+    @Test
+    @DisplayName("a half-done task fills half its bar in the available ink")
+    void taskBarFillsWithProgress() {
+        accept(A);
+        PinnedQuests.pin("a");
+        ClientQuestCache.acceptProgress(java.util.UUID.randomUUID(), 100L,
+                "{\"quests\":{\"a\":{\"state\":\"STARTED\",\"tasks\":[4]}}}"
+                        .getBytes(StandardCharsets.UTF_8), 50L);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        List<RecordingRenderer.Call> bars = r.calls().stream()
+                .filter(call -> call.op() == RecordingRenderer.Op.FILL
+                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
+                .toList();
+        assertEquals(1, bars.size(), "one bar: " + drawn(r));
+        assertEquals(ArmatureTheme.available(), bars.get(0).argb(),
+                "going, not done: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a new bar starts at its target, then glides when progress moves")
+    void taskBarsGlideToNewProgress() {
+        accept(A);
+        PinnedQuests.pin("a");
+        setProgress(2);
+
+        // A quarter of the run, drawn the very first frame: no sweep up from zero.
+        int first = barWidthAt(NOW);
+        assertTrue(first > 1, "a visible bar at a quarter, not a glide from nothing: " + first);
+
+        setProgress(6);
+        int mid = barWidthAt(NOW + 100);
+        assertTrue(mid > first, "the motion starts on the frame new data lands: " + mid + " > " + first);
+        int settled = barWidthAt(NOW + 5000);
+        assertTrue(mid < settled, "and it glides rather than jumps: " + mid + " < " + settled);
+        assertTrue(Math.abs(settled - 3 * first) <= 2,
+                "converged from a quarter to three quarters of the same run: " + settled);
+    }
+
+    /** The 2px bar's drawn width at one moment, or -1 when no bar is drawn. */
+    private static int barWidthAt(long now) {
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, now);
+        return r.calls().stream()
+                .filter(call -> call.op() == RecordingRenderer.Op.FILL
+                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
+                .mapToInt(call -> call.x2() - call.x())
+                .findFirst().orElse(-1);
+    }
+
+    /** Reports this client's progress for the fixture quest's first task, like the server would. */
+    private static void setProgress(int n) {
+        ClientQuestCache.acceptProgress(java.util.UUID.randomUUID(), 100L,
+                ("{\"quests\":{\"a\":{\"state\":\"STARTED\",\"tasks\":[" + n + "]}}}")
+                        .getBytes(StandardCharsets.UTF_8), 50L);
     }
 
     @Test
@@ -236,20 +435,25 @@ class HudOverlayTest {
 
         RecordingRenderer before = RecordingRenderer.create();
         HudOverlay.render(before, 640, 480, NOW);
-        assertFalse(before.drewText(PinnedPanelLayout.TICK), "an unmet task has no tick");
+        assertFalse(before.shadowedTexts().stream()
+                        .anyMatch(call -> call.text().equals(PinnedPanelLayout.TICK)),
+                "an unmet task has no tick");
 
         finishTheFirstTask();
 
         RecordingRenderer done = RecordingRenderer.create();
         HudOverlay.render(done, 640, 480, NOW);
-        assertTrue(done.drewText("8 / 8"), "a counter that reached its target");
-        assertTrue(done.drewText(PinnedPanelLayout.TICK), "and a tick beside it");
+        assertTrue(done.shadowedTexts().stream().anyMatch(call -> call.text().equals("8 / 8")),
+                "a counter that reached its target");
+        assertTrue(done.shadowedTexts().stream()
+                        .anyMatch(call -> call.text().equals(PinnedPanelLayout.TICK)),
+                "and a tick beside it");
         assertTrue(ClientQuestCache.taskDone("a", 0), "which is the cache's own answer, not a second one");
     }
 
     @Test
-    @DisplayName("the pins behind the head are names, and one the tree does not hold is skipped")
-    void theRestAreNames() {
+    @DisplayName("every pin is drawn in full, and one the tree does not hold is skipped")
+    void everyPinIsInFull() {
         accept(A, B);
         PinnedQuests.pin("a");
         PinnedQuests.pin("b");
@@ -258,17 +462,35 @@ class HudOverlayTest {
         RecordingRenderer r = RecordingRenderer.create();
         HudOverlay.render(r, 640, 480, NOW);
 
-        assertTrue(r.drewText("Craft a table"), "the second pin is on the panel: " + drawn(r));
-        assertFalse(r.drewText("a_quest_this_server_has_never_heard_of"),
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Punch a tree")),
+                "the first pin is on the stack: " + drawn(r));
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Craft a table")),
+                "and so is the second -- no pin is a bare name any more: " + drawn(r));
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Say hello")),
+                "with its task: " + drawn(r));
+        assertFalse(r.shadowedTexts().stream()
+                        .anyMatch(call -> call.text().contains("a_quest_this_server_has_never_heard_of")),
                 "and an id the tree does not hold is not drawn as anything");
         assertTrue(PinnedQuests.isPinned("a_quest_this_server_has_never_heard_of"),
-                "it is still pinned -- the panel is what skips it, and the list is what keeps it for the "
+                "it is still pinned -- the stack is what skips it, and the list is what keeps it for the "
                         + "server that has it");
         assertTrue(PinnedQuests.isPinned("a"), "and the pins the tree does hold are all still there");
     }
 
     @Test
-    @DisplayName("the empty state is the whole panel: the box is gone as well as the rows")
+    @DisplayName("the stack sits middle-left, centred on the window's own middle")
+    void theStackIsCentredVertically() {
+        accept(A, B);
+        PinnedQuests.pin("a");
+
+        BookGeometry.Rect stack = boxOf(HudElement.PINNED_QUESTS, 640, 480);
+        assertEquals(4, stack.x(), "against the left edge, where it shipped");
+        assertEquals(240, stack.y() + stack.height() / 2,
+                "with its middle on the window's: " + stack);
+    }
+
+    @Test
+    @DisplayName("the empty state is the whole stack: the boxes are gone as well as the rows")
     void theEmptyStateTakesTheBoxWithIt() {
         assertTrue(HudOverlay.size(HudElement.PINNED_QUESTS, FONT, HudOverlay.Face.LIVE, NOW).empty());
 
@@ -279,6 +501,6 @@ class HudOverlayTest {
         assertNotEquals(0, size.width());
         assertTrue(size.width() >= PinnedPanelLayout.MIN_WIDTH
                         && size.width() <= PinnedPanelLayout.MAX_WIDTH,
-                "and the measured size is inside the panel's own bounds: " + size.width());
+                "and the measured size is inside the column's own bounds: " + size.width());
     }
 }

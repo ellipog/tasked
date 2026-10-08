@@ -100,19 +100,36 @@ class HudElementTest {
     }
 
     @Test
-    @DisplayName("a pinned panel's starting box is smaller than the tallest it can draw, and the notices clear it")
+    @DisplayName("the dim defaults ship see-through pins and unchanged notices")
+    void theDimDefaultsArePinned() {
+        assertEquals(0.5, HudElement.PINNED_QUESTS.defaultDim(),
+                "half: the request is a background you can see through");
+        assertEquals(1.0, HudElement.NOTIFICATIONS.defaultDim(),
+                "full: their opaque panel is the look they already have, and changing it unasked would be "
+                        + "a second visual change hiding inside the slider");
+        assertEquals(1.0, HudElement.INVENTORY_BUTTON.defaultDim(),
+                "answered but never read: a control draws itself");
+    }
+
+    @Test
+    @DisplayName("a pinned stack's starting box is smaller than the tallest it can draw, and it ships middle-left")
     void theStartingBoxesAreSensible() {
         HudElement pinned = HudElement.PINNED_QUESTS;
         HudElement notices = HudElement.NOTIFICATIONS;
 
         assertTrue(pinned.width() >= PinnedPanelLayout.MIN_WIDTH
                         && pinned.width() <= PinnedPanelLayout.MAX_WIDTH,
-                "the editor's starting box is inside the panel's own bounds: " + pinned.width());
-        assertTrue(notices.defaultY() >= pinned.defaultY() + pinned.height(),
-                "the two shipped positions do not overlap: the notices start at " + notices.defaultY()
-                        + " and the pinned panel's box ends at " + (pinned.defaultY() + pinned.height()));
-        assertFalse(HudLayout.boxAt(pinned, 320, 240, pinned.defaultX(), pinned.defaultY())
-                        .intersects(HudLayout.boxAt(notices, 320, 240, notices.defaultX(), notices.defaultY())),
+                "the editor's starting box is inside the column's own bounds: " + pinned.width());
+        assertEquals(HudElement.Anchor.TOP_LEFT, notices.anchor(),
+                "everything that has always been top-left still is");
+        assertEquals(HudElement.Anchor.MIDDLE_LEFT, pinned.anchor(),
+                "the stack is the one element whose height moves under it");
+        assertEquals(4, pinned.defaultX(), "against the left edge");
+        assertEquals(0, pinned.defaultY(), "and a centred offset of nothing: no constant names a middle");
+        assertFalse(HudLayout.boxAt(pinned, 320, 240, pinned.defaultX(), pinned.defaultY(),
+                        pinned.width(), pinned.height())
+                        .intersects(HudLayout.boxAt(notices, 320, 240, notices.defaultX(),
+                                notices.defaultY(), notices.width(), notices.height())),
                 "and the same at a window small enough to clamp both");
     }
 

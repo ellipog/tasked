@@ -81,13 +81,17 @@ public final class ToastArt {
      * <p>Oldest first rather than newest, so a caller that anchors the <i>newest</i> at a fixed edge gets
      * the ones already being read moving away rather than being pushed off: that is the order
      * {@link ToastStack#visible} answers in, and reversing it here would put the decision in two places.
+     *
+     * @param dim how much of the fill to draw, 0 to 1. The book passes 1: its stack looks as it always has,
+     *            and a HUD element passes its own slider. Multiplied into the per-toast fade alpha, so a
+     *            half-dimmed row still fades out rather than popping.
      */
     public static void draw(GuiRenderer r, Measure measure, List<ToastStack.Toast> visible, int x, int y,
-                            int width, boolean motion, long now) {
+                            int width, boolean motion, long now, double dim) {
         for (int i = 0; i < visible.size(); i++) {
             ToastStack.Toast toast = visible.get(i);
             int top = y + i * (LINE + GAP);
-            float alpha = toast.alpha(now, motion);
+            float alpha = toast.alpha(now, motion) * (float) dim;
             int colour = toast.error() ? ArmatureTheme.blocked() : ArmatureTheme.body();
             ArmatureTheme.panel(r, x, top, width, LINE,
                     Colour.alphaOf(ArmatureTheme.raised(), alpha),

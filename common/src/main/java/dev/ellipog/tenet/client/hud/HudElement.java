@@ -45,7 +45,7 @@ package dev.ellipog.tenet.client.hud;
 public enum HudElement {
 
     /** The quest book's button, in the window's top-left corner. Drawn by the inventory screen. */
-    INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true, Kind.CONTROL),
+    INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true, Kind.CONTROL, Anchor.TOP_LEFT, 1.0),
 
     /**
      * The pinned quests, on the HUD.
@@ -53,8 +53,11 @@ public enum HudElement {
      * <p>On by default and harmless while it is: nothing pinned draws nothing, so a player who never pins a
      * quest never sees it. The box below is the editor's starting size; the real one follows what is pinned,
      * so it is as small as what it holds.
+     *
+     * <p>Middle-left, growing from the middle: the stored position is the left edge and the vertical centre,
+     * so a stack that gains a quest or a task grows equally both ways instead of sliding off the bottom.
      */
-    PINNED_QUESTS("pinned_quests", 4, 4, 150, 34, 0, true, Kind.HUD),
+    PINNED_QUESTS("pinned_quests", 4, 0, 150, 34, 0, true, Kind.HUD, Anchor.MIDDLE_LEFT, 0.5),
 
     /**
      * The mod's own notices, on the HUD: a task done, a quest done, a chapter done.
@@ -67,7 +70,7 @@ public enum HudElement {
      * <p>Its default y clears {@link #PINNED_QUESTS}'s default box, so a player who pins something and
      * completes something on their first session does not find the two drawn over each other.
      */
-    NOTIFICATIONS("notifications", 4, 44, 150, 14, 0, true, Kind.HUD);
+    NOTIFICATIONS("notifications", 4, 44, 150, 14, 0, true, Kind.HUD, Anchor.TOP_LEFT, 1.0);
 
     /** How an element is drawn, which is the one question the editor has to ask about it. */
     public enum Kind {
@@ -88,6 +91,24 @@ public enum HudElement {
         HUD
     }
 
+    /**
+     * Which point of its own box a stored position names.
+     *
+     * <p>Top-left for everything that has always been top-left: the stored numbers are window pixels either
+     * way, so an anchor is not a second coordinate space, only a second reading of the same one. The pin
+     * stack is the one element whose height moves under it -- quests pinned, tasks finished -- and a stack
+     * that grew downward from a stored top would slide its own boxes out from under the pointer reading
+     * them. Centring on the stored height answers growth both ways at once.
+     */
+    public enum Anchor {
+
+        /** The box's top-left corner, as it has always been. */
+        TOP_LEFT,
+
+        /** The box's left edge and its vertical centre. */
+        MIDDLE_LEFT
+    }
+
     private final String id;
     private final int defaultX;
     private final int defaultY;
@@ -96,9 +117,11 @@ public enum HudElement {
     private final int iconInset;
     private final boolean defaultOn;
     private final Kind kind;
+    private final Anchor anchor;
+    private final double defaultDim;
 
     HudElement(String id, int defaultX, int defaultY, int width, int height, int iconInset, boolean defaultOn,
-               Kind kind) {
+               Kind kind, Anchor anchor, double defaultDim) {
         this.id = id;
         this.defaultX = defaultX;
         this.defaultY = defaultY;
@@ -107,6 +130,8 @@ public enum HudElement {
         this.iconInset = iconInset;
         this.defaultOn = defaultOn;
         this.kind = kind;
+        this.anchor = anchor;
+        this.defaultDim = defaultDim;
     }
 
     /** The key this element is stored under in {@code hud.json}. */
@@ -119,7 +144,13 @@ public enum HudElement {
         return defaultX;
     }
 
-    /** The same, vertically. */
+    /**
+     * The same, vertically -- read through {@link #anchor()}.
+     *
+     * <p>For a middle-anchored element this is an offset from the window's vertical centre, not an absolute
+     * pixel: no constant can name "the middle" of every window, so 0 means centred and the placement adds
+     * half the window. A top-left element's default is the pixel it says.
+     */
     public int defaultY() {
         return defaultY;
     }
@@ -141,6 +172,11 @@ public enum HudElement {
     /** How this element is drawn, and so how its size is decided. */
     public Kind kind() {
         return kind;
+    }
+
+    /** Which point of its own box a stored position names. */
+    public Anchor anchor() {
+        return anchor;
     }
 
     /**
@@ -165,6 +201,18 @@ public enum HudElement {
     /** Whether it is drawn before anybody switches it off. */
     public boolean defaultOn() {
         return defaultOn;
+    }
+
+    /**
+     * How strong its background dim is before anybody drags the slider, 0 for none and 1 for full.
+     *
+     * <p>Half for the pins: the request is a background you can see through, and the midpoint is the one
+     * default nobody has to argue about. Full for the notices, whose opaque panel is the look they already
+     * have -- changing it unasked would be a second visual change hiding inside the slider. A control never
+     * reads this; it draws itself, and its number is only here so every entry answers the same questions.
+     */
+    public double defaultDim() {
+        return defaultDim;
     }
 
     /**

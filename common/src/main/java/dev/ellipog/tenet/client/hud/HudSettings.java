@@ -36,7 +36,10 @@ import java.util.Map;
  * <h2>What a stored value is, and what it is not</h2>
  *
  * <p>A <b>position in the window's own pixels</b> -- the same space the HUD is measured in and the same space
- * the editor draws in, so a number written there is a number the game draws at, at any window size.
+ * the editor draws in, so a number written there is a number the game draws at, at any window size. Read
+ * through the element's {@code Anchor}: a middle-anchored element's y is an offset from the window's
+ * vertical centre rather than an absolute pixel, which is what lets its default of 0 mean "centred" on
+ * every window without a constant naming a middle that moves.
  *
  * <p>Nothing here clamps it: the only bound that means anything is the window, and that is not known until
  * something is being drawn or dragged. A hand-edited {@code -500} is therefore kept exactly as it was
@@ -60,11 +63,11 @@ public final class HudSettings {
      * <p>Boxed rather than primitive, because "the player did not say" and "the player said the default"
      * have to be different answers: the first writes no field at all, and the second removes one.
      */
-    public record Entry(Integer x, Integer y, Boolean on) {
+    public record Entry(Integer x, Integer y, Boolean on, Double dim) {
 
         /** Whether this says nothing, and so should not be in the file. */
         public boolean empty() {
-            return x == null && y == null && on == null;
+            return x == null && y == null && on == null && dim == null;
         }
     }
 
@@ -92,10 +95,17 @@ public final class HudSettings {
         return said == null ? element.defaultY() : said;
     }
 
+    /** How strong this element's background dim is, 0 for none and 1 for the theme's own wash. */
+    public static double dim(HudElement element) {
+        Double said = entry(element).dim();
+        return said == null ? element.defaultDim() : said;
+    }
+
     /** Switches an element on or off and writes the choice. */
     public static void setOn(HudElement element, boolean next) {
         Entry before = entry(element);
-        put(element, new Entry(before.x(), before.y(), next == element.defaultOn() ? null : next));
+        put(element, new Entry(before.x(), before.y(), next == element.defaultOn() ? null : next,
+                before.dim()));
     }
 
     /**
@@ -109,7 +119,21 @@ public final class HudSettings {
         put(element, new Entry(
                 nextX == element.defaultX() ? null : nextX,
                 nextY == element.defaultY() ? null : nextY,
-                before.on()));
+                before.on(), before.dim()));
+    }
+
+    /**
+     * Remembers how strong an element's background dim is and writes it.
+     *
+     * <p>Clamped rather than refused: a slider cannot produce a value outside its own range, so anything
+     * else arrived by hand, and a hand-edited 2 that silently became the default would be a file that lies
+     * about what it holds. A value back at the default removes the field, like every other setting here.
+     */
+    public static void setDim(HudElement element, double next) {
+        Entry before = entry(element);
+        double clamped = Math.min(1.0, Math.max(0.0, next));
+        put(element, new Entry(before.x(), before.y(), before.on(),
+                clamped == element.defaultDim() ? null : clamped));
     }
 
     /** Puts one element back to everything it shipped with, and writes that. */
@@ -216,6 +240,7 @@ public final class HudSettings {
         Integer x = null;
         Integer y = null;
         Boolean on = null;
+        Double dim = null;
 
         if (entry.has("x")) {
             JsonElement value = entry.get("x");
@@ -238,7 +263,14 @@ public final class HudSettings {
             }
             on = value.getAsBoolean();
         }
-        return new Entry(x, y, on);
+        if (entry.has("dim")) {
+            JsonElement value = entry.get("dim");
+            if (!isNumber(value)) {
+                return null;
+            }
+            dim = value.getAsDouble();
+        }
+        return new Entry(x, y, on, dim);
     }
 
     private static boolean isNumber(JsonElement value) {
@@ -250,8 +282,9 @@ public final class HudSettings {
      *
      * <p>Elements are written in the enum's own order, so two clients that moved the same things write
      * byte-identical files and a diff of two of them is a diff of the choices rather than of iteration order.
-     * An empty entry is written as nothing at all: {@link #setPosition} and {@link #setOn} are where a value
-     * returning to its default stops being stored, and this writer's job is to say what it was handed.
+     * An empty entry is written as nothing at all: {@link #setPosition}, {@link #setOn} and
+     * {@link #setDim} are where a value returning to its default stops being stored, and this writer's job
+     * is to say what it was handed.
      */
     public static String write(Map<HudElement, Entry> written) {
         JsonObject elements = new JsonObject();
@@ -269,6 +302,9 @@ public final class HudSettings {
             }
             if (entry.on() != null) {
                 stored.addProperty("on", entry.on());
+            }
+            if (entry.dim() != null) {
+                stored.addProperty("dim", entry.dim());
             }
             elements.add(element.id(), stored);
         }
@@ -298,7 +334,7 @@ public final class HudSettings {
 
     private static Entry entry(HudElement element) {
         Entry found = entries.get(element);
-        return found == null ? new Entry(null, null, null) : found;
+        return found == null ? new Entry(null, null, null, null) : found;
     }
 
     private static void put(HudElement element, Entry entry) {

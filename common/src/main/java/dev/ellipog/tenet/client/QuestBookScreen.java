@@ -14117,15 +14117,32 @@ public final class QuestBookScreen extends ArmatureScreen
      * Opens the canvas's menu at the pointer: for a quest, for a line, or for the empty canvas.
      *
      * <p>Node first, then line, then empty — the same priority as the press, so what a click opens is
-     * what it looked like it was on. Edit mode only: every entry is an edit, and a reader has none.
+     * what it looked like it was on. Edit mode owns every entry that edits; a reader gets the two entries
+     * that do not -- open the quest, and pin it -- because pinning is the reader's own action on a quest
+     * and a menu that only exists in edit mode is one a player can never open. Lines, elements and empty
+     * canvas stay edit-only: there is nothing there a reader can do.
      */
     private boolean openCanvasMenuAt(double mouseX, double mouseY) {
         String chapter = effectiveChapter();
-        if (chapter == null || !mayEditNow()) {
+        if (chapter == null) {
             return false;
         }
         List<ClientQuestCache.Entry> quests = questsIn(chapter);
         ClientQuestCache.Entry node = nodeAt(mouseX, mouseY, quests);
+        if (!mayEditNow()) {
+            if (node == null) {
+                return false;
+            }
+            // The node under the pointer and nothing else: selection is an edit-mode concept, and acting
+            // on a set the reader never made would be the menu pinning something they were not pointing
+            // at -- the same reason the edit path re-selects first.
+            menu = readerNodeMenuItems(node.id());
+            menuX = (int) mouseX;
+            menuY = (int) mouseY;
+            submenuRow = -1;
+            menuDeleteArmed = false;
+            return true;
+        }
         canvasMenuQuest = null;
         canvasMenuFrom = null;
         canvasMenuTo = null;
@@ -14209,7 +14226,22 @@ public final class QuestBookScreen extends ArmatureScreen
     // ------------------------------------------------------------------
 
     /**
-     * The node menu's pinning rows: one, two or none, depending on what the selection already is.
+     * What a quest node offers a reader: open it, or pin it.
+     *
+     * <p>Two rows and never more: Duplicate, Copy, dependencies and Delete are edits, and an edit in a
+     * reader's menu would be a promise the game must then refuse -- the server re-checks the permission
+     * before anything lands, so the refusal would arrive one round trip later, wearing the menu's own
+     * words. Pinning is here because it writes the reader's own file, which needs no permission at all.
+     */
+    private List<MenuItem> readerNodeMenuItems(String id) {
+        List<MenuItem> items = new ArrayList<>();
+        items.add(MenuItem.of("Open", () -> openOverlay(id)));
+        items.addAll(pinItems(List.of(id), ""));
+        return items;
+    }
+
+    /**
+     * The node menu's pinning rows: one, or none.
      *
      * <h2>Why the rows change rather than one row that toggles</h2>
      *
@@ -14218,31 +14250,20 @@ public final class QuestBookScreen extends ArmatureScreen
      * -- two labels, because it is two acts -- and it costs a row that is simply absent when it means
      * nothing.
      *
-     * <p><b>Focus is its own row, and that is the panel's whole model.</b> The head of the list is drawn in
-     * full and the rest as names, so a player with six pins needs a way to bring one forward that is not
-     * "unpin it and pin it again" -- which would also reorder the rest. Pinning something already pinned
-     * does the same thing, so the two roads agree by construction.
-     *
      * <p>Labels are literals, like every other row in this menu: it is English-only throughout, and one
      * translatable row among eight would be a promise the other seven do not keep.
      */
     private List<MenuItem> pinItems(List<String> targets, String many) {
         boolean allPinned = true;
-        boolean anyBehind = false;
         for (String target : targets) {
-            boolean pinned = PinnedQuests.isPinned(target);
-            allPinned &= pinned;
-            anyBehind |= pinned && !PinnedQuests.isFocused(target);
+            allPinned &= PinnedQuests.isPinned(target);
         }
 
         List<MenuItem> items = new ArrayList<>();
         if (!allPinned) {
             items.add(MenuItem.of("Pin" + many + " to HUD", () -> pinAll(targets)));
         }
-        if (anyBehind) {
-            items.add(MenuItem.of("Focus on HUD", () -> promoteAll(targets)));
-        }
-        if (allPinned) {
+        else {
             items.add(MenuItem.of("Unpin" + many + " from HUD", () -> unpinAll(targets)));
         }
         return items;
@@ -14259,12 +14280,6 @@ public final class QuestBookScreen extends ArmatureScreen
         if (refused) {
             toast(Component.translatable("tenet.screen.hud_pins_full", PinnedQuests.MAX_PINS).getString(),
                     true);
-        }
-    }
-
-    private void promoteAll(List<String> targets) {
-        for (String target : targets) {
-            PinnedQuests.promote(target);
         }
     }
 
@@ -28641,10 +28656,11 @@ public final class QuestBookScreen extends ArmatureScreen
         int boxWidth = Math.min(Math.max(ToastArt.MIN_WIDTH, geometry().panel().width() / 4),
                 ToastArt.MAX_WIDTH);
         // Anchored to the window's bottom edge, newest where the eye is, growing upward -- and the drawing
-        // itself is `ToastArt`'s, shared with the HUD's own stack. See that class for why.
+        // itself is `ToastArt`'s, shared with the HUD's own stack. See that class for why. Full strength:
+        // the book's stack has no dimmer, and the HUD passes its own.
         int firstTop = height - 10 - ToastArt.LINE - (visible.size() - 1) * (ToastArt.LINE + ToastArt.GAP);
         ToastArt.draw(r, textMeasure(r), visible, (width - boxWidth) / 2, firstTop, boxWidth,
-                ClientAppearance.LOOK.motion(), now);
+                ClientAppearance.LOOK.motion(), now, 1.0);
     }
 
     /**

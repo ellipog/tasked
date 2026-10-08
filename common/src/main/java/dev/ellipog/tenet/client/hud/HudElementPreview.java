@@ -92,7 +92,7 @@ public final class HudElementPreview extends ArmatureButton {
     }
 
     /**
-     * The control, with a ring around it -- or the element's own drawing, with the same ring.
+     * The control, with a ring around it when it needs one -- or the element's own drawing, likewise.
      *
      * <p>Drawn here rather than by the screen because a widget cannot draw outside itself and the ring is
      * outside the box by a pixel or two -- and because the ring belongs to the thing it rings: a screen that
@@ -102,10 +102,29 @@ public final class HudElementPreview extends ArmatureButton {
      * is the whole point of the branch: a pin list in the editor and a pin list in the world are one
      * description, so the editor cannot show a panel the game does not draw. The other face of that switch,
      * {@code EDITOR}, is what supplies the stand-in sentence when there is nothing pinned -- a preview is also
-     * the one place a player has to be able to find an element that has nothing to say yet.
+     * the one place a player can see where a hidden thing is, so hiding it here too would make it
+     * unreachable. An element that is switched off still draws here, at full brightness: a second, dimmer
+     * look for one thing would be a second thing to learn, and the game draws nothing at all, which neither
+     * look matches.
+     *
+     * <p>The ring draws only while highlighted -- selected, or held mid-drag -- and that is what makes the
+     * resting editor pixel-identical to the live HUD. A backdrop behind every element was the whole of the
+     * visible gap between the two: in the editor the stack floated on a rounded slab, in the game on the
+     * world, and no comment survives a screenshot side by side.
      */
     @Override
     public void draw(GuiRenderer renderer, long nowMillis) {
+        if (element.kind() == HudElement.Kind.HUD) {
+            if (screen.isHighlighted(element)) {
+                int ring = ArmatureTheme.selectedRing();
+                ArmatureTheme.fillSurface(renderer, getX() - 2, getY() - 2, width + 4, height + 4, ring,
+                        ArmatureTheme.current().cornerRadius() + 2, ArmatureTheme.CORNERS_ALL);
+            }
+            HudOverlay.paint(element, renderer,
+                    BookGeometry.Rect.at(getX(), getY(), width, height),
+                    screen.frameMeasure(), HudOverlay.Face.EDITOR, nowMillis);
+            return;
+        }
         // An element that is switched off is still drawn here, and drawn dim: this is the one place a
         // player can see where a hidden thing is, so hiding it here too would make it unreachable.
         ink(HudSettings.on(element) || screen.isHighlighted(element) ? Ink.TITLE : Ink.BLOCKED);
@@ -114,12 +133,6 @@ public final class HudElementPreview extends ArmatureButton {
         ArmatureTheme.fillSurface(renderer, getX() - 2, getY() - 2, width + 4, height + 4, ring,
                 ArmatureTheme.current().cornerRadius() + 2, ArmatureTheme.CORNERS_ALL);
 
-        if (element.kind() == HudElement.Kind.HUD) {
-            HudOverlay.paint(element, renderer,
-                    BookGeometry.Rect.at(getX(), getY(), width, height),
-                    screen.frameMeasure(), HudOverlay.Face.EDITOR, nowMillis);
-            return;
-        }
         super.draw(renderer, nowMillis);
     }
 
@@ -127,9 +140,7 @@ public final class HudElementPreview extends ArmatureButton {
      * The press that takes hold of the element, and where it took hold.
      *
      * <p>Recorded here rather than at the first drag because this is the only moment that knows: a drag
-     * event says where the pointer is now and nothing about where it met the control. Also the press that
-     * puts an <i>armed</i> element down, so an element picked up by {@code Move} -- which follows the
-     * pointer by its middle -- carries that middle grab into the drag that follows.
+     * event says where the pointer is now and nothing about where it met the control.
      *
      * <p>Only when the base class took the press: an inactive or hidden control records nothing, and a
      * press outside the element is not this widget's at all.

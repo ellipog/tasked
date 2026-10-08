@@ -31,13 +31,11 @@ import java.util.Set;
  * reader two questions, which is the fault {@code HudSettings}'s own note about five files was written to
  * avoid -- so a pin list is a sixth area and gets its own file.
  *
- * <h2>The head of the list is the focus</h2>
+ * <h2>The order is pin order, and every pin is drawn the same way</h2>
  *
- * <p>Pinning a quest puts it first, and the first is the one the HUD draws in full: its tasks, their counts
- * and their ticks. The others are drawn as their titles, which is what makes the panel's height bearable on
- * a canvas with six quests pinned. It is one rule rather than a stored "focused" field, so the two can never
- * disagree -- and pinning something already pinned is what moves it to the front, which is why the book's
- * menu says <i>Focus on HUD</i> for that case rather than <i>Pin to HUD</i>.
+ * <p>Pinning a quest puts it first, and the HUD draws the list top to bottom in that order -- each quest its
+ * own box, with its own tasks. There is no focus and no front to bring forward to, so pinning something
+ * already pinned changes nothing, and the book's menu offers Pin or Unpin and nothing else.
  *
  * <h2>Why a stale id is harmless, and why it is pruned anyway</h2>
  *
@@ -80,7 +78,7 @@ public final class PinnedQuests {
     private PinnedQuests() {
     }
 
-    /** The pinned quests, head first -- the head being the one drawn in full. Never null. */
+    /** The pinned quests, in the order they are drawn. Never null. */
     public static List<String> pinned() {
         return pins;
     }
@@ -95,13 +93,12 @@ public final class PinnedQuests {
         return questId != null && pins.contains(questId);
     }
 
-    /** Whether this quest is the one the panel draws in full. */
-    public static boolean isFocused(String questId) {
-        return questId != null && !pins.isEmpty() && pins.get(0).equals(questId);
-    }
-
     /**
-     * Pins a quest, or brings it to the front if it is already pinned, and writes the list.
+     * Pins a quest, and writes the list.
+     *
+     * <p>Pinning something already pinned changes nothing: every pin is drawn the same way, so there is no
+     * front to bring forward to, and a call that reordered the stack would move boxes a player had arranged
+     * themselves to read. The menu offers Pin or Unpin and nothing else for the same reason.
      *
      * @return false when the list is full and this is a quest not already in it -- nothing is dropped to
      *     make room, and the caller is expected to say so; see {@link #MAX_PINS}
@@ -111,7 +108,7 @@ public final class PinnedQuests {
             return false;
         }
         if (pins.contains(questId)) {
-            return promote(questId);
+            return true;
         }
         if (pins.size() >= MAX_PINS) {
             return false;
@@ -119,21 +116,6 @@ public final class PinnedQuests {
         List<String> next = new ArrayList<>(pins.size() + 1);
         next.add(questId);
         next.addAll(pins);
-        put(next);
-        return true;
-    }
-
-    /** Brings an already-pinned quest to the front. One already there is left alone, silently. */
-    public static boolean promote(String questId) {
-        if (questId == null || !pins.contains(questId)) {
-            return false;
-        }
-        if (isFocused(questId)) {
-            return true;
-        }
-        List<String> next = new ArrayList<>(pins);
-        next.remove(questId);
-        next.add(0, questId);
         put(next);
         return true;
     }
@@ -173,8 +155,8 @@ public final class PinnedQuests {
         }
         List<String> next = new ArrayList<>(pins.size());
         for (String id : pins) {
-            // Kept rather than rebuilt from the tree, because the order is the player's: the head is the
-            // quest they were last looking at, and a walk of the cache would sort it by the pack's own.
+            // Kept rather than rebuilt from the tree, because the order is the player's: the first is the
+            // most recently pinned, and a walk of the cache would sort it by the pack's own.
             if (known.contains(id)) {
                 next.add(id);
             }

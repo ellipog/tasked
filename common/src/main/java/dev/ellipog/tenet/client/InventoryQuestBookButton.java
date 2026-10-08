@@ -89,7 +89,7 @@ public final class InventoryQuestBookButton extends ArmatureButton {
             return null;
         }
         var box = HudLayout.boxAt(ELEMENT, screen.width, screen.height,
-                HudSettings.x(ELEMENT), HudSettings.y(ELEMENT));
+                HudSettings.x(ELEMENT), HudSettings.y(ELEMENT), ELEMENT.width(), ELEMENT.height());
         return new InventoryQuestBookButton(box.x(), box.y(),
                 Component.translatable("tenet.screen.quest_book.title"));
     }
