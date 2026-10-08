@@ -55,6 +55,7 @@ import dev.ellipog.tenet.client.dev.CanvasReveal;
 import dev.ellipog.tenet.client.dev.ClientEditorClipboard;
 import dev.ellipog.tenet.client.dev.EntryFormLayout;
 import dev.ellipog.tenet.quest.EditorField;
+import dev.ellipog.tenet.quest.EditorSources;
 import dev.ellipog.tenet.quest.EditorSpecs;
 import dev.ellipog.tenet.client.dev.InlineEdit;
 import dev.ellipog.tenet.client.dev.ItemPicker;
@@ -2104,6 +2105,16 @@ public final class QuestBookScreen extends ArmatureScreen
      * is what every pick before this one was.
      */
     private EditorField.Source pickerSource;
+
+    /**
+     * The observation mode the open search field was opened under, and empty for every other source.
+     *
+     * <p>Kept rather than re-read while drawing, because it is what the list was gathered for: the
+     * target field of an observation task lists blocks for a block observation and entity tags for an
+     * entity one, so a mode re-read a frame later would be a list and a rule that disagreed. It is also
+     * what says whether the field's values are ids or a `#tag` -- see {@code EditorSources#valueKind}.
+     */
+    private String pickerObserveType = "";
 
     /** How many rows a search field shows before anything is typed. */
     private static final int FIRST_ROWS = 10;
@@ -10321,6 +10332,12 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>A source with nothing to list -- disconnected, or a registry the server has not sent -- still
      * opens, on an empty list with a box that takes a typed id. Refusing to open would leave the author
      * pressing a control that does nothing at all.
+     *
+     * <p><b>Except when the field's value is not an id.</b> An observation task whose mode is a block
+     * entity takes an NBT filter, and there is no list of those: every row the picker could offer would
+     * write a value the codec refuses, and the box cannot commit the filter either, so the mode was
+     * uneditable outside the file. A field whose grammar is {@code FREE} gets the text box, which is the
+     * control that can hold what it takes. See {@code EditorSources.Value}.
      */
     private void openSearchPick(EditTarget target, double mouseX, double mouseY) {
         JsonObject quest = replicaQuest();
@@ -10330,8 +10347,10 @@ public final class QuestBookScreen extends ArmatureScreen
         EditorField field = entry == null
                 ? null
                 : fieldAt(entry, target.member(), target.index(), target.path());
-        if (field != null && field.source() != null) {
-            openSearchPicker(target, field);
+        String observeType = entry == null ? "" : rawValue(entry, "observeType");
+        if (field != null && field.source() != null
+                && EditorSources.valueKind(field.source(), observeType) != EditorSources.Value.FREE) {
+            openSearchPicker(target, field, observeType);
             return;
         }
         openInlineEditor(target, mouseX, mouseY);
@@ -11486,8 +11505,12 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>The same card and the same rows as the item picker -- what changes is the catalogue and where the
      * "current" row's idea of known comes from. There is no inventory group and nothing to clear: a
      * dimension has no NBT and no "carried" to offer.
+     *
+     * @param observeType the observation task's own mode, taken from the entry by the caller: the target
+     *                    field lists blocks for a block observation and entity tags for an entity one, and
+     *                    the list has to be gathered from the same reading the press was dispatched on
      */
-    private void openSearchPicker(EditTarget target, EditorField field) {
+    private void openSearchPicker(EditTarget target, EditorField field, String observeType) {
         closeInlineEditor();
         pickingEntryType = null;
         settingsOpen = false;
@@ -11502,13 +11525,8 @@ public final class QuestBookScreen extends ArmatureScreen
         pickingItemCurrent = current != null && current.isJsonPrimitive() ? current.getAsString() : "";
         pickingItemClearPath = null;
         pickerSource = field.source();
-        // The observation task's own mode, read from the entry: its target field lists blocks for a block
-        // observation and entities for an entity one, and the picker asks the same question the engine does.
-        JsonObject entry = quest == null || target.index() < 0
-                ? null
-                : entryAt(quest, target.member(), target.index());
-        pickerEntries = SearchCatalogue.list(field.source(),
-                entry == null ? "" : rawValue(entry, "observeType"));
+        pickerObserveType = observeType;
+        pickerEntries = SearchCatalogue.list(field.source(), observeType);
         pickerInventory = List.of();
         pickerMatches = List.of();
         pickerRows = List.of();
@@ -11544,6 +11562,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // The item catalogue, and this pick is items: a search left set from the last one would list
         // biomes for a field that wants an item.
         pickerSource = null;
+        pickerObserveType = "";
         pickerEntries = catalogue();
         pickerInventory = carried();
         pickerMatches = List.of();
@@ -11904,12 +11923,18 @@ public final class QuestBookScreen extends ArmatureScreen
                 // reads as one that found nothing. Typing ranks exactly as it does for items.
                 ? pickerEntries.stream().limit(FIRST_ROWS).toList()
                 : ItemPicker.rank(pickerEntries, query, ItemPicker.LIMIT);
-        String typedCandidate = ItemPicker.missingCandidate(query, pickerMatches);
+        // A typed `#tag` is a value a RegistryRef field takes, and a `#` is not a resource location: without
+        // the flag the box refuses the spelling the field's own codec reads. See ItemPicker#missingCandidate.
+        boolean tagsAllowed = pickerSource != null
+                && EditorSources.valueKind(pickerSource, pickerObserveType)
+                        == EditorSources.Value.ID_OR_TAG;
+        String typedCandidate = ItemPicker.missingCandidate(query, pickerMatches, tagsAllowed);
         // What "the current value is real" means depends on what is being listed: an item is known when
-        // the build has it, and a registry id is known when it parses -- there is no stack to look up.
+        // the build has it, and a registry value is known when the field's own grammar takes it -- which
+        // is why a `#minecraft:village` is no longer reported as a missing id by the picker listing it.
         boolean currentKnown = pickingItemCurrent.isEmpty()
                 || (pickerSource != null
-                        ? net.minecraft.resources.ResourceLocation.tryParse(pickingItemCurrent) != null
+                        ? EditorSources.accepts(pickerSource, pickerObserveType, pickingItemCurrent)
                         : !itemStack(pickingItemCurrent).isEmpty());
         pickerRows = ItemPickerLayout.compose(pickerInventory, pickerMatches,
                 new ItemPickerLayout.Current(pickingItemCurrent, currentKnown,
@@ -18122,6 +18147,7 @@ public final class QuestBookScreen extends ArmatureScreen
         pickingItemCurrent = "";
         pickingItemClearPath = null;
         pickerSource = null;
+        pickerObserveType = "";
         pickerFrame = null;
         itemSearch = null;
         pickerSelected = -1;
@@ -27279,9 +27305,9 @@ public final class QuestBookScreen extends ArmatureScreen
         // The clipboard goes too: another server's quests are not this one's to paste, and a tree
         // carried across a disconnect is an op the new server would dutifully apply to its own files.
         ClientEditorClipboard.clear();
-        // And the server's dimension list, for the same reason: a picker still offering the last
-        // server's worlds would write an id the new one has never heard of.
-        ClientDimensions.clear();
+        // And the server's lists, for the same reason: a picker still offering the last server's worlds
+        // or structures would write an id the new one has never heard of.
+        ClientServerLists.clear();
         // And the stages: a gate answered from the last server's flags would open a quest this one
         // has not unlocked.
         ClientStages.clear();

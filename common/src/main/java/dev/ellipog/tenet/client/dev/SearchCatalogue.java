@@ -1,7 +1,8 @@
 package dev.ellipog.tenet.client.dev;
 
-import dev.ellipog.tenet.client.ClientDimensions;
+import dev.ellipog.tenet.client.ClientServerLists;
 import dev.ellipog.tenet.quest.EditorField;
+import dev.ellipog.tenet.quest.EditorSources;
 import dev.ellipog.tenet.quest.EditorSpecs;
 
 import net.minecraft.advancements.AdvancementHolder;
@@ -10,11 +11,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -23,16 +25,28 @@ import java.util.List;
  * <h2>Why this exists at all</h2>
  *
  * <p>Because a field that is an id -- a dimension, a biome, a statistic -- used to be a text box you had
- * to know the answer to. Everything here is a list the client already holds: the registries the server
- * synced, the static ones the game ships, the advancement tree, and the custom statistics. So the editor
- * can say "here is what exists" rather than "type it and hope".
+ * to know the answer to. Everything here is a list the client already holds: the registries the game
+ * ships statically, the datapack registries the server sends, the advancement tree, the custom
+ * statistics, and the two lists the server sends because a client cannot build them.
+ *
+ * <h2>The one rule, which is in the table rather than in this class</h2>
+ *
+ * <p><b>A list may only be read from a registry the client is sent.</b> A registry the server does not
+ * send answers <i>empty</i> rather than throwing, so reading one is not an error, it is a picker that
+ * opens with no rows and no explanation -- which is exactly how the structure list shipped, because a
+ * structure is worldgen data the server keeps to itself. {@link EditorSources#registryFor} is the table
+ * that names the registry behind every source, and {@code EditorSourcesTest} asserts each of them against
+ * 1.21.1's own sets. This class only gathers what that table points at.
  *
  * <h2>What it deliberately does not do</h2>
  *
- * <p>It does not pretend to know more than it does. A datapack's dimensions are not on the client -- the
- * server does not sync its level list -- so the dimension list holds the three every player knows plus
- * the one the player is standing in, and the picker's search box still takes any id typed into it. That
- * is the honest shape: a convenience list, and a field that accepts what the list cannot know.
+ * <p>It does not pretend to know more than it does. A datapack's dimensions and every structure are not on
+ * the client -- one is level data and the other is a registry the server does not send -- so those two
+ * lists come from the server, and a datapack dimension or structure added by a reload arrives on the next
+ * join rather than mid-session. The dimension list falls back to the three every player knows before the
+ * server has said; the structure list has no fallback, because a structure's id is the pack's to choose
+ * and a list of vanilla ids would be a guess dressed as an answer. The picker's search box takes a typed
+ * id either way, which is what keeps an empty list from being a dead end.
  *
  * <p>Labels come from the ids, prettified: a biome's own translated name is not reachable from a registry
  * key without resolving the biome's display, and an id a person can read ("The nether") is what a picker
@@ -49,38 +63,35 @@ public final class SearchCatalogue {
 
     /**
      * The list one source offers, or an empty one when the client cannot see it -- disconnected, or a
-     * registry the server has not sent.
+     * registry the server has not sent yet.
+     *
+     * <p>A switch <b>expression</b> rather than a statement, deliberately. As a statement it compiled
+     * while a new {@link EditorField.Source} silently listed nothing, which is the shape of the fault
+     * this class shipped with; as an expression the compiler refuses to build until every source has an
+     * arm.
      *
      * @param observeType the observation task's own mode, for the source that depends on it
      */
     public static List<ItemPicker.Entry> list(EditorField.Source source, String observeType) {
         Minecraft minecraft = Minecraft.getInstance();
         RegistryAccess access = minecraft.level == null ? null : minecraft.level.registryAccess();
-        List<ItemPicker.Entry> out = new ArrayList<>();
-
-        switch (source) {
-            case DIMENSION -> dimensions(minecraft, out);
-            case BIOME -> registry(access, Registries.BIOME, out, true);
-            case STRUCTURE -> registry(access, Registries.STRUCTURE, out, true);
-            case ENCHANTMENT -> registry(access, Registries.ENCHANTMENT, out, false);
-            case EFFECT -> builtIn(BuiltInRegistries.MOB_EFFECT, out, false);
-            case ATTRIBUTE -> builtIn(BuiltInRegistries.ATTRIBUTE, out, false);
-            case FLUID -> builtIn(BuiltInRegistries.FLUID, out, false);
-            case ENTITY -> builtIn(BuiltInRegistries.ENTITY_TYPE, out, false);
-            case ITEM_TAG -> tags(BuiltInRegistries.ITEM, out, false);
-            case ENTITY_TAG -> tags(BuiltInRegistries.ENTITY_TYPE, out, false);
-            case ADVANCEMENT -> advancements(minecraft, out);
-            case STAT -> BuiltInRegistries.CUSTOM_STAT.keySet()
-                    // The custom statistics are exactly what a stat task reads -- `Stats.CUSTOM` -- and
-                    // their keys are the ids a file writes. Block and item statistics are not listed:
-                    // the task resolves through CUSTOM only, so offering the others would be offering
-                    // values the engine cannot read.
-                    .forEach(stat -> out.add(entry(stat.toString())));
-            case OBSERVATION_TARGET -> observation(observeType, out);
-        }
+        List<ItemPicker.Entry> out = new ArrayList<>(switch (source) {
+            case DIMENSION -> dimensions(minecraft);
+            // The server's own lists -- see ServerListsPayload for why neither can be read here.
+            case STRUCTURE -> rows(ClientServerLists.structures());
+            case ADVANCEMENT -> advancements(minecraft);
+            case OBSERVATION_TARGET -> observation(observeType);
+            case ITEM_TAG, ENTITY_TAG -> tags(EditorSources.registryFor(source, observeType), false);
+            case EFFECT, ATTRIBUTE, FLUID, ENTITY, STAT ->
+                    builtIn(EditorSources.registryFor(source, observeType));
+            // The two datapack registries a real server does send, and the tags the tag packet binds to
+            // them: read from the connection's own access, and a `#` because both fields are RegistryRefs.
+            case BIOME -> registry(access, EditorSources.registryFor(source, observeType), true);
+            case ENCHANTMENT -> registry(access, EditorSources.registryFor(source, observeType), false);
+        });
         // Alphabetical by id, so a picker opened before anything is typed shows the same ten rows twice
         // running -- and so "the first ten" means the first ten anything an author would look for.
-        out.sort(java.util.Comparator.comparing(ItemPicker.Entry::id));
+        out.sort(Comparator.comparing(ItemPicker.Entry::id));
         return List.copyOf(out);
     }
 
@@ -90,18 +101,15 @@ public final class SearchCatalogue {
      *
      * <p>The server's list is the one that matters, and it is the only way a modded or datapack dimension
      * can appear: the client is never sent them, because a dimension is level data rather than a registry
-     * entry. See {@code DimensionSyncPayload}. The fallback covers the moment before it arrives -- a
-     * client that has not been told yet -- and it is deliberately not a lie about the rest: the box takes
-     * a typed id whatever the list holds.
+     * entry -- see {@code ServerListsPayload}. The fallback covers the moment before it arrives, and it is
+     * deliberately not a lie about the rest: the box takes a typed id whatever the list holds.
      */
-    private static void dimensions(Minecraft minecraft, List<ItemPicker.Entry> out) {
-        if (ClientDimensions.known()) {
-            ClientDimensions.ids().forEach(id -> out.add(entry(id)));
-            addCurrentDimension(minecraft, out);
-            return;
-        }
-        KNOWN_DIMENSIONS.forEach(id -> out.add(entry(id)));
+    private static List<ItemPicker.Entry> dimensions(Minecraft minecraft) {
+        List<ItemPicker.Entry> out = ClientServerLists.known()
+                ? rows(ClientServerLists.dimensions())
+                : rows(KNOWN_DIMENSIONS);
         addCurrentDimension(minecraft, out);
+        return out;
     }
 
     /** The dimension the player is standing in, when the list does not already hold it. */
@@ -117,52 +125,57 @@ public final class SearchCatalogue {
     }
 
     /**
-     * An observation's target: a block or an entity, by the task's own mode.
+     * An observation's target: whichever list the task's own mode names.
      *
-     * <p>The mode decides which list is right -- an entity id in a block field is a task that can never
-     * be satisfied -- so the picker asks the same question the engine does.
+     * <p>The mode decides which list is right -- an entity id in a block field is a task that can never be
+     * satisfied -- so the picker asks the same question the engine does, and {@link EditorSources} is
+     * where that question is answered. A tag mode's target is a tag id without the {@code #}, because the
+     * task reads it with a resource location codec; a block entity's target is an NBT filter, which has no
+     * registry at all and never reaches here -- see {@code EditorSources.Value#FREE}.
      */
-    private static void observation(String observeType, List<ItemPicker.Entry> out) {
-        boolean entity = observeType.startsWith("entity");
-        if (entity) {
-            if (observeType.equals("entity_type_tag")) {
-                tags(BuiltInRegistries.ENTITY_TYPE, out, false);
-            }
-            else {
-                builtIn(BuiltInRegistries.ENTITY_TYPE, out, false);
-            }
-            return;
+    private static List<ItemPicker.Entry> observation(String observeType) {
+        ResourceKey<? extends Registry<?>> key =
+                EditorSources.registryFor(EditorField.Source.OBSERVATION_TARGET, observeType);
+        if (key == null) {
+            return List.of();
         }
-        if (observeType.equals("block_tag")) {
-            tags(BuiltInRegistries.BLOCK, out, false);
-        }
-        else {
-            builtIn(BuiltInRegistries.BLOCK, out, false);
-        }
+        return EditorSources.isTagMode(observeType) ? tags(key, false) : builtIn(key);
     }
 
-    /** A datapack registry the server synced, ids only -- and its tags where the field takes one. */
-    private static <T> void registry(RegistryAccess access, ResourceKey<? extends Registry<T>> key,
-                                    List<ItemPicker.Entry> out, boolean withTags) {
-        if (access == null) {
-            return;
+    /** A datapack registry the server sent, ids only -- and its tags where the field takes one. */
+    private static List<ItemPicker.Entry> registry(RegistryAccess access,
+                                                   ResourceKey<? extends Registry<?>> key,
+                                                   boolean withTags) {
+        if (access == null || key == null) {
+            return List.of();
         }
-        Registry<T> registry = access.registry(key).orElse(null);
+        Registry<?> registry = access.registry(key).orElse(null);
+        return registry == null ? List.of() : builtIn(registry, withTags);
+    }
+
+    /** One of the game's own registries, by key: the same object the tag packet binds its tags to. */
+    private static List<ItemPicker.Entry> builtIn(ResourceKey<? extends Registry<?>> key) {
+        Registry<?> registry = key == null ? null : BuiltInRegistries.REGISTRY.get(key.location());
+        return registry == null ? List.of() : builtIn(registry, false);
+    }
+
+    private static List<ItemPicker.Entry> builtIn(Registry<?> registry, boolean withTags) {
+        List<ItemPicker.Entry> out = rows(registry.keySet());
+        if (withTags) {
+            tags(registry, out, true);
+        }
+        return out;
+    }
+
+    /** A built-in registry's tags, by key, as the field that consumes them spells one. */
+    private static List<ItemPicker.Entry> tags(ResourceKey<? extends Registry<?>> key, boolean hash) {
+        Registry<?> registry = key == null ? null : BuiltInRegistries.REGISTRY.get(key.location());
         if (registry == null) {
-            return;
+            return List.of();
         }
-        registry.keySet().forEach(id -> out.add(entry(id.toString())));
-        if (withTags) {
-            tags(registry, out, true);
-        }
-    }
-
-    /** One of the game's own registries: ids, and -- for the ones a task takes a tag of -- its tags. */
-    private static <T> void builtIn(Registry<T> registry, List<ItemPicker.Entry> out, boolean withTags) {
-        registry.keySet().forEach(id -> out.add(entry(id.toString())));
-        if (withTags) {
-            tags(registry, out, true);
-        }
+        List<ItemPicker.Entry> out = new ArrayList<>();
+        tags(registry, out, hash);
+        return out;
     }
 
     /**
@@ -173,15 +186,16 @@ public final class SearchCatalogue {
      * while an item or entity tag field holds the plain id, because its codec is a resource location and a
      * {@code #} is not one.
      */
-    private static <T> void tags(Registry<T> registry, List<ItemPicker.Entry> out, boolean hash) {
+    private static void tags(Registry<?> registry, List<ItemPicker.Entry> out, boolean hash) {
         registry.getTagNames().forEach(tag ->
                 out.add(entry((hash ? "#" : "") + tag.location())));
     }
 
     /** The client's own advancement tree: everything the server has told it about. */
-    private static void advancements(Minecraft minecraft, List<ItemPicker.Entry> out) {
+    private static List<ItemPicker.Entry> advancements(Minecraft minecraft) {
+        List<ItemPicker.Entry> out = new ArrayList<>();
         if (minecraft.getConnection() == null) {
-            return;
+            return out;
         }
         for (AdvancementNode node : minecraft.getConnection().getAdvancements().getTree().nodes()) {
             AdvancementHolder holder = node.holder();
@@ -190,6 +204,21 @@ public final class SearchCatalogue {
                     .orElseGet(() -> EditorSpecs.label(holder.id().getPath()));
             out.add(new ItemPicker.Entry(holder.id().toString(), label, 1, ""));
         }
+        return out;
+    }
+
+    /** Ids as rows, for a registry's own key set. */
+    private static List<ItemPicker.Entry> rows(Collection<ResourceLocation> ids) {
+        List<ItemPicker.Entry> out = new ArrayList<>();
+        ids.forEach(id -> out.add(entry(id.toString())));
+        return out;
+    }
+
+    /** Ids as rows, for a list the server sent -- already spelling its own tags. */
+    private static List<ItemPicker.Entry> rows(List<String> ids) {
+        List<ItemPicker.Entry> out = new ArrayList<>();
+        ids.forEach(id -> out.add(entry(id)));
+        return out;
     }
 
     /** One row: the id, and the name a person reads. */

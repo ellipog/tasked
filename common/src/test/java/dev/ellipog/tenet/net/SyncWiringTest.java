@@ -8,6 +8,7 @@ import dev.ellipog.tenet.client.ClientEditReplies;
 import dev.ellipog.tenet.client.ClientLocale;
 import dev.ellipog.tenet.client.ClientPartyCache;
 import dev.ellipog.tenet.client.ClientQuestCache;
+import dev.ellipog.tenet.client.ClientServerLists;
 import dev.ellipog.tenet.progress.ProgressionEngine;
 import dev.ellipog.tenet.progress.QuestProgress;
 import dev.ellipog.tenet.progress.QuestState;
@@ -115,6 +116,9 @@ class SyncWiringTest {
         // test would answer for the next one's conventional lookup, which would then pass without the
         // wire having carried anything.
         ClientLocale.clear();
+        // And the editor's two server-sent lists, for the same reason and with the same hazard: a
+        // structure left by an earlier test would be read below as if the wire had just carried it.
+        ClientServerLists.clear();
         // And the editor's two stores, for the same reason: a replica or a reply left by an earlier test
         // would be read by the assertions below as if the handler had just delivered it.
         ClientChapterReplica.clear();
@@ -144,7 +148,6 @@ class SyncWiringTest {
                 "tenet:claim_reward",
                 "tenet:claim_reward_entry",
                 "tenet:claim_summary",
-                "tenet:dimension_sync",
                 // Not a viewer message either: the undo history being discarded, which `/tenet reload`
                 // sends because the client's undo *button* is drawn from counters of its own and would
                 // otherwise keep offering an undo over a history the server had thrown away.
@@ -165,6 +168,7 @@ class SyncWiringTest {
                 "tenet:quest_sync",
                 "tenet:replica_request",
                 "tenet:reward_overflow",
+                "tenet:server_lists",
                 "tenet:stage_sync",
                 "tenet:submit_task",
                 "tenet:table_import_request",
@@ -684,6 +688,50 @@ class SyncWiringTest {
         assertFalse(ClientPartyCache.hasParty(),
                 "an empty roster must clear the party rather than be ignored, which is the whole "
                         + "reason `sendNoPartyTo` sends something instead of nothing");
+    }
+
+    // ------------------------------------------------------------------
+    // The editor's lists, which only the server has
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("the server's lists reach the client store through the registered handler")
+    void theServerListsArriveThroughTheHandler() {
+        // The structure picker's own half of the fault this payload was added for. The client cannot read
+        // a structure registry at all -- 1.21.1 sends eleven datapack registries and that is not one of
+        // them, so the lookup answers an empty registry rather than throwing -- and `ServerListsTest`
+        // covers the other half, that the list the server gathers is the datapack's own. What is covered
+        // here is the plumbing between them: registration, codec, handler, store. A registration pointed
+        // at the wrong method, or a handler that ignored its argument, fails here.
+        Consumer<ServerListsPayload> handler = clientHandler("server_lists");
+        handler.accept(throughTheCodec(ServerListsPayload.CODEC, new ServerListsPayload(
+                // Deliberately unsorted: the store sorts once, so that two pickers cannot order one list
+                // two ways and the first ten rows mean the same ten twice running.
+                List.of("minecraft:overworld", "example:the_deep"),
+                List.of("minecraft:village_plains", "#minecraft:village"))));
+
+        assertEquals(List.of("example:the_deep", "minecraft:overworld"),
+                ClientServerLists.dimensions(), "the dimensions did not reach the store");
+        assertEquals(List.of("#minecraft:village", "minecraft:village_plains"),
+                ClientServerLists.structures(),
+                "the structures did not reach the store, so the picker would open with no rows and say "
+                        + "nothing about why -- which is the fault this payload exists for");
+        assertTrue(ClientServerLists.known(),
+                "the server has said, so a picker must use its list rather than the vanilla fallback");
+
+        // A second message replaces rather than merges: the lists belong to one server, and a store that
+        // accumulated would offer the last world's dimensions and structures on the next one.
+        handler.accept(throughTheCodec(ServerListsPayload.CODEC,
+                new ServerListsPayload(List.of("minecraft:overworld"), List.of("minecraft:stronghold"))));
+        assertEquals(List.of("minecraft:overworld"), ClientServerLists.dimensions());
+        assertEquals(List.of("minecraft:stronghold"), ClientServerLists.structures());
+
+        // And the disconnect hook empties both, which is what `forgetViewState` calls it for.
+        ClientServerLists.clear();
+        assertFalse(ClientServerLists.known(), "another server's worlds are not this one's to offer");
+        assertTrue(ClientServerLists.structures().isEmpty(),
+                "and neither are its structures: a picker offering the last server's would write an id "
+                        + "this one has never heard of");
     }
 
     // ------------------------------------------------------------------

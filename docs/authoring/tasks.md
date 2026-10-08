@@ -171,7 +171,7 @@ here as it is everywhere else.
 | Field | Default | Meaning |
 |---|---|---|
 | `observeType` | — | What counts as looking: `block`, `block_tag`, `block_state`, `block_entity`, `block_entity_type`, `entity_type`, or `entity_type_tag`. |
-| `toObserve` | — | The block or entity to look at, following `observeType`. |
+| `toObserve` | — | The block or entity to look at, following `observeType`. For `block_entity` this is an SNBT filter, e.g. `{Items:[…]}`, and for the tag modes it is a tag id without the `#`. |
 | `timer` | `20` | How long to look at it, in ticks. |
 
 ## `tenet:stage`
@@ -197,6 +197,11 @@ that will not load.
 | Field | Meaning |
 |---|---|
 | `structure` | The structure to be inside, e.g. `minecraft:village_plains`. A `#` tag counts any of them. |
+
+The in-game editor's list of structures is the **connected server's** own, because a structure is worldgen
+data a client is never sent: a modded or datapack structure appears in the list once you have joined, and
+one added by a datapack reload arrives on the next join. The box also takes a typed id, so a structure the
+list has not offered yet is still settable.
 
 ## `tenet:xp`
 

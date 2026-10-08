@@ -223,6 +223,12 @@ class EditorSpecsTest {
         assertEquals("Only from crafting", EditorSpecs.label("onlyFromCrafting"));
         assertEquals("Block tag", EditorSpecs.label("block_tag"));
         assertEquals("Count", EditorSpecs.label("count"));
+        // An enum constant's name is not a codec field's, and it has no lower-case letter to mark where
+        // one word ends: the picker's heading is `EditorSpecs.label(pickerSource.name())`, so without this
+        // a structure picker was headed "STRUCTURE".
+        assertEquals("Structure", EditorSpecs.label("STRUCTURE"));
+        assertEquals("Item tag", EditorSpecs.label("ITEM_TAG"));
+        assertEquals("Observation target", EditorSpecs.label("OBSERVATION_TARGET"));
     }
 
     private static EditorField.Kind kind(List<EditorField> fields, String path) {

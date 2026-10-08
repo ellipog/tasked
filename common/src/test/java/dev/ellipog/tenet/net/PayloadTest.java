@@ -124,7 +124,6 @@ class PayloadTest {
                 "tenet:claim_reward",
                 "tenet:claim_reward_entry",
                 "tenet:claim_summary",
-                "tenet:dimension_sync",
                 "tenet:edit_history",
                 "tenet:edit_problems",
                 "tenet:editor_op",
@@ -136,6 +135,7 @@ class PayloadTest {
                 "tenet:quest_sync",
                 "tenet:replica_request",
                 "tenet:reward_overflow",
+                "tenet:server_lists",
                 "tenet:stage_sync",
                 "tenet:submit_task",
                 "tenet:table_import_request",
@@ -180,10 +180,12 @@ class PayloadTest {
         // The panel's copy of a chapter: asked for by the client, answered by the server.
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tenet:replica_request"));
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:chapter_replica"));
-        // The world's dimensions: the one list the editor searches that the client cannot build itself,
-        // so it travels from the server. The other way round it would never arrive and the dimension
-        // picker would quietly offer the three vanilla ids forever.
-        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:dimension_sync"));
+        // The lists the editor searches that the client cannot build itself: the dimensions, which are
+        // level data on the server, and the structures, which are a datapack registry a client is never
+        // sent. They travel from the server. The other way round neither would ever arrive, and the
+        // dimension picker would offer the three vanilla ids forever while the structure picker offered
+        // nothing at all -- which is what it did.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:server_lists"));
         // A player's stages, to that player. One-way by design: the server is the only authority on what a
         // player has, so the other direction would be a client claiming its own progression.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:stage_sync"));
@@ -491,16 +493,22 @@ class PayloadTest {
     }
 
     @Test
-    @DisplayName("the server's dimension list survives a round trip, ids and order")
-    void dimensionSyncRoundTrip() {
-        // The ids a modpack has: three vanilla, a modded one and a datapack one. A codec that dropped or
-        // reordered them would leave the picker offering a different world than the server has.
-        DimensionSyncPayload decoded = roundTrip(DimensionSyncPayload.CODEC, new DimensionSyncPayload(
+    @DisplayName("the server's lists survive a round trip, ids and order, tags included")
+    void serverListsRoundTrip() {
+        // The ids a modpack has: three vanilla dimensions, a modded one and a datapack one -- and the
+        // structures, where the tag spelling is half of what a `structure` field takes. A codec that
+        // dropped or reordered them would leave the picker offering a different world, or a different set
+        // of structures, than the server has.
+        ServerListsPayload decoded = roundTrip(ServerListsPayload.CODEC, new ServerListsPayload(
                 List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
-                        "twilightforest:twilight_forest", "example:the_deep")));
+                        "twilightforest:twilight_forest", "example:the_deep"),
+                List.of("#minecraft:village", "minecraft:stronghold", "minecraft:village_plains",
+                        "terralith:underground_city")));
 
         assertEquals(List.of("minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
                 "twilightforest:twilight_forest", "example:the_deep"), decoded.dimensions());
+        assertEquals(List.of("#minecraft:village", "minecraft:stronghold", "minecraft:village_plains",
+                "terralith:underground_city"), decoded.structures());
     }
 
     @Test

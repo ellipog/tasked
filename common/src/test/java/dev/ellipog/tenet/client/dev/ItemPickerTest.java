@@ -114,6 +114,31 @@ class ItemPickerTest {
     }
 
     @Test
+    @DisplayName("a typed #tag is kept where the field takes one, and refused where it does not")
+    void aTypedTagIsKeptOnlyWhereTheFieldTakesOne() {
+        // A RegistryRef field -- a biome, a structure -- writes a tag as `#minecraft:village`, and a
+        // resource location cannot hold a `#`. So without the flag the box refused the very spelling the
+        // field's codec reads, and a tag an author typed could only be set by editing the file.
+        List<ItemPicker.Entry> none = List.of();
+        assertEquals("#minecraft:village", ItemPicker.missingCandidate("#minecraft:village", none, true));
+        assertNull(ItemPicker.missingCandidate("#minecraft:village", none),
+                "an item tag field's codec is a bare resource location, so a `#` there is still not an id");
+        assertNull(ItemPicker.missingCandidate("#not a tag", none, true),
+                "and the rest of the spelling still has to be a resource location");
+        assertNull(ItemPicker.missingCandidate("village", none, true),
+                "a bare word is a search, tag or not: a deliberate value names its namespace");
+        assertEquals("minecraft:village_plains",
+                ItemPicker.missingCandidate("minecraft:village_plains", none, true),
+                "the flag does not stop a plain id from being kept by a field that takes tags");
+
+        // A tag the list already holds is not a missing value: the row is there to be pressed.
+        List<ItemPicker.Entry> listed =
+                ItemPicker.rank(List.of(new ItemPicker.Entry("#minecraft:village", "Village", 0)),
+                        "#minecraft:village", ItemPicker.LIMIT);
+        assertNull(ItemPicker.missingCandidate("#minecraft:village", listed, true));
+    }
+
+    @Test
     @DisplayName("the typed id wins outright -- Enter on a real id does not mean \"the first match\"")
     void theTypedIdWins() {
         List<ItemPicker.Entry> matches =

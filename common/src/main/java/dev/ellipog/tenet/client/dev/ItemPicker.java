@@ -116,16 +116,31 @@ public final class ItemPicker {
      * confirms by pressing the row, which is exactly the consent a deliberate missing id needs.
      */
     public static String missingCandidate(String query, List<Entry> matches) {
+        return missingCandidate(query, matches, false);
+    }
+
+    /**
+     * The same, for a field whose values may be a {@code #tag}.
+     *
+     * <p>A {@code RegistryRef} field -- a biome, a structure -- writes a tag as {@code #minecraft:village},
+     * and a resource location cannot hold a {@code #}. So without this the box refuses a tag the field
+     * takes, which is a value the author can only set by editing the file. The flag is the caller's
+     * because only the caller knows which spelling its field's codec reads: an item tag field's codec is
+     * a bare resource location, and a {@code #} there is still not an id.
+     */
+    public static String missingCandidate(String query, List<Entry> matches, boolean allowTag) {
         if (query == null || query.isBlank()) {
             return null;
         }
         String typed = query.trim();
-        if (typed.indexOf(':') <= 0) {
+        boolean tag = allowTag && typed.startsWith("#");
+        String id = tag ? typed.substring(1) : typed;
+        if (id.indexOf(':') <= 0) {
             // A bare word is a search, not an id: "oak" should list the oak things, not offer to write
             // an id nobody typed. A deliberate missing item always names its namespace.
             return null;
         }
-        if (net.minecraft.resources.ResourceLocation.tryParse(typed) == null) {
+        if (net.minecraft.resources.ResourceLocation.tryParse(id) == null) {
             return null;
         }
         for (Entry entry : matches) {

@@ -20,9 +20,13 @@ import dev.ellipog.tenet.quest.QuestIndex;
 import dev.ellipog.tenet.quest.TenetQuests;
 import dev.ellipog.tenet.quest.TreeRefresh;
 
+import net.minecraft.core.Registry;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.levelgen.structure.Structure;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -299,13 +303,19 @@ public final class TenetNetworking {
                 TenetNetworking::handleClaimChoiceResult,
                 null));
 
-        // --- the world's dimensions, server to client ---
+        // --- the lists only the server has, server to client ---
+        //
+        // The dimensions and the structures, in one message. Both are lists the editor searches and the
+        // client cannot build for itself -- a dimension is level data rather than a registry entry, and a
+        // structure is a datapack registry a client is never sent -- and carrying them together is what
+        // makes the rule readable in one place: a picker may only read a registry the client was given,
+        // and anything else the server owns travels here. See ServerListsPayload.
 
         ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
-                DimensionSyncPayload.TYPE,
-                DimensionSyncPayload.CODEC,
+                ServerListsPayload.TYPE,
+                ServerListsPayload.CODEC,
                 ArmatureNetwork.Direction.TO_CLIENT,
-                TenetNetworking::handleDimensions,
+                TenetNetworking::handleServerLists,
                 null));
 
         // --- one player's stages, to that player ---
@@ -751,12 +761,23 @@ public final class TenetNetworking {
         // before it can draw a panel. Sent through the player object rather than looked up by id --
         // see `sendOwnRosterTo` for the whole of that fault.
         sendOwnRosterTo(player);
-        // And the dimensions this server has. The one list the editor searches that the client cannot
-        // build for itself: a dimension is level data rather than a registry entry, so a modded or
-        // datapack one is invisible until the server names it. See DimensionSyncPayload.
-        ArmatureNetwork.sendToPlayer(player, new DimensionSyncPayload(dimensionIds(server)));
+        // And the lists this server has that the editor searches: the dimensions, which are level data
+        // rather than a registry entry, and the structures, which are a datapack registry the client is
+        // never sent. See ServerListsPayload for the rule the two are together for.
+        ArmatureNetwork.sendToPlayer(player, serverListsFor(server));
         // And their stages, which are theirs alone rather than the team's -- see ProgressStore.
         sendStagesTo(player);
+    }
+
+    /**
+     * The lists a joining client is sent, gathered from this server.
+     *
+     * <p>Public so the test that checks them can ask for the very object the wire carries rather than a
+     * copy of the gathering: a list built one way here and another way in the test is a test of the
+     * test. See {@code ServerListsTest}.
+     */
+    public static ServerListsPayload serverListsFor(MinecraftServer server) {
+        return new ServerListsPayload(dimensionIds(server), structureIds(server.registryAccess()));
     }
 
     /** Every dimension this server has, by id: vanilla, modded and datapack alike. */
@@ -765,6 +786,38 @@ public final class TenetNetworking {
                 .map(key -> key.location().toString())
                 .sorted()
                 .toList();
+    }
+
+    /**
+     * Every structure this server has, and every structure tag, in the spelling a file uses.
+     *
+     * <h2>Why this cannot be asked on the client</h2>
+     *
+     * <p>The structure registry is a datapack one, and 1.21.1 sends a client eleven registries -- the
+     * biomes, enchantments, trim materials and the rest -- and not this. So a client's own
+     * {@code registryAccess()} answers an <i>empty</i> structure registry rather than throwing, which is
+     * how the structure picker came to open with no rows at all. The tags are missing for the same
+     * reason: they are serialized from the registries that are sent, so a structure tag never reaches a
+     * client either.
+     *
+     * <p>Tags are included because the field takes one: {@code structure} is a {@code RegistryRef}, so
+     * {@code #minecraft:village} is a legitimate value and not a decoration of one.
+     *
+     * <p>The registry is asked for optionally rather than with {@code registryOrThrow}, which is the one
+     * place this differs from {@code StructureTask}: a server always has this registry, so the empty arm
+     * is belt and braces -- but this runs on the join path, and a field that could never be listed is
+     * worth less than the player it would otherwise drop.
+     */
+    public static List<String> structureIds(RegistryAccess access) {
+        Registry<Structure> registry = access.registry(Registries.STRUCTURE).orElse(null);
+        if (registry == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        registry.keySet().forEach(id -> out.add(id.toString()));
+        registry.getTagNames().forEach(tag -> out.add("#" + tag.location()));
+        out.sort(java.util.Comparator.naturalOrder());
+        return List.copyOf(out);
     }
 
     /** Pushes the tree to every connected player, then their progress in full. Called after a reload. */
@@ -1105,13 +1158,13 @@ public final class TenetNetworking {
     }
 
     /**
-     * The server's dimensions arrived: hold them for the editor's search.
+     * The server's lists arrived: hold them for the editor's search.
      *
      * <p>Held rather than acted on, for the same reason the choice offer is: this runs wherever the network
-     * thread reached, and the screen reads the list when it draws a dimension field.
+     * thread reached, and the screen reads the lists when it draws a field that needs one.
      */
-    private static void handleDimensions(DimensionSyncPayload payload) {
-        dev.ellipog.tenet.client.ClientDimensions.accept(payload.dimensions());
+    private static void handleServerLists(ServerListsPayload payload) {
+        dev.ellipog.tenet.client.ClientServerLists.accept(payload.dimensions(), payload.structures());
     }
 
     /**

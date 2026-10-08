@@ -2,6 +2,7 @@ package dev.ellipog.tenet.quest;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -166,13 +167,19 @@ public final class EditorSpecs {
      * from a spreadsheet.
      */
     public static String label(String path) {
+        // A name with no lower-case letter in it anywhere is an enum constant's name -- `STRUCTURE`,
+        // `ITEM_TAG`, `OBSERVATION_TARGET` -- rather than a codec field's, and its word breaks are not in
+        // the string: there is no lower-case letter to mark where one word ends. Lower-casing it first is
+        // what turns a picker's heading from "STRUCTURE" into "Structure". A codec's own spelling always
+        // carries a lower-case letter or is already lower case, so it is read exactly as it was.
+        String name = allUpperCase(path) ? path.toLowerCase(Locale.ROOT) : path;
         StringBuilder out = new StringBuilder();
-        for (int i = 0; i < path.length(); i++) {
-            char c = path.charAt(i);
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
             if (c == '_') {
                 out.append(' ');
             }
-            else if (i > 0 && Character.isUpperCase(c) && !Character.isUpperCase(path.charAt(i - 1))) {
+            else if (i > 0 && Character.isUpperCase(c) && !Character.isUpperCase(name.charAt(i - 1))) {
                 out.append(' ').append(Character.toLowerCase(c));
             }
             else {
@@ -182,5 +189,15 @@ public final class EditorSpecs {
         String text = out.toString().trim();
         return text.isEmpty() ? path
                 : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+    }
+
+    /** Whether a name carries no lower-case letter at all. See {@link #label}. */
+    private static boolean allUpperCase(String path) {
+        for (int i = 0; i < path.length(); i++) {
+            if (Character.isLowerCase(path.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }
