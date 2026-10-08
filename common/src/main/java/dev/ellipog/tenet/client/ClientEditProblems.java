@@ -59,19 +59,32 @@ public final class ClientEditProblems {
     private ClientEditProblems() {
     }
 
-    /** Called by the payload handler, on the game thread. */
+    /**
+     * Called by the payload handler, on the game thread.
+     *
+     * <h2>An unchanged report is state, not news</h2>
+     *
+     * <p>A report identical to the one already in force is <b>not queued</b>, so the toast that reads
+     * {@link #drain} says nothing while the badge goes on showing the count. That is the same distinction
+     * this class's own note draws between the queue and {@link #current}, and it is what stops a reload of a
+     * pack whose faults have not changed — or an author joining a server that has had the same three faults
+     * for a week — from re-reading every one of them out loud. A fault fixed or added changes the report, and
+     * that is news.
+     */
     public static synchronized void accept(int count, String text) {
         List<String> lines = text == null || text.isEmpty()
                 ? List.of()
                 : List.of(text.split("\n"));
         Report report = new Report(count, lines);
-        if (reports.size() >= MAX) {
-            // The oldest goes, and unlike the marker queue that is safe here: these are independent
-            // statements rather than a sequence matched to something, so losing one costs one message and
-            // does not shift what the others mean.
-            reports.removeFirst();
+        if (!report.equals(current)) {
+            if (reports.size() >= MAX) {
+                // The oldest goes, and unlike the marker queue that is safe here: these are independent
+                // statements rather than a sequence matched to something, so losing one costs one message and
+                // does not shift what the others mean.
+                reports.removeFirst();
+            }
+            reports.addLast(report);
         }
-        reports.addLast(report);
         current = report;
     }
 

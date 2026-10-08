@@ -284,6 +284,7 @@
     "tenet.dev.chapter.chapter": "Chapter",
     "tenet.dev.chapter.problems": "Problems (%s)",
     "tenet.dev.chapter.problems_more": "and %s more, in the server log",
+    "tenet.dev.problems.toast": "%s problem(s) in the pack - Chapter tab",
     "tenet.dev.chapter.identity": "Identity",
     "tenet.dev.chapter.title": "Title",
     "tenet.dev.chapter.subtitle": "Subtitle",

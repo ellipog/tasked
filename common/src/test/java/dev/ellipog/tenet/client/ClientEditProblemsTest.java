@@ -79,6 +79,26 @@ class ClientEditProblemsTest {
     }
 
     @Test
+    @DisplayName("a report identical to the one in force is state, not news")
+    void anUnchangedReportIsNotQueued() {
+        // A reload of a pack whose faults have not changed reports the same set again, and so does every
+        // player who arrives on a server that has had them for a week. The badge is the state and goes on
+        // showing the count; the queue is the news, and there is none — which is what stops the toast reading
+        // the whole list out loud again. The last assertion is the other direction: one fault fixed and
+        // another appearing is a different pack, so it is news.
+        ClientEditProblems.accept(2, "one.json: a\ntwo.json: b");
+        assertEquals(1, ClientEditProblems.drain().size(), "the first report is news");
+
+        ClientEditProblems.accept(2, "one.json: a\ntwo.json: b");
+        assertTrue(ClientEditProblems.drain().isEmpty(), "the same report again is not news");
+        assertEquals(2, ClientEditProblems.current().map(ClientEditProblems.Report::count).orElse(-1),
+                "and the badge still holds the count, because that is the state");
+
+        ClientEditProblems.accept(2, "one.json: a\ntwo.json: c");
+        assertEquals(1, ClientEditProblems.drain().size(), "a changed set of faults is news again");
+    }
+
+    @Test
     @DisplayName("clear forgets a report nobody read")
     void clearForgetsUnreadReports() {
         ClientEditProblems.accept(1, "a problem");

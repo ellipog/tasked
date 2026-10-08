@@ -61,13 +61,33 @@ class EditProblemsPayloadTest {
 
         assertNotNull(payload);
         assertEquals(2, payload.lines(), "the count is how many problems there were, not how many lines");
-        // Asserted as containment rather than as the exact text, because how one problem renders -- its
-        // message and the path it sits at, on a line each -- is `DataProblem`'s business and not this
-        // payload's. What this class owns is carrying it verbatim and counting it.
+        // Asserted as containment rather than as the exact text, because how one problem renders is
+        // `DataProblem`'s business and not this payload's. What this class owns is carrying it verbatim,
+        // counting it, and -- see `oneLinePerProblem` -- one line per problem.
         assertTrue(payload.text().contains("no quest with id or alias \"gone\" exists"), payload.text());
         assertTrue(payload.text().contains("circular dependency: p -> q -> p"), payload.text());
         assertTrue(payload.text().contains("a.json:1:1") && payload.text().contains("b.json:1:1"),
                 "and where each one is: " + payload.text());
+    }
+
+    @Test
+    @DisplayName("one line per problem, and the JSON path is not one of them")
+    void oneLinePerProblem() {
+        // The path used to arrive as a second line -- `    at $.tasks[2]` -- and both readers of this payload
+        // put one line on a screen: the Chapter tab's list, and the toast stack. So every problem put a bare
+        // "at $" card on the author's screen beside the fault itself, twice over for two problems. The rule
+        // belongs here because this payload is what decided it: the path is validator detail, and the file
+        // and the line already say where the fault is.
+        EditProblemsPayload payload = EditProblemsPayload.of(problemsOf(
+                "a.json", "no quest with id or alias \"gone\" exists",
+                "b.json", "circular dependency: p -> q -> p"));
+
+        assertNotNull(payload);
+        assertEquals(2, payload.problems().size(), "two problems, two lines: " + payload.text());
+        for (String line : payload.problems()) {
+            assertFalse(line.contains("\n"), "no entry is itself two lines: " + line);
+            assertFalse(line.trim().startsWith("at "), "and none of them is the path alone: " + line);
+        }
     }
 
     @Test

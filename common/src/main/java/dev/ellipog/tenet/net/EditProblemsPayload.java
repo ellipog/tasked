@@ -37,7 +37,7 @@ import net.minecraft.resources.ResourceLocation;
  * as soon as it is knowable.
  *
  * @param lines how many problems there are, so a truncated list can say what it is not showing
- * @param text  the problems, one per line, as {@code DataProblem.renderWithPath} wrote them, or "" for none
+ * @param text  the problems, one per line, as {@code DataProblem.render} wrote them, or "" for none
  */
 public record EditProblemsPayload(int lines, String text) implements CustomPacketPayload {
 
@@ -78,6 +78,14 @@ public record EditProblemsPayload(int lines, String text) implements CustomPacke
      * to send nothing at all in that case — one to every player, one to a player arriving — and returning a
      * payload of zero lines would put a report about nothing on the screen of everyone who joins a healthy
      * server.
+     *
+     * <h2>One line per problem, and why the path is not one of them</h2>
+     *
+     * <p>This wrote {@code renderWithPath}, which is two lines: the fault, and an indented {@code at $.tasks[2]}
+     * naming the JSON field. Both readers of this payload put a line on a screen — the Chapter tab's list and
+     * the toast stack — and the toast stack shows one line per entry, so the second line became a toast of its
+     * own: a card reading "at $" with nothing else on it, twice for two problems. The path is validator
+     * detail; the file and the line already locate the fault, and the server's own log keeps the full form.
      */
     public static EditProblemsPayload of(dev.ellipog.armature.api.data.Problems problems) {
         if (problems == null || problems.isEmpty()) {
@@ -87,7 +95,7 @@ public record EditProblemsPayload(int lines, String text) implements CustomPacke
         StringBuilder text = new StringBuilder();
         int shown = 0;
         for (dev.ellipog.armature.api.data.DataProblem problem : all) {
-            String line = problem.renderWithPath();
+            String line = problem.render();
             // The count travels separately, so a list cut short here says how many it is not showing rather
             // than reading as the whole of it.
             if (text.length() + line.length() + 1 > MAX_CHARS) {

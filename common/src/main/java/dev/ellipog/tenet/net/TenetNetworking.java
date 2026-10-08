@@ -773,34 +773,44 @@ public final class TenetNetworking {
     }
 
     /**
-     * Tells every connected player that the server's undo history is gone.
+     * Tells every connected player <b>who may edit</b> that the server's undo history is gone.
      *
      * <p>Sent by {@code /tenet reload}, which drops every open editor: the history was recorded against a
      * model of the files that the reload has just replaced, so it is discarded rather than kept. The client's
      * undo button is drawn from counters of its own, and without this it went on offering an undo over a
      * history that no longer existed — a Ctrl+Z that sent an op, got nothing back, and said nothing.
      *
-     * <p>To everyone rather than to the command's sender: the history that was dropped is every player's, and
-     * the ones who are not the operator are exactly the ones who would otherwise be left with a live button
-     * and no explanation. A client with no book open keeps the news until one is, which is what
-     * {@code ClientEditHistory} is for.
+     * <h2>Why the editors and not everyone</h2>
+     *
+     * <p>It went to everyone, on the argument that the history that was dropped is every player's. It is not:
+     * the history is the <i>editors'</i>, one stack per chapter in {@code ServerEditors}, and a player who may
+     * not edit has no undo button to correct. What they got was a sentence about a stack they cannot reach.
+     * The same rule as {@link #sendProblemsToAll}: the fact is the server's, and the acting is an author's.
      */
     public static void sendEditHistoryDiscardedToAll(MinecraftServer server) {
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            ArmatureNetwork.sendToPlayer(player, new EditHistoryPayload(true));
+            if (QuestAuthority.mayEdit(player)) {
+                ArmatureNetwork.sendToPlayer(player, new EditHistoryPayload(true));
+            }
         }
     }
 
     /**
-     * Tells every connected player what the reload found wrong with the pack.
+     * Tells every connected player <b>who may edit</b> what the reload found wrong with the pack.
      *
      * <p>Called after the tree goes out, and only when there is something to say. The faults it carries are the
      * ones a single file cannot show — a {@code dependsOn} naming a quest that is not there, a cycle between
      * files, an id declared in two chapters — and before this they were written silently with only the server
      * log knowing, so the author's quest was quietly missing from the tree or unreachable.
      *
-     * <p>To everyone rather than to whoever edited: the faults belong to the pack, and an author who is not the
-     * one who caused one still has to work with the tree it describes.
+     * <h2>Why this is no longer "to everyone"</h2>
+     *
+     * <p>It was, and the note here argued that the faults belong to the pack and an author who is not the one
+     * who caused one still has to work with the tree they describe. The first half is true and the second is
+     * not: <b>working with the tree is the thing a player who may not edit cannot do.</b> What arrived on
+     * their screen was a file path, a line, a column and a JSON path, with no control anywhere in the book
+     * that could act on any of it — and the payload's own doc already claimed it went "to the authors who are
+     * editing", so the intent and the code disagreed and the code won.
      */
     public static void sendProblemsToAll(MinecraftServer server,
                                          dev.ellipog.armature.api.data.Problems problems) {
@@ -809,7 +819,9 @@ public final class TenetNetworking {
             return;
         }
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            ArmatureNetwork.sendToPlayer(player, payload);
+            if (QuestAuthority.mayEdit(player)) {
+                ArmatureNetwork.sendToPlayer(player, payload);
+            }
         }
     }
 
@@ -821,9 +833,13 @@ public final class TenetNetworking {
      * <p>Because the report is produced by a reload and this is not one. A player arriving has to be told
      * what the <i>last</i> load found, and re-broadcasting it would repeat the whole report to everyone
      * already online, once per join, for a pack none of them changed. The faults are the pack's and are the
-     * same for everyone; the <i>telling</i> is per player, because arriving is.
+     * same for everyone; the <i>telling</i> is per player, because arriving is — and only an arriving
+     * <b>author</b> is told, for the reason {@link #sendProblemsToAll} now carries.
      */
     public static void sendProblemsTo(ServerPlayer player, dev.ellipog.armature.api.data.Problems problems) {
+        if (!QuestAuthority.mayEdit(player)) {
+            return;
+        }
         EditProblemsPayload payload = EditProblemsPayload.of(problems);
         if (payload != null) {
             ArmatureNetwork.sendToPlayer(player, payload);

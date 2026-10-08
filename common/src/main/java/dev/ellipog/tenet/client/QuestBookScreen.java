@@ -1284,13 +1284,28 @@ public final class QuestBookScreen extends ArmatureScreen
     private final Set<String> expandedQuests = new HashSet<>();
 
     /**
-     * The rows a press has already asked the server for, by {@link RewardInboxLayout} key.
+     * What a press has already asked the server for, and when it asked — the optimistic half of the book.
      *
-     * <p>The optimistic half of a claim: the row reads collected the moment it is pressed. Every claim
-     * handler sends a progress sync whether or not it paid, and that sync clears this set and rebuilds
-     * -- so a refusal puts the row back rather than leaving a claim on screen that never happened.
+     * <p>A row reads collected the moment it is pressed, and a hand-in reads handed in. What the mark is
+     * <i>not</i> is a second source of truth: it changes what is drawn and never what is sent, and it goes
+     * for exactly three reasons — the server's answer agreed with it, the thing it named left the tree, or
+     * it outlived {@link PendingClaims#BACKSTOP_MILLIS}. See that class for why the third one is reported
+     * rather than silent, and for why this is no longer cleared on a progress revision: <b>any</b> sync
+     * used to empty it, which made a row the player had just pressed flicker back to ready.
      */
-    private final Set<String> pendingClaims = new HashSet<>();
+    private final PendingClaims pendingClaims = new PendingClaims();
+
+    /**
+     * The controls the rewards card built, so a refresh can take them down before it builds again.
+     *
+     * <p>Needed because {@code ScrollView.clear()} forgets its own map and does not unregister anything —
+     * so a card rebuilt without a full {@code init()} would leave its previous buttons on the screen:
+     * drawn nowhere, and still taking presses. This is the list that makes a scoped refresh possible.
+     */
+    private List<ArmatureButton> rewardControls = List.of();
+
+    /** The marks the rewards card's controls were built for; see {@link #reconcilePendingClaims}. */
+    private long rewardMarksRevision = -1L;
 
     /**
      * The card's active state: which rows it lists, and what the footer button may take.
@@ -1739,30 +1754,71 @@ public final class QuestBookScreen extends ArmatureScreen
     private final ToastStack toasts = new ToastStack();
 
     /**
-     * The reward counts the badges read, rebuilt only when the progress or the tree moves.
+     * The reward counts the badges read, rebuilt only when the progress, the tree or the marks move.
      *
      * <p>One walk over the entries per revision rather than one per node per frame: the maps answer
      * "what is waiting" for the canvas and the sidebar at once, and both are read every frame.
+     *
+     * <p>{@code marks} is in the key because a press in flight is not something the player can still take,
+     * and it moves nothing else: a claim that has not been answered yet is not a progress revision, so
+     * without it the badge over a row the player had just pressed would go on counting it.
      */
-    private record RewardCounts(long progress, long tree, java.util.UUID player,
+    private record RewardCounts(long progress, long tree, long marks, java.util.UUID player,
                                 Map<String, Integer> byQuest, Map<String, Integer> byChapter) {
     }
 
     private RewardCounts rewardCounts;
 
-    /** The badge counts in force, recomputed when the progress, the tree or the viewer changes. */
+    /** The badge counts in force, recomputed when the progress, the tree, the viewer or the marks change. */
     private RewardCounts rewardCounts() {
         long progress = ClientQuestCache.progressRevision();
         long tree = ClientQuestCache.treeRevision();
+        long marks = pendingClaims.revision();
         java.util.UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
         RewardCounts current = rewardCounts;
         if (current != null && current.progress() == progress && current.tree() == tree
-                && java.util.Objects.equals(current.player(), self)) {
+                && current.marks() == marks && java.util.Objects.equals(current.player(), self)) {
             return current;
         }
-        rewardCounts = new RewardCounts(progress, tree, self,
-                ClientQuestCache.outstandingByQuest(self), ClientQuestCache.claimableByChapter(self));
+        // Walked here rather than taken from the cache's own two maps, because the counts have to come off
+        // for a press in flight -- see `outstandingWithMarks`. The two shapes are the cache's deliberately:
+        // a quest's figure counts its rewards, and a chapter's counts its *quests*, which is what makes the
+        // sidebar's number mean "quests with something waiting" rather than a sum of rewards.
+        Map<String, Integer> byQuest = new LinkedHashMap<>();
+        Map<String, Integer> byChapter = new LinkedHashMap<>();
+        for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
+            int outstanding = outstandingWithMarks(self, entry);
+            if (outstanding > 0) {
+                byQuest.put(entry.id(), outstanding);
+                byChapter.merge(entry.chapterId(), 1, Integer::sum);
+            }
+        }
+        rewardCounts = new RewardCounts(progress, tree, marks, self,
+                Map.copyOf(byQuest), Map.copyOf(byChapter));
         return rewardCounts;
+    }
+
+    /**
+     * How many of a quest's rewards are still owed to this player, with their own presses taken off.
+     *
+     * <p>The one place the counts meet the marks, so every badge in the book reads the same arithmetic as
+     * the rows under it. A quest-level or chapter-level mark counts every one of its claimable rewards,
+     * because that is what the press asked for; a row-level mark counts its own.
+     */
+    private int outstandingWithMarks(java.util.UUID self, ClientQuestCache.Entry entry) {
+        if (self == null) {
+            return 0;
+        }
+        boolean whole = pendingClaims.isMarked(PendingClaims.questKey(entry.id()))
+                || pendingClaims.isMarked(PendingClaims.chapterKey(entry.chapterId()));
+        return PendingClaims.outstanding(entry.rewards().size(),
+                index -> ClientQuestCache.canClaimReward(self, entry, index),
+                index -> whole || pendingClaims.isMarked(PendingClaims.rewardKey(entry.id(), index)));
+    }
+
+    /** Whether this player has anything at all left to collect from one quest. */
+    private boolean claimableWithMarks(java.util.UUID self, ClientQuestCache.Entry entry) {
+        return outstandingWithMarks(self, entry) > 0;
     }
 
     /**
@@ -7778,7 +7834,11 @@ public final class QuestBookScreen extends ArmatureScreen
         // A key for everything the sweep has converted, and a plain sentence for the composed ones:
         // `translatable` passes an unknown key through unchanged, so both kinds go through one door and
         // a translator sees one namespace.
-        toast(Component.translatable(message).getString(), error);
+        //
+        // Through the author's door, because every caller is an editor affordance: a canvas pattern, a
+        // motion switch, a task added, a dependency picked, a table row. A player who may not edit cannot
+        // reach any of them, and the gate is what makes that true of the message as well as the control.
+        authorToast(Component.translatable(message).getString(), error);
     }
 
     /**
@@ -8467,7 +8527,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // fallback one, and it belongs to the Author pill rather than to the mode.
             applyColumns(PanelStack.afterClose(columns(), false));
         }
-        report(on ? "Edit mode on" : "Edit mode off");
+        authorReport(on ? "Edit mode on" : "Edit mode off");
         rebuildWidgets();
     }
 
@@ -8533,7 +8593,7 @@ public final class QuestBookScreen extends ArmatureScreen
             case QUEST, PICKER, TEXTURE -> buildOverlayWidgets(kind);
             case TOOLS -> buildToolsWidgets();
             case PARTY -> buildPartyWidgets();
-            case REWARDS -> buildRewardWidgets();
+            case REWARDS -> rewardControls = buildRewardWidgets();
             case NAMING -> buildNamingWidgets();
             case TABLE_BROWSER -> buildTableBrowserWidgets();
             case TABLE_EDITOR -> buildTableEditorWidgets();
@@ -8667,7 +8727,7 @@ public final class QuestBookScreen extends ArmatureScreen
         int taskIndex = firstManualTask(entry);
         // Per player: a teammate having collected their copy must not hide this player's button.
         java.util.UUID self = minecraft.player == null ? null : minecraft.player.getUUID();
-        boolean claimable = self != null && ClientQuestCache.canClaimFor(self, entry.id());
+        boolean claimable = self != null && claimableWithMarks(self, entry);
         Map<String, BookGeometry.Rect> controls = overlayControls(taskIndex >= 0 || claimable);
 
         if (claimable) {
@@ -14010,7 +14070,7 @@ public final class QuestBookScreen extends ArmatureScreen
             String[] edge = frameEdge.key();
             ClientQuestCache.Entry dependent = frameEdge.to();
             ClientQuestCache.Entry dependency = frameEdge.from();
-            boolean dragging = edge[0].equals(bendDragFrom) && edge[1].equals(bendDragTo);
+            boolean dragging = frameEdge.matches(bendDragFrom, bendDragTo);
             if (gesture && !dragging) {
                 continue;
             }
@@ -18304,30 +18364,75 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /** The first task a player hands over by hand <b>and still has to</b>, or -1. */
-    private static int firstManualTask(ClientQuestCache.Entry quest) {
+    private int firstManualTask(ClientQuestCache.Entry quest) {
         // The rule lives in the cache, which holds all three of its inputs -- the task's own kind, what
         // is recorded and what the server would accept a press on. See ClientQuestCache.firstSubmitTask
         // for why a checkmark and a task that takes are offered their button at opposite moments.
-        return ClientQuestCache.firstSubmitTask(quest.id());
-    }
-
-    private static void submit(String questId, int taskIndex) {
-        ArmatureNetwork.sendToServer(new SubmitTaskPayload(questId, taskIndex));
-        Constants.LOG.debug("tenet: asked the server to submit task {} of {}", taskIndex, questId);
-        // No local change. The server answers with a progress sync, and showing the outcome before it
-        // arrives would mean showing something the server may refuse.
+        for (int index = 0; index < quest.tasks().size(); index++) {
+            if (submitOfferedWithMarks(quest.id(), index)) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /**
-     * Asks the server to hand over a finished quest's rewards.
+     * Whether one task's row still offers its hand-in, with a press already in flight taken off.
      *
-     * <p>Sends the quest id and nothing else, and makes no local change, for the same reason
-     * {@link #submit} does not: whether anything is owed is the server's decision, and it is the one
-     * that has the stored progress. Showing the items before it answers would mean showing something
-     * it may refuse -- and the refusal is a case that exists, because a stale client can be showing a
-     * Claim button for a quest it collected a minute ago.
+     * <p>The mark is the difference between "the server would accept this" and "this has already been
+     * asked for": the button has to go when it is pressed, or the row would offer a second press for the
+     * task the player is watching change, and the count would be the only thing that moved.
      */
-    private static void claim(String questId) {
+    private boolean submitOfferedWithMarks(String questId, int taskIndex) {
+        return !pendingClaims.isMarked(PendingClaims.taskKey(questId, taskIndex))
+                && ClientQuestCache.submitOffered(questId, taskIndex);
+    }
+
+    /**
+     * Hands one task over, and marks it handed in until the server answers.
+     *
+     * <h2>What changed here, and what the old note got right</h2>
+     *
+     * <p>This made no local change, and its reason was that the server may refuse: <i>"showing the outcome
+     * before it arrives would mean showing something the server may refuse"</i>. That is still true, and it
+     * is why the mark is <b>not</b> a claim that it happened — it is a claim that it was <i>asked for</i>,
+     * it is drawn as pending rather than as a settled count, and it goes when the answer arrives, when the
+     * task's subject leaves the tree, or at the backstop. See {@code PendingClaims}.
+     *
+     * <p>What the old note missed is the shape of a refusal here: the submit handler sends <b>nothing</b>
+     * when nothing changed, so a refused hand-in produced no message at all — the row went on reading
+     * "hand in" and the only trace was an action-bar line, which is not drawn behind this screen. So the
+     * press looked like it had not registered, which is the one reading a player never recovers from.
+     *
+     * <p>The button is offered only when the server has already said a press would be accepted
+     * ({@code ClientQuestCache.submitOffered}), so a refusal is the narrow window between that answer and
+     * the press — a stale inventory, or a stage granted in the last second.
+     */
+    private void submit(String questId, int taskIndex) {
+        if (!pendingClaims.mark(PendingClaims.taskKey(questId, taskIndex),
+                net.minecraft.Util.getMillis())) {
+            // Already in flight: a second press for one task is not a second packet.
+            return;
+        }
+        ArmatureNetwork.sendToServer(new SubmitTaskPayload(questId, taskIndex));
+        Constants.LOG.debug("tenet: asked the server to submit task {} of {}", taskIndex, questId);
+    }
+
+    /**
+     * Asks the server to hand over a finished quest's rewards, and marks them collected until it answers.
+     *
+     * <p>The reader card's Claim button and the rewards menu's quest header are the same press asked from
+     * two places, and they now mark the same keys — the header used to be optimistic and the card was not,
+     * which is how the menu could read a quest collected while the card behind it still offered to claim it.
+     *
+     * <p>Whether anything is owed is still the server's decision, and it is the one that has the stored
+     * progress; a stale client showing a Claim button for a quest it collected a minute ago still gets its
+     * refusal, and the refusal still puts the mark back — because a claim always answers.
+     */
+    private void claim(String questId) {
+        if (!markQuest(questId, net.minecraft.Util.getMillis())) {
+            return;
+        }
         ArmatureNetwork.sendToServer(new ClaimRewardPayload(questId));
         Constants.LOG.debug("tenet: asked the server to hand over the rewards for {}", questId);
     }
@@ -19717,7 +19822,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // drawing, the hover and the handle layer all read this list -- they used to each rebuild every
         // path, which is up to three full walks of every curve per frame, the CPU half of the zoom cost.
         // And "once" is now once per *canvas*, not once per frame: see stampCanvas.
-        List<FrameEdge> edges = canvasEdges;
+        List<FrameEdge> edges = drawnEdges();
 
         // The line hover, recomputed only when the pointer or the view moved: a still pointer over a
         // still canvas cannot change which line is nearest, and the walk it would redo is every pixel
@@ -20153,6 +20258,13 @@ public final class QuestBookScreen extends ArmatureScreen
          *
          * <p>The style cannot change under a built edge — {@code stampCanvas} keys on the tree, the draft
          * and the theme, and the style is a function of all three — so there is nothing to invalidate.
+         *
+         * <p><b>With one exception, and it is the one this note got wrong.</b> While a hand is bending a
+         * line the style <i>does</i> change under it: {@code styleFor} lays the live preview over the
+         * committed style, and a preview is not a tree, a draft or a theme, so the key does not move. That
+         * is why the line used to sit still until the release. It is handled by rebuilding that one edge
+         * per frame rather than by patching this one — see {@link #liveBendEdge} — so the stamped edge's
+         * geometry here is simply the committed one and is not what gets drawn.
          */
         LineArt.EdgeGeometry geometry() {
             LineArt.EdgeGeometry held = geometry;
@@ -20166,6 +20278,20 @@ public final class QuestBookScreen extends ArmatureScreen
         /** The key the hover and the hit test use: the dependency first, the dependent second. */
         String[] key() {
             return new String[] { fromId, toId };
+        }
+
+        /**
+         * Whether this is the line between these two quests: the dependency first, the dependent second.
+         *
+         * <p>The same order {@link #key} uses, and here rather than written out at each call site because
+         * there are now three of them and they must agree: the handle layer asks it of every edge every
+         * frame, and the live bend asks it twice to find the one line a hand is holding. The handle layer
+         * still builds {@link #key} beside it, because {@code showsHandles} keeps that array as the
+         * identity of the line it has revealed — so this is not a saved allocation there, it is one
+         * question with one answer. The new callers are the ones that would otherwise allocate.
+         */
+        boolean matches(String from, String to) {
+            return fromId.equals(from) && toId.equals(to);
         }
     }
 
@@ -20608,6 +20734,77 @@ public final class QuestBookScreen extends ArmatureScreen
                 java.util.Optional.ofNullable(bendPreview == null ? style.bend().orElse(null) : bendPreview),
                 from, to, fromHandle, toHandle,
                 style.arrowHead(), style.arrowPlace(), style.arrowDensity());
+    }
+
+    /**
+     * The line a hand is bending right now, rebuilt from the live preview — or null when none is, or when
+     * the drag has taken it somewhere it cannot be drawn from.
+     *
+     * <h2>Why this exists, and the assumption it corrects</h2>
+     *
+     * <p>{@code frameEdge} is the only thing that reads {@link #styleFor}, and it runs inside
+     * {@code frameEdges}, which runs inside {@code stampCanvas} — which returns early unless its key moved.
+     * The preview is not in that key, so during a bend drag the line kept the route it was stamped with and
+     * moved only when the release changed something the key does name: the draft, or the tree. That is the
+     * whole of "it only renders when I let go", and it is why the hit test was live while the drawing was
+     * not — {@code handleAt} and {@code edgeAt} call {@code styleFor} directly.
+     *
+     * <p><b>One edge, not a wider key.</b> Putting the preview into {@code CanvasState} would re-stamp every
+     * edge's route, the visible-quest filter and the whole label pass — a box per node and a collision sort
+     * — on every mouse move, which is the cost that cache exists to avoid. A bend moves one line, so one
+     * line is what gets rebuilt.
+     */
+    private FrameEdge liveBendEdge() {
+        if (bendDragFrom == null || bendDragTo == null) {
+            return null;
+        }
+        ClientQuestCache.Entry dependency = entryFor(bendDragFrom);
+        ClientQuestCache.Entry dependent = entryFor(bendDragTo);
+        if (dependency == null || dependent == null) {
+            return null;
+        }
+        // The completion colour is the committed edge's, so a preview cannot change what a line *means* --
+        // only where it goes. Falling back to the undimmed ink is for the case where the stamped edge is
+        // not in the list at all, which `frameEdge` then re-decides anyway.
+        int baseColour = ArmatureTheme.line();
+        for (FrameEdge edge : canvasEdges) {
+            if (edge.matches(bendDragFrom, bendDragTo)) {
+                baseColour = edge.baseColour();
+                break;
+            }
+        }
+        return frameEdge(dependency, dependent, bendDragFrom, baseColour);
+    }
+
+    /**
+     * The lines to draw this frame: the stamped ones, with the bent line rebuilt from the live preview.
+     *
+     * <p>One seam, because the ink, the hover's candidate walk and the handle layer all read the same list
+     * and all three have to agree — a handle drawn on the committed route while the line follows the
+     * pointer is a handle in the wrong place. The copy is references and only happens while a bend drag is
+     * live, so the common frame pays nothing.
+     */
+    private List<FrameEdge> drawnEdges() {
+        if (bendDragFrom == null || bendDragTo == null) {
+            return canvasEdges;
+        }
+        FrameEdge bent = liveBendEdge();
+        List<FrameEdge> live = new ArrayList<>(canvasEdges);
+        for (int i = 0; i < live.size(); i++) {
+            if (!live.get(i).matches(bendDragFrom, bendDragTo)) {
+                continue;
+            }
+            if (bent == null) {
+                // The drag has taken the line off the canvas, or made it unreachable: it goes, rather than
+                // staying at the route it was stamped with. `frameEdge` is what decided that.
+                live.remove(i);
+            }
+            else {
+                live.set(i, bent);
+            }
+            break;
+        }
+        return live;
     }
 
     /** The node under the pointer, or null. */
@@ -21130,10 +21327,11 @@ public final class QuestBookScreen extends ArmatureScreen
         closeOverlay();
         applyColumns(PanelStack.asRoot(columns(), PanelKind.REWARDS));
         rewardsRevision = ClientQuestCache.progressRevision();
-        // A press whose answer never arrived -- the card was closed over it, or the connection moved --
-        // leaves a key here that no sync will clear. The card opening is the one moment the set can be
-        // known stale, so it goes rather than marking a row collected the server has never heard of.
-        pendingClaims.clear();
+        // The marks are **not** cleared here, and that is the fix rather than an omission: a press whose
+        // answer is still in flight has to survive the card being closed over it, or reopening would show
+        // a row the player had already claimed as ready again. A mark nobody ever answers now expires on
+        // its own and says so -- see PendingClaims.
+        rewardMarksRevision = pendingClaims.revision();
         rewardView.scrollTo(0);
         rebuildWidgets();
     }
@@ -21170,7 +21368,8 @@ public final class QuestBookScreen extends ArmatureScreen
      * framed form used to have to document as an invariant. So the rail is asked for first, the rows are
      * built at its width, and then they are applied to it.
      */
-    private void buildRewardWidgets() {
+    private List<ArmatureButton> buildRewardWidgets() {
+        List<ArmatureButton> built = new ArrayList<>();
         rewardRows = List.of();
         rewardLayout = null;
         rewardCard = null;
@@ -21203,8 +21402,12 @@ public final class QuestBookScreen extends ArmatureScreen
                         continue;
                     }
                     questRewardCells.put(entry.id(), leaves);
-                    rewardListed += leaves.size();
-                    ready += leaves.size();
+                    // What is *owed*, not what is listed: a row whose press is in flight stays in the list
+                    // -- it has to, or the list would change shape under the pointer -- and it is not
+                    // something the player can still take. See PendingClaims.outstanding.
+                    int owed = owedRows(leaves);
+                    rewardListed += owed;
+                    ready += owed;
                     inside.addAll(questRows(chapterId, entry, leaves, questLabel(entry, at, repeated)));
                 }
             }
@@ -21248,10 +21451,11 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             button.tooltip(buttonTooltip(row));
             rewardView.put(row.key(), button, RewardInboxLayout::strip);
+            built.add(button);
         }
         rewardView.apply(rewardLayout, body.viewWidth());
 
-        buildRewardStateChips();
+        built.addAll(buildRewardStateChips());
 
         // The footer: the sweep where the reader's Submit sits, Back where every card's does, and the
         // sweep's label and reach follow the active state. `hasSubmit` is true only while the view holds
@@ -21272,12 +21476,63 @@ public final class QuestBookScreen extends ArmatureScreen
                 tip.add(Component.translatable("tenet.screen.rewards.held"));
             }
             all.accent(true).tooltip(List.copyOf(tip));
+            built.add(all);
         }
         ArmatureButton back = control(controls.get("back"),
                 Component.translatable("tenet.screen.rewards.back"), this::closeOverlay);
         if (back != null) {
             back.ink(ArmatureButton.Ink.BODY);
+            built.add(back);
         }
+        return List.copyOf(built);
+    }
+
+    /**
+     * How many of these rows the player can still take.
+     *
+     * <p>One rule, read by the badge, the subtitle and the footer's own "is there anything to sweep":
+     * {@code PENDING} is listed and is not owed, which is the whole reason the two questions differ.
+     */
+    private static int owedRows(List<RewardInboxLayout.Row> leaves) {
+        int owed = 0;
+        for (RewardInboxLayout.Row leaf : leaves) {
+            if (leaf.status() == RewardInboxLayout.Status.READY) {
+                owed++;
+            }
+        }
+        return owed;
+    }
+
+    /**
+     * Takes the rewards card's controls down and builds them again, without rebuilding the screen.
+     *
+     * <h2>Why this exists rather than a {@code rebuildWidgets()}</h2>
+     *
+     * <p>A press used to cost a full {@code init()} — every rail, every field, every table row — to change
+     * one button's state, and the progress sync that answers it costs a second one. This is the first of
+     * those two: the card's own controls and nothing else, which is what makes a press look like it landed
+     * rather than like the screen blinked.
+     *
+     * <p>The reveal guard is the one {@code buildColumn} keeps and for its reason: a rail still coming in
+     * has no surface to place controls against, so the build is deferred to the tick that settles it
+     * rather than done against a rectangle that has not arrived.
+     */
+    private void refreshRewardCard() {
+        if (panelRevealing(PanelKind.REWARDS, net.minecraft.Util.getMillis())) {
+            // The build is deferred to the tick that settles the wipe, so the marks are consumed here:
+            // the deferred build will place controls that already know about them. Without this the tick
+            // would see the same change on every frame of the reveal and rebuild for each one.
+            panelBuildPending = true;
+            rewardMarksRevision = pendingClaims.revision();
+            return;
+        }
+        for (ArmatureButton control : rewardControls) {
+            removeWidget(control);
+            buttons.remove(control);
+        }
+        rewardControls = buildRewardWidgets();
+        rewardMarksRevision = pendingClaims.revision();
+        refreshOverlayMute();
     }
 
     /**
@@ -21393,7 +21648,7 @@ public final class QuestBookScreen extends ArmatureScreen
      * collected ones and nothing else.
      */
     private RewardInboxLayout.Status containerStatus(String key, List<RewardInboxLayout.Row> leaves) {
-        if (pendingClaims.contains(key)) {
+        if (pendingClaims.isMarked(key)) {
             return RewardInboxLayout.Status.PENDING;
         }
         for (RewardInboxLayout.Row leaf : leaves) {
@@ -21471,8 +21726,9 @@ public final class QuestBookScreen extends ArmatureScreen
                 Math.max(0, card.height() - REWARDS_BODY_TOP - BookGeometry.MODAL_CHROME));
     }
 
-    /** The filter chips, right-aligned in the card's header band. */
-    private void buildRewardStateChips() {
+    /** The filter chips, right-aligned in the card's header band. Answers the chips it made. */
+    private List<ArmatureButton> buildRewardStateChips() {
+        List<ArmatureButton> built = new ArrayList<>();
         RewardInboxLayout.State[] states = RewardInboxLayout.State.values();
         int chipHeight = STATE_CHIP_HEIGHT;
         int chipWidth = stateChipWidth();
@@ -21486,7 +21742,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // A card too narrow to hold the title and the toggles: the toggles go rather than the title,
             // because a row of chips squeezed against a truncated word is a row nobody can read. The
             // list still works in whichever state it is in; the chips come back when the window does.
-            return;
+            return built;
         }
         for (int i = 0; i < states.length; i++) {
             RewardInboxLayout.State state = states[i];
@@ -21494,7 +21750,9 @@ public final class QuestBookScreen extends ArmatureScreen
             ArmatureButton chip = control(x, y, chipWidth, chipHeight, stateLabel(state),
                     () -> setRewardState(state));
             chip.selected(state == rewardState);
+            built.add(chip);
         }
+        return built;
     }
 
     /**
@@ -21521,7 +21779,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         rewardState = state;
         rewardView.scrollTo(0);
-        rebuildWidgets();
+        refreshRewardCard();
     }
 
     /** What one toggle says. */
@@ -21561,7 +21819,9 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         List<ClientQuestCache.Entry> out = new ArrayList<>();
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
-            if (ClientQuestCache.canClaimFor(self, entry.id())) {
+            // Through the marks, so the header's "N waiting" comes down with the rows the player has
+            // just pressed rather than one round trip later.
+            if (claimableWithMarks(self, entry)) {
                 out.add(entry);
             }
         }
@@ -21574,8 +21834,38 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>The view's filter travels with it, so a view of choices claims choices — the button's label is
      * a promise, and the server is the side that keeps it. Never called with a null filter: the Claimed
      * view draws no sweep, so there is nothing to press.
+     *
+     * <p>Every reward the filter reaches is marked before the packet goes, which is what makes the sweep
+     * look like one press rather than a list that empties a round trip later. The walk is the same one
+     * {@link #rewardCells} makes, so what is marked is exactly what the server is being asked for — and a
+     * press whose key is already marked is <b>not sent again</b>, which is the guard a double press used
+     * to lack.
      */
-    private static void claimAllRewards(ClaimFilter filter) {
+    private void claimAllRewards(ClaimFilter filter) {
+        long now = net.minecraft.Util.getMillis();
+        UUID self = selfId();
+        // A choices sweep marks nothing, and that is the rule `markPending` states one row down: a choice
+        // is not collected by a press, it is collected by an answer, so a row that read collected while its
+        // card was open would be the card promising a payout that has not happened. The sweep still goes.
+        if (self != null && filter != ClaimFilter.CHOICES) {
+            // `reached` rather than "did anything get marked": a reward that asks a question is reachable
+            // and is never marked (a choice is collected by an answer, not a press), so a sweep whose only
+            // outstanding rewards are choices still has something to ask the server for.
+            boolean reached = false;
+            for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
+                for (int index = 0; index < entry.rewards().size(); index++) {
+                    if (ClientQuestCache.canClaimReward(self, entry, index)) {
+                        reached = true;
+                        markPending(entry.id(), index, now);
+                    }
+                }
+            }
+            if (!reached) {
+                // Nothing outstanding anywhere: the sweep would be a packet asking for nothing.
+                return;
+            }
+        }
+        refreshRewardCard();
         ArmatureNetwork.sendToServer(new ClaimAllPayload(filter));
     }
 
@@ -21595,14 +21885,18 @@ public final class QuestBookScreen extends ArmatureScreen
      * view would send, and that view draws no pressable banner to send it from.
      */
     private void claimChapterFromInbox(String chapterId) {
-        pendingClaims.add(RewardInboxLayout.chapterKey(chapterId));
+        long now = net.minecraft.Util.getMillis();
+        if (!pendingClaims.mark(PendingClaims.chapterKey(chapterId), now)) {
+            // The banner is already in flight: a second press would be a second packet for one decision.
+            return;
+        }
         for (ClientQuestCache.Entry entry : questsIn(chapterId)) {
-            pendingClaims.add(RewardInboxLayout.questKey(entry.id()));
+            pendingClaims.mark(PendingClaims.questKey(entry.id()), now);
             for (int index = 0; index < entry.rewards().size(); index++) {
-                markPending(entry.id(), index);
+                markPending(entry.id(), index, now);
             }
         }
-        rebuildWidgets();
+        refreshRewardCard();
         ArmatureNetwork.sendToServer(new ClaimChapterPayload(chapterId, rewardState.filter()));
         Constants.LOG.debug("tenet: asked the server for every reward in chapter {}", chapterId);
     }
@@ -21644,7 +21938,12 @@ public final class QuestBookScreen extends ArmatureScreen
      * what the id lookup would cost at that rate.
      */
     private RewardInboxLayout.Status statusOf(UUID self, ClientQuestCache.Entry entry, int index) {
-        if (pendingClaims.contains(RewardInboxLayout.rewardKey(entry.id(), index))) {
+        if (pendingClaims.isMarked(PendingClaims.rewardKey(entry.id(), index))
+                || pendingClaims.isMarked(PendingClaims.questKey(entry.id()))
+                || pendingClaims.isMarked(PendingClaims.chapterKey(entry.chapterId()))) {
+            // A whole-quest or whole-chapter press marks every reward inside it, so its children read
+            // collected with it: a banner that read collected above rows still offering their own buttons
+            // would be the card disagreeing with itself about one press.
             return RewardInboxLayout.Status.PENDING;
         }
         if (self != null && ClientQuestCache.rewardClaimedBy(self, entry, index)) {
@@ -21690,34 +21989,53 @@ public final class QuestBookScreen extends ArmatureScreen
      * Asks the server for one reward, and marks its row collected until the answer comes.
      *
      * <p>The optimistic half lives here and only here, and it is safe because an answer always comes:
-     * every claim handler sends a progress sync whether or not it paid, and the sync clears
-     * {@link #pendingClaims} and rebuilds. The worst a refusal produces is a row that reads collected
-     * for one round trip and then goes back — and the alternative, a row that shows nothing until the
-     * packet returns, reads as a press that did not register.
+     * every claim handler sends a progress sync whether or not it paid, so a refusal reaches the client
+     * and the mark goes by agreement. The worst a refusal produces is a row that reads collected for one
+     * round trip and then goes back — and the alternative, a row that shows nothing until the packet
+     * returns, reads as a press that did not register.
+     *
+     * <p>A row already in flight is not asked for twice, and the guard is the mark itself rather than
+     * {@link #markPending}'s answer: a <b>choice</b> is never marked — the press opens a card instead of
+     * collecting — so a guard that read "the mark was not new" would swallow the press that asks for the
+     * choices. See {@link #markPending} for why a choice is not marked.
      */
     private void claimReward(String questId, int rewardIndex) {
-        markPending(questId, rewardIndex);
-        rebuildWidgets();
+        if (pendingClaims.isMarked(PendingClaims.rewardKey(questId, rewardIndex))) {
+            return;
+        }
+        markPending(questId, rewardIndex, net.minecraft.Util.getMillis());
+        refreshRewardCard();
         ArmatureNetwork.sendToServer(new ClaimRewardEntryPayload(questId, rewardIndex));
         Constants.LOG.debug("tenet: asked the server for reward {} of {}", rewardIndex, questId);
     }
 
     /**
-     * Marks one reward's row collected until the server answers.
+     * Marks one reward's row collected until the server answers, and answers whether it was new.
      *
      * <p>Except a choice: the press does not collect it — it opens the card that asks the player which
      * entry they want — so a choice row that read collected while its card was open would be the card
      * promising a payout that has not happened. The pick marks it, through the sync that follows the
      * answer.
+     *
+     * <h2>Why a team reward is marked too, which the plan said not to do</h2>
+     *
+     * <p>The plan excluded them, on the ground that a teammate's claim moves the very row this player
+     * guessed. Checked against the code, that concern is backwards: a {@code team} reward is one payout
+     * for the whole party, so a teammate claiming it <b>confirms</b> the guess rather than contradicting
+     * it — {@code ClientQuestCache.rewardClaimedBy} reads the team's claims for a team reward, and that
+     * is what this mark is resolved against. Excluding them would have cost the instant half of the press
+     * for one of the commonest reward kinds in a party pack and bought nothing: the case that is
+     * genuinely unconfirmable by anybody else is the {@code team: false} one.
      */
-    private void markPending(String questId, int rewardIndex) {
+    private boolean markPending(String questId, int rewardIndex, long nowMillis) {
         ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
         if (entry == null || rewardIndex < 0 || rewardIndex >= entry.rewards().size()) {
-            return;
+            return false;
         }
-        if (!isChoiceType(entry.rewards().get(rewardIndex).type())) {
-            pendingClaims.add(RewardInboxLayout.rewardKey(questId, rewardIndex));
+        if (isChoiceType(entry.rewards().get(rewardIndex).type())) {
+            return false;
         }
+        return pendingClaims.mark(PendingClaims.rewardKey(questId, rewardIndex), nowMillis);
     }
 
     /**
@@ -21728,15 +22046,104 @@ public final class QuestBookScreen extends ArmatureScreen
      * disagreeing with itself about one press.
      */
     private void claimQuestFromInbox(String questId) {
+        if (!markQuest(questId, net.minecraft.Util.getMillis())) {
+            return;
+        }
+        refreshRewardCard();
+        claim(questId);
+    }
+
+    /**
+     * Marks a whole quest: its own key, and every reward inside it that a press would take.
+     *
+     * <p>Answers whether the quest's own key was new, so the caller can send once for one decision.
+     * Shared with the reader card's Claim button, which is the same press asked from the other side of
+     * the book — the two used to be one optimistic path and one not, which is how a row could read
+     * collected in the menu while the card behind it still offered to claim it.
+     */
+    private boolean markQuest(String questId, long nowMillis) {
         ClientQuestCache.Entry entry = ClientQuestCache.entry(questId);
-        pendingClaims.add(RewardInboxLayout.questKey(questId));
+        if (!pendingClaims.mark(PendingClaims.questKey(questId), nowMillis)) {
+            return false;
+        }
         if (entry != null) {
             for (int index = 0; index < entry.rewards().size(); index++) {
-                markPending(questId, index);
+                markPending(questId, index, nowMillis);
             }
         }
-        rebuildWidgets();
-        claim(questId);
+        return true;
+    }
+
+    /**
+     * Forgets the marks the server has answered, and the ones it never will.
+     *
+     * <h2>What this replaces, and why the replacement is the whole point</h2>
+     *
+     * <p>Every mark used to go at once whenever the progress revision moved — and that is <b>any</b>
+     * progress message: a teammate's claim, another quest's task tick, or the once-a-second condition
+     * refresh. So a row the player had just pressed went back to ready mid-flight and collected again
+     * when its own answer landed. The player saw a claim that flickered, and the flicker was this client
+     * forgetting a press it had not yet heard about.
+     *
+     * <p>Now each mark goes on its own evidence: the server's answer agrees with it, the thing it named
+     * left the tree, or it has been believed past the backstop — and the last of those is <b>said</b>,
+     * because a row that quietly reverts three seconds later is indistinguishable from a bug.
+     *
+     * <p>Run every tick rather than only while the rewards card is open: a press outlives the card it was
+     * made from, and the task rows it marks are on the reader's card.
+     */
+    private void reconcilePendingClaims(long nowMillis) {
+        UUID self = selfId();
+        // Built on first need: a chapter's canonical answer walks the pack, and most ticks have no
+        // chapter mark to ask about.
+        Map<String, Integer> chaptersOutstanding = null;
+        for (String key : pendingClaims.keys()) {
+            PendingClaims.Subject subject = PendingClaims.subjectOf(key);
+            if (subject == null) {
+                // A key this build cannot read: forget it rather than believe it forever.
+                pendingClaims.resolve(key);
+                continue;
+            }
+            ClientQuestCache.Entry entry = ClientQuestCache.entry(subject.owner());
+            // A switch *expression* rather than a statement with a default, deliberately: this is
+            // exhaustive over the kinds, so a new one cannot be added without the compiler saying so --
+            // the rule every switch over an op in this codebase already keeps.
+            boolean done = switch (subject.kind()) {
+                case TASK -> entry == null
+                        || ClientQuestCache.taskDone(subject.owner(), subject.index());
+                case REWARD -> entry == null
+                        || (self != null
+                            && ClientQuestCache.rewardClaimedBy(self, entry, subject.index()));
+                case QUEST -> entry == null
+                        || ClientQuestCache.outstandingRewards(self, subject.owner()) == 0;
+                case CHAPTER -> {
+                    if (chaptersOutstanding == null) {
+                        chaptersOutstanding = ClientQuestCache.claimableByChapter(self);
+                    }
+                    yield chaptersOutstanding.getOrDefault(subject.owner(), 0) == 0;
+                }
+            };
+            if (done) {
+                pendingClaims.resolve(key);
+            }
+        }
+        for (String key : pendingClaims.expired(nowMillis)) {
+            report("The server did not answer " + markDescription(key) + ", so it was put back");
+        }
+    }
+
+    /** What a mark was about, in words a player reads — the backstop's sentence needs a subject. */
+    private static String markDescription(String key) {
+        PendingClaims.Subject subject = PendingClaims.subjectOf(key);
+        if (subject == null) {
+            return "a press";
+        }
+        return switch (subject.kind()) {
+            case TASK -> "the hand-in of " + subject.owner();
+            case REWARD -> "a reward of " + subject.owner();
+            case QUEST -> "the rewards of " + subject.owner();
+            case CHAPTER -> "the rewards of chapter " + subject.owner();
+        };
     }
 
     /**
@@ -21773,7 +22180,7 @@ public final class QuestBookScreen extends ArmatureScreen
             if (!open.remove(id)) {
                 open.add(id);
             }
-            rebuildWidgets();
+            refreshRewardCard();
             return true;
         }
         return false;
@@ -23337,7 +23744,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // Whether this row offers the hand-in right now: the button's own predicate, so the tag and the
         // button cannot disagree. Not the same as the type's `manual` flag -- a task that takes is handed
         // in once the player can pay for it, and a task already handed in offers nothing.
-        boolean handIn = ClientQuestCache.submitOffered(entry.id(), index);
+        boolean handIn = submitOfferedWithMarks(entry.id(), index);
         // A condition this player does not meet. Locked wins the one tag slot: "hand in" would be a lie
         // about a button that is not drawn, and the explanation is the whole point of the tag.
         boolean locked = !ClientQuestCache.taskLockOf(entry.id(), index).isEmpty();
@@ -25618,7 +26025,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // server validates and writes as it is made, so there is no unsaved state for this key to reach.
             // Said out loud rather than ignored, because Ctrl+S is the key a person presses when a panel full
             // of edits makes them nervous, and a key that does nothing reads as a key that failed.
-            report("Every edit is saved as it is made");
+            authorReport("Every edit is saved as it is made");
             return true;
         }
         if (ctrl && keyCode == GLFW.GLFW_KEY_Z) {
@@ -26219,6 +26626,34 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
+     * A sentence only an author can act on: said to a player who may edit, and to nobody else.
+     *
+     * <h2>Why this is a door rather than a flag at each call site</h2>
+     *
+     * <p>Because the facts are the pack's and the <i>acting</i> is not. The server used to send the pack's
+     * faults to every player — its own note argued that an author who did not cause one still has to work
+     * with the tree they describe — and a player who may not edit cannot work with the tree at all, so what
+     * they got was a wall of file paths, line numbers and JSON paths with nothing they could do about any of
+     * it. That is fixed at the sender as well, and this is the half that holds if a server over-sends.
+     *
+     * <p>{@link #mayEdit} rather than {@code mayEditNow}: an operator who is not in edit mode is still an
+     * operator, and edit mode is a view of the editor rather than a permission.
+     *
+     * <p>Player-facing sentences do not come through here: a claim's summary, a reward that overflowed, a
+     * choice's verdict, and the optimistic-mark backstop are all things the player did.
+     */
+    private void authorToast(String message, boolean error) {
+        if (mayEdit()) {
+            toast(message, error);
+        }
+    }
+
+    /** The same, for a sentence rather than a complaint. */
+    private void authorReport(String message) {
+        authorToast(message, false);
+    }
+
+    /**
      * The book's own messages, drawn over the book and under the tooltips.
      *
      * <p>Under the tooltips because a tooltip is what the pointer is asking for and a toast is what just
@@ -26326,15 +26761,19 @@ public final class QuestBookScreen extends ArmatureScreen
         // anywhere -- a row, Claim all, the command, a teammate's team reward -- lands here as a row that
         // should not be there any more. Rebuilt on the revision, the same way the dock's panel follows the
         // tree, and only while the card is open because that is the only time the rows are read.
+        //
+        // A **mark** moving rebuilds it too, and that is the second half of the fix: a mark that has been
+        // answered or has expired changes which buttons are live, and the drawing alone cannot take a
+        // button's label or its `active` flag back. The marks are no longer cleared here -- the ones still
+        // in flight belong to presses nobody has answered yet, which is exactly what the wholesale clear
+        // used to get wrong.
+        reconcilePendingClaims(millis);
         if (overlay == PanelKind.REWARDS) {
             long progress = ClientQuestCache.progressRevision();
-            if (progress != rewardsRevision) {
+            boolean marksMoved = rewardMarksRevision != pendingClaims.revision();
+            if (progress != rewardsRevision || marksMoved) {
                 rewardsRevision = progress;
-                // The server has answered every press this card sent — the sync is sent whether or not
-                // a claim paid — so the optimistic marks go and the rows are rebuilt from what it
-                // actually recorded. A refusal therefore puts its row back rather than leaving a claim
-                // on screen that never happened.
-                pendingClaims.clear();
+                rewardMarksRevision = pendingClaims.revision();
                 rebuildWidgets();
             }
         }
@@ -26392,22 +26831,25 @@ public final class QuestBookScreen extends ArmatureScreen
             // value is an edit recorded against the files as they were, and the reload has replaced them.
             fieldDraft.forgetChapter(effectiveChapter());
             settingsDraft.clear();
-            report("The server reloaded, so the undo history was discarded");
+            authorReport("The server reloaded, so the undo history was discarded");
         }
 
         // What the reload found wrong with the pack -- a dangling dependency, a cycle between files, an id in
         // two chapters. None of them is visible to the per-file validator that guards a save, so before this
         // the edit succeeded, the fault was written, and only the server log knew. Reported after the tree, so
         // the canvas is already drawing the pack these problems are about.
+        //
+        // **One short sentence per report, not one per line.** The lines used to be toasted one by one, which
+        // put a `file:line:col: severity: message` on screen for each fault -- a sentence far longer than a
+        // toast box, so it was truncated -- and, because the payload's text carried the validator's own `at
+        // $.tasks[2]` continuation as a second line, a bare "at $" card beside it. The lines belong where
+        // there is room for them: the Chapter tab lists them under `Problems`, and the server log has every
+        // one with its file and line. A toast is a pointer, and a pointer has to fit.
         for (ClientEditProblems.Report report : ClientEditProblems.drain()) {
             for (String line : report.lines()) {
                 Constants.LOG.info("tenet: the pack has a problem: {}", line);
-                toast(line, true);
             }
-            int hidden = report.count() - report.lines().size();
-            if (hidden > 0) {
-                toast(hidden + " more problem(s) in the server log", true);
-            }
+            authorToast(Component.translatable("tenet.dev.problems.toast", report.count()).getString(), true);
         }
 
         // Every answer nobody has read yet, oldest first. A burst of quick edits -- spamming a stepper
@@ -26477,7 +26919,7 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             for (String line : reply.lines()) {
                 if (reply.ok()) {
-                    report(line);
+                    authorReport(line);
                 }
                 else {
                     // Recorded, so the Chapter tab's placeholder can say what the server said instead of
@@ -26487,7 +26929,7 @@ public final class QuestBookScreen extends ArmatureScreen
                         ClientChapterReplica.refuse(reply.chapter(), line);
                     }
                     Constants.LOG.info("tenet: reply was refused: {}", line);
-                    toast(line, true);
+                    authorToast(line, true);
                 }
             }
             if (reply.ok() && !reply.questId().isEmpty() && (answered == null || answered.isEmpty())) {
@@ -26496,7 +26938,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 // Only for a chapter's op: a table op's id is a table's, and selecting a quest named after a
                 // table would move the canvas to a quest that does not exist.
                 selectedQuest = reply.questId();
-                report("Now editing " + reply.questId());
+                authorReport("Now editing " + reply.questId());
             }
         }
     }
