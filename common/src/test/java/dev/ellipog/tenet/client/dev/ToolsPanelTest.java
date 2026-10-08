@@ -7,9 +7,12 @@ import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tenet.client.BookGeometry;
+import dev.ellipog.tenet.client.DevMode;
 
 import net.minecraft.resources.ResourceLocation;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,10 +34,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * panel; then they were drawn by nobody; then the row fell through the dispatch into the switch-label branch
  * and drew as a bare label while the hit test answered presses perfectly. Three reports from play, three
  * screenshots, and one question that would have caught each of them on the way in.
+ *
+ * <h2>And why every test here runs at full depth</h2>
+ *
+ * <p>Because the rows it draws are the appearance ones -- a palette swatch row, a foldable section's rule --
+ * and Normal mode leaves the Book tab with its three switches. See {@code AdvancedTest} for what that gate
+ * hides.
  */
 @DisplayName("the tools panel's drawing")
 class ToolsPanelTest {
 
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     private static final Measure MEASURE = Measure.monospace(6, 9);
 

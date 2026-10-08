@@ -440,7 +440,7 @@ public final class QuestPanelLayout {
     public static List<EditorField> conditionEditorFor(JsonObject condition) {
         String type = text(condition, "type", "");
         ResourceLocation id = ResourceLocation.tryParse(type);
-        return id == null ? List.of() : ConditionTypes.editorOf(id);
+        return id == null ? List.of() : Advanced.fields(ConditionTypes.editorOf(id));
     }
 
     /**
@@ -683,7 +683,12 @@ public final class QuestPanelLayout {
         if (id == null) {
             return List.of();
         }
-        return "rewards".equals(member) ? RewardTypes.editorOf(id) : TaskTypes.editorOf(id);
+        // Through the depth, because this is where six readers meet: the card's cells and its line counts,
+        // the widget pass, the path-to-field lookup that commits and targets go through, and the "My
+        // position" press. See `Advanced.fields` for why the filter is at that seam rather than at each
+        // caller -- and note that it is applied *after* the registry's own form, because
+        // `EditorSpecsTest` holds that form equal to the codec's field set in both directions.
+        return Advanced.fields("rewards".equals(member) ? RewardTypes.editorOf(id) : TaskTypes.editorOf(id));
     }
 
     /** Whether a type id is one this build can add to the given member. */

@@ -117,6 +117,56 @@ public final class AssetsLayout {
     }
 
     /**
+     * The sections this depth shows, in the order they are listed.
+     *
+     * <h2>Why the drawing and the hit test both have to come through here</h2>
+     *
+     * <p>Because {@link #sectionAt} answers a section by <b>index into this list</b>
+     * ({@code frame.section(i)} is where row {@code i} is drawn), so a drawn list and a pressed list that
+     * disagreed would put every press on the section above the one under the pointer -- and the failure
+     * reads as a mouse that selects the wrong page rather than as a list that was filtered twice.
+     *
+     * <p>Normal mode hides the tables, and nothing else; the quest files are the half of this panel every
+     * author uses. See {@code Advanced} for the cut and why it is stated there rather than here.
+     */
+    public static Section[] shown() {
+        Section[] all = Section.values();
+        int count = 0;
+        for (Section section : all) {
+            if (Advanced.showsSection(section.name())) {
+                count++;
+            }
+        }
+        if (count == all.length) {
+            return all;
+        }
+        Section[] out = new Section[count];
+        int at = 0;
+        for (Section section : all) {
+            if (Advanced.showsSection(section.name())) {
+                out[at++] = section;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The same section, or the first one this depth shows.
+     *
+     * <p>For the two places the panel's section arrives from somewhere else -- the file it remembers, and
+     * the command that opens the editor on a table -- neither of which knows what the depth is. The answer
+     * is coerced for the <i>view</i> and never written back: what the author chose is theirs, and an
+     * Advanced client that remembers "tables" must still find it there after a detour through Normal.
+     */
+    public static Section shownOrFirst(Section section) {
+        if (section != null && Advanced.showsSection(section.name())) {
+            return section;
+        }
+        Section[] shown = shown();
+        return shown.length == 0 ? Section.QUESTS : shown[0];
+    }
+
+    /**
      * What a press on a page is looking at.
      *
      * <p>A page is a flat list of two kinds of line, and the two are different heights, so "which line is
@@ -187,7 +237,9 @@ public final class AssetsLayout {
         if (!frame.sections().contains(mouseX, mouseY)) {
             return null;
         }
-        Section[] all = Section.values();
+        // `shown()` rather than `values()`, and that is the whole of what the depth needs here: a row the
+        // panel does not draw must not be a row a press can land on. See `shown`.
+        Section[] all = shown();
         for (int i = 0; i < all.length; i++) {
             BookGeometry.Rect row = frame.section(i);
             if (row.contains(mouseX, mouseY)) {

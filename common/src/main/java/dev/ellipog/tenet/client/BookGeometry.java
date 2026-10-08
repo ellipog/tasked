@@ -120,7 +120,7 @@ public final class BookGeometry {
     public static final int ROW_GAP = 4;
 
     /**
-     * The Edit pill's width: a pencil, a space and the word.
+     * The Edit button's width: a pencil, a space and the word.
      *
      * <h2>Which glyphs this font has</h2>
      *
@@ -138,25 +138,36 @@ public final class BookGeometry {
      *
      * <p>The pencil is {@code \u270E}, which that list carries.
      */
-    public static final int EDIT_PILL_WIDTH = 56;
+    public static final int EDIT_WIDTH = 56;
 
-    /** The Assets pill's width. Wider than Edit's by two characters: see {@link #assetsPill}. */
-    public static final int ASSETS_PILL_WIDTH = 72;
+    /** The Assets button's width, in the author's band. Wider than Edit's by two characters. */
+    public static final int ASSETS_WIDTH = 72;
 
     /**
-     * The Author pill's width.
+     * The Author button's width: the way into the author's dock.
      *
      * <p>The same figure as Assets', and it is a measurement rather than a reuse: "Author" and "Assets" are
-     * both six characters, so a width that fits one fits the other. Kept as its own constant so that changing
-     * one label cannot silently resize the other — see {@link #editPill} for why a pill's width follows its
-     * own word.
+     * both six characters, so a width that fits one fits the other. Kept as its own constant so that
+     * changing one label cannot silently resize the other — see {@link #EDIT_WIDTH} for why a button's
+     * width follows its own word.
      *
-     * <p><b>It was the Author pill, and the label is the reason it moved.</b> "Panels" named the machinery
-     * rather than the thing, while the dock it latches is the author's own surface — which is what its
-     * tooltip has always called it. The word changed and the width did not, because the two words are the
-     * same length.
+     * <p><b>This javadoc used to claim the label had changed to "Panels".</b> It has not:
+     * {@code tenet.screen.author} is "Author" in the language file, which is also what
+     * {@code AGENT.md} was corrected to say. The claim was a rename that was considered and did not
+     * happen, left behind as a fact — the width is right either way, because the two words are the same
+     * length.
      */
-    public static final int AUTHOR_PILL_WIDTH = 72;
+    public static final int AUTHOR_WIDTH = 72;
+
+    /**
+     * The Advanced button's width: the latch over the editor's depth.
+     *
+     * <p>Eight characters rather than six, and the same figure as the two six-character buttons because
+     * {@link #EDIT_WIDTH}'s rule is a measurement rather than an arithmetic: this is the width at which
+     * "Advanced" fits at the UI's font, and a button that truncated the name of the mode it toggles would
+     * be a control whose label depends on the font.
+     */
+    public static final int ADVANCED_WIDTH = 72;
 
     /**
      * The party button's width, in the header.
@@ -184,20 +195,34 @@ public final class BookGeometry {
     public static final int EDGE = 8;
 
     /**
-     * The gap between the two author pills.
+     * The gap between two controls of the author's band.
      *
-     * <p>Three pixels under the general {@link #EDGE}: at the full edge they read as two controls that
-     * happen to be near each other, and they are one row — the same cluster {@link #pillMat} draws one
-     * backing panel behind. Declared here rather than beside the pill widths because a constant cannot
-     * name one declared after it, which is what the first attempt did.
+     * <p>Three pixels under the general {@link #EDGE}: at the full edge they read as four controls that
+     * happen to be near each other, and they are one row — one band, drawn as a single strip
+     * ({@link #authorBand}). Declared here rather than beside the button widths because a constant cannot
+     * name one declared after it, which is what the first attempt at the pills did.
      *
-     * <p><b>It was four, and the seam was one pixel too wide.</b> Playtest: the two pills read as one
-     * cluster already, and what was left was the air between them, which is the only part of the seam a
-     * person can measure — {@link #pillMat} covers it either way, so nothing else moves but the pair's own
-     * extent. {@link #MIN_CANVAS_WIDTH} names this constant rather than repeating the number, so the
-     * minimum canvas narrowed with it for free.
+     * <p><b>It was four, and the seam was one pixel too wide.</b> Playtest, on the pills this band
+     * replaced: they read as one cluster already, and what was left was the air between them, which is the
+     * only part of a seam a person can measure. The value carried over unchanged, and
+     * {@link #MIN_PANEL_WIDTH} names this constant rather than repeating the number, so the minimum
+     * panel's width follows it.
      */
-    public static final int PILL_GAP = EDGE - 5;
+    public static final int BAND_BUTTON_GAP = EDGE - 5;
+
+    /** The air above and below a band button, inside the band. */
+    public static final int BAND_PAD = 3;
+
+    /**
+     * The band's height: one row of controls and the air around it.
+     *
+     * <p>Derived rather than chosen, like every other band in this class: {@link #HEADER_HEIGHT} holds a
+     * {@link #ROW_HEIGHT} control centred in it, and this holds one the same way with {@link #BAND_PAD}
+     * either side. It is <b>reserved whether or not the band is drawn</b>, because it is part of
+     * {@link #MIN_PANEL_HEIGHT} and a minimum that moved with the mode would be two window geometries to
+     * test and one of them never seen until a permission changed.
+     */
+    public static final int AUTHOR_BAND_HEIGHT = ROW_HEIGHT + BAND_PAD * 2;
 
     /**
      * How far the header's **text** sits from the panel's edge — the title at the left, the quest count
@@ -382,39 +407,56 @@ public final class BookGeometry {
      * check, and the useful half of this paragraph is that the canvas's term is the one that did not
      * move, for a reason that can be stated.
      *
-     * <p>The numbers: the sidebar needs {@code 6 + 18 + 4 + 18 + 8 = 54} -- a gap, one row, the gap
-     * above the party strip, the strip, and the panel's edge -- and the canvas needs
-     * {@code (8 - 3) + (58 + 6) + 8} = <b>77</b>. So the canvas decides it, and
-     * {@code MIN_PANEL_HEIGHT} is {@code 26 + 77 = 103}. Changing {@link #VIEW_BUTTON} therefore cannot
-     * silently invalidate it: the sum is written in terms of that constant.
+     * <h2>The band, and the third term this constant gained</h2>
      *
-     * <p><b>The margin narrowing is the number to watch, and it is why both terms are written out
-     * rather than one being carried.</b> It was 45 when the theme controls left the sidebar; the party
-     * strip spent 22 of it, and 23 is what is left. The next feature that wants a home in this column
-     * has 23 pixels of room before the sidebar starts deciding the minimum -- and a reader who does not
-     * know that finds out from a screenshot.
+     * <p>{@link #AUTHOR_BAND_HEIGHT} sits between the header and both of the terms above, because both
+     * start below it: the sidebar's list and the canvas are the panel's body, and the band is chrome over
+     * the top of it. So this is {@code HEADER_HEIGHT + AUTHOR_BAND_HEIGHT + max(sidebar, canvas)}, and the
+     * band is paid for by both columns rather than one.
+     *
+     * <p>It is the same height whether or not the band is drawn, which is deliberate: the band belongs to
+     * an operator, and an author's panel that was taller than a reader's at the same window would be two
+     * geometries to test with one of them never seen until somebody was de-opped.
+     *
+     * <p>The numbers, for whoever needs them: the sidebar needs {@code 6 + 18 + 8 = 32} and the canvas
+     * {@code (8 - 3) + (58 + 6) + 8} = <b>77</b>, so the canvas still decides the body;
+     * {@link #AUTHOR_BAND_HEIGHT} is {@code 18 + 3 * 2} = 24 and {@link #HEADER_HEIGHT} is 26, which makes
+     * {@code MIN_PANEL_HEIGHT} {@code 26 + 24 + 77 = 127}. Every figure is written in terms of the
+     * constants the bands are drawn with, so changing {@link #VIEW_BUTTON} or {@link #ROW_HEIGHT} cannot
+     * silently invalidate it.
+     *
+     * <p><b>The margin between the two body terms is the number to watch, and it is why both are written
+     * out rather than one being carried.</b> The canvas asks for 77 and the sidebar for 32, so the column
+     * has 45 pixels of room for another feature before it starts deciding the minimum. A band does not
+     * spend it -- the band is above both terms rather than inside one -- and a reader who does not know the
+     * margin exists finds out from a screenshot.
      */
-    public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + Math.max(
+    public static final int MIN_PANEL_HEIGHT = HEADER_HEIGHT + AUTHOR_BAND_HEIGHT + Math.max(
             CHAPTER_GAP + SIDEBAR_ROW_HEIGHT + EDGE,
             (EDGE - VIEW_MAT) + (VIEW_COLUMN_HEIGHT + VIEW_MAT * 2) + EDGE);
 
     /**
-     * Enough canvas for the graph, the view cluster and the author's pills side by side.
+     * Enough canvas for the graph and the view cluster beside it.
      *
-     * <p>It was "enough canvas to be worth showing beside the sidebar" -- 80, a judgement -- and the two
-     * floating clusters have made it an arithmetic term instead. Both clusters are on the canvas's left
-     * now, so the term is that band read left to right: the view cluster occupies
-     * {@code (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2)} from the canvas's left edge, the author's
-     * pills occupy {@code AUTHOR_PILL_WIDTH + PILL_GAP + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH}
-     * immediately right of it, one {@link #EDGE} is the air between the two, and the last {@link #EDGE} is
-     * the air at the canvas's right edge -- which is not spare: the dock and a docked column float there.
-     * What is left for the graph is the remainder, and it is written from the constants the clusters are
-     * placed with rather than measured by eye -- which is how the width that used to be a judgement became
-     * something a test can sweep.
+     * <h2>What this term lost, and why it is a third of what it was</h2>
+     *
+     * <p>It was "enough canvas to be worth showing beside the sidebar" -- 80, a judgement -- and then it
+     * became an arithmetic term, because the view cluster <i>and</i> the author's three pills floated over
+     * the canvas's left edge in one band. That band was most of the minimum: 251 of the 407-pixel panel
+     * this class asked for, so the canvas's furniture was what bound the whole book's width.
+     *
+     * <p><b>The band moved out of the canvas, so the term is the cluster alone.</b> The author's controls
+     * are a strip of the panel's own chrome now ({@link #authorBand}), above the canvas rather than on it,
+     * which leaves this as the one cluster that genuinely sits on the canvas: {@code (EDGE - VIEW_MAT)} of
+     * mat, the buttons and their gaps, and one {@link #EDGE} at the canvas's right edge -- which is not
+     * spare, because the dock and a docked column float there. The last {@code EDGE} is what the band used
+     * to add on the far side of itself and no longer needs.
+     *
+     * <p>It is written from the constants the cluster is placed with rather than measured by eye, which is
+     * how the width that used to be a judgement became something a test can sweep.
      */
     public static final int MIN_CANVAS_WIDTH =
-            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE + AUTHOR_PILL_WIDTH + PILL_GAP
-                    + ASSETS_PILL_WIDTH + PILL_GAP + EDIT_PILL_WIDTH + EDGE;
+            (EDGE - VIEW_MAT) + (VIEW_BUTTON + VIEW_MAT * 2) + EDGE;
 
     /**
      * The room the header's title needs, left of the controls: the inset it starts at and a word.
@@ -427,31 +469,39 @@ public final class BookGeometry {
     /**
      * The narrowest the panel gets.
      *
-     * <p>Two terms, and the canvas decides it: the header's run of controls -- Close, Rewards, Party,
-     * Settings -- plus {@link #HEADER_TITLE_ROOM} for the book's own name, against
-     * {@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}, which is what the two floating clusters need. The
-     * canvas's term is <b>407</b> (156 of sidebar and 251 of canvas: the view cluster, the three author
-     * pills and the edges between them) and the header's is <b>238</b>, so the canvas is what binds.
+     * <h2>Three terms, and the band is the one that binds</h2>
      *
-     * <p>The author's controls used to be two more terms in the header's sum, and that sum was the
-     * binding one at <b>336</b>. They float over the canvas instead now (see {@link #editPill()}), which
-     * takes them out of the row that measures the panel but adds them to the canvas term -- so the
-     * minimum fell, and the pills have since carried it back up: the assets pill from the 257 this note
-     * used to claim, and then the Author pill by its own width and its seam. Both sums are still written
-     * from the constants the controls are placed with, so widening one moves this with it -- the header's
-     * own test caught exactly that when the rewards button arrived, which is the drift it exists to catch.
+     * <p>The header's run of controls -- Close, Rewards, Party, Settings -- plus {@link #HEADER_TITLE_ROOM}
+     * for the book's own name; the sidebar beside a canvas worth showing
+     * ({@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}); and the author's band, which is its four buttons, the
+     * seams between them and the panel's own {@link #EDGE} at each end.
      *
-     * <p>The figures above are prose, and no test reads them: the <i>sums</i> below are asserted and the
-     * sentence about them is not, which is how a stale 257 sat here unnoticed. Anyone who needs the number
-     * should read it off the two sums rather than trust this paragraph -- and that applies to the 407 and
-     * the 251 above too, which is why they are written beside the sums they came from.
+     * <p><b>The canvas used to be what bound, and that is the sentence to keep corrected.</b> While the
+     * author's pills floated over it, the canvas's term was <b>407</b> (156 of sidebar and 251 of canvas)
+     * against the header's 238, so the furniture of the graph decided how narrow the book could be. With the
+     * band in the panel's chrome instead, the canvas's term falls to 193 and the header's 238 governs --
+     * until the band's own term, <b>297</b>, passes both. So the minimum is the author's toolbar now, which
+     * is the honest thing for it to be: that is the row whose controls must fit before anything else can be
+     * read.
+     *
+     * <p>The figures in the paragraph above are prose, and no test reads them: the <i>sums</i> below are
+     * asserted and the sentences about them are not, which is how a stale 257 once sat here unnoticed.
+     * Anyone who needs a number should read it off the sums. Each is written from the constants its controls
+     * are placed with, so widening one moves this with it -- the header's own test caught exactly that when
+     * the rewards button arrived, which is the drift it exists to catch. A panel narrower than this comes
+     * from a window too small to hold the book, and the band's buttons narrow with the panel rather than
+     * running off it; see {@link #authorBandButtons}.
      */
-    public static final int MIN_PANEL_WIDTH = Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
-            HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
-                    + ROW_GAP + REWARDS_BUTTON_WIDTH         // Rewards
-                    + ROW_GAP + PARTY_BUTTON_WIDTH           // Party
-                    + ROW_GAP + SETTINGS_BUTTON_WIDTH        // Settings
-                    + HEADER_TITLE_ROOM);
+    public static final int MIN_PANEL_WIDTH = Math.max(
+            Math.max(SIDEBAR_WIDTH + MIN_CANVAS_WIDTH,
+                    HEADER_CONTROL_INSET + ROW_HEIGHT                // Close
+                            + ROW_GAP + REWARDS_BUTTON_WIDTH         // Rewards
+                            + ROW_GAP + PARTY_BUTTON_WIDTH           // Party
+                            + ROW_GAP + SETTINGS_BUTTON_WIDTH        // Settings
+                            + HEADER_TITLE_ROOM),
+            // And the band, which binds at 297 -- see above.
+            EDGE + AUTHOR_WIDTH + BAND_BUTTON_GAP + ASSETS_WIDTH + BAND_BUTTON_GAP + EDIT_WIDTH
+                    + BAND_BUTTON_GAP + ADVANCED_WIDTH + EDGE);
 
     /** The largest the panel gets, however big the window is. */
     public static final int MAX_PANEL_WIDTH = 800;
@@ -744,19 +794,34 @@ public final class BookGeometry {
 
     private final int screenWidth;
     private final int screenHeight;
+    private final boolean authorBand;
     private final Rect panel;
     private final Rect header;
     private final Rect canvas;
     private final Rect sidebar;
     private final Rect overlay;
 
-    /** The book with a margin around it: the shape every player sees. */
+    /** The book with a margin around it: the shape every player sees, and no author's band. */
     public BookGeometry(int screenWidth, int screenHeight) {
-        this(screenWidth, screenHeight, false);
+        this(screenWidth, screenHeight, false, false);
     }
 
     /**
-     * The book, either as a card with a margin or full-bleed.
+     * The same, as a card or full-bleed -- and without an author's band.
+     *
+     * <p>The band is the last thing a geometry decides, and it is not the same question as full-bleed even
+     * though the screen currently answers both with {@code mayEdit()}: full-bleed is how much window the
+     * book takes, and the band is whether the author's controls are drawn over the top of it. Kept apart so
+     * a reader's card and an operator's full-bleed book can be swept independently -- and so the overlap
+     * sweep can build a band with no margin, or a margin with no band, and see the geometry rather than a
+     * combination that only ever occurs by accident.
+     */
+    public BookGeometry(int screenWidth, int screenHeight, boolean fullBleed) {
+        this(screenWidth, screenHeight, fullBleed, false);
+    }
+
+    /**
+     * The book: a card with a margin or full-bleed, with or without the author's band.
      *
      * <h2>Why an author gets the whole window</h2>
      *
@@ -768,10 +833,24 @@ public final class BookGeometry {
      * <p>It is one flag rather than two geometries because every rectangle here is derived from the panel:
      * the header, the sidebar, the canvas and the tools panel all follow from this one decision, which is
      * the property this class exists to keep.
+     *
+     * <h2>The band, and why its buttons are the panel's rather than the canvas's</h2>
+     *
+     * <p>{@code authorBand} reserves {@link #AUTHOR_BAND_HEIGHT} between the header and the body and moves
+     * both columns down by it. That is the whole of it, and it is what makes the author's controls
+     * impossible to cover: a rail is anchored to the canvas ({@link #panelRail}), so the highest thing a
+     * panel can ever draw over is the canvas's top edge -- which is now below the band.
+     *
+     * <p>It is a flag rather than something the screen draws over the top, because the alternative is
+     * worse than it looks: the pills this band replaced floated over the canvas, so a maximally wide panel
+     * covered them, and the canvas's own minimum had to carry their width (see {@link #MIN_CANVAS_WIDTH}).
+     * The band costs 24 pixels of canvas height and gives back 214 of minimum canvas width -- and 110 of the
+     * panel's, because the canvas's term was what bound it. That is the trade this flag records.
      */
-    public BookGeometry(int screenWidth, int screenHeight, boolean fullBleed) {
+    public BookGeometry(int screenWidth, int screenHeight, boolean fullBleed, boolean authorBand) {
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
+        this.authorBand = authorBand;
 
         // Clamped to a minimum, and allowed to exceed the window below it. A window smaller than this
         // cannot show the book sensibly at any layout, so the choice is between a panel that runs off
@@ -795,16 +874,34 @@ public final class BookGeometry {
         this.panel = Rect.at(panelLeft, panelTop, panelWidth, panelHeight);
         this.header = Rect.at(panelLeft, panelTop, panelWidth, HEADER_HEIGHT);
 
-        // The canvas is everything below the header, to the bottom of the panel. Nothing floats over
-        // it any more: the summary strip went, so there is no band to reserve and no view port to keep
-        // clear of one.
-        this.canvas = Rect.at(panelLeft + SIDEBAR_WIDTH, panelTop + HEADER_HEIGHT,
-                panelWidth - SIDEBAR_WIDTH, panelHeight - HEADER_HEIGHT);
-        this.sidebar = Rect.at(panelLeft, panelTop + HEADER_HEIGHT, SIDEBAR_WIDTH,
-                panelHeight - HEADER_HEIGHT);
+        // The body: everything below the header and, for an author, below the band. Both columns start
+        // here, so a reader's taller canvas and a shorter one for the operator follow from one number --
+        // and the band's own strip is drawn over exactly the 24 pixels this skips.
+        int bodyTop = panelTop + HEADER_HEIGHT + (authorBand ? AUTHOR_BAND_HEIGHT : 0);
+        int bodyHeight = panelHeight - (bodyTop - panelTop);
+
+        this.canvas = Rect.at(panelLeft + SIDEBAR_WIDTH, bodyTop, panelWidth - SIDEBAR_WIDTH, bodyHeight);
+        this.sidebar = Rect.at(panelLeft, bodyTop, SIDEBAR_WIDTH, bodyHeight);
         this.overlay = Rect.at(OVERLAY_MARGIN, OVERLAY_MARGIN,
                 Math.max(MIN_PANEL_WIDTH, screenWidth - OVERLAY_MARGIN * 2),
                 Math.max(MIN_PANEL_HEIGHT, screenHeight - OVERLAY_MARGIN * 2));
+    }
+
+    /** Whether this geometry reserves the author's band. */
+    public boolean hasAuthorBand() {
+        return authorBand;
+    }
+
+    /**
+     * Where the panel's body starts: below the header, and below the band when there is one.
+     *
+     * <p>Public because two things outside this class need the same edge and must not state it twice: the
+     * chrome's painting, which fills the band's strip between the header's rule and this line, and the
+     * sidebar's clip, which starts at {@link #chapterListTop()} just below it. One number, in the class
+     * that owns the panels -- which is the rule this class exists for.
+     */
+    public int bodyTop() {
+        return header.bottom() + (authorBand ? AUTHOR_BAND_HEIGHT : 0);
     }
 
     public int screenWidth() {
@@ -927,9 +1024,15 @@ public final class BookGeometry {
     // The positions that the drawing and the controls both need
     // ------------------------------------------------------------------
 
-    /** Where the sidebar's list starts. The top of {@link #sidebarViewport()}, and nothing else. */
+    /**
+     * Where the sidebar's list starts. The top of {@link #sidebarViewport()}, and nothing else.
+     *
+     * <p>Measured from {@link #bodyTop()} rather than from the header, so an author's list starts below the
+     * band: the band is chrome over the whole width of the panel, and a chapter row under it would be a row
+     * drawn underneath a control.
+     */
     public int chapterListTop() {
-        return panel.y() + HEADER_HEIGHT + CHAPTER_GAP;
+        return bodyTop() + CHAPTER_GAP;
     }
 
     /**
@@ -1030,10 +1133,11 @@ public final class BookGeometry {
      * screen because that is the rule this class exists to enforce, and because the alternative is a
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
      *
-     * <p>Measured from Settings for every player now. It used to take a flag and measure from Edit for an
-     * operator, because the author's controls sat in this row and the count had to stop short of them.
-     * They float over the canvas instead (see {@link #editPill()}), the header is the same four controls
-     * for everyone, and the flag went with the difference it described.
+     * <p>Measured from Settings for every player, and it has been that for two rounds: it once took a flag
+     * and measured from Edit for an operator, because the author's controls sat in this row and the count
+     * had to stop short of them. They left this row long ago, and they are not in it now either -- the band
+     * ({@link #authorBand}) is a strip of its own below the header, so the count and the title have the
+     * whole of this row whatever a player may edit.
      */
     public int headerRightLimit() {
         return settingsButton().x() - 10;
@@ -1092,73 +1196,98 @@ public final class BookGeometry {
     }
 
     /**
-     * The author's pills, in the canvas's top-left corner: one row, beside the view cluster.
+     * The author's band: a strip of the panel's own chrome, under the title row and above the body.
      *
-     * <h2>Why the corner</h2>
+     * <h2>Why the author's controls left the canvas</h2>
      *
-     * <p>The header belongs to the book and every player reads it, so the author's controls left it for
-     * the corner that is already a control strip -- and that strip is the <b>same</b> one the view cluster
-     * holds: the author's three controls sit immediately right of the three map buttons, in one row, rather
-     * than mirrored on the far side of the canvas. There is one row, not a column: the Tools menu that used
-     * to hang off it held only actions that are already keys (Undo, Redo, Snapping's switch, Alt+click's
-     * straighten), so it was retired rather than kept as a second floating control.
+     * <p>They floated over the canvas's top-left corner for two rounds, as three pills, and the corner was
+     * chosen deliberately -- the header belongs to the book and every player reads it, and a panel's rail
+     * is anchored to the right, so the top-left was the one spot on the canvas nothing else occupied.
+     * <b>Two things were wrong with it, and the second is what settled it.</b> A rail may cover the whole
+     * canvas ({@link #panelRail}'s cap is the canvas less a gap), so a maximally wide panel drew over the
+     * author's controls; and the canvas's minimum width had to carry their 214 pixels, which made the
+     * graph's furniture the thing that decided how narrow the whole book could be.
      *
-     * <p><b>Read left to right, the two clusters are one band</b> -- which is why {@link #MIN_CANVAS_WIDTH}
-     * is written as that band: the cluster's mat, {@link #EDGE} of air, the pills' own row, and {@link #EDGE}
-     * of air at the canvas's right edge, where the dock and a docked column float. Moving the pills
-     * from the right edge to here is therefore a placement with no arithmetic behind it: the sum it used to
-     * be read from is the sum it is now read from, in the other order.
+     * <p>Both go away with the band: the rails cannot reach above the canvas's top edge, and
+     * {@link #MIN_CANVAS_WIDTH} drops to the view cluster alone. What it costs is 24 pixels of canvas and
+     * sidebar height, for the operator only -- see {@link #MIN_PANEL_HEIGHT}, where the height is reserved
+     * for every player so that the panel's minimum does not move with a permission.
      *
-     * <h2>Three pills, and the one that was not a pill's business</h2>
+     * <h2>Four controls, in the author's reading order</h2>
      *
-     * <p>Author, Assets and Edit, in that order. The dock was the last thing to get a control of its own: it
-     * used to be a side effect of edit mode, which is why the Edit pill had to double as "close the panel so
-     * the dock comes back" — see {@code QuestBookScreen.pressEditPill}, where that second meaning is gone.
-     * The order is the author's own reading order: the surfaces they work in first, the mode last.
+     * <p>Author, Assets, Edit and Advanced: the surfaces they work in first, then the mode, then the depth.
+     * The order is the pills' own with the latch appended, and the reason for that order is unchanged --
+     * {@code Author} opens the dock, {@code Assets} opens the pack's own files, {@code Edit} latches edit
+     * mode and nothing else, and {@code Advanced} says how much of every editor menu to draw.
      */
-    public Rect authorPill() {
-        // One EDGE clear of the view cluster's own right edge, control to control: the mats then sit
-        // VIEW_MAT closer than that, which is the seam the two clusters keep.
-        return Rect.at(viewControls().right() + EDGE, canvas.y() + EDGE, AUTHOR_PILL_WIDTH, ROW_HEIGHT);
-    }
-
-    /** The Assets pill, immediately right of Author. */
-    public Rect assetsPill() {
-        return Rect.at(authorPill().right() + PILL_GAP, canvas.y() + EDGE, ASSETS_PILL_WIDTH, ROW_HEIGHT);
+    public Rect authorBand() {
+        return Rect.at(panel.x(), header.bottom(), panel.width(),
+                authorBand ? AUTHOR_BAND_HEIGHT : 0);
     }
 
     /**
-     * The Edit pill, immediately right of Assets — the pairing the row has always ended with.
+     * The four controls of the author's band, left to right, or an empty map for a reader.
      *
-     * <p>Wider than Edit's by a word rather than by taste: "Assets" is six characters to "Edit"'s four, and a
-     * pill that truncated its own label would be a control whose name depends on the font. Each pill's width
-     * follows its own word for that reason, which is why adding Author added a constant rather than a share
-     * of one.
+     * <h2>Why an empty map rather than four rectangles nobody draws</h2>
+     *
+     * <p>Because a band is not a control that floats at a fixed offset: it is the panel's own strip, and a
+     * reader's geometry has no such strip -- their canvas starts where the header ends. Four rectangles
+     * computed anyway would sit across the header and the sidebar's first row, which is a lie the overlap
+     * sweep would then check against the wrong surface. The pills were the other case, and the reason the
+     * rule is stated rather than assumed: they floated over the canvas at offsets that meant something in
+     * every geometry, so they were always in the map and merely not drawn.
+     *
+     * <p>This is the screen's one conditional about the band, and {@code BookGeometryTest} sweeps both
+     * shapes -- a reader's and an author's -- so "the map holds four more keys" is asserted rather than
+     * discovered.
+     *
+     * <h2>And why the buttons narrow rather than run off</h2>
+     *
+     * <p>A window can be smaller than {@link #MIN_PANEL_WIDTH} -- a full-bleed author's panel is the window
+     * itself, minimums and all -- and four fixed widths would then put the last control outside the panel,
+     * clickable where nothing draws. So the widths are shared when they do not fit, the way
+     * {@link #sidebarToolbar} shares two buttons across the sidebar: at the minimum nothing narrows, and
+     * below it the labels are what give way.
      */
-    public Rect editPill() {
-        return Rect.at(assetsPill().right() + PILL_GAP, canvas.y() + EDGE,
-                EDIT_PILL_WIDTH, ROW_HEIGHT);
-    }
+    public Map<String, Rect> authorBandButtons() {
+        Map<String, Rect> out = new LinkedHashMap<>();
+        if (!authorBand) {
+            return out;
+        }
+        int[] wanted = {AUTHOR_WIDTH, ASSETS_WIDTH, EDIT_WIDTH, ADVANCED_WIDTH};
+        int[] width = new int[wanted.length];
+        int room = Math.max(0, panel.width() - EDGE * 2);
+        int gaps = BAND_BUTTON_GAP * (wanted.length - 1);
+        int used = gaps;
+        for (int each : wanted) {
+            used += each;
+        }
+        if (used <= room) {
+            System.arraycopy(wanted, 0, width, 0, wanted.length);
+        }
+        else {
+            int share = Math.max(0, (room - gaps) / wanted.length);
+            java.util.Arrays.fill(width, share);
+        }
 
-    /**
-     * The backing panel behind the pills, drawn so they read as controls rather than as floating fragments
-     * of text.
-     *
-     * <p>Behind <b>all three</b> pills and the gaps between them, so the author's row reads as one cluster.
-     * The screen draws it only when it draws a pill, so a player who may not edit is shown none of them.
-     */
-    public Rect pillMat() {
-        return Rect.at(authorPill().x() - VIEW_MAT, editPill().y() - VIEW_MAT,
-                editPill().right() - authorPill().x() + VIEW_MAT * 2, ROW_HEIGHT + VIEW_MAT * 2);
+        int x = panel.x() + EDGE;
+        int y = header.bottom() + BAND_PAD;
+        String[] keys = {"author", "assets", "edit", "advanced"};
+        for (int i = 0; i < keys.length; i++) {
+            out.put(keys[i], Rect.at(x, y, width[i], ROW_HEIGHT));
+            x += width[i] + BAND_BUTTON_GAP;
+        }
+        return out;
     }
 
     // (`AUTHOR_PILL_BAND` and `authorRail()` stood here, and they are gone with the reason for them.)
     //
     // The inspector drawer used to be laid out from a canvas that started below the pills, because the
     // pills floated over the canvas's top-RIGHT corner -- exactly where the drawer docks -- so a rail
-    // running to the canvas's top edge would have put its first row under a control. Moving the pills to
-    // the top-left removed that: the drawer's corner is empty, and it takes the same rail every docked
-    // panel takes (`panelRail`), which is what lines the two up when an author swaps between them.
+    // running to the canvas's top edge would have put its first row under a control. The drawer's corner is
+    // empty now and it takes the same rail every docked panel takes (`panelRail`); what the corner keeps is
+    // the view cluster, and the author's own controls have left the canvas altogether -- see
+    // `authorBand()`.
 
     /**
      * The backing panel behind the three view buttons.
@@ -1230,18 +1359,13 @@ public final class BookGeometry {
         // the player's own settings.
         out.put("settings", settingsButton());
 
-        // The author's pills, in the canvas's top-left corner beside the view cluster. Always in the map and
-        // drawn only for a player who may edit: geometry is what the overlap sweep checks, and a control that
-        // appeared in the map only sometimes would be a control the sweep tests in one build and not the
-        // next. They are placed here rather than with the view cluster below so that the map's source order
-        // still reads as the header first, then the canvas furniture -- the slot the old header pair
-        // occupied.
-        out.put("authorPill", authorPill());
-        // Then Assets, by the same convention and for the same reason: always in the map (so the overlap
-        // sweep tests it in every build) and drawn only for a player who may edit.
-        out.put("assetsPill", assetsPill());
-        // And Edit last, so the row reads left to right as Author, Assets, Edit.
-        out.put("editPill", editPill());
+        // The author's band, under the header. In the map for an author's geometry and absent from a
+        // reader's, which is the one place this map's contents depend on something other than the window --
+        // and it is a stated exception rather than an accident: the band is the panel's own strip, so a
+        // reader's geometry has no such rectangle, and four offsets invented for one would be checked
+        // against the wrong surface. See `authorBandButtons`. The map's source order still reads as the
+        // chrome first and the canvas furniture last, where the band stands in the slot the pills held.
+        out.putAll(authorBandButtons());
 
         // The sidebar's two add buttons, in a strip above the list. In the map for every player, drawn
         // only for an author -- the same convention as `edit` and `tools` above, and for the same

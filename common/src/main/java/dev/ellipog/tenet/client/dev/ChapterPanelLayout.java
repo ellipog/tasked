@@ -216,45 +216,52 @@ public final class ChapterPanelLayout {
                     String.join(", ", QuestPanelLayout.strings(chapter, "aliases"))));
         }
 
-        rows.add(section(RULES, "tenet.dev.chapter.rules", folded));
-        if (!folded.contains(RULES)) {
-            rows.add(choiceRow(chapter, PROGRESSION));
-            rows.add(ToolsLayout.Action.toggle("defaultConsumeItems", "tenet.dev.chapter.consume",
-                    flagOn(chapter, "defaultConsumeItems") ? ToolsLayout.ON : ToolsLayout.OFF));
-            rows.add(choiceRow(chapter, PREREQUISITE));
-            rows.add(choiceRow(chapter, AUTO_CLAIM));
-            // The chapter's own gate, above the line-style rows because it is what the chapter *is* in
-            // the progression rather than how its lines are drawn. Both id lists are TEXT rows, the shape
-            // the aliases row above already uses: a chapter is picked by name here, and the validator is
-            // what says a name does not resolve. A click-to-pick overlay for chapters is the obvious next
-            // step and is deliberately not this one -- the picker is shaped around canvas nodes.
-            rows.add(choiceRow(chapter, GATE_MODE));
-            rows.add(ToolsLayout.Action.text("minRequired", "tenet.dev.chapter.gate_min",
-                    numberText(chapter, "minRequired")));
-            rows.add(ToolsLayout.Action.text("dependsOn", "tenet.dev.chapter.depends_on",
-                    String.join(", ", QuestPanelLayout.strings(chapter, "dependsOn"))));
-            rows.add(ToolsLayout.Action.text("completesWhen", "tenet.dev.chapter.completes_when",
-                    String.join(", ", QuestPanelLayout.strings(chapter, "completesWhen"))));
-            rows.add(ToolsLayout.Action.toggle("hideUntilDependenciesComplete",
-                    "tenet.dev.chapter.hide_until_deps",
-                    flagOn(chapter, "hideUntilDependenciesComplete") ? ToolsLayout.ON : ToolsLayout.OFF));
-            // What this chapter's quests do about their *own* dependencies, unless a quest says
-            // otherwise. Beside the row above because they are the pair an author will confuse: that one
-            // withholds this chapter's row from a reader, these withhold its quests from everybody.
-            rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesComplete",
-                    "tenet.dev.chapter.default_hide_deps_complete",
-                    flagOn(chapter, "defaultHideUntilDependenciesComplete")
-                            ? ToolsLayout.ON : ToolsLayout.OFF));
-            rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesVisible",
-                    "tenet.dev.chapter.default_hide_deps_visible",
-                    flagOn(chapter, "defaultHideUntilDependenciesVisible")
-                            ? ToolsLayout.ON : ToolsLayout.OFF));
-            rows.add(choiceRow(chapter, LINE_FORM));
-            rows.add(choiceRow(chapter, LINE_ARROW_HEAD));
-            rows.add(choiceRow(chapter, LINE_ARROW_PLACE));
-            rows.add(choiceRow(chapter, LINE_ARROW_DENSITY));
-            rows.add(choiceRow(chapter, LINE_DASH));
-            rows.add(choiceRow(chapter, LINE_WEIGHT));
+        // **The rules are Advanced, and gated here rather than by their keys.** A chapter's rules are keyed
+        // by the field names the *quest's* own rules use -- `minRequired`, `prerequisiteMode`, `autoClaim` --
+        // and the same words mean different things in the two files, so a set of keys would hide the wrong
+        // control in the other panel. What a chapter is, what it is called and which quests it holds is
+        // basic; how its lines are drawn and how its progression is gated is not. See `Advanced`.
+        if (Advanced.on()) {
+            rows.add(section(RULES, "tenet.dev.chapter.rules", folded));
+            if (!folded.contains(RULES)) {
+                rows.add(choiceRow(chapter, PROGRESSION));
+                rows.add(ToolsLayout.Action.toggle("defaultConsumeItems", "tenet.dev.chapter.consume",
+                        flagOn(chapter, "defaultConsumeItems") ? ToolsLayout.ON : ToolsLayout.OFF));
+                rows.add(choiceRow(chapter, PREREQUISITE));
+                rows.add(choiceRow(chapter, AUTO_CLAIM));
+                // The chapter's own gate, above the line-style rows because it is what the chapter *is* in
+                // the progression rather than how its lines are drawn. Both id lists are TEXT rows, the shape
+                // the aliases row above already uses: a chapter is picked by name here, and the validator is
+                // what says a name does not resolve. A click-to-pick overlay for chapters is the obvious next
+                // step and is deliberately not this one -- the picker is shaped around canvas nodes.
+                rows.add(choiceRow(chapter, GATE_MODE));
+                rows.add(ToolsLayout.Action.text("minRequired", "tenet.dev.chapter.gate_min",
+                        numberText(chapter, "minRequired")));
+                rows.add(ToolsLayout.Action.text("dependsOn", "tenet.dev.chapter.depends_on",
+                        String.join(", ", QuestPanelLayout.strings(chapter, "dependsOn"))));
+                rows.add(ToolsLayout.Action.text("completesWhen", "tenet.dev.chapter.completes_when",
+                        String.join(", ", QuestPanelLayout.strings(chapter, "completesWhen"))));
+                rows.add(ToolsLayout.Action.toggle("hideUntilDependenciesComplete",
+                        "tenet.dev.chapter.hide_until_deps",
+                        flagOn(chapter, "hideUntilDependenciesComplete") ? ToolsLayout.ON : ToolsLayout.OFF));
+                // What this chapter's quests do about their *own* dependencies, unless a quest says
+                // otherwise. Beside the row above because they are the pair an author will confuse: that one
+                // withholds this chapter's row from a reader, these withhold its quests from everybody.
+                rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesComplete",
+                        "tenet.dev.chapter.default_hide_deps_complete",
+                        flagOn(chapter, "defaultHideUntilDependenciesComplete")
+                                ? ToolsLayout.ON : ToolsLayout.OFF));
+                rows.add(ToolsLayout.Action.toggle("defaultHideUntilDependenciesVisible",
+                        "tenet.dev.chapter.default_hide_deps_visible",
+                        flagOn(chapter, "defaultHideUntilDependenciesVisible")
+                                ? ToolsLayout.ON : ToolsLayout.OFF));
+                rows.add(choiceRow(chapter, LINE_FORM));
+                rows.add(choiceRow(chapter, LINE_ARROW_HEAD));
+                rows.add(choiceRow(chapter, LINE_ARROW_PLACE));
+                rows.add(choiceRow(chapter, LINE_ARROW_DENSITY));
+                rows.add(choiceRow(chapter, LINE_DASH));
+                rows.add(choiceRow(chapter, LINE_WEIGHT));
+            }
         }
 
         if (group != null) {

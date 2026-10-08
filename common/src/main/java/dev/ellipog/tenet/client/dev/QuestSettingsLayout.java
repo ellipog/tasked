@@ -419,30 +419,40 @@ public final class QuestSettingsLayout {
         rows.add(new Row("minRequired", Row.Kind.NUMBER, "tenet.dev.quest.min_required"));
         rows.add(new Row("maxCompletableDependents", Row.Kind.NUMBER, "tenet.dev.quest.max_dependents"));
         rows.add(new Row("exclusiveGroup", Row.Kind.FIELD, "tenet.dev.quest.exclusive_group"));
-        rows.add(new Row("h:visibility", Row.Kind.HEADING, "tenet.dev.quest.visibility"));
-        rows.add(switchRow("invisible", "tenet.dev.quest.invisible"));
-        rows.add(new Row("invisibleUntilTasks", Row.Kind.NUMBER, "tenet.dev.quest.visible_after_tasks"));
-        // Pickers rather than switches, because each is three states: the chapter's default, on, off. A
-        // chapter can turn either behaviour on for all of its quests, and a single quest -- the hub, the
-        // one that shows the road ahead -- has to be able to opt back out. See `triStateChoices`.
-        rows.add(new Row("hideUntilDependenciesComplete", Row.Kind.CHOICE,
-                "tenet.dev.quest.hide_until_deps_done"));
-        rows.add(new Row("hideUntilDependenciesVisible", Row.Kind.CHOICE,
-                "tenet.dev.quest.hide_until_deps_shown"));
-        rows.add(switchRow("hideDependencyLines", "tenet.dev.quest.hide_dependency_lines"));
-        rows.add(switchRow("hideTextUntilComplete", "tenet.dev.quest.hide_text_until_done"));
-        rows.add(switchRow("hideDetailsUntilStartable", "tenet.dev.quest.hide_details_until_startable"));
-        rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
-        rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));
-        rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tenet.dev.quest.repeat_cooldown"));
-        rows.add(switchRow("sequentialTasks", "tenet.dev.quest.sequential_tasks"));
-        // The quest rung of the auto-claim ladder, as a closed set the picker cycles: the unset state
-        // means "the chapter decides", which is why it is first and labelled with what it defers to.
-        rows.add(new Row("autoClaim", Row.Kind.CHOICE, "tenet.dev.quest.auto_claim"));
-        rows.add(new Row("h:identity", Row.Kind.HEADING, "tenet.dev.quest.identity_extras"));
-        rows.add(new Row("id", Row.Kind.VALUE, "tenet.dev.quest.id"));
-        rows.add(new Row("aliases", Row.Kind.FIELD, "tenet.dev.quest.aliases"));
-        return List.copyOf(rows);
+        // **The three sections Normal mode puts away, each gated where it is written.** One `if` around a
+        // block rather than a key per row, because a section is what is being hidden -- and because the
+        // block is the only place that knows where the section ends. See `Advanced` for the cut and for why
+        // a filter over heading keys could not do this (a section can hold headings of its own).
+        if (Advanced.on()) {
+            rows.add(new Row("h:visibility", Row.Kind.HEADING, "tenet.dev.quest.visibility"));
+            rows.add(switchRow("invisible", "tenet.dev.quest.invisible"));
+            rows.add(new Row("invisibleUntilTasks", Row.Kind.NUMBER, "tenet.dev.quest.visible_after_tasks"));
+            // Pickers rather than switches, because each is three states: the chapter's default, on, off. A
+            // chapter can turn either behaviour on for all of its quests, and a single quest -- the hub, the
+            // one that shows the road ahead -- has to be able to opt back out. See `triStateChoices`.
+            rows.add(new Row("hideUntilDependenciesComplete", Row.Kind.CHOICE,
+                    "tenet.dev.quest.hide_until_deps_done"));
+            rows.add(new Row("hideUntilDependenciesVisible", Row.Kind.CHOICE,
+                    "tenet.dev.quest.hide_until_deps_shown"));
+            rows.add(switchRow("hideDependencyLines", "tenet.dev.quest.hide_dependency_lines"));
+            rows.add(switchRow("hideTextUntilComplete", "tenet.dev.quest.hide_text_until_done"));
+            rows.add(switchRow("hideDetailsUntilStartable", "tenet.dev.quest.hide_details_until_startable"));
+            rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
+            rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));
+            rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tenet.dev.quest.repeat_cooldown"));
+            rows.add(switchRow("sequentialTasks", "tenet.dev.quest.sequential_tasks"));
+            // The quest rung of the auto-claim ladder, as a closed set the picker cycles: the unset state
+            // means "the chapter decides", which is why it is first and labelled with what it defers to.
+            rows.add(new Row("autoClaim", Row.Kind.CHOICE, "tenet.dev.quest.auto_claim"));
+            rows.add(new Row("h:identity", Row.Kind.HEADING, "tenet.dev.quest.identity_extras"));
+            rows.add(new Row("id", Row.Kind.VALUE, "tenet.dev.quest.id"));
+            rows.add(new Row("aliases", Row.Kind.FIELD, "tenet.dev.quest.aliases"));
+        }
+        // And the two rows hidden inside sections that stay: the rotation and the icon's scale, which
+        // refine a shape and an icon that are basic, and the four rules that qualify the dependency list,
+        // which is itself the point of its section. A plain filter, because a marked row needs no heading
+        // logic -- see `Advanced.settings`.
+        return Advanced.settings(rows);
     }
 
     /**

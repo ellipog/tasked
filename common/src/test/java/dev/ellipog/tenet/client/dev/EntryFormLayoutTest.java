@@ -4,8 +4,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import dev.ellipog.tenet.client.BookGeometry;
+import dev.ellipog.tenet.client.DevMode;
 import dev.ellipog.tenet.quest.EditorField;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,9 +30,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * control, two controls never overlap, and the height the card is told equals the height the drawing
  * uses. All of it answerable with a parsed JSON object and no client, which is why the form is derived by
  * a game-free class and the drawing is not.
+ *
+ * <h2>And why every test here runs at full depth</h2>
+ *
+ * <p>Because the form is asserted as a <b>whole</b>: the label column fits the longest label it has, the
+ * cell count is the fields it declares, and the condition picker's row is part of the height. Two of those
+ * depend on the depth directly -- Normal mode drops the fields that say "how exactly" and the add-condition
+ * row -- so the class turns Advanced on, and what Normal drops is asserted in {@code AdvancedTest} instead.
  */
 @DisplayName("the entry form")
 class EntryFormLayoutTest {
+
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     private static JsonObject itemTask() {
         return JsonParser.parseString("""

@@ -201,12 +201,21 @@ class PanelLayoutTest {
         assertFalse(PanelLayout.fits(need - 1, left, right), "one pixel less does not");
         assertTrue(PanelLayout.fits(need + 1, left, right));
 
-        // The case a preview found: 340 and 260 do fit a reader's 644-pixel canvas, and leave 38 pixels of
-        // graph showing. That is not a canvas, so it is not a fit.
-        assertFalse(PanelLayout.fits(644, left, right),
+        // The case a preview found, stated in the terms it was really about: a *reader's* book has a canvas
+        // far too narrow for two columns, which is why every second-column kind is an author's.
+        //
+        // **And the fixture is derived rather than written down, which is the fix this round needed.** It
+        // used to name 644 pixels of canvas -- "leaves 38 of graph showing, and that is not a canvas" -- and
+        // that number came from an author's 1400-wide window. The minimum it was read against has since
+        // moved downwards twice (the band took the author's controls off the canvas, so `MIN_CANVAS_WIDTH`
+        // is the view cluster's own band and nothing else), and 644 is now *more* than the minimum: the
+        // assertion's premise had gone while its number stayed. A reader's own canvas cannot go stale that
+        // way, and it is the case the sentence is about.
+        int readerCanvas = new BookGeometry(427, 240).canvas().width();
+        assertFalse(PanelLayout.fits(readerCanvas, left, right),
                 "a reader's book folds, and that is deliberate: every second-column kind is an author's");
         assertTrue(PanelLayout.fits(1_244, left, right),
-                "an author's full-bleed book on a 1400-wide window has room, with 462 to spare");
+                "an author's full-bleed book on a 1400-wide window has room to spare");
     }
 
     @Test

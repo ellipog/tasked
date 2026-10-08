@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * different fault with the same consequence if it is not handled -- a panel that opens at a width its own
  * layout cannot be read at. Each is asserted to cost that one entry and nothing else.
  *
- * <p>It holds settings that are <b>not</b> gated on the mode -- snap, the sidebar's bars, the fold and the
+ * <p>It holds settings that are <b>not</b> gated on the mode -- snap, the sidebar's bars, the depth and the
  * widths -- and that is asserted here too, because a preference that silently required developer mode
  * would be a switch nobody could find the effect of.
  */
@@ -56,6 +56,7 @@ class DevModeTest {
         assertFalse(DevMode.on());
         assertTrue(DevMode.snap(), "the grid is the default, and is not gated on the mode");
         assertTrue(DevMode.progress(), "and so are the sidebar's chapter progress bars");
+        assertFalse(DevMode.advanced(), "and the depth is shallow unless a file chose otherwise");
         assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
         assertNull(DevMode.file(), "and no file has been read yet");
 
@@ -79,27 +80,29 @@ class DevModeTest {
         Path file = dir.resolve(DevMode.FILE_NAME);
         Map<PanelKind, Integer> none = new EnumMap<>(PanelKind.class);
 
-        assertEquals("{\"dev\":true,\"snap\":true,\"progress\":true,\"panelWidths\":{},"
+        assertEquals("{\"dev\":true,\"snap\":true,\"progress\":true,\"advanced\":false,\"panelWidths\":{},"
                         + "\"panelFold\":\"auto\"}",
-                DevMode.write(true, true, true, none, PanelStack.Fold.AUTO),
+                DevMode.write(true, true, true, false, none, PanelStack.Fold.AUTO),
                 "the format, stated once");
 
         Map<PanelKind, Integer> some = new EnumMap<>(PanelKind.class);
         some.put(PanelKind.QUEST, 300);
         some.put(PanelKind.TOOLS, PanelStack.MAX_WIDTH);
-        assertEquals("{\"dev\":false,\"snap\":false,\"progress\":false,\"panelWidths\":{\"QUEST\":300,"
+        assertEquals("{\"dev\":false,\"snap\":false,\"progress\":false,\"advanced\":true,"
+                        + "\"panelWidths\":{\"QUEST\":300,"
                         + "\"TOOLS\":420},\"panelFold\":\"off\"}",
-                DevMode.write(false, false, false, some, PanelStack.Fold.NEVER),
+                DevMode.write(false, false, false, true, some, PanelStack.Fold.NEVER),
                 "written in the enum's own order rather than the map's, so two clients that chose the same "
                         + "widths write the same bytes and a diff of two files is a diff of the choices");
 
-        Files.writeString(file, DevMode.write(true, true, true, some, PanelStack.Fold.AUTO),
+        Files.writeString(file, DevMode.write(true, true, true, true, some, PanelStack.Fold.AUTO),
                 StandardCharsets.UTF_8);
         DevMode.load(file);
         assertEquals(file, DevMode.file(), "the file it read is the file it will write");
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap());
         assertTrue(DevMode.progress());
+        assertTrue(DevMode.advanced(), "and the depth comes back with the rest");
         assertEquals(300, DevMode.panelWidth(PanelKind.QUEST), "and the widths come back with it");
         assertEquals(PanelStack.MAX_WIDTH, DevMode.panelWidth(PanelKind.TOOLS));
         assertEquals(PanelStack.SECOND_WIDTH, DevMode.panelWidth(PanelKind.PICKER),
@@ -110,16 +113,19 @@ class DevModeTest {
         DevMode.setOn(false);
         DevMode.setSnap(false);
         DevMode.setProgress(false);
+        DevMode.setAdvanced(false);
         DevMode.setPanelWidth(PanelKind.PICKER, PanelStack.MAX_WIDTH);
         DevMode.setPanelFold(PanelStack.Fold.ALWAYS);
         assertFalse(DevMode.on());
         assertFalse(DevMode.snap());
         assertFalse(DevMode.progress());
+        assertFalse(DevMode.advanced());
         String written = Files.readString(file, StandardCharsets.UTF_8);
         assertFalse(DevMode.read(written), "what was written is what is read");
         DevMode.load(file);
         assertFalse(DevMode.snap(), "and the snap flag round-trips through the same file");
         assertFalse(DevMode.progress(), "and so does the bars' switch");
+        assertFalse(DevMode.advanced(), "and the depth");
         assertEquals(PanelStack.MAX_WIDTH, DevMode.panelWidth(PanelKind.PICKER), "and the width");
         assertEquals(PanelStack.WIDTH, DevMode.panelWidth(PanelKind.NAMING),
                 "and a kind the file has never named came back at its own default rather than at whatever "
@@ -254,6 +260,7 @@ class DevModeTest {
         assertTrue(DevMode.on());
         assertTrue(DevMode.snap(), "a missing field takes its default, which is on for the grid");
         assertTrue(DevMode.progress(), "and for the progress bars");
+        assertFalse(DevMode.advanced(), "and the depth's default is off, so the editor reads as Normal");
         assertEquals(PanelStack.WIDTH, DevMode.panelWidth(PanelKind.QUEST), "at the ordinary width");
         assertEquals(PanelStack.Fold.AUTO, DevMode.panelFold(), "with the window deciding about folding");
     }
@@ -323,6 +330,16 @@ class DevModeTest {
         assertTrue(DevMode.on());
         assertFalse(DevMode.toggle());
         assertFalse(DevMode.on());
+
+        // The depth is not the mode and does not follow it: an author who turns Edit off and on again
+        // keeps the view they were working in, which is the whole reason the two are separate flags.
+        assertTrue(DevMode.toggleAdvanced());
+        assertTrue(DevMode.advanced());
+        DevMode.setOn(true);
+        DevMode.setOn(false);
+        assertTrue(DevMode.advanced(), "the mode does not carry the depth with it");
+        assertFalse(DevMode.toggleAdvanced());
+        assertFalse(DevMode.advanced());
 
         DevMode.setPanelWidth(PanelKind.ASSETS, PanelStack.WIDE_WIDTH - 1);
         assertEquals(PanelStack.WIDE_WIDTH - 1, DevMode.panelWidth(PanelKind.ASSETS),

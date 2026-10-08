@@ -3,6 +3,10 @@ package dev.ellipog.tenet.client.dev;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import dev.ellipog.tenet.client.DevMode;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -25,9 +29,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * name, and the icon exposed as the object the panel resolves. All of it is answerable with a parsed
  * JSON object and no client -- which is why the rows are built by a game-free class and the drawing
  * is not.
+ *
+ * <h2>And why every test here runs at full depth</h2>
+ *
+ * <p>Because they assert the <b>complete</b> model: the Rules section is one of them, and Normal mode
+ * gates it away -- a set of keys could not, since a chapter's rules are keyed by the same field names the
+ * quest's own rules use. So the depth is turned on for the class, which is the shape a test of a model
+ * takes when part of the model is behind a preference; what Normal hides, and that it hides it, is
+ * {@code AdvancedTest}'s question rather than this file's.
  */
 @DisplayName("the chapter panel's rows")
 class ChapterPanelLayoutTest {
+
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
 
     /** A chapter with one of everything the panel edits. */

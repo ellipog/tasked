@@ -107,6 +107,25 @@ class BookGeometryTest {
         return new BookGeometry(width, height).controls();
     }
 
+    /**
+     * The two geometries that a window can produce, in production's own two combinations.
+     *
+     * <p>A reader gets a card with no band ({@code fullBleed} and the band are each {@code mayEdit()}), and
+     * an author gets both -- so those are the two shapes to sweep, and the other two combinations are ones
+     * nobody can be in. Building all four would double the sweeps below to test two layouts that exist only
+     * because the constructor allows them.
+     */
+    private static List<BookGeometry> geometriesAt(int width, int height) {
+        if (width < BookGeometry.MIN_PANEL_WIDTH || height < BookGeometry.MIN_PANEL_HEIGHT) {
+            // A window too small to hold the book has no full-bleed geometry worth checking: the panel
+            // *becomes* the window, so its own chrome runs off the edges -- and that is a pre-existing
+            // property of full bleed rather than anything this round changed. The card's shape is still
+            // swept, because the card clamps to the minimum and therefore stays inspectable.
+            return List.of(new BookGeometry(width, height));
+        }
+        return List.of(new BookGeometry(width, height), new BookGeometry(width, height, true, true));
+    }
+
     /** The first overlapping pair, or null if none. Names the two, so a failure is actionable. */
     private static String firstOverlap(Map<String, Rect> controls) {
         List<String> names = new ArrayList<>(controls.keySet());
@@ -367,6 +386,9 @@ class BookGeometryTest {
             if (HEADER_CONTROLS.contains(key)) {
                 return geometry.header();
             }
+            if (AUTHOR_BAND_CONTROLS.contains(key)) {
+                return geometry.authorBand();
+            }
             if (CANVAS_CONTROLS.contains(key)) {
                 return geometry.canvas();
             }
@@ -377,20 +399,32 @@ class BookGeometryTest {
         private static final Set<String> SIDEBAR_CONTROLS = Set.of("addChapter", "addGroup");
 
         /**
-         * The header's controls: Close, Rewards, the party button and the settings button. The author's
-         * pills are not here even though they are built by the header's own method -- they float over the
-         * canvas, and a control's surface is where it is drawn rather than where it is constructed.
+         * The header's controls: Close, Rewards, the party button and the settings button. The author's band
+         * is not here even though it is built by the same method -- a control's surface is where it is
+         * drawn rather than where it is constructed, and the band is a surface of its own below this one.
          */
         private static final Set<String> HEADER_CONTROLS =
                 Set.of("close", "rewards", "party", "settings");
 
         /**
-         * The view cluster and the author's pills: everything that sits on the canvas. Two clusters, in
-         * the two top corners, which is why {@link BookGeometry#MIN_CANVAS_WIDTH} is an arithmetic term
-         * rather than a judgement.
+         * The author's band: four controls in a strip of the panel's own chrome.
+         *
+         * <p>Their own surface rather than the header's or the canvas's, and the three answers are what this
+         * test exists to keep told apart: the band is drawn over neither of the other two. It used to be the
+         * canvas -- the pills floated over it -- and the move is the whole reason
+         * {@link BookGeometry#MIN_CANVAS_WIDTH} shrank.
+         */
+        private static final Set<String> AUTHOR_BAND_CONTROLS =
+                Set.of("author", "assets", "edit", "advanced");
+
+        /**
+         * The view cluster: the one thing that still sits <i>on</i> the canvas.
+         *
+         * <p>It was two clusters in the two top corners, which is why {@link BookGeometry#MIN_CANVAS_WIDTH}
+         * is an arithmetic term. The band left, so the term is the cluster alone -- see that constant.
          */
         private static final Set<String> CANVAS_CONTROLS =
-                Set.of("zoomIn", "zoomOut", "centre", "authorPill", "assetsPill", "editPill");
+                Set.of("zoomIn", "zoomOut", "centre");
 
         @Test
         @DisplayName("every control is inside the surface it belongs to")
@@ -399,27 +433,32 @@ class BookGeometryTest {
             // sidebar footer and one floating control. Neither exists any more, and the honest version
             // says which surface each control belongs to -- so a control that moves surface fails here
             // rather than being quietly exempted from a check that no longer applies to it.
+            //
+            // Swept over both geometries, because the author's is the one with a band in it and a reader's
+            // is the one without: the band's four are in one map and must be absent from the other, and a
+            // check that swept one shape would test the other one never.
             for (int[] size : sizes()) {
-                BookGeometry geometry = new BookGeometry(size[0], size[1]);
-                Map<String, Rect> controls = geometry.controls();
+                for (BookGeometry geometry : geometriesAt(size[0], size[1])) {
+                    Map<String, Rect> controls = geometry.controls();
 
-                for (Map.Entry<String, Rect> entry : controls.entrySet()) {
-                    String key = entry.getKey();
-                    Rect rect = entry.getValue();
-                    Rect surface = surfaceFor(geometry, key);
+                    for (Map.Entry<String, Rect> entry : controls.entrySet()) {
+                        String key = entry.getKey();
+                        Rect rect = entry.getValue();
+                        Rect surface = surfaceFor(geometry, key);
 
-                    // Asserted before use rather than after, so a control this test does not know
-                    // about says *that* rather than reporting an NPE or checking it against the wrong
-                    // rectangle. Reachable the moment a control is added to `controls()` and not to
-                    // one of the three lists above -- which is the moment worth being told about.
-                    assertTrue(surface != null,
-                            key + " is a control this test has no surface for, at "
-                                    + size[0] + "x" + size[1] + ". Add it to the list for the surface"
-                                    + " it is drawn on -- one of them has to be right, and guessing"
-                                    + " which is how it ended up checked against the canvas.");
-                    assertTrue(rect.isInside(surface),
-                            key + " " + rect + " is outside its surface " + surface
-                                    + " at " + size[0] + "x" + size[1]);
+                        // Asserted before use rather than after, so a control this test does not know
+                        // about says *that* rather than reporting an NPE or checking it against the wrong
+                        // rectangle. Reachable the moment a control is added to `controls()` and not to
+                        // one of the lists above -- which is the moment worth being told about.
+                        assertTrue(surface != null,
+                                key + " is a control this test has no surface for, at "
+                                        + size[0] + "x" + size[1] + ". Add it to the list for the surface"
+                                        + " it is drawn on -- one of them has to be right, and guessing"
+                                        + " which is how it ended up checked against the canvas.");
+                        assertTrue(rect.isInside(surface),
+                                key + " " + rect + " is outside its surface " + surface
+                                        + " at " + size[0] + "x" + size[1]);
+                    }
                 }
             }
         }
@@ -763,7 +802,20 @@ class BookGeometryTest {
         // because it "no longer applies" — would have thrown away the only proof that this sweep can
         // fail. A regression test pinned to a moving number is a test that quietly retires itself, and
         // the failure message is the only reason it did not.
-        int width = SCREENSHOT_WIDTH;
+        //
+        // **The fixture is a window whose panel is clamped to the minimum now.** It used to be the
+        // photographed window -- 427 wide, whose panel was the window less its two margins, 387 -- because
+        // the minimum was smaller than that. The author's pills raised `MIN_CANVAS_WIDTH` and with it
+        // `MIN_PANEL_WIDTH` to 407, so the photographed window became one the minimum sized; and the band
+        // took the pills out of the canvas again, dropping the minimum to 297 and the photographed window
+        // back above it. So the fixture asks for a window that is smaller than the panel it gets, which is
+        // the property it wants: `assert`ing it rather than working around it, because the sentence says
+        // which of the two it expects and a change to either term therefore reports itself here.
+        //
+        // What the reconstruction proves does not depend on it, and that is why the fixture survives: both
+        // old expressions are anchored to the panel's own edges -- `oldOpen` to its right edge, `oldDone` to
+        // the same edge less 68 -- so their overlap is a property of the pair rather than of the size.
+        int width = BookGeometry.MIN_PANEL_WIDTH + BookGeometry.PANEL_MARGIN * 2 - 17;
         int height = SCREENSHOT_HEIGHT;
         BookGeometry geometry = new BookGeometry(width, height);
         Rect panel = geometry.panel();
@@ -778,17 +830,8 @@ class BookGeometryTest {
         assertTrue(oldOpen.intersects(oldDone),
                 "the old placement should overlap, or this regression test proves nothing: Open "
                         + oldOpen + " vs Done " + oldDone);
-        // **The fixture is a window whose panel is clamped to the minimum now.** This panel used to be the
-        // window less its two margins -- 427 - 40 = 387 -- because the minimum was 332. The three author
-        // pills raised `MIN_CANVAS_WIDTH`, and with it `MIN_PANEL_WIDTH` to 407, so the photographed window
-        // is now one the minimum sizes. That is worth asserting rather than working around: the sentence
-        // says which of the two it expects, so a change to either term reports itself here.
-        //
-        // What the reconstruction proves does not depend on it, and that is why the fixture survives: both
-        // old expressions are anchored to the panel's own edges -- `oldOpen` to its right edge, `oldDone` to
-        // the same edge less 68 -- so their overlap is a property of the pair rather than of the size.
         assertEquals(BookGeometry.MIN_PANEL_WIDTH, panel.width(),
-                "fixture sanity: the pills' minimum is what sizes the panel at this window now");
+                "fixture sanity: the band's minimum is what sizes the panel at this window now");
 
         // And nothing is drawn where either of them was, which is the only form this assertion can
         // take now: both controls are gone (Open with the strip, Done replaced by Close), so there is
@@ -840,18 +883,27 @@ class BookGeometryTest {
                 "the mat is the whole reason the cluster reads as one group, so it must be bigger "
                         + "than a single button: " + geometry.viewControls());
 
-        // The author's pill, the same two rules mirrored: the mat is the helper the screen paints from,
-        // so it has to be inside the surface it is painted on and bigger than the pill it backs.
-        assertTrue(geometry.pillMat().isInside(geometry.canvas()),
-                "the pill's mat is painted outside the canvas it sits on");
-        assertTrue(geometry.pillMat().height() > BookGeometry.ROW_HEIGHT,
-                "the mat exists to make the pill read as a control: " + geometry.pillMat());
+        // The author's band, whose surface the screen paints and whose buttons it draws by hand over the
+        // widget pass's clip: it has to be inside the panel, above the body on both sides of it, and taller
+        // than one row of controls.
+        BookGeometry author = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true);
+        assertTrue(author.authorBand().isInside(author.panel()),
+                "the band is painted outside the panel it is a strip of");
+        assertTrue(author.authorBand().height() > BookGeometry.ROW_HEIGHT,
+                "the band exists to hold a row of controls: " + author.authorBand());
+        assertTrue(author.authorBand().bottom() <= author.canvas().y(),
+                "the canvas starts under the band, not through it");
+        assertTrue(author.authorBand().bottom() <= author.sidebar().y(),
+                "and so does the sidebar");
+        assertTrue(author.sidebar().y() > author.header().bottom(),
+                "the band reserves its height between the header and the body: "
+                        + author.header() + " then " + author.sidebar());
         // The drawer's rail is a column's rail now: anchored to the canvas's right edge, one gap in, and
-        // starting at the canvas's own top edge -- the band that used to be reserved under the pills is
-        // gone with their move to the other corner. **The two are not asserted apart**, deliberately: a
-        // column may cover the canvas, and on a window too narrow for a 300-pixel dock and two pills they
-        // overlap, which is what a narrow window means. That the rail is inside the canvas, inset by the
-        // gap, is asserted for every width in the docked-column sweep above, where the arithmetic lives.
+        // starting at the canvas's own top edge -- which the band pushed down. **The two are not asserted
+        // apart**, deliberately: a column may cover the canvas, and on a window too narrow for a 300-pixel
+        // dock it overlaps, which is what a narrow window means. That the rail is inside the canvas, inset
+        // by the gap, is asserted for every width in the docked-column sweep above, where the arithmetic
+        // lives.
         for (int[] size : sizes()) {
             BookGeometry window = new BookGeometry(size[0], size[1]);
             Rect rail = window.panelRail(PanelStack.WIDTH);
@@ -865,52 +917,75 @@ class BookGeometryTest {
     }
 
     @Test
-    @DisplayName("the three author pills sit PILL_GAP apart, and the mat behind them covers all of them")
-    void theAuthorPillsReadAsOneRow() {
-        // The seam is the one part of this cluster a person can measure, and it is the part a playtest
-        // reported as a pixel too wide. It is asserted rather than described because each pill is placed
-        // *from* the constant: a change to either the constant or the placement that stopped the two
-        // agreeing would otherwise draw a gap nobody could point at a number for.
-        BookGeometry geometry = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
-        Rect panels = geometry.authorPill();
-        Rect assets = geometry.assetsPill();
-        Rect edit = geometry.editPill();
+    @DisplayName("the author's band is four buttons one seam apart, and a reader's geometry has none")
+    void theAuthorBandIsOneRow() {
+        // The seam is the one part of this row a person can measure, and it is the part a playtest reported
+        // as a pixel too wide when it was a pair of pills. It is asserted rather than described because each
+        // button is placed *from* the constant: a change to either the constant or the placement that
+        // stopped the two agreeing would otherwise draw a gap nobody could point at a number for.
+        BookGeometry geometry = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true);
+        Map<String, Rect> band = geometry.authorBandButtons();
+        Rect author = band.get("author");
+        Rect assets = band.get("assets");
+        Rect edit = band.get("edit");
+        Rect advanced = band.get("advanced");
 
-        assertEquals(BookGeometry.PILL_GAP, assets.x() - panels.right(),
-                "the seam between Author and Assets is not PILL_GAP: " + panels + " and " + assets);
-        assertEquals(BookGeometry.PILL_GAP, edit.x() - assets.right(),
-                "the seam between Assets and Edit is not PILL_GAP: " + assets + " and " + edit);
-        assertEquals(panels.y(), edit.y(), "the three pills are one row: " + panels + " and " + edit);
-        assertEquals(panels.height(), edit.height(), "a row of different heights is not one row");
+        assertEquals(BookGeometry.BAND_BUTTON_GAP, assets.x() - author.right(),
+                "the seam between Author and Assets is not the constant: " + author + " and " + assets);
+        assertEquals(BookGeometry.BAND_BUTTON_GAP, edit.x() - assets.right(),
+                "nor between Assets and Edit: " + assets + " and " + edit);
+        assertEquals(BookGeometry.BAND_BUTTON_GAP, advanced.x() - edit.right(),
+                "nor between Edit and Advanced: " + edit + " and " + advanced);
+        assertEquals(author.y(), advanced.y(), "the four are one row: " + author + " and " + advanced);
+        assertEquals(author.height(), advanced.height(), "a row of different heights is not one row");
 
-        // And the mat really does back all three, which is the whole reason the seam is a constant rather
-        // than a judgement: a mat that covered two and stopped short of the third would make the seam a hard
-        // edge in the middle of what is meant to read as one control.
-        for (Rect pill : List.of(panels, assets, edit)) {
-            assertTrue(pill.isInside(geometry.pillMat()),
-                    "a pill is outside the mat drawn behind it: " + pill + " vs " + geometry.pillMat());
+        // And the buttons really are inside the strip drawn behind them, which is the whole reason the band
+        // is a rectangle of the geometry rather than four offsets: a strip that stopped short of the last
+        // control would make the band a row floating over the sidebar.
+        for (Rect button : band.values()) {
+            assertTrue(button.isInside(geometry.authorBand()),
+                    "a band button is outside the strip drawn behind it: " + button + " vs "
+                            + geometry.authorBand());
         }
 
-        // And where the row sits: in the view cluster's corner, anchored *on* the cluster rather than on the
-        // canvas's right edge. One EDGE of air control to control, and the two mats closer than that by
-        // VIEW_MAT -- which is the seam that keeps the clusters reading as two groups rather than one long
-        // strip of six controls. Swept over the window sizes, because the canvas's width is what the row has
-        // to fit inside and the narrow canvas is the case that would put a pill over a map button.
-        for (int[] size : sizes()) {
-            BookGeometry window = new BookGeometry(size[0], size[1]);
-            Rect cluster = window.viewControls();
-            Rect first = window.authorPill();
-            String at = " at " + size[0] + "x" + size[1];
+        // A reader has no band, no strip and no buttons -- the one place this map's contents depend on
+        // something other than the window. Asserted in both directions, because "absent for a reader" and
+        // "missing by mistake" are the same map entry away from each other.
+        BookGeometry reader = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
+        assertFalse(reader.hasAuthorBand());
+        assertTrue(reader.authorBandButtons().isEmpty(), "a reader's geometry invented four controls");
+        assertEquals(0, reader.authorBand().height(), "and a strip to draw them on");
+        for (String key : List.of("author", "assets", "edit", "advanced")) {
+            assertFalse(reader.controls().containsKey(key), key + " is in a reader's control map");
+            assertTrue(geometry.controls().containsKey(key), key + " is missing from an author's");
+        }
+        assertEquals(reader.canvas().y(), reader.header().bottom(),
+                "a reader's canvas starts at the header, with no band in between");
 
-            assertEquals(cluster.right() + BookGeometry.EDGE, first.x(),
-                    () -> "the pills no longer start one EDGE from the cluster" + at);
-            assertFalse(cluster.intersects(first),
-                    () -> "the Author pill is over the view cluster" + at);
-            assertTrue(window.pillMat().x() >= cluster.right()
-                            + BookGeometry.EDGE - BookGeometry.VIEW_MAT,
-                    () -> "the two mats are closer than the seam the clusters keep" + at);
-            assertTrue(window.editPill().right() <= window.canvas().right(),
-                    () -> "the row runs off the canvas it is drawn on" + at);
+        // And where the row sits: the panel's own edge, left to right, which is what makes it a strip of
+        // the chrome rather than a cluster floating over the canvas. Swept over the sizes a window can be,
+        // because the panel can be narrower than the row and the buttons have to give way rather than run
+        // off it -- the author's panel *is* the window when the book is full-bleed.
+        for (int[] size : sizes()) {
+            BookGeometry window = new BookGeometry(size[0], size[1], true, true);
+            Rect strip = window.authorBand();
+            String at = " at " + size[0] + "x" + size[1];
+            Rect first = window.authorBandButtons().get("author");
+
+            assertEquals(strip.x() + BookGeometry.EDGE, first.x(),
+                    () -> "the band no longer starts at the panel's own inset" + at);
+            assertEquals(strip.y() + BookGeometry.BAND_PAD, first.y(),
+                    () -> "and it is not inset inside the strip it is drawn on" + at);
+            for (Rect button : window.authorBandButtons().values()) {
+                assertTrue(button.isInside(strip),
+                        () -> "a band button ran off the band" + at + ": " + button + " vs " + strip);
+            }
+            // The last button's right edge, which is what a shared width is for: at the panel's minimum
+            // nothing narrows, and below it the four share what there is. Either way the row ends inside the
+            // panel, which is the property the clamp exists for.
+            Rect last = window.authorBandButtons().get("advanced");
+            assertTrue(last.right() <= window.panel().right(),
+                    () -> "the band's row ran off the panel" + at + ": " + last);
         }
     }
 
@@ -944,14 +1019,20 @@ class BookGeometryTest {
     @DisplayName("full bleed: the panel is the whole window, and everything follows it")
     void fullBleed() {
         for (int[] size : new int[][] {{854, 480}, {427, 240}}) {
-            BookGeometry window = new BookGeometry(size[0], size[1], true);
+            // The author's geometry, which is the full-bleed one in production and the only shape with a
+            // band in it: the band is what this test gained, and the four buttons are the parts most likely
+            // to leave the window, because a full-bleed panel is the window at its own minimum and no more.
+            BookGeometry window = new BookGeometry(size[0], size[1], true, true);
             String at = " at " + size[0] + "x" + size[1];
 
             assertEquals(BookGeometry.Rect.at(0, 0, size[0], size[1]), window.panel(),
                     () -> "the full-bleed panel is not the window" + at);
 
-            for (BookGeometry.Rect part : List.of(window.header(), window.sidebar(), window.canvas(),
-                    window.controls().get("close"), window.controls().get("editPill"))) {
+            List<BookGeometry.Rect> parts = new java.util.ArrayList<>(List.of(window.header(),
+                    window.sidebar(), window.canvas(), window.authorBand(),
+                    window.controls().get("close")));
+            parts.addAll(window.authorBandButtons().values());
+            for (BookGeometry.Rect part : parts) {
                 assertTrue(part.x() >= 0 && part.y() >= 0 && part.right() <= size[0]
                                 && part.bottom() <= size[1],
                         () -> "a part left the window" + at + ": " + part);
@@ -993,15 +1074,29 @@ class BookGeometryTest {
         // which shows up as a control that is occasionally somewhere else.
         //
         // The source order in `controls()` is: close, the rewards button, the party button, the settings
-        // button, the author's pills, the sidebar's two add buttons, then the view cluster. The chapter
-        // rows were ahead of close and are gone; the two appearance rows were between close and the
-        // cluster and are gone -- see the note in that method for why each went. The author's pills keep
-        // the slot they had in this list (after settings), even though they are drawn on a different
-        // surface now, and they read in the order the row does: Author, Assets, Edit.
+        // button, the author's band, the sidebar's two add buttons, then the view cluster. The chapter rows
+        // were ahead of close and are gone; the two appearance rows were between close and the cluster and
+        // are gone -- see the note in that method for why each went.
+        //
+        // **This list is a reader's, and the band's four are deliberately absent from it.** That is the one
+        // place the map's contents depend on something other than the window, and the band's own test asserts
+        // the other direction; a list here that named four keys the geometry under test does not have would
+        // be asserting a lie.
         assertEquals(
-                List.of("close", "rewards", "party", "settings", "authorPill", "assetsPill", "editPill",
+                List.of("close", "rewards", "party", "settings",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
+
+        // And an author's map, at the same size: the reader's list plus the band, in the band's own reading
+        // order, in the slot it holds between the header's controls and the sidebar's two.
+        BookGeometry author = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true);
+        assertEquals(
+                List.of("close", "rewards", "party", "settings", "author", "assets", "edit", "advanced",
+                        "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
+                List.copyOf(author.controls().keySet()));
+        assertEquals(author.controls(), new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true)
+                        .controls(),
+                "and two builds of one shape agree, band and all");
     }
 
     // ------------------------------------------------------------------

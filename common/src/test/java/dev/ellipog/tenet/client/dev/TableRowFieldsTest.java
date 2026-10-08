@@ -10,7 +10,11 @@ import dev.ellipog.tenet.quest.reward.RewardTypes;
 
 import net.minecraft.resources.ResourceLocation;
 
+import dev.ellipog.tenet.client.DevMode;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +46,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("a folded entry's own fields")
 class TableRowFieldsTest {
+
+    /**
+     * Full depth, because this file's two coverage tests are about the <b>whole</b> fold.
+     *
+     * <p>{@code everyDeclaredFieldIsReachable} walks the registry and asserts that every field a reward
+     * declares has a control that writes it -- which is a statement about the type's form, not about a
+     * depth. Normal mode hides the refinements ({@code randomBonus}, {@code permissionLevel} and the rest;
+     * see {@code Advanced}), so the walk runs at full depth, and what Normal hides is asserted in
+     * {@code AdvancedTest} instead.
+     */
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     @BeforeAll
     static void bootVanilla() {

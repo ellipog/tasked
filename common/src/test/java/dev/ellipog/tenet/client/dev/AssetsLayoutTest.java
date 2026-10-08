@@ -1,6 +1,10 @@
 package dev.ellipog.tenet.client.dev;
 
 import dev.ellipog.tenet.client.BookGeometry;
+import dev.ellipog.tenet.client.DevMode;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -18,9 +22,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>What is worth asserting here is what the screen cannot be trusted to remember: that no two bands
  * overlap, that a section row is inside the column, that a press maps to the section it looks like it maps
  * to, and that drawing and hit-testing a page agree. The panel's contents are the screen's business.
+ *
+ * <h2>And why the class starts at full depth</h2>
+ *
+ * <p>Because the older tests here name both sections, and Normal mode shows one: the tables are the half of
+ * this panel an author meets late, and {@code AdvancedTest} is where that is asserted. What this file adds
+ * at Normal depth is the pairing that matters -- a section that is not drawn must not be pressable, so the
+ * two lists have to be the same list.
  */
 @DisplayName("The Assets panel's layout")
 class AssetsLayoutTest {
+
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     private static BookGeometry.Rect card() {
         return BookGeometry.Rect.at(100, 50, 400, 260);

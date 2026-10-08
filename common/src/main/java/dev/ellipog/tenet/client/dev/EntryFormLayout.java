@@ -225,9 +225,16 @@ public final class EntryFormLayout {
         //
         // Not on an unknown type: its whole entry is the raw-JSON fallback, and a condition inserted
         // into a tree whose shape this build cannot read has nowhere to be drawn.
+        //
+        // **Two questions rather than one, and the difference is the depth.** An entry's conditions are
+        // authored content, so Normal mode lists them and lets them be edited or removed: hiding a gate that
+        // is really there would leave an author reading a task whose behaviour the panel does not explain.
+        // Adding one is the advanced half -- the picker, the six types and the nesting are the part of the
+        // format an occasional author never needs -- so the add row is the one that goes.
         List<ConditionRow> conditionRows = new ArrayList<>();
-        boolean canAddConditions = !collapsed && QuestPanelLayout.knownType(typeOf(entry));
-        if (canAddConditions && entry.has("conditions") && entry.get("conditions").isJsonArray()) {
+        boolean known = !collapsed && QuestPanelLayout.knownType(typeOf(entry));
+        boolean canAddConditions = known && Advanced.on();
+        if (known && entry.has("conditions") && entry.get("conditions").isJsonArray()) {
             int used = lines_;
             for (int j = 0; j < entry.getAsJsonArray("conditions").size(); j++) {
                 JsonObject condition = conditionAt(entry, j);

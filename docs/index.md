@@ -69,12 +69,17 @@ and the lines between nodes are its dependencies. From a quest's card a player s
 [[reward]]s, and picks between a choice reward's entries. A player in a party sees the roster there
 too, and the counts the party's mode combines.
 
-An operator gets three pills over the canvas's top-left corner — `Panels`, `Assets` and `✎ Edit` — and
-the header itself carries no authoring control. `Panels` latches the author's dock, which is where the
-Book and Chapter tabs live; `Assets` opens the pack's own files; `Edit` latches edit mode and nothing
-else. That is the in-game editor, and it writes the same files these pages describe: the server
-re-checks the permission and validates before anything lands on disk, so no quest file is written by the
-client — the player's own look and text size live in files the client owns.
+An operator gets a band of four controls under the title row — `Author`, `Assets`, `✎ Edit` and
+`Advanced` — and the header itself carries no authoring control. `Author` latches the author's dock, which
+is where the Book and Chapter tabs live; `Assets` opens the pack's own files; `Edit` latches edit mode and
+nothing else; and `Advanced` says how much of the editor to show. With it off — the default — every menu
+carries the essentials: a quest's shape, size, placement, what it needs and what it gives, the text on a
+task and a reward, a chapter's name and quest list, and the book's own name and icon. With it on, every
+field, section and menu the editor has is drawn as well, which is where the reward tables, the visibility
+and progression rules, a chapter's line styles, the conditions and the theme editor live. That is the
+in-game editor, and it writes the same files these pages describe: the server re-checks the permission and
+validates before anything lands on disk, so no quest file is written by the client — the player's own look
+and text size live in files the client owns.
 
 ## Removing something, and getting it back
 

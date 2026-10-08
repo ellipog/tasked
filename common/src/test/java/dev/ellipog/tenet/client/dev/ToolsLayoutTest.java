@@ -10,8 +10,11 @@ import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Stack;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tenet.client.BookGeometry;
+import dev.ellipog.tenet.client.DevMode;
 import dev.ellipog.tenet.client.PanelLayout;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,9 +38,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * registry knows appear exactly once, and do the band's eight channel buttons tile the row they are given.
  * All of it is answerable without a client, which is why the composition is a game-free class -- the
  * screen that draws it is the part no test can instantiate.
+ *
+ * <h2>And why every test here runs at full depth</h2>
+ *
+ * <p>Because the appearance block <i>is</i> what most of this file asserts: the palette list, the colour
+ * tokens, the canvas's rows, the folded sections. Normal mode drops that whole block -- one gate around one
+ * call -- leaving the Book tab's three switches, so the class turns Advanced on and what Normal drops is
+ * asserted in {@code AdvancedTest}.
  */
 @DisplayName("The tools panel's layout")
 class ToolsLayoutTest {
+
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     private static final Measure MEASURE = Measure.monospace(6, 9);
 

@@ -257,15 +257,33 @@ public final class QuestBookScreen extends ArmatureScreen
     private BookGeometry geometry;
     private int geometryWidth = -1;
     private int geometryHeight = -1;
+    /** Whether the cached geometry was built for an author. See {@link #geometry}. */
+    private boolean geometryAuthor;
 
+    /**
+     * The two things about the geometry that are not the window: how much of it the book takes, and whether
+     * the panel keeps a strip for the author's band.
+     *
+     * <h2>Why these are remembered at all</h2>
+     *
+     * <p>Because both are read live from the player's permission and the size guard above cannot see them:
+     * the first version of this cache compared the window alone, so a player de-opped with the book open
+     * kept the full-bleed geometry they had as an author -- and the band's controls with it, drawn over a
+     * panel that no longer reserved their strip. The two flags are what the cache key was missing, and they
+     * are the reason the key is three comparisons rather than one.
+     */
     private BookGeometry geometry() {
-        if (geometry == null || geometryWidth != width || geometryHeight != height) {
-            // Full-bleed for an author, a card for a reader. See `BookGeometry`'s constructor: the margin
-            // and the maximum size exist so a reading panel does not read as a wall, and an author is not
-            // reading -- every spare pixel is canvas or colour list.
-            geometry = new BookGeometry(width, height, mayEdit());
+        boolean author = mayEdit();
+        if (geometry == null || geometryWidth != width || geometryHeight != height
+                || geometryAuthor != author) {
+            // Full-bleed for an author, a card for a reader, and a band for the same author. See
+            // `BookGeometry`'s constructor: the margin and the maximum size exist so a reading panel does
+            // not read as a wall, and an author is not reading -- every spare pixel is canvas or colour
+            // list.
+            geometry = new BookGeometry(width, height, author, author);
             geometryWidth = width;
             geometryHeight = height;
+            geometryAuthor = author;
         }
         return geometry;
     }
@@ -2393,21 +2411,28 @@ public final class QuestBookScreen extends ArmatureScreen
     private dev.ellipog.armature.client.ArmatureTextField hexField;
 
     /**
-     * The author's pills, over the canvas's top-right corner.
+     * The author's band: four controls in a strip of the panel's chrome, under the title row.
      *
-     * <p>Built only for a player who may edit, like the header pair they replace -- but no longer *in*
-     * the header, so every player's header is the same four controls. They are ordinary widgets drawn by
-     * the widget pass (the canvas is inside its clip), which is why they need no line in the hand-drawn
-     * chrome list the header's controls do.
+     * <p>Built only for a player who may edit, like the header pair before them -- and, unlike the pills
+     * they replace, <b>drawn by hand in the chrome layer</b> rather than by the widget pass. The pills
+     * floated over the canvas, which is inside the pass's clip, so they painted themselves. The band is
+     * above that clip -- the pass starts at {@code chapterListTop()}, below the header and the band -- so
+     * each of these needs a line where the header's four controls have theirs, and {@code hoverTold} with
+     * it, which is what makes a control above the clip fade under the pointer.
      *
-     * <p>Three of them, and only one is a mode: see {@link #pressAuthorPill} for the dock, which used to be
-     * edit mode's side effect and is now the author's own switch.
+     * <p>Three of them are surfaces and one is a mode: {@link #pressAuthorPill} opens the dock,
+     * {@link #openAssets} opens the pack's files, {@link #pressEditPill} latches edit mode, and
+     * {@link #setAdvanced} says how much of every editor menu to draw. The latch is built only while edit
+     * mode is on: with the mode off there is no editor to be shallow or deep about, and a lit control that
+     * changed nothing on screen would be the fault this book's chrome keeps designing out.
      */
-    private ArmatureButton editPill;
-    /** The Assets pill, beside it. Built for the same readers and for no others. */
-    private ArmatureButton assetsPill;
-    /** The Author pill, leftmost of the three: it opens the dock. Built for the same readers. */
-    private ArmatureButton authorPill;
+    private ArmatureButton authorButton;
+    /** The Assets button, beside it. Built for the same readers and for no others. */
+    private ArmatureButton assetsButton;
+    /** The Edit button: the latch over edit mode. */
+    private ArmatureButton editButton;
+    /** The Advanced button: the latch over the editor's depth. Null while edit mode is off. */
+    private ArmatureButton advancedButton;
 
     /**
      * The node the drag is carrying, once the drag is one: past the threshold, following the pointer.
@@ -8416,6 +8441,7 @@ public final class QuestBookScreen extends ArmatureScreen
      */
     private void buildHeaderChrome() {
         Map<String, BookGeometry.Rect> controls = geometry().controls();
+        chromeControls.clear();
 
         // Close closes one step of the arrangement, and the book when there is nothing left to close: the
         // same ladder Escape walks, in the same order, so the key and the control are one gesture with two
@@ -8436,6 +8462,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 onClose();
             }
         });
+        chrome(closeButton);
         if (closeButton != null) {
             closeButton.ink(ArmatureButton.Ink.BODY);
         }
@@ -8451,6 +8478,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // control.
         partyButton = control(controls.get("party"),
                 Component.translatable("tenet.screen.party.button"), () -> togglePanel(PanelKind.PARTY));
+        chrome(partyButton);
         if (partyButton != null) {
             partyButton.ink(ArmatureButton.Ink.BODY).selected(leftKind() == PanelKind.PARTY);
         }
@@ -8462,6 +8490,7 @@ public final class QuestBookScreen extends ArmatureScreen
         rewardsButton = control(controls.get("rewards"),
                 Component.translatable("tenet.screen.rewards.button"),
                 () -> togglePanel(PanelKind.REWARDS));
+        chrome(rewardsButton);
         if (rewardsButton != null) {
             rewardsButton.ink(ArmatureButton.Ink.BODY).selected(leftKind() == PanelKind.REWARDS);
             int waiting = claimableQuests().size();
@@ -8475,30 +8504,39 @@ public final class QuestBookScreen extends ArmatureScreen
         settingsHeaderButton = control(controls.get("settings"),
                 Component.translatable("tenet.screen.settings"),
                 () -> togglePanel(PanelKind.SETTINGS));
+        chrome(settingsHeaderButton);
         if (settingsHeaderButton != null) {
             settingsHeaderButton.ink(ArmatureButton.Ink.BODY).selected(leftKind() == PanelKind.SETTINGS)
                     .tooltip(Component.translatable("tenet.screen.accessibility_settings"));
         }
 
-        // The author's pills, and they exist only for a player who may edit the questline -- the same
-        // permission `/tenet reload` asks for, which is what makes "who may edit" one rule rather than
-        // two. A player who is not an operator never has them built at all, so their screen carries no
-        // trace of authoring: the same header as everyone, and a canvas with only the view cluster on it.
+        // The author's band, and its controls exist only for a player who may edit the questline -- the same
+        // permission `/tenet reload` asks for, which is what makes "who may edit" one rule rather than two.
+        // A player who is not an operator never has them built at all, so their screen carries no trace of
+        // authoring: the same header as everyone, no band, and a canvas with only the view cluster on it.
         //
-        // Three controls, in the author's reading order: the dock they work in, the pack's own files, and
-        // the mode. Only Edit is a latch over the screen's state; Author latches the dock, and Assets opens
-        // a panel whose own way out closes it.
-        authorPill = null;
-        editPill = null;
-        assetsPill = null;
+        // Four controls, in the author's reading order: the dock they work in, the pack's own files, the
+        // mode, and the depth. Author and Assets are surfaces rather than latches -- the dock's own button
+        // puts it away, and the Assets panel's way out closes it -- while Edit and Advanced are the two
+        // latches over how the editor behaves.
+        //
+        // Nulled before the guard rather than inside it, which is the pills' own arrangement and matters:
+        // `mayEdit()` is read live, so a player de-opped while the book is open would otherwise keep four
+        // fields pointing at widgets that have been cleared, and `render` draws a field, not its
+        // membership.
+        authorButton = null;
+        assetsButton = null;
+        editButton = null;
+        advancedButton = null;
         if (mayEdit()) {
-            // The dock, which used to be what edit mode drew rather than a control. See `pressAuthorPill`
-            // for why the Edit pill had to stop meaning two things, and for the one transition that opens
-            // and closes this rail.
-            authorPill = control(controls.get("authorPill"),
+            // The dock, which used to be what edit mode drew rather than a control of its own. See
+            // `pressAuthorPill` for why the Edit button had to stop meaning two things, and for the one
+            // transition that opens and closes this rail.
+            authorButton = control(controls.get("author"),
                     Component.translatable("tenet.screen.author"), this::pressAuthorPill);
-            if (authorPill != null) {
-                authorPill.ink(ArmatureButton.Ink.BODY)
+            chrome(authorButton);
+            if (authorButton != null) {
+                authorButton.ink(ArmatureButton.Ink.BODY)
                         .selected(dockOpen)
                         .tooltip(List.of(Component.translatable("tenet.screen.the_author_s_dock"),
                                 Component.translatable("tenet.screen.the_book_and_chapter_tabs"),
@@ -8506,25 +8544,45 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             // Beside it, and for the same reader: the pack's own files, which no quest has to be open to
             // reach. Not a latch -- it opens a panel, and the panel's own way out closes it.
-            assetsPill = control(controls.get("assetsPill"),
+            assetsButton = control(controls.get("assets"),
                     Component.translatable("tenet.screen.assets"), this::openAssets);
-            if (assetsPill != null) {
-                assetsPill.ink(ArmatureButton.Ink.BODY)
+            chrome(assetsButton);
+            if (assetsButton != null) {
+                assetsButton.ink(ArmatureButton.Ink.BODY)
                         .tooltip(List.of(Component.translatable("tenet.screen.the_packs_own_files"),
                                 Component.translatable("tenet.screen.tables_quests_and_types"),
                                 Component.translatable("tenet.screen.ctrl_t_opens_this")));
             }
-            // And the mode, last. It latches edit mode and nothing else -- the drawer it used to open and
-            // close as a side effect has its own pill now.
-            editPill = control(controls.get("editPill"),
+            // And the mode, which latches edit mode and nothing else -- the drawer it used to open and
+            // close as a side effect has its own button now.
+            editButton = control(controls.get("edit"),
                     Component.literal("\u270E ").append(Component.translatable("tenet.screen.edit")),
                     this::pressEditPill);
-            if (editPill != null) {
-                editPill.ink(ArmatureButton.Ink.BODY)
+            chrome(editButton);
+            if (editButton != null) {
+                editButton.ink(ArmatureButton.Ink.BODY)
                         .selected(DevMode.on())
                         .tooltip(List.of(Component.translatable("tenet.screen.edit_this_questline"),
                                 Component.translatable("tenet.screen.drag_nodes_create_duplicate_delete"),
                                 Component.translatable("tenet.screen.ctrl_z_undoes_every_edit_is_saved")));
+            }
+            // And the depth, last, and only while the mode is on: with the editor closed there is nothing
+            // for a shallower view to apply to, and a latch that changed nothing would be a control that
+            // lies. Its own label is the state -- lit means every menu is showing everything.
+            if (DevMode.on()) {
+                advancedButton = control(controls.get("advanced"),
+                        Component.translatable("tenet.screen.advanced"),
+                        () -> setAdvanced(!DevMode.advanced()));
+                chrome(advancedButton);
+                if (advancedButton != null) {
+                    advancedButton.ink(ArmatureButton.Ink.BODY)
+                            .selected(DevMode.advanced())
+                            .tooltip(DevMode.advanced()
+                                    ? List.of(Component.translatable("tenet.screen.advanced_on"),
+                                            Component.translatable("tenet.screen.advanced_on_hint"))
+                                    : List.of(Component.translatable("tenet.screen.advanced_off"),
+                                            Component.translatable("tenet.screen.advanced_off_hint")));
+                }
             }
         }
     }
@@ -8541,13 +8599,38 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * Edit mode on or off, with the pill following.
+     * The controls the chrome draws by hand: filled by {@link #buildHeaderChrome} as it builds them, drawn
+     * in one pass in the chrome layer of {@code render}.
      *
-     * <p>The inspector drawer used to follow too, because it <i>was</i> edit mode. It is the Author pill's now
-     * — see {@link #pressAuthorPill} — so this method no longer opens or closes a column on the way in, and
-     * only puts the arrangement away on the way out.
+     * <h2>One list rather than eight lines, and the two that were lost</h2>
      *
-     * <p>Switching either way closes the Tools menu: a menu anchored to a pill that is about to vanish
+     * <p>Every control above the widget pass's clip has to be drawn by hand, because the pass cannot reach
+     * it -- and that list was written out by hand for two rounds, which cost two controls: the rewards
+     * button and then the settings button were each built, added as widgets and clickable from the day they
+     * landed, and invisible, because nothing on the drawing side knew about them. The band added four more
+     * controls to that set, and four more lines to remember is how the third one gets lost.
+     *
+     * <p>So the build site <i>is</i> the draw list: {@link #chrome} adds each control as it is built, and
+     * the chrome layer walks this. A control built for the chrome is painted by construction, and a control
+     * built for the body is not in here to be painted twice.
+     */
+    private final List<ArmatureButton> chromeControls = new ArrayList<>();
+
+    /** Remembers a control the chrome must draw, if it was built at all. See {@link #chromeControls}. */
+    private void chrome(ArmatureButton button) {
+        if (button != null) {
+            chromeControls.add(button);
+        }
+    }
+
+    /**
+     * Edit mode on or off, with the latch following.
+     *
+     * <p>The inspector drawer used to follow too, because it <i>was</i> edit mode. It is the Author button's
+     * now — see {@link #pressAuthorPill} — so this method no longer opens or closes a column on the way in,
+     * and only puts the arrangement away on the way out.
+     *
+     * <p>Switching either way closes the Tools menu: a menu anchored to a control that is about to vanish
      * (turning edit off) would hang over the canvas with nothing to belong to, and leaving it open while
      * the drawer slides in puts a menu over the panel it is about to describe.
      */
@@ -8563,10 +8646,44 @@ public final class QuestBookScreen extends ArmatureScreen
             // inert. The same transition `closeOverlay` uses, so both columns go together.
             //
             // The dock is deliberately not in this: it is not a column occupant of its own, it is the
-            // fallback one, and it belongs to the Author pill rather than to the mode.
+            // fallback one, and it belongs to the Author button rather than to the mode.
             applyColumns(PanelStack.afterClose(columns(), false));
         }
         authorReport(on ? "Edit mode on" : "Edit mode off");
+        rebuildWidgets();
+    }
+
+    /**
+     * The editor's depth: everything, or the basic set of every menu.
+     *
+     * <h2>What this deliberately does not do</h2>
+     *
+     * <p>It does not touch the arrangement. Every other latch over the screen's state closes something on
+     * the way out — {@link #setEditing} puts the columns away, {@link #pressAuthorPill} is a rail's own
+     * switch — and this one is the exception for a reason: a depth is not a surface. An author who presses
+     * it while standing in a table's editor, a chapter's rows or a node's settings page should still be
+     * standing there afterwards, one press shallower. Closing a panel because the rows inside it changed
+     * would make a control over what is drawn into a control over what is open.
+     *
+     * <h2>The two caches it has to drop</h2>
+     *
+     * <p>Rebuilding the widgets covers every panel whose rows are built there — the dock's two tabs, the
+     * settings page, the Assets list — because those rows are one field each, rebuilt from the same call
+     * that draws them and hit-tests them.
+     *
+     * <p>The editor card is the one that would otherwise go stale, so it is dropped here:
+     * {@link #editorCard} caches an entry's <b>line counts</b> under a key of ids, revisions, widths and
+     * the text epoch, and the depth changes how many lines a form takes without changing any of those. A
+     * card left in place would place the rows below it against the heights of the other depth.
+     */
+    private void setAdvanced(boolean on) {
+        DevMode.setAdvanced(on);
+        editorCard = null;
+        editorCardKey = null;
+        // A page that only exists at one depth: the Assets panel remembers the section the author was
+        // reading, and a section this depth does not show would draw a list with nothing selected over it.
+        assetsSection = dev.ellipog.tenet.client.dev.AssetsLayout.shownOrFirst(assetsSection);
+        authorReport(on ? "Advanced mode on" : "Advanced mode off");
         rebuildWidgets();
     }
 
@@ -13631,10 +13748,17 @@ public final class QuestBookScreen extends ArmatureScreen
         DependencyStyle now = dependent == null ? DependencyStyle.UNSET : lineStyle(dependent, from);
         String suffix = " \u2192 " + to;
         List<MenuItem> items = new ArrayList<>();
-        items.add(MenuItem.parent("Form \u203a", formRows(from, to, now)));
-        items.add(MenuItem.parent("Arrows \u203a", arrowRows(from, to, now)));
-        items.add(MenuItem.parent("Line \u203a", patternRows(from, to, now)));
-        items.add(MenuItem.parent("Weight \u203a", weightRows(from, to, now)));
+        // The four style flyouts are Advanced's, and they are the plainest case of the cut in the whole
+        // editor: a route, its arrow heads, its pattern and its weight are four answers to "how exactly
+        // should this line be drawn", where the line's existence is the basic fact. What Normal keeps is
+        // the row below this -- removing the dependency -- so a line the author cannot restyle is still a
+        // line they can take away.
+        if (dev.ellipog.tenet.client.dev.Advanced.on()) {
+            items.add(MenuItem.parent("Form \u203a", formRows(from, to, now)));
+            items.add(MenuItem.parent("Arrows \u203a", arrowRows(from, to, now)));
+            items.add(MenuItem.parent("Line \u203a", patternRows(from, to, now)));
+            items.add(MenuItem.parent("Weight \u203a", weightRows(from, to, now)));
+        }
         boolean armed = menuDeleteArmed;
         items.add(MenuItem.destructive(
                 armed ? "Really delete?" + suffix : "Delete dependency" + suffix,
@@ -17189,7 +17313,8 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Which section the panel is showing. Seeded from the file, written back when it changes. */
     private dev.ellipog.tenet.client.dev.AssetsLayout.Section assetsSection =
-            dev.ellipog.tenet.client.dev.AssetsLayout.Section.TABLES;
+            dev.ellipog.tenet.client.dev.AssetsLayout.shownOrFirst(
+                    dev.ellipog.tenet.client.dev.AssetsLayout.Section.TABLES);
 
     /** The page's scroll, its clamp and its bar as one object. Reset when the section changes. */
     private final Viewport assetsBody = Viewport.fixed();
@@ -17266,21 +17391,31 @@ public final class QuestBookScreen extends ArmatureScreen
     /** Opens the pack's panel, on the section the author was last reading. */
     private void openAssets() {
         closeMenu();
-        assetsSection = sectionNamed(ClientWorking.section());
+        // The remembered section, coerced to one this depth shows: a page it does not show would draw its
+        // list under no selected section and offer that section's own footer action. The coercion is for
+        // the view only -- `ClientWorking` keeps what the author chose, so Advanced finds "tables" again.
+        assetsSection = dev.ellipog.tenet.client.dev.AssetsLayout.shownOrFirst(
+                sectionNamed(ClientWorking.section()));
         assetsBody.setScrollY(0);
         applyColumns(PanelStack.asRoot(columns(), PanelKind.ASSETS));
         rebuildWidgets();
     }
 
-    /** A remembered section's name as the enum. An unknown name is the first section, never a blank page. */
+    /**
+     * A remembered section's name as the enum, among the sections this depth shows.
+     *
+     * <p>An unknown name is the first shown section, never a blank page -- which is also the answer for the
+     * name of a section this depth hides, and the two arrive by the same road: the name is a string from a
+     * file, and what it resolves to has to be something the panel can draw.
+     */
     private static dev.ellipog.tenet.client.dev.AssetsLayout.Section sectionNamed(String name) {
         for (dev.ellipog.tenet.client.dev.AssetsLayout.Section section
-                : dev.ellipog.tenet.client.dev.AssetsLayout.Section.values()) {
+                : dev.ellipog.tenet.client.dev.AssetsLayout.shown()) {
             if (section.name().toLowerCase(java.util.Locale.ROOT).equals(name)) {
                 return section;
             }
         }
-        return dev.ellipog.tenet.client.dev.AssetsLayout.Section.TABLES;
+        return dev.ellipog.tenet.client.dev.AssetsLayout.shownOrFirst(null);
     }
 
     /** Shows a section and remembers it. The scroll goes with the content it was measured against. */
@@ -17454,7 +17589,10 @@ public final class QuestBookScreen extends ArmatureScreen
                 dev.ellipog.tenet.client.dev.AssetsLayout.ROW_HEIGHT);
         int assetsScroll = assetsBody.scrollY();
 
-        var sections = dev.ellipog.tenet.client.dev.AssetsLayout.Section.values();
+        // The sections this depth shows, which is the same list `AssetsLayout.sectionAt` hit-tests against:
+        // a section drawn here and not there would make every press select the row above the one under the
+        // pointer, and the depth is what decides it. See `AssetsLayout.shown`.
+        var sections = dev.ellipog.tenet.client.dev.AssetsLayout.shown();
         for (int i = 0; i < sections.length; i++) {
             BookGeometry.Rect box = assetsFrame.section(i);
             boolean chosen = sections[i] == assetsSection;
@@ -18689,20 +18827,10 @@ public final class QuestBookScreen extends ArmatureScreen
                         cluster.height(), ArmatureTheme.panel(), ArmatureTheme.panelEdge());
             }
 
-            // And the author's pills' mat, drawn by the cluster's own rule now that the two share a corner:
-            // the mat is what makes the pills read as a control rather than as two floating fragments of
-            // text. Guarded on the field rather than on `mayEdit` because that is what is actually drawn:
-            // the pills are widgets and the widget pass below paints them, so the mat appears exactly when
-            // they do.
-            //
-            // This block stood here twice, verbatim, with a second comment about a "Tools pill" that had
-            // been retired a round earlier. One control, one drawing: the duplicate painted the same
-            // rounded box twice and made the next reader check whether the two guards differed.
-            if (editPill != null) {
-                BookGeometry.Rect pills = geometry().pillMat();
-                ArmatureTheme.panel(renderer, pills.x(), pills.y(), pills.width(), pills.height(),
-                        ArmatureTheme.panel(), ArmatureTheme.panelEdge());
-            }
+            // (The author's pills' mat stood here: raised at this Z because the mat floated over the canvas
+            // at the pills' own offsets. The band's strip is a surface of the panel instead, so it is painted
+            // by `drawBook` with the header's -- and the band's *buttons* are still drawn by hand, further
+            // down, because they are above the widget pass's clip exactly as the header's four are.)
 
             // The widget pass, clipped from the sidebar's list top downwards.
             //
@@ -18795,35 +18923,29 @@ public final class QuestBookScreen extends ArmatureScreen
             // out -- `isHovered` is set in `render`, from the pointer -- which is why these two were the
             // only controls in the book that did not fade.
             //
-            // So this layer tells them, on the way past: `hoverTold` is a control's hover said out loud
-            // by the caller that draws it, and `isMouseOver` is vanilla's own test -- which answers false
-            // for an inert control too, so neither of these fades while a modal has the book behind it
-            // and neither of them can be pressed.
-            if (closeButton != null) {
-                closeButton.hoverTold(closeButton.isMouseOver(hoverX, hoverY)).draw(renderer);
-            }
-            if (partyButton != null) {
-                partyButton.hoverTold(partyButton.isMouseOver(hoverX, hoverY)).draw(renderer);
-            }
-            if (rewardsButton != null) {
-                // And the one this list forgot. The rewards button is built for every player and added as
-                // a widget, so it was clickable from the day it landed -- and invisible, because the
-                // widget pass is clipped to the band below the header and nothing here drew it. A control
-                // that exists, takes clicks and cannot be seen is the report this block exists to prevent;
-                // it happened because the draw list is hand-written and the build site is somewhere else.
-                rewardsButton.hoverTold(rewardsButton.isMouseOver(hoverX, hoverY)).draw(renderer);
-            }
-            if (settingsHeaderButton != null) {
-                // And the second one this list forgot -- the rewards comment above is the first. The same
-                // fault, the same cause: built and added as a widget somewhere else, clickable from the
-                // day it landed, and never painted, because the widget pass is clipped to the band below
-                // the header and this hand-written list is the only thing that draws up here. Anything
-                // built in `buildHeaderChrome` **for the header** needs a line here; there are now four,
-                // and the pair of comments is the reason to count them when a fifth arrives. The author's
-                // pills are built in the same method and are not counted: they float over the canvas,
-                // which the widget pass does reach, so they draw themselves like any other control.
-                settingsHeaderButton.hoverTold(settingsHeaderButton.isMouseOver(hoverX, hoverY))
-                        .draw(renderer);
+            // And every control the chrome above the clip owns, drawn by this layer in one pass. The list is
+            // filled by `buildHeaderChrome` as it builds them -- so **the build site is the draw list**, and
+            // a control cannot be added to the chrome and left unpainted.
+            //
+            // That is a fix rather than a tidy-up, and the two comments this replaces are the evidence: the
+            // rewards button and then the settings button were each built, added as widgets and clickable
+            // from the day they landed, while being invisible -- because the widget pass is clipped to the
+            // band below the header and the draw list here was written by hand, somewhere else. A control
+            // that exists, takes clicks and cannot be seen is the report this block exists to prevent, and
+            // the hand-written list produced it twice.
+            //
+            // The band's four are in the same list for the same reason, and their arrival is what made the
+            // hand-written version untenable: they are above the clip too (the clip starts at
+            // `chapterListTop()`, below the band), so four more lines had to be remembered. The pills they
+            // replaced were the one case that did *not* need a line here -- they floated over the canvas,
+            // which the pass does reach, so they painted themselves -- and that difference is exactly the
+            // kind of thing a later reader gets wrong.
+            //
+            // `hoverTold` is a control's hover said out loud by the caller that draws it, and `isMouseOver`
+            // is vanilla's own test -- which answers false for an inert control too, so nothing here fades
+            // while a modal has the book behind it, and nothing here can be pressed.
+            for (ArmatureButton control : chromeControls) {
+                control.hoverTold(control.isMouseOver(hoverX, hoverY)).draw(renderer);
             }
             // **The panel's own ink, and the pass cannot draw either piece of it.** Two things live here:
             // the placeholder text a search box or a title field carries, which is ink no widget owns, and
@@ -19622,6 +19744,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // left corners and leaves the right-hand pair square -- its right edge is interior, and rounding
         // it would leave two notches in the middle of the header strip. The header starts where the
         // sidebar ends and runs to the right edge, so it rounds its top-right corner and nothing else.
+        // The author's band is under the header and touches nothing, so it rounds nothing.
         //
         // Getting a mask wrong is visible and diagnosable rather than subtle, which is the whole reason
         // the mask is a value at the call site instead of a guess inside `fillSurface`.
@@ -19632,9 +19755,27 @@ public final class QuestBookScreen extends ArmatureScreen
                 HEADER_HEIGHT - 2, ArmatureTheme.raised(), innerRadius, ArmatureTheme.TOP_RIGHT);
         r.fill(left + 1, top + HEADER_HEIGHT - 1, left + panelW - 1, top + HEADER_HEIGHT,
                 ArmatureTheme.panelEdge());
+        // The author's band, which is the second chrome strip: the same raised surface as the header, the
+        // same rule under it, and no round corners because it is interior on all four sides. It is drawn
+        // over the sidebar's recess, which is what makes the recess read as starting below it.
+        //
+        // Full width, and that is the point of the band rather than a detail: it is the panel's chrome, so
+        // it spans the sidebar and the canvas both, and no rail can reach it -- every rail is anchored to
+        // the canvas, whose top edge is the band's bottom. The buttons on it are built by
+        // `buildHeaderChrome` and painted by the chrome layer, because the widget pass's clip starts below
+        // this.
+        int bodyTop = geometry().bodyTop();
+        if (bodyTop > top + HEADER_HEIGHT) {
+            ArmatureTheme.fillSurface(r, left + 1, top + HEADER_HEIGHT, panelW - 2,
+                    bodyTop - (top + HEADER_HEIGHT) - 1, ArmatureTheme.raised(), innerRadius,
+                    ArmatureTheme.CORNERS_NONE);
+            r.fill(left + 1, bodyTop - 1, left + panelW - 1, bodyTop, ArmatureTheme.panelEdge());
+        }
         // A divider between the sidebar and everything else, so the two read as separate surfaces
-        // rather than as one dark field with things floating in it.
-        r.fill(left + SIDEBAR_WIDTH, top + 1, left + SIDEBAR_WIDTH + 1, top + panelH - 1,
+        // rather than as one dark field with things floating in it. It starts below the band, because the
+        // band is one surface across both columns -- a divider through it would cut the author's toolbar
+        // in half.
+        r.fill(left + SIDEBAR_WIDTH, bodyTop, left + SIDEBAR_WIDTH + 1, top + panelH - 1,
                 ArmatureTheme.panelEdge());
 
         // The sidebar's scrollbar. Drawn here rather than by the widget pass, because it is chrome

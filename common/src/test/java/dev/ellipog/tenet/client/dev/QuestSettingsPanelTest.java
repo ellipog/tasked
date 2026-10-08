@@ -9,8 +9,11 @@ import dev.ellipog.armature.client.ui.kit.Measure;
 import dev.ellipog.armature.client.ui.kit.Slot;
 import dev.ellipog.armature.client.ui.kit.Viewport;
 import dev.ellipog.tenet.client.BookGeometry;
+import dev.ellipog.tenet.client.DevMode;
 import dev.ellipog.tenet.quest.QuestShape;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +48,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("The settings page's drawing")
 class QuestSettingsPanelTest {
+
+    /**
+     * Full depth, because this page's rows are asserted as a whole.
+     *
+     * <p>Normal mode gates away the visibility, rules and identity sections and two rows inside the ones
+     * that stay, so the page it draws is a shorter one -- and the switches this file is about are mostly in
+     * those sections. What Normal hides is {@code AdvancedTest}'s subject; this file is about the drawing.
+     */
+    @BeforeEach
+    void atFullDepth() {
+        DevMode.setAdvanced(true);
+    }
+
+    @AfterEach
+    void forgetTheDepth() {
+        // A static flag: a test that leaves it set changes the next class to run.
+        DevMode.reset();
+    }
 
     private static final BookGeometry.Rect BODY = BookGeometry.Rect.at(0, 0, 496, 284);
 

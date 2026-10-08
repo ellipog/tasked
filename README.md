@@ -54,10 +54,13 @@ nodes with per-quest shape, size and icon scale, styled dependency lines, markdo
 descriptions, live task progress and submit buttons, a claim menu grouped by chapter with claim,
 claim-chapter and claim-all, a choice-reward picker, and the party roster.
 
-**The editor is in-game and server-owned.** A player with permission level 2 gets an Edit pill over the
-canvas's top-right corner, which latches edit mode and opens the tools panel inside the book, with an
-Assets pill beside it: forms for every task and reward type, a searchable item picker, drag to move a
-node with a snap grid, and undo/redo. Nodes are selectable in bulk — shift-click collects, ctrl-click
+**The editor is in-game and server-owned.** A player with permission level 2 gets a band under the
+book's title row carrying `Author`, `Assets`, `✎ Edit` and `Advanced`: `Edit` latches edit mode, `Author`
+opens the tools panel inside the book, and `Assets` opens the pack's own files — forms for every task and
+reward type, a searchable item picker, drag to move a node with a snap grid, and undo/redo. `Advanced`
+sets how much of the editor is drawn: with it off — the default — every menu carries the essentials, and
+with it on the reward tables, the visibility and progression rules, a chapter's line styles and the theme
+editor are there as well. Nodes are selectable in bulk — shift-click collects, ctrl-click
 toggles one in or out, shift-drag on the empty canvas is a marquee, and Ctrl+A takes the chapter — and
 a drag, Ctrl+C/Ctrl+V, Ctrl+D or Delete then acts on the whole selection. A bulk edit goes out as one
 batch per chapter it spans, applied all-or-nothing, so it is one history step and one Ctrl+Z per

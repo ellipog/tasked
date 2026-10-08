@@ -104,13 +104,29 @@ public final class TableRowFields {
      * reward offered "when it is given" and nothing else. The test that walks the registry found it.
      */
     public static List<Line> lines(QuestReward reward) {
-        List<Control> controls = new ArrayList<>(ownFields(reward));
+        List<Control> controls = new ArrayList<>(shown(ownFields(reward)));
         if (controls.isEmpty()) {
             controls.add(new Control(Kind.RAW, "", "JSON",
                     "this entry's reward as it is stored - a type this build has no form for"));
         }
-        controls.addAll(baseMechanics());
+        // The three base mechanics, less whatever this depth hides -- and the list cannot come out empty,
+        // which is worth stating because a fold with no lines is a band with nothing in it: `auto` is basic,
+        // so every reward keeps the control that says when it is handed over. That is also what keeps an
+        // addon's type editable in Normal mode, since its own fields are basic by default and the raw row
+        // covers the case where it declares none.
+        controls.addAll(shown(baseMechanics()));
         return pack(controls);
+    }
+
+    /**
+     * The controls this depth draws, in the order they were given.
+     *
+     * <p>One filter over the field name, which is the same vocabulary the card's forms use -- see
+     * {@code Advanced}: a field that says <i>how exactly</i> is Advanced wherever it is drawn, so a
+     * permission level cannot be hidden in a reward's card and shown in a table's fold.
+     */
+    private static List<Control> shown(List<Control> controls) {
+        return controls.stream().filter(control -> !Advanced.hidesField(control.field())).toList();
     }
 
     /** How many lines a fold draws, which is what the layout's height arithmetic is given. */

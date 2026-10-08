@@ -852,7 +852,18 @@ public final class ToolsLayout {
         rows.add(Action.toggle(SNAP, "tenet.dev.tools.snap", snapOn ? ON : OFF));
         // The book's own switch, beside the rest: a reading preference like motion rather than an edit.
         rows.add(Action.toggle(PROGRESS, "tenet.dev.tools.progress", progressOn ? ON : OFF));
-        rows.addAll(appearanceRows(palette, paletteOpen, coloursOpen, background, canvasOpen, copyLabel));
+        // **The appearance block is Advanced, and this is the whole of the cut for this tab.** What is left
+        // in Normal mode is the three switches above, which are about how this client behaves rather than
+        // what the pack looks like -- and the appearance sections are four decisions about a look: the
+        // palette, the corner radius, the canvas's surface and every colour token under it.
+        //
+        // One `if` around one call, rather than a key per section: the appearance rows are built by
+        // `appearanceRows` and arrive here as one list, so the section boundary is this call. The Colours
+        // section holds headings of its own (one per token group), which is the case a filter over heading
+        // keys could not handle -- see `Advanced`.
+        if (Advanced.on()) {
+            rows.addAll(appearanceRows(palette, paletteOpen, coloursOpen, background, canvasOpen, copyLabel));
+        }
         return List.copyOf(rows);
     }
 

@@ -45,6 +45,17 @@ import java.util.Map;
  * changes where a dragged node lands, and the sidebar's chapter progress bars, which change what a
  * chapter row shows. Both are the tidy direction, so a file that does not name them leaves them on.
  *
+ * <h2>The depth, which is a third kind of flag again</h2>
+ *
+ * <p>{@link #advanced} is not the mode and not a switch: it says <b>how much of the editor to show</b>,
+ * where {@link #on()} says whether there is one at all. Normal is the default and the basic set; Advanced
+ * is today's full view. It lives here rather than beside the code that reads it because it is this
+ * client's preference, in this client's file -- and it follows the two switches' own rule rather than the
+ * mode flag's: a file that does not name it reads as <b>off</b>, because showing less is the direction
+ * that cannot lie about a mode nobody remembers turning on, and one press brings the rest back.
+ * {@code Advanced} is what decides what every editor menu contains; see {@code client.dev.Advanced} for
+ * the cut itself, which is one table and one predicate rather than a branch per screen.
+ *
  * <h2>The panels' own settings, and the one that left</h2>
  *
  * <p>How wide each panel is and whether a child folds into its parent are the same kind of thing the two
@@ -74,6 +85,7 @@ public final class DevMode {
     private static boolean on;
     private static boolean snap = true;
     private static boolean progress = true;
+    private static boolean advanced;
     private static Map<PanelKind, Integer> panelWidths = new EnumMap<>(PanelKind.class);
     private static PanelStack.Fold panelFold = PanelStack.Fold.AUTO;
     private static Path file;
@@ -87,10 +99,11 @@ public final class DevMode {
      * @param dev         whether tools may be drawn
      * @param snap        whether a dragged node lands on the grid; a file that does not say says yes
      * @param progress    whether chapter rows draw their completion bar; likewise yes by default
+     * @param advanced    whether every editor menu shows everything; a file that does not say says no
      * @param panelWidths the widths the player has chosen, per kind, keyed only by kinds they have dragged
      * @param panelFold   what the player asked a panel's second column to do
      */
-    public record Parsed(boolean dev, boolean snap, boolean progress,
+    public record Parsed(boolean dev, boolean snap, boolean progress, boolean advanced,
             Map<PanelKind, Integer> panelWidths, PanelStack.Fold panelFold) {
     }
 
@@ -150,6 +163,35 @@ public final class DevMode {
     public static void setProgress(boolean next) {
         progress = next;
         save();
+    }
+
+    // ------------------------------------------------------------------
+    // The editor's depth
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether every editor menu shows everything, rather than the basic set.
+     *
+     * <p>Off by default, and <b>not gated on {@link #on()}</b>, which is the rule {@code snap} and
+     * {@code progress} already follow: the mode says whether the tools exist, and this says how much of
+     * them to draw. A reader who is not editing has no rows to trim either way, so the flag costs nothing
+     * while edit mode is off -- and it keeps its value across a turn of the mode, which is what an author
+     * toggling Edit off and on again expects.
+     */
+    public static boolean advanced() {
+        return advanced;
+    }
+
+    /** Turns the depth on or off and writes the choice. */
+    public static void setAdvanced(boolean next) {
+        advanced = next;
+        save();
+    }
+
+    /** The same, and answers with the state it left behind, so a button can label itself from one call. */
+    public static boolean toggleAdvanced() {
+        setAdvanced(!advanced);
+        return advanced;
     }
 
     // ------------------------------------------------------------------
@@ -257,6 +299,7 @@ public final class DevMode {
                 on = read.dev();
                 snap = read.snap();
                 progress = read.progress();
+                advanced = read.advanced();
                 panelWidths = new EnumMap<>(read.panelWidths());
                 panelFold = read.panelFold() == null ? PanelStack.Fold.AUTO : read.panelFold();
             }
@@ -273,8 +316,11 @@ public final class DevMode {
      * <p>Tolerant rather than strict, and for a stronger reason than Appearance's: this file is a
      * developer's, so it will be hand-edited, and a typo in it should cost a mode that stays off rather
      * than a client that will not start. An unknown field is ignored; a missing one takes its default --
-     * which for {@code snap} and {@code progress} is on, so a file written before either existed reads
-     * as the behaviour it was already getting.
+     * which for {@code snap} and {@code progress} is on, so a file written before either existed reads as
+     * the behaviour it was already getting, and which for {@code advanced} is off, so a file written
+     * before <i>it</i> existed reads as the basic editor rather than as the full one. The asymmetry is the
+     * point rather than an oversight: a switch nobody asked for should be on, and a depth nobody chose
+     * should be the shallow end.
      *
      * <h2>The width table, and the scalar it replaced</h2>
      *
@@ -321,6 +367,7 @@ public final class DevMode {
                 root.has("dev") && root.get("dev").getAsBoolean(),
                 !root.has("snap") || root.get("snap").getAsBoolean(),
                 !root.has("progress") || root.get("progress").getAsBoolean(),
+                root.has("advanced") && root.get("advanced").getAsBoolean(),
                 Map.copyOf(widths),
                 root.has("panelFold")
                         ? PanelStack.foldOf(root.get("panelFold").getAsString())
@@ -367,12 +414,13 @@ public final class DevMode {
      * {@link #setPanelWidth}'s job, where the caller is a drag that just landed on the default. A file-writing
      * function that silently edited its argument's meaning would be the wrong place for that rule.
      */
-    public static String write(boolean dev, boolean snap, boolean progress,
+    public static String write(boolean dev, boolean snap, boolean progress, boolean advanced,
             Map<PanelKind, Integer> widths, PanelStack.Fold fold) {
         JsonObject root = new JsonObject();
         root.addProperty("dev", dev);
         root.addProperty("snap", snap);
         root.addProperty("progress", progress);
+        root.addProperty("advanced", advanced);
         JsonObject table = new JsonObject();
         for (PanelKind kind : PanelKind.values()) {
             Integer width = widths == null ? null : widths.get(kind);
@@ -400,6 +448,7 @@ public final class DevMode {
         on = false;
         snap = true;
         progress = true;
+        advanced = false;
         panelWidths = new EnumMap<>(PanelKind.class);
         panelFold = PanelStack.Fold.AUTO;
         file = null;
@@ -416,7 +465,7 @@ public final class DevMode {
             // leaves the previous flags rather than a half-written file the next load has to guess at.
             // This file's whole contract is that every way of being wrong reads as the safe direction,
             // and a truncated file is the one way that could not be honoured. See JsonWrite.
-            JsonWrite.atomically(file, write(on, snap, progress, panelWidths, panelFold));
+            JsonWrite.atomically(file, write(on, snap, progress, advanced, panelWidths, panelFold));
         }
         catch (IOException e) {
             Constants.LOG.warn("tenet: developer mode could not be written to {}", file, e);
