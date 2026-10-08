@@ -78,10 +78,18 @@ TOOLS = pathlib.Path(__file__).resolve().parent
 QUESTS = TOOLS / "quests"
 WORKSPACE = TOOLS.parent.parent
 
-# The two manifest names the loader fixes, so the sweep below can tell a group manifest from a quest
-# file without asking the mod. Must match `QuestFiles.GROUP_MANIFEST` and `CHAPTER_MANIFEST`.
+# The manifest names the loader fixes, so the sweep below can tell a manifest from a quest file
+# without asking the mod. Must match `QuestFiles.INDEX_MANIFEST`, `GROUP_MANIFEST` and
+# `CHAPTER_MANIFEST` -- all three, which is what this list was missing: the root manifest is a
+# legitimate root-level JSON file, and without it here the sweep reported the author's own
+# `index.json` as a stray version-1 file that would duplicate their whole questline.
+INDEX_MANIFEST = "index.json"
 GROUP_MANIFEST = "group.json"
 CHAPTER_MANIFEST = "chapter.json"
+
+# Root folders the loader reserves by name: read outside the book's own walk, so they are not book
+# content and an `index.json` must not list them. Must match `QuestFiles.isReservedName`.
+RESERVED_ROOT_NAMES = ("reward_tables", "lang")
 
 # The workspace's own test setup. Both are absent on a fresh clone, and neither is an error.
 COMBOS = WORKSPACE / "testserver" / "combos"
@@ -90,7 +98,7 @@ LOADERS = ("fabric", "neoforge")
 # The launcher's profiles, where the mod actually runs for a person. Resolved from the home
 # directory rather than written down, so nothing here is a path to this machine.
 LAUNCH_PROFILES = pathlib.Path.home() / "AppData" / "Roaming" / "ModrinthApp" / "profiles"
-PROFILE_NAMES = ("Tenet Fabric", "Tenet NeoForge")
+PROFILE_NAMES = ("Mod Testing Fabric 1.21.1", "Mod Testing NeoForge 1.21.1")
 
 # Relative to a config directory. Must match QuestLoader.DIRECTORY in the mod.
 QUEST_DIRECTORY = pathlib.Path("config") / "tenet" / "quests"
@@ -258,7 +266,88 @@ def seed(target: pathlib.Path, files, force: bool, dry_run: bool, reset: bool = 
             created += 1
 
     removed, survivors = sweep_legacy_flat_files(target, files, dry_run)
+
+    # And the root manifest, which is the third thing the loader reads and the second thing that
+    # decides whether the files just copied are ever loaded at all. See `merge_root_index`.
+    merged = merge_root_index(target, files)
+    if merged is not None:
+        document, added = merged
+        if not dry_run:
+            (target / INDEX_MANIFEST).write_text(json.dumps(document, indent=2) + "\n",
+                                                 encoding="utf-8")
+        print(f"  ~ {INDEX_MANIFEST}  [added {', '.join(added)}]")
+
     return created, replaced, kept, removed, reset_entries, survivors
+
+
+def merge_root_index(target: pathlib.Path, files):
+    """
+    The root manifest with the groups and chapters just copied folded into it.
+
+    ## Why the root needs this as much as a group manifest does
+
+    `merge_group_chapters` exists because the loader refuses a group whose chapter folders are
+    unlisted, and that refusal reads as "no quests loaded". At the root the same rule bites harder:
+    with an `index.json` present the loader reads **only what it lists** and reports every other entry
+    as an error that says so -- *"it will never load"*. So seeding a folder into a root that has a
+    manifest produced a directory full of quests that the game never reads, and a complaint per
+    folder, from the one tool whose whole job is to put quests where the game can see them.
+
+    That is not a hypothetical: it is what happened on the first profile this was run against, and it
+    is why this function exists rather than a note telling the reader to edit their own manifest.
+
+    ## What it will not do
+
+    It only ever **appends**, in the order the examples are walked, and it never reorders or removes
+    the author's own entries -- the manifest is also the book's reading order, and an author's order is
+    theirs. A target with no manifest is left alone entirely, because absence is not a fault: the tree
+    is then read the old way, which loads every folder there is. A manifest it cannot read or make
+    sense of is left alone too, and that is the one case worth saying out loud, since the copy beside
+    it will not load.
+
+    Returns `(document, added)` or None. `added` is the names it appended, for the caller's line.
+    """
+    manifest = target / INDEX_MANIFEST
+    if not manifest.exists():
+        return None
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print(f"  ! {INDEX_MANIFEST}  could not be read, so the folders just copied are unlisted and"
+              " will not load -- add them to its \"entries\" by hand")
+        return None
+    if not isinstance(document, dict) or not isinstance(document.get("entries"), list):
+        print(f"  ! {INDEX_MANIFEST}  has no \"entries\" list, so the folders just copied are"
+              " unlisted and will not load -- add them by hand")
+        return None
+
+    listed = set()
+    for entry in document["entries"]:
+        if isinstance(entry, dict):
+            listed.update(value for value in entry.values() if isinstance(value, str))
+
+    # The top level of what was copied: a folder is a group when it carries a group manifest and a
+    # chapter when it carries a chapter one, which is the same question `QuestFiles` asks. Reserved
+    # names are not book content and must not be listed -- `QuestFiles.isReservedName` is the rule,
+    # and `lang/` and `reward_tables/` are the two it names.
+    kind_of_folder = {}
+    for relative in files:
+        if len(relative.parts) < 2:
+            continue
+        name = relative.parts[0]
+        if name.startswith("_") or name in RESERVED_ROOT_NAMES:
+            continue
+        if relative.name == GROUP_MANIFEST:
+            kind_of_folder[name] = "group"
+        elif relative.name == CHAPTER_MANIFEST and name not in kind_of_folder:
+            kind_of_folder[name] = "chapter"
+
+    added = [name for name in kind_of_folder if name not in listed]
+    if not added:
+        return None
+    for name in added:
+        document["entries"].append({kind_of_folder[name]: name})
+    return document, added
 
 
 def merge_group_chapters(source: pathlib.Path, destination: pathlib.Path):
@@ -441,6 +530,13 @@ def sweep_legacy_flat_files(target: pathlib.Path, files, dry_run: bool):
     survivors = []
     for candidate in sorted(target.glob("*.json")):
         if candidate.name.startswith("_"):
+            continue
+        if candidate.name == INDEX_MANIFEST:
+            # The root manifest. Not a version-1 file, not a copy of anything this script wrote, and
+            # the one root-level JSON the loader reads as a manifest rather than as content -- so it
+            # is passed over silently rather than named as a survivor. `merge_root_index` is where it
+            # is *maintained*; naming it here as a possible duplicate of the tree would be the same
+            # false alarm this sweep exists to avoid making in the other direction.
             continue
         try:
             data = json.loads(candidate.read_text(encoding="utf-8"))

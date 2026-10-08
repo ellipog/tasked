@@ -158,8 +158,8 @@ in both repositories. If your profiles are named something else, edit these two 
 `gradle.properties`:
 
 ```properties
-testModsDirFabric=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tenet Fabric/mods
-testModsDirNeoForge=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Tenet NeoForge/mods
+testModsDirFabric=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Mod Testing Fabric 1.21.1/mods
+testModsDirNeoForge=C:/Users/Ellio/AppData/Roaming/ModrinthApp/profiles/Mod Testing NeoForge 1.21.1/mods
 ```
 
 ## Layout

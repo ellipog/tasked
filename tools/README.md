@@ -254,6 +254,16 @@ Created if missing. **Never overwritten unless you pass `--force`** — that dir
 author's own questline lives, so refreshing it automatically would destroy work. `--force` names
 every file it replaces, so a replace is never something that happened while you were not looking.
 
+**The one file it edits without being asked is a root `index.json`, and it only ever appends.**
+With a manifest present the loader reads *only what it lists* and reports every other entry as an
+error that says so — *"it will never load"* — so seeding into a root that has one used to fill a
+directory with quests the game never read. So each group or chapter folder just copied is added to
+`entries` if it is missing, after everything already there: the manifest is also the book's reading
+order, and an author's order is theirs. `reward_tables/` and `lang/` are never added, because the
+loader reserves those two names and does not want them listed. A target with no manifest is left
+alone entirely — absence is not a fault, and the tree is then read the old way, which loads every
+folder there is.
+
 `--dry-run` says what would happen and changes nothing.
 
 **Replacing one exhibition with another is `--reset`.** It deletes everything in each target's quest

@@ -577,7 +577,7 @@ def main() -> int:
         targets += [root / "testserver/combos/tenet/fabric/mods/../config/tenet/quests",
                     root / "testserver/combos/tenet/neoforge/mods/../config/tenet/quests"]
         profiles = pathlib.Path.home() / "AppData" / "Roaming" / "ModrinthApp" / "profiles"
-        for name in ("Tenet Fabric", "Tenet NeoForge"):
+        for name in ("Mod Testing Fabric 1.21.1", "Mod Testing NeoForge 1.21.1"):
             profile = profiles / name
             if profile.is_dir():
                 targets.append(profile / "config" / "tenet" / "quests")
