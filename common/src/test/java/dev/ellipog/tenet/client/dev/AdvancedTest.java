@@ -101,7 +101,14 @@ class AdvancedTest {
                 """).getAsJsonObject();
     }
 
-    /** A chapter with the fields the tab edits, so its rules section has rows to lose. */
+    /**
+     * A chapter with the fields the tab edits, so its rules section has rows to lose.
+     *
+     * <p>And with two canvas elements, because the elements section is gated on the chapter having any: a
+     * fixture without them would leave the section out of the heading lists, and the two assertions about the
+     * chapter tab's sections would go on passing while saying nothing about the new one. An image and a line,
+     * because those two arms between them carry every field the depth marks.
+     */
     private static JsonObject chapter() {
         return JsonParser.parseString("""
                 {
@@ -122,7 +129,14 @@ class AdvancedTest {
                   "defaultHideUntilDependenciesComplete": true,
                   "defaultHideUntilDependenciesVisible": false,
                   "dependencyStyle": { "form": "chamfered", "arrowHead": "triangle" },
-                  "quests": ["first_steps.json"]
+                  "quests": ["first_steps.json"],
+                  "elements": [
+                    { "type": "image", "id": "logo", "x": 16, "y": 16, "width": 64, "height": 64,
+                      "image": { "sprite": "minecraft:block/stone" } },
+                    { "type": "rect", "id": "frame", "x": 0, "y": 0, "width": 200, "height": 120 },
+                    { "type": "text", "id": "caption", "x": 8, "y": 8, "text": "Chapter One" },
+                    { "type": "line", "id": "rule", "x1": 0, "y1": 96, "x2": 128, "y2": 96, "width": 2 }
+                  ]
                 }
                 """).getAsJsonObject();
     }
@@ -214,6 +228,23 @@ class AdvancedTest {
             assertTrue(sections.contains(marked),
                     "the depth marks the Assets section \"" + marked + "\" and the enum has no such value");
         }
+
+        // And the canvas elements' own vocabulary, against the rows the panel really builds: a key here that
+        // no arm produces is a mark against nothing, and the arm that lost a row would otherwise be silent.
+        DevMode.setAdvanced(true);
+        Set<String> elementRows = new TreeSet<>();
+        for (String key : elementFields()) {
+            String[] field = ChapterPanelLayout.elementFieldOf(key);
+            if (field != null) {
+                elementRows.add(field[1]);
+            }
+        }
+        assertFalse(elementRows.isEmpty(), "the fixture must produce element rows for this to mean anything");
+        for (String marked : Advanced.elementKeys()) {
+            assertTrue(elementRows.contains(marked),
+                    "the depth marks the element field \"" + marked + "\" and no arm builds a row for it, so "
+                            + "hiding it hides nothing. The rows the fixture produced: " + elementRows);
+        }
     }
 
     @Test
@@ -278,10 +309,46 @@ class AdvancedTest {
         List<ToolsLayout.Action> shallow = chapterRows();
         DevMode.setAdvanced(true);
 
-        assertEquals(List.of("h:identity", "h:group", "h:quests"), headings(shallow),
-                "the shallow chapter tab is identity, the group and its quests");
-        assertEquals(List.of("h:identity", "h:rules", "h:group", "h:quests"), headings(deep),
+        assertEquals(List.of("h:identity", "h:group", "h:elements", "h:quests"), headings(shallow),
+                "the shallow chapter tab is identity, the group, its elements and its quests");
+        assertEquals(List.of("h:identity", "h:rules", "h:group", "h:elements", "h:quests"), headings(deep),
                 "and the deep one has the rules between them");
+    }
+
+    @Test
+    @DisplayName("an element keeps what it is and loses how it is drawn")
+    void theElementFieldsAreASubset() {
+        // The fourth vocabulary, and the reason it is a fourth: `rotation` is both a picture's angle and a
+        // quest settings row, so a shared set would hide one control when it hid the other.
+        DevMode.setAdvanced(true);
+        List<String> deep = elementFields();
+        DevMode.setAdvanced(false);
+        List<String> shallow = elementFields();
+        DevMode.setAdvanced(true);
+
+        assertFalse(deep.isEmpty(), "the fixture has to have an element selected for this to mean anything");
+        assertTrue(deep.containsAll(shallow), "the shallow rows are a subset of the deep ones: " + shallow);
+        assertTrue(deep.size() > shallow.size(), "and the depth hides something");
+
+        // What an element *is* survives: its box, its picture, its colour, its words, which way a line points.
+        //
+        // `shadow` is in this list rather than the one below, and it is the one field here that could be
+        // argued either way. It stays basic because it is what makes a label readable over a picture: hiding
+        // it would mean an author in Normal mode could not put words on an image they had just placed.
+        for (String kept : List.of("element.logo.width", "element.logo.height", "element.logo.image.texture",
+                "element.logo.image.sprite", "element.frame.fillColor", "element.frame.borderColor",
+                "element.caption.text", "element.caption.color", "element.caption.shadow",
+                "element.rule.x1", "element.rule.x2", "element.rule.color", "element.rule.arrowhead")) {
+            assertTrue(shallow.contains(kept), kept + " is what the element is, so Normal keeps it");
+        }
+        // And what qualifies it goes.
+        for (String hidden : List.of("element.logo.rotation", "element.logo.corner", "element.logo.tint",
+                "element.logo.alpha", "element.logo.title", "element.logo.click.type",
+                "element.logo.click.data", "element.logo.order", "element.logo.dev",
+                "element.logo.requires", "element.frame.borderWidth", "element.rule.order")) {
+            assertTrue(deep.contains(hidden), hidden + " is missing at full depth, so nothing hides it");
+            assertFalse(shallow.contains(hidden), hidden + " is a refinement, so Normal hides it");
+        }
     }
 
     @Test
@@ -400,6 +467,28 @@ class AdvancedTest {
         return ChapterPanelLayout.rows(chapter(),
                 new ChapterPanelLayout.GroupInfo("first_light", "First Light", "minecraft:torch", false),
                 Set.of());
+    }
+
+    /**
+     * Every element field row at the depth the flag is at, over <b>all four arms</b>.
+     *
+     * <p>Union over each element selected in turn, because the fields under the list belong to the selected
+     * one: a fixture that selected a single element would report three arms as having no rows at all, and the
+     * check that every marked key is a key a form really has would fail on the arm it did not select — which
+     * is exactly what it did the first time this ran.
+     */
+    private static List<String> elementFields() {
+        List<String> keys = new ArrayList<>();
+        for (String id : List.of("logo", "frame", "caption", "rule")) {
+            for (ToolsLayout.Action row : ChapterPanelLayout.rows(chapter(),
+                    new ChapterPanelLayout.GroupInfo("first_light", "First Light", "minecraft:torch", false),
+                    Set.of(), null, ChapterPanelLayout.Problems.NONE, id)) {
+                if (row.key().startsWith(ChapterPanelLayout.ELEMENT_PREFIX)) {
+                    keys.add(row.key());
+                }
+            }
+        }
+        return keys;
     }
 
     /**

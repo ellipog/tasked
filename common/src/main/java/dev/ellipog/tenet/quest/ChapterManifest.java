@@ -86,7 +86,15 @@ public record ChapterManifest(
         dev.ellipog.tenet.quest.reward.RewardAutoClaim autoClaim,
         /** The chapter's own gate, completion and hiding; see {@link ChapterRules}. */
         ChapterRules rules,
-        List<String> quests
+        List<String> quests,
+        /**
+         * Everything drawn on the canvas that is not a quest.
+         *
+         * <p>Carried as the elements themselves rather than as JSON, which is the one place this manifest
+         * is less "declared names" than the rest of it: a quest is a file this manifest names, and an
+         * element has no file to name — it lives in this chapter's own document. See {@link CanvasElement}.
+         */
+        List<CanvasElement> elements
 ) {
 
     /** The field names this contributes. Equal to {@link Chapter#FIELDS} — see {@link GroupManifest}. */
@@ -96,7 +104,7 @@ public record ChapterManifest(
             "dependsOn", "prerequisiteMode", "minRequired", "completesWhen",
             "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
             "defaultHideUntilDependenciesVisible",
-            "quests");
+            "quests", "elements");
 
     /**
      * This manifest as a chapter, with the quests its names resolved to.
@@ -108,7 +116,7 @@ public record ChapterManifest(
     public Chapter toChapter(List<Quest> resolved) {
         return new Chapter(id, title, subtitle, description, icon, aliases, defaultPrerequisiteMode,
                 progressionMode, defaultConsumeItems, dependencyStyle, theme, themePatch, autoClaim, rules,
-                resolved);
+                resolved, elements);
     }
 
     public static final Codec<ChapterManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -139,6 +147,10 @@ public record ChapterManifest(
             // read the same five fields at the same paths -- which is what keeps "the manifest says one
             // thing and the tree another" a thing that cannot happen here.
             ChapterRules.MAP_CODEC.forGetter(ChapterManifest::rules),
-            Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests)
+            Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests),
+            // The elements themselves, read by the same codec the chapter uses, so a manifest and the
+            // chapter it becomes cannot disagree about what an element is.
+            CanvasElement.CODEC.listOf().optionalFieldOf("elements", List.of())
+                    .forGetter(ChapterManifest::elements)
     ).apply(instance, ChapterManifest::new));
 }

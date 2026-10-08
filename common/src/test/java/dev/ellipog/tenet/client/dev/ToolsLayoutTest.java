@@ -337,6 +337,83 @@ class ToolsLayoutTest {
         assertEquals("second", right.key(), "under the second action's key");
     }
 
+    @Test
+    @DisplayName("a control's own band is the shared answer: the row side by side, the control band stacked")
+    void aControlsBandIsOneDerivation() {
+        // What this replaces is two answers to one question. The chip had its own copy of the mode test, and
+        // the chooser's menu looked its field up in the layout -- which has no slot for a pair's second half
+        // and none at all for a row drawn in another view, so the *element* form's four choosers opened their
+        // menu at whatever point the last menu was opened at (the canvas's right-click, or the origin). One
+        // derivation, read by the chip, by the menu's anchor and by the widget placement.
+        Slot row = new Slot("element.logo.tint", 20, 60, 260, InspectLayout.STACKED_ROW_HEIGHT);
+        Slot band = InspectLayout.controlBand(row);
+
+        assertEquals(row, ToolsLayout.controlBandOf(row, InspectLayout.Mode.SIDE_BY_SIDE),
+                "side by side a row is its control's band: the label keeps its room on the same line");
+        assertEquals(band, ToolsLayout.controlBandOf(row, InspectLayout.Mode.STACKED),
+                "stacked it is the band under the label, which is what the widget placement uses too");
+        assertEquals(InspectLayout.STACKED_CONTROL_HEIGHT,
+                ToolsLayout.controlBandOf(row, InspectLayout.Mode.STACKED).height());
+        assertEquals(ToolsLayout.chip(band), ToolsLayout.chipOf(row, InspectLayout.Mode.STACKED),
+                "and the chip is built from that band rather than beside it");
+        assertEquals(row.key(), ToolsLayout.controlBandOf(row, InspectLayout.Mode.STACKED).key(),
+                "under the row's own key, so a widget still matches its slot");
+    }
+
+    @Test
+    @DisplayName("a switch keeps its own width, against the same right edge the buttons share")
+    void aSwitchIsItsOwnWidthInAStrip() {
+        // **The toolkit's switch is 22 wide and knows it** (`ArmatureSwitch.WIDTH`, and
+        // `PartyPanelLayout.controlSlots` places the party's two at exactly that width inside a row's strip). A
+        // row that handed it a 40-pixel strip or a whole band stretched it -- *"switches look horrible"*: one
+        // panel-wide track with a knob in the corner. It is a state you read before its label, so it belongs
+        // against the column's edge, in the column every control in the list shares.
+        Slot row = new Slot("group.collapsedByDefault", 20, 60, 220, ToolsLayout.SWITCH_HEIGHT);
+
+        Slot side = ToolsLayout.switchSlot(row, InspectLayout.Mode.SIDE_BY_SIDE);
+        assertEquals(ToolsLayout.SWITCH_WIDTH, side.width(), "its own width, not the strip's");
+        assertTrue(side.height() <= row.height(), "and its row's height at most: " + side);
+        assertEquals(ToolsLayout.strip(row).right(), side.right(),
+                "right-aligned in the gap its row reserved, so switches and buttons share one edge");
+        assertTrue(side.x() >= row.right(), "and outside the label's own slot: " + side + " vs " + row);
+        assertEquals(row.key(), side.key(), "under the row's key, so the scroll view still matches it");
+
+        // Stacked, the switch's home is the control band under the label -- the same right edge again.
+        Slot tall = new Slot("element.p.corner", 20, 60, 260, InspectLayout.STACKED_ROW_HEIGHT);
+        Slot band = InspectLayout.controlBand(tall);
+        Slot stacked = ToolsLayout.switchSlot(tall, InspectLayout.Mode.STACKED);
+        assertEquals(ToolsLayout.SWITCH_WIDTH, stacked.width());
+        assertEquals(band.height(), stacked.height(), "the band's height, which is where a stacked control goes");
+        assertEquals(band.right(), stacked.right(), "against the band's right edge");
+        assertTrue(stacked.y() >= band.y() && stacked.bottom() <= band.bottom(),
+                "and inside that band: " + stacked + " in " + band);
+    }
+
+    @Test
+    @DisplayName("a chip follows its row's composition: the row side by side, the control's band when stacked")
+    void chipsFollowTheirRowsComposition() {
+        // The fault this pins, in the words of the report: *"colour thing is way too tall"*. A stacked row is
+        // two bands -- a label's and its control's -- and the chip was asked for the whole of it, so it stood
+        // three times the height of every control beside it with its own name centred down the middle. The two
+        // answers have to differ, and the stacked one has to be the band the label leaves for it, because that
+        // is where a widget in that row would go.
+        Slot row = new Slot("element.logo.tint", 20, 60, 260, InspectLayout.STACKED_ROW_HEIGHT);
+        Slot band = InspectLayout.controlBand(row);
+        BookGeometry.Rect stacked = ToolsLayout.chipOf(row, InspectLayout.Mode.STACKED);
+
+        assertEquals(ToolsLayout.chip(row), ToolsLayout.chipOf(row, InspectLayout.Mode.SIDE_BY_SIDE),
+                "side by side the chip is the row's own rectangle, as it always was");
+        assertEquals(ToolsLayout.chip(band), stacked,
+                "stacked it is the control band's, which is where the drawing and the press both want it");
+        assertEquals(InspectLayout.STACKED_CONTROL_HEIGHT, stacked.height(),
+                "so it is one control tall rather than one row");
+        assertTrue(stacked.height() < row.height(),
+                "and shorter than the row it sits in: " + stacked);
+        assertTrue(stacked.y() >= band.y() && stacked.bottom() <= band.bottom(),
+                "and inside that band: " + stacked + " in " + band);
+        assertEquals(band.right(), stacked.right(), "against the band's right edge, where a column of chips is");
+    }
+
 
 
     @Test

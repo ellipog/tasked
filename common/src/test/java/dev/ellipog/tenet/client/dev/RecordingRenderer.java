@@ -61,6 +61,15 @@ final class RecordingRenderer implements GuiRenderer {
     }
 
     @Override
+    public void shadowedText(String text, int x, int y, int argb, float scale) {
+        // Recorded as a plain line, exactly as `styledText` is and for the same reason: the panels this
+        // recorder exists for draw no shadowed text, and a caller that does still has to appear in the log.
+        // An assertion about WHICH labels asked for a shadow, and at what size, belongs to
+        // `client.render.RecordingRenderer`, which keeps the distinction as its own op.
+        texts.add(new Drawn(text, x, y, argb));
+    }
+
+    @Override
     public void flush() {
     }
 
@@ -140,6 +149,18 @@ final class RecordingRenderer implements GuiRenderer {
         sizes.put(texture, new TextureSize(width, height));
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A no-op, for the reason {@link #texture} is one: the panels this recorder exists for draw no sprites,
+     * and a test may draw a panel that happens to contain one. An assertion about which arm a picture element
+     * chose — a file or a sprite — belongs to {@code client.render.RecordingRenderer}, which keeps the two
+     * apart because their lookups fail differently.
+     */
+    @Override
+    public void sprite(ResourceLocation atlasSprite, int x, int y, int width, int height, int argb) {
+    }
+
     @Override
     public boolean blur(float partialTick) {
         return false;
@@ -147,6 +168,19 @@ final class RecordingRenderer implements GuiRenderer {
 
     @Override
     public Scoped clip(int left, int top, int right, int bottom) {
+        return () -> {
+        };
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A no-op scope, like {@link #clip}: nothing this recorder exists for turns its drawing. A test that
+     * needs to assert a picture was turned, and about which pivot, reads
+     * {@code client.render.RecordingRenderer}, whose turn is a recorded op with its own angle.
+     */
+    @Override
+    public Scoped turned(int pivotX, int pivotY, float degrees) {
         return () -> {
         };
     }

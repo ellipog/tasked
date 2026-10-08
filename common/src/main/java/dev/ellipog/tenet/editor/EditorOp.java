@@ -120,6 +120,50 @@ public sealed interface EditorOp {
     }
 
     /**
+     * A canvas element's own tree, inserted into the chapter's file under a fresh id.
+     *
+     * <h2>Why the tree travels whole, and why it is the same argument as a paste</h2>
+     *
+     * <p>Because an element is fifteen fields across four arms, and a reconstruction out of field writes
+     * would drop every one this build does not know — which, for an element of a type it has never heard of,
+     * is all of them. The id is preferred when it is free and suffixed when it is not, which is
+     * {@link Paste}'s rule and for the same reason: an author who duplicates a decoration means to keep what
+     * it says.
+     *
+     * <p>{@code index} is where in the array, clamped to its length, so appending is {@code size()}.
+     */
+    record InsertElement(int index, JsonObject tree) implements EditorOp {
+    }
+
+    /**
+     * Removes one canvas element from the chapter's file, by id.
+     *
+     * <h2>Why this is a plain removal where a quest's delete is recoverable</h2>
+     *
+     * <p>Because a tombstone exists for something that <b>owns a file</b>: a deleted chapter is a folder put
+     * aside, and a deleted quest is a file renamed, so both survive a restart and both can be put back. An
+     * element owns nothing — it is one entry in {@code chapter.json} — so the snapshot the undo history takes
+     * around this edit <i>is</i> the recovery, exactly as it is for a field edit to that same file, and it
+     * lasts exactly as long. The canvas's own delete therefore asks twice, and the docs say what recovery
+     * really is.
+     */
+    record RemoveElement(String element) implements EditorOp {
+    }
+
+    /**
+     * Sets one field of one canvas element in the chapter's file.
+     *
+     * <p>Separate from {@link SetChapter} because an element is not the chapter: the path is relative to the
+     * element, and the id has to be resolved to a position in the array before anything can be written. A
+     * null value removes the field, as {@link SetField}'s does.
+     *
+     * <p>This is the only op a drag or a resize needs, because a move is a field write: two of them for a
+     * box, four for a line, and one {@link Batch} around them so one gesture is one history step.
+     */
+    record SetElement(String element, String path, JsonElement value) implements EditorOp {
+    }
+
+    /**
      * Sets one field of the chapter's <b>group's</b> own file: its title, its icon, its collapsed flag.
      *
      * <h2>Why this carries no group id</h2>

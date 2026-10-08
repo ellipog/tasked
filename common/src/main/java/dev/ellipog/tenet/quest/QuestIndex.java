@@ -310,6 +310,7 @@ public final class QuestIndex {
                 groups);
         index.checkDependencies(problems);
         index.checkChapterRules(problems);
+        index.checkElementRequirements(problems);
         index.checkDuplicatePositions(problems);
         // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 64,0
         // are *crowded* -- each is fine on its own and the two together cannot both show a title.
@@ -581,6 +582,56 @@ public final class QuestIndex {
         }
 
         checkCompletedEdgesHaveCompletions(problems);
+    }
+
+    /**
+     * A canvas element's {@code requires}, resolved across the whole pack.
+     *
+     * <h2>Why this is a cross-file check rather than a validator one</h2>
+     *
+     * <p>Because a chapter cannot see another chapter's quests, and an element on the first chapter may
+     * well wait on a quest in the last: an image that announces a tier belongs on the canvas the tier
+     * starts on, and the quest it waits for is wherever that quest lives. One file has no way to answer
+     * that, so the question belongs to the pass that holds the whole index — the same reason a dangling
+     * {@code dependsOn} is reported here and its <i>shape</i> is reported by the validator.
+     *
+     * <p>Only quests resolve. An element's id is a name in the chapter's own namespace, and the tempting
+     * convenience — let {@code requires} find an element as well — would be a silent wrong answer the day
+     * an element and a quest happened to share a name, which is exactly what happens to a converted pack
+     * whose ids are all sixteen hex digits.
+     */
+    private void checkElementRequirements(Problems problems) {
+        for (ChapterEntry entry : chapters()) {
+            java.util.List<CanvasElement> elements = entry.chapter().elements();
+            for (int i = 0; i < elements.size(); i++) {
+                CanvasElement element = elements.get(i);
+                String at = entry.path() + ".elements[" + i + "]";
+
+                Optional<String> requires = element.requires();
+                if (requires.isPresent() && !byIdentifier.containsKey(requires.get())) {
+                    Optional<String> suggestion = nearestIdentifier(requires.get());
+                    problems.error(entry.document(), at + ".requires",
+                            "no quest with id or alias \"" + requires.get() + "\" exists"
+                                    + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                    + "\n    an element gated on a quest that does not exist is never drawn,"
+                                    + " and nothing else about the chapter is wrong");
+                }
+
+                // And the same question for a press, which the single file cannot answer either: an
+                // `open_quest` names a quest by id or alias, and that quest may live in any chapter. Reported
+                // rather than left to the client, because a press that does nothing reads as a broken control
+                // rather than as a gap in the mod -- and because this is the side that can name the line.
+                if (element instanceof CanvasElement.Image image
+                        && image.click().type() == ClickAction.Type.OPEN_QUEST
+                        && !byIdentifier.containsKey(image.click().data())) {
+                    Optional<String> suggestion = nearestIdentifier(image.click().data());
+                    problems.error(entry.document(), at + ".click.data",
+                            "no quest with id or alias \"" + image.click().data() + "\" exists"
+                                    + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                    + "\n    pressing this element would do nothing at all");
+                }
+            }
+        }
     }
 
     /**

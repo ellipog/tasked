@@ -381,6 +381,114 @@ class QuestIndexTest {
     }
 
     // ------------------------------------------------------------------
+    // An element's gate
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("an element's gate")
+    class ElementGates {
+
+        /** A chapter carrying an element list, with one quest so the file is not otherwise odd. */
+        private static String chapterWithElements(String elements) {
+            return Fixtures.fileWithChapter("\"elements\": " + elements + ",", q("a").build());
+        }
+
+        @Test
+        @DisplayName("a requires that names no quest is an error, with the consequence spelled out")
+        void unresolvedRequiresIsAnError() {
+            // The cross-file half, and the one an author cannot see from the chapter they are editing: the
+            // element may be waiting on a quest in a chapter they have never opened.
+            Problems problems = problemsOf(chapterWithElements(
+                    "[ { \"type\": \"rect\", \"id\": \"box\", \"requires\": \"nowhere\" } ]"));
+
+            assertTrue(problems.hasErrors(), "an element gated on nothing is never drawn:");
+            assertMentions(problems, "no quest with id or alias \"nowhere\" exists");
+            assertMentions(problems, "never drawn");
+            // Reported at the element's own gate rather than at the chapter, because that is where the
+            // author has to go: the chapter-level path would send them looking through the whole object.
+            assertTrue(problems.all().stream()
+                            .anyMatch(problem -> problem.path().contains("elements[0].requires")),
+                    "named at its own path: " + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a near miss suggests the id that was probably meant")
+        void unresolvedRequiresSuggestsANearMiss() {
+            Problems problems = problemsOf(Fixtures.fileWithChapter(
+                    "\"elements\": [ { \"type\": \"rect\", \"id\": \"box\","
+                            + " \"requires\": \"punch_a_tre\" } ],",
+                    q("punch_a_tree").build()));
+
+            assertMentions(problems, "did you mean \"punch_a_tree\"?");
+        }
+
+        @Test
+        @DisplayName("a gate on a quest resolves, by id or by alias")
+        void resolvedRequiresIsClean() {
+            Problems problems = problemsOf(Fixtures.fileWithChapter(
+                    "\"elements\": [ { \"type\": \"rect\", \"id\": \"box\","
+                            + " \"requires\": \"old_name\" } ],",
+                    q("renamed").alias("old_name").build()));
+
+            assertFalse(problems.hasErrors(), "an alias should resolve:" + messages(problems));
+            assertDoesNotMention(problems, "no quest with id or alias");
+        }
+
+        @Test
+        @DisplayName("an element's id is not a quest, so a gate can never find one")
+        void anElementIdIsNotAQuest() {
+            // The trap this check exists for. A converted chapter's element ids are sixteen hex digits,
+            // which is exactly what a converted *quest* id looks like -- so a `requires` that could find an
+            // element would silently point at a decoration, and the element would never be drawn with
+            // nothing anywhere saying why. Only quests resolve.
+            Problems problems = problemsOf(chapterWithElements(
+                    "[ { \"type\": \"rect\", \"id\": \"aaaaaaaaaaaaaaaa\" },"
+                            + " { \"type\": \"text\", \"id\": \"label\", \"text\": \"x\","
+                            + " \"requires\": \"aaaaaaaaaaaaaaaa\" } ]"));
+
+            assertTrue(problems.hasErrors(), "an element is not a quest:");
+            assertMentions(problems, "no quest with id or alias \"aaaaaaaaaaaaaaaa\" exists");
+        }
+
+        @Test
+        @DisplayName("an open_quest whose target does not exist is an error, because the press would do nothing")
+        void anUnresolvableClickTargetIsAnError() {
+            // The same cross-file question as a gate, and the same reason it is answered here: one chapter
+            // cannot see another's quests. Reported at load rather than left to the press, because a press
+            // that does nothing reads as a broken control rather than as a gap in the mod.
+            Problems problems = problemsOf(chapterWithElements(
+                    "[ { \"type\": \"image\", \"id\": \"logo\","
+                            + " \"image\": { \"sprite\": \"minecraft:block/sculk\" },"
+                            + " \"click\": { \"type\": \"open_quest\", \"data\": \"nowhere\" } } ]"));
+
+            assertTrue(problems.hasErrors(), "a press with no target:");
+            assertMentions(problems, "no quest with id or alias \"nowhere\" exists");
+            assertMentions(problems, "pressing this element would do nothing");
+
+            // And a target that does resolve is clean, by id or by alias.
+            Problems clean = problemsOf(Fixtures.fileWithChapter(
+                    "\"elements\": [ { \"type\": \"image\", \"id\": \"logo\","
+                            + " \"image\": { \"sprite\": \"minecraft:block/sculk\" },"
+                            + " \"click\": { \"type\": \"open_quest\", \"data\": \"old_name\" } } ],",
+                    q("renamed").alias("old_name").build()));
+            assertFalse(clean.hasErrors(), messages(clean));
+        }
+
+        @Test
+        @DisplayName("an element is never counted for a chapter's completion, however it is gated")
+        void elementsAreNotProgress() {
+            // The property that lets the editor classify every element edit as cosmetic, and the one a
+            // fifth element type would have to keep: a gate reads a quest's state and changes nothing.
+            Problems problems = problemsOf(chapterWithElements(
+                    "[ { \"type\": \"rect\", \"id\": \"box\", \"requires\": \"a\" } ]"));
+
+            assertFalse(problems.hasErrors(), messages(problems));
+            assertDoesNotMention(problems, "dependsOn");
+            assertDoesNotMention(problems, "completed");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Content smells
     // ------------------------------------------------------------------
 

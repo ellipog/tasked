@@ -538,6 +538,12 @@ public final class QuestValidator {
             }
         }
 
+        // The canvas's elements, checked here rather than with the quest list below, and the placement is
+        // load-bearing: that block returns early for a chapter with no quests, and an element needs
+        // checking whether or not the chapter holds one -- a decorated but questless chapter is a real
+        // state, and the one an author is most likely to be editing while the elements are wrong.
+        checkElements(document, path + ".elements", problems);
+
         if (!document.has(path + ".quests")) {
             problems.warn(document, path, "no \"quests\" - this chapter is empty");
             return;
@@ -1461,6 +1467,427 @@ public final class QuestValidator {
      * <p>Was "missing required field" with no name, which is technically true and practically
      * useless at a line and column pointing into an object with eight fields.
      */
+    // ------------------------------------------------------------------
+    // A chapter's canvas elements
+    // ------------------------------------------------------------------
+
+    /** The element types this build draws, in the order a message should list them. */
+    private static final List<String> ELEMENT_TYPES = List.of(
+            CanvasElement.TYPE_IMAGE, CanvasElement.TYPE_TEXT, CanvasElement.TYPE_LINE,
+            CanvasElement.TYPE_RECT);
+
+    /**
+     * Everything wrong with a chapter's {@code elements}.
+     *
+     * <h2>Why a chapter-level list needs its own walk</h2>
+     *
+     * <p>Because the codec is lenient by design and this is where an author is told what it let through.
+     * The codec clamps an out-of-range number and ignores a field it does not know; a validator that did
+     * neither would leave an author whose box is one pixel wide, or whose {@code fillColour} is spelled
+     * with a {@code u}, with a picture that simply looks wrong and nothing anywhere to read.
+     *
+     * <p>Two of the checks here are ones only a validator can make. <b>An id has to be unique within its
+     * chapter</b>, which is a fact about the file rather than about any one element, and <b>an image must
+     * name exactly one source</b>, which the codec cannot refuse without refusing the whole document. The
+     * rest — a colour, a click this build cannot run, a gate naming nothing — are reported here so the
+     * message has a line rather than a file.
+     */
+    private static void checkElements(JsonDocument document, String path, Problems problems) {
+        if (!document.has(path)) {
+            return;
+        }
+        JsonElement raw = document.get(path).orElse(null);
+        if (raw == null || !raw.isJsonArray()) {
+            problems.error(document, path, "expected a list of elements, found " + Checks.kindOf(raw)
+                    + ". Each entry needs a \"type\", one of " + quoted(ELEMENT_TYPES) + ".");
+            return;
+        }
+        com.google.gson.JsonArray elements = raw.getAsJsonArray();
+        Set<String> ids = new LinkedHashSet<>();
+        for (int i = 0; i < elements.size(); i++) {
+            checkElement(document, path + "[" + i + "]", elements.get(i), ids, problems);
+        }
+    }
+
+    /** One element: its type first, because the type decides which fields are even checkable. */
+    private static void checkElement(JsonDocument document, String at, JsonElement entry,
+                                     Set<String> ids, Problems problems) {
+        if (entry == null || !entry.isJsonObject()) {
+            problems.error(document, at, "expected an element object, found " + Checks.kindOf(entry));
+            return;
+        }
+        JsonObject object = entry.getAsJsonObject();
+
+        JsonElement declared = object.get("type");
+        if (declared == null || !declared.isJsonPrimitive() || !declared.getAsJsonPrimitive().isString()) {
+            problems.error(document, at + ".type", "every element needs a \"type\" string, one of "
+                    + quoted(ELEMENT_TYPES));
+            return;
+        }
+        String type = declared.getAsString();
+
+        Set<String> allowed = CanvasElement.fieldsOf(type);
+        if (allowed.isEmpty()) {
+            // An unknown type is one warning, and the payload is then left alone -- the same treatment an
+            // unknown task type gets, and for the same reason: this build has no idea what those fields
+            // are, so calling every one of them unknown would be a page of noise about a value the author
+            // has already been told about once. See CanvasElement.fieldsOf.
+            problems.warn(document, at + ".type", "unknown element type \"" + type + "\"\n"
+                    + "    the element is kept, draws nothing, and its other fields are not checked"
+                    + "\n    this build draws: " + quoted(ELEMENT_TYPES));
+            return;
+        }
+
+        Checks.rejectUnknown(document, at, allowed, problems);
+        checkElementIdentity(document, at, ids, problems);
+        checkElementRequires(document, at, problems);
+
+        switch (type) {
+            case CanvasElement.TYPE_IMAGE -> checkImageElement(document, at, problems);
+            case CanvasElement.TYPE_TEXT -> checkTextElement(document, at, problems);
+            case CanvasElement.TYPE_LINE -> checkLineElement(document, at, problems);
+            case CanvasElement.TYPE_RECT -> checkRectElement(document, at, problems);
+            default -> {
+                // Unreachable: `fieldsOf` answered for exactly these four, and answered empty for
+                // everything else. Written as a no-op rather than omitted so the compiler keeps saying so.
+            }
+        }
+    }
+
+    /**
+     * An element's id: present, well shaped, and not already used in this chapter.
+     *
+     * <p>The charset is {@link Checks#id}, which is the same rule a quest's id gets — one answer to "what
+     * is an id", rather than two that agree until one of them changes. The uniqueness half is the check
+     * only this walk can make, and it is a hard error rather than a warning: an element's id is what a
+     * translation key, an editor operation and a duplicate report all name it by, so two elements sharing
+     * one is a file in which the second can never be addressed.
+     */
+    private static void checkElementIdentity(JsonDocument document, String at, Set<String> ids,
+                                             Problems problems) {
+        Optional<String> id = Checks.id(document, at + ".id", problems);
+        if (id.isEmpty()) {
+            return;
+        }
+        if (!ids.add(id.get())) {
+            problems.error(document, at + ".id", "two elements in this chapter share the id \"" + id.get()
+                    + "\" - an element's id has to be unique within its chapter, because it is what a"
+                    + " translation key and an edit both name it by");
+        }
+    }
+
+    /** A gate, when there is one: what it names is resolved by the index, which can see every quest. */
+    private static void checkElementRequires(JsonDocument document, String at, Problems problems) {
+        if (!document.has(at + ".requires")) {
+            return;
+        }
+        Checks.optionalString(document, at + ".requires", problems).ifPresent(name -> {
+            if (name.isBlank()) {
+                problems.error(document, at + ".requires", "\"requires\" is a quest's id or alias, and this"
+                        + " one is empty - remove the field to draw the element unconditionally");
+            }
+        });
+    }
+
+    private static void checkImageElement(JsonDocument document, String at, Problems problems) {
+        checkImageSource(document, at + ".image", problems);
+        checkRange(document, at + ".width", CanvasElement.Image.MIN_EDGE, CanvasElement.Image.MAX_EDGE,
+                problems);
+        checkRange(document, at + ".height", CanvasElement.Image.MIN_EDGE, CanvasElement.Image.MAX_EDGE,
+                problems);
+        checkRange(document, at + ".alpha", CanvasElement.Image.MIN_ALPHA, CanvasElement.Image.MAX_ALPHA,
+                problems);
+        // `rotation` is deliberately absent: the codec wraps it, so every whole number is a legal turn and
+        // there is nothing to be out of range. See Codecs.wrappedInt for why wrapping rather than clamping
+        // is the only reading of an angle that is not a lie.
+        checkColour(document, at + ".tint", problems);
+        checkText(document, at + ".title", problems);
+        checkClick(document, at + ".click", problems);
+        checkLabel(document, at + ".label", problems);
+    }
+
+    private static void checkTextElement(JsonDocument document, String at, Problems problems) {
+        requiredText(document, at + ".text", problems);
+        checkDecimalRange(document, at + ".scale", CanvasElement.Text.MIN_SCALE,
+                CanvasElement.Text.MAX_SCALE, problems);
+        checkColour(document, at + ".color", problems);
+        Checks.optionalBool(document, at + ".shadow", problems);
+    }
+
+    private static void checkLineElement(JsonDocument document, String at, Problems problems) {
+        checkRange(document, at + ".width", CanvasElement.Line.MIN_WIDTH, CanvasElement.Line.MAX_WIDTH,
+                problems);
+        checkColour(document, at + ".color", problems);
+        if (document.has(at + ".arrowhead")) {
+            Checks.optionalString(document, at + ".arrowhead", problems)
+                    .ifPresent(name -> checkEnum(document, at + ".arrowhead", name, ArrowEnds.class,
+                            problems));
+        }
+    }
+
+    private static void checkRectElement(JsonDocument document, String at, Problems problems) {
+        checkRange(document, at + ".width", CanvasElement.Rect.MIN_EDGE, CanvasElement.Rect.MAX_EDGE,
+                problems);
+        checkRange(document, at + ".height", CanvasElement.Rect.MIN_EDGE, CanvasElement.Rect.MAX_EDGE,
+                problems);
+        checkRange(document, at + ".borderWidth", CanvasElement.Rect.MIN_BORDER,
+                CanvasElement.Rect.MAX_BORDER, problems);
+        checkColour(document, at + ".fillColor", problems);
+        checkColour(document, at + ".borderColor", problems);
+    }
+
+    /**
+     * The two arms of a picture's source, and the one thing the codec cannot say: exactly one of them.
+     *
+     * <p>{@code ImageSource.CODEC} reads the file arm first, so an object carrying both would quietly lose
+     * its sprite — the ordinary leniency of a loader that must load. This is the half that can attach a
+     * message to it, and it names both keys rather than guessing which one was meant.
+     */
+    private static void checkImageSource(JsonDocument document, String at, Problems problems) {
+        JsonElement element = document.get(at).orElse(null);
+        if (element == null) {
+            problems.error(document, at, "an image needs a source: { \"texture\": \"ns:textures/x.png\" }"
+                    + " for a file, or { \"sprite\": \"ns:block/x\" } for a region of the block atlas");
+            return;
+        }
+        if (!element.isJsonObject()) {
+            problems.error(document, at, "expected { \"texture\": ... } or { \"sprite\": ... }, found "
+                    + Checks.kindOf(element));
+            return;
+        }
+        JsonObject source = element.getAsJsonObject();
+        Checks.rejectUnknown(document, at, ImageSource.FIELDS, problems);
+
+        boolean texture = source.has("texture");
+        boolean sprite = source.has("sprite");
+        if (texture && sprite) {
+            problems.error(document, at, "this image names both a \"texture\" and a \"sprite\" - a file and"
+                    + " a region of an atlas are different lookups, so keep the one it draws from");
+        }
+        else if (!texture && !sprite) {
+            problems.error(document, at, "an image needs a source: \"texture\" for a file, or \"sprite\" for"
+                    + " a region of the block atlas");
+        }
+        if (texture) {
+            checkResourceId(document, at + ".texture", problems);
+        }
+        if (sprite) {
+            // Not checked against the atlas, and that is a boundary rather than an omission: which sprites
+            // exist is a client's resource set, and this validator runs on a dedicated server that has no
+            // sheets at all. An id the atlas does not hold draws the game's missing-texture marker, which
+            // is the report an author gets -- in the game, on the picture, where it is unmissable.
+            checkResourceId(document, at + ".sprite", problems);
+        }
+    }
+
+    /** How an image's title is painted, when it says. */
+    private static void checkLabel(JsonDocument document, String at, Problems problems) {
+        JsonElement element = document.get(at).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonObject()) {
+            problems.error(document, at, "expected an object of label properties, found "
+                    + Checks.kindOf(element));
+            return;
+        }
+        Checks.rejectUnknown(document, at, ElementLabel.FIELDS, problems);
+        Checks.optionalBool(document, at + ".onImage", problems);
+        Checks.optionalBool(document, at + ".shadow", problems);
+        checkDecimalRange(document, at + ".inset", ElementLabel.MIN_INSET, ElementLabel.MAX_INSET, problems);
+        for (String axis : new String[] {"hAlign", "vAlign"}) {
+            if (document.has(at + "." + axis)) {
+                Checks.optionalString(document, at + "." + axis, problems)
+                        .ifPresent(name -> checkEnum(document, at + "." + axis, name,
+                                ElementLabel.TextAlign.class, problems));
+            }
+        }
+    }
+
+    /**
+     * What pressing an element does, including the four actions this build refuses.
+     *
+     * <p>Refusing them is the whole reason all seven names are readable. A converted pack that clicks
+     * through to a guide page would otherwise keep a field that does nothing at all, and a click that does
+     * nothing reads as a bug in this mod rather than as a gap in it. An error here costs the author the
+     * chapter until they change or remove the action — which is the trade T6 of the migration plan chose
+     * deliberately, and the reason the conversion tool gates on it.
+     */
+    private static void checkClick(JsonDocument document, String at, Problems problems) {
+        JsonElement element = document.get(at).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonObject()) {
+            problems.error(document, at, "expected { \"type\": ..., \"data\": ... }, found "
+                    + Checks.kindOf(element));
+            return;
+        }
+        JsonObject click = element.getAsJsonObject();
+        Checks.rejectUnknown(document, at, ClickAction.FIELDS, problems);
+
+        Optional<String> declared = Checks.optionalString(document, at + ".type", problems);
+        if (declared.isEmpty()) {
+            // Absent, or not a string -- and either way nothing more can be said about the action.
+            return;
+        }
+        String lowered = declared.get().toLowerCase(java.util.Locale.ROOT);
+        if (click.has("type")) {
+            checkEnum(document, at + ".type", declared.get(), ClickAction.Type.class, problems);
+        }
+        ClickAction.Type type = null;
+        for (ClickAction.Type candidate : ClickAction.Type.values()) {
+            if (candidate.name().toLowerCase(java.util.Locale.ROOT).equals(lowered)) {
+                type = candidate;
+            }
+        }
+        if (type == null) {
+            // `checkEnum` has already listed the names there are, so adding a second message here would
+            // be two reports of one mistake.
+            return;
+        }
+        if (!type.supported()) {
+            problems.error(document, at + ".type", "\"" + lowered + "\" is a click this build cannot run,"
+                    + " so the element would look pressable and do nothing - it can run "
+                    + quoted(supportedClicks()) + ". Change the action, or remove the field.");
+            return;
+        }
+
+        String data = Checks.optionalString(document, at + ".data", problems).orElse("");
+        switch (type) {
+            case OPEN_QUEST -> {
+                if (data.isBlank()) {
+                    problems.error(document, at + ".data", "open_quest needs a quest id or alias to open");
+                }
+            }
+            case OPEN_URI -> checkUri(document, at + ".data", data, problems);
+            default -> {
+                // NONE carries no data, and the four that do have already been refused above.
+            }
+        }
+    }
+
+    /**
+     * A URL, by the same rule the client opens one with.
+     *
+     * <p>Mirrored rather than approximated, and the reason is the failure it prevents: a validator that
+     * accepted a scheme the opener refuses would let an author ship a link that passes every check and
+     * then says "only http and https links open" when a player presses it. So the parse and the scheme test
+     * are the same two steps {@code QuestBookScreen.openLink} takes, in the same order — a malformed
+     * address is refused as malformed rather than as a wrong scheme.
+     */
+    private static void checkUri(JsonDocument document, String path, String url, Problems problems) {
+        if (url.isBlank()) {
+            problems.error(document, path, "open_uri needs a URL");
+            return;
+        }
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(url);
+        }
+        catch (IllegalArgumentException malformed) {
+            problems.error(document, path, "\"" + url + "\" is not a valid address: "
+                    + malformed.getMessage());
+            return;
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https")) {
+            problems.error(document, path, "open_uri opens http and https addresses only, and this one is"
+                    + (scheme.isEmpty() ? " not an address with a scheme at all" : " \"" + scheme + "\""));
+        }
+    }
+
+    /** The click types this build can run, for a message. Read from the enum, so the list cannot go stale. */
+    private static List<String> supportedClicks() {
+        return java.util.Arrays.stream(ClickAction.Type.values())
+                .filter(ClickAction.Type::supported)
+                .map(type -> type.name().toLowerCase(java.util.Locale.ROOT))
+                .toList();
+    }
+
+    /** A namespaced id in this game's spelling, which the codec would refuse the whole file over. */
+    private static void checkResourceId(JsonDocument document, String path, Problems problems) {
+        Optional<String> value = Checks.optionalString(document, path, problems);
+        if (value.isEmpty()) {
+            return;
+        }
+        if (ResourceLocation.tryParse(value.get()) == null) {
+            problems.error(document, path, "\"" + value.get() + "\" is not an id this game can resolve -"
+                    + " write namespace:path in lowercase, e.g. minecraft:textures/gui/star.png for a file"
+                    + " or minecraft:block/sculk for a sprite");
+        }
+    }
+
+    /**
+     * A colour, which is a hex string or a number.
+     *
+     * <p>The string arm is the one that can be wrong in a way nobody notices — {@code #A0A0A} is one digit
+     * short, and a fill with no colour is invisible rather than obviously broken — so it is checked here
+     * while the number arm is taken as read. {@link Argb} holds the vocabulary and the sentence, so what an
+     * author is told here is what the codec's own message would have said.
+     */
+    private static void checkColour(JsonDocument document, String path, Problems problems) {
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null) {
+            return;
+        }
+        if (!element.isJsonPrimitive()) {
+            problems.error(document, path, "expected a colour, found " + Checks.kindOf(element) + " - "
+                    + Argb.spellings());
+            return;
+        }
+        if (element.getAsJsonPrimitive().isString()) {
+            String text = element.getAsString();
+            if (Argb.parseHex(text).isEmpty()) {
+                problems.error(document, path, "\"" + text + "\" is not a colour - " + Argb.spellings());
+            }
+            return;
+        }
+        if (!element.getAsJsonPrimitive().isNumber()) {
+            problems.error(document, path, "expected a colour, found " + Checks.kindOf(element) + " - "
+                    + Argb.spellings());
+        }
+    }
+
+    /**
+     * A whole number that has to sit between two bounds, reported rather than clamped.
+     *
+     * <p>The two halves work together, and this is the arrangement {@code minRequired} already has: the
+     * <b>codec clamps</b>, so a document written for a build with wider bounds still loads and still draws
+     * something rather than being refused wholesale; and the <b>validator reports</b>, so an author writing
+     * for this build is told that their number was not the one that was read. Clamping alone would be
+     * silent, and refusing alone would cost the file.
+     */
+    private static void checkRange(JsonDocument document, String path, int min, int max, Problems problems) {
+        if (!document.has(path)) {
+            return;
+        }
+        Checks.optionalInt(document, path, problems).ifPresent(value -> {
+            if (value < min || value > max) {
+                problems.error(document, path, "must be between " + min + " and " + max + ", found "
+                        + value);
+            }
+        });
+    }
+
+    /** The same, for a fraction. See {@link #checkRange}. */
+    private static void checkDecimalRange(JsonDocument document, String path, double min, double max,
+                                          Problems problems) {
+        if (!document.has(path)) {
+            return;
+        }
+        JsonElement element = document.get(path).orElse(null);
+        if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isNumber()) {
+            // Reported by whatever reads it as a number; saying so twice would be two messages for one
+            // mistake, which is the shape of report an author learns to skim.
+            return;
+        }
+        double value = element.getAsDouble();
+        if (value < min || value > max) {
+            problems.error(document, path, "must be between " + min + " and " + max + ", found " + value);
+        }
+    }
+
     private static void requiredText(JsonDocument document, String path, Problems problems) {
         if (!document.has(path)) {
             problems.error(document, path, "missing required field " + Checks.nameOf(path));

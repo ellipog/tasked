@@ -11,6 +11,7 @@ import dev.ellipog.tenet.progress.ProgressionEngine;
 import dev.ellipog.tenet.progress.QuestProgress;
 import dev.ellipog.tenet.progress.QuestState;
 import dev.ellipog.tenet.progress.TeamProgress;
+import dev.ellipog.tenet.quest.CanvasElement;
 import dev.ellipog.tenet.quest.DependencyStyle;
 import dev.ellipog.tenet.quest.Fixtures;
 import dev.ellipog.tenet.quest.MinecraftTestBootstrap;
@@ -40,6 +41,7 @@ import java.util.UUID;
 import static dev.ellipog.tenet.quest.Fixtures.q;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1019,9 +1021,106 @@ class QuestSyncTest {
         }
 
         @Test
+        @DisplayName("the version a chapter's elements arrived at is pinned, so bumping it is a decision")
+        void theElementVersionIsPinned() {
+            // Deliberately a literal rather than `QuestSync.TREE_VERSION` on both sides, which is how the
+            // case above is written and why it could not notice this feature: a reader importing the
+            // writer's constant is right for the *reader*, and a test that does the same is comparing a
+            // number with itself. This is the one place the number is written down twice on purpose.
+            assertEquals(14, QuestSync.TREE_VERSION,
+                    "version 14 added a chapter's canvas elements to chapters[]. Bumping this is a "
+                            + "deliberate break rather than a side effect of an edit -- see the ledger in "
+                            + "QuestSync for what each version added.");
+        }
+
+        @Test
+        @DisplayName("a chapter's elements travel, in the order the file wrote them")
+        void chapterElementsTravel() {
+            // The tree carries the elements rather than a summary of them, and carries them in
+            // **declaration** order rather than in draw order. That is deliberate: the file's order is what
+            // breaks a tie between two elements with one `order`, so it is a fact the server has and the
+            // client needs, and sorting it on the wire would throw away the only tie-break there is.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"elements\": [ { \"type\": \"text\", \"id\": \"label\", \"order\": 2,"
+                            + " \"text\": { \"translate\": \"element.label.text\","
+                            + " \"fallback\": \"Chapter 1\" }, \"scale\": 1.5 },"
+                            + " { \"type\": \"rect\", \"id\": \"box\", \"order\": 1,"
+                            + " \"width\": 64, \"height\": 64, \"fillColor\": \"#40101018\" } ],",
+                    q("a").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject chapter = root.getAsJsonArray("chapters").get(0).getAsJsonObject();
+            JsonArray elements = chapter.getAsJsonArray("elements");
+            assertNotNull(elements, "a chapter with elements has to send them");
+            assertEquals(2, elements.size());
+
+            JsonObject label = elements.get(0).getAsJsonObject();
+            assertEquals("text", label.get("type").getAsString());
+            assertEquals("label", label.get("id").getAsString());
+            assertEquals(2, label.get("order").getAsInt());
+            // A translatable text travels as the object a *file* writes, which is the one place this wire
+            // does not use the `<name>`/`<name>Fallback` pair: the element's own codec writes it, so a field
+            // added to an arm arrives without anybody remembering to send it. The client decodes it back
+            // into the same QuestText, so nothing downstream can tell the difference.
+            JsonObject text = label.getAsJsonObject("text");
+            assertEquals("element.label.text", text.get("translate").getAsString());
+            assertEquals("Chapter 1", text.get("fallback").getAsString());
+            assertEquals(1.5, label.get("scale").getAsDouble());
+            assertEquals("rect", elements.get(1).getAsJsonObject().get("type").getAsString(),
+                    "and the second is where the file put it, not where it draws");
+
+            // And the reader holds them, sorted into draw order -- the one thing the tree does not do.
+            send(index);
+            List<CanvasElement> held = ClientQuestCache.elements("chapter");
+            assertEquals(2, held.size());
+            assertEquals("box", held.get(0).id(), "order 1 draws before order 2");
+            assertEquals("label", held.get(1).id());
+            assertEquals(1.5, assertInstanceOf(CanvasElement.Text.class, held.get(1)).scale(),
+                    "and the fields survived the trip");
+        }
+
+        @Test
+        @DisplayName("a chapter with no elements sends no key at all, and reads as a plain canvas")
+        void aChapterWithNoElementsSendsNothing() {
+            // Absence is the ordinary case and it is the same reading an older server gets: a canvas with
+            // nothing drawn on it. A key per chapter saying "nothing here" would be the largest thing in a
+            // tree of sixty-six chapters, which is why it is sent only when there is something to say.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            assertFalse(root.getAsJsonArray("chapters").get(0).getAsJsonObject().has("elements"),
+                    "an empty list is sent as nothing rather than as an empty array");
+
+            // A version-13 tree, which is what a server without this feature sends: the client draws the
+            // chapter with no decoration rather than refusing the tree. That is the whole additive promise.
+            send(index);
+            assertTrue(ClientQuestCache.elements("chapter").isEmpty());
+            assertEquals(1, ClientQuestCache.chapters().size(), "and the chapter itself is still there");
+        }
+
+        @Test
+        @DisplayName("clearing the cache forgets a chapter's elements, like everything else about a server")
+        void clearingForgetsElements() {
+            // A clear is a change of server or of world, and a decoration describes the pack it came from
+            // as surely as a chapter does. Leaving it would draw the last world's labels over the next
+            // one's canvas -- which reads as a pack that shipped somebody else's chapter art.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"elements\": [ { \"type\": \"rect\", \"id\": \"box\" } ],", q("a").build()));
+
+            send(index);
+            assertEquals(1, ClientQuestCache.elements("chapter").size(), "the fixture has to hold one");
+
+            ClientQuestCache.clear();
+            assertTrue(ClientQuestCache.elements("chapter").isEmpty(), "a clear forgets them");
+            assertTrue(ClientQuestCache.elements("anything").isEmpty(),
+                    "and an unknown chapter is empty rather than null, before and after a clear");
+        }
+
+        @Test
         @DisplayName("a chapter that authored no icon sends an empty id, and the client draws nothing")
-        void anUnauthoredChapterIconTravelsAsAbsent() {
-            // The end-to-end property, and the one that was missing: the codec's "absent is the default
+        void anUnauthoredChapterIconTravelsAsAbsent() {            // The end-to-end property, and the one that was missing: the codec's "absent is the default
             // instance" behaviour was asserted in QuestManifestTest, but nothing asserted that
             // `QuestSync` *acts* on it. A chapter that declares no icon must reach the client as absent
             // rather than as the model's paper default -- a paper item at eighteen pixels reads as a

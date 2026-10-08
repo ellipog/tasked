@@ -630,6 +630,18 @@ public final class ToolsLayout {
             return new Action(key, label, null, Kind.CHIP, null, null);
         }
 
+        /**
+         * The same, carrying the colour it draws.
+         *
+         * <p>A chip's colour is a theme token by default -- that is what the theme editor's swatches are -- but
+         * an element's fill is a colour in a <i>file</i>, and the control an author already knows for a colour
+         * is this one. The value is that colour in the same spelling the file holds, so the chip and the field
+         * cannot disagree about it.
+         */
+        public static Action chip(String key, String label, String value) {
+            return new Action(key, label, null, Kind.CHIP, null, value);
+        }
+
         public boolean hasButton() {
             return kind == Kind.SWITCH && buttonLabel != null;
         }
@@ -671,6 +683,55 @@ public final class ToolsLayout {
         Objects.requireNonNull(row, "row");
         int width = Math.min(132, Math.max(0, row.width() - LABEL_ROOM));
         return BookGeometry.Rect.at(row.right() - width, row.y(), width, row.height());
+    }
+
+    /**
+     * The same chip, in the composition the row was built in.
+     *
+     * <h2>Why a chip needs to know about stacking at all</h2>
+     *
+     * <p>Because a stacked row is <b>two bands</b> -- a label's and its control's -- and {@link #chip} was
+     * written for the one-band composition it started in. Handed the whole stacked row it drew a chip three
+     * times the height of every other control in the list, with the label centred down it: the report was
+     * *"colour thing is way too tall"*, and the arithmetic to blame was this rectangle being asked for the
+     * row rather than for the band the chip belongs in.
+     *
+     * <p>It returns a rectangle rather than a slot because that is what {@link #chip} answers, and it is
+     * x/y-relative, so the same call serves a row in content coordinates and the same row on screen. The
+     * drawing and the press both ask <b>here</b>, which is the whole reason this class owns the derivation:
+     * a chip painted on one band and hit-tested on another is the fault it exists to prevent.
+     *
+     * @param row  the row's own slot, in whichever space the caller is working in
+     * @param mode how the list composed its rows. See {@link #stack(List, InspectLayout.Mode)}
+     */
+    public static BookGeometry.Rect chipOf(Slot row, InspectLayout.Mode mode) {
+        return chip(controlBandOf(row, mode));
+    }
+
+    /**
+     * Where a row's own control goes, in the composition that row was built in.
+     *
+     * <h2>One answer, for every control a stacked row moves</h2>
+     *
+     * <p>Side by side a row <i>is</i> its control's band -- the label keeps {@link #LABEL_ROOM} of the same
+     * line -- so the row's own slot is the answer. Stacked, the label has a band of its own and the control
+     * sits in the band under it, which is what {@link InspectLayout#controlBand} hands out. That is the same
+     * call the widget placement makes, so a control the screen places and a control the panel draws cannot
+     * land in different bands -- the fault the chip's own note records.
+     *
+     * <h2>Who asks</h2>
+     *
+     * <p>The chip, for the rectangle it paints in; and the chooser, for the field a menu opens under: a menu
+     * anchored to the <i>row</i> rather than to the band would hang below a stacked field's label and over
+     * the control under it.
+     *
+     * @param row  the row's own slot, in whichever space the caller is working in
+     * @param mode how the list composed its rows
+     */
+    public static Slot controlBandOf(Slot row, InspectLayout.Mode mode) {
+        Objects.requireNonNull(row, "row");
+        Objects.requireNonNull(mode, "mode");
+        return mode == InspectLayout.Mode.STACKED ? InspectLayout.controlBand(row) : row;
     }
 
     /** Between the two halves of a pair row, so their boxes do not touch. */
@@ -1111,6 +1172,46 @@ public final class ToolsLayout {
     /** How wide a switch's button is, and its inset from the row's right edge. */
     public static final int STRIP_WIDTH = 40;
     public static final int STRIP_INSET = 2;
+
+    /**
+     * How wide a switch is, from {@code ArmatureSwitch}: a compile-time constant, so this stays game-free.
+     *
+     * <p>The same figure {@code PartyPanelLayout.SWITCH_WIDTH} states and for the same reason: the toolkit's
+     * switch has a width of its own (<b>22</b>, narrower than a button on purpose -- "the state is the shape,
+     * not a word"), and a row that placed it in a strip sized for a 40-pixel button stretched it. That is
+     * what *"switches look horrible"* was: one panel-wide track with a knob in the corner.
+     */
+    public static final int SWITCH_WIDTH = 22;
+
+    /**
+     * Where a switch goes: its own width, against the column's right edge, in either composition.
+     *
+     * <h2>What this is for, and what it replaces</h2>
+     *
+     * <p>A switch is a state you read before you read its label ({@code ArmatureSwitch}'s own argument for
+     * existing over a button), so it belongs at the end of its row, in the column the rest of the controls
+     * share -- the shape {@code PartyPanelLayout.controlSlots} already gives the party's two settings. The
+     * flag rows drew On/Off <i>buttons</i> instead, and the word is where that went wrong twice: a row whose
+     * state was read from the wrong field said "Off" for ever, and a state that is a word has to be looked up
+     * rather than seen.
+     *
+     * <p>Side by side the room is the gap the row's insets reserved ({@link #strip}, which fills it for a
+     * 40-pixel button); stacked it is the control's own band. Either way the switch is the room's right end,
+     * so a column of switches shares one right edge with every other control in the same list.
+     *
+     * @param row  the row's own slot, in whichever space the caller is working in
+     * @param mode how the list composed its rows. See {@link #stack(List, InspectLayout.Mode)}
+     */
+    public static Slot switchSlot(Slot row, InspectLayout.Mode mode) {
+        Objects.requireNonNull(row, "row");
+        Objects.requireNonNull(mode, "mode");
+        // The room the row reserved for a control of its own: the gap beside a side-by-side row, the band
+        // under a stacked label. Then the switch takes that room's right end, so a column of switches shares
+        // one right edge with a column of strip-width buttons without either knowing about the other.
+        Slot home = mode == InspectLayout.Mode.STACKED ? InspectLayout.controlBand(row) : strip(row);
+        int width = Math.min(SWITCH_WIDTH, Math.max(0, home.width()));
+        return new Slot(row.key(), home.right() - width, home.y(), width, home.height());
+    }
 
     private static Insets stripRoom() {
         return new Insets(0, 0, STRIP_WIDTH + STRIP_INSET * 2, 0);

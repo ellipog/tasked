@@ -126,6 +126,22 @@ public enum PanelKind {
     ASSETS,
 
     /**
+     * One canvas element, open for editing: what a click on a decoration opens.
+     *
+     * <h2>Why this is its own panel rather than a page of the Chapter tab</h2>
+     *
+     * <p>Because the thing being edited is <i>on the canvas the author is looking at</i>, and the gesture
+     * that chooses it is a click on it. Sending an author to a dock tab to edit what they just clicked is two
+     * gestures and a lost selection; this is one, and the canvas stays behind the panel the whole time — which
+     * is the point, because every field it changes is visible there.
+     *
+     * <p>It is a <b>root</b> rather than a child, exactly as {@link #QUEST} is: it is what a click opens, so it
+     * takes the first column. What it opens in turn — the texture picker, when the field is a picture's file —
+     * is a child and sits in the second, which is the arrangement {@code PanelStack} already describes.
+     */
+    ELEMENT,
+
+    /**
      * The author's own dock: the Book and Chapter tabs, over the canvas.
      *
      * <h2>Why it is a kind at all, when it is not a panel you open</h2>

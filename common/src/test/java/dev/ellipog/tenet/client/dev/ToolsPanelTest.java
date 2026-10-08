@@ -59,6 +59,61 @@ class ToolsPanelTest {
 
 
     @Test
+    @DisplayName("stacked, a colour chip is drawn in the control band and its name in the label's")
+    void aStackedChipKeepsItsOwnBand() {
+        // The report was a screenshot: a colour row three times the height of its neighbours, its swatch and
+        // its hex stretched down the whole of it. What that was is the chip asked for the stacked *row* rather
+        // than for the band under the label -- so the two assertions here are the pair that says which band
+        // each half belongs in, and the height, which is the thing a reader saw.
+        List<ToolsLayout.Action> rows = List.of(
+                ToolsLayout.Action.chip("element.logo.tint", "Tint", "#FF336699"));
+        BookGeometry.Rect listRect = BookGeometry.Rect.at(10, 20, 300, 200);
+        Viewport list = Viewport.fixed().bounds(listRect.x(), listRect.y(), listRect.width(),
+                listRect.height());
+        Layout layout = ToolsLayout.build(rows, listRect.width(), MEASURE, InspectLayout.Mode.STACKED);
+        RecordingRenderer r = new RecordingRenderer();
+
+        ToolsPanel.drawRows(r, listRect, list, layout, rows, state(CanvasBackground.NONE, 51), 0, 0,
+                InspectLayout.Mode.STACKED);
+
+        Slot slot = layout.slot("element.logo.tint");
+        Slot band = InspectLayout.controlBand(slot);
+        Slot label = InspectLayout.labelBand(slot);
+        Slot bandOnScreen = onScreen(listRect, band);
+        Slot labelOnScreen = onScreen(listRect, label);
+
+        // The swatch is the row's own colour, drawn inside the control's band and no taller than it.
+        assertTrue(r.fills().stream().anyMatch(fill -> fill.argb() == 0xFF336699
+                        && fill.left() >= bandOnScreen.x() && fill.right() <= bandOnScreen.right()
+                        && fill.top() >= bandOnScreen.y() && fill.bottom() <= bandOnScreen.bottom()),
+                () -> "the chip's swatch is not drawn inside its band: " + r.describe());
+        assertTrue(r.wroteWithin("#336699", bandOnScreen.x(), bandOnScreen.y(), bandOnScreen.right(),
+                        bandOnScreen.bottom()),
+                () -> "the hex is not in the control band: " + r.describe());
+        // **And nothing of the chip reaches the label's band.** A chip that still took the whole row would
+        // draw its swatch up there, which is exactly what the screenshot showed.
+        assertFalse(r.fills().stream().anyMatch(fill -> fill.argb() == 0xFF336699
+                        && fill.top() < bandOnScreen.y()),
+                () -> "the chip is drawn up into the label's band: " + r.describe());
+        // The name is the label band's, whole, rather than centred down a three-band row.
+        assertTrue(r.wroteWithin("Tint", labelOnScreen.x(), labelOnScreen.y(), labelOnScreen.right(),
+                        labelOnScreen.bottom()),
+                () -> "the chip's name is not in the label band: " + r.describe());
+        // Read from the lines directly rather than through `wroteWithin`, whose top edge carries eight pixels
+        // of slack for a baseline: that slack would reach up into the label's band and make this assertion
+        // pass or fail on where the two bands meet rather than on which one the name was drawn in.
+        assertTrue(r.texts().stream().noneMatch(drawn -> drawn.text().equals("Tint")
+                        && drawn.y() >= bandOnScreen.y()),
+                () -> "and it is not drawn again down in the control band: " + r.describe());
+    }
+
+    /** A content slot as the drawing maps it: the list's own rectangle through the viewport it is drawn in. */
+    private static Slot onScreen(BookGeometry.Rect listRect, Slot slot) {
+        return new Slot(slot.key(), listRect.x() + slot.x(), listRect.y() + slot.y(), slot.width(),
+                slot.height());
+    }
+
+    @Test
     @DisplayName("every row of the list is drawn as something, whatever its kind")
     void noRowIsDrawnAsNothing() {
         // The general shape of the fault, rather than the one row it happened to: a kind with no branch, or a

@@ -114,6 +114,39 @@ public final class Advanced {
      */
     private static final Set<String> SECTION_KEYS = Set.of("tables");
 
+    /**
+     * A canvas element's own field, by the name its rows are keyed with.
+     *
+     * <h2>Why this is a fourth vocabulary and not an entry in one of the three above</h2>
+     *
+     * <p>Because a name here means something different from the same name there, and one of them collides
+     * today: {@code rotation} is a <b>quest settings row</b> — how far a node is turned — and it is also an
+     * image's own angle. Putting it in {@code ROW_KEYS} would hide a picture's rotation whenever it hid a
+     * quest's, which is a control disappearing from a panel nobody asked about — the exact fault the class
+     * comment gives as the reason each panel gets its own set.
+     *
+     * <p>The cut is the same rule the other three state: what an element <b>is</b> is basic — its words, its
+     * colour, its picture, its box, which way a line points — and what qualifies it is Advanced: where it
+     * sits in the draw order, whether it is turned or dimmed or tinted, whether it is a draft, what it waits
+     * for, and what pressing it does.
+     */
+    private static final Set<String> ELEMENT_KEYS = Set.of(
+            // Where it sits, and how it is drawn rather than what it is. **Not its `x` and `y`**: where an
+            // element is is the most basic fact about it -- the quest settings page's own X and Y rows are
+            // basic for the same reason -- and the drag is the fast way to change it, not the only way.
+            "order", "rotation", "corner", "tint", "alpha",
+            // Whether a reader sees it at all, and what it waits for.
+            "dev", "requires",
+            // A refinement of the border an author already gave the box.
+            "borderWidth",
+            // The words painted into a picture, and every property of them the form offers -- the inset and
+            // the shadow included, which the worked example in `tools/quests` sets and which this round gave
+            // rows at last. `image.texture` is deliberately absent: choosing the file is what a picture *is*,
+            // so its picker is basic.
+            "title", "label.onImage", "label.shadow", "label.inset", "label.hAlign", "label.vAlign",
+            // And what a press does, which is the one field here that is about behaviour rather than looks.
+            "click.type", "click.data");
+
     private Advanced() {
     }
 
@@ -203,6 +236,17 @@ public final class Advanced {
         return name == null || on() || !SECTION_KEYS.contains(name.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * Whether one of the Chapter tab's element rows is hidden at this depth.
+     *
+     * <p>The key is the field name alone rather than the row's whole key, because the row's key carries the
+     * element's id — {@code element.box.rotation} — and the id is the one part of it that has nothing to do
+     * with the depth. See {@link #ELEMENT_KEYS} for why the answer is its own set.
+     */
+    public static boolean hidesElement(String field) {
+        return !on() && field != null && ELEMENT_KEYS.contains(field);
+    }
+
     // ------------------------------------------------------------------
     // What the cut is, for the test that keeps it honest
     // ------------------------------------------------------------------
@@ -220,5 +264,10 @@ public final class Advanced {
     /** Every Assets section this depth hides, in the lower-case spelling {@link #showsSection} reads. */
     public static Set<String> hiddenSections() {
         return SECTION_KEYS;
+    }
+
+    /** Every canvas element field this depth hides, by the name {@link #hidesElement} reads. */
+    public static Set<String> elementKeys() {
+        return ELEMENT_KEYS;
     }
 }

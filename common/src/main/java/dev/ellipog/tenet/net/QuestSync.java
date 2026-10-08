@@ -11,6 +11,7 @@ import dev.ellipog.tenet.progress.QuestClaims;
 import dev.ellipog.tenet.progress.QuestProgress;
 import dev.ellipog.tenet.progress.QuestState;
 import dev.ellipog.tenet.progress.TeamProgress;
+import dev.ellipog.tenet.quest.CanvasElement;
 import dev.ellipog.tenet.quest.Chapter;
 import dev.ellipog.tenet.quest.ChapterGroup;
 import dev.ellipog.tenet.quest.ItemRef;
@@ -214,6 +215,14 @@ public final class QuestSync {
      * is broadcast and fifteen locales are not fifteen copies of the same questline. See
      * {@code LocaleSyncPayload}.
      *
+     * <p>Version 14 added each chapter's canvas <b>{@code elements}</b> — the pictures, labels, lines and
+     * boxes it draws behind its quests — to {@code chapters[]}, and only for a chapter that has any. The
+     * same additive kind as every bump before it: a version-13 reader ignores the array and draws a
+     * chapter with no decoration, which is a plainer picture rather than a wrong one. What is
+     * deliberately <b>not</b> here is anything about an element's <i>state</i>, and the reason is the
+     * whole design of the feature rather than a saving: an element holds no progress and gates nothing, so
+     * there is no per-player fact about one to send and nothing for the progress channel to carry.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -239,7 +248,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 13;
+    public static final int TREE_VERSION = 14;
 
     /**
      * The quest tree, as JSON.
@@ -353,6 +362,26 @@ public final class QuestSync {
             // `completesWhen` deliberately does not cross. What a reader draws is the chapter's state, and
             // the milestone list is the author's own account of how that state is reached -- the chapter
             // tab reads it from the file replica, which is where every other authoring field comes from.
+            //
+            // And the canvas's decoration, since version 14 -- pictures, labels, lines and boxes, which is
+            // what a chapter draws behind its quests. **Only when the chapter has any**: most chapters have
+            // none, and a key per chapter saying "nothing here" would be the largest thing in the tree.
+            //
+            // What travels is each element's own object, written by its own codec rather than by hand --
+            // the one place in this file that does not spell out what it sends. That is deliberate: an
+            // element has fifteen fields across four arms, and a hand-written writer here would be a second
+            // description of the format that the next field added would silently outgrow. The cost is that
+            // a translatable text travels as the object a *file* writes (`{translate, fallback}`) rather
+            // than as the `<name>`/`<name>Fallback` pair this file uses for a chapter's own fields. Nothing
+            // downstream can tell: the client decodes the element back into the same `QuestText` and
+            // resolves it when it draws, which is where every other piece of text is resolved too.
+            if (!chapter.elements().isEmpty()) {
+                JsonArray elements = new JsonArray();
+                for (CanvasElement element : chapter.elements()) {
+                    elements.add(CanvasElement.asJson(element));
+                }
+                one.add("elements", elements);
+            }
             chapters.add(one);
         }
 

@@ -1316,6 +1316,14 @@ public final class QuestStructure {
      * naming the originals would be two roads that both follow the other pack's chapters instead of one
      * self-contained copy. {@code completesWhen} is remapped through {@code reIds} for the same reason a
      * quest's {@code dependsOn} is: a milestone inside the copy is a copy, not the original.
+     *
+     * <p><b>{@code elements} travels untouched and needs no remapping</b>, which is worth saying rather than
+     * leaving to be discovered: this is the one chapter-level list whose members are not references into the
+     * tree. A copy's decorations are the original's decorations, and the two names they do carry — an
+     * element's own id, and a {@code requires} or {@code click.data} naming a quest — are either local to the
+     * chapter or quests the copy deliberately still points at, exactly like {@code dependsOn} above. The ids
+     * are not re-issued because nothing outside this chapter addresses an element: no other file, no
+     * progress record, and no translation key that a second chapter would not want to share.
      */
     private static String copiedChapterJson(Path folder, String newId, String newTitle, List<String> quests,
                                             List<ReId> reIds, List<Rename> chapterRenames) {

@@ -142,6 +142,14 @@ class EditorOpsTest {
         roundTrip(editor, new EditorOp.Remove("one", "tasks", 0));
         roundTrip(editor, new EditorOp.MoveEntry("one", "tasks", 0, 1));
         roundTrip(editor, new EditorOp.SetChapter("icon", icon));
+        // The canvas elements, whose payload is a whole tree rather than a value: an element is fifteen
+        // fields across four arms, and the one thing a round trip has to prove is that the tree survives
+        // **whole** -- an id and a value read back is not enough, because the fields this build does not know
+        // are the ones a reconstruction would drop.
+        roundTrip(editor, new EditorOp.InsertElement(0, elementTree()));
+        roundTrip(editor, new EditorOp.RemoveElement("box"));
+        roundTrip(editor, new EditorOp.SetElement("box", "width", new JsonPrimitive(96)));
+        roundTrip(editor, new EditorOp.SetElement("box", "fillColor", JsonNull.INSTANCE));
         roundTrip(editor, new EditorOp.SetGroup("icon", icon));
         roundTrip(editor, new EditorOp.SetIndex("bookTitle", new JsonPrimitive("The Orrery Ledger")));
         roundTrip(editor, new EditorOp.SetIndex("bookIcon", JsonNull.INSTANCE));
@@ -180,6 +188,28 @@ class EditorOpsTest {
         JsonArray description = new JsonArray();
         description.add("kept, not understood");
         tree.add("description", description);
+        return tree;
+    }
+
+    /**
+     * A canvas element's tree, with a field this build does not read.
+     *
+     * <p>That extra field is the point of the fixture: an element's tree crosses the wire whole for the same
+     * reason a pasted quest's does, and a round trip that only proved the fields this build knows would not
+     * notice a codec that reconstructed the object from them.
+     */
+    private static JsonObject elementTree() {
+        JsonObject tree = new JsonObject();
+        tree.addProperty("type", "image");
+        tree.addProperty("id", "box");
+        tree.addProperty("x", 10);
+        tree.addProperty("y", 20);
+        tree.addProperty("width", 64);
+        tree.addProperty("height", 32);
+        JsonObject source = new JsonObject();
+        source.addProperty("sprite", "minecraft:block/sculk");
+        tree.add("image", source);
+        tree.addProperty("badgeColour", "#FF00FF");
         return tree;
     }
 

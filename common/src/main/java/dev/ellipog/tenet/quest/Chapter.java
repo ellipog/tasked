@@ -107,7 +107,19 @@ public record Chapter(
          * {@link #defaultPrerequisiteMode()}, which means the opposite thing. See {@link ChapterRules}.
          */
         ChapterRules rules,
-        List<Quest> quests
+        List<Quest> quests,
+        /**
+         * Everything drawn on this chapter's canvas that is not a quest: pictures, labels, lines, boxes.
+         *
+         * <p>Decoration, and nothing else — an element holds no progress, gates nothing and is never
+         * counted for this chapter's completion. What it is for is what a wall of unlabelled nodes cannot
+         * say: which cluster is a tech tier, where one section ends and the next begins, and what the
+         * chapter is called when the sidebar is folded away. See {@link CanvasElement}.
+         *
+         * <p>Last rather than first because {@code quests} is what the chapter <i>is</i>; this is what is
+         * drawn behind it.
+         */
+        List<CanvasElement> elements
 ) {
 
     /**
@@ -117,7 +129,7 @@ public record Chapter(
     private static final java.util.Set<String> OWN_FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
             "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
-            "quests");
+            "quests", "elements");
 
     /**
      * The field names this contributes, for the validator to allow.
@@ -165,6 +177,17 @@ public record Chapter(
         return quests.subList(0, Math.min(index, quests.size()));
     }
 
+    /**
+     * This chapter's elements in the order they are drawn: by {@code order}, ties by declaration.
+     *
+     * <p>{@link CanvasElement#inDrawOrder} holds the rule and the argument for it, because the client needs
+     * the same answer about a list it built from the tree rather than from a chapter. This is the chapter's
+     * way in, so a caller holding a chapter does not have to know that.
+     */
+    public List<CanvasElement> elementsInDrawOrder() {
+        return CanvasElement.inDrawOrder(elements);
+    }
+
     public static final Codec<Chapter> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.STRING.fieldOf("id").forGetter(Chapter::id),
             QuestText.CODEC.fieldOf("title").forGetter(Chapter::title),
@@ -190,6 +213,9 @@ public record Chapter(
             // hideUntilDependenciesComplete are flat on the chapter in JSON, as a quest's rules are flat
             // on the quest.
             ChapterRules.MAP_CODEC.forGetter(Chapter::rules),
-            Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests)
+            Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests),
+            // Decoration, and the codec is the element's own: the tree writes what this reads, so a field
+            // added to an element travels without anybody remembering to send it. See CanvasElement#asJson.
+            CanvasElement.CODEC.listOf().optionalFieldOf("elements", List.of()).forGetter(Chapter::elements)
     ).apply(instance, Chapter::new));
 }

@@ -2,6 +2,8 @@ package dev.ellipog.tenet.editor;
 
 import dev.ellipog.tenet.quest.MinecraftTestBootstrap;
 
+import com.google.gson.JsonObject;
+
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -449,6 +451,95 @@ class QuestEditorTest {
         assertTrue(Files.isRegularFile(folder.resolve("quest_2.json")), "and the new quest has its own file");
         assertTrue(Files.isRegularFile(folder.resolve("ghost.json")),
                 "the file that was in the way is untouched");
+    }
+
+    @Test
+    @DisplayName("an element is inserted under an id the server chooses, and its tree arrives whole")
+    void insertingAnElementKeepsItsTree() {
+        QuestEditor editor = open();
+
+        assertTrue(editor.insertElement(0, elementTree("logo")));
+
+        JsonObject placed = firstElement(editor);
+        assertEquals("logo", placed.get("id").getAsString());
+        assertEquals(64, placed.get("width").getAsInt());
+        // The field this build does not read, and the whole reason the tree travels rather than the fields:
+        // an element is fifteen fields across four arms, so a reconstruction would drop this one silently.
+        assertEquals("#FF00FF", placed.get("badgeColour").getAsString(),
+                "an element's tree crosses whole, like a pasted quest's");
+    }
+
+    @Test
+    @DisplayName("an id already used in the chapter is suffixed, and the asked-for one is preferred when free")
+    void aTakenElementIdIsSuffixed() {
+        QuestEditor editor = open();
+        assertTrue(editor.insertElement(0, elementTree("box")));
+        assertTrue(editor.insertElement(1, elementTree("box")));
+
+        com.google.gson.JsonArray elements = elementsOf(editor);
+        assertEquals("box", elements.get(0).getAsJsonObject().get("id").getAsString());
+        assertEquals("box_2", elements.get(1).getAsJsonObject().get("id").getAsString(),
+                "a duplicate keeps what it says under a name nobody else has");
+    }
+
+    @Test
+    @DisplayName("an element's field is written through its id, and an id that is not there refuses")
+    void settingAnElementFieldNeedsTheId() {
+        // The refusal is the point of the test. An element is addressed by its id rather than by its
+        // position, so a stale id -- one an author deleted while the panel was open -- must write nothing
+        // rather than land on whichever element happens to sit at that index now.
+        QuestEditor editor = open();
+        assertTrue(editor.insertElement(0, elementTree("box")));
+
+        assertTrue(editor.setElement("box", "width", 96));
+        assertEquals(96, firstElement(editor).get("width").getAsInt());
+        assertEquals("#FF00FF", firstElement(editor).get("badgeColour").getAsString(),
+                "and the fields this build does not read are still on disk after a write to one it does");
+
+        assertFalse(editor.setElement("nowhere", "width", 1), "no such element, so nothing is written");
+        assertFalse(editor.removeElement("nowhere"), "and nothing is removed either");
+        assertEquals(1, elementsOf(editor).size(), "the chapter still has its one element");
+        assertEquals(96, firstElement(editor).get("width").getAsInt(), "at the width it was given");
+    }
+
+    @Test
+    @DisplayName("removing an element takes it out of the chapter's own file, and undo puts it back")
+    void removingAnElement() {
+        QuestEditor editor = open();
+        assertTrue(editor.insertElement(0, elementTree("box")));
+        assertTrue(editor.removeElement("box"));
+        assertEquals(0, elementsOf(editor).size());
+
+        // The recovery is the snapshot, which is the honest answer for something that owns no file -- see
+        // RemoveElement for why there is no tombstone here.
+        assertTrue(editor.canUndo(), "the removal is a step in the chapter's history");
+    }
+
+    /** This chapter's element list, from the file the editor holds. */
+    private static com.google.gson.JsonArray elementsOf(QuestEditor editor) {
+        JsonObject chapter = com.google.gson.JsonParser.parseString(editor.chapterJson()).getAsJsonObject();
+        return chapter.has("elements")
+                ? chapter.getAsJsonArray("elements") : new com.google.gson.JsonArray();
+    }
+
+    private static JsonObject firstElement(QuestEditor editor) {
+        return elementsOf(editor).get(0).getAsJsonObject();
+    }
+
+    /** A picture element with a field this build does not read, for the whole-tree assertions. */
+    private static JsonObject elementTree(String id) {
+        JsonObject tree = new JsonObject();
+        tree.addProperty("type", "image");
+        tree.addProperty("id", id);
+        tree.addProperty("x", 10);
+        tree.addProperty("y", 20);
+        tree.addProperty("width", 64);
+        tree.addProperty("height", 32);
+        JsonObject source = new JsonObject();
+        source.addProperty("sprite", "minecraft:block/sculk");
+        tree.add("image", source);
+        tree.addProperty("badgeColour", "#FF00FF");
+        return tree;
     }
 
     @Test

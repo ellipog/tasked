@@ -498,6 +498,155 @@ public final class QuestEditor {
     }
 
     /**
+     * Inserts one canvas element into the chapter's own file, under an id this method chooses.
+     *
+     * <h2>Why the tree travels whole</h2>
+     *
+     * <p>Because an element is fifteen fields across four arms, and a reconstruction out of field writes would
+     * drop every one this build does not know — which, for an element of a type it has never heard of, is all
+     * of them. So this is {@link #paste}'s shape rather than {@link #create}'s: the caller's tree, with one
+     * field rewritten.
+     *
+     * <p>The id is the tree's own when it is free <b>within this chapter</b> and suffixed when it is not.
+     * Within the chapter rather than across the pack, which is the difference between an element and a quest:
+     * a quest's id is a name in the whole tree, and an element's is a name on one canvas.
+     *
+     * @param index where in the array, clamped to its length, so appending is the size
+     */
+    public boolean insertElement(int index, JsonObject tree) {
+        if (tree == null) {
+            return false;
+        }
+        push();
+        try {
+            JsonObject placed = tree.deepCopy();
+            String wanted = placed.has("id") && placed.get("id").isJsonPrimitive()
+                    ? placed.get("id").getAsString() : "element";
+            placed.addProperty("id", freeElementId(wanted));
+            manifest.insert("elements", index, placed);
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Removes one canvas element by id.
+     *
+     * <p>A plain removal, with no tombstone, and the reason is worth stating where the code is: a tombstone
+     * exists for something that owns a file, and an element is one entry in {@code chapter.json}. So the
+     * snapshot this method's caller took <i>is</i> the recovery — the same recovery, and the same lifetime,
+     * as any other edit to that file. Refused rather than silently ignored when no element has the id, because
+     * an editor whose element list and file disagree should be told.
+     */
+    public boolean removeElement(String element) {
+        int at = elementIndex(element);
+        if (at < 0) {
+            return false;
+        }
+        push();
+        try {
+            if (!manifest.removeIndex("elements", at)) {
+                undo.pop();
+                return false;
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Changes one field of one canvas element, by id.
+     *
+     * <p>The same shapes and the same rules as {@link #setChapter} — push, write, and a path nothing can be
+     * written to costs the pushed snapshot and nothing else — with the id resolved to a position first. That
+     * resolution is the one thing this has that the chapter write does not, and it is why an element is
+     * addressed by its id rather than by its index: an index is a fact about the array, and a drag that moved
+     * an element while the panel was open would silently retarget the write.
+     */
+    public boolean setElement(String element, String path, Object value) {
+        int at = elementIndex(element);
+        if (at < 0 || path == null || path.isBlank()) {
+            return false;
+        }
+        push();
+        try {
+            // Dotted rather than bracketed: this file's paths spell an array position as a step, which is
+            // what `tasks.1` already does everywhere else in the editor.
+            String full = "elements." + at + "." + path;
+            switch (value) {
+                case String text -> manifest.setText(full, text);
+                case Number number -> manifest.setNumber(full, number.doubleValue());
+                case Boolean flag -> manifest.setFlag(full, flag);
+                case List<?> list -> manifest.setStrings(full, list.stream().map(String::valueOf).toList());
+                case JsonElement json -> manifest.setJson(full, json);
+                case null -> manifest.remove(full);
+                default -> {
+                    undo.pop();
+                    return false;
+                }
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /** The position of an element by id in this chapter's own file, or -1. */
+    private int elementIndex(String id) {
+        if (id == null || id.isBlank()) {
+            return -1;
+        }
+        // `root()` rather than `json()`: the latter is the file's own text, which is what gets written, and
+        // this needs the tree.
+        JsonElement elements = manifest.root().get("elements");
+        if (elements == null || !elements.isJsonArray()) {
+            return -1;
+        }
+        com.google.gson.JsonArray array = elements.getAsJsonArray();
+        for (int i = 0; i < array.size(); i++) {
+            JsonElement each = array.get(i);
+            if (each.isJsonObject() && each.getAsJsonObject().has("id")
+                    && id.equals(each.getAsJsonObject().get("id").getAsString())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * An id no element in this chapter uses, preferring the one asked for.
+     *
+     * <p>Scoped to the chapter, unlike {@link #freeId}, and the difference is the namespace an element lives
+     * in: a quest's id is a name in the whole pack because {@code dependsOn} and the progress files use it
+     * that way, and an element's is a name on one canvas. Checking the pack would also make two chapters that
+     * each wanted {@code box} get {@code box} and {@code box_2}, which is a name the second author did not
+     * choose and cannot explain.
+     */
+    private String freeElementId(String base) {
+        String wanted = base == null || base.isBlank() ? "element" : base;
+        if (elementIndex(wanted) < 0) {
+            return wanted;
+        }
+        for (int n = 2; n < 1000; n++) {
+            String candidate = wanted + "_" + n;
+            if (elementIndex(candidate) < 0) {
+                return candidate;
+            }
+        }
+        // Distinct even in the pathological case, because two elements sharing an id is a file the validator
+        // refuses -- see the canvas element's own note on why uniqueness is checked.
+        return wanted + "_" + System.currentTimeMillis();
+    }
+
+    /**
      * Changes one field of the chapter's group's own file.
      *
      * <p>The same shapes and the same rules as {@link #setChapter}, against the group manifest rather

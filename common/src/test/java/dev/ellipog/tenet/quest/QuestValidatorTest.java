@@ -7,6 +7,7 @@ import dev.ellipog.tenet.quest.loot.RewardTable;
 import dev.ellipog.tenet.quest.reward.TableReward;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.stream.Collectors;
@@ -1092,6 +1093,230 @@ class QuestValidatorTest {
                         == DataProblem.Severity.WARNING,
                 "a warning, not an error: got " + messages(problems));
         assertEquals(0, problems.errorCount(), "and the file is still loadable: " + messages(problems));
+    }
+
+    // ------------------------------------------------------------------
+    // Canvas elements
+    // ------------------------------------------------------------------
+
+    /**
+     * The chapter-level list, checked as one file can check it.
+     *
+     * <p>What a single chapter cannot answer — whether the quest an element waits on exists — is
+     * {@code QuestIndex}'s, and is asserted in {@code QuestIndexTest}. Everything here is a fact about the
+     * file: the shape of the list, the arm each element claims to be, the fields that arm allows, and the
+     * values the codec is too lenient to refuse.
+     */
+    @Nested
+    @DisplayName("canvas elements")
+    class CanvasElements {
+
+        private static Problems chapter(String elements) {
+            Problems problems = new Problems();
+            QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json",
+                    "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [],"
+                            + " \"elements\": " + elements + " }"), problems);
+            return problems;
+        }
+
+        @Test
+        @DisplayName("one of each kind, spelled out in full, has nothing wrong with it")
+        void oneOfEachIsClean() {
+            // The list is also the worked example the schema's descriptions are written from, so it is worth
+            // asserting clean: a validator that reported a legitimate element would make the format
+            // unusable, and the four arms are easy to get subtly wrong one at a time.
+            Problems clean = chapter("""
+                    [ { "type": "rect", "id": "box", "x": -8, "y": -8, "width": 64, "height": 64,
+                        "fillColor": "#40101018", "borderColor": "#66204060", "borderWidth": 1 },
+                      { "type": "text", "id": "label", "x": 0, "y": -40, "text": "Chapter 1",
+                        "scale": 1.5, "color": "#A0A0A0", "shadow": true },
+                      { "type": "line", "id": "divider", "x1": 0, "y1": 0, "x2": 64, "y2": 0,
+                        "width": 2, "color": "#66A0A0A0", "arrowhead": "both" },
+                      { "type": "image", "id": "logo", "order": 2, "x": 0, "y": 0, "width": 32,
+                        "height": 32, "rotation": 8, "corner": true,
+                        "image": { "sprite": "minecraft:block/sculk" },
+                        "tint": "#FFFFFFFF", "alpha": 200, "dev": true, "requires": "the_core",
+                        "title": { "translate": "element.logo.title", "fallback": "Logo" },
+                        "label": { "onImage": true, "shadow": true, "inset": 4, "hAlign": "end",
+                                   "vAlign": "start" },
+                        "click": { "type": "open_quest", "data": "the_core" } } ]
+                    """);
+            assertEquals(0, clean.errorCount(), "a well-formed element list: " + messages(clean));
+        }
+
+        @Test
+        @DisplayName("the list and its entries are objects and elements, not whatever was written")
+        void theShapeOfTheListIsChecked() {
+            assertTrue(containing(chapter("{}"), "expected a list of elements").severity()
+                    == DataProblem.Severity.ERROR);
+            assertTrue(containing(chapter("[ 42 ]"), "expected an element object").message()
+                    .contains("expected an element object"), messages(chapter("[ 42 ]")));
+        }
+
+        @Test
+        @DisplayName("every element needs a type and an id")
+        void typeAndIdAreRequired() {
+            assertTrue(containing(chapter("[ { \"id\": \"box\" } ]"), "needs a \"type\" string")
+                    .message().contains("image"), "the message lists the four kinds: "
+                            + messages(chapter("[ { \"id\": \"box\" } ]")));
+            assertTrue(containing(chapter("[ { \"type\": \"rect\" } ]"), "missing required field id")
+                    .path().contains("id"), "the id check is the shared one, and names its own path");
+        }
+
+        @Test
+        @DisplayName("an unknown type is one warning, and its other fields are left alone")
+        void anUnknownTypeIsAWarningAndTheRestIsNotChecked() {
+            // The same treatment an unknown task type gets, and the reason is the report rather than the
+            // element: this build cannot know what a badge's fields are, so calling each of them unknown
+            // would be a page of noise about a value the author has already been told about once.
+            Problems problems = chapter("[ { \"type\": \"tenet:badge\", \"id\": \"b\", \"glow\": 12 } ]");
+
+            DataProblem warning = containing(problems, "unknown element type");
+            assertEquals(DataProblem.Severity.WARNING, warning.severity(), messages(problems));
+            assertTrue(warning.message().contains("tenet:badge"), "and names the type it cannot draw");
+            assertEquals(0, problems.errorCount(), "the chapter still loads: " + messages(problems));
+            assertFalse(messages(problems).contains("glow"),
+                    "and the payload is not reported field by field: " + messages(problems));
+        }
+
+        @Test
+        @DisplayName("an unknown field is reported against the arm it was written on")
+        void unknownFieldsAreCheckedPerArm() {
+            // Per arm rather than against the union of every arm, and the difference is the quality of the
+            // message: `x1` on a box is a real mistake worth naming, and a union would have accepted it
+            // because a line legitimises the name.
+            Problems problems = chapter("[ { \"type\": \"rect\", \"id\": \"box\", \"x1\": 4 } ]");
+            assertTrue(containing(problems, "unknown field \"x1\"").path().contains("elements[0].x1"),
+                    "named at its own path: " + messages(problems));
+            assertTrue(containing(problems, "did you mean \"x\"").message().contains("valid fields here"),
+                    "with the arm's own field list: " + messages(problems));
+
+            // And a field from another arm is unknown here: a picture has no `fillColor`.
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", \"fillColor\": \"#FFFFFF\","
+                            + " \"image\": { \"sprite\": \"minecraft:air\" } } ]"))
+                            .contains("unknown field \"fillColor\""));
+        }
+
+        @Test
+        @DisplayName("two elements may not share an id, because the second could then never be addressed")
+        void idsAreUniqueWithinAChapter() {
+            Problems problems = chapter("""
+                    [ { "type": "rect", "id": "box" },
+                      { "type": "text", "id": "box", "text": "twice" } ]
+                    """);
+            assertTrue(containing(problems, "share the id \"box\"").path().contains("elements[1].id"),
+                    "the second one is the one reported: " + messages(problems));
+
+            // The id's own shape is the same check a quest's id gets, so a capital is reported the same way.
+            assertTrue(messages(chapter("[ { \"type\": \"rect\", \"id\": \"Box\" } ]"))
+                    .contains("lowercase letters"));
+        }
+
+        @Test
+        @DisplayName("a colour, a size and a scale are reported rather than silently clamped")
+        void theNumbersAndColoursAreReported() {
+            // The two halves of one arrangement: the codec clamps so a document always loads, and this
+            // reports so an author is told their number was not the one that was read. `minRequired` already
+            // works this way, and the message is the same shape.
+            assertTrue(containing(chapter("[ { \"type\": \"rect\", \"id\": \"b\", "
+                            + "\"fillColor\": \"#A0A0A\" } ]"), "#A0A0A").message().contains("#RRGGBB"),
+                    "a short colour names the spellings: "
+                            + messages(chapter("[ { \"type\": \"rect\", \"id\": \"b\", "
+                                    + "\"fillColor\": \"#A0A0A\" } ]")));
+            assertTrue(messages(chapter("[ { \"type\": \"rect\", \"id\": \"b\", \"borderWidth\": 99 } ]"))
+                    .contains("must be between 0 and 16"));
+            assertTrue(messages(chapter("[ { \"type\": \"text\", \"id\": \"t\", \"text\": \"x\", "
+                            + "\"scale\": 9 } ]"))
+                    .contains("must be between 0.25 and 4.0"));
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", \"alpha\": 900, "
+                            + "\"image\": { \"sprite\": \"minecraft:air\" } } ]"))
+                    .contains("must be between 0 and 255"));
+        }
+
+        @Test
+        @DisplayName("a picture names exactly one source, and the codec cannot say so")
+        void aPictureNeedsOneSource() {
+            // The one thing the codec genuinely cannot refuse: it reads the file arm first, so an object
+            // carrying both would quietly lose its sprite, and an object carrying neither has nothing to
+            // draw. See ImageSource for why the leniency is there and this is where it is reported.
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", \"image\": "
+                            + "{ \"texture\": \"pack:textures/x.png\", \"sprite\": \"minecraft:air\" } } ]"))
+                    .contains("both a \"texture\" and a \"sprite\""));
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", \"image\": {} } ]"))
+                    .contains("needs a source"));
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\" } ]"))
+                    .contains("needs a source"), "and an image with no source field at all says the same");
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", "
+                            + "\"image\": { \"texture\": \"Not An Id\" } } ]"))
+                    .contains("is not an id this game can resolve"));
+        }
+
+        @Test
+        @DisplayName("a click this build cannot run is an error that names it and the three that work")
+        void unsupportedClicksAreErrors() {
+            // The whole reason all seven names are readable. A converted pack that clicked through to a
+            // guide page would otherwise keep a field that does nothing, and a dead button reads as a bug in
+            // this mod rather than as a gap in it.
+            Problems problems = chapter("[ { \"type\": \"image\", \"id\": \"i\", "
+                    + "\"image\": { \"sprite\": \"minecraft:air\" }, "
+                    + "\"click\": { \"type\": \"show_docs\", \"data\": \"mod,book\" } } ]");
+
+            DataProblem error = containing(problems, "show_docs");
+            assertEquals(DataProblem.Severity.ERROR, error.severity(), messages(problems));
+            assertTrue(error.message().contains("none") && error.message().contains("open_quest")
+                            && error.message().contains("open_uri"),
+                    "and names the three it can run: " + error.message());
+            assertTrue(error.path().contains("click.type"), "at the action's own field: " + error.path());
+        }
+
+        @Test
+        @DisplayName("a click's data is checked by the same rule the opener uses")
+        void clickDataIsChecked() {
+            // Mirrored from the client's own opener rather than approximated, so a URL that passes here
+            // cannot be refused when a player presses it -- which is what "only http and https links open"
+            // arriving after a successful load would mean.
+            assertTrue(messages(chapter(click("open_uri", "file:///etc/passwd"))).contains("http and https"));
+            assertTrue(messages(chapter(click("open_uri", "not a url"))).contains("not a valid address"));
+            assertTrue(messages(chapter(click("open_quest", ""))).contains("needs a quest id or alias"));
+            assertTrue(messages(chapter(click("teleport", "over there"))).contains("open_quest"),
+                    "a name no version has is refused with the names that exist");
+
+            Problems clean = chapter(click("open_uri", "https://example.invalid/a?b=c"));
+            assertEquals(0, clean.errorCount(), "and a legitimate address is clean: " + messages(clean));
+        }
+
+        private static String click(String type, String data) {
+            return "[ { \"type\": \"image\", \"id\": \"i\", "
+                    + "\"image\": { \"sprite\": \"minecraft:air\" }, "
+                    + "\"click\": { \"type\": \"" + type + "\", \"data\": \"" + data + "\" } } ]";
+        }
+
+        @Test
+        @DisplayName("a label's axes are its own three-value vocabulary, not the line axes")
+        void labelAlignmentIsChecked() {
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", "
+                            + "\"image\": { \"sprite\": \"minecraft:air\" }, "
+                            + "\"label\": { \"hAlign\": \"centre\" } } ]"))
+                    .contains("start, middle, end"));
+            assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", "
+                            + "\"image\": { \"sprite\": \"minecraft:air\" }, "
+                            + "\"label\": { \"sideways\": true } } ]"))
+                    .contains("unknown field \"sideways\""), "and a label's own fields are a closed set");
+            assertTrue(messages(chapter("[ { \"type\": \"line\", \"id\": \"l\", "
+                            + "\"arrowhead\": \"around\" } ]")).contains("none, start, end, both"));
+        }
+
+        @Test
+        @DisplayName("an empty gate is this file's problem, and a gate that resolves to nothing is the index's")
+        void theGatesShapeIsCheckedHere() {
+            // The split the chapter gate already has: the shape of the field is checked where the author
+            // wrote it, and whether the name exists is the pass that can see every quest.
+            assertTrue(messages(chapter("[ { \"type\": \"rect\", \"id\": \"b\", \"requires\": \"\" } ]"))
+                    .contains("is empty"));
+            assertEquals(0, chapter("[ { \"type\": \"rect\", \"id\": \"b\", "
+                            + "\"requires\": \"some_quest\" } ]").errorCount(),
+                    "a name that resolves to nothing is not this validator's to refuse");
+        }
     }
 
     private static String file(String quest) {

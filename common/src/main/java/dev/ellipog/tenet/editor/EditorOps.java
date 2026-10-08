@@ -98,6 +98,23 @@ public final class EditorOps {
                 json.addProperty("path", set.path());
                 json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
             }
+            case EditorOp.InsertElement insert -> {
+                json.addProperty("kind", "insertElement");
+                json.addProperty("index", insert.index());
+                // The tree inline, like a paste's: it is what the file will hold, and a string holding JSON
+                // inside JSON is two escapes waiting to disagree.
+                json.add("element", insert.tree());
+            }
+            case EditorOp.RemoveElement remove -> {
+                json.addProperty("kind", "removeElement");
+                json.addProperty("element", remove.element());
+            }
+            case EditorOp.SetElement set -> {
+                json.addProperty("kind", "setElement");
+                json.addProperty("element", set.element());
+                json.addProperty("path", set.path());
+                json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
+            }
             case EditorOp.SetGroup set -> {
                 json.addProperty("kind", "group");
                 json.addProperty("path", set.path());
@@ -225,6 +242,12 @@ public final class EditorOps {
                 case "moveEntry" -> new EditorOp.MoveEntry(text(json, "quest"), text(json, "member"),
                         (int) number(json, "from"), (int) number(json, "to"));
                 case "chapter" -> new EditorOp.SetChapter(text(json, "path"),
+                        json.has("value") ? json.get("value") : JsonNull.INSTANCE);
+                case "insertElement" -> new EditorOp.InsertElement((int) number(json, "index"),
+                        json.has("element") && json.get("element").isJsonObject()
+                                ? json.get("element").getAsJsonObject() : null);
+                case "removeElement" -> new EditorOp.RemoveElement(text(json, "element"));
+                case "setElement" -> new EditorOp.SetElement(text(json, "element"), text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
                 case "group" -> new EditorOp.SetGroup(text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
@@ -432,6 +455,12 @@ public final class EditorOps {
             case EditorOp.MoveEntry ignored -> true;
             case EditorOp.SetChapter ignored -> true;
             case EditorOp.SetGroup ignored -> true;
+            // A canvas element is an edit to the chapter's own file, so all three join a snapshot like the
+            // chapter field writes they sit beside -- which is what makes a drag's two or four writes one
+            // history step rather than four.
+            case EditorOp.InsertElement ignored -> true;
+            case EditorOp.RemoveElement ignored -> true;
+            case EditorOp.SetElement ignored -> true;
             case EditorOp.Delete ignored -> true;
             case EditorOp.Batch ignored -> false;
             case EditorOp.Undo ignored -> false;
@@ -550,6 +579,13 @@ public final class EditorOps {
             case EditorOp.SetChapter chapter -> reachOfPath(chapter.path());
             case EditorOp.SetGroup group -> reachOfPath(group.path());
             case EditorOp.SetIndex index -> reachOfPath(index.key());
+            // A canvas element is decoration by construction -- it holds no progress, gates nothing and is
+            // counted for nothing -- so every edit to one is cosmetic, and this is the *only* place that has
+            // to know it: a `SetElement` never reaches `reachOfPath`, which is for paths on a quest or a
+            // chapter, and `elements` there is cosmetic by the rule below.
+            case EditorOp.InsertElement ignored -> TreeRefresh.Touch.COSMETIC;
+            case EditorOp.RemoveElement ignored -> TreeRefresh.Touch.COSMETIC;
+            case EditorOp.SetElement ignored -> TreeRefresh.Touch.COSMETIC;
 
             // Ids move, or a quest arrives or leaves: a delta is keyed by id and names its removals.
             case EditorOp.Create ignored -> TreeRefresh.Touch.CONTENT;
@@ -597,6 +633,13 @@ public final class EditorOps {
         for (String step : path.split("\\.")) {
             if (step.equals("tasks") || step.equals("rewards")) {
                 return TreeRefresh.Touch.CONTENT;
+            }
+            // A chapter's whole element list, written in one go. Cosmetic for the reason a single element
+            // edit is: nothing under `elements` can move a stored progress position, so the heavy direction
+            // here would be a full re-resolve of every quest for a decoration. The `tasks`/`rewards` check
+            // above stays first, because a path that reaches one of those is content whatever else it names.
+            if (step.equals("elements")) {
+                return TreeRefresh.Touch.COSMETIC;
             }
         }
         return DISPLAY_ONLY.contains(path) ? TreeRefresh.Touch.COSMETIC : TreeRefresh.Touch.CONTENT;
@@ -700,6 +743,15 @@ public final class EditorOps {
                             move.to()), null, save);
             case EditorOp.SetChapter set ->
                     finish(editor, op, editor.setChapter(set.path(), value(set.value())), null, save);
+            // The three element edits, each against the chapter's own file like the chapter writes above --
+            // an element has no file of its own, which is the whole of what makes them this shape.
+            case EditorOp.InsertElement insert ->
+                    finish(editor, op, editor.insertElement(insert.index(), insert.tree()), null, save);
+            case EditorOp.RemoveElement remove ->
+                    finish(editor, op, editor.removeElement(remove.element()), null, save);
+            case EditorOp.SetElement set ->
+                    finish(editor, op, editor.setElement(set.element(), set.path(), value(set.value())),
+                            null, save);
             case EditorOp.SetGroup set ->
                     finish(editor, op, editor.setGroup(set.path(), value(set.value())), null, save);
             // A root-level settings write: the file itself is what changes, like the structural kinds,

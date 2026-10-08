@@ -194,7 +194,20 @@ public final class ToolsPanel {
                         drawRowLabel(r, row.right(), ToolsLayout.pairRight(slot, row.right().key()),
                                 ToolsLayout.pairRight(onScreen, row.right().key()), measure);
                     }
-                    case CHIP -> drawChip(r, row, slot, onScreen, measure, state, mouseX, mouseY);
+                    case CHIP -> {
+                        // A colour row's label goes where every other row's does, and the chip goes in the
+                        // band the row gives it: the row itself side by side, the control's band under a
+                        // stacked label. `chipOf` is that one answer, so what is painted here and what the
+                        // screen's press tests are the same rectangle -- see its own note for the tall-chip
+                        // fault that made the distinction necessary.
+                        drawChip(r, row, ToolsLayout.chipOf(onScreen, mode), state, mouseX, mouseY);
+                        if (mode == InspectLayout.Mode.STACKED) {
+                            drawStackedLabel(r, row, slot, list, measure);
+                        }
+                        else {
+                            drawChipLabel(r, row, slot, onScreen, measure);
+                        }
+                    }
                     // Loud rather than quiet, because quiet is what happened: the radius row fell through
                     // this dispatch into the label branch and drew as a label with no controls, and nothing
                     // anywhere said so. A new kind now fails the first time it is drawn instead.
@@ -342,22 +355,40 @@ public final class ToolsPanel {
                 textY(slot, onScreen, r), ArmatureTheme.faint());
     }
 
+    /** The colour a row carries, or null when it carries none. See {@link #drawChip}. */
+    private static Integer ownColour(String value) {
+        if (value == null || value.isBlank() || !value.startsWith("#")) {
+            return null;
+        }
+        return dev.ellipog.tenet.quest.Argb.parseHex(value).isPresent()
+                ? dev.ellipog.tenet.quest.Argb.parseHex(value).getAsInt() : null;
+    }
+
     /**
-     * A colour row: the chip at the row's right -- swatch, hex, alpha -- which is the whole control.
+     * A colour row's chip: swatch, hex, alpha -- which is the whole control.
      *
      * <p>The redesign's replacement for the docked band: a colour is edited where it is named, and the
      * chip's press opens the picker (the screen hit-tests the same rectangle this draws, from
-     * {@link ToolsLayout#chip}). The alpha travels in the chip because a pattern's strength is the ink's
+     * {@link ToolsLayout#chipOf}). The alpha travels in the chip because a pattern's strength is the ink's
      * alpha, and leaving it out would make the chip a two-thirds description of its value.
+     *
+     * <p><b>The rectangle is the caller's and the label is not this method's.</b> A chip's box depends on
+     * the composition its row was built in -- the row itself side by side, the control's band under a
+     * stacked label -- so deriving it here would be a second place that knows, and the label belongs to
+     * whichever band the row gave it: {@code drawChipLabel} side by side, {@code drawStackedLabel} under a
+     * stacked name.
      */
-    private static void drawChip(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
-                                 Measure measure, State state, int mouseX, int mouseY) {
+    private static void drawChip(GuiRenderer r, ToolsLayout.Action row, BookGeometry.Rect chip,
+                                 State state, int mouseX, int mouseY) {
         String token = ToolsLayout.tokenId(row.key());
-        if (token == null) {
+        // A chip's colour is the theme token it names, or -- when the row carries one -- the colour in the
+        // row's own value. The second case is what lets a *field* be a chip: an element's fill is a colour in a
+        // file rather than a token in a theme, and the control an author already knows for a colour is this one.
+        Integer own = ownColour(row.value());
+        if (own == null && token == null) {
             return;
         }
-        BookGeometry.Rect chip = ToolsLayout.chip(onScreen);
-        int argb = state.theme().colour(token);
+        int argb = own != null ? own : state.theme().colour(token);
         boolean hovered = chip.contains(mouseX, mouseY);
         if (hovered) {
             r.fill(chip.x(), chip.y(), chip.right(), chip.bottom(), ArmatureTheme.rowHover());
@@ -370,8 +401,18 @@ public final class ToolsPanel {
         int line = chip.y() + (chip.height() - r.lineHeight()) / 2;
         r.text(hex, chip.x() + size + 6, line, ArmatureTheme.body());
         r.text(alpha, chip.right() - 2 - r.textWidth(alpha), line, ArmatureTheme.faint());
+    }
 
-        int room = Math.max(0, chip.x() - onScreen.x() - 6);
+    /**
+     * A colour row's name, to the left of the chip it is the control of.
+     *
+     * <p>Side by side only. Stacked, the name has a band of its own and gets the row's whole width, which is
+     * what {@code drawStackedLabel} is for -- and it is the same split every other labelled kind in this
+     * dispatch makes.
+     */
+    private static void drawChipLabel(GuiRenderer r, ToolsLayout.Action row, Slot slot, Slot onScreen,
+                                      Measure measure) {
+        int room = Math.max(0, ToolsLayout.chip(onScreen).x() - onScreen.x() - 6);
         r.text(Measure.truncate(Labels.of(row.label()), room, measure), onScreen.x() + 2,
                 textY(slot, onScreen, r), ArmatureTheme.body());
     }

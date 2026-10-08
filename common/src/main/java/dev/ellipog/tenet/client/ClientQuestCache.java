@@ -8,6 +8,7 @@ import dev.ellipog.armature.client.Look;
 import dev.ellipog.tenet.Constants;
 import dev.ellipog.tenet.net.QuestSync;
 import dev.ellipog.tenet.progress.QuestState;
+import dev.ellipog.tenet.quest.CanvasElement;
 import dev.ellipog.tenet.quest.DependencyStyle;
 import dev.ellipog.tenet.quest.QuestLayout;
 import dev.ellipog.tenet.quest.QuestShape;
@@ -683,6 +684,22 @@ public final class ClientQuestCache {
      */
     private static volatile List<ChapterEntry> chapters = List.of();
 
+    /**
+     * What each chapter draws on its canvas behind its quests, by chapter id.
+     *
+     * <h2>Why a map rather than a component on {@link ChapterEntry}</h2>
+     *
+     * <p>Because elements are chapter-level in a way a chapter's own fields are not: there are as many of
+     * them as an author drew, and a record that carries a list of them carries it everywhere a chapter is
+     * passed. This is the arrangement {@link #chapterStates} already has for the same reason, and the two
+     * arrive on the same message, so they are always from one moment.
+     *
+     * <p>Empty for a chapter with no decoration, which is most of them, and empty for a server older than
+     * version 14 — and both read the same way: a canvas with nothing drawn on it. Nothing here is a
+     * fallback that a reader has to notice, which is the property an additive field is for.
+     */
+    private static volatile Map<String, List<CanvasElement>> chapterElements = Map.of();
+
     /** The reward tables the server declared, for the editor's browser. Empty on an older server. */
     private static volatile List<TableSummary> tables = List.of();
 
@@ -827,6 +844,31 @@ public final class ClientQuestCache {
     }
 
     /**
+     * What one chapter draws behind its quests, in the order it should be drawn.
+     *
+     * <h2>Why the ordering is the cache's answer rather than the caller's</h2>
+     *
+     * <p>Because it is the same answer three callers need and one of them is a hit test: the canvas draws
+     * this list forwards, picks an element from it backwards — the one drawn last is the one on top — and
+     * the chapter tab lists it in the same order. {@link CanvasElement#inDrawOrder} is the one place that
+     * order is defined, so this asks it rather than sorting again; a caller that sorted for itself would be
+     * a second opinion about which element is on top, which is a fault with no visible cause.
+     *
+     * <p>Empty for a chapter with no decoration and for one this client has never heard of, which read the
+     * same way: nothing is drawn. Never null.
+     */
+    public static List<CanvasElement> elements(String chapterId) {
+        List<CanvasElement> held = chapterId == null ? null : chapterElements.get(chapterId);
+        if (held == null || held.isEmpty()) {
+            return List.of();
+        }
+        // The list the cache holds is in declaration order -- it is what the server sent, which is what the
+        // file says -- and the sort is a fact about how a canvas draws rather than about what a server
+        // knows, which is why it happens here rather than on the wire.
+        return CanvasElement.inDrawOrder(held);
+    }
+
+    /**
      * Which tree this cache holds. See the field's own note for why a caller compares it.
      *
      * <p>Read by a screen to decide whether the outline it built is still the one to draw. Only
@@ -883,6 +925,30 @@ public final class ClientQuestCache {
         }
         String byAuthor = ClientLocale.find(value);
         return byAuthor != null ? byAuthor : ClientLocale.text(conventionalKey, fallback);
+    }
+
+    /**
+     * A canvas element's own words, resolved by the same four rungs every other text on the wire uses.
+     *
+     * <h2>Why the conventional key is built here</h2>
+     *
+     * <p>Because this is where the other three live — {@code quest.<id>.title}, {@code chapter.<id>.title} and
+     * {@code rewardTable.<id>.title} — and a pack author should meet one spelling rule rather than two. The
+     * field on the end is what keeps a label and a picture's title apart: an element has two pieces of text
+     * and they are translated independently, so one key for both would translate a logo's caption whenever it
+     * translated a label with the same id.
+     *
+     * <p>Public rather than private because the canvas is not this class: it draws the words and this resolves
+     * them, and the alternative is a second copy of the chain in the screen.
+     *
+     * @param element the element the text belongs to, whose id names the conventional key
+     * @param field   which of its texts this is: {@code "text"} or {@code "title"}
+     * @param text    the author's own text, as the tree carried it
+     */
+    public static String elementWords(CanvasElement element, String field,
+                                      dev.ellipog.tenet.quest.QuestText text) {
+        return text(text.value(), text.fallback().orElse(""),
+                "element." + element.id() + "." + field);
     }
 
     /**
@@ -1379,6 +1445,7 @@ public final class ClientQuestCache {
             // Qualified, because this method's own `chapters` parameter is the count that came with the
             // payload and shadows the list.
             ClientQuestCache.chapters = List.of();
+            chapterElements = Map.of();
             bookTitle = "";
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
@@ -1474,6 +1541,9 @@ public final class ClientQuestCache {
         entries = List.of();
         groups = List.of();
         chapters = List.of();
+        // And the decoration, which is a description of a server's pack as surely as its chapters are:
+        // leaving it would draw the last world's labels over the next one's canvas.
+        chapterElements = Map.of();
         tables = List.of();
         refusedTables = List.of();
         progress = Map.of();
@@ -1552,6 +1622,7 @@ public final class ClientQuestCache {
         // 3, whose chapters are still derivable from the quests below -- so this defaults rather than
         // requires, and nothing tests the version number to find out. The key's presence is the fact.
         List<ChapterEntry> parsedChapters = new ArrayList<>();
+        Map<String, List<CanvasElement>> parsedElements = new LinkedHashMap<>();
         if (root.has("chapters")) {
             for (JsonElement element : root.getAsJsonArray("chapters")) {
                 JsonObject chapter = element.getAsJsonObject();
@@ -1585,6 +1656,24 @@ public final class ClientQuestCache {
                         chapter.has("hideUntilDependenciesComplete")
                                 && chapter.get("hideUntilDependenciesComplete").getAsBoolean(),
                         str(chapter, "titleFallback")));
+
+                // The canvas's decoration, when the server sent any -- version 14 and a chapter that has
+                // some. Read by the element codec rather than field by field, which is the other half of
+                // the writer's decision to send each element's own object: one reader, and a field added
+                // to an arm arrives without anybody remembering to read it.
+                //
+                // An element this client cannot read is skipped rather than taking the chapter with it. It
+                // should not happen -- the server validated the file -- and if it does, the honest outcome
+                // is one decoration missing from a canvas rather than a chapter that will not draw.
+                if (chapter.has("elements") && chapter.get("elements").isJsonArray()) {
+                    List<CanvasElement> parsed = new ArrayList<>();
+                    for (JsonElement each : chapter.getAsJsonArray("elements")) {
+                        CanvasElement.fromJson(each).ifPresent(parsed::add);
+                    }
+                    if (!parsed.isEmpty()) {
+                        parsedElements.put(str(chapter, "id"), List.copyOf(parsed));
+                    }
+                }
             }
         }
 
@@ -1786,6 +1875,9 @@ public final class ClientQuestCache {
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
         chapters = List.copyOf(parsedChapters);
+        // Whole rather than merged, like every other list here: a chapter that lost its last element has
+        // to lose it on this client too, and a tree is a description of the pack rather than a delta.
+        chapterElements = Map.copyOf(parsedElements);
         tables = List.copyOf(parsedTables);
         refusedTables = List.copyOf(parsedRefused);
     }

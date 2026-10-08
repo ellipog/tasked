@@ -42,6 +42,40 @@ public final class ChapterPanelLayout {
     public static final String GROUP = "h:group";
 
     /**
+     * The chapter's canvas elements: the list, then the selected one's own fields.
+     *
+     * <p>Its own section rather than rows inside another, because an element is a thing with a name, a kind
+     * and a dozen fields — not a property of the chapter. And its own <b>vocabulary</b> in {@code Advanced},
+     * because a name here means a different thing from the same name in the settings page: {@code rotation}
+     * is both a quest node's angle and a picture's.
+     */
+    public static final String ELEMENTS = "h:elements";
+
+    /**
+     * What a canvas element's row key starts with.
+     *
+     * <p>An element is in the chapter's own file but is not the chapter: its fields are its own, and a row key
+     * is both the identity in the scroll view and the path a commit goes to. So its paths carry a prefix —
+     * the arrangement {@link #GROUP_PREFIX} already has for the group's file — and the commit strips it and
+     * sends {@code EditorOp.SetElement}.
+     *
+     * <p>What follows is {@code <id>.<field>}, and the field may itself be a path: {@code element.box.width}
+     * is one member, and {@code element.logo.click.type} is a member of a member. The commit tells them apart
+     * by the dot, which is why an element's id may not contain one — the validator's own rule.
+     */
+    public static final String ELEMENT_PREFIX = "element.";
+
+    /**
+     * How many elements one section lists before it stops.
+     *
+     * <p>A chapter can hold as many decorations as its author wants, and the list is a way <i>in</i> rather
+     * than a report: past a couple of dozen, the thing an author wants is on the canvas and not in a scroll
+     * they have to travel. The count of what was left out is shown, so the truncation is visible rather than
+     * silent — the same rule the problems block follows.
+     */
+    private static final int ELEMENT_LIST_LIMIT = 24;
+
+    /**
      * The pack's own faults, above everything else and <b>not foldable</b>.
      *
      * <h2>Why this heading has no fold when every other one does</h2>
@@ -193,6 +227,21 @@ public final class ChapterPanelLayout {
      */
     public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
                                                 String missingNote, Problems problems) {
+        return rows(chapter, group, folded, missingNote, problems, null);
+    }
+
+    /**
+     * The same, with the id of the canvas element the author has selected.
+     *
+     * <p>A plain id rather than an {@code Elements} record of the kind {@link GroupInfo} is, because the
+     * elements are <b>in the chapter this method is already handed</b>: they live in {@code chapter.json}, so
+     * reading them from a second structure would be two answers to one question. The group needs a record
+     * because a group is a different file that the chapter's tree does not carry. What the layout cannot know
+     * is which element the author is looking at, and that is the one thing this parameter is.
+     */
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
+                                                String missingNote, Problems problems,
+                                                String selectedElement) {
         List<ToolsLayout.Action> rows = new ArrayList<>();
         problems(rows, problems);
         if (chapter == null || chapter.isEmpty()) {
@@ -280,6 +329,19 @@ public final class ChapterPanelLayout {
             }
         }
 
+        // The chapter's canvas elements, before the quest list and after the group, for the reason the group
+        // is where it is: a chapter with twenty quests would push a decoration's fields below a scroll nobody
+        // makes, and the section is a way in rather than a report. Absent entirely when the chapter has none,
+        // because a heading over an empty list is a heading an author learns to ignore -- and the way to make
+        // one is the canvas's own menu, which is where they are looking when they want one.
+        List<JsonObject> elements = elementsOf(chapter);
+        if (!elements.isEmpty()) {
+            rows.add(section(ELEMENTS, "tenet.dev.chapter.elements", folded));
+            if (!folded.contains(ELEMENTS)) {
+                elementList(rows, elements, selectedElement);
+            }
+        }
+
         rows.add(section(QUESTS, "tenet.dev.chapter.quests", folded));
         if (!folded.contains(QUESTS)) {
             List<String> quests = QuestPanelLayout.strings(chapter, "quests");
@@ -294,6 +356,144 @@ public final class ChapterPanelLayout {
             }
         }
         return List.copyOf(rows);
+    }
+
+    // ------------------------------------------------------------------
+    // The canvas elements
+    // ------------------------------------------------------------------
+
+    /**
+     * The chapter's own {@code elements} array, as objects.
+     *
+     * <p>Read here rather than taken as a parameter, for the reason {@link #rows} gives: they are in the file
+     * this method already holds. A member that is not an object is skipped rather than refused — a file that
+     * malformed is the validator's to report with its line, and a panel that threw on it would take the whole
+     * tab down over one bad entry.
+     */
+    public static List<JsonObject> elementsOf(JsonObject chapter) {
+        JsonElement array = chapter == null ? null : chapter.get("elements");
+        if (array == null || !array.isJsonArray()) {
+            return List.of();
+        }
+        List<JsonObject> elements = new ArrayList<>();
+        for (JsonElement each : array.getAsJsonArray()) {
+            if (each != null && each.isJsonObject()) {
+                elements.add(each.getAsJsonObject());
+            }
+        }
+        return List.copyOf(elements);
+    }
+
+    /**
+     * The position of an element by id in a chapter's own tree, or -1.
+     *
+     * <p>The client's own lookup, and the server has one of its own — {@code QuestEditor.elementIndex} — over
+     * the file rather than over the replica. They cannot be one method: the two sides hold different things (a
+     * parsed tree here, a writable file there), and the client cannot reach the server's.
+     */
+    public static int elementIndex(JsonObject chapter, String id) {
+        if (id == null) {
+            return -1;
+        }
+        List<JsonObject> elements = elementsOf(chapter);
+        for (int i = 0; i < elements.size(); i++) {
+            if (id.equals(text(elements.get(i), "id", ""))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The element with this id in a chapter's own tree, or null. */
+    public static JsonObject elementById(JsonObject chapter, String id) {
+        return elementById(elementsOf(chapter), id);
+    }
+
+    /**
+     * The element a field row's key names — {@code {id, field}} — or null when the key is not one.
+     *
+     * <h2>Why the parsing is here rather than at the screen</h2>
+     *
+     * <p>Because the spelling of a row key is this class's, and a screen that split the string itself would be
+     * a second place the format is known — the fault {@link #GROUP_PREFIX} avoids by keeping its own strip in
+     * one caller. A key with no dot after the id is a <b>list</b> row's and not a field's, so it answers null:
+     * {@code element.box} is the row an author presses to select the element.
+     */
+    public static String[] elementFieldOf(String key) {
+        if (key == null || !key.startsWith(ELEMENT_PREFIX)) {
+            return null;
+        }
+        String rest = key.substring(ELEMENT_PREFIX.length());
+        int cut = rest.indexOf('.');
+        return cut <= 0 ? null : new String[] {rest.substring(0, cut), rest.substring(cut + 1)};
+    }
+
+    /** The element with this id, or null. */
+    private static JsonObject elementById(List<JsonObject> elements, String id) {
+        if (id == null) {
+            return null;
+        }
+        for (JsonObject element : elements) {
+            if (id.equals(text(element, "id", ""))) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /** The list of elements, then the selected one's own fields. */
+    private static void elementList(List<ToolsLayout.Action> rows, List<JsonObject> elements,
+                                    String selectedElement) {
+        int shown = Math.min(elements.size(), ELEMENT_LIST_LIMIT);
+        for (int i = 0; i < shown; i++) {
+            JsonObject element = elements.get(i);
+            String id = text(element, "id", "");
+            // A read-only row, like a quest's: it holds no widget, and the press it answers is the
+            // *selection*, which the screen reads from the row's own key. The left-hand value is the kind and
+            // the right-hand one is what the element says it is, so a list of six decorations is readable.
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "element:" + id,
+                    typeName(element), elementName(element, id)));
+        }
+        if (elements.size() > shown) {
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "element:more", "\u2026",
+                    Labels.of("tenet.dev.chapter.elements_more", elements.size() - shown)));
+        }
+        JsonObject selected = elementById(elements, selectedElement);
+        if (selected != null) {
+            elementFields(rows, selected);
+        }
+    }
+
+    /** What an element calls itself: its words when it has any, and its id when it has none. */
+    public static String elementName(JsonObject element, String id) {
+        for (String field : List.of("text", "title")) {
+            JsonElement words = element.get(field);
+            if (words != null && words.isJsonPrimitive() && !words.getAsString().isBlank()) {
+                return words.getAsString();
+            }
+        }
+        return id;
+    }
+
+    /** The kind an element is, as one short word for the list. */
+    private static String typeName(JsonObject element) {
+        String type = text(element, "type", "");
+        int colon = type.indexOf(':');
+        // A namespaced type -- an addon's -- is drawn by its own name rather than as "unknown": the panel has
+        // no fields for it, which is a different fact from the file not saying what it is.
+        return colon < 0 ? type : type.substring(colon + 1);
+    }
+
+    /**
+     * The selected element's own fields, by the arm it is.
+     *
+     * <p>The rows themselves live in {@link ElementPanelLayout}, because the panel that opens when an author
+     * clicks an element on the canvas draws the same form -- and a second copy of twenty rows keyed by field
+     * name is a second place for a field to be forgotten. This is the Chapter tab's way in: the list, then the
+     * chosen element's fields under it.
+     */
+    private static void elementFields(List<ToolsLayout.Action> rows, JsonObject element) {
+        rows.addAll(ElementPanelLayout.rows(element));
     }
 
     /**

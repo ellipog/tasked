@@ -10,6 +10,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -1024,6 +1025,129 @@ class LineArtTest {
         for (LineArt.Fill fill : fills) {
             min = Math.min(min, fill.y1());
             max = Math.max(max, fill.y2());
+        }
+        return max - min;
+    }
+
+    // ------------------------------------------------------------------
+    // A canvas line: its own width, and its own two ends
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a line at an arbitrary width is that many rows, and one width is not another's answer")
+    void aLineCanBeAnyWidth() {
+        // The width an author types rather than the four words a dependency line's weight is. Two things
+        // are worth asserting and they fail differently: that the number reaches the geometry, and that the
+        // memo cannot serve one width's rectangles for another's -- which is what the key would do if the
+        // width were left out of it, and which no picture would ever show, because the first caller's
+        // width would simply be drawn for every line after it.
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 20), new LineArt.Point(60, 20));
+
+        for (int width : new int[] {1, 2, 3, 5, 6, 11}) {
+            List<LineArt.Fill> fills = LineArt.fillsAtWidth(path, width, DependencyStyle.Dash.SOLID);
+            assertEquals(width, spansRows(fills), "a " + width + "-pixel line is " + width + " rows: " + fills);
+        }
+
+        // The falsifier for the cache key, and it has to be in this order: ask for a thin line first, so a
+        // key that ignored the width has the wrong answer already remembered when the wide one arrives.
+        LineArt.fillsAtWidth(path, 1, DependencyStyle.Dash.SOLID);
+        assertEquals(7, spansRows(LineArt.fillsAtWidth(path, 7, DependencyStyle.Dash.SOLID)),
+                "the width is part of what a set of rectangles is a function of");
+        assertEquals(1, spansRows(LineArt.fillsAtWidth(path, 1, DependencyStyle.Dash.SOLID)),
+                "and the thin answer is still thin, in the other order");
+
+        // A hairline through this entry point is the same picture the weight-based one draws, which is what
+        // makes the two entry points one implementation rather than two.
+        assertEquals(LineArt.fills(path, DependencyStyle.Weight.THIN, DependencyStyle.Dash.SOLID),
+                LineArt.fillsAtWidth(path, 1, DependencyStyle.Dash.SOLID));
+
+        // And a width below one is read as one rather than as nothing: a zero-pixel line is a line nobody
+        // can see, and the codec clamps the field, so this is the second line of defence rather than the
+        // first -- but a band of width zero would produce no fills at all and read as a broken element.
+        assertEquals(1, spansRows(LineArt.fillsAtWidth(path, 0, DependencyStyle.Dash.SOLID)));
+    }
+
+    @Test
+    @DisplayName("a canvas line's heads are named by end, including the start only")
+    void aLineCanPointAtEitherEnd() {
+        // The placement vocabulary a dependency line uses has no word for "the start only", and adding one
+        // would have had to be documented in three schemas. So a canvas line names its two ends, and the
+        // whole point of the two booleans is that both orders are expressible.
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 0), new LineArt.Point(120, 120));
+        DependencyStyle.ArrowHead chevron = DependencyStyle.ArrowHead.CHEVRON;
+
+        List<LineArt.Fill> none = LineArt.arrows(path, chevron, false, false, 0, 0, 1);
+        List<LineArt.Fill> atEnd = LineArt.arrows(path, chevron, false, true, 0, 0, 1);
+        List<LineArt.Fill> atStart = LineArt.arrows(path, chevron, true, false, 0, 0, 1);
+        List<LineArt.Fill> both = LineArt.arrows(path, chevron, true, true, 0, 0, 1);
+
+        assertTrue(none.isEmpty(), "neither end is no head at all");
+        assertFalse(atEnd.isEmpty(), "an end head is drawn");
+        assertFalse(atStart.isEmpty(), "and a start head is the case the placement vocabulary cannot say");
+        assertNotEquals(atStart, atEnd, "the two ends are two different pictures");
+        assertEquals(atEnd.size() + atStart.size(), both.size(), "and both ends are both of them");
+
+        // Which end is which, by where the ink lands: the path runs (0,0) to (120,120), so a start head is
+        // near the origin and an end head is near the far corner.
+        assertTrue(furthestFrom(atStart, 0, 0) < 40, "the start head is at the start: " + atStart);
+        assertTrue(furthestFrom(atEnd, 0, 0) > 100, "and the end head is at the end: " + atEnd);
+
+        // A placement of TARGET is the arrival-only picture, so the two entry points share the memo rather
+        // than holding two copies of one answer. Asserted as equality of the lists, which is what a shared
+        // entry returns.
+        assertEquals(atEnd, LineArt.arrows(path, chevron, DependencyStyle.ArrowPlace.TARGET, 0, 0, 0,
+                DependencyStyle.Weight.THIN));
+    }
+
+    @Test
+    @DisplayName("a head is built for the trunk it caps, at a canvas line's own width")
+    void aHeadGrowsWithTheLinesWidth() {
+        // The head's length, half-width and standoff all derive from the trunk, and a canvas line's trunk
+        // is a number rather than a weight -- so a six-pixel rule with a hairline's arrow is exactly the
+        // "arrow that belongs to another line" the weight axis was introduced to fix, one level down.
+        List<LineArt.Point> path = LineArt.path(DependencyStyle.Form.STRAIGHT,
+                new LineArt.Point(0, 0), new LineArt.Point(120, 120));
+
+        List<LineArt.Fill> thin = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE, false, true,
+                0, 0, 1);
+        List<LineArt.Fill> thick = LineArt.arrows(path, DependencyStyle.ArrowHead.TRIANGLE, false, true,
+                0, 0, 6);
+
+        assertTrue(thick.size() > thin.size(), "a wider trunk has a bigger head: " + thin.size() + " then "
+                + thick.size());
+        assertTrue(spanFrom(thick, 120, 120) > spanFrom(thin, 120, 120),
+                "and the glyph covers more of the line, because both its length and its standoff are the"
+                        + " trunk's: " + spanFrom(thin, 120, 120) + " then " + spanFrom(thick, 120, 120));
+    }
+
+    /** How far the furthest pixel of a fill list is from a point, for asking which end ink landed on. */
+    private static double furthestFrom(List<LineArt.Fill> fills, int x, int y) {
+        double furthest = 0;
+        for (LineArt.Fill fill : fills) {
+            furthest = Math.max(furthest, Math.hypot(fill.x1() - x, fill.y1() - y));
+            furthest = Math.max(furthest, Math.hypot(fill.x2() - x, fill.y2() - y));
+        }
+        return furthest;
+    }
+
+    /**
+     * How much of a line's length a fill list's ink covers, measured from a point.
+     *
+     * <p>A span rather than a distance, and the difference is what the assertion needs: a bigger head is
+     * both placed further back and longer, so its ink covers more ground — while "the furthest pixel is
+     * further away" is true of it and also of a head that merely moved, which is not the claim.
+     */
+    private static double spanFrom(List<LineArt.Fill> fills, int x, int y) {
+        double min = Double.MAX_VALUE;
+        double max = 0;
+        for (LineArt.Fill fill : fills) {
+            for (int[] corner : new int[][] {{fill.x1(), fill.y1()}, {fill.x2(), fill.y2()}}) {
+                double distance = Math.hypot(corner[0] - x, corner[1] - y);
+                min = Math.min(min, distance);
+                max = Math.max(max, distance);
+            }
         }
         return max - min;
     }

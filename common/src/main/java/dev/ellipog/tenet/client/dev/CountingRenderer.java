@@ -42,11 +42,17 @@ import java.util.UUID;
  *
  * <p><b>{@code switches} is that submission count, and it is the reason this class exists in its current
  * shape.</b> It counts the points at which the drawing has to stop being one batch and become another:
- * a change of render type (a fill after a label, a label after an icon), a clip, and a flush. That is
+ * a change of render type (a fill after a label, a label after an icon), a clip, a flush, the blur, and the
+ * shader-colour set that tints a texture draw — the last of which was happening and going uncounted until a
+ * picture element made it worth counting. That is
  * what a frame costs on the CPU side, because each of those ends a {@code endBatch} and starts a new
  * one with its own state setup — and it is the number that a batching change has to move. It counts
  * every drawing call in the frame, batched or not, which is why it is meaningful before and after: the
  * <i>fills</i> are the same either way, and the <i>boundaries</i> are not.
+ *
+ * <p>The one state change deliberately <b>not</b> counted is a turn, and that is a fact rather than an
+ * omission: a transform is applied to the vertices as they are queued, so it ends no batch. See
+ * {@link #turned}.
  *
  * <p>It undercounts two things, both deliberately: the extra passes inside {@code renderItem} (an item
  * with a glint or a translucent layer submits more than once, and that is below this interface), and
@@ -247,6 +253,21 @@ public final class CountingRenderer implements GuiRenderer {
         delegate.text(text, x, y, argb);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Counted with {@link #text}, because it is a label and costs what a label costs — the shadow is one
+     * more glyph per character inside the font, below this interface, and the kind of drawing is the same
+     * {@code RenderType.text} a plain line uses. A separate counter here would report two numbers that no
+     * batching decision can act on differently.
+     */
+    @Override
+    public void shadowedText(String text, int x, int y, int argb, float scale) {
+        texts++;
+        drew(TEXT);
+        delegate.shadowedText(text, x, y, argb, scale);
+    }
+
     @Override
     public void styledText(java.util.List<StyledRun> runs, int x, int y, int argb) {
         texts++;
@@ -295,6 +316,22 @@ public final class CountingRenderer implements GuiRenderer {
     /**
      * {@inheritDoc}
      *
+     * <p>Counted and bounded exactly as {@link #scaled} is, because the two share the one mechanism that
+     * makes them interesting to this counter: both set a shader colour before the blit, and setting it flushes
+     * a managed batch. A sprite is drawn through the block atlas' own render type besides, which is a second
+     * real boundary the kinds here cannot express — the same coarseness that lumps an icon in with a texture.
+     */
+    @Override
+    public void sprite(ResourceLocation atlasSprite, int x, int y, int width, int height, int argb) {
+        boundary();
+        textures++;
+        drew(TEXTURE);
+        delegate.sprite(atlasSprite, x, y, width, height, argb);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>Forwarded because the delegate is the only thing here that can read a file's header — the counter
      * exists to watch a frame, not to answer for the textures in it — and a missing delegate has no answer,
      * which is the empty the seam promises for an asset it cannot read.
@@ -309,11 +346,18 @@ public final class CountingRenderer implements GuiRenderer {
      *
      * <p>Counted with {@link #texture}, because a scaled blit is a texture draw like any other and the
      * image canvas background is exactly what this counter was extended for. See {@link #textureSize}.
+     *
+     * <p>{@link #boundary} first, and it is a correction rather than a new opinion: this method tints its
+     * blit, tinting sets a shader colour, and setting a shader colour <b>flushes a managed batch</b> — so it
+     * was already a boundary below this interface and was simply not being counted as one. Written down here
+     * because the omission is invisible: the number was a little low for every frame that drew a texture, in
+     * the direction the class note says it is fine to be wrong in, which is exactly why nobody would notice.
      */
     @Override
     public void scaled(ResourceLocation texture, int x, int y, int width, int height,
                        float u, float v, int sourceWidth, int sourceHeight,
                        int textureWidth, int textureHeight, int argb) {
+        boundary();
         textures++;
         drew(TEXTURE);
         if (delegate != null) {
@@ -351,5 +395,22 @@ public final class CountingRenderer implements GuiRenderer {
         // interruption.
         boundary();
         return delegate.clip(left, top, right, bottom);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <h2>Why a turn is <b>not</b> a boundary, which is the opposite of what it looks like</h2>
+     *
+     * <p>Every other state change on this seam ends a batch and is counted as one. A turn does not, and the
+     * reason is worth the paragraph because the obvious reading is wrong: the transform is applied to the
+     * <b>vertices</b>, as they are queued, rather than to the batch as it is submitted. So a turn changes what
+     * the next vertices say and nothing at all about the submission the previous ones are already in — which is
+     * also why a tint change <i>inside</i> a turn is safe, and why counting this as a boundary would inflate
+     * the one number this class exists to report honestly.
+     */
+    @Override
+    public Scoped turned(int pivotX, int pivotY, float degrees) {
+        return delegate.turned(pivotX, pivotY, degrees);
     }
 }

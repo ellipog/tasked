@@ -220,7 +220,7 @@ class PanelArrangementTest {
                                 || kind == PanelKind.QUEST || kind == PanelKind.PARTY
                                 || kind == PanelKind.REWARDS || kind == PanelKind.SETTINGS
                                 || kind == PanelKind.NAMING || kind == PanelKind.ASSETS
-                                || kind == PanelKind.CHOICE,
+                                || kind == PanelKind.CHOICE || kind == PanelKind.ELEMENT,
                         kind + " is a kind the rules can present and the screen has no branch for");
             }
         }

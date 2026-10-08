@@ -76,6 +76,23 @@ class EditReachTest {
     }
 
     @Test
+    @DisplayName("a canvas element is decoration, so every edit to one is cosmetic")
+    void elementEditsAreCosmetic() {
+        // The one place this feature could cost a player something: a CONTENT touch re-resolves every
+        // quest's state and sends a delta, and an element holds no progress at all. `SetElement` never
+        // reaches `reachOfPath` -- it is classified directly -- so both halves are pinned here.
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.InsertElement(0, new JsonObject())));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.RemoveElement("box")));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetElement("box", "width", VALUE)));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetChapter("elements", VALUE)),
+                "and the whole list written at once is cosmetic too, which is the case the path rule covers");
+
+        // And the rule stays one-directional: a path that reaches a row is content whatever else it names,
+        // because the check for those runs first. Contrived as a path, exact as a precedence.
+        assertEquals(TreeRefresh.Touch.CONTENT, field("tasks.0.elements"));
+    }
+
+    @Test
     @DisplayName("an edit that can move a resolved state, but no row's position, is a delta")
     void contentEditsAreDeltas() {
         assertEquals(TreeRefresh.Touch.CONTENT, field("dependsOn"),

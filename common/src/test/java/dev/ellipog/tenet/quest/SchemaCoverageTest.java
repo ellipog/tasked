@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -209,6 +210,66 @@ class SchemaCoverageTest {
         JsonObject entry = table.getAsJsonObject("properties").getAsJsonObject("entries")
                 .getAsJsonObject("items").getAsJsonObject("properties");
         assertSameFields(TABLE_KIND + " entry", entry.keySet(), RewardTable.Entry.FIELDS);
+    }
+
+    @Test
+    @DisplayName("every canvas element field is documented, in both schemas")
+    void theElementFamilyIsDocumented() throws IOException {
+        // The element union, held the way the task and reward families are -- and held against **both**
+        // schemas, because there are two. The folder format has `chapter.json`; the legacy one-file format has
+        // a chapter object inside its `chapterGroups` tree, and it is read by the *same codec* (`QuestFile`
+        // holds `Chapter`), so an element there works exactly as it does here. An editor autocompleting from
+        // the legacy schema would otherwise mark a correct file's elements as unknown fields.
+        //
+        // The nested objects (`image`, `label`, `click`) have definitions of their own and are checked by
+        // their own case below; here they are keys like any other.
+        for (Path schema : List.of(CHAPTER_KIND, PUBLISHED)) {
+            JsonObject root = read(schema);
+            JsonObject element = root.getAsJsonObject("definitions").getAsJsonObject("element");
+            assertSameFields(schema + " definitions.element",
+                    element.getAsJsonObject("properties").keySet(), CanvasElement.allFields());
+
+            // And the array that holds them, on the object that owns it. Documenting the item shape is not
+            // enough if nothing offers the list: a chapter that may not write `elements` is a chapter whose
+            // elements an editor reports as unknown fields.
+            //
+            // The chapter is found two ways because the two files are shaped differently: `chapter.json`'s
+            // schema *is* a chapter -- its root's properties are the chapter's -- while the one-file format's
+            // schema is a document holding `chapterGroups`, so its chapter is a definition inside it.
+            JsonObject chapter = root.getAsJsonObject("definitions").has("chapter")
+                    ? root.getAsJsonObject("definitions").getAsJsonObject("chapter")
+                    : root;
+            assertTrue(chapter.getAsJsonObject("properties").has("elements"),
+                    schema + " documents the element shape, but its chapter offers no `elements` list");
+        }
+
+        // Each arm's own field list must reach the union, so a field added to one arm and forgotten in the
+        // schema is caught by the case above rather than by an author.
+        Set<String> union = new TreeSet<>(CanvasElement.allFields());
+        for (Set<String> arm : List.of(CanvasElement.Image.FIELDS, CanvasElement.Text.FIELDS,
+                CanvasElement.Line.FIELDS, CanvasElement.Rect.FIELDS)) {
+            assertTrue(union.containsAll(arm), "an arm's fields are missing from the union: " + arm);
+        }
+        assertFalse(union.contains("texture"),
+                "a nested object's inner field is not an element field - it belongs to its own definition");
+    }
+
+    @Test
+    @DisplayName("the nested element objects document their own fields, in both schemas")
+    void theNestedElementObjectsAreDocumented() throws IOException {
+        for (Path schema : List.of(CHAPTER_KIND, PUBLISHED)) {
+            JsonObject definitions = read(schema).getAsJsonObject("definitions");
+
+            assertSameFields(schema + " definitions.imageSource",
+                    definitions.getAsJsonObject("imageSource").getAsJsonObject("properties").keySet(),
+                    ImageSource.FIELDS);
+            assertSameFields(schema + " definitions.elementLabel",
+                    definitions.getAsJsonObject("elementLabel").getAsJsonObject("properties").keySet(),
+                    ElementLabel.FIELDS);
+            assertSameFields(schema + " definitions.click",
+                    definitions.getAsJsonObject("click").getAsJsonObject("properties").keySet(),
+                    ClickAction.FIELDS);
+        }
     }
 
     /**

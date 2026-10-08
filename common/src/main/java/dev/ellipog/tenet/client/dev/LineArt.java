@@ -326,11 +326,41 @@ public final class LineArt {
      * can be inked darker and its core lighter.
      */
     public static List<Fill> fills(List<Point> path, DependencyStyle.Weight weight, DependencyStyle.Dash dash) {
+        DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
+        return fills(path, ink, ink.width(), dash);
+    }
+
+    /**
+     * The same rectangles, at an arbitrary pixel width.
+     *
+     * <h2>Why a canvas line needs a width the dependency lines do not</h2>
+     *
+     * <p>Because a dependency line's thickness is a <i>word</i> — thin, thick, bold, conduit — chosen from a
+     * closed set that a file spells, while a canvas line's is a number an author typed. Mapping the number
+     * onto the four words would silently redraw what they asked for: a three-pixel rule would become two or
+     * six, and nothing anywhere would say so.
+     *
+     * <p><b>The tone is thin, and the width is the only other thing this passes.</b> Those are genuinely
+     * separate in the machinery below — {@code band} and {@code fillRows} take the width and the weight as
+     * two arguments — and the reason is the conduit: the weight decides which rows are inked darker and
+     * lighter, and the width decides how many rows there are. A canvas line is one colour, so it asks for
+     * the one-tone case and supplies its own width.
+     */
+    public static List<Fill> fillsAtWidth(List<Point> path, int width, DependencyStyle.Dash dash) {
+        return fills(path, DependencyStyle.Weight.THIN, Math.max(1, width), dash);
+    }
+
+    /**
+     * The rectangles for a route at one width, in one tone. The two public entry points above both land
+     * here, which is what keeps the cache one cache: the key holds the width as well as the tone, so a
+     * hairline's rectangles cannot be served for a six-pixel line.
+     */
+    private static List<Fill> fills(List<Point> path, DependencyStyle.Weight ink, int width,
+                                    DependencyStyle.Dash dash) {
         if (path.size() < 2) {
             return List.of();
         }
         DependencyStyle.Dash pattern = dash == null ? DependencyStyle.Dash.SOLID : dash;
-        DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
 
         // Remembered against the route itself, because this is a **pure function of it**: the same points,
         // weight and dash always give the same rectangles, so there is nothing to invalidate and no
@@ -338,7 +368,11 @@ public final class LineArt {
         // itself. A canvas being *read* rather than moved therefore pays for its lines once and afterwards
         // only re-issues rectangles: no walk, no sort, and none of the per-pixel objects a walk allocates.
         // See `walk` for why that is the difference between a chapter at 20 fps and one at 120.
-        FillsKey key = new FillsKey(List.copyOf(path), ink, pattern);
+        //
+        // The width is part of the key, and that is the one thing adding it changed: the weight used to be
+        // the only thickness there was, so keying on it was the same as keying on the number. A caller with
+        // its own width would otherwise be served the rectangles of whatever width was asked for first.
+        FillsKey key = new FillsKey(List.copyOf(path), ink, width, pattern);
         List<Fill> cached = FILLS.get(key);
         // Reported for both answers: see CacheHits. This is the cache whose key was rebuilt per edge per
         // frame, so its ratio is the one that says whether the memo is being consulted or merely built --
@@ -357,16 +391,16 @@ public final class LineArt {
                 // Two hairlines rather than one thick one: that is the look, and it is why this pattern
                 // ignores the weight axis. A single-pixel run, drawn twice a pixel either side of itself.
                 List<Fill> single = new ArrayList<>();
-                stroke(walk, DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN, single);
+                stroke(walk, DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN, 1, single);
                 for (Fill fill : single) {
                     out.add(shifted(fill, -1));
                     out.add(shifted(fill, 1));
                 }
             }
             else {
-                stroke(walk, pattern, ink, out);
+                stroke(walk, pattern, ink, width, out);
                 if (pattern == DependencyStyle.Dash.HAZARD) {
-                    barbs(path, ink, out);
+                    barbs(path, ink, width, out);
                 }
             }
         }
@@ -474,8 +508,9 @@ public final class LineArt {
         return out;
     }
 
-    /** The route, weight and dash that a set of rectangles was computed from. */
-    private record FillsKey(List<Point> path, DependencyStyle.Weight weight, DependencyStyle.Dash dash) {
+    /** The route, weight, width and dash that a set of rectangles was computed from. */
+    private record FillsKey(List<Point> path, DependencyStyle.Weight weight, int width,
+                            DependencyStyle.Dash dash) {
     }
 
     /**
@@ -548,11 +583,10 @@ public final class LineArt {
      * count for its dashes and once here. The caller that has already paid for the walk hands it over.
      */
     private static void stroke(List<Point> walk, DependencyStyle.Dash pattern,
-                               DependencyStyle.Weight weight, List<Fill> out) {
+                               DependencyStyle.Weight weight, int width, List<Fill> out) {
         if (walk.size() < 2) {
             return;
         }
-        int width = weight.width();
         int index = 0;
         while (index < walk.size()) {
             if (!onAt(pattern, index, width)) {
@@ -1008,9 +1042,8 @@ public final class LineArt {
      * barb grown by it, because six-pixel barbs every eight pixels on a six-pixel trunk is a slab with
      * notches rather than hatching.
      */
-    private static void barbs(List<Point> path, DependencyStyle.Weight weight, List<Fill> out) {
+    private static void barbs(List<Point> path, DependencyStyle.Weight weight, int width, List<Fill> out) {
         double total = length(path);
-        int width = weight.width();
         int step = HAZARD_STEP + (width - 1);
         int barb = HAZARD_BARB + (width - 1);
         for (double at = step; at < total - barb; at += step) {
@@ -1018,7 +1051,7 @@ public final class LineArt {
             double angle = tangentAt(path, at) + Math.PI / 4;
             Point end = new Point((int) Math.round(point.x() + Math.cos(angle) * barb),
                     (int) Math.round(point.y() + Math.sin(angle) * barb));
-            stroke(walk(List.of(point, end)), DependencyStyle.Dash.SOLID, weight, out);
+            stroke(walk(List.of(point, end)), DependencyStyle.Dash.SOLID, weight, width, out);
         }
     }
 
@@ -1052,22 +1085,70 @@ public final class LineArt {
     public static List<Fill> arrows(List<Point> path, DependencyStyle.ArrowHead head,
                                     DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
                                     int toHalf, DependencyStyle.Weight weight) {
-        if (head == null || head == DependencyStyle.ArrowHead.NONE || place == null || path.size() < 2) {
+        DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
+        // The placement, read as the two ends it names. `TARGET` is the arrival end and `BOTH` is both,
+        // which is the whole of what those two words mean; `STREAM` and `MID` place heads by distance
+        // instead and are handled where that is known, so their two ends stay false.
+        return arrows(path, head, place, place == DependencyStyle.ArrowPlace.BOTH,
+                place == DependencyStyle.ArrowPlace.BOTH || place == DependencyStyle.ArrowPlace.TARGET,
+                spacing, fromHalf, toHalf, ink.width());
+    }
+
+    /**
+     * The heads for a line whose two ends are named rather than placed.
+     *
+     * <h2>Why a canvas line needs this and a dependency line does not</h2>
+     *
+     * <p>Because a dependency line's heads are placed by what the line <i>means</i>: one at the dependent
+     * end, both, one in the middle, a repeating run. A free line means nothing — it is an arrow somebody
+     * drew — so the only question is which end it points at, and "the start only" is a thing an author asks
+     * for that the placement vocabulary has no word for.
+     *
+     * <p>{@code fromHalf} and {@code toHalf} are the two nodes' half-sizes, which is what keeps a head off
+     * the rim it points at. A canvas line has no nodes, so a caller passes zero for both and the head rides
+     * at the endpoint itself.
+     */
+    public static List<Fill> arrows(List<Point> path, DependencyStyle.ArrowHead head, boolean atStart,
+                                    boolean atEnd, int fromHalf, int toHalf, int width) {
+        // `TARGET` as the placement, and it is the honest one rather than a placeholder: it is the only
+        // placement that takes no branch of its own -- it *means* "a head at the arrival end", which is
+        // what the two booleans already say -- so passing it cannot add an end the caller did not ask for.
+        // A `NONE` added to the enum for this would have had to be documented in three schemas.
+        return arrows(path, head, DependencyStyle.ArrowPlace.TARGET, atStart, atEnd, 0, fromHalf, toHalf,
+                Math.max(1, width));
+    }
+
+    /**
+     * Where the heads are memoised, and where both public entry points above meet.
+     *
+     * <p>One cache rather than two, and the key says so: a placement of {@code ONE} and a two-ended call
+     * with only the arrival end set are the same picture, so they are the same entry. That is not a
+     * coincidence to be relied on quietly — it is the reason the ends are part of the key rather than
+     * derived from the placement inside.
+     */
+    private static List<Fill> arrows(List<Point> path, DependencyStyle.ArrowHead head,
+                                     DependencyStyle.ArrowPlace place, boolean atStart, boolean atEnd,
+                                     int spacing, int fromHalf, int toHalf, int width) {
+        boolean placed = place == DependencyStyle.ArrowPlace.STREAM
+                || place == DependencyStyle.ArrowPlace.MID;
+        if (head == null || head == DependencyStyle.ArrowHead.NONE || place == null || path.size() < 2
+                || (!placed && !atStart && !atEnd)) {
             return List.of();
         }
-        DependencyStyle.Weight ink = weight == null ? DependencyStyle.Weight.THIN : weight;
 
         // Remembered for the same reason `fills` is, and by the same argument: the heads are a pure
         // function of the route and the style. Without this the heads are the *last* per-edge walk left in
         // a still frame -- every chevron samples the route to place itself -- so a chapter's arrows would
         // have gone on allocating one object per pixel of every line while the lines themselves stopped.
-        ArrowsKey key = new ArrowsKey(List.copyOf(path), head, place, spacing, fromHalf, toHalf, ink);
+        ArrowsKey key = new ArrowsKey(List.copyOf(path), head, place, atStart, atEnd, spacing, fromHalf,
+                toHalf, width);
         List<Fill> cached = ARROWS.get(key);
         CacheHits.asked(ARROW_CACHE, cached != null);
         if (cached != null) {
             return cached;
         }
-        List<Fill> answer = List.copyOf(arrowsUncached(path, head, place, spacing, fromHalf, toHalf, ink));
+        List<Fill> answer = List.copyOf(arrowsUncached(path, head, place, atStart, atEnd, spacing,
+                fromHalf, toHalf, width));
         if (ARROWS.size() >= FILL_CACHE_LIMIT) {
             ARROWS.clear();
         }
@@ -1079,10 +1160,17 @@ public final class LineArt {
     private static final String FILL_CACHE = "linefills";
     private static final String ARROW_CACHE = "linearrows";
 
-    /** The route, style and geometry a set of heads was computed from. */
+    /**
+     * The route, style and geometry a set of heads was computed from.
+     *
+     * <p>{@code width} rather than a weight, because the two entry points disagree about how a thickness is
+     * spelled — a file's word or a canvas line's number — and the number is what the geometry reads. The
+     * two ends are here as well as the placement, for the reason {@link #arrows} gives: an arrival-only
+     * head is one picture whichever way it was asked for.
+     */
     private record ArrowsKey(List<Point> path, DependencyStyle.ArrowHead head,
-                             DependencyStyle.ArrowPlace place, int spacing, int fromHalf, int toHalf,
-                             DependencyStyle.Weight weight) {
+                             DependencyStyle.ArrowPlace place, boolean atStart, boolean atEnd,
+                             int spacing, int fromHalf, int toHalf, int width) {
     }
 
     /** The remembered heads, by route and style. See the seven-argument {@link #arrows}. */
@@ -1090,9 +1178,9 @@ public final class LineArt {
 
     /** The heads themselves, computed. Split out so the memo above has one place to remember them. */
     private static List<Fill> arrowsUncached(List<Point> path, DependencyStyle.ArrowHead head,
-                                             DependencyStyle.ArrowPlace place, int spacing, int fromHalf,
-                                             int toHalf, DependencyStyle.Weight ink) {
-        int width = ink.width();
+                                             DependencyStyle.ArrowPlace place, boolean atStart,
+                                             boolean atEnd, int spacing, int fromHalf, int toHalf,
+                                             int width) {
         double total = length(path);
         // Each end uses **its own** node's half-size: one shared figure pushed a small node's head away
         // by its neighbour's bulk, which is how an arrow ended up floating in the middle of a line. The
@@ -1102,10 +1190,10 @@ public final class LineArt {
         double arrival = toHalf + standoff;
         double departure = fromHalf + standoff;
         List<Fill> out = new ArrayList<>();
-        boolean roomForArrival = total > arrival + reach(head, ink);
-        boolean roomForDeparture = total > departure + reach(head, ink);
+        boolean roomForArrival = total > arrival + reach(head, width);
+        boolean roomForDeparture = total > departure + reach(head, width);
         if (place == DependencyStyle.ArrowPlace.STREAM) {
-            double every = Math.max(Math.max(spacing, 1), reach(head, ink) * 3);
+            double every = Math.max(Math.max(spacing, 1), reach(head, width) * 3);
             if (!roomForArrival) {
                 return out;
             }
@@ -1118,23 +1206,26 @@ public final class LineArt {
                 backs.add(total - at);
             }
             backs.add(arrival);
-            emitHeads(path, backs, head, ink, out);
+            emitHeads(path, backs, head, width, out);
             return out;
         }
         if (place == DependencyStyle.ArrowPlace.MID) {
             // One head dead-centre, pointing the way the route runs there -- and nothing at the ends,
             // because "which way does this line run" is the whole of what the middle is saying.
             double at = total / 2;
-            headAt(pointAt(path, at), tangentAt(path, at), head, ink, out);
+            headAt(pointAt(path, at), tangentAt(path, at), head, width, out);
             return out;
         }
         // A head that cannot fit outside its node is left off rather than drawn inside it: a short edge
         // with no arrow is honest, and a head buried in a node is the fault this placement exists for.
-        if (roomForArrival) {
-            head(path, arrival, false, head, ink, out);
+        //
+        // The two ends rather than the placement, since the placement has already been read as them -- see
+        // the public entry points. That is what lets "the start only" be expressible at all.
+        if (atEnd && roomForArrival) {
+            head(path, arrival, false, head, width, out);
         }
-        if (place == DependencyStyle.ArrowPlace.BOTH && roomForDeparture) {
-            head(path, departure, true, head, ink, out);
+        if (atStart && roomForDeparture) {
+            head(path, departure, true, head, width, out);
         }
         return out;
     }
@@ -1159,8 +1250,8 @@ public final class LineArt {
     }
 
     /** How far forward a glyph reaches from its tip, for the room check that keeps heads off nodes. */
-    private static double reach(DependencyStyle.ArrowHead head, DependencyStyle.Weight weight) {
-        int extra = weight.width() - 1;
+    private static double reach(DependencyStyle.ArrowHead head, int width) {
+        int extra = width - 1;
         return switch (head) {
             case CHEVRON -> ARROW_LENGTH + extra;
             case TRIANGLE -> TRIANGLE_LENGTH + extra;
@@ -1179,7 +1270,7 @@ public final class LineArt {
      * where the pixels coincide.
      */
     private static void emitHeads(List<Point> path, List<Double> backs, DependencyStyle.ArrowHead head,
-                                  DependencyStyle.Weight weight, List<Fill> out) {
+                                  int width, List<Fill> out) {
         double[] distances = new double[backs.size()];
         double total = length(path);
         for (int i = 0; i < backs.size(); i++) {
@@ -1204,7 +1295,7 @@ public final class LineArt {
             angleOf[order[i]] = angles.get(i);
         }
         for (int i = 0; i < distances.length; i++) {
-            headAt(tipOf[i], angleOf[i], head, weight, out);
+            headAt(tipOf[i], angleOf[i], head, width, out);
         }
     }
 
@@ -1285,7 +1376,7 @@ public final class LineArt {
      * arrow on an orthogonal route turn the corner correctly rather than pointing along the axes.
      */
     private static void head(List<Point> path, double back, boolean atStart, DependencyStyle.ArrowHead head,
-                             DependencyStyle.Weight weight, List<Fill> out) {
+                             int width, List<Fill> out) {
         double total = length(path);
         double from = atStart ? back : total - back;
         if (from < 0 || from > total) {
@@ -1295,19 +1386,19 @@ public final class LineArt {
         // The path runs source to target, so the arrival head points along it and the departure head
         // points back at its own node.
         double angle = tangentAt(path, from) + (atStart ? Math.PI : 0);
-        headAt(tip, angle, head, weight, out);
+        headAt(tip, angle, head, width, out);
     }
 
-    /** One head whose tip and direction are already known: the glyph's own shape, at a weight. */
+    /** One head whose tip and direction are already known: the glyph's own shape, at a width. */
     private static void headAt(Point tip, double angle, DependencyStyle.ArrowHead head,
-                               DependencyStyle.Weight weight, List<Fill> out) {
-        int extra = weight.width() - 1;
+                               int width, List<Fill> out) {
+        int extra = width - 1;
         switch (head) {
-            case CHEVRON -> chevronAt(tip, angle, weight, out);
+            case CHEVRON -> chevronAt(tip, angle, width, out);
             case TRIANGLE -> wedgeAt(tip, angle, TRIANGLE_LENGTH + extra,
                     TRIANGLE_HALF + extra / 2, out);
             case DIAMOND -> diamondAt(tip, angle, DIAMOND_LENGTH + extra, DIAMOND_HALF + extra / 2, out);
-            case DOT -> dotAt(tip, weight.width(), out);
+            case DOT -> dotAt(tip, width, out);
             case NONE -> {
             }
         }
@@ -1320,14 +1411,16 @@ public final class LineArt {
      * trunk it caps â€” two one-pixel scratches under a six-pixel line is what the head used to be, and
      * the report was "the arrow looks like it belongs to another line".
      */
-    private static void chevronAt(Point tip, double angle, DependencyStyle.Weight weight, List<Fill> out) {
+    private static void chevronAt(Point tip, double angle, int width, List<Fill> out) {
         for (int side = -1; side <= 1; side += 2) {
             double wing = angle + Math.PI + side * 0.5;
             Point wingEnd = new Point((int) Math.round(tip.x() + Math.cos(wing) * ARROW_LENGTH),
                     (int) Math.round(tip.y() + Math.sin(wing) * ARROW_LENGTH));
             // A walked stroke, not rounded dots: a wing is continuous at every angle instead of a dotted
-            // line on the diagonals.
-            stroke(walk(List.of(tip, wingEnd)), DependencyStyle.Dash.SOLID, weight, out);
+            // line on the diagonals. One tone, because a wing is one colour -- the weight's toned band is
+            // for a conduit's trunk, and a wing has no trunk to be toned against.
+            stroke(walk(List.of(tip, wingEnd)), DependencyStyle.Dash.SOLID, DependencyStyle.Weight.THIN,
+                    width, out);
         }
     }
 

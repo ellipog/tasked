@@ -81,6 +81,70 @@ same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsu
 > path in the tree is built from it. The same goes for the name lists: a chapter named in `chapters`
 > that is not on disk is reported, and a chapter folder that no manifest names is reported too.
 
+## What is drawn on the canvas
+
+A chapter's `elements` array is everything on its canvas that is not a quest: a picture, a label, a rule
+or a box. They are drawn **under** the quest nodes and the dependency lines, so a box is a container
+around a cluster of quests rather than a lid over it, and among themselves by `order` and then by the
+order they are written here.
+
+```json
+{
+  "id": "first_steps",
+  "title": "First Steps",
+  "elements": [
+    { "type": "rect", "id": "bench", "x": -32, "y": -32, "width": 320, "height": 192,
+      "fillColor": "#206FA8DC", "borderColor": "#806FA8DC", "borderWidth": 2, "order": -1 },
+    { "type": "text", "id": "bench_label", "x": 0, "y": -56, "text": "The bench",
+      "scale": 1.5, "color": "#FFE8D8A0", "shadow": true },
+    { "type": "line", "id": "rule", "x1": -40, "y1": -72, "x2": 340, "y2": -72,
+      "width": 2, "color": "#606FA8DC", "arrowhead": "none" },
+    { "type": "image", "id": "crest", "x": 360, "y": -32, "width": 64, "height": 64,
+      "image": { "sprite": "minecraft:block/lodestone_top" }, "rotation": 12,
+      "title": "Sealed", "click": { "type": "open_quest", "data": "make_a_table" } }
+  ]
+}
+```
+
+**`x` and `y` are the top-left corner in canvas pixels**, exactly as they are for a quest — the same
+coordinate space, the same grid, and the same numbers you see in the editor. `line` is the exception and
+says what it is: `x1, y1, x2, y2` are its two endpoints, so a line is placed by placing both its ends.
+
+The four types are `image`, `text`, `line` and `rect`, and every field they read is in
+[the chapter schema](../../tools/quests/_schema/chapter.schema.json) — including the ranges, which the
+loader clamps rather than refuses, so a `width` of `99999` becomes the largest legal box instead of
+costing you the chapter.
+
+| | |
+|---|---|
+| `image` | A picture from a **file** in a resource pack (`{ "texture": "pack:textures/crest.png" }`) or from a **block-atlas sprite** (`{ "sprite": "minecraft:block/lodestone_top" }`). A sprite always resolves; a file that is not in the pack draws nothing at all. `title` is what the picture says: a hover tooltip, or — when `label.onImage` is set — words painted into the picture, placed by `label.hAlign`, `label.vAlign` and an `inset` from the edge they name, in the font's own shadow or not (`label.shadow`). |
+| `text` | A label. `\n` starts a second line, `scale` sizes it, and `shadow` is the font's own shadow — which is what makes words readable over a picture. |
+| `line` | A rule with an optional head at either end: `arrowhead` is `none`, `start`, `end` or `both`. |
+| `rect` | A filled box with an optional border. The border is drawn across the whole box and the fill inset by `borderWidth`, so the two never fight. |
+
+**Two fields hide an element, and neither is access control.** `dev: true` draws it only for an author
+with the editor's advanced depth on, and `requires: "<quest>"` draws it only once that quest is
+complete. Both reach every client with the tree — they are presentation, and the file is not a place to
+keep a secret.
+
+**`click` makes an element pressable**: `open_quest` opens another quest by id or alias, and `open_uri`
+opens an `http` or `https` address in the browser. The four FTB actions this build cannot run
+(`run_command`, `custom_event`, `show_recipe`, `show_docs`) are **refused at load with a message naming
+the action**, so a converted pack is told what it is losing rather than left with a dead button.
+
+Elements are translated like everything else: `element.<id>.text` for a label's words and
+`element.<id>.title` for a picture's caption, in the same `lang` folder as `quest.<id>.title`. A
+literal in the file is used when no translation exists, so words in the file are never a raw key on
+screen.
+
+> [!WARNING]
+> **A sprite that does not exist cannot be checked by the server, and a file that does not exist is not
+> a fault either.** The atlas is built by the client, so an unresolvable sprite draws the game's own
+> missing-texture marker rather than refusing the chapter — look at the picture, not at the log. The
+> one thing that *is* checked is a `requires` or an `open_quest` naming a quest that does not exist,
+> which is reported with the file and line, because an element gated on nothing is never drawn and a
+> press that opens nothing reads as a broken control.
+
 ## The root `index.json`
 
 The root's `index.json` does two jobs: it lists the top level of the book in reading order, and it
@@ -210,6 +274,11 @@ The two formats describe the same objects, so a flat file may carry the same fie
 does. New packs should use the folder format; the flat one is kept so old ones do not have to be
 rewritten. Its schema is published at
 `https://ellipog.dev/tenet/_legacy/tenet-quests.schema.json`.
+
+A chapter inside a flat file carries `elements` exactly as a `chapter.json` does — it is the same codec
+and the same record, so a decoration written in either format behaves identically. The one difference is
+where the array sits: on the chapter object inside `chapterGroups[]` rather than in a file of its own,
+which is the difference between the two formats and nothing to do with elements.
 
 </details>
 

@@ -102,6 +102,12 @@
       "type": "array",
       "items": { "$ref": "#/definitions/name" },
       "description": "The file names of this chapter's quests, in order. Load-bearing rather than cosmetic: a LINEAR chapter's progression *is* this order. A name here that is not on disk is reported; a quest file that is not named here is reported and never loads."
+    },
+
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/element" },
+      "description": "What is drawn on this chapter's canvas besides its quests: pictures, labels, lines and boxes. Decoration in every sense - an element holds no progress, gates nothing and is never counted for this chapter's completion, and all of them draw beneath the quest nodes. Each element's `type` chooses which of the fields in the definition below apply to it."
     }
   },
 
@@ -265,6 +271,192 @@
           "minimum": -0.8,
           "maximum": 0.8,
           "description": "How far a curved line bows, as a fraction of the chord between its ends. Positive bows one way and negative the other."
+        }
+      }
+    },
+
+    "element": {
+      "description": "One thing drawn on the chapter's canvas that is not a quest. `type` chooses which of the fields below apply; `id`, `order`, `dev` and `requires` apply to every type. Elements are drawn beneath the quest nodes and the dependency lines, ordered among themselves by `order` and then by the order they are written in this array. Nothing here is counted for the chapter's completion and nothing here gates anything: an element is a label on the map rather than a place on it.",
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["image", "text", "line", "rect"],
+          "description": "Which kind of element this is. image is a picture drawn from a file or from a region of the block atlas; text is a label; line is a rule with an optional arrowhead at either end; rect is a filled box with an optional border. A type this build does not know is kept, reported once as a warning, and draws nothing - so a chapter from a newer build still loads."
+        },
+        "id": {
+          "$ref": "#/definitions/id",
+          "description": "Unique within this chapter, and the name a translation key uses (`element.<id>.text` for a label's words, `element.<id>.title` for a picture's). Two elements sharing one is reported, because the second could then never be addressed."
+        },
+        "order": {
+          "type": "integer",
+          "default": 0,
+          "description": "Draw order among this chapter's elements, ascending. Two elements with the same order keep the order they are written in this array, which is why a plain label needs no number at all."
+        },
+        "dev": {
+          "type": "boolean",
+          "default": false,
+          "description": "Drawn only while the editor's dev mode is on, and only for somebody who may edit. How an author drafts a layout without shipping it: a reader with dev mode off never sees it."
+        },
+        "requires": {
+          "type": "string",
+          "description": "A quest id or alias: the element is drawn only once that quest is completed. A name that resolves to nothing is reported at load, because the element would then never be drawn at all. Note that this reads a quest's state and changes nothing about it - an element is never a dependency."
+        },
+
+        "x": {
+          "type": "integer",
+          "description": "image, text and rect: the left edge in canvas pixels, measured the same way a quest node's `x` is. The migration tool converts FTB's centre-based coordinates to this corner."
+        },
+        "y": {
+          "type": "integer",
+          "description": "image, text and rect: the top edge in canvas pixels. For a text label this is the top of its first line."
+        },
+        "x1": { "type": "integer", "description": "line: the first endpoint's x, in canvas pixels." },
+        "y1": { "type": "integer", "description": "line: the first endpoint's y." },
+        "x2": { "type": "integer", "description": "line: the second endpoint's x." },
+        "y2": { "type": "integer", "description": "line: the second endpoint's y." },
+        "width": {
+          "type": "integer",
+          "description": "image and rect: how wide, in canvas pixels (1 to 4096 for a picture, 1 to 8192 for a box). line: how thick the stroke is, 1 to 16, which the arrowhead is also sized by. A picture or a box is stretched to fill its rectangle; nothing preserves an aspect ratio."
+        },
+        "height": {
+          "type": "integer",
+          "description": "image and rect: how tall, in canvas pixels, bounded exactly as `width` is."
+        },
+        "rotation": {
+          "type": "integer",
+          "default": 0,
+          "description": "image: degrees clockwise. Wrapped rather than clamped, so -90, 270 and 630 are all one quarter turn - a clamped -90 would be no turn at all, which is the opposite of what the file says. Turned about the element's centre, or about its own top-left when `corner` is true."
+        },
+        "corner": {
+          "type": "boolean",
+          "default": false,
+          "description": "image: turn about this element's own top-left corner instead of its centre. FTB Quests calls this alignToCorner, and it is what a logo pinned by its corner needs - the two pivots are visibly different pictures."
+        },
+        "image": { "$ref": "#/definitions/imageSource" },
+        "tint": {
+          "type": ["string", "integer"],
+          "default": "#FFFFFFFF",
+          "description": "image: a colour multiplied into the picture, alpha included. White leaves it exactly as authored."
+        },
+        "alpha": {
+          "type": "integer",
+          "default": 255,
+          "description": "image: 0 to 255, multiplied with `tint`'s own alpha. FTB carries the two separately, so both are kept and neither is lost in conversion."
+        },
+        "title": {
+          "$ref": "#/definitions/text",
+          "description": "image: a hover tooltip, or words painted into the picture when `label.onImage` is set. For a label's own words see `text` below."
+        },
+        "label": { "$ref": "#/definitions/elementLabel" },
+        "click": { "$ref": "#/definitions/click" },
+
+        "text": {
+          "$ref": "#/definitions/text",
+          "description": "text: the words. A newline starts a second line. Plain text with no markup - there is no emphasis in this format, so asterisks stay asterisks."
+        },
+        "scale": {
+          "type": "number",
+          "default": 1.0,
+          "description": "text: the size of the words, 0.25 to 4.0, multiplied by the player's own text-scale setting on top."
+        },
+        "color": {
+          "type": ["string", "integer"],
+          "description": "text and line: the ink. A colour is #RRGGBB, #AARRGGBB, or a number read as the same 32-bit pattern."
+        },
+        "shadow": {
+          "type": "boolean",
+          "default": false,
+          "description": "text: draw the font's own drop shadow under the words. Off by default, because a label with a backdrop behind it does not want one - on is for a label floating over a chapter, where there is no backdrop to draw."
+        },
+        "arrowhead": {
+          "enum": ["none", "start", "end", "both"],
+          "default": "none",
+          "description": "line: which ends carry an arrowhead. none is a blunt rule. This is its own vocabulary rather than the dependency lines' placement, because a free line means nothing and the only question is which way it points."
+        },
+        "fillColor": {
+          "type": ["string", "integer"],
+          "default": "#00000000",
+          "description": "rect: the fill, drawn first. A colour is #RRGGBB, #AARRGGBB, or a number. The default is fully transparent, so a box that names no colour draws nothing - the editor's own \"add a box\" writes a visible one."
+        },
+        "borderColor": {
+          "type": ["string", "integer"],
+          "default": "#00000000",
+          "description": "rect: the border, drawn over the fill."
+        },
+        "borderWidth": {
+          "type": "integer",
+          "default": 0,
+          "description": "rect: how thick the border is, 0 to 16. Zero draws none, which is the default."
+        }
+      }
+    },
+
+    "imageSource": {
+      "description": "Where a picture comes from: exactly one of a file or a region of the block atlas. The two are different lookups that fail differently - a file that is not there draws nothing, and a sprite the atlas does not hold draws the game's missing-texture marker - so which one is meant is written down rather than inferred from a suffix.",
+      "type": "object",
+      "oneOf": [
+        { "required": ["texture"] },
+        { "required": ["sprite"] }
+      ],
+      "properties": {
+        "texture": {
+          "type": "string",
+          "description": "A PNG by its own path, e.g. atm:textures/questpics/logo.png. Note the textures/ directory and the .png are part of it: this is a file's path, not an item's."
+        },
+        "sprite": {
+          "type": "string",
+          "description": "A region of the block atlas, e.g. minecraft:block/sculk or powah:item/uraninite_raw. Which sheet to look it up in is the reader's business, not the file's."
+        }
+      }
+    },
+
+    "elementLabel": {
+      "description": "How a picture's title is painted into it, rather than shown on hover. Each field has an FTB counterpart, so a converted chapter's text_on_image, text_shadow, text_inset, text_h_align and text_v_align all land here.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "onImage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the title is drawn into the picture at all. Off means it is a hover tooltip, which is what a title usually wants."
+        },
+        "shadow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw the words with the font's own shadow, for a picture whose area behind them is busy or bright."
+        },
+        "inset": {
+          "type": "number",
+          "default": 1.0,
+          "description": "How far the words sit from the edge their alignment names, in pixels, 0 to 64."
+        },
+        "hAlign": {
+          "enum": ["start", "middle", "end"],
+          "default": "middle",
+          "description": "Where the words sit across the picture: against its left edge, centred, or against its right."
+        },
+        "vAlign": {
+          "enum": ["start", "middle", "end"],
+          "default": "middle",
+          "description": "The same vertically."
+        }
+      }
+    },
+
+    "click": {
+      "description": "What pressing an element does. All seven names FTB Quests can write are readable here, and the four this build cannot run - run_command, custom_event, show_recipe, show_docs - are reported as errors naming them, because a click that silently does nothing reads as a bug in the mod rather than as a gap in it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["none", "open_quest", "open_uri", "run_command", "custom_event", "show_recipe", "show_docs"],
+          "default": "none",
+          "description": "What a press does. none is an element that is not pressable; open_quest opens another quest by id or alias; open_uri opens an http or https address in the browser. The other four are readable and refused, so that a converted pack is told what it is losing rather than left with a dead button."
+        },
+        "data": {
+          "type": "string",
+          "description": "What the action acts on: a quest id or alias for open_quest, an http or https URL for open_uri. Unused by none."
         }
       }
     },

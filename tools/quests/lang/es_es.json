@@ -1,6 +1,8 @@
 {
   "group.first_light.title": "Primera luz",
   "chapter.first_steps.title": "El planetario",
+  "element.orrery_title.text": "El planetario",
+  "element.the_way_out.title": "El camino abierto",
   "rewardTable.dice.title": "El dado",
   "quest.punch_a_tree.title": "Golpea un árbol",
   "quest.punch_a_tree.subtitle": "Ocho troncos, y los cuenta él solo",
