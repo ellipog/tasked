@@ -1961,10 +1961,18 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>A tooltip drawn where it is discovered is a tooltip the next row can paint over -- the row
      * below draws later and wins. Collected and drawn last, the same rule the screen's own tooltip
      * pass follows.
+     *
+     * <p>What a producer records is the <b>anchor</b> -- the control the caption belongs to -- and not
+     * a box. Sizing, folding, the choice of side and the promise that the box is on the screen are
+     * {@link Tooltips#drawAt}'s, because a caption is the same surface as a pointer tooltip and a
+     * screen that hand-rolled one drew its border a pixel outside the box and clamped against the
+     * <i>card</i> -- which is the window's edge only while the book is full-bleed, and never the
+     * window's edge on a docked panel. A producer cannot forget any of that now, because it has
+     * nothing left to forget.
      */
     private final List<PendingLabel> pendingLabels = new ArrayList<>();
 
-    private record PendingLabel(BookGeometry.Rect box, String text) {
+    private record PendingLabel(BookGeometry.Rect anchor, String text) {
     }
 
     /**
@@ -9615,11 +9623,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 fold.y() + (fold.height() - 8) / 2, foldHot ? ArmatureTheme.title() : ArmatureTheme.body());
         if (foldHot) {
             String word = folded ? "Expand" : "Collapse";
-            int width = r.textWidth(word) + 8;
-            pendingLabels.add(new PendingLabel(
-                    BookGeometry.Rect.at(Math.min(fold.x(), surfaceCard(PanelKind.QUEST).right() - width - 6),
-                            fold.bottom() + 2, width, 12),
-                    word));
+            pendingLabels.add(new PendingLabel(fold, word));
         }
         editTargets.add(new EditTarget(EditAction.TOGGLE_ENTRY, null, fold, fold.x(),
                 fold.y() + (fold.height() - 8) / 2, "", member, index));
@@ -9764,10 +9768,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // The raw id, when the pointer is over the icon: the badge says "Item", and the spelling a file
         // and an error message use is one hover away rather than nowhere.
         if (form.icon().contains(mouseX, mouseY)) {
-            int labelWidth = r.textWidth(type) + 8;
-            int labelX = Math.min(form.icon().x(), surfaceCard(PanelKind.QUEST).right() - labelWidth - 6);
-            pendingLabels.add(new PendingLabel(
-                    BookGeometry.Rect.at(labelX, form.icon().bottom() + 2, labelWidth, 12), type));
+            pendingLabels.add(new PendingLabel(form.icon(), type));
         }
     }
 
@@ -9870,10 +9871,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // And what the field is for, on the label's own hover: the labels are one or two words by
         // necessity, and a form of switches reads as a set of guesses without this.
         if (!field.hint().isEmpty() && cell.label().contains(mouseX, mouseY)) {
-            pendingLabels.add(new PendingLabel(
-                    BookGeometry.Rect.at(cell.label().x(), cell.label().bottom() + 2,
-                            r.textWidth(field.hint()) + 8, 12),
-                    field.hint()));
+            pendingLabels.add(new PendingLabel(cell.label(), field.hint()));
         }
 
         switch (field.kind()) {
@@ -9906,10 +9904,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 if (cell.value().contains(mouseX, mouseY)) {
                     // What the press will do, said before it is pressed: a cycle through values is a
                     // control nobody can aim without knowing the ring.
-                    pendingLabels.add(new PendingLabel(
-                            BookGeometry.Rect.at(cell.value().x(), cell.value().bottom() + 2,
-                                    r.textWidth(optionsHint(field)) + 8, 12),
-                            optionsHint(field)));
+                    pendingLabels.add(new PendingLabel(cell.value(), optionsHint(field)));
                 }
                 registerTarget(EditAction.CYCLE_CHOICE, path, cell.value(), cell.value().x() + 4,
                         cell.value().y() + 3, value, member, index);
@@ -9943,10 +9938,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 String shown = value.isEmpty() ? field.hint() : value;
                 drawValue(r, cell.value(), shown, "", value.isEmpty(), replaced, mouseX, mouseY);
                 if (cell.value().contains(mouseX, mouseY) && !field.hint().isEmpty() && !value.isEmpty()) {
-                    pendingLabels.add(new PendingLabel(
-                            BookGeometry.Rect.at(cell.value().x(), cell.value().bottom() + 2,
-                                    r.textWidth(field.hint()) + 8, 12),
-                            field.hint()));
+                    pendingLabels.add(new PendingLabel(cell.value(), field.hint()));
                 }
                 target(r, EditAction.FIELD, path, cell.value(), cell.value().x() + 4,
                         cell.value().y() + 3, value, member, index, mouseX, mouseY);
@@ -9958,10 +9950,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 String shown = value.isEmpty() ? "search\u2026" : friendlyId(value);
                 drawValue(r, cell.value(), shown, "", value.isEmpty(), replaced, mouseX, mouseY);
                 if (cell.value().contains(mouseX, mouseY) && !value.isEmpty()) {
-                    pendingLabels.add(new PendingLabel(
-                            BookGeometry.Rect.at(cell.value().x(), cell.value().bottom() + 2,
-                                    r.textWidth(value) + 8, 12),
-                            value));
+                    pendingLabels.add(new PendingLabel(cell.value(), value));
                 }
                 target(r, EditAction.SEARCH, path, cell.value(), cell.value().x() + 4,
                         cell.value().y() + 3, value, member, index, mouseX, mouseY);
@@ -10125,9 +10114,7 @@ public final class QuestBookScreen extends ArmatureScreen
             r.text(Measure.truncate(value, room, textMeasure(r)), textX, baseline, ArmatureTheme.blocked());
             r.text("missing", box.right() - 4 - r.textWidth("missing"), baseline, ArmatureTheme.blocked());
             if (box.contains(mouseX, mouseY)) {
-                pendingLabels.add(new PendingLabel(
-                        BookGeometry.Rect.at(box.x(), box.bottom() + 2,
-                                r.textWidth("missing - the mod is not installed") + 8, 12),
+                pendingLabels.add(new PendingLabel(box,
                         "missing - the mod is not installed; the id is kept"));
             }
             return textX;
@@ -10138,8 +10125,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // The id, on hover: the badge says "Item" and the box says "Cobblestone", and the spelling a file
         // and an error message use is the one thing neither of them says.
         if (!value.isEmpty() && box.contains(mouseX, mouseY)) {
-            pendingLabels.add(new PendingLabel(
-                    BookGeometry.Rect.at(box.x(), box.bottom() + 2, r.textWidth(value) + 8, 12), value));
+            pendingLabels.add(new PendingLabel(box, value));
         }
         return textX;
     }
@@ -16542,7 +16528,7 @@ public final class QuestBookScreen extends ArmatureScreen
                     ArmatureTheme.faint());
             if (tableEditorFrame.crumb().contains(mouseX, mouseY)) {
                 // The whole sentence, however long: the band holds what fits and the hover holds the rest.
-                tipAt(r, tableEditorFrame.crumb(), uses);
+                pendingLabels.add(new PendingLabel(tableEditorFrame.crumb(), uses));
             }
         }
 
@@ -16556,7 +16542,8 @@ public final class QuestBookScreen extends ArmatureScreen
                 if (iconBox.contains(mouseX, mouseY)) {
                     // The one control in this header with nothing said about it anywhere: a small stack
                     // sprite that is also a button is not a thing a person guesses.
-                    tipAt(r, iconBox, "the icon this table draws in the browser and on a reward's badge");
+                    pendingLabels.add(new PendingLabel(iconBox,
+                            "the icon this table draws in the browser and on a reward's badge"));
                 }
             }
         }
@@ -16577,7 +16564,8 @@ public final class QuestBookScreen extends ArmatureScreen
             // The box says what the table already is, so a blank one reads as a table with no name rather
             // than as a field asking for one. Said here: the name is the browser row's heading, and the id
             // at the right is the file's name.
-            tipAt(r, tableTitleBox, "what this table is called - the id at the right is its file name");
+            pendingLabels.add(new PendingLabel(tableTitleBox,
+                    "what this table is called - the id at the right is its file name"));
         }
 
         if (model.isEmpty()) {
@@ -17182,25 +17170,8 @@ public final class QuestBookScreen extends ArmatureScreen
             // (the mode's meaning, the roll's summary), and a form of twenty controls all explaining
             // themselves one at a time in one shared line is a line that changes faster than it can be
             // read. The card's fields have used this surface all along.
-            tipAt(r, box, control.hint());
+            pendingLabels.add(new PendingLabel(box, control.hint()));
         }
-    }
-
-    /**
-     * A tooltip under a control, sized to its sentence and kept inside the card.
-     *
-     * <p>The card's own fields build this inline at each of their sites; the table panel needs several, and
-     * a helper is what makes the "kept inside the card" half impossible to forget — a tooltip anchored to
-     * a control at the card's right edge would otherwise run off it.
-     */
-    private void tipAt(GuiRenderer r, BookGeometry.Rect anchor, String text) {
-        // The surface being drawn rather than the card, because the table panel — the one caller with
-        // several tips — is a dockable kind now, and a tip clamped to a card the panel is not on would run
-        // off the column it is in.
-        BookGeometry.Rect card = surfaceCard(surfaceKind);
-        int width = r.textWidth(text) + 8;
-        int x = Math.max(card.x() + 4, Math.min(anchor.x(), card.right() - width - 6));
-        pendingLabels.add(new PendingLabel(BookGeometry.Rect.at(x, anchor.bottom() + 2, width, 12), text));
     }
 
     /**
@@ -19896,21 +19867,19 @@ public final class QuestBookScreen extends ArmatureScreen
      * belongs over everything is drawn two levels above it, which is where the tooltips already were and
      * where this now goes (see the call site in {@code render}).
      *
-     * <p>The boxes are in screen coordinates and are worked out while the panel is drawn, so drawing them
-     * here is a translation in Z only: the label is where the icon it names is, whenever the frame gets
-     * around to painting it.
+     * <p>The anchors are in screen coordinates and are recorded while the panel is drawn, so the only
+     * thing left to do here is place the box: it opens under the control it names, moves when there is no
+     * room below, and is folded and clamped by the toolkit, so the panel's own edges -- and the window's,
+     * which the panel's are not always -- are answered in one place rather than eleven.
      */
     private void drawPendingLabels(GuiRenderer r) {
         for (PendingLabel label : pendingLabels) {
-            BookGeometry.Rect box = label.box();
-            // The tooltip tokens, the same three the toolkit's box uses: a caption anchored to an icon
-            // and a tooltip anchored to the pointer are the same kind of surface, and a theme that set
-            // one and not the other would look half-done.
-            r.fill(box.x() - 1, box.y() - 1, box.right() + 1, box.bottom() + 1,
-                    ArmatureTheme.tooltipEdge());
-            r.fill(box.x(), box.y(), box.right(), box.bottom(), ArmatureTheme.tooltipFill());
-            r.text(label.text(), box.x() + 4, box.y() + (box.height() - 8) / 2,
-                    ArmatureTheme.tooltipText());
+            BookGeometry.Rect anchor = label.anchor();
+            // The toolkit's box, the same one a pointer tooltip gets: the theme's three tooltip tokens,
+            // the fold, the move to a side that fits and the clamp -- so a caption at an icon by the
+            // window's edge repositions rather than leaves, and a long id folds rather than runs off.
+            Tooltips.drawAt(r, List.of(label.text()), anchor.x(), anchor.y(), anchor.width(),
+                    anchor.height(), width, height);
         }
     }
 
@@ -21534,10 +21503,7 @@ public final class QuestBookScreen extends ArmatureScreen
             if (!entry.item().isEmpty()) {
                 // The id on hover, because an entry is otherwise only as identifiable as its label --
                 // and a label an author wrote can be as vague as "a surprise".
-                pendingLabels.add(new PendingLabel(
-                        BookGeometry.Rect.at(rect.x() + 20, rect.bottom() + 2,
-                                r.textWidth(entry.item()) + 8, 12),
-                        entry.item()));
+                pendingLabels.add(new PendingLabel(rect, entry.item()));
             }
         }
     }
@@ -23182,8 +23148,7 @@ public final class QuestBookScreen extends ArmatureScreen
             // fact must not be silent. The editor's icon row and the picker both say it in full.
             drawItemPlaceholder(r, iconX, iconY, iconBox);
             r.text("!", iconX + iconBox - 2, iconY - 2, ArmatureTheme.blocked());
-            pendingLabels.add(new PendingLabel(
-                    BookGeometry.Rect.at(iconX, iconY + iconBox + 2, 170, 12),
+            pendingLabels.add(new PendingLabel(BookGeometry.Rect.at(iconX, iconY, iconBox, iconBox),
                     "missing item - the id is kept, so the mod can come back"));
         }
         else {
