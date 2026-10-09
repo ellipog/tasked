@@ -3,7 +3,7 @@
 A modern questing mod for **Fabric** and **NeoForge**, for **Minecraft 1.21.1**. Built as a
 ground-up replacement for FTB Quests — not a port of it, and not a reimplementation.
 
-> **Status: 0.1.2 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
+> **Status: 0.1.5 — pre-1.0, and not yet a stability promise.** The quest format and its validator,
 > the progression engine, server-authoritative sync, the quest book and the in-game editor all work
 > on both loaders, but the version is below 1.0 on purpose: a break in the quest format needs only a
 > minor bump, so read the release notes before upgrading. Tenet ships no quests of its own: it is an
@@ -55,12 +55,15 @@ descriptions, live task progress and submit buttons, a claim menu grouped by cha
 claim-chapter and claim-all, a choice-reward picker, and the party roster.
 
 **The editor is in-game and server-owned.** A player with permission level 2 gets a band under the
-book's title row carrying `Author`, `Assets`, `✎ Edit` and `Advanced`: `Edit` latches edit mode, `Author`
+book's title row carrying `Author`, `Assets`, `✎ Edit`, `Advanced` and `Preview`: `Edit` latches edit mode, `Author`
 opens the tools panel inside the book, and `Assets` opens the pack's own files — forms for every task and
 reward type, a searchable item picker, drag to move a node with a snap grid, and undo/redo. `Advanced`
 sets how much of the editor is drawn: with it off — the default — every menu carries the essentials, and
 with it on the reward tables, the visibility and progression rules, a chapter's line styles and the theme
-editor are there as well. Nodes are selectable in bulk — shift-click collects, ctrl-click
+editor are there as well. `Preview` shows the player's view: the book shrinks to the reader's card at the
+reader's size, hidden chapters and quests are hidden again, and editing is paused — while edit mode stays
+on underneath, so leaving the preview resumes exactly where it was left; the way back out is the lit pill
+floating over the canvas, since the reader's card has no band. Nodes are selectable in bulk — shift-click collects, ctrl-click
 toggles one in or out, shift-drag on the empty canvas is a marquee, and Ctrl+A takes the chapter — and
 a drag, Ctrl+C/Ctrl+V, Ctrl+D or Delete then acts on the whole selection. A bulk edit goes out as one
 batch per chapter it spans, applied all-or-nothing, so it is one history step and one Ctrl+Z per
@@ -130,9 +133,9 @@ repositories {
 
 dependencies {
     // TenetScripts, TenetEvents and the CustomTask / CustomReward registries.
-    compileOnly 'dev.ellipog:tenet-common-1.21.1:0.1.2'
+    compileOnly 'dev.ellipog:tenet-common-1.21.1:0.1.5'
     // TenetEvents extends Armature's Event, so that one is needed beside it.
-    compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.2'
+    compileOnly 'dev.ellipog:armature-common-1.21.1:0.1.5'
 }
 ```
 
@@ -144,7 +147,7 @@ A KubeJS pack needs none of this. Scripts register the same handlers through the
 inside Tenet's jar, which is [docs/authoring/kubejs.md](docs/authoring/kubejs.md).
 
 Jars land in `fabric/build/libs` and `neoforge/build/libs`. Install the plain jar
-(`tenet-fabric-1.21.1-0.1.2.jar`) — the `-sources` jars are not mods. The test
+(`tenet-fabric-1.21.1-0.1.5.jar`) — the `-sources` jars are not mods. The test
 suite is JUnit 5 and runs headless, as part of `gradlew build`.
 
 ## Deploying to a local test profile
