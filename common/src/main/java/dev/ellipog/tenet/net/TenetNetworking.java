@@ -315,6 +315,19 @@ public final class TenetNetworking {
                 TenetNetworking::handleClaimChoiceResult,
                 null));
 
+        // --- a reward-level message, so the book can say it while it is open ---
+        //
+        // The server already says the same sentence in chat; this carries it into the book, where
+        // the HUD (and the chat behind the screen) cannot be read. The same routing the overflow
+        // and summary notices use, for the same reason.
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                RewardToastPayload.TYPE,
+                RewardToastPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TenetNetworking::handleRewardToast,
+                null));
+
         // --- the lists only the server has, server to client ---
         //
         // The dimensions and the structures, in one message. Both are lists the editor searches and the
@@ -904,6 +917,17 @@ public final class TenetNetworking {
     private static void handleClaimChoiceResult(ClaimChoiceResultPayload payload) {
         dev.ellipog.tenet.client.QuestNotifier.choiceResult(payload.questId(), payload.rewardIndex(),
                 payload.result());
+    }
+
+    /**
+     * A reward-level message, routed to the book.
+     *
+     * <p>Routed rather than held, like the overflow and summary notices: the server already said the
+     * same sentence in chat, and this is what reaches the player looking at the book, where the chat
+     * cannot be read. Outside the book there is nothing to do — chat is where that sentence belongs.
+     */
+    private static void handleRewardToast(RewardToastPayload payload) {
+        dev.ellipog.tenet.client.QuestNotifier.rewardToast(payload.message());
     }
 
     // ------------------------------------------------------------------

@@ -2,6 +2,7 @@ package dev.ellipog.tenet.fabric;
 
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.tenet.Tenet;
+import dev.ellipog.tenet.inventory.FluidAccesses;
 import dev.ellipog.tenet.inventory.InventoryAccesses;
 import dev.ellipog.tenet.inventory.VanillaInventory;
 import dev.ellipog.tenet.net.TenetNetworking;
@@ -40,6 +41,11 @@ public final class TenetFabric implements ModInitializer {
         // common implementation is installed explicitly rather than left to the default -- the two
         // loaders then read the same, and the seam is visible at both entry points.
         InventoryAccesses.install(VanillaInventory.INSTANCE);
+
+        // Fluid containers through the Transfer API. Energy is deliberately not installed: Fabric
+        // has no energy library to read through, so energy tasks read zero here until a TR-Energy
+        // integration ships -- the default's silence, rather than a second seam with one caller.
+        FluidAccesses.install(new FabricFluids());
 
         // The server half of Fabric's two-part registration. The client half is in TenetFabricClient.
         TenetFabric.registerServerReceivers();

@@ -5,11 +5,15 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import dev.ellipog.tenet.Tenet;
+import dev.ellipog.tenet.net.RewardToastPayload;
 import dev.ellipog.tenet.quest.QuestReward;
+import dev.ellipog.tenet.quest.QuestText;
 
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -22,13 +26,19 @@ import java.util.function.Function;
  * it runs through the server's own dispatcher with the player as the source, at the permission level
  * the reward names. FTBQ's placeholders are kept whole, because a pack moved from it should not have
  * to learn a second vocabulary for the same sentence.
+ *
+ * <p>{@code feedbackMessage} is FTB Quests' {@code feedback_message}: a message shown when the
+ * command runs. Absent means nothing extra is shown — the claim flow already says what it took —
+ * which is the common case (ATM10 sets it nowhere). A {@code disableToast} reward runs the command
+ * silently: the command still runs, only the message is withheld.
  */
-public record CommandReward(RewardCommon common, String command, int permissionLevel, boolean silent)
+public record CommandReward(RewardCommon common, String command, int permissionLevel, boolean silent,
+                            Optional<QuestText> feedbackMessage)
         implements QuestReward {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tenet.MOD_ID, "command");
 
-    public static final Set<String> FIELDS = Set.of("command", "permissionLevel", "silent");
+    public static final Set<String> FIELDS = Set.of("command", "permissionLevel", "silent", "feedbackMessage");
 
     public static final MapCodec<CommandReward> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardCommon.MAP_CODEC.forGetter(CommandReward::common),
@@ -36,7 +46,8 @@ public record CommandReward(RewardCommon common, String command, int permissionL
             // FTBQ's legacy field migrated to 2; two is also its default, and it is enough for the
             // commands packs actually write ("say", "give", "summon") without opening /op.
             Codec.intRange(0, 4).optionalFieldOf("permissionLevel", 2).forGetter(CommandReward::permissionLevel),
-            Codec.BOOL.optionalFieldOf("silent", false).forGetter(CommandReward::silent)
+            Codec.BOOL.optionalFieldOf("silent", false).forGetter(CommandReward::silent),
+            QuestText.CODEC.optionalFieldOf("feedbackMessage").forGetter(CommandReward::feedbackMessage)
     ).apply(instance, CommandReward::new));
 
     @Override
@@ -53,6 +64,20 @@ public record CommandReward(RewardCommon common, String command, int permissionL
             source = source.withSuppressedOutput();
         }
         context.server().getCommands().performPrefixedCommand(source, substitute(reward.command(), context));
+        // The author's own success line, when there is one and the reward is announced. The command
+        // itself always runs — quieting only withholds the message, the same split a toast reward
+        // makes between granting and showing.
+        if (!reward.common().disableToast()) {
+            reward.feedbackMessage().ifPresent(message -> {
+                Component text = message.component();
+                if (!text.getString().isEmpty()) {
+                    context.player().displayClientMessage(text, false);
+                    dev.ellipog.armature.api.net.ArmatureNetwork.sendToPlayer(context.player(),
+                            new RewardToastPayload(message.value(), message.translatable(),
+                                    message.fallback().orElse("")));
+                }
+            });
+        }
     };
 
     /**

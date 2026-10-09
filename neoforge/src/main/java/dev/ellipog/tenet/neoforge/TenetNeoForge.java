@@ -3,6 +3,8 @@ package dev.ellipog.tenet.neoforge;
 import dev.ellipog.armature.api.net.ArmatureNetwork;
 import dev.ellipog.tenet.Constants;
 import dev.ellipog.tenet.Tenet;
+import dev.ellipog.tenet.inventory.EnergyAccesses;
+import dev.ellipog.tenet.inventory.FluidAccesses;
 import dev.ellipog.tenet.inventory.InventoryAccesses;
 
 import net.neoforged.bus.api.IEventBus;
@@ -29,6 +31,11 @@ public final class TenetNeoForge {
         // The item-handler transfer, so a strict claim's "does this fit?" is answered by the same
         // machinery that will perform the insert. See NeoForgeInventory for the range it clamps to.
         InventoryAccesses.install(new NeoForgeInventory());
+
+        // The fluid-handler and energy-storage item capabilities, so fluid and energy tasks read
+        // carried containers as well as buckets. See NeoForgeFluids for the bucket it skips.
+        FluidAccesses.install(new NeoForgeFluids());
+        EnergyAccesses.install(new NeoForgeEnergy());
 
         // The event is on the mod bus, and fires on both sides -- so one registration serves both
         // directions. See NeoForgeNetworking.onRegisterPayloads.

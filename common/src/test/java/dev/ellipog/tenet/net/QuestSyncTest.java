@@ -615,6 +615,70 @@ class QuestSyncTest {
         assertFalse(ClientQuestCache.taskReadyOf("a", 0), "and the server said so rather than the client");
     }
 
+    @Test
+    @DisplayName("a fluid row counts millibuckets like its progress does, not buckets")
+    void fluidRowsCountMillibuckets() {
+        // The unit-mismatch this exists for: the row, its bar, its done-check and the task-done
+        // notice all divide progress by the tree's count, while progress travels in millibuckets.
+        // A bucket count there read a half-held two thousand as "2 / 2" complete — full bar, green
+        // row, checkmark and a task-done toast for one bucket.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [ {\"type\": \"tenet:fluid\", "
+                        + "\"fluid\": \"minecraft:water\", \"amount\": 2000} ]}"));
+
+        String tree = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(tree.contains("\"count\":2000"),
+                "the tree carries the millibucket requirement, not a bucket count");
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertEquals(2000, entryFor("a").tasks().get(0).count(),
+                "and the row draws against the same unit the progress arrives in");
+
+        UUID team = UUID.randomUUID();
+        sendProgress(index, 0, 1000, team);
+        assertEquals(1000, ClientQuestCache.taskProgressOf("a", 0),
+                "one bucket held reads as one thousand, not two of anything");
+        assertFalse(ClientQuestCache.taskDone("a", 0),
+                "so a half-held task is not done, announces nothing and wears no checkmark");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("a"),
+                "and offers no press a short inventory would only refuse");
+    }
+
+    @Test
+    @DisplayName("a manual-only task travels its flag and is offered its button with nothing held")
+    void aManualTaskTravelsItsFlagAndOffersItsButton() {
+        // The wire half of T21: the flag travels sparse — only when true — and the row's button
+        // rule reads it rather than the live count, because the live count of a task the tick
+        // never measures is zero by construction. Without the flag the button would hide forever
+        // and the press would exist only as a slash command.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [ {\"type\": \"tenet:item\", "
+                        + "\"item\": \"minecraft:coal\", \"count\": 4, \"consumeItems\": false,"
+                        + " \"manualOnly\": true} ]}"));
+        String tree = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(tree.contains("\"manualOnly\":true"),
+                "the flag travels on the tree, sparse like every other additive key");
+
+        QuestIndex plain = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [ {\"type\": \"tenet:item\", "
+                        + "\"item\": \"minecraft:coal\", \"count\": 4, \"consumeItems\": false} ]}"));
+        assertFalse(new String(QuestSync.treeAsJson(plain), StandardCharsets.UTF_8)
+                        .contains("manualOnly"),
+                "and absence means the tick measures, which is every task an older tree ever sent");
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertTrue(entryFor("a").tasks().get(0).manualOnly(),
+                "the row is told the tick will never measure this task");
+        assertTrue(entryFor("a").tasks().get(0).waits(),
+                "and that the press is what finishes it");
+
+        UUID team = UUID.randomUUID();
+        sendProgress(index, 0, 0, team);
+        assertEquals(0, ClientQuestCache.firstSubmitTask("a"),
+                "nothing held and the button is still there: the press measures, so hiding it "
+                        + "until the count is met would hide it forever");
+    }
+
     /** One team's progress, with the server's live count for task 0 of the fixture's quest {@code a}. */
     private static void sendProgress(QuestIndex index, int recorded, int held, UUID team) {
         TeamProgress progress = recorded == 0
@@ -1305,7 +1369,7 @@ class QuestSyncTest {
         }
 
         @Test
-        @DisplayName("the version the icon kinds arrived at is pinned, so bumping it is a decision")
+        @DisplayName("the version the manual-only flag arrived at is pinned, so bumping it is a decision")
         void theAliasVersionIsPinned() {
             // Deliberately a literal rather than `QuestSync.TREE_VERSION` on both sides, which is how the
             // case above is written and why it could not notice this feature: a reader importing the
@@ -1313,11 +1377,12 @@ class QuestSyncTest {
             // number with itself. This is the one place the number is written down twice on purpose.
             //
             // Version 14 added the elements; version 15 added the links beside them; version 16 added
-            // the aliases; version 17 added the authoring flags; version 18 added each icon's kind.
-            // The ledger in QuestSync carries the history; this pins the present, because bumping is
+            // the aliases; version 17 added the authoring flags; version 18 added each icon's kind;
+            // version 19 added each item, item-tag and fluid task's manualOnly. The ledger in
+            // QuestSync carries the history; this pins the present, because bumping is
             // a deliberate break rather than a side effect of an edit.
-            assertEquals(18, QuestSync.TREE_VERSION,
-                    "version 18 added each icon's kind beside its id. "
+            assertEquals(19, QuestSync.TREE_VERSION,
+                    "version 19 added the manual-only flag beside its task. "
                             + "Bumping this is a "
                             + "deliberate break rather than a side effect of an edit -- see the ledger in "
                             + "QuestSync for what each version added.");

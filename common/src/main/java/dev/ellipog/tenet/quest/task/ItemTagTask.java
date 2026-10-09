@@ -33,17 +33,21 @@ import java.util.function.Function;
  * {@code consumeItems} says so.
  */
 public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
-                          Optional<Boolean> consumeItems) implements QuestTask {
+                          Optional<Boolean> consumeItems, boolean onlyFromCrafting,
+                          boolean manualOnly) implements QuestTask {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tenet.MOD_ID, "item_tag");
 
-    public static final Set<String> FIELDS = Set.of("tag", "count", "consumeItems");
+    public static final Set<String> FIELDS = Set.of("tag", "count", "consumeItems", "onlyFromCrafting",
+            "manualOnly");
 
     public static final MapCodec<ItemTagTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             TaskCommon.mapCodec(20).forGetter(ItemTagTask::common),
             ResourceLocation.CODEC.fieldOf("tag").forGetter(ItemTagTask::tag),
             Codec.intRange(1, 6400).optionalFieldOf("count", 1).forGetter(ItemTagTask::count),
-            Codec.BOOL.optionalFieldOf("consumeItems").forGetter(ItemTagTask::consumeItems)
+            Codec.BOOL.optionalFieldOf("consumeItems").forGetter(ItemTagTask::consumeItems),
+            Codec.BOOL.optionalFieldOf("onlyFromCrafting", false).forGetter(ItemTagTask::onlyFromCrafting),
+            Codec.BOOL.optionalFieldOf("manualOnly", false).forGetter(ItemTagTask::manualOnly)
     ).apply(instance, ItemTagTask::new));
 
     @Override
@@ -70,16 +74,45 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
 
         @Override
         public int current(ItemTagTask task, TaskContext context) {
+            if (task.onlyFromCrafting()) {
+                // The tag half of the item task's lifetime-stat rule: every member's crafted count
+                // added up, so handing the stack away does not un-count it. Documented beside the
+                // item task's own flag, with the same difference from FTB Quests.
+                int crafted = 0;
+                for (var holder : net.minecraft.core.registries.BuiltInRegistries.ITEM
+                        .getTagOrEmpty(TagKey.create(Registries.ITEM, task.tag()))) {
+                    crafted += context.player().getStats().getValue(
+                            net.minecraft.stats.Stats.ITEM_CRAFTED.get(holder.value()));
+                    if (crafted >= task.count()) {
+                        break;
+                    }
+                }
+                return Math.min(task.count(), crafted);
+            }
             TagKey<Item> tag = TagKey.create(Registries.ITEM, task.tag());
             return ItemCounting.countIn(context.player().getInventory(), tag, task.count());
         }
 
         @Override
         public boolean canSubmitByHand(ItemTagTask task, boolean chapterDefault) {
-            // The chapter's default counts here too: a task that does not say whether it consumes has
-            // no button without it, and a task with no button that still takes the items on the tick
-            // is the one thing this must not be. See TaskBehaviour#waitsForSubmit.
-            return task.consumes(chapterDefault);
+            // A manual-only task always has a button: the press is the only path that measures it.
+            // Otherwise the chapter's default counts here too: a task that does not say whether it
+            // consumes has no button without it, and a task with no button that still takes the
+            // items on the tick is the one thing this must not be. See TaskBehaviour#waitsForSubmit.
+            return task.manualOnly() || task.consumes(chapterDefault);
+        }
+
+        @Override
+        public boolean waitsForSubmit(ItemTagTask task, boolean chapterDefault) {
+            // Manual-only never records from the tick — the press is the measurement — so it always
+            // waits, even when there is nothing to take.
+            return task.manualOnly() || takesResources(task, chapterDefault)
+                    && canSubmitByHand(task, chapterDefault);
+        }
+
+        @Override
+        public boolean manualOnly(ItemTagTask task) {
+            return task.manualOnly();
         }
 
         @Override

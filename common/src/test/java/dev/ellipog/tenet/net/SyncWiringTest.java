@@ -172,6 +172,11 @@ class SyncWiringTest {
                 "tenet:quest_sync",
                 "tenet:replica_request",
                 "tenet:reward_overflow",
+                // Not a viewer message either: a reward-level sentence (toast description, command
+                // feedback) for the book's own stack. Needed because chat cannot be read behind an
+                // open screen, and no existing message carries a reward's words — overflow and
+                // summary carry counts, not sentences.
+                "tenet:reward_toast",
                 "tenet:server_lists",
                 "tenet:stage_sync",
                 "tenet:submit_task",

@@ -64,7 +64,7 @@ class RowNamingTest {
      * there is no display it belongs to, and the reverse check below must not ask for one.
      */
     private static final Set<String> MESSAGE_KEYS = Set.of("tenet.reward.inventory_full_count",
-            "tenet.reward.claim_done", "tenet.reward.claim_halted");
+            "tenet.reward.claim_done", "tenet.reward.claim_halted", "tenet.reward.toast.empty");
 
     /**
      * The keys whose sentence counts something, so the count is the argument and there is no subject.

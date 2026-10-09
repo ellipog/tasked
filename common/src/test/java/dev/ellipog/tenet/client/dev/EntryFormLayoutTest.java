@@ -261,8 +261,8 @@ class EntryFormLayoutTest {
     void everyFieldIsDrawn() {
         EntryFormLayout.Form form = form("tasks", itemTask(), 600);
         List<String> paths = form.cells().stream().map(cell -> cell.field().path()).toList();
-        assertEquals(List.of("item", "count", "consumeItems", "match", "onlyFromCrafting", "optional",
-                "disableToast", "title", "icon", "autoSubmitTicks"), paths,
+        assertEquals(List.of("item", "count", "consumeItems", "match", "onlyFromCrafting", "manualOnly",
+                "optional", "disableToast", "title", "icon", "autoSubmitTicks"), paths,
                 "the type's fields, then the settings every task has");
 
         assertEquals(EditorField.Kind.ITEM, form.cells().get(0).field().kind());

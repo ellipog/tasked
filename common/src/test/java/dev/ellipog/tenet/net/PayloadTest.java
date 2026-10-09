@@ -136,6 +136,7 @@ class PayloadTest {
                 "tenet:quest_sync",
                 "tenet:replica_request",
                 "tenet:reward_overflow",
+                "tenet:reward_toast",
                 "tenet:server_lists",
                 "tenet:stage_sync",
                 "tenet:submit_task",
@@ -174,6 +175,9 @@ class PayloadTest {
         // exactly like one that finished, and a refused pick would look like a card that did nothing.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:claim_summary"));
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:claim_choice_result"));
+        // A reward-level message for the book's own stack. Server to client, like the overflow
+        // and summary notices: the server already said the same sentence in chat.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:reward_toast"));
         // A roster is server state, so it goes one way. Registered the other way round it would never
         // arrive, and the panel would sit on its empty state with nothing in either log.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:party_sync"));
@@ -337,6 +341,14 @@ class PayloadTest {
         assertEquals(1, verdict.rewardIndex());
         assertEquals(ClaimChoiceResultPayload.Result.NO_SPACE, verdict.result(),
                 "the two refusals are different sentences on the card, so they must survive the wire");
+
+        RewardToastPayload toast = roundTrip(RewardToastPayload.CODEC,
+                new RewardToastPayload("pack.toast.vault", true, "The vault is open."));
+        assertEquals("pack.toast.vault", toast.value());
+        assertTrue(toast.translatable());
+        assertEquals("The vault is open.", toast.fallback());
+        assertEquals("The vault is open.", toast.message().getString(),
+                "a reward-level message is the sentence the book shows while it is open");
     }
 
     private static ArmatureNetwork.Direction directionOf(String id) {

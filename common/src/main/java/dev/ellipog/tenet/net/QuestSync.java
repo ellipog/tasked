@@ -257,6 +257,12 @@ public final class QuestSync {
      * An author item or egg travels in the display's own item, exactly as a type's would, so those
      * need no new key at all.
      *
+     * <p>Version 19 added each item, item-tag and fluid task's <b>{@code manualOnly}</b> — FTB
+     * Quests' {@code task_screen_only} under Tenet's name. Only when true: absence means the tick
+     * measures, which is every task a version-18 tree ever sent. A version-18 reader draws the row
+     * and withholds the button the way it withholds any press it cannot see coming, while the
+     * server still accepts the press — the same direction every other additive key leans.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -282,7 +288,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 18;
+    public static final int TREE_VERSION = 19;
 
     /**
      * The quest tree, as JSON.
@@ -824,6 +830,13 @@ public final class QuestSync {
         // there the count is the price. `taskReady` in the progress delta carries the second half.
         if (behaviour.map(known -> known.waitsForSubmit(task, chapterConsumes)).orElse(false)) {
             json.addProperty("waits", true);
+        }
+        // Whether the tick never measures this task at all, since version 19. Only when true:
+        // absence means the tick measures, which is every task a version-18 tree ever sent. The
+        // button rule reads this rather than the live count, because the live count of a task the
+        // tick never measures is always zero — see `submitOffered`.
+        if (behaviour.map(known -> known.manualOnly(task)).orElse(false)) {
+            json.addProperty("manualOnly", true);
         }
         // The observation fields, which are the only per-type data the client needs to do work with:
         // it ray-traces against them and submits when the timer is done. `manual` stays false above --

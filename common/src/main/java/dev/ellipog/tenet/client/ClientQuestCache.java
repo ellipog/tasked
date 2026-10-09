@@ -71,6 +71,14 @@ public final class ClientQuestCache {
                              * old reading and therefore the safe one for a server that predates the field.
                              */
                             boolean waits,
+                            /**
+                             * Whether the tick never measures this task at all — FTB Quests'
+                             * {@code task_screen_only} under Tenet's {@code manualOnly} name. Absent
+                             * means the tick measures, which is every task a version-18 server ever
+                             * sent. The button rule reads this rather than the live count, because the
+                             * live count of a task the tick never measures is always zero.
+                             */
+                            boolean manualOnly,
                             String type, String label, String labelFallback, String labelArg, String itemId,
                             /** The observation fields, empty for every other type: what to watch, how. */
                             String observeType, String observeTarget, int observeTicks,
@@ -1402,6 +1410,13 @@ public final class ClientQuestCache {
             if (!task.manual() || !taskLockOf(questId, taskIndex).isEmpty()) {
                 return false;
             }
+            // A task the tick never measures is always offered its button: the live count of such
+            // a task is zero by construction, so the held-enough rule below would hide the press
+            // forever. A short press is refused by the server with the same "not enough" line any
+            // other short press earns, which is FTB Quests' own "click to submit" contract.
+            if (task.manualOnly()) {
+                return true;
+            }
             return task.waits()
                     ? taskReadyOf(questId, taskIndex)
                     : taskProgressOf(questId, taskIndex) < task.count();
@@ -2261,6 +2276,7 @@ public final class ClientQuestCache {
                 json.has("optional") && json.get("optional").getAsBoolean(),
                 json.has("manual") && json.get("manual").getAsBoolean(),
                 json.has("waits") && json.get("waits").getAsBoolean(),
+                json.has("manualOnly") && json.get("manualOnly").getAsBoolean(),
                 str(json, "type"),
                 str(json, "label"),
                 str(json, "labelFallback"),

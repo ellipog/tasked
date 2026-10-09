@@ -212,7 +212,11 @@ public final class QuestPanelLayout {
                     new TypeChoice("tenet:xp", "tenet.dev.type.task.xp.name",
                             "tenet.dev.type.task.xp.hint", "tenet.dev.type.task.xp.player"),
                     new TypeChoice("tenet:fluid", "tenet.dev.type.task.fluid.name",
-                            "tenet.dev.type.task.fluid.hint", "tenet.dev.type.task.fluid.player", true))),
+                            "tenet.dev.type.task.fluid.hint", "tenet.dev.type.task.fluid.player", true),
+                    new TypeChoice("tenet:filter", "tenet.dev.type.task.filter.name",
+                            "tenet.dev.type.task.filter.hint", "tenet.dev.type.task.filter.player", true),
+                    new TypeChoice("tenet:energy", "tenet.dev.type.task.energy.name",
+                            "tenet.dev.type.task.energy.hint", "tenet.dev.type.task.energy.player", true))),
             new TypeGroup("tenet.dev.type.group.go", List.of(
                     new TypeChoice("tenet:dimension", "tenet.dev.type.task.dimension.name",
                             "tenet.dev.type.task.dimension.hint", "tenet.dev.type.task.dimension.player", true),
@@ -258,6 +262,8 @@ public final class QuestPanelLayout {
             new TypeGroup("tenet.dev.type.group.server", List.of(
                     new TypeChoice("tenet:command", "tenet.dev.type.reward.command.name",
                             "tenet.dev.type.reward.command.hint", "tenet.dev.type.reward.command.player"),
+                    new TypeChoice("tenet:toast", "tenet.dev.type.reward.toast.name",
+                            "tenet.dev.type.reward.toast.hint", "tenet.dev.type.reward.toast.player"),
                     new TypeChoice("tenet:advancement", "tenet.dev.type.reward.advancement.name",
                             "tenet.dev.type.reward.advancement.hint", "tenet.dev.type.reward.advancement.player", true),
                     new TypeChoice("tenet:custom", "tenet.dev.type.reward.custom.name",
@@ -265,6 +271,8 @@ public final class QuestPanelLayout {
             new TypeGroup("tenet.dev.type.group.progress", List.of(
                     new TypeChoice("tenet:xp", "tenet.dev.type.reward.xp.name",
                             "tenet.dev.type.reward.xp.hint", "tenet.dev.type.reward.xp.player"),
+                    new TypeChoice("tenet:currency", "tenet.dev.type.reward.currency.name",
+                            "tenet.dev.type.reward.currency.hint", "tenet.dev.type.reward.currency.player"),
                     new TypeChoice("tenet:stage", "tenet.dev.type.reward.stage.name",
                             "tenet.dev.type.reward.stage.hint", "tenet.dev.type.reward.stage.player"))));
 
@@ -956,6 +964,7 @@ public final class QuestPanelLayout {
             Map.entry("entityTypeTag", "tenet.dev.field.entity_type_tag"),
             Map.entry("excludeFromClaimAll", "tenet.dev.field.exclude_from_claim_all"),
             Map.entry("exclusiveGroup", "tenet.dev.field.exclusive_group"),
+            Map.entry("filter", "tenet.dev.field.filter"),
             Map.entry("fluid", "tenet.dev.field.fluid"),
             Map.entry("icon.item", "tenet.dev.field.icon_item"),
             Map.entry("iconScale", "tenet.dev.field.icon_scale"),
@@ -966,7 +975,9 @@ public final class QuestPanelLayout {
             Map.entry("invisible", "tenet.dev.field.invisible"),
             Map.entry("item", "tenet.dev.field.item"),
             Map.entry("levels", "tenet.dev.field.levels"),
+            Map.entry("manualOnly", "tenet.dev.field.manual_only"),
             Map.entry("match", "tenet.dev.field.match"),
+            Map.entry("maxInput", "tenet.dev.field.max_input"),
             Map.entry("min", "tenet.dev.field.min"),
             Map.entry("minRequired", "tenet.dev.field.min_required"),
             Map.entry("nbtFilter", "tenet.dev.field.nbt_filter"),

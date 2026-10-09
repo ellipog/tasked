@@ -113,6 +113,15 @@ public final class RewardTypes {
             new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpReward.DISPLAY,
             () -> new XpReward(RewardCommon.DEFAULT, 1, false));
 
+    /** {@code tenet:currency} — money, paid through the installed economy. */
+    public static final QuestRewardType<CurrencyReward> CURRENCY = register(
+            "currency", CurrencyReward.MAP_CODEC, CurrencyReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tenet.quest.EditorField.number("amount", "Give", "coins")
+                            .hint("how much currency to pay through the installed economy")),
+            CurrencyReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("gold_nugget"), 1), CurrencyReward.DISPLAY,
+            () -> new CurrencyReward(RewardCommon.DEFAULT, 1));
+
     /** {@code tenet:random} — one guaranteed roll from a table. */
     public static final QuestRewardType<TableReward> RANDOM = register(
             "random", TableReward.mapCodec(TableReward.Mode.RANDOM), TableReward.FIELDS, TABLE_EDITOR,
@@ -154,10 +163,13 @@ public final class RewardTypes {
                     dev.ellipog.tenet.quest.EditorField.number("permissionLevel", "As", "level")
                             .hint("the permission level to run it at; 2 is a command block's"),
                     dev.ellipog.tenet.quest.EditorField.flag("silent", "Quiet")
-                            .hint("do not say in chat that it ran")),
+                            .hint("do not say in chat that it ran"),
+                    dev.ellipog.tenet.quest.EditorField.text("feedbackMessage", "Feedback",
+                                    "shown when the command runs; empty shows nothing")
+                            .hint("the message shown when the command runs; empty means nothing extra")),
             CommandReward.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("command_block"), 1), CommandReward.DISPLAY,
-            () -> new CommandReward(RewardCommon.DEFAULT, "say hello", 2, false));
+            () -> new CommandReward(RewardCommon.DEFAULT, "say hello", 2, false, java.util.Optional.empty()));
 
     /** {@code tenet:advancement} — award an advancement, or one criterion of one. */
     public static final QuestRewardType<AdvancementReward> ADVANCEMENT = register(
@@ -199,6 +211,17 @@ public final class RewardTypes {
             new ItemRef(ResourceLocation.withDefaultNamespace("oak_sign"), 1), StageReward.DISPLAY,
             () -> new StageReward(RewardCommon.DEFAULT,
                     ResourceLocation.fromNamespaceAndPath("example", "stage"), false));
+
+    /** {@code tenet:toast} — show the player a message. */
+    public static final QuestRewardType<ToastReward> TOAST = register(
+            "toast", ToastReward.MAP_CODEC, ToastReward.FIELDS, java.util.List.of(
+                    dev.ellipog.tenet.quest.EditorField.text("description", "Message",
+                                    "shown when the reward is collected")
+                            .hint("the message shown when this reward is collected")),
+            ToastReward.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("bell"), 1), ToastReward.DISPLAY,
+            () -> new ToastReward(RewardCommon.DEFAULT,
+                    dev.ellipog.tenet.quest.QuestText.literal("Hello")));
 
     private RewardTypes() {
     }

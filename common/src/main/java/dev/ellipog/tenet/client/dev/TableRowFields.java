@@ -4,10 +4,12 @@ import dev.ellipog.tenet.quest.QuestReward;
 import dev.ellipog.tenet.quest.reward.AdvancementReward;
 import dev.ellipog.tenet.quest.reward.CommandReward;
 import dev.ellipog.tenet.quest.reward.CustomReward;
+import dev.ellipog.tenet.quest.reward.CurrencyReward;
 import dev.ellipog.tenet.quest.reward.ItemReward;
 import dev.ellipog.tenet.quest.reward.RewardAutoClaim;
 import dev.ellipog.tenet.quest.reward.StageReward;
 import dev.ellipog.tenet.quest.reward.TableReward;
+import dev.ellipog.tenet.quest.reward.ToastReward;
 import dev.ellipog.tenet.quest.reward.XpReward;
 
 import java.util.ArrayList;
@@ -168,7 +170,13 @@ public final class TableRowFields {
                         "the permission level to run it at; 2 is a command block's"));
                 out.add(new Control(Kind.FLAG, "silent", "Quiet",
                         "do not say in chat that it ran"));
+                out.add(new Control(Kind.TEXT, "feedbackMessage", "Feedback",
+                        "shown when the command runs; empty shows nothing extra"));
             }
+            case ToastReward ignored -> out.add(new Control(Kind.TEXT, "description", "Message",
+                    "shown when this is collected"));
+            case CurrencyReward ignored -> out.add(new Control(Kind.INT, "amount", "Give",
+                    "how much currency to pay through the installed economy"));
             case AdvancementReward ignored -> {
                 // Typed rather than picked, and that is the one thing this fold does worse than the card:
                 // the card's advancement list is a search picker whose commit writes a *quest* field, and

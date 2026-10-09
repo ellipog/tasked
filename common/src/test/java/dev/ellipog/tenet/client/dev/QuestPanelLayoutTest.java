@@ -102,12 +102,13 @@ class QuestPanelLayoutTest {
         assertTrue(heading.label().contains("tenet:item"), "the section names the type");
 
         // The registry's own field names plus the common ones, sorted: autoSubmitTicks, consumeItems,
-        // count, disableToast, icon, item, match, onlyFromCrafting, optional, title. `conditions` is in
+        // count, disableToast, icon, item, manualOnly, match, onlyFromCrafting, optional, title.
+        // `conditions` is in
         // the registered set too and is filtered out on the way to a row, because a list of objects is
         // not a text cell.
         assertEquals(List.of("tasks.0.autoSubmitTicks", "tasks.0.consumeItems", "tasks.0.count",
-                        "tasks.0.disableToast", "tasks.0.icon", "tasks.0.item", "tasks.0.match",
-                        "tasks.0.onlyFromCrafting", "tasks.0.optional", "tasks.0.title"),
+                        "tasks.0.disableToast", "tasks.0.icon", "tasks.0.item", "tasks.0.manualOnly",
+                        "tasks.0.match", "tasks.0.onlyFromCrafting", "tasks.0.optional", "tasks.0.title"),
                 rows.stream().map(InspectRow::key)
                         .filter(key -> key.startsWith("tasks.0.") && !key.equals("tasks.0.type"))
                         .toList(),

@@ -24,7 +24,7 @@ folded open, so a chapter can be read at a glance and unfolded only where someth
 | `auto` | `default` | When it is handed over. See below. |
 | `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
 | `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tenet rewards block`. |
-| `disableToast` | `false` | Collecting this reward raises no toast. Recorded for the reward-level notice; no such notice exists yet, so it travels as data for the notice that will. See [[tenet:authoring/quests#announcements]]. |
+| `disableToast` | `false` | Collecting this reward raises no toast. Quiets the reward-level notice (toast description, command feedback). See [[tenet:authoring/quests#announcements]]. |
 | `title` | the type's own | The words the row wears instead of the type's own sentence. |
 | `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
 | `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tenet:authoring/conditions]]. |
@@ -86,12 +86,14 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | `tenet:advancement` | An advancement, or one criterion of one. |
 | `tenet:choice` | One entry of a table, picked by the player. |
 | `tenet:command` | A command, run as the player. |
+| `tenet:currency` | Money, paid through the installed economy. |
 | `tenet:custom` | Whatever a registered handler does. |
 | `tenet:item` | Items. |
 | `tenet:loot` | A table roll that can come up empty. |
 | `tenet:random` | A weighted table roll that promises something. |
 | `tenet:all_table` | Every entry of a table. |
 | `tenet:stage` | A stage, granted or taken away. |
+| `tenet:toast` | A message, shown when collected. |
 | `tenet:xp` | Experience, in points or levels. |
 
 ## Simple rewards
@@ -100,8 +102,10 @@ progress rather than in a save, so it is a server-side decision and not up to th
 |---|---|---|
 | `tenet:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
 | `tenet:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
+| `tenet:currency` | `amount` | How much currency to pay. The coin it names belongs to the installed economy: a currency mod (or script) registers the paying half, and with nothing registered the grant pays nothing while the quest still completes. |
 | `tenet:stage` | `stage`, `remove` | The stage to set; `remove: true` takes it away instead of granting it. |
 | `tenet:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
+| `tenet:toast` | `description` | The message shown when collected, as literal text or a translation key with fallback. Empty shows the generic toast sentence. |
 
 ## `tenet:item`
 
@@ -123,6 +127,7 @@ runs through the server's own dispatcher with the player as the source.
 | `command` | — | The command, without the leading slash. |
 | `permissionLevel` | `2` | The level it runs at; 2 is a command block's. |
 | `silent` | `false` | Do not say in chat that it ran. |
+| `feedbackMessage` | — | A message shown when the command runs; absent shows nothing extra. FTB Quests calls this `feedback_message`. |
 
 The placeholders are FTB Quests' own, kept whole so a pack moved from it does not have to learn a
 second vocabulary for the same sentence:

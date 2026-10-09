@@ -626,6 +626,11 @@ public final class ProgressService {
                 int required = behaviour.get().required(task);
 
                 // Every member is asked, and the party's mode decides what the answers add up to.
+                // A manual-only task is the exception: it is never measured here — zeros stand in for
+                // the asking — so the tick publishes zero and records nothing, and the submit press is
+                // the only path that reads the inventory. Without this the flag would be display-only
+                // on consuming tasks (which already wait for the press) and meaningless on
+                // presence-only ones the tick would register by itself.
                 //
                 // The asks used to be folded here, as a running maximum with a comment explaining why
                 // max and not sum. That reasoning is now PartyMode.ONE_MEMBER's, and it is worth
@@ -638,8 +643,15 @@ public final class ProgressService {
                 // read on its own and asserted without a server. What stayed here is the asking, which
                 // is the part that needs a world -- and which now lives in countMembers, because the
                 // press that pays for a waiting task has to ask the same question. See `submit`.
-                PartyCounts counts = countMembers(index, server, owner, members, task,
-                        behaviour.get(), now);
+                PartyCounts counts;
+                if (behaviour.get().manualOnly(task)) {
+                    counts = new PartyCounts(List.of(), new java.util.ArrayList<>(
+                            java.util.Collections.nCopies(members.size(), 0)));
+                }
+                else {
+                    counts = countMembers(index, server, owner, members, task,
+                            behaviour.get(), now);
+                }
                 List<Integer> perMember = counts.perMember();
 
                 // Kept, not just added up: this list is what the panel's rows name, and it used to be
@@ -2058,7 +2070,8 @@ public final class ProgressService {
             return false;
         }
 
-        if (behaviour.get().takesResources(task, chapterConsumes)) {
+        if (behaviour.get().takesResources(task, chapterConsumes)
+                || behaviour.get().manualOnly(task)) {
             int required = behaviour.get().required(task);
             // The count the press has to meet is the one the row showed, which is the party's under
             // the party's own mode -- the same reading the tick takes. Judging it by the presser's own
@@ -2081,12 +2094,15 @@ public final class ProgressService {
                 player.displayClientMessage(Component.translatable("tenet.quest.not_enough"), true);
                 return false;
             }
-            if (mode.takesFromEveryone()) {
+            // The take itself only happens for a task that takes what it asks for: a manual-only
+            // presence task is measured above but keeps everything, which is what makes it a press
+            // rather than a tick with a button.
+            if (behaviour.get().takesResources(task, chapterConsumes) && mode.takesFromEveryone()) {
                 // From the contributors, exactly as the tick would have: an ungated member's items
                 // were never counted toward the requirement, so they are not the requirement's to take.
                 consumeAcross(counts.contributors(), task, required, behaviour.get());
             }
-            else {
+            else if (behaviour.get().takesResources(task, chapterConsumes)) {
                 // The payer the tally names -- the largest holder under ONE_MEMBER, the owner under
                 // OWNER_ONLY. No payer means the party holds nothing, which the count above refused.
                 ServerPlayer payer = tally.hasPayer() ? members.get(tally.payer()) : player;

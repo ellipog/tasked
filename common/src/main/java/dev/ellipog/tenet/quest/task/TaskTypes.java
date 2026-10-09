@@ -107,12 +107,14 @@ public final class TaskTypes {
                             .hint("how closely a carried stack must match: none ignores its data, fuzzy "
                                     + "needs the data it names, strict needs the whole stack"),
                     EditorField.flag("onlyFromCrafting", "Crafted only")
-                            .hint("only items the player crafted themselves count")),
+                            .hint("only items the player crafted themselves count"),
+                    EditorField.flag("manualOnly", "Manual only")
+                            .hint("never count from the inventory on its own; only a submit press counts")),
             ItemTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1), ItemTask.DISPLAY,
             () -> new ItemTask(TaskCommon.DEFAULT,
                     new ItemRef(ResourceLocation.withDefaultNamespace("paper"), 1), Optional.empty(),
-                    ComponentMatch.STRICT, false));
+                    ComponentMatch.STRICT, false, false));
 
     /** {@code tenet:item_tag} — have enough of any item in a tag. */
     public static final QuestTaskType<ItemTagTask> ITEM_TAG = register(
@@ -122,11 +124,33 @@ public final class TaskTypes {
                     EditorField.number("count", "Count", "\u00d7")
                             .hint("how many of them"),
                     EditorField.flag("consumeItems", "Consume")
-                            .hint("handing the task in takes the items from the player")),
+                            .hint("handing the task in takes the items from the player"),
+                    EditorField.flag("onlyFromCrafting", "Crafted only")
+                            .hint("only items the player crafted themselves count"),
+                    EditorField.flag("manualOnly", "Manual only")
+                            .hint("never count from the inventory on its own; only a submit press counts")),
             ItemTagTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("barrel"), 1), ItemTagTask.DISPLAY,
             () -> new ItemTagTask(new TaskCommon(false, 20),
-                    ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty()));
+                    ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty(), false, false));
+
+    /** {@code tenet:filter} — have enough of whatever a filter expression matches. */
+    public static final QuestTaskType<FilterTask> FILTER = register(
+            "filter", FilterTask.MAP_CODEC, FilterTask.FIELDS, java.util.List.of(
+                    EditorField.text("filter", "Filter",
+                                    "an FTB filter expression, e.g. or(item(minecraft:coal)item_tag(minecraft:coals))")
+                            .hint("which items count, as a filter expression: item, item_tag, mod and "
+                                    + "block leaves under and, or and not"),
+                    EditorField.number("count", "Count", "\u00d7")
+                            .hint("how many matching items"),
+                    EditorField.flag("consumeItems", "Consume")
+                            .hint("handing the task in takes the items from the player"),
+                    EditorField.flag("manualOnly", "Manual only")
+                            .hint("never count from the inventory on its own; only a submit press counts")),
+            FilterTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("hopper"), 1), FilterTask.DISPLAY,
+            () -> new FilterTask(new TaskCommon(false, 20),
+                    FilterParser.parse("item_tag(minecraft:logs)"), 1, Optional.empty(), false));
 
     /** {@code tenet:checkmark} — the player says they did it. */
     public static final QuestTaskType<CheckmarkTask> CHECKMARK = register(
@@ -218,17 +242,32 @@ public final class TaskTypes {
             new ItemRef(ResourceLocation.withDefaultNamespace("experience_bottle"), 1), XpTask.DISPLAY,
             () -> new XpTask(new TaskCommon(false, 20), 100, true));
 
-    /** {@code tenet:fluid} — hand over fluid, carried in buckets for now. */
+    /** {@code tenet:fluid} — hand over fluid, carried in buckets and containers. */
     public static final QuestTaskType<FluidTask> FLUID = register(
             "fluid", FluidTask.MAP_CODEC, FluidTask.FIELDS, java.util.List.of(
                     EditorField.search("fluid", "Hand in", EditorField.Source.FLUID)
-                            .hint("which fluid to hand over, carried in buckets"),
+                            .hint("which fluid to hand over, carried in buckets or fluid containers"),
                     EditorField.number("amount", "Amount", "mB")
-                            .hint("how much of it, in millibuckets; a bucket is a thousand")),
+                            .hint("how much of it, in millibuckets; a bucket is a thousand"),
+                    EditorField.flag("manualOnly", "Manual only")
+                            .hint("never count from the inventory on its own; only a submit press counts")),
             FluidTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("water_bucket"), 1), FluidTask.DISPLAY,
             () -> new FluidTask(new TaskCommon(false, 20),
-                    ResourceLocation.withDefaultNamespace("water"), 1000));
+                    ResourceLocation.withDefaultNamespace("water"), 1000, false));
+
+    /** {@code tenet:energy} — hand over stored energy, carried in charged items. */
+    public static final QuestTaskType<EnergyTask> ENERGY = register(
+            "energy", EnergyTask.MAP_CODEC, EnergyTask.FIELDS, java.util.List.of(
+                    EditorField.number("value", "Hand in", "FE")
+                            .hint("how much stored energy to hand over, in Forge Energy units"),
+                    EditorField.number("maxInput", "Max in", "FE")
+                            .hint("the most each item may contribute; 0 means unlimited"),
+                    EditorField.flag("manualOnly", "Manual only")
+                            .hint("never count from the inventory on its own; only a submit press counts")),
+            EnergyTask.BEHAVIOUR,
+            new ItemRef(ResourceLocation.withDefaultNamespace("redstone"), 1), EnergyTask.DISPLAY,
+            () -> new EnergyTask(new TaskCommon(false, 20), 1000, 0, false));
 
     /** {@code tenet:observation} — look at a block or entity for long enough. */
     public static final QuestTaskType<ObservationTask> OBSERVATION = register(
@@ -651,6 +690,11 @@ public final class TaskTypes {
             @Override
             public boolean readsInventory() {
                 return behaviour.readsInventory();
+            }
+
+            @Override
+            public boolean manualOnly(QuestTask task) {
+                return behaviour.manualOnly((T) task);
             }
         };
     }

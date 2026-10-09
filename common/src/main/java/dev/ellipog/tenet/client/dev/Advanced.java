@@ -79,7 +79,7 @@ public final class Advanced {
      */
     private static final Set<String> FIELD_KEYS = Set.of(
             // A task's or a reward's own behaviour.
-            "autoSubmitTicks", "match", "onlyFromCrafting",
+            "autoSubmitTicks", "match", "onlyFromCrafting", "manualOnly",
             // One criterion of an advancement, rather than all of it.
             "criterion",
             // What a kill counts, beyond the entity's id.

@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>What is deliberately <b>not</b> here: every row that still needs Tenet work (quest
  * {@code optional}, flexible progress, titles and icons, images, links, click actions, text
- * tokens, energy, toast and currency rewards, team stages, file settings, presets). Those belong
+ * tokens, energy and currency rewards, team stages, file settings, presets). Those belong
  * to later batches, and adding them here early would pin JSON nothing reads.
  */
 @DisplayName("FTB Quests mappings that need no Tenet change")
@@ -177,11 +177,45 @@ class FtbMappingTest {
     }
 
     @Test
+    @DisplayName("manual-only and tag crafting-only decode (T21/G13)")
+    void manualAndTagCraftingFlags() {
+        var item = assertInstanceOf(ItemTask.class,
+                task("{\"type\": \"tenet:item\", \"item\": \"minecraft:oak_log\","
+                        + " \"manualOnly\": true}"));
+        assertTrue(item.manualOnly());
+        assertFalse(assertInstanceOf(ItemTask.class,
+                task("{\"type\": \"tenet:item\", \"item\": \"minecraft:oak_log\"}")).manualOnly());
+
+        var tag = assertInstanceOf(dev.ellipog.tenet.quest.task.ItemTagTask.class,
+                task("{\"type\": \"tenet:item_tag\", \"tag\": \"minecraft:logs\","
+                        + " \"onlyFromCrafting\": true, \"manualOnly\": true}"));
+        assertTrue(tag.onlyFromCrafting());
+        assertTrue(tag.manualOnly());
+
+        var fluid = assertInstanceOf(dev.ellipog.tenet.quest.task.FluidTask.class,
+                task("{\"type\": \"tenet:fluid\", \"fluid\": \"minecraft:water\","
+                        + " \"amount\": 1000, \"manualOnly\": true}"));
+        assertTrue(fluid.manualOnly());
+    }
+
+    @Test
     @DisplayName("location carries its ignore-dimension flag")
     void locationIgnoreDimension() {
         var parsed = assertInstanceOf(LocationTask.class,
                 task("{\"type\": \"tenet:location\", \"position\": [0, 64, 0], \"ignoreDimension\": true}"));
         assertTrue(parsed.ignoreDimension());
+    }
+
+    @Test
+    @DisplayName("filter expressions decode verbatim (T23)")
+    void filterExpressionDecodes() {
+        var parsed = assertInstanceOf(dev.ellipog.tenet.quest.task.FilterTask.class,
+                task("{\"type\": \"tenet:filter\","
+                        + " \"filter\": \"or(item(minecraft:coal)item_tag(minecraft:coals))\","
+                        + " \"count\": 4}"));
+        assertEquals(4, parsed.count());
+        assertEquals("or(item(minecraft:coal)item_tag(minecraft:coals))",
+                parsed.filter().toString());
     }
 
     // ------------------------------------------------------------------
@@ -282,6 +316,38 @@ class FtbMappingTest {
                 reward("{\"type\": \"tenet:command\", \"command\": \"say hello\", \"silent\": true}"));
         assertTrue(parsed.silent());
         assertEquals(2, parsed.permissionLevel());
+    }
+
+    @Test
+    @DisplayName("currency amount decodes (T28)")
+    void currencyAmountDecodes() {
+        var parsed = assertInstanceOf(dev.ellipog.tenet.quest.reward.CurrencyReward.class,
+                reward("{\"type\": \"tenet:currency\", \"amount\": 50}"));
+        assertEquals(50, parsed.amount());
+    }
+
+    @Test
+    @DisplayName("energy value and maxInput decode (T20)")
+    void energyValueDecodes() {
+        var parsed = assertInstanceOf(dev.ellipog.tenet.quest.task.EnergyTask.class,
+                task("{\"type\": \"tenet:energy\", \"value\": 1000000, \"maxInput\": 1000}"));
+        assertEquals(1000000, parsed.value());
+        assertEquals(1000, parsed.maxInput());
+        var plain = assertInstanceOf(dev.ellipog.tenet.quest.task.EnergyTask.class,
+                task("{\"type\": \"tenet:energy\", \"value\": 1000000}"));
+        assertEquals(0, plain.maxInput(), "absent means unlimited, which the migrated quest relies on");
+    }
+
+    @Test
+    @DisplayName("command feedbackMessage and toast description decode (T18)")
+    void toastAndFeedbackDecode() {        var command = assertInstanceOf(CommandReward.class,
+                reward("{\"type\": \"tenet:command\", \"command\": \"say hello\","
+                        + " \"feedbackMessage\": \"Well done.\"}"));
+        assertEquals("Well done.", command.feedbackMessage().orElseThrow().value());
+
+        var toast = assertInstanceOf(dev.ellipog.tenet.quest.reward.ToastReward.class,
+                reward("{\"type\": \"tenet:toast\", \"description\": \"The vault is open.\"}"));
+        assertEquals("The vault is open.", toast.description().value());
     }
 
     @Test

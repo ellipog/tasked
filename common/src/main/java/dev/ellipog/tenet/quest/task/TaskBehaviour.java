@@ -107,13 +107,29 @@ public interface TaskBehaviour<T> {
     /**
      * Whether this task is answered by reading inventories.
      *
-     * <p>Only the tasks that count carried items say so: item, item-tag and fluid tasks. The
+     * <p>Only the tasks that count carried things say so: item, item-tag, filter, fluid and
+     * energy tasks. The
      * engine floors their re-evaluation interval at the pack's {@code detectionDelay} — FTB
      * Quests' minimum ticks between inventory checks — so a pack that polls inventory every sixty
      * ticks does not pay for a task that asked every twenty. Every other type keeps its own
      * cadence whatever the pack says: a stat lookup is not an inventory walk.
      */
     default boolean readsInventory() {
+        return false;
+    }
+
+    /**
+     * Whether this task never measures on the tick and answers only to an explicit submit.
+     *
+     * <p>FTB Quests' {@code task_screen_only}: a task filled by piping into a task screen rather
+     * than by carrying the items. Tenet has no task screen block, so the piped path is a
+     * documented divergence — this flag keeps the other half, "never auto-detect from inventory".
+     * The tick measures nothing (rows read zero) and records nothing; the submit press measures
+     * the inventory at that moment, takes when the task consumes, and records. A presence-only
+     * manual task therefore completes by press rather than by tick, which is the one behaviour
+     * this changes for a task that takes nothing.
+     */
+    default boolean manualOnly(T task) {
         return false;
     }
 

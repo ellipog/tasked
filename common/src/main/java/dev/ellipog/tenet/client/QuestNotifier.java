@@ -372,6 +372,19 @@ public final class QuestNotifier {
     }
 
     /**
+     * A reward-level message: a toast reward's description, or a command reward's feedback line.
+     *
+     * <p>Routed like the overflow notice, and for the same reason — the chat the server also sends is
+     * unreadable behind the book, so the sentence goes to the book's own stack while it is open and
+     * nowhere else. Outside the book the chat is where that sentence belongs.
+     */
+    public static void rewardToast(Component message) {
+        if (Minecraft.getInstance().screen instanceof QuestBookScreen book) {
+            book.notifyNotice(message);
+        }
+    }
+
+    /**
      * The server's verdict on a choice pick, routed to the card that asked.
      *
      * <p>Handed to the screen rather than acted on here: only the screen knows whether the offer the

@@ -198,6 +198,9 @@ class QuestPlaythroughTest {
         seeded.addAll(seedEngineChapter(configDir));
         seeded.addAll(seedRewardInboxChapter(configDir));
         seeded.addAll(seedFlexChapter(configDir));
+        seeded.addAll(seedManualChapter(configDir));
+        seeded.addAll(seedFilterChapter(configDir));
+        seeded.addAll(seedChargeChapter(configDir));
         seeded.addAll(seedLinkChapter(configDir));
         Collections.sort(seeded);
         examples = List.copyOf(seeded);
@@ -2726,6 +2729,274 @@ class QuestPlaythroughTest {
     }
 
     @Test
+    @Order(207)
+    @DisplayName("the tick measures an ordinary presence task and never a manual-only one")
+    void theTickSkipsManualTasks() {
+        // The control and the manual quest want the same four coal: one tick must finish the
+        // first and leave the second at zero. Coal throughout, which no other order spends, and
+        // cleared inventories first so nothing earlier in the playthrough can answer instead.
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:coal 4");
+        assertEquals(1, given.result(), () -> "/give should have worked. It said:\n" + given.text());
+
+        boolean controlled = tickUntil(() -> stateOf("manual_control") == QuestState.COMPLETED,
+                Duration.ofSeconds(20));
+        assertTrue(controlled, () -> "four coal did not complete manual_control within twenty seconds."
+                + "\n  the quest is " + stateOf("manual_control")
+                + " and task 0 is recorded at " + recordedTask("manual_control", 0) + " of 4.");
+        assertEquals(0, recordedTask("manual_press", 0),
+                "the tick measured nothing for the manual task, so there was nothing to record");
+        assertNotEquals(QuestState.COMPLETED, stateOf("manual_press"),
+                "and an unmeasured task cannot have finished");
+        note("four coal finished the ordinary presence quest on the tick; the manual twin stayed at zero");
+    }
+
+    @Test
+    @Order(208)
+    @DisplayName("a manual-only presence task completes by press, and refuses a short one")
+    void manualTasksCompleteByPress() {
+        // Four coal against sixty-four must refuse the press rather than record it: the submit
+        // path measures a manual task the way the tick measures an ordinary one.
+        HeadlessServer.Outcome refused = asOperator("/tenet submit manual_short 0");
+        assertEquals(0, refused.result(),
+                () -> "a short press should have been refused. It said:\n" + refused.text());
+        assertNotEquals(QuestState.COMPLETED, stateOf("manual_short"),
+                "a refused press records nothing");
+
+        HeadlessServer.Outcome submitted = asOperator("/tenet submit manual_press 0");
+        assertEquals(1, submitted.result(),
+                () -> "the press should have been accepted. It said:\n" + submitted.text());
+        assertEquals(QuestState.COMPLETED, stateOf("manual_press"),
+                "four coal, pressed by hand, is a complete quest");
+        assertEquals(4, countInInventory(Items.COAL),
+                "a presence task keeps everything it counted");
+        note("a short manual press was refused; the full one completed and kept the coal");
+    }
+
+    @Test
+    @Order(209)
+    @DisplayName("an or-filter of two items completes on the tick holding one of each")
+    void filterOrCompletesOnTheTick() {
+        // The Gallery's own coal, and nothing else: the manual gallery's four are cleared first
+        // so this measures only what it is given here. One coal and one charcoal are two matches
+        // for an or() of the two — the tick counts either side.
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:coal 1");
+        assertEquals(1, given.result(), () -> "/give should have worked. It said:\n" + given.text());
+        HeadlessServer.Outcome givenChar = asOperator("/give @s minecraft:charcoal 1");
+        assertEquals(1, givenChar.result(), () -> "/give should have worked. It said:\n" + givenChar.text());
+
+        boolean done = tickUntil(() -> stateOf("filter_or") == QuestState.COMPLETED,
+                Duration.ofSeconds(20));
+        assertTrue(done, () -> "a coal and a charcoal did not complete filter_or within twenty seconds."
+                + "\n  the quest is " + stateOf("filter_or")
+                + " and task 0 is recorded at " + recordedTask("filter_or", 0) + " of 2.");
+        note("a coal and a charcoal finished the or-filter on the tick");
+    }
+
+    @Test
+    @Order(210)
+    @DisplayName("an and-filter of tag and mod is taken by the press")
+    void filterTakeConsumesByPress() {
+        // Two coal: both in minecraft:coals and both from minecraft, so the and() matches twice.
+        // Cleared first, so the press takes exactly what it is given here and the count proves it.
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:coal 2");
+        assertEquals(1, given.result(), () -> "/give should have worked. It said:\n" + given.text());
+
+        HeadlessServer.Outcome submitted = asOperator("/tenet submit filter_take 0");
+        assertEquals(1, submitted.result(),
+                () -> "the press should have been accepted. It said:\n" + submitted.text());
+        assertEquals(QuestState.COMPLETED, stateOf("filter_take"),
+                "two matching coal, pressed by hand, is a complete quest");
+        assertEquals(0, countInInventory(Items.COAL) + countInInventory(Items.CHARCOAL),
+                "a consuming filter takes what it counted");
+        note("the and-filter took its two coal on the press and completed");
+    }
+
+    /** Torches holding half a bucket of water each: the fake the charge orders measure through. */
+    private static dev.ellipog.tenet.inventory.FluidAccess torchWater() {
+        return new dev.ellipog.tenet.inventory.FluidAccess() {
+            private static final net.minecraft.resources.ResourceLocation WATER =
+                    net.minecraft.resources.ResourceLocation.withDefaultNamespace("water");
+
+            @Override
+            public int storedOf(ServerPlayer player, net.minecraft.resources.ResourceLocation fluid,
+                               net.minecraft.world.item.Item bucketToSkip) {
+                if (!fluid.equals(WATER)) {
+                    return 0;
+                }
+                int torches = 0;
+                var inventory = player.getInventory();
+                for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+                    net.minecraft.world.item.ItemStack stack = inventory.getItem(slot);
+                    if (stack.is(Items.TORCH)) {
+                        torches += stack.getCount();
+                    }
+                }
+                return torches * 500;
+            }
+
+            @Override
+            public int drainFrom(ServerPlayer player, net.minecraft.resources.ResourceLocation fluid,
+                                int mb, net.minecraft.world.item.Item bucketToSkip) {
+                if (!fluid.equals(WATER) || mb <= 0) {
+                    return 0;
+                }
+                // Discrete vessels: a torch gives five hundred millibuckets or nothing, so a
+                // remainder under half a bucket stays where it is.
+                int remaining = mb;
+                var inventory = player.getInventory();
+                for (int slot = 0; slot < inventory.getContainerSize() && remaining >= 500; slot++) {
+                    net.minecraft.world.item.ItemStack stack = inventory.getItem(slot);
+                    while (remaining >= 500 && stack.is(Items.TORCH) && !stack.isEmpty()) {
+                        stack.shrink(1);
+                        remaining -= 500;
+                        inventory.setItem(slot,
+                                stack.isEmpty() ? net.minecraft.world.item.ItemStack.EMPTY : stack);
+                    }
+                }
+                inventory.setChanged();
+                return mb - remaining;
+            }
+        };
+    }
+
+    /** Coal holding a thousand Forge Energy units a piece, honouring the per-item cap. */
+    private static dev.ellipog.tenet.inventory.EnergyAccess coalCharge() {
+        return new dev.ellipog.tenet.inventory.EnergyAccess() {
+            @Override
+            public int storedOf(ServerPlayer player, int maxPerItem) {
+                int perItem = maxPerItem > 0 ? Math.min(1000, maxPerItem) : 1000;
+                int found = 0;
+                var inventory = player.getInventory();
+                for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+                    net.minecraft.world.item.ItemStack stack = inventory.getItem(slot);
+                    if (stack.is(Items.COAL)) {
+                        found += stack.getCount() * perItem;
+                    }
+                }
+                return found;
+            }
+
+            @Override
+            public int drainFrom(ServerPlayer player, int amount, int maxPerItem) {
+                if (amount <= 0) {
+                    return 0;
+                }
+                int perItem = maxPerItem > 0 ? Math.min(1000, maxPerItem) : 1000;
+                int remaining = amount;
+                var inventory = player.getInventory();
+                for (int slot = 0; slot < inventory.getContainerSize() && remaining > 0; slot++) {
+                    net.minecraft.world.item.ItemStack stack = inventory.getItem(slot);
+                    while (remaining > 0 && stack.is(Items.COAL) && !stack.isEmpty()) {
+                        stack.shrink(1);
+                        remaining -= Math.min(remaining, perItem);
+                        inventory.setItem(slot,
+                                stack.isEmpty() ? net.minecraft.world.item.ItemStack.EMPTY : stack);
+                    }
+                }
+                inventory.setChanged();
+                return amount - remaining;
+            }
+        };
+    }
+
+    @Test
+    @Order(211)
+    @DisplayName("a fluid press drains the bucket first and a container for the rest")
+    void fluidTakeDrainsBucketsThenContainers() {
+        // One bucket (a thousand) plus one torch (five hundred fake millibuckets) against fifteen
+        // hundred asked: the take must empty the bucket, hand the empty back, and spend the torch.
+        // The seam is installed for this order alone and reset after it, whatever happens.
+        dev.ellipog.tenet.inventory.FluidAccesses.install(torchWater());
+        try {
+            clearInventories();
+            assertEquals(1, asOperator("/give @s minecraft:water_bucket").result(),
+                    () -> "the bucket should have arrived");
+            assertEquals(1, asOperator("/give @s minecraft:torch").result(),
+                    () -> "the torch should have arrived");
+
+            tickOnce();
+            assertEquals(0, recordedTask("fluid_jug", 0),
+                    "fluid always waits for the press, containers or not");
+            assertEquals(1, countInInventory(Items.WATER_BUCKET), "sanity: the bucket is being held");
+            assertEquals(1, countInInventory(Items.TORCH), "sanity: the torch is being held");
+
+            HeadlessServer.Outcome submitted = asOperator("/tenet submit fluid_jug 0");
+            assertEquals(1, submitted.result(),
+                    () -> "the press should have been accepted. It said:\n" + submitted.text());
+            assertEquals(QuestState.COMPLETED, stateOf("fluid_jug"),
+                    "a bucket and a torch, pressed by hand, is fifteen hundred millibuckets");
+            assertEquals(0, countInInventory(Items.WATER_BUCKET), "the full bucket is spent");
+            assertEquals(1, countInInventory(Items.BUCKET),
+                    "the emptied bucket comes straight back");
+            assertEquals(0, countInInventory(Items.TORCH), "and the container is spent");
+            note("a fluid press drained its bucket first and its container for the rest");
+        }
+        finally {
+            dev.ellipog.tenet.inventory.FluidAccesses.reset();
+        }
+    }
+
+    @Test
+    @Order(212)
+    @DisplayName("stored energy is drained by the press")
+    void energyDrainsByPress() {
+        dev.ellipog.tenet.inventory.EnergyAccesses.install(coalCharge());
+        try {
+            clearInventories();
+            assertEquals(1, asOperator("/give @s minecraft:coal 2").result(),
+                    () -> "the coal should have arrived");
+
+            HeadlessServer.Outcome submitted = asOperator("/tenet submit energy_cell 0");
+            assertEquals(1, submitted.result(),
+                    () -> "the press should have been accepted. It said:\n" + submitted.text());
+            assertEquals(QuestState.COMPLETED, stateOf("energy_cell"),
+                    "two charged coal, pressed by hand, is two thousand Forge Energy");
+            assertEquals(0, countInInventory(Items.COAL), "and the charge is spent");
+            note("an energy press drained its two coal and completed");
+        }
+        finally {
+            dev.ellipog.tenet.inventory.EnergyAccesses.reset();
+        }
+    }
+
+    @Test
+    @Order(213)
+    @DisplayName("a per-item cap refuses a short press and completes a full one")
+    void energyCapRefusesShortPresses() {
+        // Two coal at five hundred apiece are one thousand against two thousand asked: the press
+        // measures under the cap and is refused. Two more coal make two thousand, and the same
+        // press completes and spends all four.
+        dev.ellipog.tenet.inventory.EnergyAccesses.install(coalCharge());
+        try {
+            clearInventories();
+            assertEquals(1, asOperator("/give @s minecraft:coal 2").result(),
+                    () -> "the coal should have arrived");
+
+            HeadlessServer.Outcome refused = asOperator("/tenet submit energy_cap 0");
+            assertEquals(0, refused.result(),
+                    () -> "a capped press should have been refused. It said:\n" + refused.text());
+            assertNotEquals(QuestState.COMPLETED, stateOf("energy_cap"),
+                    "a refused press records nothing");
+
+            assertEquals(1, asOperator("/give @s minecraft:coal 2").result(),
+                    () -> "the coal should have arrived");
+            HeadlessServer.Outcome submitted = asOperator("/tenet submit energy_cap 0");
+            assertEquals(1, submitted.result(),
+                    () -> "the press should have been accepted. It said:\n" + submitted.text());
+            assertEquals(QuestState.COMPLETED, stateOf("energy_cap"),
+                    "four capped coal, pressed by hand, is two thousand Forge Energy");
+            assertEquals(0, countInInventory(Items.COAL), "and the charge is spent");
+            note("a capped energy press refused two coal and completed on four");
+        }
+        finally {
+            dev.ellipog.tenet.inventory.EnergyAccesses.reset();
+        }
+    }
+
+    @Test
     @DisplayName("a locale is packed once per language, however many players read it")
     void aLocaleIsPackedOncePerLanguage() {
         // The claim the per-locale cache exists for, and it is measured rather than asserted in prose
@@ -3092,6 +3363,140 @@ class QuestPlaythroughTest {
                 "flex_gallery/flex_works/flex_c3.json", "flex_gallery/flex_works/flex_d1.json",
                 "flex_gallery/flex_works/flex_d2.json", "flex_gallery/flex_works/flex_repeat.json",
                 "flex_gallery/flex_works/flex_tick.json");
+    }
+
+    /**
+     * The manual-only gallery: two presence tasks for the same items, one of which the tick must
+     * never measure, plus a third asking for more than the player holds to prove the press refuses.
+     *
+     * <p>Written by the test for the reason the flex gallery is: no example quest sets manualOnly,
+     * and the orders below ask what the tick and the press each do with one. Coal throughout, which
+     * no other order spends, so the gallery neither feeds on nor feeds the rest of the playthrough.
+     */
+    private static List<String> seedManualChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/manual_gallery");
+        Path chapter = quests.resolve("manual_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "manual_gallery", "title": "Manual Gallery", "chapters": ["manual_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "manual_works", "title": "Manual Works",
+                  "quests": ["manual_press.json", "manual_control.json", "manual_short.json"] }
+                """);
+        Files.writeString(chapter.resolve("manual_press.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "manual_press",
+                  "title": "Manual Press", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:coal" },
+                  "tasks": [{ "type": "tenet:item", "item": "minecraft:coal", "count": 4,
+                    "consumeItems": false, "manualOnly": true }] }
+                """);
+        Files.writeString(chapter.resolve("manual_control.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "manual_control",
+                  "title": "Manual Control", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:coal" },
+                  "tasks": [{ "type": "tenet:item", "item": "minecraft:coal", "count": 4,
+                    "consumeItems": false }] }
+                """);
+        Files.writeString(chapter.resolve("manual_short.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "manual_short",
+                  "title": "Manual Short", "x": 0, "y": 64,
+                  "icon": { "item": "minecraft:coal" },
+                  "tasks": [{ "type": "tenet:item", "item": "minecraft:coal", "count": 64,
+                    "consumeItems": false, "manualOnly": true }] }
+                """);
+        return List.of("manual_gallery/group.json", "manual_gallery/manual_works/chapter.json",
+                "manual_gallery/manual_works/manual_press.json",
+                "manual_gallery/manual_works/manual_control.json",
+                "manual_gallery/manual_works/manual_short.json");
+    }
+
+    /**
+     * The filter gallery: an {@code or} of two items finished by the tick, and an {@code and} of
+     * a tag and a mod finished by a consuming press.
+     *
+     * <p>Written by the test for the reason the manual gallery is: no example quest carries a
+     * filter expression. Coal and charcoal throughout, which no other order spends — the manual
+     * gallery's coal is cleared first, so this gallery measures only what it is given here.
+     */
+    private static List<String> seedFilterChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/filter_gallery");
+        Path chapter = quests.resolve("filter_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "filter_gallery", "title": "Filter Gallery", "chapters": ["filter_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "filter_works", "title": "Filter Works",
+                  "quests": ["filter_or.json", "filter_take.json"] }
+                """);
+        Files.writeString(chapter.resolve("filter_or.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "filter_or",
+                  "title": "Filter Or", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:coal" },
+                  "tasks": [{ "type": "tenet:filter",
+                    "filter": "or(item(minecraft:coal)item(minecraft:charcoal))",
+                    "count": 2, "consumeItems": false }] }
+                """);
+        Files.writeString(chapter.resolve("filter_take.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "filter_take",
+                  "title": "Filter Take", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:coal" },
+                  "tasks": [{ "type": "tenet:filter",
+                    "filter": "and(item_tag(minecraft:coals)mod(minecraft))",
+                    "count": 2, "consumeItems": true }] }
+                """);
+        return List.of("filter_gallery/group.json", "filter_gallery/filter_works/chapter.json",
+                "filter_gallery/filter_works/filter_or.json",
+                "filter_gallery/filter_works/filter_take.json");
+    }
+
+    /**
+     * The charge gallery: a fluid task answered half by a bucket and half by a container, and two
+     * energy tasks — one unlimited, one capped per item.
+     *
+     * <p>Written by the test because no example quest carries either: the fluid half proves the
+     * take drains buckets first and containers for the rest, and the energy pair proves the
+     * per-item cap refuses a short press and completes a full one. The containers and the charge
+     * come from fakes installed per order (vanilla has neither capability to read), so what these
+     * orders pin is the common wiring — measure, order, drain — and not any loader's loop.
+     */
+    private static List<String> seedChargeChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/charge_gallery");
+        Path chapter = quests.resolve("charge_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "charge_gallery", "title": "Charge Gallery", "chapters": ["charge_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "charge_works", "title": "Charge Works",
+                  "quests": ["fluid_jug.json", "energy_cell.json", "energy_cap.json"] }
+                """);
+        Files.writeString(chapter.resolve("fluid_jug.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "fluid_jug",
+                  "title": "Fluid Jug", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:water_bucket" },
+                  "tasks": [{ "type": "tenet:fluid", "fluid": "minecraft:water", "amount": 1500 }] }
+                """);
+        Files.writeString(chapter.resolve("energy_cell.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "energy_cell",
+                  "title": "Energy Cell", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:redstone" },
+                  "tasks": [{ "type": "tenet:energy", "value": 2000 }] }
+                """);
+        Files.writeString(chapter.resolve("energy_cap.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "energy_cap",
+                  "title": "Energy Cap", "x": 0, "y": 64,
+                  "icon": { "item": "minecraft:redstone" },
+                  "tasks": [{ "type": "tenet:energy", "value": 2000, "maxInput": 500 }] }
+                """);
+        return List.of("charge_gallery/group.json", "charge_gallery/charge_works/chapter.json",
+                "charge_gallery/charge_works/fluid_jug.json",
+                "charge_gallery/charge_works/energy_cell.json",
+                "charge_gallery/charge_works/energy_cap.json");
     }
 
     /**

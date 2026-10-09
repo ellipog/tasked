@@ -153,6 +153,61 @@ class QuestValidatorTest {
                 + provided.all().stream().map(DataProblem::render).collect(Collectors.joining("\n")));
     }
 
+    @Test
+    @DisplayName("a currency reward with no economy behind it warns, and goes quiet with one")
+    void currencyWithoutAProviderWarns() {
+        // The same tolerance as an uninstalled custom handler: a missing economy mod is often
+        // temporary, so the file is valid and the quest still completes -- this says which fact
+        // it found. The hook is one global, so the test puts back whatever it found there.
+        java.util.Optional<dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProvider> before =
+                dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.provider();
+        dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.clear();
+        try {
+            Problems problems = validate(Fixtures.file("""
+                    {"id": "a", "title": "A", "rewards": [
+                      {"type": "tenet:currency", "amount": 50}
+                    ]}"""));
+            assertFalse(problems.hasErrors(),
+                    "a missing economy is not a broken file:\n"
+                            + problems.all().stream().map(DataProblem::render)
+                                    .collect(Collectors.joining("\n")));
+            containing(problems, "no currency provider registered");
+        }
+        finally {
+            before.ifPresent(
+                    dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders::setActive);
+        }
+        assertEquals(before.isPresent(),
+                dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.provider().isPresent(),
+                "the hook is as it was found");
+
+        // And an economy that *is* installed is silent.
+        dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.setActive(
+                new dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProvider() {
+                    @Override
+                    public String name() {
+                        return "test-bank";
+                    }
+
+                    @Override
+                    public void give(net.minecraft.server.level.ServerPlayer player, int amount) {
+                    }
+                });
+        try {
+            Problems provided = validate(Fixtures.file("""
+                    {"id": "a", "title": "A", "rewards": [
+                      {"type": "tenet:currency", "amount": 50}
+                    ]}"""));
+            assertTrue(provided.isEmpty(), "a paid economy is nothing to report, got:\n"
+                    + provided.all().stream().map(DataProblem::render).collect(Collectors.joining("\n")));
+        }
+        finally {
+            dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.clear();
+            before.ifPresent(
+                    dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders::setActive);
+        }
+    }
+
     // ------------------------------------------------------------------
     // The check that saves the most time
     // ------------------------------------------------------------------

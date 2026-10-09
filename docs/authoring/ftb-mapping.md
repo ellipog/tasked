@@ -18,11 +18,14 @@ quietly becomes required fails there first.
 | `advancement` + `criterion` | `tenet:advancement` (`advancement`, `criterion`) | An empty `criterion` (`""`, which is all 54 ATM10 uses) means the whole advancement: emit the task **without** `criterion` rather than with an empty string. |
 | `observation` (`to_observe`, `timer`, `observe_type`) | `tenet:observation` (`toObserve`, `timer`, `observeType`) | Names carry over: `block`, `block_tag`, `block_entity`, `entity_type` and friends are the same words. NBT appended to `toObserve` (e.g. `minecraft:sheep{Color: 4b}`) is a fuzzy subset match on both sides. |
 | `stat` (`stat`, `value`) | `tenet:stat` (`stat`, `value`) | Same two fields, same meaning. |
+| `forge_energy` (`value`, `max_input`) | `tenet:energy` (`value`, `maxInput`) | Same pair under Tenet's name, counted from carried items' energy storage rather than piped into a task screen. An absent `max_input` means unlimited here (FTB's absent limit accepts nothing — the migrated ATM10 quest relies on this reading). |
 | `kill` (`entity`, `entity_type_tag`, `value`, `custom_name`, `nbt_filter`) | `tenet:kill` (`entity`, `entityTypeTag`, `value`, `customName`, `nbtFilter`) | The tag takes precedence over the id on both sides; NBT is a fuzzy subset match on both sides. |
 | `location` (box + `ignore_dim`) | `tenet:location` (box + `ignoreDimension`) | Same box, same flag. |
 | `item` + `match_components` | `tenet:item` + `match` | The three words are identical: `none`, `fuzzy`, `strict`, with `strict` the default on both sides. A 1.20.1 pack's `match_nbt` becomes `match`. |
 | `item` + `only_from_crafting` | `tenet:item` + `onlyFromCrafting` | Same flag, with one documented difference: Tenet counts lifetime crafted statistics rather than watching the crafting event, so handing the stack away does not un-count it. |
 | `item` + `consume_items` | `tenet:item` + `consumeItems` | Absent defers to the chapter's `defaultConsumeItems` on both sides (see below for the file-level default). |
+| filter stacks (`ftbfiltersystem:smart_filter` + `ftbfiltersystem:filter`) | `tenet:filter` (`filter`, `count`, `consumeItems`, `manualOnly`) | The expression passes through verbatim — `or(item(a)item(b))`, `item_tag(x)`, `mod/and/or/not` and all — because Tenet reads the same vocabulary. A single `item_tag(x)` may instead become a `tenet:item_tag`; anything the expression answers that a quest cannot (`component` and friends) is reported, never emitted. |
+| `item`/`fluid` + `task_screen_only` | `tenet:item`/`tenet:item_tag`/`tenet:fluid` + `manualOnly` | Same flag under Tenet's name: the tick never counts from the inventory, only a submit press does. FTB fills such tasks by piping into a task screen block; Tenet has no such block, so the piped path is a documented loss and this flag keeps the manual half. |
 
 ## Rewards that map 1:1
 
@@ -32,11 +35,13 @@ quietly becomes required fails there first.
 | `team_reward` (+ file `default_reward_team`) | `team` (+ `defaultTeamReward`) | Absent defers to the file default on both sides. |
 | `exclude_from_claim_all` | `excludeFromClaimAll` on every reward | Same flag. FTB forbids changing it on loot, random and choice rewards; keep that behaviour in the tool. |
 | `ignore_reward_blocking` | `ignoreRewardBlocking` on every reward | Same flag. |
-| `disable_toast` (reward) | `disableToast` on every reward | Same flag, recorded on the model, the wire and the editor. Reward-level notices do not exist yet, so it travels as data for the notice that will; a reward in a quieted quest stays quiet through the quest's own flag. |
+| `disable_toast` (reward) | `disableToast` on every reward | Same flag, recorded on the model, the wire and the editor. Quiets the reward-level notice (toast description, command feedback); a reward in a quieted quest stays quiet through the quest's own flag. |
 | `title` (task, from lang `task.<id>.title`) | `title` on every task and reward | The row's own words instead of the type's sentence. A checkmark reads its button from here, exactly as before — the key is unchanged, so old files read the same way. |
 | `icon` (task/reward override) | `icon` on every task and reward | An item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture on a row (quest and chapter nodes name the missing entity instead). |
-| `command` + `silent` | `tenet:command` (`command`, `permissionLevel`, `silent`) | Same flag; placeholders (`{p}`, `{x}`/`{y}`/`{z}`, `{quest}`, `{chapter}`, `{team}`) carry over. `feedback_message` is **not** mapped — it needs Tenet work. |
+| `command` + `silent` + `feedback_message` | `tenet:command` (`command`, `permissionLevel`, `silent`, `feedbackMessage`) | Same flag; placeholders (`{p}`, `{x}`/`{y}`/`{z}`, `{quest}`, `{chapter}`, `{team}`) carry over. `feedback_message` is the success line shown when the command runs; absent shows nothing extra. |
 | `item` + `only_one` | `tenet:item` + `onlyOne` | Same flag: checked by item type, ignoring components, on both sides. Table entries keep `weight` and `randomBonus` as written. |
+| `toast` (`description`) | `tenet:toast` (`description`) | The message shown when collected, as literal text or a translation key with fallback. |
+| `currency` (`amount`) | `tenet:currency` (`amount`) | The amount passes through; the coin belongs to the installed economy on both sides. |
 
 ## Quest, chapter and file rows that map 1:1
 
@@ -59,12 +64,12 @@ quietly becomes required fails there first.
 | `invisible` (+ `invisible_until_tasks`) | `invisible` (+ `invisibleUntilTasks`) | Same pair, same counting rule. |
 | chapter `default_hide_dependency_lines` etc. | `defaultHideUntilDependenciesComplete`, `defaultHideUntilDependenciesVisible` | The chapter defaults for the two tristate flags above. |
 | chapter `default_consume_items` | `defaultConsumeItems` | The chapter default for item tasks. The **file** default (`default_consume_items` in `data.snbt`) has no Tenet home yet — inline the resolved value onto each chapter until one exists. |
-| file `detection_delay` | `detectionDelay` | Same field: the minimum ticks between inventory checks, flooring item, item-tag and fluid tasks. |
+| file `detection_delay` | `detectionDelay` | Same field: the minimum ticks between inventory checks, flooring item, item-tag, filter, fluid and energy tasks. |
 
 ## Deliberately unmapped here
 
-Claim-timed repeats, the energy task, the manual-only
-flag, filter expressions, the toast and currency rewards, team stages, progress-mutating command
+Claim-timed repeats,
+team stages, progress-mutating command
 variants, file settings, presets and chapter appearance defaults, and ghost validation are all
 **not** on this page: each needs Tenet work first, and the tool must gate on that work rather
 than emit fields nothing reads.

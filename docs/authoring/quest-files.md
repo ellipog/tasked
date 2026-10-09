@@ -203,7 +203,7 @@ thing it affects:
 | `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tenet:authoring/rewards]] |
 | `defaultTeamReward` | `false` | Whether a reward that does not say otherwise is one claim for the team |
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
-| `detectionDelay` | `20` | Minimum ticks between inventory checks: an item, item-tag or fluid task is re-read no more often than this, whatever its own interval says. Other task types keep their own cadence. |
+| `detectionDelay` | `20` | Minimum ticks between inventory checks: an item, item-tag, filter, fluid or energy task is re-read no more often than this, whatever its own interval says. Other task types keep their own cadence. |
 | `clickCommandLevel` | `0` | What a canvas click's `run_command` runs as: `0` is the pressing player's own level, `2` is elevated enough for `say`, `give` and `summon` without opening op. Never above `2`, and never the presser's own level however high that is. File-only: no client draws it, so the Book panel has no row for it. |
 | `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title |
 | `bookIcon` | `""` | The item id the book wears in its header; an id a client cannot resolve is drawn as a missing-item mark |

@@ -926,6 +926,33 @@ public final class QuestValidator {
             checkItem(document, path, problems);
         }
 
+        // A filter names its items inside the expression string rather than under "item", so the
+        // check above cannot see them. Unparseable expressions are left to the codec check below,
+        // which reports the syntax; this warns about the ids a removed mod left behind, in the
+        // same words and with the same tolerance as a missing item. Tags are not checked, for the
+        // same reason item_tag tasks do not check them: they resolve per datapack.
+        if (document.has(path + ".filter")) {
+            Checks.string(document, path + ".filter", problems).ifPresent(raw -> {
+                dev.ellipog.tenet.quest.task.FilterParser.Expr parsed;
+                try {
+                    parsed = dev.ellipog.tenet.quest.task.FilterParser.parse(raw);
+                }
+                catch (dev.ellipog.tenet.quest.task.FilterParser.FilterException e) {
+                    return;
+                }
+                for (ResourceLocation id : parsed.itemIds()) {
+                    if (!BuiltInRegistries.ITEM.containsKey(id)) {
+                        String hint = id.getNamespace().equals("minecraft")
+                                ? " - check the spelling; minecraft: has no such item"
+                                : " - the mod \"" + id.getNamespace()
+                                  + "\" is probably not installed, or is installed on one side only";
+                        problems.warn(document, path + ".filter", "there is no item " + id + hint
+                                + ". The id is kept and the quest still loads; it simply never matches");
+                    }
+                }
+            });
+        }
+
         int errorsBeforeConditions = problems.errorCount();
         checkConditions(document, path + ".conditions", problems);
         boolean conditionsBroken = problems.errorCount() > errorsBeforeConditions;
@@ -1055,6 +1082,14 @@ public final class QuestValidator {
         if (document.has(path + ".icon")) {
             checkIcon(document, path + ".icon", problems);
         }
+        // The toast reward's message and the command reward's success line: QuestTexts like the
+        // title, so a blank one warns rather than granting silence.
+        if (document.has(path + ".description")) {
+            checkText(document, path + ".description", problems);
+        }
+        if (document.has(path + ".feedbackMessage")) {
+            checkText(document, path + ".feedbackMessage", problems);
+        }
         if (document.has(path + ".auto")) {
             // Which modes are automatic is the enum's own answer, asked rather than spelled out here:
             // three hand-written names were a second copy of `automatic()`, and a sixth mode added to
@@ -1076,6 +1111,17 @@ public final class QuestValidator {
         // The reward half of the same check: a custom reward whose handler is not installed grants nothing,
         // and the log line at grant time is the runtime signal -- this is the one an author reads.
         checkCustomHandler(document, path, type, CustomType.REWARD, problems);
+
+        // A currency reward whose economy is not installed grants nothing either, for the same
+        // reason and with the same tolerance: a warning rather than an error, because a missing
+        // economy mod is often temporary and the quest still completes.
+        if (type.map(dev.ellipog.tenet.quest.reward.CurrencyReward.TYPE::equals).orElse(false)
+                && dev.ellipog.tenet.quest.reward.CurrencyReward.CurrencyProviders.provider()
+                        .isEmpty()) {
+            problems.warn(document, path + ".type",
+                    "this build has no currency provider registered, so this reward grants nothing "
+                            + "here - a currency mod or script that pays it is not loaded");
+        }
 
         if (document.has(path + ".item")) {
             checkItem(document, path, problems);

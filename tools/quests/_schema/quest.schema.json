@@ -524,7 +524,18 @@
         "onlyFromCrafting": {
           "type": "boolean",
           "default": false,
-          "description": "tenet:item (task) - only items the player crafted themselves count."
+          "description": "tenet:item and tenet:item_tag (tasks) - only items the player crafted themselves count. Counted from lifetime crafting statistics, so handing the stack away does not un-count it."
+        },
+        "manualOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "tenet:item, tenet:item_tag, tenet:filter, tenet:fluid and tenet:energy (tasks) - never count from the inventory on the tick; only a submit press counts. FTB Quests calls this task_screen_only, filled by piping into a task screen; Tenet has no such block, so the piped path is not ported."
+        },
+        "maxInput": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "tenet:energy (task) - the most each item may contribute, in Forge Energy units; 0 means unlimited. FTB Quests calls this max_input, capping each insertion into its task screen."
         },
         "tag": {
           "type": "string",
@@ -556,7 +567,7 @@
         },
         "value": {
           "type": "integer",
-          "description": "tenet:stat, tenet:xp, tenet:kill and tenet:custom (tasks) - the number that counts as enough: the statistic's value, experience handed over, kills, or the handler's count."
+          "description": "tenet:stat, tenet:xp, tenet:kill, tenet:energy and tenet:custom (tasks) - the number that counts as enough: the statistic's value, experience or energy handed over, kills, or the handler's count."
         },
         "ignoreDimension": {
           "type": "boolean",
@@ -585,6 +596,10 @@
         "fluid": {
           "$ref": "#/definitions/namespacedId",
           "description": "tenet:fluid (task) - the fluid to hand over, carried in buckets."
+        },
+        "filter": {
+          "type": "string",
+          "description": "tenet:filter (task) - which items count, as an FTB filter expression: item, item_tag, mod and block leaves under and, or and not, e.g. or(item(minecraft:coal)item_tag(minecraft:coals)). Passed through verbatim from an ftbfiltersystem:smart_filter stack."
         },
         "amount": {
           "type": "integer",
@@ -687,6 +702,14 @@
           "type": "boolean",
           "default": false,
           "description": "tenet:command (reward) - do not say in chat that it ran."
+        },
+        "feedbackMessage": {
+          "$ref": "#/definitions/text",
+          "description": "tenet:command (reward) - a message shown when the command runs; absent shows nothing extra. FTB Quests calls this feedback_message."
+        },
+        "description": {
+          "$ref": "#/definitions/text",
+          "description": "tenet:toast (reward) - the message shown when the reward is collected. Empty shows the generic toast sentence."
         },
         "stage": {
           "$ref": "#/definitions/namespacedId",

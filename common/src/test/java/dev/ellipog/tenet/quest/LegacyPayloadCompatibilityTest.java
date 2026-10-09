@@ -162,6 +162,8 @@ class LegacyPayloadCompatibilityTest {
             "{\"type\": \"tenet:observation\", \"toObserve\": \"minecraft:beacon\"}",
             "{\"type\": \"tenet:kill\"}",
             "{\"type\": \"tenet:custom\", \"id\": \"example:thing\", \"value\": 1}",
+            "{\"type\": \"tenet:filter\", \"filter\": \"item(minecraft:stone)\"}",
+            "{\"type\": \"tenet:energy\", \"value\": 1000}",
             "{\"type\": \"tenet:stage\", \"stage\": \"example:stage\"}");
 
     /** The same, one per registered reward type. */
@@ -173,6 +175,8 @@ class LegacyPayloadCompatibilityTest {
             "{\"type\": \"tenet:all_table\"}",
             "{\"type\": \"tenet:choice\"}",
             "{\"type\": \"tenet:command\", \"command\": \"say hello\"}",
+            "{\"type\": \"tenet:currency\", \"amount\": 50}",
+            "{\"type\": \"tenet:toast\", \"description\": \"Hello\"}",
             "{\"type\": \"tenet:advancement\", \"advancement\": \"minecraft:story/root\"}",
             "{\"type\": \"tenet:custom\", \"id\": \"example:thing\"}",
             "{\"type\": \"tenet:stage\", \"stage\": \"example:stage\"}");

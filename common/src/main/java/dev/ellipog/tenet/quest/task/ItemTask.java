@@ -32,13 +32,14 @@ import java.util.Set;
  * the chapter; an author who wants the friendlier behaviour sets nothing.
  */
 public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consumeItems,
-                       ComponentMatch match, boolean onlyFromCrafting) implements QuestTask {
+                       ComponentMatch match, boolean onlyFromCrafting, boolean manualOnly) implements QuestTask {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tenet.MOD_ID, "item");
 
     /** This type's own fields, for the validator. {@code "type"} and the common fields are added by it. */
     public static final Set<String> FIELDS =
-            Set.of("item", "count", "components", "consumeItems", "match", "onlyFromCrafting");
+            Set.of("item", "count", "components", "consumeItems", "match", "onlyFromCrafting",
+                    "manualOnly");
 
     public static final MapCodec<ItemTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             // The common settings first, so every task in a file reads in the same order.
@@ -49,7 +50,8 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
             // Strict is the default because it is what this type has always matched: a file that says
             // nothing must keep meaning what it meant before the field existed.
             ComponentMatch.CODEC.optionalFieldOf("match", ComponentMatch.STRICT).forGetter(ItemTask::match),
-            Codec.BOOL.optionalFieldOf("onlyFromCrafting", false).forGetter(ItemTask::onlyFromCrafting)
+            Codec.BOOL.optionalFieldOf("onlyFromCrafting", false).forGetter(ItemTask::onlyFromCrafting),
+            Codec.BOOL.optionalFieldOf("manualOnly", false).forGetter(ItemTask::manualOnly)
     ).apply(instance, ItemTask::new));
 
     @Override
@@ -103,13 +105,27 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
 
         @Override
         public boolean canSubmitByHand(ItemTask task, boolean chapterDefault) {
-            // Only worth a button when submitting actually does something. A presence-only task
-            // completes by itself the moment the player has the items.
+            // A manual-only task always has a button: the press is the only path that measures it.
+            // Otherwise only worth a button when submitting actually does something. A presence-only
+            // task completes by itself the moment the player has the items.
             //
             // The chapter's default counts, not just the task's own field: whether the buttons shows
             // has to be the same answer as whether the take happens, or the row promises nothing is
             // taken while the tick takes it.
-            return task.consumes(chapterDefault);
+            return task.manualOnly() || task.consumes(chapterDefault);
+        }
+
+        @Override
+        public boolean waitsForSubmit(ItemTask task, boolean chapterDefault) {
+            // Manual-only never records from the tick — the press is the measurement — so it always
+            // waits, even when there is nothing to take.
+            return task.manualOnly() || takesResources(task, chapterDefault)
+                    && canSubmitByHand(task, chapterDefault);
+        }
+
+        @Override
+        public boolean manualOnly(ItemTask task) {
+            return task.manualOnly();
         }
 
         @Override

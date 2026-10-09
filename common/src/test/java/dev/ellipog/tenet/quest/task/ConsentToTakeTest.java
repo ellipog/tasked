@@ -46,7 +46,7 @@ class ConsentToTakeTest {
     private static ItemTask item(Optional<Boolean> consume) {
         return new ItemTask(TaskCommon.DEFAULT,
                 new ItemRef(ResourceLocation.withDefaultNamespace("oak_log"), 8),
-                consume, ComponentMatch.STRICT, false);
+                consume, ComponentMatch.STRICT, false, false);
     }
 
     @Test
@@ -87,7 +87,7 @@ class ConsentToTakeTest {
     @DisplayName("an item tag task reads the same rule as an item task")
     void tagTasksReadTheSameRule() {
         ItemTagTask task = new ItemTagTask(TaskCommon.DEFAULT,
-                ResourceLocation.withDefaultNamespace("logs"), 8, Optional.empty());
+                ResourceLocation.withDefaultNamespace("logs"), 8, Optional.empty(), false, false);
         TaskBehaviour<QuestTask> through = behaviour(task);
 
         assertTrue(through.canSubmitByHand(task, true));
@@ -105,7 +105,7 @@ class ConsentToTakeTest {
                         + "rule exists to stop");
 
         FluidTask fluid = new FluidTask(TaskCommon.DEFAULT,
-                ResourceLocation.withDefaultNamespace("water"), 1000);
+                ResourceLocation.withDefaultNamespace("water"), 1000, false);
         assertTrue(behaviour(fluid).waitsForSubmit(fluid, false));
     }
 
@@ -127,5 +127,25 @@ class ConsentToTakeTest {
                 ResourceLocation.withDefaultNamespace("the_nether"));
         assertFalse(behaviour(elsewhere).waitsForSubmit(elsewhere, true),
                 "and a type with no button at all is registered too, rather than being stranded");
+    }
+
+    @Test
+    @DisplayName("a manual-only presence task waits for the press and keeps its button")
+    void manualOnlyPresenceWaits() {
+        ItemTask task = new ItemTask(TaskCommon.DEFAULT,
+                new ItemRef(ResourceLocation.withDefaultNamespace("oak_log"), 8),
+                Optional.of(false), ComponentMatch.STRICT, false, true);
+        TaskBehaviour<QuestTask> through = behaviour(task);
+
+        assertTrue(through.canSubmitByHand(task, false),
+                "the press is the only path that measures a manual task, so the button is always there");
+        assertFalse(through.takesResources(task, false));
+        assertTrue(through.waitsForSubmit(task, false),
+                "and the tick records nothing: a presence task that waited for nothing would complete by itself");
+
+        ItemTagTask tag = new ItemTagTask(TaskCommon.DEFAULT,
+                ResourceLocation.withDefaultNamespace("logs"), 8, Optional.empty(), false, true);
+        assertTrue(behaviour(tag).canSubmitByHand(tag, false));
+        assertTrue(behaviour(tag).waitsForSubmit(tag, false));
     }
 }

@@ -36,7 +36,7 @@ class TaskBehaviourForwardingTest {
     private static ItemTask itemTask(Optional<Boolean> consume) {
         return new ItemTask(TaskCommon.DEFAULT,
                 new ItemRef(ResourceLocation.withDefaultNamespace("oak_log"), 4),
-                consume, ComponentMatch.STRICT, false);
+                consume, ComponentMatch.STRICT, false, false);
     }
 
     @Test
@@ -68,6 +68,31 @@ class TaskBehaviourForwardingTest {
     }
 
     @Test
+    @DisplayName("manual-only survives the wrapper, for every type that declares it")
+    void manualOnlySurvivesTheWrapper() {
+        // The engine's tick-skip reads this through behaviourOf — the same door the take, the
+        // submit gate and the inventory floor go through — so a wrapper that dropped it would
+        // measure a manual task on the tick while the submit path refused to record it.
+        ItemTask manualItem = new ItemTask(TaskCommon.DEFAULT,
+                new ItemRef(ResourceLocation.withDefaultNamespace("oak_log"), 4),
+                Optional.empty(), ComponentMatch.STRICT, false, true);
+        assertTrue(TaskTypes.behaviourOf(manualItem).orElseThrow().manualOnly(manualItem));
+        assertFalse(TaskTypes.behaviourOf(itemTask(Optional.empty())).orElseThrow()
+                .manualOnly(itemTask(Optional.empty())));
+
+        ItemTagTask manualTag = new ItemTagTask(TaskCommon.DEFAULT,
+                ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty(), false, true);
+        assertTrue(TaskTypes.behaviourOf(manualTag).orElseThrow().manualOnly(manualTag));
+
+        FluidTask manualFluid = new FluidTask(TaskCommon.DEFAULT,
+                ResourceLocation.withDefaultNamespace("water"), 1000, true);
+        assertTrue(TaskTypes.behaviourOf(manualFluid).orElseThrow().manualOnly(manualFluid));
+
+        EnergyTask manualEnergy = new EnergyTask(TaskCommon.DEFAULT, 1000, 0, true);
+        assertTrue(TaskTypes.behaviourOf(manualEnergy).orElseThrow().manualOnly(manualEnergy));
+    }
+
+    @Test
     @DisplayName("only the inventory-backed types read the inventory, through the registry")
     void readsInventorySurvivesTheWrapper() {
         // The pack's detection_delay floors exactly these types' re-evaluation. A type missing
@@ -76,14 +101,16 @@ class TaskBehaviourForwardingTest {
         assertTrue(TaskTypes.behaviourOf(itemTask(Optional.empty())).orElseThrow().readsInventory(),
                 "item tasks count carried items");
         assertTrue(TaskTypes.behaviourOf(new ItemTagTask(TaskCommon.DEFAULT,
-                        ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty()))
+                        ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty(), false, false))
                         .orElseThrow().readsInventory(),
                 "item-tag tasks count carried items");
         assertTrue(TaskTypes.behaviourOf(new FluidTask(TaskCommon.DEFAULT,
-                        ResourceLocation.withDefaultNamespace("water"), 1000))
+                        ResourceLocation.withDefaultNamespace("water"), 1000, false))
                         .orElseThrow().readsInventory(),
                 "fluid tasks count carried buckets");
-        assertFalse(TaskTypes.behaviourOf(new StatTask(TaskCommon.DEFAULT,
+        assertTrue(TaskTypes.behaviourOf(new EnergyTask(TaskCommon.DEFAULT, 1000, 0, false))
+                        .orElseThrow().readsInventory(),
+                "energy tasks count carried charge");        assertFalse(TaskTypes.behaviourOf(new StatTask(TaskCommon.DEFAULT,
                         ResourceLocation.withDefaultNamespace("walk_one_cm"), 100))
                         .orElseThrow().readsInventory(),
                 "a stat lookup is not an inventory walk");
