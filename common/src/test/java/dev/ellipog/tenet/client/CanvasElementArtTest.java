@@ -383,10 +383,12 @@ class CanvasElementArtTest {
     }
 
     @Test
-    @DisplayName("a fixed label stays where it is put while the canvas zooms")
-    void fixedLabelsIgnoreTheZoom() {
-        // Twice zoomed, from a corner that is not the origin: the canvas-anchored box travels with both,
-        // and the fixed one is measured from the view's own corner instead.
+    @DisplayName("a fixed-size label travels with the canvas and grows with the zoom, like a node")
+    void fixedLabelsTravelWithTheCanvas() {
+        // Twice zoomed, from a corner that is not the origin: both labels sit on the zoomed position,
+        // because a position held at its zoom-one landing cannot survive a real zoom gesture, whose own
+        // pan rewrite slides it about. What the flag holds is the size alone: the anchored label keeps
+        // the file's size on screen, and the fixed one draws it times the zoom.
         RecordingRenderer r = RecordingRenderer.create();
         Viewport zoomed = Viewport.of(0.25F, 4F).bounds(100, 50, VIEW_WIDTH, VIEW_HEIGHT);
         assertTrue(zoomed.setScale(2F));
@@ -402,20 +404,26 @@ class CanvasElementArtTest {
         CanvasElement fixed = element("{ \"type\": \"text\", \"id\": \"f\", \"x\": 10, \"y\": 20,"
                 + " \"text\": \"abcd\", \"color\": \"#FFFFFFFF\", \"fixed\": true }");
         CanvasElementArt.Box still = CanvasElementArt.boxOf(fixed, frame);
-        assertEquals(110, still.left(), "fixed: measured from the view's own corner instead");
-        assertEquals(70, still.top());
-        assertEquals(box.width(), still.width(), "and the size is the file's own at every zoom");
-        assertEquals(box.height(), still.height());
+        assertEquals(box.left(), still.left(), "fixed: the same zoomed position, glued to its neighbours");
+        assertEquals(box.top(), still.top());
+        assertEquals(2 * box.width(), still.width(),
+                "and the size is the file's own times the zoom, like a node's");
+        assertEquals(2 * box.height(), still.height());
 
-        // Panned as well as zoomed: the fixed label follows the pan like everything else, and only the
-        // zoom is ignored -- so toggling it at the zoom things are placed at changes nothing at all.
+        // The ink agrees with the box: the run is drawn at the file's scale times the zoom.
+        CanvasElementArt.draw(frame, fixed, CanvasElementArt.Look.NONE);
+        assertEquals(1, r.styled().size(), "one scaled run, not a plain-text call: " + r.calls());
+        assertEquals(2F, r.styled().get(0).runs().get(0).scale(),
+                "drawn at the file's scale times the zoom");
+
+        // Panned as well as zoomed: both labels follow the pan together, glued to each other.
         zoomed.setOffset(30, 40);
         CanvasElementArt.Box moved = CanvasElementArt.boxOf(text, frame);
         assertEquals(150, moved.left(), "canvas-anchored: origin, pan and zoomed position");
         assertEquals(130, moved.top());
         CanvasElementArt.Box held = CanvasElementArt.boxOf(fixed, frame);
-        assertEquals(140, held.left(), "fixed: origin, pan and unzoomed position");
-        assertEquals(110, held.top());
+        assertEquals(moved.left(), held.left(), "fixed: the same pan, the same zoomed position");
+        assertEquals(moved.top(), held.top());
     }
 
     @Test

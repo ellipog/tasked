@@ -70,10 +70,15 @@ and the lines between nodes are its dependencies. From a quest's card a player s
 [[reward]]s, and picks between a choice reward's entries. A player in a party sees the roster there
 too, and the counts the party's mode combines.
 
-An operator gets a band of four controls under the title row — `Author`, `Assets`, `✎ Edit` and
-`Advanced` — and the header itself carries no authoring control. `Author` latches the author's dock, which
+An operator gets a band of five controls under the title row — `Author`, `Assets`, `✎ Edit`,
+`Advanced` and `Preview` — and the header itself carries no authoring control. `Author` latches the author's dock, which
 is where the Book and Chapter tabs live; `Assets` opens the pack's own files; `Edit` latches edit mode and
-nothing else; and `Advanced` says how much of the editor to show. With it off — the default — every menu
+nothing else; and `Advanced` says how much of the editor to show. `Preview` shows the player's view:
+the panel shrinks to the reader's card at the reader's size, hidden chapters and quests are hidden
+again, editing is paused, and quest cards show what a player would see — while edit mode stays on
+underneath, so leaving the preview resumes exactly where it was left. The way back out is the lit
+`Preview` pill floating over the canvas's top-right corner, since the reader's card has no author
+band to press. With Advanced off — the default — every menu
 carries the essentials: a quest's shape, size, placement, what it needs and what it gives, the text on a
 task and a reward, a chapter's name and quest list, and the book's own name and icon. With it on, every
 field, section and menu the editor has is drawn as well, which is where the reward tables, the visibility

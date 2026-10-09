@@ -188,22 +188,22 @@ public final class CanvasElementArt {
             case CanvasElement.Text text -> {
                 String words = frame.words().of(text, "text", text.text());
                 List<String> lines = linesOf(words);
+                float size = (float) effectiveScale(text, frame);
                 int width = 0;
                 for (String line : lines) {
-                    width = Math.max(width, widthOf(frame, line, (float) text.scale()));
+                    width = Math.max(width, widthOf(frame, line, size));
                 }
-                // A fixed label ignores the zoom but follows the pan: its position is the canvas mapping
-                // evaluated at scale one, so enabling it at the zoom things are placed at changes nothing,
-                // and zooming after that leaves it where it was instead of flying it about. The size was
-                // already the file's own at every zoom. Everything downstream -- the drawing, the hit test,
+                // A fixed label travels with the canvas like anything placed on it: its position is the
+                // canvas mapping at the current zoom, so a wheel-zoom about the pointer keeps it glued
+                // to its neighbours instead of sliding it by the zoom's own pan rewrite. What the flag
+                // holds is the size alone — the file's own size times the zoom, the same promise a
+                // node's size makes. Everything downstream -- the drawing, the hit test,
                 // the cull, the grips -- reads this box, so none of them has a second opinion about where
-                // a fixed label is.
-                int left = text.fixed() ? view.originX() + view.offsetX() + text.x()
-                        : view.screenX(text.x());
-                int top = text.fixed() ? view.originY() + view.offsetY() + text.y()
-                        : view.screenY(text.y());
+                // a fixed label is or how big it draws.
+                int left = view.screenX(text.x());
+                int top = view.screenY(text.y());
                 yield new Box(left, top, left + Math.max(width, 1),
-                        top + Math.max(advanceOf(frame, text.scale()) * lines.size(), 1));
+                        top + Math.max(advanceOf(frame, size) * lines.size(), 1));
             }
             // Nothing to draw and nothing to press: an unknown element is a name this build cannot read, and
             // a box around nothing would be a control that does nothing where the author sees empty canvas.
@@ -900,13 +900,26 @@ public final class CanvasElementArt {
      * takes the size for exactly that reason — see {@code GuiRenderer.shadowedText}.
      */
     private static void drawText(GuiRenderer r, CanvasElement.Text text, Frame frame, Box box) {
-        float scale = (float) text.scale();
-        int advance = advanceOf(frame, text.scale());
+        float scale = (float) effectiveScale(text, frame);
+        int advance = advanceOf(frame, scale);
         int y = box.top();
         for (String line : linesOf(frame.words().of(text, "text", text.text()))) {
             drawWords(r, line, box.left(), y, text.color(), text.shadow(), scale);
             y += advance;
         }
+    }
+
+    /**
+     * The size a label draws and measures at: the file's own size, times the zoom for a fixed one.
+     *
+     * <p>One method because the box and the ink must agree: {@link #boxOf} measures the width and the
+     * line advance through it, and {@link #drawText} draws through it, so a label's edge is always
+     * where its words are, at any zoom. A fixed label is canvas pixels at zoom one — the same promise
+     * a node's own size makes — and an anchored one keeps the file's size on screen at every zoom.
+     * The position is the canvas mapping either way: the flag is the size, not the place.
+     */
+    private static double effectiveScale(CanvasElement.Text text, Frame frame) {
+        return text.fixed() ? text.scale() * frame.view().scale() : text.scale();
     }
 
     /** One line of words, by whichever of the seam's three calls its size and shadow ask for. */

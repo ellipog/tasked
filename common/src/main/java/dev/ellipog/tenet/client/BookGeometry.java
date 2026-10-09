@@ -170,6 +170,16 @@ public final class BookGeometry {
     public static final int ADVANCED_WIDTH = 72;
 
     /**
+     * The Preview button's width: the latch over the player's view.
+     *
+     * <p>Seven characters, and the same figure as the six- and eight-character buttons because
+     * {@link #EDIT_WIDTH}'s rule is a measurement rather than an arithmetic: this is the width at which
+     * "Preview" fits at the UI's font, and a button that truncated the name of the mode it toggles would
+     * be a control whose label depends on the font.
+     */
+    public static final int PREVIEW_WIDTH = 72;
+
+    /**
      * The party button's width, in the header.
      *
      * <p>Its own constant rather than a reuse of the footer's, because the two are sized from different
@@ -205,7 +215,7 @@ public final class BookGeometry {
     /**
      * The gap between two controls of the author's band.
      *
-     * <p>Three pixels under the general {@link #EDGE}: at the full edge they read as four controls that
+     * <p>Three pixels under the general {@link #EDGE}: at the full edge they read as five controls that
      * happen to be near each other, and they are one row — one band, drawn as a single strip
      * ({@link #authorBand}). Declared here rather than beside the button widths because a constant cannot
      * name one declared after it, which is what the first attempt at the pills did.
@@ -481,14 +491,14 @@ public final class BookGeometry {
      *
      * <p>The header's run of controls -- Close, Rewards, Party, Settings -- plus {@link #HEADER_TITLE_ROOM}
      * for the book's own name; the sidebar beside a canvas worth showing
-     * ({@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}); and the author's band, which is its four buttons, the
+     * ({@code SIDEBAR_WIDTH + MIN_CANVAS_WIDTH}); and the author's band, which is its five buttons, the
      * seams between them and the panel's own {@link #EDGE} at each end.
      *
      * <p><b>The canvas used to be what bound, and that is the sentence to keep corrected.</b> While the
      * author's pills floated over it, the canvas's term was <b>407</b> (156 of sidebar and 251 of canvas)
      * against the header's 238, so the furniture of the graph decided how narrow the book could be. With the
      * band in the panel's chrome instead, the canvas's term falls to 193 and the header's 238 governs --
-     * until the band's own term, <b>297</b>, passes both. So the minimum is the author's toolbar now, which
+     * until the band's own term, <b>372</b>, passes both. So the minimum is the author's toolbar now, which
      * is the honest thing for it to be: that is the row whose controls must fit before anything else can be
      * read.
      *
@@ -508,9 +518,9 @@ public final class BookGeometry {
                             + ROW_GAP + SETTINGS_BUTTON_WIDTH        // Settings
                             + ROW_GAP + PINNED_BUTTON_WIDTH          // Pinned
                             + HEADER_TITLE_ROOM),
-            // And the band, which binds at 297 -- see above.
+            // And the band, which binds at 372 -- see above.
             EDGE + AUTHOR_WIDTH + BAND_BUTTON_GAP + ASSETS_WIDTH + BAND_BUTTON_GAP + EDIT_WIDTH
-                    + BAND_BUTTON_GAP + ADVANCED_WIDTH + EDGE);
+                    + BAND_BUTTON_GAP + ADVANCED_WIDTH + BAND_BUTTON_GAP + PREVIEW_WIDTH + EDGE);
 
     /** The largest the panel gets, however big the window is. */
     public static final int MAX_PANEL_WIDTH = 800;
@@ -1248,25 +1258,25 @@ public final class BookGeometry {
     }
 
     /**
-     * The four controls of the author's band, left to right, or an empty map for a reader.
+     * The five controls of the author's band, left to right, or an empty map for a reader.
      *
-     * <h2>Why an empty map rather than four rectangles nobody draws</h2>
+     * <h2>Why an empty map rather than five rectangles nobody draws</h2>
      *
      * <p>Because a band is not a control that floats at a fixed offset: it is the panel's own strip, and a
-     * reader's geometry has no such strip -- their canvas starts where the header ends. Four rectangles
+     * reader's geometry has no such strip -- their canvas starts where the header ends. Five rectangles
      * computed anyway would sit across the header and the sidebar's first row, which is a lie the overlap
      * sweep would then check against the wrong surface. The pills were the other case, and the reason the
      * rule is stated rather than assumed: they floated over the canvas at offsets that meant something in
      * every geometry, so they were always in the map and merely not drawn.
      *
      * <p>This is the screen's one conditional about the band, and {@code BookGeometryTest} sweeps both
-     * shapes -- a reader's and an author's -- so "the map holds four more keys" is asserted rather than
+     * shapes -- a reader's and an author's -- so "the map holds five more keys" is asserted rather than
      * discovered.
      *
      * <h2>And why the buttons narrow rather than run off</h2>
      *
      * <p>A window can be smaller than {@link #MIN_PANEL_WIDTH} -- a full-bleed author's panel is the window
-     * itself, minimums and all -- and four fixed widths would then put the last control outside the panel,
+     * itself, minimums and all -- and five fixed widths would then put the last control outside the panel,
      * clickable where nothing draws. So the widths are shared when they do not fit, the way
      * {@link #sidebarToolbar} shares two buttons across the sidebar: at the minimum nothing narrows, and
      * below it the labels are what give way.
@@ -1276,7 +1286,7 @@ public final class BookGeometry {
         if (!authorBand) {
             return out;
         }
-        int[] wanted = {AUTHOR_WIDTH, ASSETS_WIDTH, EDIT_WIDTH, ADVANCED_WIDTH};
+        int[] wanted = {AUTHOR_WIDTH, ASSETS_WIDTH, EDIT_WIDTH, ADVANCED_WIDTH, PREVIEW_WIDTH};
         int[] width = new int[wanted.length];
         int room = Math.max(0, panel.width() - EDGE * 2);
         int gaps = BAND_BUTTON_GAP * (wanted.length - 1);
@@ -1294,7 +1304,7 @@ public final class BookGeometry {
 
         int x = panel.x() + EDGE;
         int y = header.bottom() + BAND_PAD;
-        String[] keys = {"author", "assets", "edit", "advanced"};
+        String[] keys = {"author", "assets", "edit", "advanced", "preview"};
         for (int i = 0; i < keys.length; i++) {
             out.put(keys[i], Rect.at(x, y, width[i], ROW_HEIGHT));
             x += width[i] + BAND_BUTTON_GAP;
@@ -1387,7 +1397,7 @@ public final class BookGeometry {
         // The author's band, under the header. In the map for an author's geometry and absent from a
         // reader's, which is the one place this map's contents depend on something other than the window --
         // and it is a stated exception rather than an accident: the band is the panel's own strip, so a
-        // reader's geometry has no such rectangle, and four offsets invented for one would be checked
+        // reader's geometry has no such rectangle, and five offsets invented for one would be checked
         // against the wrong surface. See `authorBandButtons`. The map's source order still reads as the
         // chrome first and the canvas furniture last, where the band stands in the slot the pills held.
         out.putAll(authorBandButtons());

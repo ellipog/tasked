@@ -408,7 +408,7 @@ class BookGeometryTest {
                 Set.of("close", "rewards", "party", "settings", "pinned");
 
         /**
-         * The author's band: four controls in a strip of the panel's own chrome.
+         * The author's band: five controls in a strip of the panel's own chrome.
          *
          * <p>Their own surface rather than the header's or the canvas's, and the three answers are what this
          * test exists to keep told apart: the band is drawn over neither of the other two. It used to be the
@@ -416,7 +416,7 @@ class BookGeometryTest {
          * {@link BookGeometry#MIN_CANVAS_WIDTH} shrank.
          */
         private static final Set<String> AUTHOR_BAND_CONTROLS =
-                Set.of("author", "assets", "edit", "advanced");
+                Set.of("author", "assets", "edit", "advanced", "preview");
 
         /**
          * The view cluster: the one thing that still sits <i>on</i> the canvas.
@@ -436,7 +436,7 @@ class BookGeometryTest {
             // rather than being quietly exempted from a check that no longer applies to it.
             //
             // Swept over both geometries, because the author's is the one with a band in it and a reader's
-            // is the one without: the band's four are in one map and must be absent from the other, and a
+            // is the one without: the band's five are in one map and must be absent from the other, and a
             // check that swept one shape would test the other one never.
             for (int[] size : sizes()) {
                 for (BookGeometry geometry : geometriesAt(size[0], size[1])) {
@@ -918,7 +918,7 @@ class BookGeometryTest {
     }
 
     @Test
-    @DisplayName("the author's band is four buttons one seam apart, and a reader's geometry has none")
+    @DisplayName("the author's band is five buttons one seam apart, and a reader's geometry has none")
     void theAuthorBandIsOneRow() {
         // The seam is the one part of this row a person can measure, and it is the part a playtest reported
         // as a pixel too wide when it was a pair of pills. It is asserted rather than described because each
@@ -930,6 +930,7 @@ class BookGeometryTest {
         Rect assets = band.get("assets");
         Rect edit = band.get("edit");
         Rect advanced = band.get("advanced");
+        Rect preview = band.get("preview");
 
         assertEquals(BookGeometry.BAND_BUTTON_GAP, assets.x() - author.right(),
                 "the seam between Author and Assets is not the constant: " + author + " and " + assets);
@@ -937,11 +938,13 @@ class BookGeometryTest {
                 "nor between Assets and Edit: " + assets + " and " + edit);
         assertEquals(BookGeometry.BAND_BUTTON_GAP, advanced.x() - edit.right(),
                 "nor between Edit and Advanced: " + edit + " and " + advanced);
-        assertEquals(author.y(), advanced.y(), "the four are one row: " + author + " and " + advanced);
-        assertEquals(author.height(), advanced.height(), "a row of different heights is not one row");
+        assertEquals(BookGeometry.BAND_BUTTON_GAP, preview.x() - advanced.right(),
+                "nor between Advanced and Preview: " + advanced + " and " + preview);
+        assertEquals(author.y(), preview.y(), "the five are one row: " + author + " and " + preview);
+        assertEquals(author.height(), preview.height(), "a row of different heights is not one row");
 
         // And the buttons really are inside the strip drawn behind them, which is the whole reason the band
-        // is a rectangle of the geometry rather than four offsets: a strip that stopped short of the last
+        // is a rectangle of the geometry rather than five offsets: a strip that stopped short of the last
         // control would make the band a row floating over the sidebar.
         for (Rect button : band.values()) {
             assertTrue(button.isInside(geometry.authorBand()),
@@ -954,9 +957,9 @@ class BookGeometryTest {
         // "missing by mistake" are the same map entry away from each other.
         BookGeometry reader = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT);
         assertFalse(reader.hasAuthorBand());
-        assertTrue(reader.authorBandButtons().isEmpty(), "a reader's geometry invented four controls");
+        assertTrue(reader.authorBandButtons().isEmpty(), "a reader's geometry invented five controls");
         assertEquals(0, reader.authorBand().height(), "and a strip to draw them on");
-        for (String key : List.of("author", "assets", "edit", "advanced")) {
+        for (String key : List.of("author", "assets", "edit", "advanced", "preview")) {
             assertFalse(reader.controls().containsKey(key), key + " is in a reader's control map");
             assertTrue(geometry.controls().containsKey(key), key + " is missing from an author's");
         }
@@ -982,9 +985,9 @@ class BookGeometryTest {
                         () -> "a band button ran off the band" + at + ": " + button + " vs " + strip);
             }
             // The last button's right edge, which is what a shared width is for: at the panel's minimum
-            // nothing narrows, and below it the four share what there is. Either way the row ends inside the
+            // nothing narrows, and below it the five share what there is. Either way the row ends inside the
             // panel, which is the property the clamp exists for.
-            Rect last = window.authorBandButtons().get("advanced");
+            Rect last = window.authorBandButtons().get("preview");
             assertTrue(last.right() <= window.panel().right(),
                     () -> "the band's row ran off the panel" + at + ": " + last);
         }
@@ -1021,7 +1024,7 @@ class BookGeometryTest {
     void fullBleed() {
         for (int[] size : new int[][] {{854, 480}, {427, 240}}) {
             // The author's geometry, which is the full-bleed one in production and the only shape with a
-            // band in it: the band is what this test gained, and the four buttons are the parts most likely
+            // band in it: the band is what this test gained, and the five buttons are the parts most likely
             // to leave the window, because a full-bleed panel is the window at its own minimum and no more.
             BookGeometry window = new BookGeometry(size[0], size[1], true, true);
             String at = " at " + size[0] + "x" + size[1];
@@ -1080,9 +1083,9 @@ class BookGeometryTest {
         // were ahead of close and are gone; the two appearance rows were between close and the cluster and
         // are gone -- see the note in that method for why each went.
         //
-        // **This list is a reader's, and the band's four are deliberately absent from it.** That is the one
+        // **This list is a reader's, and the band's five are deliberately absent from it.** That is the one
         // place the map's contents depend on something other than the window, and the band's own test asserts
-        // the other direction; a list here that named four keys the geometry under test does not have would
+        // the other direction; a list here that named five keys the geometry under test does not have would
         // be asserting a lie.
         assertEquals(
                 List.of("close", "rewards", "party", "settings", "pinned",
@@ -1094,7 +1097,7 @@ class BookGeometryTest {
         BookGeometry author = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true);
         assertEquals(
                 List.of("close", "rewards", "party", "settings", "pinned", "author", "assets", "edit",
-                        "advanced",
+                        "advanced", "preview",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(author.controls().keySet()));
         assertEquals(author.controls(), new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true)

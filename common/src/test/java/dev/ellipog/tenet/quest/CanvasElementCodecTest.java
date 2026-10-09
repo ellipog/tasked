@@ -173,7 +173,7 @@ class CanvasElementCodecTest {
         assertEquals(1.5, text.scale());
         assertEquals(0xFFA0A0A0, text.color());
         assertTrue(text.shadow());
-        assertTrue(text.fixed(), "pinned to the screen rather than travelling with the canvas");
+        assertTrue(text.fixed(), "its size fixed to the canvas rather than to the screen");
 
         // Absent is canvas-anchored: the default is what every label already is, so no file changes
         // meaning by gaining the field.

@@ -147,12 +147,12 @@ class ElementPanelLayoutTest {
     }
 
     @Test
-    @DisplayName("only a label offers a fixed position, and it sits beside the position it redefines")
-    void onlyLabelsOfferAFixedPosition() {
+    @DisplayName("only a label offers a fixed size, and it sits beside the position section")
+    void onlyLabelsOfferAFixedSize() {
         List<ToolsLayout.Action> rows = ElementPanelLayout.rows(element(
                 "{ \"type\": \"text\", \"id\": \"t\", \"text\": \"x\" }"));
         assertEquals(ToolsLayout.Action.Kind.SWITCH, kindOf(rows, "element.t.fixed"),
-                "staying put is a flag, off by default");
+                "a canvas-fixed size is a flag, off by default");
         List<String> keys = keys(rows);
         assertTrue(keys.indexOf("element.t.fixed") > keys.indexOf("element.t.#position"),
                 "in the position section: " + keys);
@@ -163,7 +163,7 @@ class ElementPanelLayoutTest {
                         "{ \"type\": \"line\", \"id\": \"l\", \"x1\": 0, \"y1\": 0, \"x2\": 8, \"y2\": 8 }")))
                         .contains("element.l.fixed"),
                 "and so does a line");
-        assertNotNull(ElementPanelLayout.help("fixed"), "with a sentence saying what staying put means");
+        assertNotNull(ElementPanelLayout.help("fixed"), "with a sentence saying what canvas-fixed means");
     }
 
     @Test

@@ -125,9 +125,11 @@ public final class ElementPanelLayout {
                 section(rows, id, "position", "tenet.dev.element.section.position", folded, inner -> {
                     pairNumber(inner, element, id, "x", "tenet.dev.element.x",
                             "y", "tenet.dev.element.y");
-                    // Whether the label ignores the zoom: it still follows the pan, and at zoom one it
-                    // sits exactly where an anchored label would -- so it sits beside the position it
-                    // redefines rather than two sections away from it.
+                    // Whether the label's size is fixed to the canvas: it is positioned like anything on
+                    // it either way, and at zoom one it sits exactly where an anchored label would -- so
+                    // it sits beside the position section rather than two sections away from it. On, the
+                    // size grows and shrinks with the zoom like a node's; off, it stays the file's own on
+                    // screen at every zoom.
                     flag(inner, element, id, "fixed", "tenet.dev.element.fixed");
                 });
                 section(rows, id, "words", "tenet.dev.element.section.words", folded, inner -> {

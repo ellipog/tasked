@@ -276,7 +276,11 @@ public final class QuestBookScreen extends ArmatureScreen
      * are the reason the key is three comparisons rather than one.
      */
     private BookGeometry geometry() {
-        boolean author = mayEdit();
+        // A previewing operator gets the reader's geometry: the card, no band, no full-bleed. That is
+        // the whole point of the preview — the panel shrinks to exactly what a player without the
+        // permission sees — and the way back out is the floating pill `buildViewCluster` puts over the
+        // canvas, not the band, which this geometry does not have.
+        boolean author = mayEdit() && !previewing();
         if (geometry == null || geometryWidth != width || geometryHeight != height
                 || geometryAuthor != author) {
             // Full-bleed for an author, a card for a reader, and a band for the same author. See
@@ -2544,11 +2548,13 @@ public final class QuestBookScreen extends ArmatureScreen
      * each of these needs a line where the header's four controls have theirs, and {@code hoverTold} with
      * it, which is what makes a control above the clip fade under the pointer.
      *
-     * <p>Three of them are surfaces and one is a mode: {@link #pressAuthorPill} opens the dock,
-     * {@link #openAssets} opens the pack's files, {@link #pressEditPill} latches edit mode, and
-     * {@link #setAdvanced} says how much of every editor menu to draw. The latch is built only while edit
-     * mode is on: with the mode off there is no editor to be shallow or deep about, and a lit control that
-     * changed nothing on screen would be the fault this book's chrome keeps designing out.
+     * <p>Three of them are surfaces and two are modes: {@link #pressAuthorPill} opens the dock,
+     * {@link #openAssets} opens the pack's files, {@link #pressEditPill} latches edit mode,
+     * {@link #setAdvanced} says how much of every editor menu to draw, and {@link #pressPreviewPill}
+     * latches the player's view. The two latches are built only while edit
+     * mode is on: with the mode off there is no editor to be shallow or deep about and no authoring
+     * to preview, and a lit control that changed nothing on screen would be the fault this book's
+     * chrome keeps designing out.
      */
     private ArmatureButton authorButton;
     /** The Assets button, beside it. Built for the same readers and for no others. */
@@ -2557,6 +2563,17 @@ public final class QuestBookScreen extends ArmatureScreen
     private ArmatureButton editButton;
     /** The Advanced button: the latch over the editor's depth. Null while edit mode is off. */
     private ArmatureButton advancedButton;
+    /** The Preview button: the way into the player's view. Null while edit mode is off. */
+    private ArmatureButton previewButton;
+    /**
+     * The way back out of the player's view: a floating pill over the canvas's top-right corner.
+     *
+     * <p>Built only while previewing, because only then is there no band to press: the preview uses
+     * the reader's geometry, which has no band in it. An ordinary control rather than hand-drawn
+     * chrome, like the view cluster beside it — the widget pass draws the canvas's furniture, and a
+     * rail never covers a control, so it answers over a panel exactly as it does over bare canvas.
+     */
+    private ArmatureButton previewExitButton;
 
     /**
      * The node the drag is carrying, once the drag is one: past the threshold, following the pointer.
@@ -3557,6 +3574,29 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
+     * The Preview pill's press: the player's view on or off, and nothing else.
+     *
+     * <p>On, the book becomes what a player without the edit permission sees — the reader's card at
+     * the reader's size, hidden chapters and quests filtered out, editing gestures off, quest cards
+     * the reader's — while edit mode itself stays on underneath, so leaving the preview restores
+     * exactly the mode that was left. Turning it on puts the editor's columns away like leaving edit
+     * mode does, because a panel whose every field just went inert is not a panel worth standing in.
+     * Off is just the latch back: closed panels stay closed, the same way they do when edit mode is
+     * left. The way out while it is on is the floating pill over the canvas, since the band it was
+     * entered from belongs to a geometry this preview does not use.
+     */
+    private void pressPreviewPill() {
+        previewAsPlayer = !previewAsPlayer;
+        if (previewAsPlayer) {
+            closeMenu();
+            closeColourPopover();
+            applyColumns(PanelStack.afterClose(columns(), false));
+        }
+        authorReport(previewAsPlayer ? "Previewing as a player" : "Back to editing");
+        rebuildWidgets();
+    }
+
+    /**
      * The Author pill's press: the author's dock, on or off.
      *
      * <h2>Why the dock is a control's business and not a mode's</h2>
@@ -4550,7 +4590,43 @@ public final class QuestBookScreen extends ArmatureScreen
      * {@code reconcile}), and a same-length reorder is left to the {@code STALE_MILLIS} backstop.
      */
     private boolean mayEditNow() {
-        return DevMode.on() && mayEdit();
+        return editEffective(DevMode.on(), mayEdit(), previewAsPlayer);
+    }
+
+    /**
+     * The effective edit gate, as pure inputs: edit mode on, the operator permission, and the
+     * player's-view preview latch.
+     *
+     * <p>Static and pure so a test can hold it: the three flags are one truth table, and the only row
+     * that answers false with the first two true is the preview. Previewing pauses editing without
+     * touching edit mode itself, so leaving the preview restores exactly the mode that was left.
+     */
+    static boolean editEffective(boolean devOn, boolean hasPermission, boolean preview) {
+        return devOn && hasPermission && !preview;
+    }
+
+    /**
+     * Whether this screen is previewing the book as a player sees it: every hidden chapter and quest
+     * filtered out, every editing gesture off, every quest card the reader's.
+     *
+     * <p>Session-only on purpose, like the dock's own openness: nothing is written to disk, so a
+     * reopened book is an editor again rather than a preview somebody forgot they asked for. The
+     * geometry follows it too — see {@link #geometry} — so the panel is the reader's card at the
+     * reader's size, and the way back out is the floating pill over the canvas rather than the band,
+     * which a reader's geometry does not have.
+     */
+    private boolean previewAsPlayer;
+
+    /**
+     * Whether the player's-view preview is actually showing: the latch lit, and still an operator.
+     *
+     * <p>Both halves, because the latch outlives neither a de-op (cleared in
+     * {@link #refreshEditingView}) nor edit mode being turned off (cleared in {@link #setEditing}).
+     * The geometry and the band guard both read this one method, so the panel's shape and the
+     * controls on it cannot disagree about whether a preview is showing.
+     */
+    private boolean previewing() {
+        return mayEdit() && previewAsPlayer;
     }
 
     /**
@@ -4574,6 +4650,9 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** Re-reads {@link #editingView}. See its note for who calls it and why. */
     private void refreshEditingView() {
+        if (!mayEdit()) {
+            previewAsPlayer = false;
+        }
         editingView = mayEditNow();
     }
 
@@ -8850,7 +8929,8 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * The three map buttons, in the canvas's own top-left corner.
+     * The map buttons, in the canvas's own top-left corner — and the preview's way out, top-right,
+     * while a preview is showing.
      *
      * <h2>Why this is a method rather than three calls in one branch of {@code init}</h2>
      *
@@ -8874,6 +8954,26 @@ public final class QuestBookScreen extends ArmatureScreen
                 .tooltip(List.of(Component.translatable("tenet.screen.zoom_in"),
                         Component.translatable("tenet.screen.or_scroll_up_over_the_canvas")))
                 .ink(ArmatureButton.Ink.BODY);
+
+        // The way back out of the player's-view preview: a pill over the canvas's top-right corner,
+        // opposite the cluster. Nulled here rather than with the band's fields, because this is where
+        // it is built — a field nulled in another builder is a control a reorder silently drops.
+        previewExitButton = null;
+        if (previewing()) {
+            BookGeometry.Rect canvas = geometry().canvas();
+            int pillWidth = BookGeometry.PREVIEW_WIDTH;
+            previewExitButton = control(
+                    canvas.right() - BookGeometry.EDGE - pillWidth,
+                    canvas.y() + BookGeometry.EDGE,
+                    pillWidth, BookGeometry.ROW_HEIGHT,
+                    Component.translatable("tenet.screen.preview"), this::pressPreviewPill);
+            if (previewExitButton != null) {
+                previewExitButton.ink(ArmatureButton.Ink.BODY)
+                        .selected(true)
+                        .tooltip(List.of(Component.translatable("tenet.screen.preview_on"),
+                                Component.translatable("tenet.screen.preview_on_hint")));
+            }
+        }
 
         control(controls.get("zoomOut"), Component.literal("\u2212"), () -> zoomCentre(0.8F))
                 .tooltip(List.of(Component.translatable("tenet.screen.zoom_out"),
@@ -9002,20 +9102,23 @@ public final class QuestBookScreen extends ArmatureScreen
         // A player who is not an operator never has them built at all, so their screen carries no trace of
         // authoring: the same header as everyone, no band, and a canvas with only the view cluster on it.
         //
-        // Four controls, in the author's reading order: the dock they work in, the pack's own files, the
-        // mode, and the depth. Author and Assets are surfaces rather than latches -- the dock's own button
-        // puts it away, and the Assets panel's way out closes it -- while Edit and Advanced are the two
-        // latches over how the editor behaves.
+        // Five controls, in the author's reading order: the dock they work in, the pack's own files,
+        // the mode, the depth, and the player's view. Author and Assets are surfaces rather than latches --
+        // the dock's own button puts it away, and the Assets panel's way out closes it -- while Edit,
+        // Advanced and Preview are the three latches over how the editor behaves.
         //
         // Nulled before the guard rather than inside it, which is the pills' own arrangement and matters:
-        // `mayEdit()` is read live, so a player de-opped while the book is open would otherwise keep four
+        // `mayEdit()` is read live, so a player de-opped while the book is open would otherwise keep five
         // fields pointing at widgets that have been cleared, and `render` draws a field, not its
-        // membership.
+        // membership. A previewing operator's geometry has no band either, so the guard keeps them out
+        // too — the way back out of a preview is the floating pill, not a sixth press in a strip that
+        // is not drawn.
         authorButton = null;
         assetsButton = null;
         editButton = null;
         advancedButton = null;
-        if (mayEdit()) {
+        previewButton = null;
+        if (mayEdit() && !previewing()) {
             // The dock, which used to be what edit mode drew rather than a control of its own. See
             // `pressAuthorPill` for why the Edit button had to stop meaning two things, and for the one
             // transition that opens and closes this rail.
@@ -9070,6 +9173,20 @@ public final class QuestBookScreen extends ArmatureScreen
                                     : List.of(Component.translatable("tenet.screen.advanced_off"),
                                             Component.translatable("tenet.screen.advanced_off_hint")));
                 }
+                // And the player's view, last, and only while the mode is on and no preview is showing,
+                // for the same reason as the depth: with the editor closed the book already shows the
+                // player's content, so a latch that changed nothing would be a control that lies. This is
+                // the way in; the way back out is the floating pill, because pressing this rebuilds the
+                // book into a geometry with no band in it.
+                previewButton = control(controls.get("preview"),
+                        Component.translatable("tenet.screen.preview"), this::pressPreviewPill);
+                chrome(previewButton);
+                if (previewButton != null) {
+                    previewButton.ink(ArmatureButton.Ink.BODY)
+                            .selected(false)
+                            .tooltip(List.of(Component.translatable("tenet.screen.preview_off"),
+                                    Component.translatable("tenet.screen.preview_off_hint")));
+                }
             }
         }
     }
@@ -9094,8 +9211,8 @@ public final class QuestBookScreen extends ArmatureScreen
      * <p>Every control above the widget pass's clip has to be drawn by hand, because the pass cannot reach
      * it -- and that list was written out by hand for two rounds, which cost two controls: the rewards
      * button and then the settings button were each built, added as widgets and clickable from the day they
-     * landed, and invisible, because nothing on the drawing side knew about them. The band added four more
-     * controls to that set, and four more lines to remember is how the third one gets lost.
+     * landed, and invisible, because nothing on the drawing side knew about them. The band added five more
+     * controls to that set, and five more lines to remember is how the third one gets lost.
      *
      * <p>So the build site <i>is</i> the draw list: {@link #chrome} adds each control as it is built, and
      * the chrome layer walks this. A control built for the chrome is painted by construction, and a control
@@ -9126,6 +9243,9 @@ public final class QuestBookScreen extends ArmatureScreen
         closeMenu();
         closeColourPopover();
         if (!on) {
+            // The preview goes with the mode: it is only built while the mode is on, and a latch kept
+            // past it would greet the mode's return already lit — a preview nobody asked to resume.
+            previewAsPlayer = false;
             // **And turning edit mode off puts the arrangement away.** Not because a child could outlive its
             // parent -- `overlay`/`overlay2` make that impossible by themselves now that the dock is not the
             // fallback occupant -- but because the panels are the mode's surfaces: leaving the mode with a
@@ -28383,9 +28503,10 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         // Ctrl+T opens the pack's panel: one chord per act, the way Ctrl+Z undoes and Ctrl+S reports that
         // there is nothing left to save. Only with nothing focused, so it cannot fire while a field is
-        // being typed into.
+        // being typed into — and never while previewing, where the Assets panel has no button and the
+        // chord would open a surface the preview says is not there.
         if (overlay == PanelKind.NONE && keyCode == GLFW.GLFW_KEY_T && Screen.hasControlDown()
-                && getFocused() == null && mayEdit()) {
+                && getFocused() == null && mayEdit() && !previewing()) {
             openAssets();
             return true;
         }

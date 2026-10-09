@@ -295,10 +295,11 @@ public sealed interface CanvasElement {
      * @param shadow the font's own drop shadow. Off by default, because a backdrop is the usual answer and
      *               both at once is a smudge; on is what a label floating over a chapter needs, and it is
      *               the reason the seam grew a second text call rather than a boolean on the first.
-     * @param fixed  ignore the zoom, but follow the pan: drawn where the position lands at zoom one,
-     *               at the file's own size at every zoom. Off by default, because a decoration that stays
-     *               put while its chapter is zoomed reads as pinned to the screen rather than placed on it
-     *               -- which is exactly what this is for, and exactly what should stay opt-in.
+     * @param fixed  fix the size to the canvas: positioned with the canvas like anything on it, but
+     *               drawn at the file's own size times the zoom, the way a node is. Off by default, when
+     *               the size stays the file's own on screen at every zoom. (It used to also hold the
+     *               position at its zoom-one landing; that half never survived a real zoom gesture, whose
+     *               own pan rewrite slid the label about, so the flag is the size and nothing else now.)
      */
     record Text(Common common, int x, int y, QuestText text, double scale, int color, boolean shadow,
                 boolean fixed)
