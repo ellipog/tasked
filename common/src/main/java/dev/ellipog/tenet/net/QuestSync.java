@@ -254,8 +254,8 @@ public final class QuestSync {
      * means the item arm, which is every icon a version-17 tree ever sent: a version-17 reader draws
      * a texture path or an entity id as a missing item, which names the picture it cannot draw rather
      * than drawing nothing. Components travel only on the item arm, because only an item has any.
-     * An author item or egg travels in the display's own item, exactly as a type's would, so those
-     * need no new key at all.
+     * An author item or egg travelled in the display's own item until version 21, which carries it
+     * beside the requirement instead — see the version-21 note.
      *
      * <p>Version 19 added each item, item-tag and fluid task's <b>{@code manualOnly}</b> — FTB
      * Quests' {@code task_screen_only} under Tenet's name. Only when true: absence means the tick
@@ -269,6 +269,15 @@ public final class QuestSync {
      * names one, like the quest's own {@code subtitle}: absence means no subtitle, which is every
      * chapter a version-19 tree ever sent. A version-19 reader ignores both keys and draws the
      * sidebar row without its second hover line, which is a plainer tooltip rather than a wrong one.
+     *
+     * <p>Version 21 added each task's and reward's <b>{@code picture}</b> beside its {@code item} —
+     * the author's item picture, with {@code pictureComponents} when it carries data. Before this the
+     * author's item travelled in the display's own item, so a tag task wearing an oak log opened
+     * oak-log recipes instead of the tag, a checkmark wearing a torch gained recipes it never asked
+     * for, and an item task wearing a texture lost its recipes entirely. Now {@code item} is always
+     * the requirement and {@code picture} is always the picture: a version-20 reader ignores both
+     * keys and draws the requirement, which shows what the row needs rather than the picture it
+     * cannot draw.
      *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
@@ -295,7 +304,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 20;
+    public static final int TREE_VERSION = 21;
 
     /**
      * The quest tree, as JSON.
@@ -690,7 +699,14 @@ public final class QuestSync {
         // an entity id, with the kind beside it. Absent kind means the item arm, which is every quest
         // a version-17 server ever sent — and a version-17 reader draws a texture path or an entity id
         // as a missing item, which is the honest fallback for a picture it cannot draw.
-        iconAsJson(quest.icon(), json, "icon", "iconComponents", "iconKind");
+        //
+        // Omitted when the file named none: the client adopts the first task's picture instead
+        // (cycling for a filter), and a paper default on the wire would read as explicit and block
+        // the adoption. An author who truly wants paper names it — indistinguishable from the
+        // default here, and vanishingly rare beside thousands of adopting quests.
+        if (!quest.icon().equals(dev.ellipog.tenet.quest.Icon.DEFAULT_ICON)) {
+            iconAsJson(quest.icon(), json, "icon", "iconComponents", "iconKind");
+        }
         json.addProperty("x", quest.layout().x());
         json.addProperty("y", quest.layout().y());
         json.addProperty("size", quest.layout().size());
@@ -886,11 +902,22 @@ public final class QuestSync {
             json.addProperty("disableToast", true);
         }
         // The author's texture, since version 18: the row blits it rather than the stack. Only when
-        // set — absence means the type's own picture, which is every task a version-17 tree sent. An
-        // author item or egg travels in the display's own item, exactly as a type's would.
+        // set — absence means the type's own picture, which is every task a version-17 tree sent.
+        // Since version 21 the author's item or egg travels beside the requirement rather than in
+        // it: see the picture keys below. Before that it travelled in the display's own item, so a
+        // tag task wearing an oak log opened oak-log recipes instead of the tag.
         if (!display.textureIcon().isEmpty()) {
             json.addProperty("textureIcon", display.textureIcon());
         }
+        // The author's item picture, since version 21: the row draws it instead of the requirement,
+        // and recipe lookups, viewer indexes and choice offers all read the requirement. Only when
+        // set — absence means the type's own picture, which is every task a version-20 tree sent. A
+        // version-20 reader ignores both keys and draws the requirement, which is the honest fallback:
+        // it shows what the task needs rather than the picture it cannot draw.
+        display.picture().ifPresent(ref -> {
+            json.addProperty("picture", ref.item().toString());
+            componentsAsJson(ref, "pictureComponents", json);
+        });
         // Whether the row shows a Submit button, asked with the chapter's consume-items default: an
         // item task that does not say whether it consumes inherits it, and a row that hid the button
         // while the take still happened is the promise this field exists to keep. See
@@ -929,6 +956,14 @@ public final class QuestSync {
         if (task instanceof dev.ellipog.tenet.quest.task.ItemTagTask tag) {
             json.addProperty("tag", tag.tag().toString());
         }
+        // A filter task's expression, as a field rather than scraped out of its sentence. The row
+        // cycles through what it names and previews the matches on click, and both need the
+        // expression itself: display text is not data. It travels on the existing tree payload:
+        // the same message, one more field, and only for the type that has one. Absent means
+        // every task an older tree sent, which none of them are.
+        if (task instanceof dev.ellipog.tenet.quest.task.FilterTask filter) {
+            json.addProperty("filter", filter.filter().toString());
+        }
         conditionsAsJson(task.common().conditions(), json);
         return json;
     }
@@ -960,10 +995,16 @@ public final class QuestSync {
             json.addProperty("disableToast", true);
         }
         // The author's texture, since version 18: the row blits it rather than the stack. Only when
-        // set, for the reason the task's own gives above.
+        // set, for the reason the task's own gives above. Since version 21 the author's item travels
+        // beside the payout rather than in it, like the task's own.
         if (!display.textureIcon().isEmpty()) {
             json.addProperty("textureIcon", display.textureIcon());
         }
+        // The author's item picture, since version 21: see the task's own keys above.
+        display.picture().ifPresent(ref -> {
+            json.addProperty("picture", ref.item().toString());
+            componentsAsJson(ref, "pictureComponents", json);
+        });
         conditionsAsJson(reward.common().conditions(), json);
         return json;
     }

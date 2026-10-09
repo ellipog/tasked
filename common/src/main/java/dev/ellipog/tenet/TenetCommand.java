@@ -528,7 +528,7 @@ public final class TenetCommand {
         // reason above: the editor's refresh calls that after every applied op, and a settings file is
         // not the tree.
         ArmatureConfig.install(ArmatureApi.platform().configDir("armature"));
-        QuestLoader.Result result = TenetQuests.reload();
+        QuestLoader.Result result = TenetQuests.reload(context.getSource().getServer());
         var problems = result.problems();
 
         context.getSource().sendSuccess(() -> Component.translatable("tenet.command.reload.summary",

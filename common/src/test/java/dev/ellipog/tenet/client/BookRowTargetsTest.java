@@ -36,12 +36,25 @@ class BookRowTargetsTest {
 
     private static ClientQuestCache.TaskEntry task(ItemStack item, String itemId, String tagId) {
         return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, item, 1, false, false, false, false,
-                "tenet:item", "", "", "", itemId, "", "", 0, tagId, List.of(), false, "");
+                "tenet:item", "", "", "", itemId, "", "", 0, tagId, List.of(), false, "", ItemStack.EMPTY,
+                "");
+    }
+
+    private static ClientQuestCache.TaskEntry picturedTask(ItemStack picture) {
+        return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, ItemStack.EMPTY, 1, false, false, false,
+                false, "tenet:checkmark", "", "", "", "", "", "", 0, "", List.of(), false, "", picture,
+                "");
+    }
+
+    private static ClientQuestCache.TaskEntry picturedTagTask(String tagId, ItemStack picture) {
+        return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, ItemStack.EMPTY, 1, false, false, false,
+                false, "tenet:item_tag", "", "", "", "", "", "", 0, tagId, List.of(), false, "", picture,
+                "");
     }
 
     private static ClientQuestCache.RewardEntry reward(ItemStack item, String itemId) {
         return new ClientQuestCache.RewardEntry(ItemStack.EMPTY, item, 1, "tenet:item", "", "", "",
-                itemId, "", false, false, List.of(), false, "");
+                itemId, "", false, false, List.of(), false, "", ItemStack.EMPTY);
     }
 
     @Test
@@ -62,6 +75,35 @@ class BookRowTargetsTest {
 
         assertTrue(target.isTag());
         assertEquals("minecraft:logs", target.tag().location().toString());
+    }
+
+    @Test
+    @DisplayName("a tag task wearing a picture still opens the tag, not the picture")
+    void tagTaskWithPictureIsATagTarget() {
+        ItemStack picture = new ItemStack(Items.OAK_LOG);
+
+        RecipeLookups.Target target =
+                BookRowTargets.ofTask(picturedTagTask("minecraft:logs", picture));
+
+        assertTrue(target.isTag());
+        assertEquals("minecraft:logs", target.tag().location().toString());
+    }
+
+    @Test
+    @DisplayName("a tag task from an old server opens the tag even when the picture rode in the item")
+    void oldTagTaskWithPictureInItemIsATagTarget() {
+        ItemStack picture = new ItemStack(Items.OAK_LOG);
+
+        RecipeLookups.Target target = BookRowTargets.ofTask(task(picture, "minecraft:oak_log", "minecraft:logs"));
+
+        assertTrue(target.isTag());
+        assertEquals("minecraft:logs", target.tag().location().toString());
+    }
+
+    @Test
+    @DisplayName("a picture on a task with no requirement opens nothing")
+    void pictureAloneHasNoTarget() {
+        assertNull(BookRowTargets.ofTask(picturedTask(new ItemStack(Items.TORCH))));
     }
 
     @Test

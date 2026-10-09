@@ -406,9 +406,9 @@ class QuestSyncTest {
     @Test
     @DisplayName("an author's texture on a task and a reward crosses the wire beside the stack")
     void authorTexturesArrive() {
-        // The texture path travels as its own key; the stack stays empty, so no missing branch fires
-        // for a picture. An author item or egg travels in the display's own item instead and needs no
-        // new key — the ledger in QuestSync says so, and this pins it.
+        // The texture path travels as its own key; the stack stays the requirement, so no missing
+        // branch fires for a picture. An author item or egg travels in `picture` beside it since
+        // version 21 — see authorPicturesArrive — and this pins the texture half.
         QuestIndex index = Fixtures.indexOf(Fixtures.file(
                 """
                         {"id": "q", "title": "Q",
@@ -429,6 +429,42 @@ class QuestSyncTest {
         String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
         assertTrue(json.contains("\"textureIcon\":\"my_pack:textures/gui/emblem.png\""),
                 "the texture path travels as its own key");
+    }
+
+    @Test
+    @DisplayName("an author's item picture crosses beside the requirement, which keeps the recipes")
+    void authorPicturesArrive() {
+        // A tag task wearing an oak log still needs the tag: the requirement stays in `item`/`tag`
+        // and the picture travels in `picture`. Before version 21 the picture rode in the item, so
+        // the row opened oak-log recipes instead of the tag.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "q", "title": "Q",
+                         "tasks": [{"type": "tenet:item_tag", "tag": "minecraft:logs", "count": 4,
+                                    "icon": {"item": "minecraft:oak_log"}},
+                                   {"type": "tenet:item", "item": "minecraft:stone", "count": 8,
+                                    "icon": {"item": "minecraft:diamond"}},
+                                   {"type": "tenet:checkmark", "title": "a",
+                                    "icon": {"item": "minecraft:torch"}}]}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("q");
+        ClientQuestCache.TaskEntry tag = entry.tasks().get(0);
+        assertEquals("minecraft:logs", tag.tagId(), "the tag still travels");
+        assertFalse(tag.hasItem(), "and no stack pretends to be it");
+        assertFalse(tag.picture().isEmpty(), "while the picture travels beside it");
+
+        ClientQuestCache.TaskEntry item = entry.tasks().get(1);
+        assertTrue(item.hasItem(), "an item task still needs its item");
+        assertFalse(item.picture().isEmpty(), "and draws the picture");
+
+        ClientQuestCache.TaskEntry check = entry.tasks().get(2);
+        assertFalse(check.hasItem(), "a checkmark needs nothing, picture or not");
+        assertFalse(check.picture().isEmpty());
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"picture\":\"minecraft:oak_log\""),
+                "the picture travels as its own key");
     }
 
     @Test
@@ -640,17 +676,44 @@ class QuestSyncTest {
     }
 
     @Test
-    @DisplayName("a quest's own icon arrives as a real stack, not as an empty one")
-    void iconArrives() {
-        // The fixture default is ItemRef.DEFAULT_ICON, which is paper. Asserting a specific item
-        // rather than just "non-empty", because an empty stack and a *wrong* stack are both bugs and
-        // only the second survives a non-empty assertion.
+    @DisplayName("a quest with no icon sends none, so the client can adopt live")
+    void defaultIconOmitted() {
+        // The fixture default is ItemRef.DEFAULT_ICON, which is paper — but paper on the wire
+        // would read as explicit and block the client's first-task adoption. So the default is
+        // omitted; an explicitly authored icon still crosses.
         QuestIndex index = Fixtures.indexOf(Fixtures.file(q("no_icon").build()));
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
 
-        ItemStack icon = entryFor("no_icon").icon();
-        assertFalse(icon.isEmpty(), "the icon did not survive the wire");
-        assertEquals(Items.PAPER, icon.getItem(), "the default icon should be paper");
+        ClientQuestCache.Entry entry = entryFor("no_icon");
+        assertTrue(entry.icon().isEmpty(), "the default icon should not cross the wire");
+        assertEquals("", entry.iconId(), "no id was authored, so none should arrive");
+    }
+
+    @Test
+    @DisplayName("a quest with no icon adopts its first task's item")
+    void iconlessQuestAdoptsTaskItem() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": "
+                        + "[ {\"type\": \"tenet:item\", \"item\": \"minecraft:oak_log\", \"count\": 8} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ItemStack adopted = ClientQuestCache.adoptedQuestIcon(entryFor("a"));
+        assertFalse(adopted.isEmpty(), "the quest should wear its task's item");
+        assertEquals(Items.OAK_LOG, adopted.getItem());
+    }
+
+    @Test
+    @DisplayName("a quest with an explicit icon keeps it over adoption")
+    void explicitIconBlocksAdoption() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"icon\": {\"item\": \"minecraft:diamond\"}, \"tasks\": "
+                        + "[ {\"type\": \"tenet:item\", \"item\": \"minecraft:oak_log\", \"count\": 8} ]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals(Items.DIAMOND, entry.icon().getItem(), "the explicit icon should cross the wire");
+        assertTrue(ClientQuestCache.adoptedQuestIcon(entry).isEmpty(),
+                "an explicit icon blocks adoption");
     }
 
     @Test
@@ -1566,11 +1629,12 @@ class QuestSyncTest {
             // Version 14 added the elements; version 15 added the links beside them; version 16 added
             // the aliases; version 17 added the authoring flags; version 18 added each icon's kind;
             // version 19 added each item, item-tag and fluid task's manualOnly; version 20 added each
-            // chapter's subtitle beside its title. The ledger in
+            // chapter's subtitle beside its title; version 21 added each task's and reward's picture
+            // beside its requirement. The ledger in
             // QuestSync carries the history; this pins the present, because bumping is
             // a deliberate break rather than a side effect of an edit.
-            assertEquals(20, QuestSync.TREE_VERSION,
-                    "version 20 added the chapter subtitle beside its title. "
+            assertEquals(21, QuestSync.TREE_VERSION,
+                    "version 21 added each task's and reward's picture beside its requirement. "
                             + "Bumping this is a "
                             + "deliberate break rather than a side effect of an edit -- see the ledger in "
                             + "QuestSync for what each version added.");

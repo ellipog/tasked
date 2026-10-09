@@ -1155,11 +1155,11 @@ public final class TenetNetworking {
         // are only knowable here -- the op was applied and answered synchronously, before this reload ran.
         dev.ellipog.tenet.quest.QuestLoader.Result reloaded;
         if (touch.scope() == TreeRefresh.Touch.Scope.TABLES) {
-            TenetQuests.reloadTables();
+            TenetQuests.reloadTables(server);
             reloaded = null;
         }
         else {
-            reloaded = TenetQuests.reload();
+            reloaded = TenetQuests.reload(server);
         }
         long reloadNanos = timing ? System.nanoTime() - reloadStarted : 0L;
         int players = server.getPlayerList().getPlayers().size();

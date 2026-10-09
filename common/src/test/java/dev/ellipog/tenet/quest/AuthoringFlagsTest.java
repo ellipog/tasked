@@ -307,19 +307,34 @@ class AuthoringFlagsTest {
         }
 
         @Test
-        @DisplayName("an author item replaces the type's own picture")
+        @DisplayName("an author item travels beside the requirement, not in it")
         void authorItemWins() {
             QuestTask check = task("""
                     {"type": "tenet:checkmark", "title": "x",
                      "icon": {"item": "minecraft:torch"}}""");
 
             var display = dev.ellipog.tenet.quest.task.TaskTypes.displayOf(check);
-            assertEquals("minecraft:torch", display.item().orElseThrow().item().toString());
+            assertTrue(display.item().isEmpty(), "a checkmark needs nothing");
+            assertEquals("minecraft:torch", display.picture().orElseThrow().item().toString());
             assertTrue(display.textureIcon().isEmpty());
         }
 
         @Test
-        @DisplayName("an author texture empties the stack and names the path")
+        @DisplayName("an author item on an item task keeps the requirement")
+        void authorItemKeepsTheRequirement() {
+            QuestTask item = task("""
+                    {"type": "tenet:item", "item": "minecraft:oak_log", "count": 8,
+                     "icon": {"item": "minecraft:torch"}}""");
+
+            var display = dev.ellipog.tenet.quest.task.TaskTypes.displayOf(item);
+            assertEquals("minecraft:oak_log", display.item().orElseThrow().item().toString(),
+                    "the task still needs oak logs");
+            assertEquals("minecraft:torch", display.picture().orElseThrow().item().toString(),
+                    "and draws the torch");
+        }
+
+        @Test
+        @DisplayName("an author texture keeps the requirement and names the path")
         void authorTextureWins() {
             QuestTask check = task("""
                     {"type": "tenet:checkmark", "title": "x",
@@ -327,6 +342,19 @@ class AuthoringFlagsTest {
 
             var display = dev.ellipog.tenet.quest.task.TaskTypes.displayOf(check);
             assertTrue(display.item().isEmpty());
+            assertTrue(display.picture().isEmpty());
+            assertEquals("my_pack:textures/gui/emblem.png", display.textureIcon());
+        }
+
+        @Test
+        @DisplayName("an author texture on an item task keeps the requirement")
+        void authorTextureKeepsTheRequirement() {
+            QuestTask item = task("""
+                    {"type": "tenet:item", "item": "minecraft:oak_log", "count": 8,
+                     "icon": {"texture": "my_pack:textures/gui/emblem.png"}}""");
+
+            var display = dev.ellipog.tenet.quest.task.TaskTypes.displayOf(item);
+            assertEquals("minecraft:oak_log", display.item().orElseThrow().item().toString());
             assertEquals("my_pack:textures/gui/emblem.png", display.textureIcon());
         }
 

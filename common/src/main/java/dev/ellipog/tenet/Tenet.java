@@ -140,7 +140,7 @@ public final class Tenet {
         // listenToTeams is here rather than beside the other registrations below, and that is a
         // change rather than an accident -- see its comment for what it buys and what it costs.
         ArmatureEvents.SERVER_STARTED.register(server -> {
-            TenetQuests.loadOnServerStart();
+            TenetQuests.loadOnServerStart(server);
             listenToTeams(server);
         });
 

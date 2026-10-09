@@ -88,13 +88,15 @@ public final class SyncWire {
     /**
      * The most bytes {@link #inflate} will produce.
      *
-     * <p>8 MB. The arithmetic: a quest of average size serialises to roughly 600 bytes of JSON, so
-     * 8 MB is about thirteen thousand quests — comfortably past any pack anyone has written, and
-     * the sort of ceiling that will not need revisiting. It is here to bound a decompression bomb,
-     * which is bounded by the <i>ratio</i> rather than by the input, so a limit on the input would
-     * not have helped.
+     * <p>64 MB. The arithmetic, measured against a real 4790-quest pack serialising to 25 MB of
+     * JSON: quest descriptions dominate, so per-quest estimates age badly and the ceiling is set
+     * at two and a half such packs with headroom. It stays safe because the wire is bounded
+     * separately: at most {@link #MAX_CHUNKS} chunks of {@link #CHUNK_BYTES} (12 MB packed) ever
+     * arrive, so a decompression bomb still fails on ratio long before memory is at risk. Past
+     * roughly 60 MB of tree the wire cap binds first — bigger than that wants per-chapter
+     * transfers rather than a larger number here.
      */
-    public static final int MAX_INFLATED_BYTES = 8 * 1024 * 1024;
+    public static final int MAX_INFLATED_BYTES = 64 * 1024 * 1024;
 
     /** How many half-received messages a receiver will hold at once before dropping the oldest. */
     public static final int MAX_PENDING_TRANSFERS = 4;

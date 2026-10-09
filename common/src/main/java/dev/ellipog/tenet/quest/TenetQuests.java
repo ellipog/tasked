@@ -12,6 +12,11 @@ import dev.ellipog.armature.api.data.DataProblem;
 import dev.ellipog.tenet.Constants;
 import dev.ellipog.tenet.Tenet;
 
+import com.google.gson.JsonElement;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.JsonOps;
+import net.minecraft.server.MinecraftServer;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -194,7 +199,26 @@ public final class TenetQuests {
      * @return the load result, for a command to report back
      */
     public static QuestLoader.Result reload() {
-        QuestLoader.Result result = QuestLoader.load(ArmatureApi.platform().configDir());
+        return reload(JsonOps.INSTANCE);
+    }
+
+    /**
+     * Loads from disk and reports into the log, decoding against the server's registries.
+     *
+     * <p>Called on server start, and by {@code /tenet reload} — both have a server, and the
+     * registry-backed fields (data components, holders, tags) only decode against one. The
+     * server-less {@link #reload()} keeps plain JSON ops: same files, but registry-backed
+     * values cannot be judged and fail as unusable.
+     *
+     * @param server the running server, for its registries
+     * @return the load result, for a command to report back
+     */
+    public static QuestLoader.Result reload(MinecraftServer server) {
+        return reload(server.registryAccess().createSerializationContext(JsonOps.INSTANCE));
+    }
+
+    private static QuestLoader.Result reload(DynamicOps<JsonElement> ops) {
+        QuestLoader.Result result = QuestLoader.load(ArmatureApi.platform().configDir(), ops);
         index = result.index();
         settings = QuestSettings.load(QuestEditor.root(ArmatureApi.platform().configDir()));
         rewardTables = result.rewardTables();
@@ -243,9 +267,23 @@ public final class TenetQuests {
      * @return the problems the table folder reported, for the caller to log
      */
     public static dev.ellipog.armature.api.data.Problems reloadTables() {
+        return reloadTables(JsonOps.INSTANCE);
+    }
+
+    /**
+     * Re-reads the reward tables alone, decoding against the server's registries.
+     *
+     * @param server the running server, for its registries
+     * @return the problems the table folder reported, for the caller to log
+     */
+    public static dev.ellipog.armature.api.data.Problems reloadTables(MinecraftServer server) {
+        return reloadTables(server.registryAccess().createSerializationContext(JsonOps.INSTANCE));
+    }
+
+    private static dev.ellipog.armature.api.data.Problems reloadTables(DynamicOps<JsonElement> ops) {
         dev.ellipog.armature.api.data.Problems problems =
                 new dev.ellipog.armature.api.data.Problems();
-        QuestLoader.Tables tables = QuestLoader.loadTables(ArmatureApi.platform().configDir(), problems);
+        QuestLoader.Tables tables = QuestLoader.loadTables(ArmatureApi.platform().configDir(), problems, ops);
         rewardTables = tables.loaded();
         refusedTables = refusals(problems, tables.refused());
         if (!problems.all().isEmpty()) {
@@ -341,8 +379,21 @@ public final class TenetQuests {
 
     /** Loads once, from the server-started hook. Logs, and never throws. */
     public static void loadOnServerStart() {
+        loadOnServerStart(null);
+    }
+
+    /**
+     * Loads once, from the server-started hook, decoding against registries when a server is
+     * given. Logs, and never throws.
+     */
+    public static void loadOnServerStart(net.minecraft.server.MinecraftServer server) {
         try {
-            reload();
+            if (server == null) {
+                reload();
+            }
+            else {
+                reload(server);
+            }
         }
         catch (RuntimeException e) {
             // A broken quest file must not stop a server from starting. The world matters more than

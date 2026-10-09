@@ -100,13 +100,48 @@ public final class ClientQuestCache {
                             /**
                              * The texture path when the author overrode the picture with a texture.
                              * Empty means the type's own picture — an author item or egg travels in
-                             * the display's own item, exactly as a type's would.
+                             * {@code picture}, exactly as a type's would.
                              */
-                            String textureIcon) {
+                            String textureIcon,
+                            /**
+                             * The author's item picture, since version 21, resolved ready to draw.
+                             * Empty when the author set no item picture — which is every task a
+                             * version-20 tree sent. Drawn instead of {@code item}; never read for
+                             * recipes, progression, or viewer indexes, which all read {@code item}
+                             * and {@code tagId}. A picture whose item this build does not have
+                             * resolves empty and the row falls back to what it needs, rather than
+                             * crying missing over a decoration.
+                             */
+                             ItemStack picture,
+                             /**
+                              * A {@code tenet:filter} task's expression, as the file spells it.
+                              * Empty for every other type — and for every task a tree sent before
+                              * this field existed, which none of them are. The row cycles through
+                              * what it names and previews the matches on click.
+                              */
+                             String filter) {
 
         /** Whether this row draws an item at all, as opposed to text. */
         public boolean hasItem() {
             return !item.isEmpty();
+        }
+
+        /** Whether the author overrode the picture with an item. */
+        public boolean hasPicture() {
+            return !picture.isEmpty();
+        }
+
+        /**
+         * What the row draws: the author's picture when there is one, the requirement when there
+         * is one, and the type's own icon otherwise. Recipe lookups must not read this — they read
+         * {@code item} and {@code tagId}, which is the fix for a tag task wearing an oak log opening
+         * oak-log recipes instead of the tag.
+         */
+        public ItemStack shown() {
+            if (!picture.isEmpty()) {
+                return picture;
+            }
+            return !item.isEmpty() ? item : icon;
         }
 
         /**
@@ -183,10 +218,34 @@ public final class ClientQuestCache {
                                * The texture path when the author overrode the picture with a texture.
                                * Empty means the type's own picture, like the task's own.
                                */
-                              String textureIcon) {
+                              String textureIcon,
+                              /**
+                               * The author's item picture, since version 21, resolved ready to draw.
+                               * Empty when the author set no item picture. Drawn instead of
+                               * {@code item}; never read for recipes or viewer indexes, which read
+                               * {@code item}. A missing picture falls back to what the reward pays,
+                               * like the task's own.
+                               */
+                              ItemStack picture) {
 
         public boolean hasItem() {
             return !item.isEmpty();
+        }
+
+        /** Whether the author overrode the picture with an item. */
+        public boolean hasPicture() {
+            return !picture.isEmpty();
+        }
+
+        /**
+         * What the row draws: the author's picture when there is one, the payout when there is one,
+         * and the type's own icon otherwise. Recipe lookups must not read this.
+         */
+        public ItemStack shown() {
+            if (!picture.isEmpty()) {
+                return picture;
+            }
+            return !item.isEmpty() ? item : icon;
         }
 
         public Component text() {
@@ -208,6 +267,38 @@ public final class ClientQuestCache {
             }
             return Component.literal(label.isEmpty() ? "?" : label);
         }
+    }
+
+    /**
+     * What a quest draws for its picture when it names none: its first task's with a picture,
+     * cycling when that task is a filter. FTB's {@code IconAnimation} rule, resolved at draw
+     * time rather than at conversion, so a filter's rotation survives the trip.
+     *
+     * <p>Empty when the quest names an icon in any arm — an explicit picture always wins — and
+     * when no task has one to lend. The type's own glyph is never adopted: a quest of bare
+     * checkmarks keeps the paper default, like a quest of nothing.
+     */
+    public static ItemStack adoptedQuestIcon(Entry entry) {
+        if (!entry.icon().isEmpty() || !entry.iconId().isEmpty() || !entry.textureIcon().isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        for (TaskEntry task : entry.tasks()) {
+            if (!task.filter().isEmpty()) {
+                FilterMatches.Matches matches = FilterMatches.of(task.filter());
+                if (matches.shown().isEmpty()) {
+                    continue;
+                }
+                return matches.shown().get(
+                        (int) ((net.minecraft.Util.getMillis() / 1000) % matches.shown().size()));
+            }
+            if (!task.picture().isEmpty()) {
+                return task.picture();
+            }
+            if (!task.item().isEmpty()) {
+                return task.item();
+            }
+        }
+        return ItemStack.EMPTY;
     }
 
     /**
@@ -2035,6 +2126,8 @@ public final class ClientQuestCache {
         // Moved rather than left alone, because clearing changes what the cache holds as surely as
         // receiving does: a screen that seeded an outline at the old revision would otherwise keep
         // drawing that tree's rows for a cache that has nothing in it.
+        // And the filter enumerations, which name this registry's items for that tree's expressions.
+        FilterMatches.forget();
         treeRevision++;
         // And the progress counter, for the same reason again: an empty cache is not the progress that
         // was there a moment ago, and a panel holding a Claim button for it is holding a button for a
@@ -2531,7 +2624,9 @@ public final class ClientQuestCache {
                 str(json, "tag"),
                 conditionEntries(json),
                 json.has("disableToast") && json.get("disableToast").getAsBoolean(),
-                str(json, "textureIcon"));
+                str(json, "textureIcon"),
+                stack(str(json, "picture"), 1, json.get("pictureComponents")),
+                str(json, "filter"));
     }
 
     private static RewardEntry rewardEntry(JsonObject json) {
@@ -2550,7 +2645,8 @@ public final class ClientQuestCache {
                 json.has("excludeFromClaimAll") && json.get("excludeFromClaimAll").getAsBoolean(),
                 conditionEntries(json),
                 json.has("disableToast") && json.get("disableToast").getAsBoolean(),
-                str(json, "textureIcon"));
+                str(json, "textureIcon"),
+                stack(str(json, "picture"), 1, json.get("pictureComponents")));
     }
 
     /**

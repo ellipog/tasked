@@ -2,6 +2,8 @@ package dev.ellipog.tenet.quest;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.JsonOps;
 import com.mojang.serialization.MapCodec;
 import dev.ellipog.armature.api.data.Checks;
 import dev.ellipog.armature.api.data.JsonDocument;
@@ -159,6 +161,19 @@ public final class QuestValidator {
      * same split every other file kind uses.
      */
     public static void validateRewardTableDocument(JsonDocument document, Problems problems) {
+        validateRewardTableDocument(document, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /**
+     * Validates one reward-table document, decoding codecs against registries.
+     *
+     * <p>Registry-backed fields (data components, holders, tags) only decode against a registry
+     * context: the plain-JSON form cannot see them. Callers without a server use
+     * {@link #validateRewardTableDocument(JsonDocument, Problems)} and accept that such fields
+     * cannot be judged there.
+     */
+    public static void validateRewardTableDocument(JsonDocument document, Problems problems,
+                                                   com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         if (!isObject(document, "$", problems)) {
             return;
         }
@@ -192,7 +207,7 @@ public final class QuestValidator {
             }
             Checks.rejectUnknown(document, path,
                     dev.ellipog.tenet.quest.loot.RewardTable.Entry.FIELDS, problems);
-            checkTableEntryReward(document, path + ".reward", problems);
+            checkTableEntryReward(document, path + ".reward", problems, ops);
         }
     }
 
@@ -243,12 +258,24 @@ public final class QuestValidator {
     }
 
     public static void validateGroupDocument(JsonDocument document, Problems problems) {
-        validateGroupAt(document, "$", problems, false, GROUP_DOCUMENT_FIELDS);
+        validateGroupDocument(document, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /** Validates a version-2 group document, decoding codecs against registries. */
+    public static void validateGroupDocument(JsonDocument document, Problems problems,
+                                             com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        validateGroupAt(document, "$", problems, ops, false, GROUP_DOCUMENT_FIELDS);
     }
 
     /** Validates a version-2 document that is one whole chapter. */
     public static void validateChapterDocument(JsonDocument document, Problems problems) {
-        validateChapterAt(document, "$", problems, false, CHAPTER_DOCUMENT_FIELDS);
+        validateChapterDocument(document, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /** Validates a version-2 chapter document, decoding codecs against registries. */
+    public static void validateChapterDocument(JsonDocument document, Problems problems,
+                                               com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        validateChapterAt(document, "$", problems, ops, false, CHAPTER_DOCUMENT_FIELDS);
     }
 
     /**
@@ -258,7 +285,13 @@ public final class QuestValidator {
      * same one version 1 uses, at a different root.
      */
     public static void validateQuestDocument(JsonDocument document, Problems problems) {
-        validateQuestAt(document, "$", problems, withSchema(QUEST_FIELDS));
+        validateQuestDocument(document, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /** Validates a version-2 quest document, decoding codecs against registries. */
+    public static void validateQuestDocument(JsonDocument document, Problems problems,
+                                             com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        validateQuestAt(document, "$", problems, ops, withSchema(QUEST_FIELDS));
     }
 
     /**
@@ -266,6 +299,17 @@ public final class QuestValidator {
      * other files — the caller decides whether to stop after one file or keep going.
      */
     public static void validate(JsonDocument document, Problems problems) {
+        validate(document, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /**
+     * Validates one version-1 file, decoding codecs against registries.
+     *
+     * <p>Reports into {@code problems}, which may already hold problems from
+     * other files — the caller decides whether to stop after one file or keep going.
+     */
+    public static void validate(JsonDocument document, Problems problems,
+                                com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Checks.rejectUnknown(document, "$", ROOT_FIELDS, problems);
 
         Checks.optionalInt(document, "$.version", problems).ifPresent(version -> {
@@ -302,13 +346,14 @@ public final class QuestValidator {
             return;
         }
         for (int g = 0; g < groups.size(); g++) {
-            validateGroup(document, g, problems);
+            validateGroup(document, g, problems, ops);
         }
     }
 
     /** A version-1 group, where the whole tree is one document. */
-    private static void validateGroup(JsonDocument document, int g, Problems problems) {
-        validateGroupAt(document, groupPath(g), problems, true, GROUP_FIELDS);
+    private static void validateGroup(JsonDocument document, int g, Problems problems,
+                                      DynamicOps<JsonElement> ops) {
+        validateGroupAt(document, groupPath(g), problems, ops, true, GROUP_FIELDS);
     }
 
     /**
@@ -333,6 +378,7 @@ public final class QuestValidator {
      * @param allowedFields  what this level may hold. The caller knows whether it is at a file root.
      */
     private static void validateGroupAt(JsonDocument document, String path, Problems problems,
+                                        DynamicOps<JsonElement> ops,
                                         boolean inlineChildren, Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
@@ -360,7 +406,7 @@ public final class QuestValidator {
         // The group's icon, on the same terms as a chapter's: optional, and when present an item that
         // resolves. A typo or a missing mod is reported here rather than as a sidebar row that silently
         // draws nothing -- and it is validated at all because the editor writes this field.
-        checkIcon(document, path + ".icon", problems);
+        checkIcon(document, path + ".icon", problems, ops);
 
         if (!document.has(path + ".chapters")) {
             problems.warn(document, path, "no \"chapters\" - this chapter group is empty");
@@ -372,7 +418,7 @@ public final class QuestValidator {
                 return;
             }
             for (int c = 0; c < chapters.size(); c++) {
-                validateChapterAt(document, path + ".chapters[" + c + "]", problems, true, CHAPTER_FIELDS);
+                validateChapterAt(document, path + ".chapters[" + c + "]", problems, ops, true, CHAPTER_FIELDS);
             }
         }
         else {
@@ -423,8 +469,9 @@ public final class QuestValidator {
     }
 
     /** A version-1 chapter, where the whole tree is one document. */
-    private static void validateChapter(JsonDocument document, int g, int c, Problems problems) {
-        validateChapterAt(document, chapterPath(g, c), problems, true, CHAPTER_FIELDS);
+    private static void validateChapter(JsonDocument document, int g, int c, Problems problems,
+                                        DynamicOps<JsonElement> ops) {
+        validateChapterAt(document, chapterPath(g, c), problems, ops, true, CHAPTER_FIELDS);
     }
 
     /**
@@ -438,6 +485,7 @@ public final class QuestValidator {
      *                       parameter rather than a constant read here.
      */
     private static void validateChapterAt(JsonDocument document, String path, Problems problems,
+                                          DynamicOps<JsonElement> ops,
                                           boolean inlineChildren, Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
@@ -457,7 +505,7 @@ public final class QuestValidator {
         else {
             checkTextOrList(document, path + ".description", problems);
         }
-        checkIcon(document, path + ".icon", problems);
+        checkIcon(document, path + ".icon", problems, ops);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
         checkTags(document, path + ".tags", problems);
@@ -617,7 +665,7 @@ public final class QuestValidator {
                 problems.warn(document, path + ".quests", "this chapter's quest list is empty");
             }
             for (int q = 0; q < quests.size(); q++) {
-                validateQuestAt(document, path + ".quests[" + q + "]", problems, QUEST_FIELDS);
+                validateQuestAt(document, path + ".quests[" + q + "]", problems, ops, QUEST_FIELDS);
             }
         }
         else {
@@ -626,8 +674,9 @@ public final class QuestValidator {
     }
 
     /** A version-1 quest, where the whole tree is one document. */
-    private static void validateQuest(JsonDocument document, int g, int c, int q, Problems problems) {
-        validateQuestAt(document, questPath(g, c, q), problems, QUEST_FIELDS);
+    private static void validateQuest(JsonDocument document, int g, int c, int q, Problems problems,
+                                      DynamicOps<JsonElement> ops) {
+        validateQuestAt(document, questPath(g, c, q), problems, ops, QUEST_FIELDS);
     }
 
     /**
@@ -639,6 +688,7 @@ public final class QuestValidator {
      * {@code $schema}, and one level down it may not.
      */
     private static void validateQuestAt(JsonDocument document, String path, Problems problems,
+                                       DynamicOps<JsonElement> ops,
                                        Set<String> allowedFields) {
         if (!isObject(document, path, problems)) {
             return;
@@ -650,7 +700,7 @@ public final class QuestValidator {
         requiredText(document, path + ".title", problems);
         checkText(document, path + ".subtitle", problems);
         checkTextList(document, path + ".description", problems);
-        checkIcon(document, path + ".icon", problems);
+        checkIcon(document, path + ".icon", problems, ops);
 
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
@@ -838,8 +888,8 @@ public final class QuestValidator {
 
         checkDependencies(document, path + ".dependsOn", "quest", problems);
         checkDependencyLines(document, path + ".dependencyLines", problems);
-        checkTasks(document, path + ".tasks", problems);
-        checkRewards(document, path + ".rewards", problems);
+        checkTasks(document, path + ".tasks", problems, ops);
+        checkRewards(document, path + ".rewards", problems, ops);
     }
 
     /**
@@ -887,7 +937,8 @@ public final class QuestValidator {
     // Tasks and rewards
     // ------------------------------------------------------------------
 
-    private static void checkTasks(JsonDocument document, String path, Problems problems) {
+    private static void checkTasks(JsonDocument document, String path, Problems problems,
+                                    DynamicOps<JsonElement> ops) {
         if (!document.has(path)) {
             return;
         }
@@ -896,11 +947,12 @@ public final class QuestValidator {
             return;
         }
         for (int i = 0; i < array.size(); i++) {
-            checkTask(document, path + "[" + i + "]", problems);
+            checkTask(document, path + "[" + i + "]", problems, ops);
         }
     }
 
-    private static void checkTask(JsonDocument document, String path, Problems problems) {
+    private static void checkTask(JsonDocument document, String path, Problems problems,
+                                  DynamicOps<JsonElement> ops) {
         if (!isObject(document, path, problems)) {
             return;
         }
@@ -949,7 +1001,7 @@ public final class QuestValidator {
             checkText(document, path + ".title", problems);
         }
         if (document.has(path + ".icon")) {
-            checkIcon(document, path + ".icon", problems);
+            checkIcon(document, path + ".icon", problems, ops);
         }
         if (document.has(path + ".autoSubmitTicks")) {
             Checks.optionalInt(document, path + ".autoSubmitTicks", problems).ifPresent(ticks -> {
@@ -996,7 +1048,7 @@ public final class QuestValidator {
         }
 
         int errorsBeforeConditions = problems.errorCount();
-        checkConditions(document, path + ".conditions", problems);
+        checkConditions(document, path + ".conditions", problems, ops);
         boolean conditionsBroken = problems.errorCount() > errorsBeforeConditions;
 
         // And the type's own codec gets the last word. The checks above are about names and value
@@ -1013,7 +1065,7 @@ public final class QuestValidator {
         // rarer and the less confusing of the two trades.
         if (!conditionsBroken) {
             type.ifPresent(id -> TaskTypes.codecOf(id)
-                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems, ops)));
         }
     }
 
@@ -1079,7 +1131,8 @@ public final class QuestValidator {
         });
     }
 
-    private static void checkRewards(JsonDocument document, String path, Problems problems) {
+    private static void checkRewards(JsonDocument document, String path, Problems problems,
+                                     DynamicOps<JsonElement> ops) {
         if (!document.has(path)) {
             return;
         }
@@ -1088,11 +1141,12 @@ public final class QuestValidator {
             return;
         }
         for (int i = 0; i < array.size(); i++) {
-            checkReward(document, path + "[" + i + "]", problems);
+            checkReward(document, path + "[" + i + "]", problems, ops);
         }
     }
 
-    private static void checkReward(JsonDocument document, String path, Problems problems) {
+    private static void checkReward(JsonDocument document, String path, Problems problems,
+                                    DynamicOps<JsonElement> ops) {
         if (!isObject(document, path, problems)) {
             return;
         }
@@ -1123,7 +1177,7 @@ public final class QuestValidator {
             checkText(document, path + ".title", problems);
         }
         if (document.has(path + ".icon")) {
-            checkIcon(document, path + ".icon", problems);
+            checkIcon(document, path + ".icon", problems, ops);
         }
         // The toast reward's message and the command reward's success line: QuestTexts like the
         // title, so a blank one warns rather than granting silence.
@@ -1171,8 +1225,8 @@ public final class QuestValidator {
         }
 
         int errorsBeforeNested = problems.errorCount();
-        checkConditions(document, path + ".conditions", problems);
-        checkInlineTable(document, path, problems);
+        checkConditions(document, path + ".conditions", problems, ops);
+        checkInlineTable(document, path, problems, ops);
         boolean nestedBroken = problems.errorCount() > errorsBeforeNested;
 
         // The reward half of the codec check in checkTask, for the same defect and the same reason --
@@ -1180,7 +1234,7 @@ public final class QuestValidator {
         // table entry from being reported twice.
         if (!nestedBroken) {
             type.ifPresent(id -> RewardTypes.codecOf(id)
-                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems, ops)));
         }
     }
 
@@ -1197,8 +1251,9 @@ public final class QuestValidator {
      * <p>The one place an entry's reward is walked at all -- the inline walk below calls it too, which
      * is why inline entries are now checked: before this they were not validated in any way.
      */
-    private static void checkTableEntryReward(JsonDocument document, String rewardPath, Problems problems) {
-        checkReward(document, rewardPath, problems);
+    private static void checkTableEntryReward(JsonDocument document, String rewardPath, Problems problems,
+                                              DynamicOps<JsonElement> ops) {
+        checkReward(document, rewardPath, problems, ops);
         if (document.has(rewardPath + ".conditions")) {
             problems.error(document, rewardPath + ".conditions",
                     "a reward inside a reward table cannot carry \"conditions\": entries are handed out "
@@ -1232,7 +1287,8 @@ public final class QuestValidator {
      * codec ignores unknown fields -- the exact gap the field-name checks exist to close. This mirrors
      * the named-table walk, entry for entry, so an inline table and a file table are checked the same.
      */
-    private static void checkInlineTable(JsonDocument document, String path, Problems problems) {
+    private static void checkInlineTable(JsonDocument document, String path, Problems problems,
+                                         DynamicOps<JsonElement> ops) {
         String inlinePath = path + ".inline";
         if (!document.has(inlinePath) || !isObject(document, inlinePath, problems)) {
             return;
@@ -1258,7 +1314,7 @@ public final class QuestValidator {
             }
             Checks.rejectUnknown(document, entryPath,
                     dev.ellipog.tenet.quest.loot.RewardTable.Entry.FIELDS, problems);
-            checkTableEntryReward(document, entryPath + ".reward", problems);
+            checkTableEntryReward(document, entryPath + ".reward", problems, ops);
         }
     }
 
@@ -1270,7 +1326,8 @@ public final class QuestValidator {
      * elements get their own dispatch read, their own unknown-field union, and their own codec
      * backstop — the same three questions as a task, asked at the nested path.
      */
-    private static void checkConditions(JsonDocument document, String path, Problems problems) {
+    private static void checkConditions(JsonDocument document, String path, Problems problems,
+                                        DynamicOps<JsonElement> ops) {
         if (!document.has(path)) {
             return;
         }
@@ -1279,11 +1336,12 @@ public final class QuestValidator {
             return;
         }
         for (int i = 0; i < array.size(); i++) {
-            checkCondition(document, path + "[" + i + "]", problems);
+            checkCondition(document, path + "[" + i + "]", problems, ops);
         }
     }
 
-    private static void checkCondition(JsonDocument document, String path, Problems problems) {
+    private static void checkCondition(JsonDocument document, String path, Problems problems,
+                                       DynamicOps<JsonElement> ops) {
         if (!isObject(document, path, problems)) {
             return;
         }
@@ -1315,7 +1373,7 @@ public final class QuestValidator {
         // still lets the codec report a field that actually cannot form a value.
         if (problems.errorCount() == errorsBeforeItem) {
             type.ifPresent(id -> ConditionTypes.codecOf(id)
-                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems)));
+                    .ifPresent(codec -> decodeEntry(document, path, id, codec, problems, ops)));
         }
     }
 
@@ -1332,10 +1390,12 @@ public final class QuestValidator {
      * question on purpose, so an addon's type is not double-reported.
      */
     private static void decodeEntry(JsonDocument document, String path, ResourceLocation id,
-                                    MapCodec<?> codec, Problems problems) {
+                                    MapCodec<?> codec, Problems problems, DynamicOps<JsonElement> ops) {
         // Through Checks.parse, so an addon's codec that throws is reported against this entry rather
         // than escaping the validator -- which runs inside the load, and inside the editor's save.
-        document.get(path).ifPresent(entry -> Checks.parse(codec.codec(), entry)
+        // Decoded with the caller's ops: registry-backed fields (data components, holders, tags)
+        // only resolve against registries, and plain JSON ops fail every one of them.
+        document.get(path).ifPresent(entry -> Checks.parse(codec.codec(), entry, ops)
                 .error().ifPresent(error -> problems.error(document, path,
                         "these fields do not form a " + id + ":\n    "
                                 + error.message().replace("\n", "\n    "))));
@@ -1406,7 +1466,8 @@ public final class QuestValidator {
      * rejecting against the item's field set would flag {@code "type"} and {@code "optional"} as
      * unknown. That mistake would have made every task in every file report two spurious errors.
      */
-    private static void checkIcon(JsonDocument document, String path, Problems problems) {
+    private static void checkIcon(JsonDocument document, String path, Problems problems,
+                                  DynamicOps<JsonElement> ops) {
         if (!document.has(path)) {
             return;
         }
@@ -1423,8 +1484,9 @@ public final class QuestValidator {
 
             // And the reference's own codec -- the icon's half of the entry check in checkTask: a
             // component patch the codec cannot read would otherwise reach the loader, which skips the
-            // whole quest over it. The codec's own message names what it was unhappy about.
-            document.get(path).ifPresent(object -> Checks.parse(ItemRef.CODEC, object)
+            // whole quest over it. The codec's own message names what it was unhappy about. Decoded
+            // with the caller's ops, because registry-backed components only resolve against registries.
+            document.get(path).ifPresent(object -> Checks.parse(ItemRef.CODEC, object, ops)
                     .error().ifPresent(error -> problems.error(document, path,
                             "this is not a usable item reference:\n    "
                                     + error.message().replace("\n", "\n    "))));
@@ -1478,7 +1540,7 @@ public final class QuestValidator {
         // No arm key at all: the codec refuses it, and its message is the precise one — but only the
         // validator runs before the loader, so the sentence here names the three keys.
         document.get(path).ifPresent(object -> Checks.parse(
-                        dev.ellipog.tenet.quest.Icon.CODEC, object)
+                        dev.ellipog.tenet.quest.Icon.CODEC, object, ops)
                 .error().ifPresent(error -> problems.error(document, path,
                         "this is not a usable icon: write one of \"item\", \"texture\" or \"entity\"")));
     }

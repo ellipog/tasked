@@ -2099,6 +2099,15 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
+     * Filter rows whose icon opens the accepted-items preview. Icon boxes only, never the row:
+     * the row's press belongs to the submit button and the recipe target, and a preview that
+     * stole either would be a press that lies about where it lands.
+     */
+    private final List<FilterRow> filterRows = new ArrayList<>();
+
+    private record FilterRow(Slot box, String expression) {}
+
+    /**
      * The reader card's prerequisite rows, from the last frame's drawing: where a press navigates or
      * locates.
      *
@@ -23053,13 +23062,19 @@ public final class QuestBookScreen extends ArmatureScreen
         QuestShape drawnShape = drawnShape(entry);
         int drawnRotation = fieldDraft.number(entry.chapterId(), entry.id(), "rotation", entry.rotation());
         boolean draftedLook = drawnShape != entry.shape() || drawnRotation != entry.rotation();
+        // A quest with no icon of its own wears its first task's, cycling for a filter —
+        // resolved here, at draw time, so the rotation survives. See adoptedQuestIcon.
+        ItemStack nodeIcon = entry.icon();
+        if (nodeIcon.isEmpty()) {
+            nodeIcon = ClientQuestCache.adoptedQuestIcon(entry);
+        }
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(size, drawnShape,
                 draftedLook ? ClientQuestCache.geometry(drawnShape, drawnRotation) : entry.geometry(),
                 // The icon is always offered, and the node's own box decides whether it is drawn. The zoom
                 // used to decide, through the detail tier — and that was the wrong question twice over: it
                 // refused an icon on a landmark node that had room to spare, and the refusal showed as an
                 // empty outline. See CanvasSettings and QuestNodeArt.
-                entry.icon(),
+                nodeIcon,
                 entry.textureIcon(),
                 fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
                 edge, ring, wash));
@@ -26120,7 +26135,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 drawItemPlaceholder(r, x, iconY, ROW_ICON);
             }
             else {
-                r.icon(reward.hasItem() ? reward.item() : reward.icon(), x, iconY, ROW_ICON);
+                r.icon(reward.shown(), x, iconY, ROW_ICON);
             }
             if (!label.isEmpty()) {
                 r.text(label, x + ROW_ICON + 5, textY, ArmatureTheme.faint());
@@ -26195,6 +26210,9 @@ public final class QuestBookScreen extends ArmatureScreen
         // that is not there.
         int markerWidth = markerRoom(r);
         ItemStack questIcon = entry.icon();
+        if (questIcon.isEmpty()) {
+            questIcon = ClientQuestCache.adoptedQuestIcon(entry);
+        }
         int textX = context.x() + markerWidth + (questIcon.isEmpty() ? 0 : ROW_ICON + 5);
         String title = Measure.truncate(row.label(),
                 Math.max(0, rewards.x() - RewardInboxLayout.COLUMN_GAP - textX), textMeasure(r));
@@ -26264,7 +26282,7 @@ public final class QuestBookScreen extends ArmatureScreen
             drawItemPlaceholder(r, context.x(), iconY, ROW_ICON);
         }
         else {
-            r.icon(reward.hasItem() ? reward.item() : reward.icon(), context.x(), iconY, ROW_ICON);
+            r.icon(reward.shown(), context.x(), iconY, ROW_ICON);
         }
         r.text(shown, textX, textY,
                 missingItem || shut ? ArmatureTheme.blocked() : ArmatureTheme.body());
@@ -26597,7 +26615,13 @@ public final class QuestBookScreen extends ArmatureScreen
         int iconBox = HEADER_ICON;
         int iconX = left + 14;
         int iconY = top + (46 - iconBox) / 2;
-        if (entry.icon().isEmpty() && !entry.iconId().isEmpty()) {
+        ItemStack headerIcon = entry.icon();
+        if (headerIcon.isEmpty() && entry.iconId().isEmpty() && entry.textureIcon().isEmpty()) {
+            // No icon in any arm: the first task's picture, cycling for a filter — the same
+            // adoption the node draws, so the header and the canvas agree.
+            headerIcon = ClientQuestCache.adoptedQuestIcon(entry);
+        }
+        if (headerIcon.isEmpty() && !entry.iconId().isEmpty()) {
             // An icon id the build cannot resolve: the placeholder where the item would be, a small
             // mark beside it, and the sentence on hover -- the header has no room for a word, but the
             // fact must not be silent. The editor's icon row and the picker both say it in full.
@@ -26614,7 +26638,7 @@ public final class QuestBookScreen extends ArmatureScreen
                     iconX, iconY, iconBox, iconBox);
         }
         else {
-            r.icon(entry.icon(), iconX, iconY, iconBox);
+            r.icon(headerIcon, iconX, iconY, iconBox);
         }
 
         int textX = iconX + iconBox + 6;
@@ -26687,6 +26711,7 @@ public final class QuestBookScreen extends ArmatureScreen
         // be the last frame's drawing — the same lifecycle `editTargets` has, and the reason a list
         // cleared after drawing would always be empty by the time a click asks.
         rowItems.clear();
+        filterRows.clear();
         dependencyTargets.clear();
         try (GuiRenderer.Scoped clip = r.clip(body)) {
             drawProse(r, layout, body, mouseX, mouseY);
@@ -27158,6 +27183,27 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
+     * A press on a filter row's icon: the accepted-items preview opens, and the press is
+     * consumed. Only when something matches — an empty expression has no preview to show,
+     * and the tooltip already says so, so the press falls through to whatever else answers.
+     */
+    private boolean pressFilterRow(double mouseX, double mouseY) {
+        for (FilterRow preview : filterRows) {
+            if (preview.box().contains(mouseX, mouseY)) {
+                var matches = dev.ellipog.tenet.client.FilterMatches.of(preview.expression());
+                if (matches.isEmpty()) {
+                    return false;
+                }
+                net.minecraft.client.Minecraft.getInstance().setScreen(
+                        new dev.ellipog.tenet.client.FilterPreviewScreen(
+                                matches.shown(), matches.total(), matches.truncated(), this));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The row's own box inside its slot: the icon's height, at the slot's top.
      *
      * <h2>Because a slot is an advance, not a row</h2>
@@ -27584,6 +27630,9 @@ public final class QuestBookScreen extends ArmatureScreen
         if (target != null) {
             rowItems.add(new RowItem(row, target));
         }
+        if (!task.filter().isEmpty()) {
+            filterRows.add(new FilterRow(new Slot(row.key(), x, y, ROW_ICON, ROW_ICON), task.filter()));
+        }
         if (row.contains(mouseX, mouseY)) {
             // The player's explanation, not the author's: this hover is read by someone who has never
             // heard of a task type. Its second line is about handing the task in, so it is told both
@@ -27598,6 +27647,20 @@ public final class QuestBookScreen extends ArmatureScreen
             // "Click for recipes" below is how they find out which items are in it. The id is in the
             // picker and in the row's own `tagId` for the recipe viewers, which is where it is data.
             appendConditionLines(lines, task.conditions(), ClientQuestCache.taskLockOf(entry.id(), index));
+            if (!task.filter().isEmpty()) {
+                // What a filter names, in the player's own words: the count is exact, the list
+                // itself is one click away. An empty match list says so outright — it is also
+                // why a task with one can never complete, which deserves naming, not silence.
+                var matches = dev.ellipog.tenet.client.FilterMatches.of(task.filter());
+                if (matches.isEmpty()) {
+                    lines.add("Matches nothing — check the expression");
+                }
+                else {
+                    lines.add("Matches " + matches.total() + " item" + (matches.total() == 1 ? "" : "s")
+                            + (matches.truncated() ? " (first " + matches.shown().size() + " shown)" : ""));
+                    lines.add("Click to preview");
+                }
+            }
             if (RecipeLookups.canOpen(target)) {
                 lines.add("Click for recipes");
             }
@@ -27608,10 +27671,20 @@ public final class QuestBookScreen extends ArmatureScreen
         // --- drawn ---
 
         int textX = x;
-        ItemStack toDraw = task.hasItem() ? task.item() : task.icon();
+        ItemStack toDraw = task.shown();
         net.minecraft.resources.ResourceLocation taskTexture =
                 task.textureIcon().isEmpty() ? null
                         : net.minecraft.resources.ResourceLocation.tryParse(task.textureIcon());
+        if (!task.filter().isEmpty() && taskTexture == null) {
+            // A filter task cycles through what it names, one picture a second — FTB's cadence.
+            // The author's texture still wins when set; an empty match list keeps the static
+            // picture, which is the honest answer for an expression nothing answers to.
+            var matches = dev.ellipog.tenet.client.FilterMatches.of(task.filter());
+            if (!matches.shown().isEmpty()) {
+                toDraw = matches.shown().get(
+                        (int) ((net.minecraft.Util.getMillis() / 1000) % matches.shown().size()));
+            }
+        }
         if (missingItem) {
             drawItemPlaceholder(r, x, y, ROW_ICON);
             textX = x + ROW_ICON + 5;
@@ -27830,7 +27903,7 @@ public final class QuestBookScreen extends ArmatureScreen
         rowWash(r, row, contentRight, hover);
 
         int textX = x;
-        ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
+        ItemStack toDraw = reward.shown();
         net.minecraft.resources.ResourceLocation rewardTexture =
                 reward.textureIcon().isEmpty() ? null
                         : net.minecraft.resources.ResourceLocation.tryParse(reward.textureIcon());
@@ -28286,6 +28359,11 @@ public final class QuestBookScreen extends ArmatureScreen
                 }
                 // The recipe-viewer rows answer the left press alone.
                 if (button == 0 && pressRowItem(mouseX, mouseY)) {
+                    return true;
+                }
+                // A filter row's icon previews what it accepts, after the recipe rows: a filter
+                // row never carries a recipe target, so the two cannot claim one press.
+                if (button == 0 && pressFilterRow(mouseX, mouseY)) {
                     return true;
                 }
             }

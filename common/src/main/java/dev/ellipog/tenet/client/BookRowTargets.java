@@ -26,19 +26,28 @@ public final class BookRowTargets {
     /**
      * The target for a task row, or null when pressing it should do nothing.
      *
+     * <p>A tag task's target is always its tag — even when the author overrode the picture with an
+     * item. The picture is what the row draws ({@code TaskEntry#shown}); the tag is what it needs,
+     * and opening the picture's recipes instead of the tag's is the bug this order exists for. An
+     * author item or egg travels in {@code picture} since version 21, so a new tree never has both,
+     * but an old one does, and the tag must win there too.
+     *
      * <p>A tag id that does not parse is treated as no target rather than as an error: the row still
      * draws (its id is the label), and a press on it must not throw over a malformed id the server
      * already accepted.
      */
     public static RecipeLookups.Target ofTask(ClientQuestCache.TaskEntry task) {
+        if (!task.tagId().isEmpty()) {
+            ResourceLocation id = ResourceLocation.tryParse(task.tagId());
+            if (id != null) {
+                return RecipeLookups.Target.ofTag(TagKey.create(Registries.ITEM, id));
+            }
+            return null;
+        }
         if (task.hasItem()) {
             return RecipeLookups.Target.of(task.item());
         }
-        if (task.tagId().isEmpty()) {
-            return null;
-        }
-        ResourceLocation id = ResourceLocation.tryParse(task.tagId());
-        return id == null ? null : RecipeLookups.Target.ofTag(TagKey.create(Registries.ITEM, id));
+        return null;
     }
 
     /** The target for a reward row: an item reward, or nothing. Rewards carry no tags. */

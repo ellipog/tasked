@@ -522,9 +522,10 @@ public final class HudOverlay {
                 tasks.add(new PinnedPanelLayout.Task(task.text().getString(),
                         ClientQuestCache.taskProgressOf(id, i), task.count(),
                         ClientQuestCache.taskDone(id, i)));
-                // The actual item, not the type icon: the same rule the book's own rows use, so a
-                // stack of oak logs draws as oak logs here too rather than as a generic task glyph.
-                stacks.add(task.hasItem() ? task.item() : task.icon());
+                // The author's picture when there is one, else the requirement: the same rule the
+                // book's own rows use, so a stack of oak logs draws as oak logs here too rather than
+                // as a generic task glyph — and a tag task wearing a picture draws the picture.
+                stacks.add(task.shown());
             }
             out.add(new PinnedPanelLayout.Pin(entry.titleText(), entry.chapterTitleText(),
                     ClientQuestCache.stateOf(id) == QuestState.COMPLETED,

@@ -133,6 +133,20 @@ public final class QuestLoader {
      * path so the fix is obvious from the message alone.
      */
     public static Result load(Path configDir) {
+        return load(configDir, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /**
+     * Reads every quest file under {@code <configDir>/tenet/quests}, decoding against registries.
+     *
+     * <p>Registry-backed fields (data components, holders, tags) only decode against a registry
+     * context: the plain-JSON form cannot see them and fails every such value, so a load that
+     * must judge them takes the server's ops. Callers without a server use {@link #load(Path)}.
+     *
+     * @param configDir the config root holding {@code tenet/quests}
+     * @param ops       the ops codecs decode with, usually the server's registry ops
+     */
+    public static Result load(Path configDir, com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         Path directory = configDir.resolve(DIRECTORY);
         Problems problems = new Problems();
 
@@ -159,7 +173,7 @@ public final class QuestLoader {
         long readDone = System.nanoTime();
         problems.addAll(found.problems().all());
 
-        QuestTree tree = assemble(found.declarations(), problems);
+        QuestTree tree = assemble(found.declarations(), problems, ops);
         long assembled = System.nanoTime();
         QuestIndex index = QuestIndex.assemble(tree, problems);
         long indexed = System.nanoTime();
@@ -198,7 +212,7 @@ public final class QuestLoader {
         // because the checks run both ways: a table entry may point at another table, and a quest's
         // reward may point at any table. Both join the same problem list, so a bad table is counted
         // and reported like any other file.
-        Tables tables = loadRewardTables(directory, problems);
+        Tables tables = loadRewardTables(directory, problems, ops);
         for (QuestIndex.QuestEntry entry : index.quests()) {
             // Through the one reference walk, so a reward that points at a table from inside its own
             // inline table is checked like any other. It used to be checked by nothing at all: the
@@ -292,7 +306,19 @@ public final class QuestLoader {
      * is a table no other part of the program can mention.
      */
     public static Tables loadTables(Path configDir, Problems problems) {
-        return loadRewardTables(configDir.resolve(DIRECTORY), problems);
+        return loadTables(configDir, problems, com.mojang.serialization.JsonOps.INSTANCE);
+    }
+
+    /**
+     * The reward tables under a config directory, decoded against registries.
+     *
+     * @param configDir the config root holding {@code tenet/quests}
+     * @param problems  the problem list table faults join
+     * @param ops       the ops codecs decode with, usually the server's registry ops
+     */
+    public static Tables loadTables(Path configDir, Problems problems,
+                                     com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
+        return loadRewardTables(configDir.resolve(DIRECTORY), problems, ops);
     }
 
     /**
@@ -315,7 +341,8 @@ public final class QuestLoader {
      * rather than an ordering accident — and it is also where the question only the whole folder can
      * answer is asked: whether the references form a loop.
      */
-    private static Tables loadRewardTables(Path questRoot, Problems problems) {
+    private static Tables loadRewardTables(Path questRoot, Problems problems,
+                                               com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         List<Path> files = QuestFiles.rewardTableFiles(questRoot);
         if (files.isEmpty()) {
             return new Tables(java.util.Map.of(), java.util.Set.of());
@@ -335,12 +362,12 @@ public final class QuestLoader {
                 continue;
             }
             JsonDocument document = parsed.get();
-            QuestValidator.validateRewardTableDocument(document, problems);
+            QuestValidator.validateRewardTableDocument(document, problems, ops);
             if (problems.hasErrorsIn(name)) {
                 refused.add(id);
                 continue;
             }
-            decode(dev.ellipog.tenet.quest.loot.RewardTable.CODEC, document, name, problems)
+            decode(dev.ellipog.tenet.quest.loot.RewardTable.CODEC, document, name, problems, ops)
                     .ifPresentOrElse(table -> {
                         tables.put(id, table);
                         documents.put(id, document);
@@ -434,7 +461,8 @@ public final class QuestLoader {
      * and for the same reason: one mistake should produce one message, not a validator complaint
      * followed by a codec complaint about the same field.
      */
-    private static QuestTree assemble(List<QuestFiles.Declaration> declarations, Problems problems) {
+    private static QuestTree assemble(List<QuestFiles.Declaration> declarations, Problems problems,
+                                          com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         List<GroupBuild> groups = new ArrayList<>();
         GroupBuild currentGroup = null;
         ChapterBuild currentChapter = null;
@@ -454,11 +482,11 @@ public final class QuestLoader {
                 case FLAT_V1 -> {
                     // A whole version-1 tree in one document. Its paths are the nested ones, and
                     // QuestTree.of is the only place they are written.
-                    QuestValidator.validate(declaration.document(), problems);
+                    QuestValidator.validate(declaration.document(), problems, ops);
                     if (problems.hasErrorsIn(declaration.display())) {
                         continue;
                     }
-                    decode(QuestFile.CODEC, declaration.document(), declaration.display(), problems)
+                    decode(QuestFile.CODEC, declaration.document(), declaration.display(), problems, ops)
                             .ifPresent(file -> flatPieces.put(declaration.display(),
                                     QuestTree.of(List.of(new LoadedQuestFile(declaration.path(),
                                             declaration.display(), declaration.document(), file))).pieces()));
@@ -467,14 +495,14 @@ public final class QuestLoader {
                 }
 
                 case GROUP -> {
-                    QuestValidator.validateGroupDocument(declaration.document(), problems);
+                    QuestValidator.validateGroupDocument(declaration.document(), problems, ops);
                     currentChapter = null;
                     if (problems.hasErrorsIn(declaration.display())) {
                         currentGroup = null;
                         continue;
                     }
                     currentGroup = decode(GroupManifest.CODEC, declaration.document(),
-                            declaration.display(), problems)
+                            declaration.display(), problems, ops)
                             .map(manifest -> new GroupBuild(declaration, manifest))
                             .orElse(null);
                     if (currentGroup != null) {
@@ -483,13 +511,13 @@ public final class QuestLoader {
                 }
 
                 case CHAPTER -> {
-                    QuestValidator.validateChapterDocument(declaration.document(), problems);
+                    QuestValidator.validateChapterDocument(declaration.document(), problems, ops);
                     currentChapter = null;
                     if (problems.hasErrorsIn(declaration.display())) {
                         continue;
                     }
                     currentChapter = decode(ChapterManifest.CODEC, declaration.document(),
-                            declaration.display(), problems)
+                            declaration.display(), problems, ops)
                             .map(manifest -> new ChapterBuild(declaration, manifest))
                             .orElse(null);
                     if (currentChapter == null) {
@@ -508,7 +536,7 @@ public final class QuestLoader {
                 }
 
                 case QUEST -> {
-                    QuestValidator.validateQuestDocument(declaration.document(), problems);
+                    QuestValidator.validateQuestDocument(declaration.document(), problems, ops);
                     if (currentChapter == null || problems.hasErrorsIn(declaration.display())) {
                         continue;
                     }
@@ -520,7 +548,7 @@ public final class QuestLoader {
                     // lazy. It is not lazy today, so this is the compiler closing a hazard that would
                     // otherwise be latent rather than live.
                     final ChapterBuild owning = currentChapter;
-                    decode(Quest.CODEC, declaration.document(), declaration.display(), problems)
+                    decode(Quest.CODEC, declaration.document(), declaration.display(), problems, ops)
                             .ifPresent(quest -> owning.quests.add(new QuestBuild(declaration, quest)));
                 }
             }
@@ -646,12 +674,13 @@ public final class QuestLoader {
      * it does not cover.
      */
     private static <T> Optional<T> decode(Codec<T> codec, JsonDocument document, String display,
-                                          Problems problems) {
+                                          Problems problems,
+                                          com.mojang.serialization.DynamicOps<com.google.gson.JsonElement> ops) {
         // Through Checks.parse, which contains a codec whose own functions throw. A raw throwable here
         // would leave the whole load rather than this file -- see that method for the mistake that
         // already cost this project every file in the tree, and for why an addon's codec is the case
         // this cannot afford to assume about.
-        DataResult<T> result = Checks.parse(codec, document.root());
+        DataResult<T> result = Checks.parse(codec, document.root(), ops);
 
         Optional<T> decoded = result.result();
         if (decoded.isPresent()) {
