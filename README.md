@@ -12,10 +12,10 @@ not content.
 ## Why Tenet
 
 - **The server decides what counts.** The client draws what it is told and nothing more, so editing your own game completes nothing.
-- **[Validator points at file and line](docs/authoring/validation.md).** A bad file is reported with its path and skipped — one broken quest never takes the server down.
-- **[Fifteen task, ten reward, six condition types](docs/authoring/tasks.md).** Tasks ask, rewards pay, conditions gate either — see the [task](docs/authoring/tasks.md), [reward](docs/authoring/rewards.md), and [condition](docs/authoring/conditions.md) guides.
-- **[Editor with undo, and nothing really deletes](docs/index.md#removing-something-and-getting-it-back).** Bulk-select nodes, edit as one batch per chapter with one undo, and every delete is a `.deleted` tombstone that `/tenet restore` brings back.
-- **[Parties share progress](docs/commands.md#parties).** Built on Armature teams — `ONE_MEMBER`, `POOLED`, or `OWNER_ONLY` counting, server-authoritative throughout.
+- **[Validator points at file and line](https://ellipog.dev/docs/tenet/authoring/validation).** A bad file is reported with its path and skipped — one broken quest never takes the server down.
+- **[Fifteen task, ten reward, six condition types](https://ellipog.dev/docs/tenet/authoring/tasks).** Tasks ask, rewards pay, conditions gate either — see the [task](https://ellipog.dev/docs/tenet/authoring/tasks), [reward](https://ellipog.dev/docs/tenet/authoring/rewards), and [condition](https://ellipog.dev/docs/tenet/authoring/conditions) guides.
+- **[Editor with undo, and nothing really deletes](https://ellipog.dev/docs/tenet#removing-something-and-getting-it-back).** Bulk-select nodes, edit as one batch per chapter with one undo, and every delete is a `.deleted` tombstone that `/tenet restore` brings back.
+- **[Parties share progress](https://ellipog.dev/docs/tenet/commands#parties).** Built on Armature teams — `ONE_MEMBER`, `POOLED`, or `OWNER_ONLY` counting, server-authoritative throughout.
 
 ## Playing
 
@@ -25,9 +25,9 @@ and which Armature release to pair with this one.
 
 Open the book with the Quest Book item or the `B` key. Details live in the manual:
 
-- [The quest book and HUD](docs/index.md#the-book-briefly) — canvas, claims, parties
-- [Commands](docs/commands.md) — every `/tenet` command
-- [HUD](docs/hud.md) — pinning quests and notices
+- [The quest book and HUD](https://ellipog.dev/docs/tenet#the-book-briefly) — canvas, claims, parties
+- [Commands](https://ellipog.dev/docs/tenet/commands) — every `/tenet` command
+- [HUD](https://ellipog.dev/docs/tenet/hud) — pinning quests and notices
 
 ## Making quests
 
@@ -36,11 +36,11 @@ quest. Run `/tenet reload`, then press `B`.
 
 Start here:
 
-- [Manual front door](docs/index.md)
-- [Folder format](docs/authoring/quest-files.md)
-- [Quest fields](docs/authoring/quests.md)
-- [Tasks](docs/authoring/tasks.md) · [Rewards](docs/authoring/rewards.md) · [Conditions](docs/authoring/conditions.md)
-- [Validation](docs/authoring/validation.md) · [Languages](docs/authoring/languages.md) · [KubeJS](docs/authoring/kubejs.md) · [FTB mapping](docs/authoring/ftb-mapping.md)
+- [Manual front door](https://ellipog.dev/docs/tenet)
+- [Folder format](https://ellipog.dev/docs/tenet/authoring/quest-files)
+- [Quest fields](https://ellipog.dev/docs/tenet/authoring/quests)
+- [Tasks](https://ellipog.dev/docs/tenet/authoring/tasks) · [Rewards](https://ellipog.dev/docs/tenet/authoring/rewards) · [Conditions](https://ellipog.dev/docs/tenet/authoring/conditions)
+- [Validation](https://ellipog.dev/docs/tenet/authoring/validation) · [Languages](https://ellipog.dev/docs/tenet/authoring/languages) · [KubeJS](https://ellipog.dev/docs/tenet/authoring/kubejs) · [FTB mapping](https://ellipog.dev/docs/tenet/authoring/ftb-mapping)
 
 The worked example in `tools/quests/` (see `tools/README.md`) carries every field the
 format has, and the schemas under `tools/quests/_schema/` are the machine-readable
