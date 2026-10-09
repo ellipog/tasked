@@ -338,7 +338,7 @@ public final class ChapterPanelLayout {
         if (!elements.isEmpty()) {
             rows.add(section(ELEMENTS, "tenet.dev.chapter.elements", folded));
             if (!folded.contains(ELEMENTS)) {
-                elementList(rows, elements, selectedElement);
+                elementList(rows, elements, selectedElement, folded);
             }
         }
 
@@ -443,7 +443,7 @@ public final class ChapterPanelLayout {
 
     /** The list of elements, then the selected one's own fields. */
     private static void elementList(List<ToolsLayout.Action> rows, List<JsonObject> elements,
-                                    String selectedElement) {
+                                    String selectedElement, Set<String> folded) {
         int shown = Math.min(elements.size(), ELEMENT_LIST_LIMIT);
         for (int i = 0; i < shown; i++) {
             JsonObject element = elements.get(i);
@@ -460,7 +460,7 @@ public final class ChapterPanelLayout {
         }
         JsonObject selected = elementById(elements, selectedElement);
         if (selected != null) {
-            elementFields(rows, selected);
+            elementFields(rows, selected, folded);
         }
     }
 
@@ -492,8 +492,9 @@ public final class ChapterPanelLayout {
      * name is a second place for a field to be forgotten. This is the Chapter tab's way in: the list, then the
      * chosen element's fields under it.
      */
-    private static void elementFields(List<ToolsLayout.Action> rows, JsonObject element) {
-        rows.addAll(ElementPanelLayout.rows(element));
+    private static void elementFields(List<ToolsLayout.Action> rows, JsonObject element,
+                                      Set<String> folded) {
+        rows.addAll(ElementPanelLayout.rows(element, folded));
     }
 
     /**

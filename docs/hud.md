@@ -5,8 +5,12 @@ you have pinned, and the notices that tell you something just happened. All thre
 switch them off, move them, or put them back where they shipped — in the **HUD editor**, which opens on
 `H` or from the book's Settings card.
 
-The HUD is drawn over the world and over nothing else. It has no buttons and nothing on it can be clicked:
-it is a thing to read while you play, and the book — one key away — is where you act.
+The HUD is drawn over the world and over nothing else. It is a thing to read while you play, and the
+book — one key away — is where you act. The one exception is the pins: with chat open the cursor is
+already free, and a press on a box opens the book on that quest, with the canvas brought to it. The box
+under the pointer wears an outline, so a press lands where the ring says it will. Chat
+keeps every press that lands nowhere near a pin; a press on one closes chat, so anything typed but
+unsent goes with it.
 
 ## Pinning a quest
 
@@ -19,8 +23,13 @@ Three ways in, and they all do the same thing:
   hollow one is not.
 
 **At most six quests are pinned at once.** A seventh is refused with a message rather than quietly pushing
-one of yours off the list: nothing you pinned goes away unless you unpin it, and `pinned.json` is a text file
+one of yours off the list, and `pinned.json` is a text file
 you can edit.
+
+A quest you have finished **and collected** leaves the stack on its own: a watched quest with nothing left
+to watch is a box nobody asked for. The pin stays — hiding is not unpinning, so it is still in the list and
+comes back if anything about the quest changes — and `Hide claimed quests` in the HUD editor switches the
+hiding off. A finished quest with rewards still out stays until you collect them.
 
 Pins are **yours, not the world's.** They live in this client's own config, they survive leaving a server,
 and a pin naming a quest the server you are on does not have is simply skipped — it stays in the list, so it
@@ -31,9 +40,17 @@ comes back the next time you are somewhere that has that quest.
 Every pinned quest gets **its own box**, stacked down the left edge in the order you pinned them — most
 recent first. Each box shows its quest's name and chapter, then its tasks with their counts (`3 / 8`) and a
 tick on each one that is done. A task that is underway grows a 2-pixel bar under its sentence, filling as it
-goes and gliding to the new width when progress lands rather than jumping; a task with nothing done yet
+goes and gliding to the new width when progress lands rather than jumping; the unfilled remainder is a grey
+track rather than empty world, so a half-done task reads as a bar. A task with nothing done yet
 shows none. A quest with more than six tasks says how many more there are
-rather than growing past the bottom of your window, and a finished quest says `Complete` in its own box.
+rather than growing past the bottom of your window, and a finished quest says `Complete` in its own box —
+or `Claimable`, when its rewards are still out: done is not the news, collectable is.
+
+The book's header has a **Pinned** button, beside Settings, that lists every pin: each row wears its
+quest's icon, a press opens its card with the canvas brought to it, and the star on its end lets it go.
+Finished and collected quests read dimmed there, which is what tells them from the ones still being
+watched. Whether they leave the stack on their own is the **Hide claimed quests** switch in the HUD
+editor, on unless you say otherwise.
 
 The boxes are transparent: no fill, just a thin edge, over a dim wash whose strength is yours. The slider
 on each drawn element's row in the HUD editor runs 0 to full — 0 is edge-only, full is the theme's own
@@ -80,6 +97,7 @@ it really is, so what you drag is what you see in game.
 |---|---|
 | The **switch** on a row | Whether that element is drawn at all. A switched-off element is still drawn *in the editor*, dimmed, or you could never find it again. |
 | The **slider** under a drawn element's controls | How strong its background dim is, from none to full. It writes straight to the file as you drag it, like everything else here. |
+| **Hide claimed quests**, under the elements | Whether a quest you have finished and collected leaves the pinned stack on its own. On unless you say otherwise; the pin stays either way. |
 | Arrow keys | Nudge the selected element a pixel — ten with `Shift` held. For placing something exactly, where a drag always overshoots by one. |
 | **Reset** | That one element back to where it shipped, switched on and dimmed as shipped. |
 | **Done** | Closes the editor — and comes back to the book, if that is where you opened it from. |
@@ -116,6 +134,13 @@ touched does not exist and one you have put back is empty:
 
 ```json
 { "pins": ["chapter_one/gather_wood", "chapter_one/craft_a_table"] }
+```
+
+`hideClaimed` travels with them, written only when you switch it off — it is on unless the file says
+`false`:
+
+```json
+{ "pins": ["chapter_one/gather_wood"], "hideClaimed": false }
 ```
 
 A pin whose quest is not in the pack you are playing is skipped and kept. The next time the pack moves, so

@@ -96,6 +96,16 @@ public enum PanelKind {
     SETTINGS,
 
     /**
+     * The player's pinned quests: the watchlist beside their settings.
+     *
+     * <p>A rail of its own rather than a page of the settings card, because the two answer different
+     * questions: the card is how the HUD reads, the list is what it watches. Opened from the header
+     * beside Settings, for every player like the three beside it. A row opens its quest's card and
+     * brings the canvas to it; its Unpin end lets go of it.
+     */
+    PINNED,
+
+    /**
      * The reward tables, for a reward's table field: a list of them to choose from, with the rows
      * that make and manage one.
      *

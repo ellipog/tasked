@@ -167,12 +167,18 @@ class CanvasElementCodecTest {
         CanvasElement.Text text = assertInstanceOf(CanvasElement.Text.class, read("""
                 { "type": "text", "id": "heading", "x": -10, "y": -64,
                   "text": { "translate": "element.heading.text", "fallback": "Chapter 1" },
-                  "scale": 1.5, "color": "#A0A0A0", "shadow": true }
+                  "scale": 1.5, "color": "#A0A0A0", "shadow": true, "fixed": true }
                 """));
         assertEquals("Chapter 1", text.text().fallback().orElseThrow());
         assertEquals(1.5, text.scale());
         assertEquals(0xFFA0A0A0, text.color());
         assertTrue(text.shadow());
+        assertTrue(text.fixed(), "pinned to the screen rather than travelling with the canvas");
+
+        // Absent is canvas-anchored: the default is what every label already is, so no file changes
+        // meaning by gaining the field.
+        assertFalse(assertInstanceOf(CanvasElement.Text.class,
+                read("{ \"type\": \"text\", \"id\": \"plain\", \"text\": \"hi\" }")).fixed());
 
         // A label with no words is not a label: the field is required rather than defaulted, because a file
         // that forgot it would otherwise place an invisible element and say nothing.
@@ -372,7 +378,7 @@ class CanvasElementCodecTest {
         assertTrue(all.containsAll(CanvasElement.FIELDS));
         assertTrue(all.containsAll(CanvasElement.Image.FIELDS));
         assertTrue(all.containsAll(CanvasElement.Rect.FIELDS));
-        assertEquals(29, all.size(), "four arms and the common set, minus the fields they share: " + all);
+        assertEquals(30, all.size(), "four arms and the common set, minus the fields they share: " + all);
     }
 
     @Test

@@ -485,6 +485,10 @@ class AdvancedTest {
                     Set.of(), null, ChapterPanelLayout.Problems.NONE, id)) {
                 if (row.key().startsWith(ChapterPanelLayout.ELEMENT_PREFIX)) {
                     keys.add(row.key());
+                    // A pair's own key is its left half's; the right half is a field the form offers too.
+                    if (row.kind() == ToolsLayout.Action.Kind.PAIR && row.right() != null) {
+                        keys.add(row.right().key());
+                    }
                 }
             }
         }

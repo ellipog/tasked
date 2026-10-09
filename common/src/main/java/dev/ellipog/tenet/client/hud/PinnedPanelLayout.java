@@ -74,10 +74,10 @@ public final class PinnedPanelLayout {
      * A task bar's height in pixels: a hairline, not a panel.
      *
      * <p>Two because the bar sits inside the quest's own box under its own sentence: a six-pixel bar with
-     * a track and an outline read as a second control competing with the text, while a hairline reads as
-     * what it is -- how far along the line above it goes. No track and no outline for the same reason:
-     * an empty groove along every untouched task is a groove nobody asked for, and the bar appearing is
-     * itself the news that a task is underway.
+     * an outline read as a second control competing with the text, while a hairline reads as what it is --
+     * how far along the line above it goes. No outline for the same reason: border thicker than content.
+     * The track stays -- a grey remainder rather than transparency -- because over the live world an
+     * unfilled stretch is invisible, and a half-done task read as a shorter bar floating beside its count.
      */
     public static final int BAR_HEIGHT = 2;
 
@@ -159,22 +159,28 @@ public final class PinnedPanelLayout {
     /**
      * One pinned quest, as a box needs it.
      *
-     * @param title    the quest's name
-     * @param chapter  where it sits, drawn faint after the name; empty for none
-     * @param complete whether the quest is done
-     * @param tasks    its tasks, in the pack's order; empty for a quest with none
+     * @param title     the quest's name
+     * @param chapter   where it sits, drawn faint after the name; empty for none
+     * @param complete  whether the quest is done
+     * @param claimable whether it is done with rewards still to collect: what its last line says
+     *                  instead of merely done
+     * @param tasks     its tasks, in the pack's order; empty for a quest with none
      */
-    public record Pin(String title, String chapter, boolean complete, List<Task> tasks) {
+    public record Pin(String title, String chapter, boolean complete, boolean claimable,
+                      List<Task> tasks) {
     }
 
     /**
      * The boxes' sentences, resolved by the caller. See the class note for why these are not built here.
      *
      * @param complete  the word a finished quest wears
+     * @param claimable the word a finished quest with rewards still out wears instead: done is not the
+     *                  news, collectable is
      * @param sample    what the editor draws when nothing is pinned
      * @param moreTasks "and N more", for the tasks past {@link #MAX_TASK_ROWS}
      */
-    public record Words(String complete, String sample, IntFunction<String> moreTasks) {
+    public record Words(String complete, String claimable, String sample,
+                        IntFunction<String> moreTasks) {
     }
 
     /**
@@ -300,7 +306,9 @@ public final class PinnedPanelLayout {
                             "", cursor, line, p, -1);
                 }
                 if (pin.complete()) {
-                    cursor = add(rows, Kind.COMPLETE, words.complete(), "", cursor, line, p, -1);
+                    cursor = add(rows, Kind.COMPLETE,
+                            pin.claimable() ? words.claimable() : words.complete(), "", cursor, line,
+                            p, -1);
                 }
                 raw.add(rows);
             }

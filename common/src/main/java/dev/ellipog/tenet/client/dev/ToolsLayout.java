@@ -237,6 +237,14 @@ public final class ToolsLayout {
      * the screen gives all nine a widget, which is what {@code ToolsLayoutTest} asserts by name.
      */
     public static boolean folds(String key) {
+        if (key != null && key.contains(".#")) {
+            // One canvas element's own group headers: `element.<id>.#position` and its like. They are
+            // built per element rather than listed here because the id is part of the key, and a table
+            // of every element's sections would be a second list of elements to keep in step. The `#`
+            // marks a fold rather than a field, which is the same convention `ElementPanelLayout` builds
+            // them by — so this predicate and that builder cannot disagree about which keys are sections.
+            return true;
+        }
         return APPEARANCE_SECTION.equals(key) || BOOK_SECTION.equals(key)
                 || CANVAS_SECTION.equals(key) || COLOUR_SECTION.equals(key)
                 || PALETTE_SECTION.equals(key)

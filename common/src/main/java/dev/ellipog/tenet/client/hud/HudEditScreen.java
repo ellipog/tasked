@@ -84,6 +84,15 @@ public final class HudEditScreen extends ArmatureScreen {
     private final Map<HudElement, ArmatureSlider> dims = new EnumMap<>(HudElement.class);
     private ArmatureButton done;
 
+    /**
+     * Whether finished and collected quests leave the stack on their own.
+     *
+     * <p>Its own control rather than one of the element rows': hiding is what the pins do, not where
+     * the element sits, and the element rows are about placement. Built with the rest and placed at the
+     * hide row, after the elements and before the foot.
+     */
+    private ArmatureSwitch hideSwitch;
+
     /** The element last pressed, so the thing touched and the row that names it are visibly the same one. */
     private HudElement selected;
 
@@ -139,6 +148,10 @@ public final class HudEditScreen extends ArmatureScreen {
                 Component.translatable("tenet.screen.hud_edit.done"), this::onClose);
         addRenderableWidget(done);
 
+        hideSwitch = new ArmatureSwitch(0, 0, PinnedQuests.hideClaimed());
+        hideSwitch.onToggle(() -> PinnedQuests.setHideClaimed(hideSwitch.selected()));
+        addRenderableWidget(hideSwitch);
+
         for (HudElement element : HudElement.values()) {
             HudElementPreview preview = new HudElementPreview(element, this);
             previews.put(element, preview);
@@ -163,6 +176,16 @@ public final class HudEditScreen extends ArmatureScreen {
     /** The measure this frame is drawing with; see {@link #renderContent}. */
     Measure frameMeasure() {
         return frameMeasure;
+    }
+
+    /**
+     * The player arranging things, or null before the client has one.
+     *
+     * <p>Whose claimed quests hide: the editor arranges the boxes the world draws, so it hides what the
+     * world hides rather than arranging boxes that are gone.
+     */
+    java.util.UUID playerId() {
+        return minecraft == null || minecraft.player == null ? null : minecraft.player.getUUID();
     }
 
     private Measure frameMeasure;
@@ -191,7 +214,9 @@ public final class HudEditScreen extends ArmatureScreen {
             return;
         }
         if (element.kind() == HudElement.Kind.HUD) {
-            HudOverlay.Size size = HudOverlay.size(element, measure, HudOverlay.Face.EDITOR, now);
+            // The editor's own player, so the boxes it arranges are the boxes the world draws: a claimed
+            // quest hidden out there is hidden here too, rather than arranged and then gone.
+            HudOverlay.Size size = HudOverlay.size(element, measure, HudOverlay.Face.EDITOR, now, playerId());
             preview.resize(size.width(), size.height());
         }
         BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
@@ -222,6 +247,14 @@ public final class HudEditScreen extends ArmatureScreen {
             }
             index++;
         }
+
+        // The auto-hide, after the elements and before the foot: finished and collected quests leave the
+        // stack on their own unless the player said otherwise, and this screen is where hiding shows.
+        BookGeometry.Rect hideLabel = HudLayout.hideLabel(chrome, order);
+        renderer.text(Measure.truncate(Component.translatable("tenet.screen.pinned.hide_claimed").getString(),
+                        hideLabel.width(), measure),
+                hideLabel.x(), hideLabel.y() + 2, ArmatureTheme.body());
+        place(hideSwitch, HudLayout.hideToggle(chrome, order));
 
         BookGeometry.Rect foot = HudLayout.done(chrome);
         place(done, foot);

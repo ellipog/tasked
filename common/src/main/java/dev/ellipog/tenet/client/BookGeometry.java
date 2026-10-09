@@ -182,6 +182,14 @@ public final class BookGeometry {
     public static final int REWARDS_BUTTON_WIDTH = 64;
 
     /**
+     * The pinned quests button's width, in the header, left of Settings.
+     *
+     * <p>For every player, like the three beside it: pins are a player's own watchlist rather than an
+     * author's. Wider than Party's: the word is.
+     */
+    public static final int PINNED_BUTTON_WIDTH = 56;
+
+    /**
      * The settings button's width, in the header, between Party and the author's split control.
      *
      * <p>Drawn for every player, unlike the split control beside it: the theme, the Motion switch and
@@ -498,6 +506,7 @@ public final class BookGeometry {
                             + ROW_GAP + REWARDS_BUTTON_WIDTH         // Rewards
                             + ROW_GAP + PARTY_BUTTON_WIDTH           // Party
                             + ROW_GAP + SETTINGS_BUTTON_WIDTH        // Settings
+                            + ROW_GAP + PINNED_BUTTON_WIDTH          // Pinned
                             + HEADER_TITLE_ROOM),
             // And the band, which binds at 297 -- see above.
             EDGE + AUTHOR_WIDTH + BAND_BUTTON_GAP + ASSETS_WIDTH + BAND_BUTTON_GAP + EDIT_WIDTH
@@ -1133,14 +1142,14 @@ public final class BookGeometry {
      * screen because that is the rule this class exists to enforce, and because the alternative is a
      * second {@code panelWidth() - 12} that agrees until somebody moves the button.
      *
-     * <p>Measured from Settings for every player, and it has been that for two rounds: it once took a flag
-     * and measured from Edit for an operator, because the author's controls sat in this row and the count
-     * had to stop short of them. They left this row long ago, and they are not in it now either -- the band
+     * <p>Measured from the leftmost player control -- Pinned now, Settings before it -- because the
+     * author's controls sat in this row once and the count had to stop short of them. They left this
+     * row long ago, and they are not in it now either -- the band
      * ({@link #authorBand}) is a strip of its own below the header, so the count and the title have the
      * whole of this row whatever a player may edit.
      */
     public int headerRightLimit() {
-        return settingsButton().x() - 10;
+        return pinnedButton().x() - 10;
     }
 
     /**
@@ -1178,6 +1187,19 @@ public final class BookGeometry {
     public Rect settingsButton() {
         return Rect.at(partyButton().x() - ROW_GAP - SETTINGS_BUTTON_WIDTH, partyButton().y(),
                 SETTINGS_BUTTON_WIDTH, ROW_HEIGHT);
+    }
+
+    /**
+     * The pinned quests button, in the header beside the settings button: the way into the player's own
+     * watchlist.
+     *
+     * <p>For every player, and left of Settings because it is used less often than the three beside it:
+     * the cluster reads right to left in use order, and a fourth button must not push the other three.
+     * Anchored from the settings button, like every other member of the cluster.
+     */
+    public Rect pinnedButton() {
+        return Rect.at(settingsButton().x() - ROW_GAP - PINNED_BUTTON_WIDTH, settingsButton().y(),
+                PINNED_BUTTON_WIDTH, ROW_HEIGHT);
     }
 
     /**
@@ -1358,6 +1380,9 @@ public final class BookGeometry {
         // everybody, unlike the author's controls, which are not in this row at all any more: these are
         // the player's own settings.
         out.put("settings", settingsButton());
+
+        // The pinned quests button, left of Settings: the player's watchlist beside their settings.
+        out.put("pinned", pinnedButton());
 
         // The author's band, under the header. In the map for an author's geometry and absent from a
         // reader's, which is the one place this map's contents depend on something other than the window --

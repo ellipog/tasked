@@ -415,8 +415,7 @@ class HudLayoutTest {
 
     @Test
     @DisplayName("a drawn row is taller than a control row by exactly its slider line")
-    void hudRowsCarryASliderLine() {
-        assertEquals(HudLayout.ROW_HEIGHT, HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
+    void hudRowsCarryASliderLine() {        assertEquals(HudLayout.ROW_HEIGHT, HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
                 "a control's row is unchanged");
         assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
                 HudLayout.rowHeight(HudElement.PINNED_QUESTS));
@@ -440,6 +439,25 @@ class HudLayoutTest {
     private static boolean overlaps(BookGeometry.Rect one, BookGeometry.Rect other) {
         return one.x() < other.right() && other.x() < one.right()
                 && one.y() < other.bottom() && other.y() < one.bottom();
+    }
+
+    @Test
+    @DisplayName("the auto-hide row sits after the elements and inside the chrome, clear of Done")
+    void theHideRowHasItsOwnLine() {
+        java.util.List<HudElement> all = java.util.List.of(HudElement.values());
+        BookGeometry.Rect chrome = HudLayout.chrome(640, 480, all);
+        BookGeometry.Rect label = HudLayout.hideLabel(chrome, all);
+        BookGeometry.Rect toggle = HudLayout.hideToggle(chrome, all);
+
+        assertTrue(inside(label, chrome) && inside(toggle, chrome),
+                "the hide row is chrome furniture: " + label + " and " + toggle);
+        assertFalse(overlaps(label, toggle), "the label runs into its own switch");
+        assertTrue(inside(HudLayout.done(chrome), chrome), "and Done still fits");
+        assertFalse(overlaps(toggle, HudLayout.done(chrome)), "clear of the foot");
+        for (int index = 0; index < all.size(); index++) {
+            assertFalse(overlaps(HudLayout.reset(index, chrome, all), label),
+                    "and clear of row " + index);
+        }
     }
 
     private static boolean inside(BookGeometry.Rect box, BookGeometry.Rect outer) {

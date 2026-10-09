@@ -133,7 +133,7 @@ class PanelStackTest {
     void aPanelReplacesBothPanelColumns() {
         Columns withChild = new Columns(PanelKind.TOOLS, PanelKind.QUEST, PanelKind.PICKER, Fold.ALWAYS);
         for (PanelKind panel : List.of(PanelKind.QUEST, PanelKind.TABLE_EDITOR, PanelKind.TABLE_BROWSER,
-                PanelKind.ASSETS, PanelKind.REWARDS, PanelKind.SETTINGS, PanelKind.NAMING,
+                PanelKind.ASSETS, PanelKind.REWARDS, PanelKind.SETTINGS, PanelKind.PINNED, PanelKind.NAMING,
                 PanelKind.PARTY, PanelKind.CHOICE)) {
             Columns after = PanelStack.asRoot(withChild, panel);
             assertEquals(panel, after.left(), panel + " is what the player asked for");

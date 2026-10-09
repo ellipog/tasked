@@ -192,9 +192,18 @@ public final class CanvasElementArt {
                 for (String line : lines) {
                     width = Math.max(width, widthOf(frame, line, (float) text.scale()));
                 }
-                yield new Box(view.screenX(text.x()), view.screenY(text.y()),
-                        view.screenX(text.x()) + Math.max(width, 1),
-                        view.screenY(text.y()) + Math.max(advanceOf(frame, text.scale()) * lines.size(), 1));
+                // A fixed label ignores the zoom but follows the pan: its position is the canvas mapping
+                // evaluated at scale one, so enabling it at the zoom things are placed at changes nothing,
+                // and zooming after that leaves it where it was instead of flying it about. The size was
+                // already the file's own at every zoom. Everything downstream -- the drawing, the hit test,
+                // the cull, the grips -- reads this box, so none of them has a second opinion about where
+                // a fixed label is.
+                int left = text.fixed() ? view.originX() + view.offsetX() + text.x()
+                        : view.screenX(text.x());
+                int top = text.fixed() ? view.originY() + view.offsetY() + text.y()
+                        : view.screenY(text.y());
+                yield new Box(left, top, left + Math.max(width, 1),
+                        top + Math.max(advanceOf(frame, text.scale()) * lines.size(), 1));
             }
             // Nothing to draw and nothing to press: an unknown element is a name this build cannot read, and
             // a box around nothing would be a control that does nothing where the author sees empty canvas.

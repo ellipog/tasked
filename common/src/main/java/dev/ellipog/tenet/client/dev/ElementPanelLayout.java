@@ -8,6 +8,8 @@ import dev.ellipog.tenet.quest.CanvasElement;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * One canvas element's own rows: the form, wherever it is shown.
@@ -25,6 +27,30 @@ import java.util.List;
  * {@code EditorOp.SetElement}. A nested member — {@code image.texture}, {@code click.type},
  * {@code label.hAlign} — is one step with a dot in it, and the screen writes the whole object it belongs to,
  * because the two arms of a picture's source are exclusive and the object may not exist yet.
+ *
+ * <h2>Sections, not a wall: position, size, look, source, caption, press, show</h2>
+ *
+ * <p>The form was a flat list of twenty equal rows, and every field weighed the same as every other: where
+ * the thing sits read the same as what a press does. Related fields are grouped under short section
+ * headings now — a picture's form scans as six blocks rather than twenty lines — and a section folds like
+ * every other section in this editor, through the folded set both callers already keep. A section whose
+ * every row is hidden at this depth is omitted with its heading, so Normal mode never shows a name over
+ * nothing; that is the same rule {@code Advanced} states for whole sections, kept here because these
+ * headings are built here rather than at a builder with a gate around the block.
+ *
+ * <p>A section heading's key is {@code element.<id>.#<section>}. The {@code #} marks it as a fold rather
+ * than a field: {@code ChapterPanelLayout.elementFieldOf} still splits it (the commit paths never see a
+ * heading, which holds no widget), and {@code ToolsLayout.folds} names it a section so it is drawn as
+ * one. The title heading folds the whole form; a section heading folds its block.
+ *
+ * <h2>Pairs for the coordinates that belong together</h2>
+ *
+ * <p>An x without its y is half a position, and two full-width stacked rows for one corner is a form twice
+ * as tall as the idea it carries. Related numbers share one {@code PAIR} row — x with y, width with
+ * height, a line's from with its from, its to with its to — through the same {@code ScrubPairField} the
+ * canvas's own compact lines use. When one half is hidden at this depth the other stands alone as an
+ * ordinary number row, so the shallow form stays a subset of the deep one rather than losing a field to
+ * the pairing.
  *
  * <h2>A row is the control its kind asks for, and a text box is the last resort rather than the rule</h2>
  *
@@ -56,6 +82,17 @@ public final class ElementPanelLayout {
 
     /** The rows for one element, from the element's own tree. */
     public static List<ToolsLayout.Action> rows(JsonObject element) {
+        return rows(element, Set.of());
+    }
+
+    /**
+     * The same, with folded sections put away.
+     *
+     * <p>Both callers keep the set the way the Chapter tab keeps its own folds: the screen owns it, this
+     * class only reads it. A key in it is a heading — the title heading, or a section's — whose block is
+     * not built.
+     */
+    public static List<ToolsLayout.Action> rows(JsonObject element, Set<String> folded) {
         List<ToolsLayout.Action> rows = new ArrayList<>();
         if (element == null) {
             return List.copyOf(rows);
@@ -64,68 +101,100 @@ public final class ElementPanelLayout {
         String type = read(element, "type", "");
         // What is being edited, at the top: a panel that opens on a click has to say which thing it is about,
         // and the name an author recognises is the element's own words or its id.
-        rows.add(ToolsLayout.Action.heading(ChapterPanelLayout.ELEMENT_PREFIX + id,
-                type + " - " + nameOf(element, id)));
+        String titleKey = ChapterPanelLayout.ELEMENT_PREFIX + id;
+        rows.add(ToolsLayout.Action.heading(titleKey, type + " - " + nameOf(element, id)));
+        if (isFolded(folded, titleKey)) {
+            return List.copyOf(rows);
+        }
 
         switch (type) {
             case CanvasElement.TYPE_RECT -> {
-                position(rows, element, id);
-                number(rows, element, id, "width", "tenet.dev.element.width");
-                number(rows, element, id, "height", "tenet.dev.element.height");
-                colour(rows, element, id, "fillColor", "tenet.dev.element.fill_color");
-                colour(rows, element, id, "borderColor", "tenet.dev.element.border_color");
-                number(rows, element, id, "borderWidth", "tenet.dev.element.border_width");
+                section(rows, id, "position", "tenet.dev.element.section.position", folded,
+                        inner -> pairNumber(inner, element, id, "x", "tenet.dev.element.x",
+                                "y", "tenet.dev.element.y"));
+                section(rows, id, "size", "tenet.dev.element.section.size", folded,
+                        inner -> pairNumber(inner, element, id, "width", "tenet.dev.element.width",
+                                "height", "tenet.dev.element.height"));
+                section(rows, id, "look", "tenet.dev.element.section.look", folded, inner -> {
+                    colour(inner, element, id, "fillColor", "tenet.dev.element.fill_color");
+                    colour(inner, element, id, "borderColor", "tenet.dev.element.border_color");
+                    number(inner, element, id, "borderWidth", "tenet.dev.element.border_width");
+                });
             }
             case CanvasElement.TYPE_TEXT -> {
-                position(rows, element, id);
-                text(rows, element, id, "text", "tenet.dev.element.text");
-                number(rows, element, id, "scale", "tenet.dev.element.scale");
-                colour(rows, element, id, "color", "tenet.dev.element.color");
-                flag(rows, element, id, "shadow", "tenet.dev.element.shadow");
+                section(rows, id, "position", "tenet.dev.element.section.position", folded, inner -> {
+                    pairNumber(inner, element, id, "x", "tenet.dev.element.x",
+                            "y", "tenet.dev.element.y");
+                    // Whether the label ignores the zoom: it still follows the pan, and at zoom one it
+                    // sits exactly where an anchored label would -- so it sits beside the position it
+                    // redefines rather than two sections away from it.
+                    flag(inner, element, id, "fixed", "tenet.dev.element.fixed");
+                });
+                section(rows, id, "words", "tenet.dev.element.section.words", folded, inner -> {
+                    text(inner, element, id, "text", "tenet.dev.element.text");
+                    number(inner, element, id, "scale", "tenet.dev.element.scale");
+                    colour(inner, element, id, "color", "tenet.dev.element.color");
+                    flag(inner, element, id, "shadow", "tenet.dev.element.shadow");
+                });
             }
             case CanvasElement.TYPE_LINE -> {
                 // A line has no position of its own: its two endpoints are the whole of where it is, and a
-                // separate x/y would be a second place to move it from. So this arm gets no `position` call.
-                number(rows, element, id, "x1", "tenet.dev.element.x1");
-                number(rows, element, id, "y1", "tenet.dev.element.y1");
-                number(rows, element, id, "x2", "tenet.dev.element.x2");
-                number(rows, element, id, "y2", "tenet.dev.element.y2");
-                // The field is `width` and the word is not: a line's width is how thick it is, where a box's
-                // is how far it reaches. One field, two labels, because a row that said "Width" over a line
-                // would be read as its length.
-                number(rows, element, id, "width", "tenet.dev.element.thickness");
-                colour(rows, element, id, "color", "tenet.dev.element.color");
-                choice(rows, element, id, "arrowhead", "tenet.dev.element.arrowhead");
+                // separate x/y would be a second place to move it from. So this arm gets no position section.
+                section(rows, id, "from", "tenet.dev.element.section.from", folded,
+                        inner -> pairNumber(inner, element, id, "x1", "tenet.dev.element.x1",
+                                "y1", "tenet.dev.element.y1"));
+                section(rows, id, "to", "tenet.dev.element.section.to", folded,
+                        inner -> pairNumber(inner, element, id, "x2", "tenet.dev.element.x2",
+                                "y2", "tenet.dev.element.y2"));
+                section(rows, id, "line", "tenet.dev.element.section.line", folded, inner -> {
+                    // The field is `width` and the word is not: a line's width is how thick it is, where a box's
+                    // is how far it reaches. One field, two labels, because a row that said "Width" over a line
+                    // would be read as its length.
+                    number(inner, element, id, "width", "tenet.dev.element.thickness");
+                    colour(inner, element, id, "color", "tenet.dev.element.color");
+                    choice(inner, element, id, "arrowhead", "tenet.dev.element.arrowhead");
+                });
             }
             case CanvasElement.TYPE_IMAGE -> {
-                position(rows, element, id);
-                number(rows, element, id, "width", "tenet.dev.element.width");
-                number(rows, element, id, "height", "tenet.dev.element.height");
-                // The button first, then the two arms as text rows: pressing the button is the ordinary way
-                // to give a picture a file, and typing a path is what an author does when the file is not in
-                // the pack's own folder. The sprite is the other arm -- one source or the other, never both.
-                if (!Advanced.hidesElement("image.texture")) {
-                    rows.add(ToolsLayout.Action.button(
-                            ChapterPanelLayout.ELEMENT_PREFIX + id + "." + PICK_TEXTURE,
-                            "tenet.dev.element.pick_file", textureOf(element)));
-                }
-                text(rows, element, id, "image.texture", "tenet.dev.element.texture");
-                text(rows, element, id, "image.sprite", "tenet.dev.element.sprite");
-                number(rows, element, id, "rotation", "tenet.dev.element.rotation");
-                flag(rows, element, id, "corner", "tenet.dev.element.corner");
-                colour(rows, element, id, "tint", "tenet.dev.element.tint");
-                number(rows, element, id, "alpha", "tenet.dev.element.alpha");
-                text(rows, element, id, "title", "tenet.dev.element.title");
-                // **The picture's caption, in the order `ElementLabel` declares its own five fields** -- and
-                // all five, because the worked example in `tools/quests` paints one with `inset` and `shadow`
-                // set and an author who can see a field in the file and not in the form is looking at a gap.
-                flag(rows, element, id, "label.onImage", "tenet.dev.element.label_on_image");
-                flag(rows, element, id, "label.shadow", "tenet.dev.element.label_shadow");
-                number(rows, element, id, "label.inset", "tenet.dev.element.label_inset");
-                choice(rows, element, id, "label.hAlign", "tenet.dev.element.label_h_align");
-                choice(rows, element, id, "label.vAlign", "tenet.dev.element.label_v_align");
-                choice(rows, element, id, "click.type", "tenet.dev.element.click_type");
-                text(rows, element, id, "click.data", "tenet.dev.element.click_data");
+                section(rows, id, "position", "tenet.dev.element.section.position", folded,
+                        inner -> pairNumber(inner, element, id, "x", "tenet.dev.element.x",
+                                "y", "tenet.dev.element.y"));
+                section(rows, id, "size", "tenet.dev.element.section.size", folded,
+                        inner -> pairNumber(inner, element, id, "width", "tenet.dev.element.width",
+                                "height", "tenet.dev.element.height"));
+                section(rows, id, "source", "tenet.dev.element.section.source", folded, inner -> {
+                    // The button first, then the two arms as text rows: pressing the button is the ordinary way
+                    // to give a picture a file, and typing a path is what an author does when the file is not in
+                    // the pack's own folder. The sprite is the other arm -- one source or the other, never both.
+                    if (!Advanced.hidesElement("image.texture")) {
+                        inner.add(ToolsLayout.Action.button(
+                                ChapterPanelLayout.ELEMENT_PREFIX + id + "." + PICK_TEXTURE,
+                                "tenet.dev.element.pick_file", textureOf(element)));
+                    }
+                    text(inner, element, id, "image.texture", "tenet.dev.element.texture");
+                    text(inner, element, id, "image.sprite", "tenet.dev.element.sprite");
+                });
+                section(rows, id, "look", "tenet.dev.element.section.look", folded, inner -> {
+                    number(inner, element, id, "rotation", "tenet.dev.element.rotation");
+                    flag(inner, element, id, "corner", "tenet.dev.element.corner");
+                    colour(inner, element, id, "tint", "tenet.dev.element.tint");
+                    number(inner, element, id, "alpha", "tenet.dev.element.alpha");
+                });
+                section(rows, id, "caption", "tenet.dev.element.section.caption", folded, inner -> {
+                    text(inner, element, id, "title", "tenet.dev.element.title");
+                    // **The picture's caption, in the order `ElementLabel` declares its own five fields** -- and
+                    // all five, because the worked example in `tools/quests` paints one with `inset` and `shadow`
+                    // set and an author who can see a field in the file and not in the form is looking at a gap.
+                    flag(inner, element, id, "label.onImage", "tenet.dev.element.label_on_image");
+                    flag(inner, element, id, "label.shadow", "tenet.dev.element.label_shadow");
+                    number(inner, element, id, "label.inset", "tenet.dev.element.label_inset");
+                    choice(inner, element, id, "label.hAlign", "tenet.dev.element.label_h_align");
+                    choice(inner, element, id, "label.vAlign", "tenet.dev.element.label_v_align");
+                });
+                section(rows, id, "press", "tenet.dev.element.section.press", folded, inner -> {
+                    choice(inner, element, id, "click.type", "tenet.dev.element.click_type");
+                    pressTarget(inner, element, id);
+                });
             }
             default -> {
                 // A kind this build does not know has no fields to offer, and the heading above already says
@@ -135,29 +204,58 @@ public final class ElementPanelLayout {
         }
         // And what every element has, whatever it is: where it sits in the draw order, whether it is a draft,
         // and what it waits for. Last, because these are the common fields and the arm's own come first.
-        number(rows, element, id, "order", "tenet.dev.element.order");
-        flag(rows, element, id, "dev", "tenet.dev.element.dev");
-        text(rows, element, id, "requires", "tenet.dev.element.requires");
+        section(rows, id, "show", "tenet.dev.element.section.show", folded, inner -> {
+            number(inner, element, id, "order", "tenet.dev.element.order");
+            flag(inner, element, id, "dev", "tenet.dev.element.dev");
+            text(inner, element, id, "requires", "tenet.dev.element.requires");
+        });
         return List.copyOf(rows);
     }
 
     /**
-     * Where the element sits: its top-left corner, in canvas pixels.
+     * The rows for the panel that opens on a click: the same form without the title heading.
      *
-     * <h2>Why a field and not only the drag</h2>
-     *
-     * <p>Because a drag cannot place a thing at a number. An author laying out the exhibition chapter types
-     * {@code x: 860, y: 240} and expects the picture to land there, and every one of the worked example's
-     * thirteen elements carries both -- so a form with a width and a height and no position is a form that
-     * cannot express what the file already says. The quest settings page draws the same pair for a node, from
-     * the same bounds, which is where these two rows came from.
-     *
-     * <p>Not the line's: {@code CanvasElement.Line} is placed by its two endpoints, and a position on top of
-     * those would be a second place to move it from that the codec would ignore.
+     * <p>The card's own chrome names the element now — type, name, id, draw order and its badges — so the
+     * first row repeating it inside the scroll is a title twice. The Chapter tab keeps the heading, which
+     * is what its fold button hangs from and what says which element the fields under the list belong to.
      */
-    private static void position(List<ToolsLayout.Action> rows, JsonObject element, String id) {
-        number(rows, element, id, "x", "tenet.dev.element.x");
-        number(rows, element, id, "y", "tenet.dev.element.y");
+    public static List<ToolsLayout.Action> rowsForPanel(JsonObject element, Set<String> folded) {
+        List<ToolsLayout.Action> rows = new ArrayList<>(rows(element, folded));
+        if (!rows.isEmpty() && rows.get(0).kind() == ToolsLayout.Action.Kind.HEADING
+                && ChapterPanelLayout.elementFieldOf(rows.get(0).key()) == null) {
+            rows.remove(0);
+        }
+        return List.copyOf(rows);
+    }
+
+    /** Whether a heading's block is put away. A set nobody passed is nothing put away. */
+    private static boolean isFolded(Set<String> folded, String key) {
+        return folded != null && key != null && folded.contains(key);
+    }
+
+    /**
+     * One group of rows under its own folding heading.
+     *
+     * <p>Built into a temporary list first, because a section whose every row is hidden at this depth is
+     * omitted with its heading: a name over nothing is a control that promises fields it has not got,
+     * which is the same fault {@code Advanced} keeps out of the settings page by gating whole sections
+     * at the builder. A folded section keeps its heading and drops its rows, so the form can be put away
+     * a block at a time.
+     */
+    private static void section(List<ToolsLayout.Action> rows, String id, String name, String label,
+                                Set<String> folded,
+                                java.util.function.Consumer<List<ToolsLayout.Action>> fill) {
+        List<ToolsLayout.Action> inner = new ArrayList<>();
+        fill.accept(inner);
+        if (inner.isEmpty()) {
+            return;
+        }
+        String key = ChapterPanelLayout.ELEMENT_PREFIX + id + ".#" + name;
+        boolean shut = isFolded(folded, key);
+        rows.add(ToolsLayout.Action.heading(key, (shut ? "\u203a " : "\u25bc ") + label));
+        if (!shut) {
+            rows.addAll(inner);
+        }
     }
 
     /** The same for a model element, which is what the canvas holds. */
@@ -216,12 +314,65 @@ public final class ElementPanelLayout {
         }
     }
 
+    /**
+     * Two coordinates that belong together on one pair row.
+     *
+     * <p>One widget for the row rather than two stacked ones: an x without its y is half a position, and
+     * the row halves the tallest numeric stretch of the form. When one half is hidden at this depth the
+     * other stands alone as an ordinary number row, so the shallow form stays a subset of the deep one.
+     * The pair's own key is the left half's, which is what the scroll view places and what a commit goes
+     * to; the right half is reached through {@code Action.right()}, the same arrangement the canvas's own
+     * compact lines use.
+     */
+    private static void pairNumber(List<ToolsLayout.Action> rows, JsonObject element, String id,
+                                   String leftField, String leftLabel,
+                                   String rightField, String rightLabel) {
+        boolean leftHidden = Advanced.hidesElement(leftField);
+        boolean rightHidden = Advanced.hidesElement(rightField);
+        if (leftHidden && rightHidden) {
+            return;
+        }
+        if (leftHidden) {
+            rows.add(ToolsLayout.Action.field(key(id, rightField), rightLabel));
+            return;
+        }
+        if (rightHidden) {
+            rows.add(ToolsLayout.Action.field(key(id, leftField), leftLabel));
+            return;
+        }
+        rows.add(ToolsLayout.Action.pair(
+                ToolsLayout.Action.field(key(id, leftField), leftLabel),
+                ToolsLayout.Action.field(key(id, rightField), rightLabel)));
+    }
+
     /** One element field as a value chosen from its own closed set, unless this depth hides it. */
     private static void choice(List<ToolsLayout.Action> rows, JsonObject element, String id, String field,
                                String label) {
         if (!Advanced.hidesElement(field)) {
             rows.add(ToolsLayout.Action.choice(key(id, field), label));
         }
+    }
+
+    /**
+     * What a press acts on: the target, or the reason there is none.
+     *
+     * <p>A press whose type is {@code none} carries no data — the validator refuses a target on one — so
+     * offering its blank box beside the chooser is offering a field the file cannot hold. What is there
+     * instead says so and names the way out, as a read-only row with no widget. A file that somehow holds
+     * data with no type keeps the text row, because a value the file carries must stay editable whatever
+     * the chooser says.
+     */
+    private static void pressTarget(List<ToolsLayout.Action> rows, JsonObject element, String id) {
+        if (Advanced.hidesElement("click.data")) {
+            return;
+        }
+        String held = valueOf(element, "click.data");
+        if (!held.isEmpty() || !"none".equals(effectiveValueOf(element, "click.type"))) {
+            rows.add(ToolsLayout.Action.text(key(id, "click.data"), "tenet.dev.element.click_data", held));
+            return;
+        }
+        rows.add(ToolsLayout.Action.value(key(id, "click.data"), "tenet.dev.element.click_data",
+                Labels.of("tenet.dev.element.click_none")));
     }
 
     /**
@@ -451,6 +602,64 @@ public final class ElementPanelLayout {
         String now = valueOf(element, field);
         rows.add(ToolsLayout.Action.toggle(key(id, field), label, now.isEmpty() ? ToolsLayout.OFF : now));
     }
+
+    /**
+     * The help a row's field offers on hover, as a language key, or null for a row that says it itself.
+     *
+     * <p>Keyed by field name alone rather than by the row's whole key, because the key carries the
+     * element's id and the id has nothing to do with what the field means. Section folds (whose field
+     * starts with {@code #}) share their block's sentence, so a heading explains the group it folds.
+     */
+    public static String help(String field) {
+        return field == null ? null : HELP.get(field);
+    }
+
+    /**
+     * What each field means, in one sentence a tooltip can carry.
+     *
+     * <p>A table rather than a field on the row, the shape {@code ToolsLayout.HELP} and
+     * {@code ChapterPanelLayout.HELP} already use: a row is key, label and kind, and help is a property
+     * of the key. Colour rows and plain words are absent — a chip shows the colour it edits and a path
+     * says what it is — and the press rows share the press block's sentences with the section.
+     */
+    private static final Map<String, String> HELP = Map.ofEntries(
+            Map.entry("x", "tenet.dev.element.help.position"),
+            Map.entry("y", "tenet.dev.element.help.position"),
+            Map.entry("fixed", "tenet.dev.element.help.fixed"),
+            Map.entry("x1", "tenet.dev.element.help.endpoints"),
+            Map.entry("y1", "tenet.dev.element.help.endpoints"),
+            Map.entry("x2", "tenet.dev.element.help.endpoints"),
+            Map.entry("y2", "tenet.dev.element.help.endpoints"),
+            Map.entry("width", "tenet.dev.element.help.size"),
+            Map.entry("height", "tenet.dev.element.help.size"),
+            Map.entry("rotation", "tenet.dev.element.help.rotation"),
+            Map.entry("corner", "tenet.dev.element.help.corner"),
+            Map.entry("alpha", "tenet.dev.element.help.alpha"),
+            Map.entry("order", "tenet.dev.element.help.order"),
+            Map.entry("dev", "tenet.dev.element.help.dev"),
+            Map.entry("requires", "tenet.dev.element.help.requires"),
+            Map.entry("borderWidth", "tenet.dev.element.help.border_width"),
+            Map.entry("image.texture", "tenet.dev.element.help.source"),
+            Map.entry("image.sprite", "tenet.dev.element.help.source"),
+            Map.entry("title", "tenet.dev.element.help.caption"),
+            Map.entry("label.onImage", "tenet.dev.element.help.caption"),
+            Map.entry("label.shadow", "tenet.dev.element.help.caption"),
+            Map.entry("label.inset", "tenet.dev.element.help.caption"),
+            Map.entry("label.hAlign", "tenet.dev.element.help.caption"),
+            Map.entry("label.vAlign", "tenet.dev.element.help.caption"),
+            Map.entry("click.type", "tenet.dev.element.help.press"),
+            Map.entry("click.data", "tenet.dev.element.help.press"),
+            Map.entry("#position", "tenet.dev.element.help.position"),
+            Map.entry("#size", "tenet.dev.element.help.size"),
+            Map.entry("#look", "tenet.dev.element.help.look"),
+            Map.entry("#words", "tenet.dev.element.help.words"),
+            Map.entry("#from", "tenet.dev.element.help.endpoints"),
+            Map.entry("#to", "tenet.dev.element.help.endpoints"),
+            Map.entry("#line", "tenet.dev.element.help.line"),
+            Map.entry("#source", "tenet.dev.element.help.source"),
+            Map.entry("#caption", "tenet.dev.element.help.caption"),
+            Map.entry("#press", "tenet.dev.element.help.press"),
+            Map.entry("#show", "tenet.dev.element.help.show"));
 
     /**
      * What the <b>file</b> says for one element field, through the panel's own dotted read.

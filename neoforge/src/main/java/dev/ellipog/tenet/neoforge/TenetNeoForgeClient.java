@@ -41,7 +41,11 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.ChatScreen;
+
 import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
+import dev.ellipog.armature.client.ui.kit.Measure;
 
 /**
  * NeoForge's client half.
@@ -92,6 +96,42 @@ public final class TenetNeoForgeClient {
             }
         });
 
+        // Pinned quests answer presses in chat: the cursor is already free there, and the pins draw
+        // behind it. Chat only, and left button only -- every other screen owns its clicks, and chat
+        // keeps the ones that land nowhere near a pin. A press on a box opens the book on that quest,
+        // which closes chat; anything typed but unsent goes with it, which is the documented cost.
+        NeoForge.EVENT_BUS.addListener((ScreenEvent.MouseButtonPressed.Pre event) -> {
+            if (!(event.getScreen() instanceof ChatScreen) || event.getButton() != 0) {
+                return;
+            }
+            var game = Minecraft.getInstance();
+            var player = game.player;
+            Measure measure = Measure.of(game.font::width, game.font.lineHeight);
+            String quest = HudOverlay.pinAt(measure, game.getWindow().getGuiScaledWidth(),
+                    game.getWindow().getGuiScaledHeight(), net.minecraft.Util.getMillis(),
+                    player == null ? null : player.getUUID(), event.getMouseX(), event.getMouseY());
+            if (quest == null) {
+                return;
+            }
+            QuestBookScreen.openOn(quest);
+            event.setCanceled(true);
+        });
+
+        // The hover half of the hook, after chat renders: the ring a press lands inside of. Same boxes,
+        // same player, drawn over chat -- a ring under it would be a promise the pointer cannot see.
+        NeoForge.EVENT_BUS.addListener((ScreenEvent.Render.Post event) -> {
+            if (!(event.getScreen() instanceof ChatScreen)) {
+                return;
+            }
+            var game = Minecraft.getInstance();
+            var player = game.player;
+            Measure measure = Measure.of(game.font::width, game.font.lineHeight);
+            HudOverlay.drawPinHover(new GuiGraphicsRenderer(event.getGuiGraphics()), measure,
+                    game.getWindow().getGuiScaledWidth(), game.getWindow().getGuiScaledHeight(),
+                    net.minecraft.Util.getMillis(), player == null ? null : player.getUUID(),
+                    event.getMouseX(), event.getMouseY());
+        });
+
         // And the layout those lines read, before anything can draw it -- see the Fabric side.
         HudSettings.loadFromConfig();
         // And which quests are pinned, beside it and for the same reason.
@@ -100,10 +140,13 @@ public final class TenetNeoForgeClient {
         // The HUD's own elements: the pinned quests and the notices. The same one line as the Fabric side,
         // over this loader's event rather than its callback, and the same `HudOverlay` on the other side of
         // it -- so the two loaders cannot draw two different HUDs. `Post` rather than `Pre` because these are
-        // Tenet's own elements and they belong over vanilla's HUD, not under it.
+        // Tenet's own elements and they belong over vanilla's HUD, not under it. The player travels with it,
+        // because the overlay names no client class: who is looking decides whose claimed quests hide.
         NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post event) -> {
             var graphics = event.getGuiGraphics();
-            HudOverlay.render(new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight());
+            var player = net.minecraft.client.Minecraft.getInstance().player;
+            HudOverlay.render(new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight(),
+                    net.minecraft.Util.getMillis(), player == null ? null : player.getUUID());
         });
 
         // No developer screen and no F9: the tools are a panel in the book, reached from its header.

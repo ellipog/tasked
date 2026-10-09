@@ -111,6 +111,19 @@ public final class HudOverlay {
      * the frame's own time.
      */
     public static void render(GuiRenderer renderer, int screenWidth, int screenHeight, long now) {
+        render(renderer, screenWidth, screenHeight, now, null);
+    }
+
+    /**
+     * The same, knowing whose claims count.
+     *
+     * <p>The player is a parameter for the same reason the clock is: the HUD names no client class, so it
+     * cannot ask who is looking, and a test that could not choose the player could not ask what hides for
+     * them. Null is "nobody in particular" -- nothing hides, which is the safe direction, and what every
+     * caller without a player passes. The loader seams pass the live player; the editor passes its own.
+     */
+    public static void render(GuiRenderer renderer, int screenWidth, int screenHeight, long now,
+                              java.util.UUID player) {
         Measure measure = Measure.of(renderer::textWidth, renderer.lineHeight());
         for (HudElement element : HudElement.values()) {
             // A control is somebody else's screen's business -- the inventory screen holds the real widget
@@ -118,13 +131,13 @@ public final class HudOverlay {
             if (element.kind() != HudElement.Kind.HUD || !HudSettings.on(element)) {
                 continue;
             }
-            Size size = size(element, measure, Face.LIVE, now);
+            Size size = size(element, measure, Face.LIVE, now, player);
             if (size.empty()) {
                 continue;
             }
             BookGeometry.Rect box = HudLayout.boxAt(element, screenWidth, screenHeight,
                     HudSettings.x(element), HudSettings.y(element), size.width(), size.height());
-            paint(element, renderer, box, measure, Face.LIVE, now);
+            paint(element, renderer, box, measure, Face.LIVE, now, player);
         }
     }
 
@@ -135,10 +148,16 @@ public final class HudOverlay {
      * with its own box, which is the only element whose size is a constant.
      */
     public static Size size(HudElement element, Measure measure, Face face, long now) {
+        return size(element, measure, face, now, null);
+    }
+
+    /** The same, knowing whose claims count. See {@link #render(GuiRenderer, int, int, long, UUID)}. */
+    public static Size size(HudElement element, Measure measure, Face face, long now,
+                            java.util.UUID player) {
         return switch (element) {
             case INVENTORY_BUTTON -> new Size(element.width(), element.height());
             case PINNED_QUESTS -> {
-                PinnedPanelLayout.Column column = PinnedPanelLayout.column(pins().pins(), words(), measure,
+                PinnedPanelLayout.Column column = PinnedPanelLayout.column(pins(player).pins(), words(), measure,
                         face == Face.EDITOR);
                 yield new Size(column.width(), column.height());
             }
@@ -154,12 +173,18 @@ public final class HudOverlay {
     /** Draws one element in the box it was given. The same switch, one question over. */
     public static void paint(HudElement element, GuiRenderer renderer, BookGeometry.Rect box, Measure measure,
                              Face face, long now) {
+        paint(element, renderer, box, measure, face, now, null);
+    }
+
+    /** The same, knowing whose claims count. See {@link #render(GuiRenderer, int, int, long, UUID)}. */
+    public static void paint(HudElement element, GuiRenderer renderer, BookGeometry.Rect box, Measure measure,
+                             Face face, long now, java.util.UUID player) {
         switch (element) {
             case INVENTORY_BUTTON -> {
                 // Nothing: the control draws itself, through the toolkit, on the screen that owns it. A
                 // branch here would be a second description of a button this class has never seen.
             }
-            case PINNED_QUESTS -> paintPins(renderer, box, measure, face, now);
+            case PINNED_QUESTS -> paintPins(renderer, box, measure, face, now, player);
             case NOTIFICATIONS -> paintNotices(renderer, box, measure, face, now);
         }
     }
@@ -231,9 +256,9 @@ public final class HudOverlay {
      * and a zero-alpha fill would be a submission that draws nothing.
      */
     private static void paintPins(GuiRenderer r, BookGeometry.Rect box, Measure measure, Face face,
-                                  long now) {
+                                  long now, java.util.UUID player) {
         beginBarFrame(now);
-        Content content = pins();
+        Content content = pins(player);
         PinnedPanelLayout.Column column = PinnedPanelLayout.column(content.pins(), words(), measure,
                 face == Face.EDITOR);
         if (column.empty()) {
@@ -279,11 +304,9 @@ public final class HudOverlay {
 
     /** A 1px outline in the panel's edge ink: the box a transparent box still needs to read as one. */
     private static void edge(GuiRenderer r, int left, int top, int width, int height) {
-        int ink = ArmatureTheme.panelEdge();
-        r.fill(left, top, left + width, top + 1, ink);
-        r.fill(left, top + height - 1, left + width, top + height, ink);
-        r.fill(left, top, left + 1, top + height, ink);
-        r.fill(left + width - 1, top, left + width, top + height, ink);
+        // The toolkit's own outline, which is these four fills: kept as one call so the two cannot drift
+        // into two answers about where a pixel-wide edge sits.
+        ArmatureTheme.outline(r, left, top, width, height, ArmatureTheme.panelEdge());
     }
 
     /** A word row's ink: the editor's sample reads as a name, and everything else stays quiet. */
@@ -323,11 +346,14 @@ public final class HudOverlay {
      * box is reserved whether or not the stack resolves: a missing item is still a task, and a row that
      * shifted when its icon failed to draw would move under the pointer reading it.
      *
-     * <p>The bar is a hairline fill and nothing else: no track, no outline. A groove along every untouched
-     * task would be decoration on rows that have nothing to say yet, and an outline around two pixels is
-     * border thicker than content. The ink follows the row -- complete when done, available while going --
-     * so a finished task's bar and its tick cannot disagree about what happened. The width glides rather
-     * than jumps: the number stays the cache's own, and only the drawing eases toward it.
+     * <p>The bar is a hairline fill over a grey track: no outline. An outline around two pixels is border
+     * thicker than content, but the remainder has to read as <i>remaining</i> rather than as nothing --
+     * over the live world an unfilled stretch is transparent, so a half-done task read as a shorter bar
+     * floating beside its count. The track is the viewers' own unfilled ink, so a bar means the same
+     * thing here as on a recipe page, and it starts with the bar: an untouched task keeps no groove at
+     * all, because the bar appearing is itself the news that it started. The ink follows the row -- complete when done, available while
+     * going -- so a finished task's bar and its tick cannot disagree about what happened. The width
+     * glides rather than jumps: the number stays the cache's own, and only the drawing eases toward it.
      */
     private static void paintTask(GuiRenderer r, Measure measure, Content content,
                                   PinnedPanelLayout.Row row, int left, int top) {
@@ -353,6 +379,13 @@ public final class HudOverlay {
             double target = Math.min(1.0, row.progress() / (double) row.count());
             int filled = (int) Math.round(barWidth
                     * easedFraction(content.questId(row.pinIndex()), row.taskIndex(), target));
+            if (barWidth > 0 && row.progress() > 0) {
+                // The grey remainder first, so an underway task reads as a bar rather than as a shorter
+                // fill floating beside its count. An untouched task keeps no groove at all: the bar
+                // appearing is itself the news that it started.
+                r.fill(barX, barY, barX + barWidth, barY + PinnedPanelLayout.BAR_HEIGHT,
+                        dev.ellipog.tenet.client.viewer.PagePalette.BAR_TRACK);
+            }
             if (row.progress() > 0 && filled > 0) {
                 r.fill(barX, barY, barX + Math.max(1, filled),
                         barY + PinnedPanelLayout.BAR_HEIGHT,
@@ -462,14 +495,24 @@ public final class HudOverlay {
      * <p>A pin the tree does not hold is skipped <b>and spends no drawn slot</b>: the file is per client and
      * not per world, so a pin can name a quest this server has never heard of, and a list that counted it
      * would show five of a player's six pins on that world.
+     *
+     * <p>A quest the player has finished and collected is skipped too, while the auto-hide is on: the pin
+     * stays pinned -- unpinning is the player's own act -- but the box leaves the HUD, because a watched
+     * quest with nothing left to watch is a box nobody asked for. Null player hides nothing, which is the
+     * direction that cannot lose a quest: without a player there is nobody whose claims can be counted.
      */
-    private static Content pins() {
+    private static Content pins(java.util.UUID player) {
         List<PinnedPanelLayout.Pin> out = new ArrayList<>();
         List<List<ItemStack>> icons = new ArrayList<>();
         List<String> questIds = new ArrayList<>();
         for (String id : PinnedQuests.pinned()) {
             ClientQuestCache.Entry entry = ClientQuestCache.entry(id);
             if (entry == null) {
+                continue;
+            }
+            if (PinnedQuests.hideClaimed() && player != null
+                    && ClientQuestCache.stateOf(id) == QuestState.COMPLETED
+                    && !ClientQuestCache.canClaimFor(player, id)) {
                 continue;
             }
             List<PinnedPanelLayout.Task> tasks = new ArrayList<>(entry.tasks().size());
@@ -484,17 +527,93 @@ public final class HudOverlay {
                 stacks.add(task.hasItem() ? task.item() : task.icon());
             }
             out.add(new PinnedPanelLayout.Pin(entry.titleText(), entry.chapterTitleText(),
-                    ClientQuestCache.stateOf(id) == QuestState.COMPLETED, tasks));
+                    ClientQuestCache.stateOf(id) == QuestState.COMPLETED,
+                    player != null && ClientQuestCache.stateOf(id) == QuestState.COMPLETED
+                            && ClientQuestCache.canClaimFor(player, id),
+                    tasks));
             icons.add(List.copyOf(stacks));
             questIds.add(id);
         }
         return new Content(List.copyOf(out), List.copyOf(icons), List.copyOf(questIds));
     }
 
+    /** One drawn pin box: the quest it is, and where it is on screen. */
+    public record PinHit(String questId, BookGeometry.Rect box) {
+    }
+
+    /**
+     * The quest id behind a press, or null when no pin box holds it.
+     *
+     * <p>The chat hook's whole question, and nothing else's: the world has no pointer, so only a screen
+     * that borrows one asks it. Answered from {@link #pinHits} rather than a second derivation, because
+     * a press that lands beside the box it aimed at is the fault two derivations exist to produce.
+     */
+    public static String pinAt(dev.ellipog.armature.client.ui.kit.Measure measure, int screenWidth,
+                               int screenHeight, long now, java.util.UUID player, double x, double y) {
+        for (PinHit hit : pinHits(measure, screenWidth, screenHeight, now, player)) {
+            if (hit.box().contains(x, y)) {
+                return hit.questId();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Rings the pin box under the pointer, if any.
+     *
+     * <p>The hover half of the chat hook: a press that lands where no ring said it would is a mode that
+     * hides what it does. An outline rather than a wash, because the pins are drawn behind the screen
+     * asking and a fill would cover them. Chat only, like the press: no other screen lends its pointer
+     * to these boxes, so no other screen gets the ring.
+     */
+    public static void drawPinHover(GuiRenderer renderer, dev.ellipog.armature.client.ui.kit.Measure measure,
+                                    int screenWidth, int screenHeight, long now, java.util.UUID player,
+                                    double x, double y) {
+        for (PinHit hit : pinHits(measure, screenWidth, screenHeight, now, player)) {
+            if (hit.box().contains(x, y)) {
+                // The toolkit's own outline, outset by one: it draws on the edges it is given, so the
+                // box it is handed is the pin's own box grown by a pixel -- a ring over the pins rather
+                // than on top of their edge pixels.
+                BookGeometry.Rect box = hit.box();
+                ArmatureTheme.outline(renderer, box.x() - 1, box.y() - 1, box.width() + 2,
+                        box.height() + 2, ArmatureTheme.selectedRing());
+                return;
+            }
+        }
+    }
+
+    /**
+     * Every drawn pin box, in draw order, for a press to land on.
+     *
+     * <p>Derived from the same content and the same column the drawing walks, so a box a press lands on
+     * is a box that was drawn -- one derivation for the drawing and the hit test, which is the rule that
+     * keeps the two from disagreeing when a pin hides or the window moves. The click screen reads this;
+     * the live HUD never needs it, because the world has no pointer.
+     */
+    public static List<PinHit> pinHits(dev.ellipog.armature.client.ui.kit.Measure measure, int screenWidth,
+                                       int screenHeight, long now, java.util.UUID player) {
+        Content content = pins(player);
+        if (content.pins().isEmpty()) {
+            return List.of();
+        }
+        PinnedPanelLayout.Column column = PinnedPanelLayout.column(content.pins(), words(), measure, false);
+        BookGeometry.Rect outer = HudLayout.boxAt(HudElement.PINNED_QUESTS, screenWidth, screenHeight,
+                HudSettings.x(HudElement.PINNED_QUESTS), HudSettings.y(HudElement.PINNED_QUESTS),
+                column.width(), column.height());
+        List<PinHit> hits = new ArrayList<>(column.boxes().size());
+        for (int i = 0; i < column.boxes().size() && i < content.questIds().size(); i++) {
+            PinnedPanelLayout.PlacedBox placed = column.boxes().get(i);
+            hits.add(new PinHit(content.questIds().get(i), BookGeometry.Rect.at(outer.x(),
+                    outer.y() + placed.y(), placed.box().width(), placed.box().height())));
+        }
+        return List.copyOf(hits);
+    }
+
     /** The boxes' sentences: the element's own label is gone, because a box per quest needs no panel name. */
     private static PinnedPanelLayout.Words words() {
         return new PinnedPanelLayout.Words(
                 Component.translatable("tenet.hud.pinned_complete").getString(),
+                Component.translatable("tenet.hud.pinned_claimable").getString(),
                 Component.translatable("tenet.hud.pinned_sample").getString(),
                 count -> Component.translatable("tenet.hud.pinned_more_tasks", count).getString());
     }

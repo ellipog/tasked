@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -64,6 +65,15 @@ class HudOverlayTest {
             {"id": "b", "title": "Craft a table", "dependsOn": ["a"], "tasks": [
               {"type": "tenet:checkmark", "title": "Say hello"}]}
             """;
+    private static final String C = """
+            {"id": "c", "title": "Claim the axe", "tasks": [
+              {"type": "tenet:checkmark", "title": "done"}],
+             "rewards": [
+              {"type": "tenet:item", "item": "minecraft:wooden_axe", "count": 1}]}
+            """;
+
+    /** The player these hide assertions collect as. Fixed, so a claim names somebody. */
+    private static final UUID ME = UUID.fromString("12345678-1234-1234-1234-1234567890ab");
 
     @BeforeAll
     static void bootstrap() {
@@ -342,7 +352,7 @@ class HudOverlayTest {
     }
 
     @Test
-    @DisplayName("a started task draws one hairline fill under its text, in the row's ink")
+    @DisplayName("a started task draws one hairline fill over a grey track, in the row's ink")
     void taskBarsAreHairlines() {
         accept(A, B);
         PinnedQuests.pin("a");
@@ -358,9 +368,15 @@ class HudOverlayTest {
                 .filter(call -> call.op() == RecordingRenderer.Op.FILL
                         && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
                 .toList();
-        assertEquals(1, bars.size(), "one bar: the checkmark task has no count and so none: " + drawn(r));
-        RecordingRenderer.Call bar = bars.get(0);
+        assertEquals(2, bars.size(), "track and fill: the checkmark task has no count and so none: "
+                + drawn(r));
+        RecordingRenderer.Call track = bars.get(0);
+        RecordingRenderer.Call bar = bars.get(1);
+        assertEquals(dev.ellipog.tenet.client.viewer.PagePalette.BAR_TRACK, track.argb(),
+                "the remainder is a grey track, not the world showing through: " + drawn(r));
         assertEquals(ArmatureTheme.complete(), bar.argb(), "a finished task wears the completion ink");
+        assertEquals(track.x(), bar.x(), "the fill starts where the track does");
+        assertTrue(track.x2() >= bar.x2(), "and the track is what is left when the fill ends");
 
         int textY = r.shadowedTexts().stream().filter(call -> call.text().equals("8 / 8")).findFirst()
                 .orElseThrow(() -> new AssertionError("no count text: " + drawn(r))).y();
@@ -369,7 +385,7 @@ class HudOverlayTest {
     }
 
     @Test
-    @DisplayName("a half-done task fills half its bar in the available ink")
+    @DisplayName("a half-done task fills half its bar in the available ink, over the grey track")
     void taskBarFillsWithProgress() {
         accept(A);
         PinnedQuests.pin("a");
@@ -384,8 +400,10 @@ class HudOverlayTest {
                 .filter(call -> call.op() == RecordingRenderer.Op.FILL
                         && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
                 .toList();
-        assertEquals(1, bars.size(), "one bar: " + drawn(r));
-        assertEquals(ArmatureTheme.available(), bars.get(0).argb(),
+        assertEquals(2, bars.size(), "track and fill: " + drawn(r));
+        assertEquals(dev.ellipog.tenet.client.viewer.PagePalette.BAR_TRACK, bars.get(0).argb(),
+                "the track first, full width: " + drawn(r));
+        assertEquals(ArmatureTheme.available(), bars.get(1).argb(),
                 "going, not done: " + drawn(r));
     }
 
@@ -409,13 +427,19 @@ class HudOverlayTest {
                 "converged from a quarter to three quarters of the same run: " + settled);
     }
 
-    /** The 2px bar's drawn width at one moment, or -1 when no bar is drawn. */
+    /**
+     * The 2px fill's drawn width at one moment, or -1 when no fill is drawn.
+     *
+     * <p>The track does not count: it is full width from the first frame, so measuring it would report
+     * a converged bar while the fill is still gliding.
+     */
     private static int barWidthAt(long now) {
         RecordingRenderer r = RecordingRenderer.create();
         HudOverlay.render(r, 640, 480, now);
         return r.calls().stream()
                 .filter(call -> call.op() == RecordingRenderer.Op.FILL
-                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT)
+                        && call.y2() - call.y() == PinnedPanelLayout.BAR_HEIGHT
+                        && call.argb() != dev.ellipog.tenet.client.viewer.PagePalette.BAR_TRACK)
                 .mapToInt(call -> call.x2() - call.x())
                 .findFirst().orElse(-1);
     }
@@ -491,8 +515,7 @@ class HudOverlayTest {
 
     @Test
     @DisplayName("the empty state is the whole stack: the boxes are gone as well as the rows")
-    void theEmptyStateTakesTheBoxWithIt() {
-        assertTrue(HudOverlay.size(HudElement.PINNED_QUESTS, FONT, HudOverlay.Face.LIVE, NOW).empty());
+    void theEmptyStateTakesTheBoxWithIt() {        assertTrue(HudOverlay.size(HudElement.PINNED_QUESTS, FONT, HudOverlay.Face.LIVE, NOW).empty());
 
         accept(A, B);
         PinnedQuests.pin("a");
@@ -502,5 +525,176 @@ class HudOverlayTest {
         assertTrue(size.width() >= PinnedPanelLayout.MIN_WIDTH
                         && size.width() <= PinnedPanelLayout.MAX_WIDTH,
                 "and the measured size is inside the column's own bounds: " + size.width());
+    }
+
+    /** Reports progress for the rewarded fixture quest, collected by nobody unless named. */
+    private static void reportRewarded(String state, UUID collector) {
+        String claims = collector == null ? ""
+                : ",\"claims\":{\"" + collector + "\":[0]}";
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), 100L,
+                ("{\"quests\":{\"c\":{\"state\":\"" + state + "\"" + claims + "}}}")
+                        .getBytes(StandardCharsets.UTF_8), 50L);
+    }
+
+    @Test
+    @DisplayName("a collected quest hides for the collector, and stays pinned")
+    void collectedHidesForTheCollector() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", ME);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW, ME);
+
+        assertFalse(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "collected is watched no longer: " + drawn(r));
+        assertTrue(HudOverlay.size(HudElement.PINNED_QUESTS, FONT, HudOverlay.Face.LIVE, NOW, ME).empty(),
+                "and the box goes with it");
+        assertTrue(PinnedQuests.isPinned("c"),
+                "but the pin stays: hiding is not unpinning, and the list still names it");
+    }
+
+    @Test
+    @DisplayName("a collected quest stays for a teammate with their own copy to collect")
+    void collectedStaysForATeammate() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", ME);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW, UUID.randomUUID());
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "their copy is still waiting: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a finished quest with rewards still out stays, and so does an unfinished one")
+    void unclaimedStays() {
+        accept(C);
+        PinnedQuests.pin("c");
+
+        reportRewarded("COMPLETED", null);
+        RecordingRenderer waiting = RecordingRenderer.create();
+        HudOverlay.render(waiting, 640, 480, NOW, ME);
+        assertTrue(waiting.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "finished but uncollected is what the pin is for: " + drawn(waiting));
+
+        reportRewarded("STARTED", null);
+        RecordingRenderer going = RecordingRenderer.create();
+        HudOverlay.render(going, 640, 480, NOW, ME);
+        assertTrue(going.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "and underway is too: " + drawn(going));
+    }
+
+    @Test
+    @DisplayName("switching the auto-hide off keeps a collected quest on the stack")
+    void switchedOffKeepsCollected() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", ME);
+        PinnedQuests.setHideClaimed(false);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW, ME);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "off means off: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("without a player nothing hides, which is the direction that cannot lose a quest")
+    void nobodyInParticularHidesNothing() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", ME);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claim the axe")),
+                "callers without a player see everything: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a finished quest with rewards out says Claimable rather than Complete")
+    void finishedWithRewardsOutSaysClaimable() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", null);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW, ME);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claimable")),
+                "done is not the news, collectable is: " + drawn(r));
+        assertFalse(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Complete")),
+                "and Complete is not said beside it: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a finished and collected quest says Complete while the hiding is off")
+    void collectedSaysCompleteWhenShown() {
+        accept(C);
+        PinnedQuests.pin("c");
+        reportRewarded("COMPLETED", ME);
+        PinnedQuests.setHideClaimed(false);
+
+        RecordingRenderer r = RecordingRenderer.create();
+        HudOverlay.render(r, 640, 480, NOW, ME);
+
+        assertTrue(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Complete")),
+                "shown but over: " + drawn(r));
+        assertFalse(r.shadowedTexts().stream().anyMatch(call -> call.text().equals("Claimable")),
+                "with nothing out: " + drawn(r));
+    }
+
+    @Test
+    @DisplayName("a press on a pin box names its quest, and one elsewhere names nothing")
+    void pinBoxesAnswerPresses() {
+        accept(C);
+        PinnedQuests.pin("c");
+
+        List<HudOverlay.PinHit> hits = HudOverlay.pinHits(FONT, 640, 480, NOW, null);
+        assertEquals(1, hits.size(), "one pin, one box");
+        BookGeometry.Rect box = hits.get(0).box();
+        assertEquals("c", hits.get(0).questId());
+        assertEquals("c", HudOverlay.pinAt(FONT, 640, 480, NOW, null,
+                box.x() + box.width() / 2, box.y() + box.height() / 2));
+
+        assertTrue(HudOverlay.pinAt(FONT, 640, 480, NOW, null, 639, 479) == null,
+                "a press in the far corner is nobody's quest");
+        assertTrue(HudOverlay.pinAt(FONT, 640, 480, NOW, null, box.x() - 1, box.y()) == null,
+                "nor one pixel off its edge");
+
+        // And a hidden quest answers nothing for the player it hides from, while staying clickable
+        // for callers without one: the hook passes the live player, so this is the live answer.
+        reportRewarded("COMPLETED", ME);
+        assertTrue(HudOverlay.pinAt(FONT, 640, 480, NOW, ME,
+                box.x() + box.width() / 2, box.y() + box.height() / 2) == null);
+        assertEquals("c", HudOverlay.pinAt(FONT, 640, 480, NOW, null,
+                box.x() + box.width() / 2, box.y() + box.height() / 2));
+    }
+
+    @Test
+    @DisplayName("the hovered pin box wears an outline, and empty space wears nothing")
+    void hoveredPinBoxWearsAnOutline() {
+        accept(C);
+        PinnedQuests.pin("c");
+        BookGeometry.Rect box = HudOverlay.pinHits(FONT, 640, 480, NOW, null).get(0).box();
+
+        RecordingRenderer on = RecordingRenderer.create();
+        HudOverlay.drawPinHover(on, FONT, 640, 480, NOW, null,
+                box.x() + box.width() / 2, box.y() + box.height() / 2);
+        List<RecordingRenderer.Call> ring = on.calls().stream()
+                .filter(call -> call.op() == RecordingRenderer.Op.FILL).toList();
+        assertEquals(4, ring.size(), "one pixel per side: " + drawn(on));
+        assertTrue(ring.stream().allMatch(call -> call.argb() == ArmatureTheme.selectedRing()),
+                "the selection ring, which is what hover means everywhere else");
+
+        RecordingRenderer off = RecordingRenderer.create();
+        HudOverlay.drawPinHover(off, FONT, 640, 480, NOW, null, 639, 479);
+        assertTrue(off.calls().stream().noneMatch(call -> call.op() == RecordingRenderer.Op.FILL),
+                "empty space draws nothing: " + drawn(off));
     }
 }

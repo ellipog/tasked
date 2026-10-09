@@ -37,9 +37,13 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.ChatScreen;
 
 import dev.ellipog.armature.client.render.GuiGraphicsRenderer;
+import dev.ellipog.armature.client.ui.kit.Measure;
 
 /**
  * Fabric's client half.
@@ -102,6 +106,46 @@ public final class TenetFabricClient implements ClientModInitializer {
             }
         });
 
+        // Pinned quests answer presses in chat: the cursor is already free there, and the pins draw
+        // behind it. Chat only, and left button only -- every other screen owns its clicks, and chat
+        // keeps the ones that land nowhere near a pin. A press on a box opens the book on that quest,
+        // which closes chat; anything typed but unsent goes with it, which is the documented cost.
+        // Per screen instance, through BEFORE_INIT: these subscriptions die with the screen, so each
+        // chat gets its own and no other screen ever answers for one.
+        ScreenEvents.BEFORE_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            if (!(screen instanceof ChatScreen)) {
+                return;
+            }
+            ScreenMouseEvents.allowMouseClick(screen).register((chat, mouseX, mouseY, button) -> {
+                if (button != 0) {
+                    return true;
+                }
+                var game = Minecraft.getInstance();
+                var player = game.player;
+                Measure measure = Measure.of(game.font::width, game.font.lineHeight);
+                String quest = HudOverlay.pinAt(measure, game.getWindow().getGuiScaledWidth(),
+                        game.getWindow().getGuiScaledHeight(), net.minecraft.Util.getMillis(),
+                        player == null ? null : player.getUUID(), mouseX, mouseY);
+                if (quest == null) {
+                    return true;
+                }
+                QuestBookScreen.openOn(quest);
+                return false;
+            });
+            // The hover half of the hook: the ring a press lands inside of, drawn after chat so it reads
+            // over it. Same boxes, same player, one frame later at most -- a ring that lagged the boxes
+            // would invite presses onto whatever moved under it.
+            ScreenEvents.afterRender(screen).register((chat, context, mouseX, mouseY, tickDelta) -> {
+                var game = Minecraft.getInstance();
+                var player = game.player;
+                Measure measure = Measure.of(game.font::width, game.font.lineHeight);
+                HudOverlay.drawPinHover(new GuiGraphicsRenderer(context), measure,
+                        game.getWindow().getGuiScaledWidth(), game.getWindow().getGuiScaledHeight(),
+                        net.minecraft.Util.getMillis(), player == null ? null : player.getUUID(),
+                        mouseX, mouseY);
+            });
+        });
+
         // And the layout those lines read, before anything can draw it. Read here for the same reason as
         // the settings below: an inventory opened in the first second of a session must not draw its
         // button somewhere else because the file had not been read yet.
@@ -114,9 +158,13 @@ public final class TenetFabricClient implements ClientModInitializer {
         // the editor deliberately left unattached -- "nothing is drawn on the HUD by this round" -- and it is
         // one line because everything it draws is Tenet's: the hook hands over a drawing context, the wrapper
         // turns it into the toolkit's renderer, and `HudOverlay` decides what is on and where. The game does
-        // not call this while the GUI is hidden, so F1 needs no guard from here.
-        HudRenderCallback.EVENT.register((graphics, tickDelta) -> HudOverlay.render(
-                new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight()));
+        // not call this while the GUI is hidden, so F1 needs no guard from here. The player travels with it
+        // because the overlay names no client class: who is looking decides whose claimed quests hide.
+        HudRenderCallback.EVENT.register((graphics, tickDelta) -> {
+            var player = net.minecraft.client.Minecraft.getInstance().player;
+            HudOverlay.render(new GuiGraphicsRenderer(graphics), graphics.guiWidth(), graphics.guiHeight(),
+                    net.minecraft.Util.getMillis(), player == null ? null : player.getUUID());
+        });
 
         // The developer screen and its F9 key are gone: the tools are a panel inside the book now,
         // reached from its header by a player who may edit. A key that opened a *different* screen was

@@ -44,7 +44,7 @@ class PinnedPanelLayoutTest {
 
     /** The words, in the shape the painter supplies them: resolved, with the one counted sentence as one. */
     private static PinnedPanelLayout.Words words() {
-        return new PinnedPanelLayout.Words("Complete", "sample", n -> "+" + n + " more");
+        return new PinnedPanelLayout.Words("Complete", "Claimable", "sample", n -> "+" + n + " more");
     }
 
     private static PinnedPanelLayout.Task task(String text, int progress, int count, boolean done) {
@@ -52,7 +52,7 @@ class PinnedPanelLayoutTest {
     }
 
     private static PinnedPanelLayout.Pin pin(String title, boolean complete, PinnedPanelLayout.Task... tasks) {
-        return new PinnedPanelLayout.Pin(title, "Chapter One", complete, List.of(tasks));
+        return new PinnedPanelLayout.Pin(title, "Chapter One", complete, false, List.of(tasks));
     }
 
     private static PinnedPanelLayout.Column column(PinnedPanelLayout.Pin... pins) {
@@ -142,13 +142,32 @@ class PinnedPanelLayoutTest {
     }
 
     @Test
+    @DisplayName("a finished quest says Claimable while rewards are out, Complete once they are not")
+    void finishedSaysWhatIsLeft() {
+        PinnedPanelLayout.Box waiting = only(column(
+                new PinnedPanelLayout.Pin("Head", "", true, true, List.of())));
+        assertEquals("Claimable", waiting.rows().stream()
+                        .filter(row -> row.kind() == PinnedPanelLayout.Kind.COMPLETE)
+                        .findFirst().orElseThrow(() -> new AssertionError("no last line"))
+                        .text(),
+                "done is not the news, collectable is");
+
+        PinnedPanelLayout.Box collected = only(column(
+                new PinnedPanelLayout.Pin("Head", "", true, false, List.of())));
+        assertEquals("Complete", collected.rows().stream()
+                        .filter(row -> row.kind() == PinnedPanelLayout.Kind.COMPLETE)
+                        .findFirst().orElseThrow(() -> new AssertionError("no last line"))
+                        .text());
+    }
+
+    @Test
     @DisplayName("past six tasks a box counts the rest rather than growing past the window")
     void theTaskListIsCapped() {
         List<PinnedPanelLayout.Task> many = new ArrayList<>();
         for (int i = 0; i < PinnedPanelLayout.MAX_TASK_ROWS + 3; i++) {
             many.add(task("Task " + i, 0, 1, false));
         }
-        PinnedPanelLayout.Box box = only(column(new PinnedPanelLayout.Pin("Head", "", false, many)));
+        PinnedPanelLayout.Box box = only(column(new PinnedPanelLayout.Pin("Head", "", false, false, many)));
 
         long listed = box.rows().stream().filter(row -> row.kind() == PinnedPanelLayout.Kind.TASK).count();
         assertEquals(PinnedPanelLayout.MAX_TASK_ROWS, listed, "a quest with twenty tasks is not twenty rows");
@@ -173,7 +192,7 @@ class PinnedPanelLayoutTest {
     @Test
     @DisplayName("a narrow title gets the narrowest box, not a box the width of its text")
     void shortTextGetsTheFloor() {
-        PinnedPanelLayout.Box box = only(column(new PinnedPanelLayout.Pin("Hi", "", false, List.of())));
+        PinnedPanelLayout.Box box = only(column(new PinnedPanelLayout.Pin("Hi", "", false, false, List.of())));
         assertEquals(PinnedPanelLayout.MIN_WIDTH, box.width(),
                 "a box four characters wide is not a box");
     }
@@ -243,7 +262,7 @@ class PinnedPanelLayoutTest {
     void theNoteFollowsTheDrawnTitle() {
         PinnedPanelLayout.Box box = only(column(new PinnedPanelLayout.Pin(
                 "A long quest name that will certainly be truncated somewhere", "A long chapter name too",
-                false, List.of())));
+                false, false, List.of())));
         PinnedPanelLayout.Row row = box.rows().get(0);
         int content = box.width() - PinnedPanelLayout.PAD * 2;
 
@@ -326,7 +345,7 @@ class PinnedPanelLayoutTest {
                     for (int t = 0; t < tasks; t++) {
                         rows.add(task("Task number " + t + " of a great many", t, tasks + 1, t % 2 == 0));
                     }
-                    content.add(new PinnedPanelLayout.Pin("Quest " + p, "Chapter", p == 0, rows));
+                    content.add(new PinnedPanelLayout.Pin("Quest " + p, "Chapter", p == 0, false, rows));
                 }
                 PinnedPanelLayout.Column column = PinnedPanelLayout.column(content, words(), FONT, false);
 

@@ -102,7 +102,11 @@ public final class HudLayout {
 
     /** The whole height the chrome needs for these rows, footer included. */
     public static int chromeHeight(List<HudElement> elements) {
-        int height = INSET * 2 + FOOT_HEIGHT;
+        // Plus the auto-hide row: finished and collected quests leave the stack on their own unless the
+        // player said otherwise, and the switch for that lives here rather than in the book because this
+        // is the screen that shows what hiding does. Fixed furniture like the foot, so every chrome has
+        // room for it the way every chrome has room for Done.
+        int height = INSET * 2 + FOOT_HEIGHT + ROW_HEIGHT;
         for (HudElement element : elements) {
             height += rowHeight(element);
         }
@@ -242,12 +246,20 @@ public final class HudLayout {
                 Math.max(0, chrome.width() - INSET * 2), LABEL_LINE);
     }
 
-    /** The show/hide switch of one row, at the left of its control line. */
+    /**
+     * The show/hide switch of one row, docked left of its Reset button.
+     *
+     * <p>Right, with the row's actions, rather than left under the label's start: a 22-pixel switch
+     * alone at the left edge with Reset alone at the right left a row's whole middle empty, and the
+     * state read as disconnected from the row it belonged to. Labels keep the full width above; the
+     * controls share one right edge below. The hide row docks to the same line through
+     * {@link #hideToggle}, so every switch in the chrome answers to one vertical.
+     */
     public static BookGeometry.Rect toggle(int index, BookGeometry.Rect chrome,
                                            List<HudElement> elements) {
-        return BookGeometry.Rect.at(chrome.x() + INSET,
-                controlTop(index, chrome, elements) + (CONTROL_LINE - SWITCH_HEIGHT) / 2,
-                SWITCH_WIDTH, SWITCH_HEIGHT);
+        BookGeometry.Rect reset = reset(index, chrome, elements);
+        return BookGeometry.Rect.at(reset.x() - BUTTON_GAP - SWITCH_WIDTH,
+                reset.y() + (CONTROL_LINE - SWITCH_HEIGHT) / 2, SWITCH_WIDTH, SWITCH_HEIGHT);
     }
 
     /** The Reset button of one row, against the chrome's right inset. */
@@ -275,6 +287,21 @@ public final class HudLayout {
     public static BookGeometry.Rect done(BookGeometry.Rect chrome) {
         return BookGeometry.Rect.at(chrome.right() - INSET - BUTTON_WIDTH,
                 chrome.bottom() - INSET - CONTROL_LINE, BUTTON_WIDTH, CONTROL_LINE);
+    }
+
+    /**
+     * The auto-hide row's label line, after every element's row.
+     *
+     * <p>Index one past the elements, which the arithmetic already allows: {@code rowTop} sums what is
+     * there, so an extra row needs no new rule, only a name for where it lands.
+     */
+    public static BookGeometry.Rect hideLabel(BookGeometry.Rect chrome, List<HudElement> elements) {
+        return label(elements.size(), chrome, elements);
+    }
+
+    /** The auto-hide row's switch, at the left of its control line. */
+    public static BookGeometry.Rect hideToggle(BookGeometry.Rect chrome, List<HudElement> elements) {
+        return toggle(elements.size(), chrome, elements);
     }
 
     private static int rowTop(int index, BookGeometry.Rect chrome, List<HudElement> elements) {

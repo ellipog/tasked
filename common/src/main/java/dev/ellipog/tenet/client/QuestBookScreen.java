@@ -1381,6 +1381,40 @@ public final class QuestBookScreen extends ArmatureScreen
     /** The header's way into the player's settings; for every player, unlike the author's pair. */
     private ArmatureButton settingsHeaderButton;
 
+    /** The header's way into the player's pinned quests; beside Settings, for every player like it. */
+    private ArmatureButton pinnedHeaderButton;
+
+    /**
+     * The pinned list's own rows, scroll view and layout: one switch and one row per pin.
+     *
+     * <p>Per-kind state rather than part of the arrangement, the way the element panel's rows are: the
+     * arrangement names that a pinned rail is open, and these name what it is showing.
+     */
+    private final dev.ellipog.armature.client.ui.kit.ScrollView pinnedView =
+            dev.ellipog.armature.client.ui.kit.ScrollView.of(
+                    dev.ellipog.armature.client.ui.kit.Viewport.fixed());
+    private List<ToolsLayout.Action> pinnedRows = List.of();
+    private Layout pinnedLayout;
+
+    /**
+     * What each pin row draws at its left edge, resolved when the rows are built.
+     *
+     * <p>At build rather than per frame: the rows are rebuilt whenever the tree moves, and a frame that
+     * walked the cache per row would pay the lookup sixty times a second for an answer that cannot
+     * change between rebuilds. An id the tree does not hold keeps an empty stack, and the row keeps
+     * the icon's room either way, so a late icon does not shift the title it lands beside.
+     */
+    private final Map<String, ItemStack> pinnedIcons = new HashMap<>();
+
+    /**
+     * The pinned panel's drawn targets: what the chrome registers, and what its own press walks.
+     *
+     * <p>Its own list rather than the editor's, for the reason the element panel has one: the editor's
+     * list still holds the marks the panel behind it drew, and a press inside this panel must not be
+     * able to land on one of those.
+     */
+    private final List<EditTarget> pinnedTargets = new ArrayList<>();
+
     /** The progress revision the rewards panel's rows were built at; see {@link #tick}. */
     private long rewardsRevision = -1;
 
@@ -1804,6 +1838,8 @@ public final class QuestBookScreen extends ArmatureScreen
         ASSETS_NEW,
         /** The element panel's close chip: put the form away and leave the element selected. */
         ELEMENT_CLOSE,
+        /** The pinned list's close chip: put the list away. */
+        PINNED_CLOSE,
         ASSETS_CLOSE
     }
 
@@ -8474,11 +8510,25 @@ public final class QuestBookScreen extends ArmatureScreen
             case PARTY -> openPartyOverlay();
             case REWARDS -> openRewardsOverlay();
             case SETTINGS -> openSettingsOverlay();
+            case PINNED -> openPinnedOverlay();
             default -> {
-                // The three buttons this exists for. A fourth would be a compile error here rather than a
+                // The four buttons this exists for. A fifth would be a compile error here rather than a
                 // press that silently did nothing, which is the shape this switch is for.
             }
         }
+    }
+
+    /**
+     * Opens the pinned list at the top of both columns: the player's watchlist, beside their settings.
+     *
+     * <p>A root like the other header panels, through the same rules: asking for the list is asking to
+     * move on. The scroll restarts at the top, because a list opened mid-way down is a list whose head
+     * the player has not seen.
+     */
+    private void openPinnedOverlay() {
+        applyColumns(PanelStack.asRoot(columns(), PanelKind.PINNED));
+        pinnedView.scrollTo(0);
+        rebuildWidgets();
     }
 
     /**
@@ -8935,6 +8985,18 @@ public final class QuestBookScreen extends ArmatureScreen
                     .tooltip(Component.translatable("tenet.screen.accessibility_settings"));
         }
 
+        // The pinned quests button, beside Settings for every player: the watchlist next to the card
+        // that says how it reads. Built for every player like the three beside it, because pins are a
+        // player's own business rather than an author's.
+        pinnedHeaderButton = control(controls.get("pinned"),
+                Component.translatable("tenet.screen.pinned.button"),
+                () -> togglePanel(PanelKind.PINNED));
+        chrome(pinnedHeaderButton);
+        if (pinnedHeaderButton != null) {
+            pinnedHeaderButton.ink(ArmatureButton.Ink.BODY).selected(leftKind() == PanelKind.PINNED)
+                    .tooltip(Component.translatable("tenet.screen.pinned.tip"));
+        }
+
         // The author's band, and its controls exist only for a player who may edit the questline -- the same
         // permission `/tenet reload` asks for, which is what makes "who may edit" one rule rather than two.
         // A player who is not an operator never has them built at all, so their screen carries no trace of
@@ -9184,6 +9246,7 @@ public final class QuestBookScreen extends ArmatureScreen
             case TABLE_BROWSER -> buildTableBrowserWidgets();
             case TABLE_EDITOR -> buildTableEditorWidgets();
             case SETTINGS -> buildSettingsWidgets();
+            case PINNED -> buildPinnedWidgets();
             case ELEMENT -> buildElementWidgets();
             case ASSETS, NONE, CHOICE -> {
                 // Nothing of its own: the assets list is drawn from its layout, and a choice is a card,
@@ -14729,7 +14792,12 @@ public final class QuestBookScreen extends ArmatureScreen
             elementPanelId = null;
             return;
         }
-        elementRows = dev.ellipog.tenet.client.dev.ElementPanelLayout.rows(CanvasElement.asJson(element));
+        elementRows = dev.ellipog.tenet.client.dev.ElementPanelLayout.rowsForPanel(
+                CanvasElement.asJson(element), elementFolded);
+        if (elementConfirmingDelete != null && !elementConfirmingDelete.equals(elementPanelId)) {
+            // Armed for another element: a Delete left asking its question must not fire on this one.
+            elementConfirmingDelete = null;
+        }
         elementTargets.clear();
         BookGeometry.Rect body = overlayBodyRect();
         elementLayout = ToolsLayout.stack(elementRows, InspectLayout.Mode.STACKED)
@@ -14739,7 +14807,8 @@ public final class QuestBookScreen extends ArmatureScreen
         // registered under keys no layout holds -- hidden, and kept for the session. `ScrollView.put` hides
         // what it registers until the next `apply`, so clearing here cannot flash a stale control.
         elementView.clear();
-        elementView.viewport().bounds(body.x(), body.y(), body.width(), body.height());
+        elementView.viewport().bounds(body.x(), body.y() + ELEMENT_PREVIEW_HEIGHT, body.width(),
+                Math.max(0, body.height() - ELEMENT_PREVIEW_HEIGHT));
         elementView.whole(true);
         // **The list's own row pitch, which is what `ScrollBar.pitch` is for**: a wheel notch lands on a row
         // boundary instead of thirty pixels into one, and the row it lands on is a whole stacked row -- the
@@ -14787,8 +14856,17 @@ public final class QuestBookScreen extends ArmatureScreen
                     pick.ink(ArmatureButton.Ink.BODY).alignLeft(true);
                     elementView.put(row.key(), pick, InspectLayout::controlBand);
                 }
+                case HEADING -> {
+                    // A section's fold: the same flat invisible button the Chapter tab hangs on every
+                    // heading, so a section folds wherever the form is shown. The title heading is gone
+                    // from this list (`rowsForPanel`), and what is left is the sections'.
+                    ArmatureButton foldButton = control(0, 0, 0, 0, Component.literal(""),
+                            () -> foldElementSection(row.key()));
+                    foldButton.flat(true);
+                    elementView.put(row.key(), foldButton);
+                }
                 default -> {
-                    // The heading holds no widget: it is the panel saying what it is about.
+                    // A read-only row holds no widget: the panel draws it, like the chapter tab's.
                 }
             }
         }
@@ -14803,6 +14881,419 @@ public final class QuestBookScreen extends ArmatureScreen
         // stacked composition, so a control belongs in its row's band rather than across the whole of it.
         buildRowControls(elementView, elementRows, true);
         elementView.apply(elementLayout, body.width());
+        buildElementFooter(element);
+    }
+
+    /**
+     * The element panel's footer: what the canvas's right-click menu used to be the only way to reach.
+     *
+     * <p>Lower and Raise step the draw order one rung — the discoverable path to the {@code order} row,
+     * which stays for exact numbers — Duplicate copies the element and opens the panel on the copy, and
+     * Delete asks once like every destructive control here. Done closes, leaving the selection, which is
+     * what the chrome's own close chip does. Four actions share the quest editor's bar rectangle
+     * ({@code BookGeometry.editorBar}), because that is the shape this card's footer already is; Done
+     * takes Back's slot beside them.
+     */
+    private void buildElementFooter(CanvasElement element) {
+        ArmatureButton done = control(overlayControls(false).get("back"),
+                Component.translatable("tenet.screen.done"), this::closeOverlay);
+        if (done != null) {
+            done.ink(ArmatureButton.Ink.BODY)
+                    .tooltip(Component.translatable("tenet.screen.escape_also_closes_this"));
+        }
+        if (!mayEditNow()) {
+            return;
+        }
+        BookGeometry.Rect slot = geometry().editorBar(surfaceCard(PanelKind.ELEMENT));
+        if (slot == null) {
+            return;
+        }
+        int gap = EDITOR_ACTION_GAP;
+        int left = slot.x();
+        int right = slot.right();
+        int quarter = Math.max(0, (right - left - gap * 3) / 4);
+        BookGeometry.Rect lower = BookGeometry.Rect.at(left, slot.y(), quarter, slot.height());
+        BookGeometry.Rect raise =
+                BookGeometry.Rect.at(lower.right() + gap, slot.y(), quarter, slot.height());
+        BookGeometry.Rect duplicate =
+                BookGeometry.Rect.at(raise.right() + gap, slot.y(), quarter, slot.height());
+        BookGeometry.Rect delete = BookGeometry.Rect.at(duplicate.right() + gap, slot.y(),
+                Math.max(0, right - duplicate.right() - gap), slot.height());
+        String id = element.id();
+        control(lower, Component.translatable("tenet.dev.element.lower"),
+                () -> stepElementOrder(id, -1)).ink(ArmatureButton.Ink.BODY)
+                .tooltip(Component.translatable("tenet.dev.element.lower_tip"));
+        control(raise, Component.translatable("tenet.dev.element.raise"),
+                () -> stepElementOrder(id, 1)).ink(ArmatureButton.Ink.BODY)
+                .tooltip(Component.translatable("tenet.dev.element.raise_tip"));
+        control(duplicate, Component.translatable("tenet.screen.duplicate"),
+                () -> duplicateElementOpen(id)).ink(ArmatureButton.Ink.BODY);
+        boolean armed = id.equals(elementConfirmingDelete);
+        ArmatureButton remove = control(delete,
+                Component.literal(armed ? "Really delete?" : "Delete"),
+                () -> pressDeleteElement(id));
+        if (remove != null) {
+            remove.ink(armed ? ArmatureButton.Ink.BLOCKED : ArmatureButton.Ink.BODY);
+        }
+    }
+
+    /** Folds or unfolds one of the element panel's sections. The Chapter tab folds through its own set. */
+    private void foldElementSection(String key) {
+        closeColourPopover();
+        if (!elementFolded.remove(key)) {
+            elementFolded.add(key);
+        }
+        rebuildWidgets();
+    }
+
+    /**
+     * Steps one element's draw order one rung, staying inside the range the form's own row allows.
+     *
+     * <p>At the rail's ends there is nowhere to go, and a gesture that changes nothing must not cost a
+     * save and a history step — the same rule a drag that jittered follows in
+     * {@code commitElementEdit}. The draft goes first so the canvas follows the press, like every other
+     * element write.
+     */
+    private void stepElementOrder(String id, int delta) {
+        if (!mayEditNow()) {
+            return;
+        }
+        CanvasElement now = elementNow(id);
+        if (now == null) {
+            return;
+        }
+        dev.ellipog.tenet.client.dev.ElementPanelLayout.Range range =
+                dev.ellipog.tenet.client.dev.ElementPanelLayout.rangeOf(now.type(), "order");
+        int min = range == null ? -64 : (int) Math.round(range.min());
+        int max = range == null ? 64 : (int) Math.round(range.max());
+        int current = (int) Math.round(dev.ellipog.tenet.client.dev.ElementPanelLayout.numberOf(
+                CanvasElement.asJson(now), "order"));
+        int next = Math.max(min, Math.min(max, current + delta));
+        if (next == current) {
+            return;
+        }
+        JsonElement written = new JsonPrimitive((long) next);
+        draftElementField(id, "order", written);
+        send(new EditorOp.SetElement(id, "order", written));
+        rebuildWidgets();
+    }
+
+    /**
+     * The footer Delete: the first press arms it and says so, the second deletes and closes.
+     *
+     * <p>Closing, because the panel is about the element it just removed: a form whose subject is gone
+     * would draw its heading and no fields, and every press in it would go nowhere — which is why
+     * {@code deleteElement} already lets go of the selection. The canvas menu's Delete arms the same
+     * way, and this is the same question asked from the panel.
+     */
+    private void pressDeleteElement(String id) {
+        if (!mayEditNow() || elementNow(id) == null) {
+            return;
+        }
+        if (id.equals(elementConfirmingDelete)) {
+            elementConfirmingDelete = null;
+            deleteElement(id);
+            closeOverlay();
+            return;
+        }
+        elementConfirmingDelete = id;
+        rebuildWidgets();
+    }
+
+    /**
+     * A copy of one element, with the panel opened on the copy.
+     *
+     * <p>The canvas menu duplicates onto the canvas and leaves the author to find the copy; from the
+     * panel the copy is the thing being edited, so the panel follows it. The insert itself is the same
+     * optimistic write {@code duplicateElement} sends, under the fresh id the client chooses.
+     */
+    private void duplicateElementOpen(String id) {
+        if (!mayEditNow()) {
+            return;
+        }
+        CanvasElement element = elementNow(id);
+        if (element == null) {
+            return;
+        }
+        com.google.gson.JsonObject tree = CanvasElement.asJson(element);
+        int index = elementInsertIndex();
+        CanvasElement made = placeElement(tree);
+        if (made == null) {
+            return;
+        }
+        elementDraft.insert(effectiveChapter(), made, index, Util.getMillis());
+        send(new EditorOp.InsertElement(index, tree));
+        openElementPanel(made.id());
+    }
+
+    // ------------------------------------------------------------------
+    // The pinned list
+    // ------------------------------------------------------------------
+
+    /** The list's own heading row. Static, like the problems heading: a fold would hide the list itself. */
+    private static final String PINNED_HEADING = "pinned:list";
+
+    /** The empty list's one row. */
+    private static final String PINNED_EMPTY = "pinned:empty";
+
+    /** One pin's row key. The id follows the first colon, because an id may hold colons of its own. */
+    private static String pinnedRowKey(String id) {
+        return "pinned:" + id;
+    }
+
+    /** The quest id a pin row key names, or null for a key that names none. */
+    private static String pinnedIdOf(String key) {
+        if (key == null || !key.startsWith("pinned:")) {
+            return null;
+        }
+        String id = key.substring("pinned:".length());
+        return id.isEmpty() ? null : id;
+    }
+
+    /**
+     * The pinned list's rows: what it is, and one row per pin.
+     *
+     * <p>Built from the pin file's own order, including the quests the HUD hides: the list manages pins
+     * and the HUD watches them, and a finished quest that vanished from one must still be removable in
+     * the other. The auto-hide switch lives in the HUD editor rather than here, beside the element it
+     * governs. A pin the tree does not hold reads by its id, so a pack edit cannot strand a row with
+     * nothing behind it.
+     */
+    private void buildPinnedWidgets() {
+        List<ToolsLayout.Action> rows = new ArrayList<>();
+        rows.add(ToolsLayout.Action.heading(PINNED_HEADING, "tenet.screen.pinned.title"));
+        List<String> ids = dev.ellipog.tenet.client.hud.PinnedQuests.pinned();
+        if (ids.isEmpty()) {
+            rows.add(ToolsLayout.Action.value(PINNED_EMPTY, "",
+                    Labels.of("tenet.hud.pinned_sample")));
+        }
+        pinnedIcons.clear();
+        for (String id : ids) {
+            ClientQuestCache.Entry entry = entryFor(id);
+            rows.add(ToolsLayout.Action.value(pinnedRowKey(id),
+                    entry == null ? id : entry.titleText(),
+                    entry == null ? "" : entry.chapterTitleText()));
+            pinnedIcons.put(id, entry == null ? ItemStack.EMPTY : entry.icon());
+        }
+        pinnedRows = List.copyOf(rows);
+        pinnedTargets.clear();
+        BookGeometry.Rect body = overlayBodyRect();
+        pinnedLayout = ToolsLayout.stack(pinnedRows, InspectLayout.Mode.STACKED)
+                .build(body.width(), Measure.monospace(6, 9));
+        pinnedView.clear();
+        pinnedView.viewport().bounds(body.x(), body.y(), body.width(), body.height());
+        pinnedView.whole(true);
+        pinnedView.bar().pitch(InspectLayout.STACKED_ROW_HEIGHT + InspectLayout.STACKED_ROW_GAP);
+        pinnedView.apply(pinnedLayout, body.width());
+
+        ArmatureButton done = control(overlayControls(false).get("back"),
+                Component.translatable("tenet.screen.done"), this::closeOverlay);
+        if (done != null) {
+            done.ink(ArmatureButton.Ink.BODY)
+                    .tooltip(Component.translatable("tenet.screen.escape_also_closes_this"));
+        }
+    }
+
+    /**
+     * One pin row's star end: a square against the row's own right edge.
+     *
+     * <p>The quest header's own pin control, in miniature: a filled star for a pinned quest, and the press
+     * lets go of it. A square of the row's own height rather than a word's width, so the aim is the same
+     * on every row and the title keeps what a label would have taken.
+     */
+    private static BookGeometry.Rect pinnedUnpinBox(BookGeometry.Rect row) {
+        int side = Math.max(18, row.height());
+        return BookGeometry.Rect.at(row.right() - side, row.y() + (row.height() - side) / 2, side,
+                side);
+    }
+
+    /** The quest header's pin star, filled: every row here is pinned, so there is no hollow state. */
+    private static final String PINNED_STAR = "\u2605";
+
+    /**
+     * The pinned list as a rail: its chrome, its rows, then the shared bar.
+     *
+     * <p>Drawn by hand from the layout rather than through {@code ToolsPanel}, because a pin row is two
+     * presses wide: the row opens its quest and its star end lets go of it, and one widget per row
+     * cannot be both. The heading is the panel's; the rows carry no widget at all.
+     */
+    private void drawPinnedPanel(GuiRenderer r, int mouseX, int mouseY) {
+        if (pinnedLayout == null) {
+            return;
+        }
+        pinnedTargets.clear();
+        drawModalCardChrome(r, Labels.of("tenet.screen.pinned.title"), mouseX, mouseY,
+                EditAction.PINNED_CLOSE, pinnedTargets);
+        Measure measure = textMeasure(r);
+        int starWidth = r.textWidth(PINNED_STAR);
+        try (GuiRenderer.Scoped clip = r.clip(overlayBodyRect().x(), overlayBodyRect().y(),
+                overlayBodyRect().right(), overlayBodyRect().bottom())) {
+            for (ToolsLayout.Action row : pinnedRows) {
+                dev.ellipog.armature.client.ui.kit.Slot slot = pinnedLayout.slot(row.key());
+                if (slot == null) {
+                    continue;
+                }
+                dev.ellipog.armature.client.ui.kit.Slot onScreen =
+                        ToolsLayout.onScreen(pinnedView.viewport(), slot);
+                BookGeometry.Rect box = BookGeometry.Rect.at(onScreen.x(), onScreen.y(),
+                        onScreen.width(), onScreen.height());
+                switch (row.kind()) {
+                    case HEADING -> r.text(Measure.truncate(Labels.of(row.label()), box.width(), measure),
+                            box.x(), box.y() + (box.height() - r.lineHeight()) / 2,
+                            ArmatureTheme.title());
+                    case VALUE -> {
+                        if (PINNED_EMPTY.equals(row.key())) {
+                            r.text(Measure.truncate(row.value(), box.width(), measure),
+                                    box.x(), box.y() + (box.height() - r.lineHeight()) / 2,
+                                    ArmatureTheme.faint());
+                            continue;
+                        }
+                        String id = pinnedIdOf(row.key());
+                        boolean hidden = id != null && pinnedHidden(id);
+                        int ink = hidden ? ArmatureTheme.faint() : ArmatureTheme.body();
+                        BookGeometry.Rect unpinBox = pinnedUnpinBox(box);
+                        // The quest's own icon, where every book row puts one: the room is kept whether or
+                        // not the stack resolved, so a row never shifts under the pointer reading it.
+                        int textX = box.x() + 2 + ROW_ICON + 5;
+                        ItemStack pinIcon = id == null ? ItemStack.EMPTY
+                                : pinnedIcons.getOrDefault(id, ItemStack.EMPTY);
+                        if (!pinIcon.isEmpty()) {
+                            r.icon(pinIcon, box.x() + 2,
+                                    box.y() + (box.height() - ROW_ICON) / 2, ROW_ICON);
+                        }
+                        int titleRoom = Math.max(0, unpinBox.x() - 6 - textX);
+                        String title = Measure.truncate(row.label(), titleRoom, measure);
+                        r.text(title, textX, box.y() + (box.height() - r.lineHeight()) / 2, ink);
+                        if (!row.value().isEmpty()) {
+                            // Right-aligned, but capped by the title's drawn end: a chapter that started
+                            // where the title has not finished would write through it, and the two long
+                            // together are exactly when that happens.
+                            int noteRoom = Math.max(0,
+                                    unpinBox.x() - 6 - (textX + measure.width(title) + 6));
+                            if (noteRoom > 0) {
+                                String note = row.value();
+                                int noteWidth = r.textWidth(note);
+                                int noteX = Math.max(textX + measure.width(title) + 6,
+                                        unpinBox.x() - 6 - noteWidth);
+                                r.text(Measure.truncate(note, Math.max(0, unpinBox.x() - 6 - noteX),
+                                                measure),
+                                        noteX, box.y() + (box.height() - r.lineHeight()) / 2,
+                                        ArmatureTheme.faint());
+                            }
+                        }
+                        // The header's own pin star: filled, because every row here is pinned, in the
+                        // accent ink the header wears it in. A wash and a brighter star on hover, so the
+                        // press lands where the ring says it will.
+                        boolean hot = unpinBox.contains(mouseX, mouseY);
+                        if (hot) {
+                            r.fill(unpinBox.x(), unpinBox.y(), unpinBox.right(), unpinBox.bottom(),
+                                    ArmatureTheme.rowHover());
+                            rowTooltips.add(new RowTooltip(
+                                    new dev.ellipog.armature.client.ui.kit.Slot(row.key(),
+                                            unpinBox.x(), unpinBox.y(), unpinBox.width(),
+                                            unpinBox.height()),
+                                    List.of(Labels.of("tenet.screen.pinned.unpin"), row.label())));
+                        }
+                        r.text(PINNED_STAR,
+                                unpinBox.x() + (unpinBox.width() - starWidth) / 2,
+                                unpinBox.y() + (unpinBox.height() - r.lineHeight()) / 2,
+                                hot ? ArmatureTheme.title()
+                                        : ArmatureTheme.current().colour("accent"));
+                    }
+                    default -> {
+                    }
+                }
+            }
+        }
+        drawBar(r, pinnedView.bar(), mouseX, mouseY);
+    }
+
+    /**
+     * Whether one pin hides on the HUD right now: finished and collected, with the auto-hide on.
+     *
+     * <p>The same question the HUD asks, so a row the world hides reads as hidden here too: its title
+     * draws faint, which is what tells a finished pin from one still being watched.
+     */
+    private boolean pinnedHidden(String id) {
+        if (!dev.ellipog.tenet.client.hud.PinnedQuests.hideClaimed()) {
+            return false;
+        }
+        java.util.UUID self = selfId();
+        return self != null && ClientQuestCache.stateOf(id) == dev.ellipog.tenet.progress.QuestState.COMPLETED
+                && !ClientQuestCache.canClaimFor(self, id);
+    }
+
+    /** The pin row under the pointer: its quest id, and whether the star end was hit. */
+    private record PinnedHit(String questId, boolean unpin) {
+    }
+
+    /** One pin row under the pointer, or null. From the layout the drawing walked. */
+    private PinnedHit pinnedRowAt(double mouseX, double mouseY) {
+        if (pinnedLayout == null) {
+            return null;
+        }
+        for (ToolsLayout.Action row : pinnedRows) {
+            if (row.kind() != ToolsLayout.Action.Kind.VALUE) {
+                continue;
+            }
+            String id = pinnedIdOf(row.key());
+            if (id == null) {
+                continue;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot slot = pinnedLayout.slot(row.key());
+            if (slot == null) {
+                continue;
+            }
+            dev.ellipog.armature.client.ui.kit.Slot onScreen =
+                    ToolsLayout.onScreen(pinnedView.viewport(), slot);
+            // The same mapping the drawing uses, so the row a press lands on is the row drawn there
+            // and not the one at the same offset in a list that has scrolled.
+            BookGeometry.Rect box = BookGeometry.Rect.at(onScreen.x(), onScreen.y(),
+                    onScreen.width(), onScreen.height());
+            if (!box.contains(mouseX, mouseY)) {
+                continue;
+            }
+            // The same square the drawing centers its star in: one derivation for both halves.
+            return new PinnedHit(id, pinnedUnpinBox(box).contains(mouseX, mouseY));
+        }
+        return null;
+    }
+
+    /** Whether one of the pinned panel's own drawn targets is under it. */
+    private boolean onPinnedTarget(double mouseX, double mouseY) {
+        for (EditTarget target : pinnedTargets) {
+            if (target.box().contains(mouseX, mouseY)) {
+                return true;
+            }
+        }
+        return pinnedRowAt(mouseX, mouseY) != null;
+    }
+
+    /** What a press on one of them does: out, off the list, or over to the quest. */
+    private void pressPinnedPanel(double mouseX, double mouseY) {
+        for (EditTarget target : pinnedTargets) {
+            if (target.box().contains(mouseX, mouseY)) {
+                switch (target.action()) {
+                    case PINNED_CLOSE -> closeOverlay();
+                    default -> {
+                    }
+                }
+                return;
+            }
+        }
+        PinnedHit hit = pinnedRowAt(mouseX, mouseY);
+        if (hit == null) {
+            return;
+        }
+        if (hit.unpin()) {
+            dev.ellipog.tenet.client.hud.PinnedQuests.unpin(hit.questId());
+            rebuildWidgets();
+            return;
+        }
+        // Open it, then bring the canvas to it: the dependency row's own order, because the camera's
+        // target is computed from the view as it stands and opening a column does not move the canvas.
+        navigateToQuest(hit.questId());
+        revealNode(hit.questId());
     }
 
     // A slider belongs on the fields where a value is worth seeing move -- an angle, an alpha, a scale -- and
@@ -14812,20 +15303,133 @@ public final class QuestBookScreen extends ArmatureScreen
     // drag. Porting the drawn slider is the next piece of this, and until then every number is a scrub, which
     // is a control that works.
 
-    /** The element panel as a rail: its chrome, its rows, then the shared bar. */
+    /**
+     * The element panel as a rail: its chrome, its preview, its rows, then the shared bar.
+     *
+     * <p>The chrome names the element — type and name, the way the form's old title row did — so the
+     * scroll carries the sections without repeating the title inside them. The preview strip under it
+     * shows the thing itself at a glance: a swatch of what it looks like, and one line of what it is
+     * (id, draw order, and whether it is a draft or gated). The footer the chrome reserves holds the
+     * element's own actions, built beside the rows.
+     */
     private void drawElementPanel(GuiRenderer r, int mouseX, int mouseY) {
         if (elementLayout == null || elementPanelId == null) {
             return;
+        }
+        CanvasElement element = elementNow(elementPanelId);
+        if (element == null) {
+            // The subject went away under an open picker too: its anchor rows address nothing, so the
+            // picker goes with the panel rather than floating over whatever is there instead.
+            closeColourPopover();
+            return;
+        }
+        // And it belongs to the chip it was opened from: a row scrolled out of this list would leave the
+        // picker anchored to a chip that is no longer drawn. The dock runs the same check over its own
+        // list; an anchor that belongs there is none of this panel's business.
+        if (colourPopover.isOpen() && popoverChip != null && popoverChip.view() == elementView
+                && !chipOnScreen(elementView)) {
+            closeColourPopover();
         }
         elementTargets.clear();
         // The panel's own surface, title and close chip -- the same chrome the pack's panel and the table
         // browser wear. The first version of this drew its rows on bare canvas: no background, no name and no
         // way out but Escape, which read as a list floating over the graph rather than as a panel.
-        drawModalCardChrome(r, "Element", mouseX, mouseY, EditAction.ELEMENT_CLOSE, elementTargets);
+        drawModalCardChrome(r, elementTitle(element), mouseX, mouseY, EditAction.ELEMENT_CLOSE,
+                elementTargets);
+        drawElementPreview(r, element, overlayBodyRect());
         ToolsPanel.drawRows(r, overlayBodyRect(), elementView.viewport(), elementLayout, elementRows,
                 new ToolsPanel.State(editedTheme(), editedBackground()), mouseX, mouseY,
                 InspectLayout.Mode.STACKED);
+        // The row under the pointer, like the dock's: the sentences live with the rows that name them
+        // (`ElementPanelLayout.help`), and the box is collected for the tooltip layer so the body's own
+        // clip cannot cut it off at the list's edge.
+        ToolsLayout.Hovered hovered = ToolsLayout.helpAt(elementRows, elementLayout,
+                elementView.viewport(), mouseX, mouseY, this::elementHelp);
+        if (hovered != null && elementLayout.slot(hovered.key()) != null) {
+            rowTooltips.add(new RowTooltip(
+                    ToolsLayout.onScreen(elementView.viewport(),
+                            elementLayout.slot(hovered.key())),
+                    List.of(Labels.of(hovered.help()))));
+        }
         drawBar(r, elementView.bar(), mouseX, mouseY);
+    }
+
+    /** The card's title: what the element is, and what it calls itself. */
+    private static String elementTitle(CanvasElement element) {
+        JsonObject tree = CanvasElement.asJson(element);
+        String id = tree.has("id") && tree.get("id").isJsonPrimitive()
+                ? tree.get("id").getAsString() : "";
+        return element.type() + " \u2014 "
+                + ChapterPanelLayout.elementName(tree, id);
+    }
+
+    /** The help one of the panel's rows offers, or null for a row that says it itself. */
+    private String elementHelp(String key) {
+        String[] field = ChapterPanelLayout.elementFieldOf(key);
+        return field == null ? null
+                : dev.ellipog.tenet.client.dev.ElementPanelLayout.help(field[1]);
+    }
+
+    /**
+     * What the element looks like and what it is, in the strip above the form.
+     *
+     * <p>Drawn, like every other preview in this editor, from the drafted element — so a colour or a
+     * word shows here in the frame it is changed. A picture shows its file's own thumbnail when it has
+     * one (a sprite shows the empty recess: the atlas is not catalogued on this side, so there is no
+     * picture to offer); a box its fill edged with its border; words their own text; a line its own
+     * thickness. Beside it, one line: the id, the draw order, and whether it is a draft or waiting on
+     * a quest.
+     */
+    private void drawElementPreview(GuiRenderer r, CanvasElement element, BookGeometry.Rect body) {
+        int box = ELEMENT_PREVIEW_HEIGHT - 10;
+        int x = body.x() + 6;
+        int y = body.y() + 5;
+        Measure measure = textMeasure(r);
+        switch (element) {
+            case CanvasElement.Image image -> {
+                JsonObject tree = CanvasElement.asJson(element);
+                JsonElement file = tree.has("image") && tree.get("image").isJsonObject()
+                        ? tree.getAsJsonObject("image").get("texture") : null;
+                String texture = file != null && file.isJsonPrimitive() ? file.getAsString() : "";
+                ToolsPanel.drawTextureThumb(r, new Slot("elementPreview", x, y, box, box), texture,
+                        null);
+            }
+            case CanvasElement.Rect rect -> {
+                r.fill(x, y, x + box, y + box, ArmatureTheme.recessed());
+                // The toolkit's own outline for the border, with the fill inset inside it: four hand-rolled
+                // fills is how one edge comes out wrong, and this is the call that exists so none are.
+                ArmatureTheme.outline(r, x, y, box, box, rect.borderColor());
+                r.fill(x + 1, y + 1, x + box - 1, y + box - 1, rect.fillColor());
+            }
+            case CanvasElement.Text text -> {
+                r.fill(x, y, x + box, y + box, ArmatureTheme.recessed());
+                String words = text.text().value();
+                if (!words.isEmpty()) {
+                    r.text(Measure.truncate(words, box - 4, measure), x + 2,
+                            y + (box - r.lineHeight()) / 2, text.color());
+                }
+            }
+            case CanvasElement.Line line -> {
+                r.fill(x, y, x + box, y + box, ArmatureTheme.recessed());
+                int thick = Math.max(1, Math.min(box / 2, line.width()));
+                r.fill(x + 2, y + (box - thick) / 2, x + box - 2, y + (box + thick) / 2,
+                        line.color());
+            }
+            case CanvasElement.Unknown ignored -> {
+                r.fill(x, y, x + box, y + box, ArmatureTheme.recessed());
+                r.text("?", x + (box - r.textWidth("?")) / 2, y + (box - r.lineHeight()) / 2,
+                        ArmatureTheme.faint());
+            }
+        }
+        StringBuilder meta = new StringBuilder(element.id());
+        meta.append(" \u00b7 order ").append(element.order());
+        if (element.dev()) {
+            meta.append(" \u00b7 ").append(Labels.of("tenet.dev.element.badge_draft"));
+        }
+        element.requires().ifPresent(
+                quest -> meta.append(" \u00b7 ").append(Labels.of("tenet.dev.element.badge_after", quest)));
+        r.text(Measure.truncate(meta.toString(), Math.max(0, body.right() - x - box - 10), measure),
+                x + box + 6, y + (box - r.lineHeight()) / 2, ArmatureTheme.faint());
     }
 
     /** Whether one of the element panel's own drawn targets -- or one of its colour chips -- is under it. */
@@ -15307,6 +15911,16 @@ public final class QuestBookScreen extends ArmatureScreen
      * element whose shape is not its box, so it is the only one that needs a reach at all.
      */
     private static final int ELEMENT_LINE_HIT = LINE_HIT;
+
+    /**
+     * The element panel's preview strip: what the card says about its subject before the form starts.
+     *
+     * <p>Two lines tall — a swatch and the element's own meta — taken out of the scroll body's head, so
+     * the first form row starts below it rather than under it. The scroll view's viewport is inset by
+     * the same number where its widgets are built, which is what keeps a row's drawing and its control
+     * on the same band.
+     */
+    private static final int ELEMENT_PREVIEW_HEIGHT = 28;
 
     /**
      * How far a hovered line is lightened at full hover, as a fraction towards white.
@@ -19625,6 +20239,15 @@ public final class QuestBookScreen extends ArmatureScreen
         elementPanelId = null;
         elementRows = List.of();
         elementLayout = null;
+        // And a Delete left asking its question goes with it: the next element opened gets one press, like
+        // the quest card's own Delete, which this exit also forgets. See `clearPickers` below.
+        elementConfirmingDelete = null;
+        // And the colour picker when it belongs to this panel: its anchor rows are gone with it, and a
+        // picker left standing would commit to an element nobody is looking at. A dock-anchored picker
+        // stays -- the dock is not what closed.
+        if (popoverChip != null && popoverChip.view() == elementView) {
+            closeColourPopover();
+        }
         // The chain of jumps ends with the card: a stale stack would replay a trail from a card the
         // reader closed, and the next card they open is a fresh session with its own history.
         overlayHistory.clear();
@@ -21917,6 +22540,24 @@ public final class QuestBookScreen extends ArmatureScreen
     private Layout elementLayout;
 
     /**
+     * Which of the element panel's sections are put away, by heading key.
+     *
+     * <p>The screen owns it the way it owns {@code questFolded}: the layout only reads which blocks to
+     * skip. Keys carry the element's id, so folds belong to the element they were made on and never leak
+     * onto another.
+     */
+    private final Set<String> elementFolded = new LinkedHashSet<>();
+
+    /**
+     * The element whose Delete is asking its question, or null when none is.
+     *
+     * <p>The two-press arm every destructive control in this editor has: the first press says "Really
+     * delete?", the second deletes, and anything that changes the subject disarms it. Stored as the id
+     * rather than a boolean because the panel can move between elements without closing.
+     */
+    private String elementConfirmingDelete;
+
+    /**
      * Which canvas element the panel is about, or null when it is not open.
      *
      * <p>Its own field rather than a read of {@code selectedElement}, because the two are not the same
@@ -22789,6 +23430,11 @@ public final class QuestBookScreen extends ArmatureScreen
         else if (kind == PanelKind.SETTINGS) {
             // A player's own panel: chrome, like the rewards panel's, not a chapter's content.
             drawSettingsOverlay(r, mouseX, mouseY);
+        }
+        else if (kind == PanelKind.PINNED) {
+            // The player's watchlist: chrome, like the settings card beside it -- pins belong to the
+            // player rather than to any chapter, so the chapter's palette never touches them.
+            drawPinnedPanel(r, mouseX, mouseY);
         }
         else if (kind == PanelKind.TOOLS) {
             // The author's dock: the Book and Chapter tabs, chrome rather than any chapter's content -- its
@@ -25943,6 +26589,10 @@ public final class QuestBookScreen extends ArmatureScreen
             fieldDrag = true;
             return true;
         }
+        // Whether this press is the open colour picker's, wherever it floats. Rails float over the
+        // canvas the picker is clamped to, so the picker can slide under one; the grip below and the
+        // surface block past the widget pass are what keep that press the picker's.
+        boolean onPicker = colourPopover.isOpen() && colourPopover.panel().contains(mouseX, mouseY);
         // **And the grip, before either column's own handling** -- one claim for every column, the author's
         // dock included.
         //
@@ -25955,7 +26605,7 @@ public final class QuestBookScreen extends ArmatureScreen
         //
         // Left button only, on the same terms as every other grip in this screen: the gesture is a drag and
         // a held page, and neither is a thing to hang off a right press.
-        PanelKind grab = button == 0 ? panelColumnAt(mouseX, mouseY) : null;
+        PanelKind grab = button == 0 && !onPicker ? panelColumnAt(mouseX, mouseY) : null;
         if (grab != null && BookGeometry.panelHandle(panelRail(grab)).contains(mouseX, mouseY)) {
             BookGeometry.Rect rail = panelRail(grab);
             panelDragRail = rail;
@@ -26012,6 +26662,14 @@ public final class QuestBookScreen extends ArmatureScreen
                 surfaceKind = on;
             }
 
+            // The picker's own surface, before any rail answers. Its fields already had their press at
+            // the pass above; what is left is its tracks, its swatches and its padding -- and a press
+            // there is the picker's even when the panel floats over a rail that would otherwise answer
+            // it. Without this a picker that has slid under a rail answers nothing: the rail's arms read
+            // their own rectangles, which the picker's surface overlaps, and the pan tail answers
+            // unconditionally. A press anywhere else still falls through to the arms, so switching chips
+            // mid-picker and dismissing it with a press outside both work as before.
+
             // A description's link, before anything else the panel does with a press: a link inside a panel
             // must not be read as a press on the panel. Opened on release, so a press that turns into a drag
             // is not a click.
@@ -26040,6 +26698,18 @@ public final class QuestBookScreen extends ArmatureScreen
                     confirmingDelete = false;
                     rebuildWidgets();
                 }
+                return true;
+            }
+
+            // The picker's own surface, before any rail answers. Its fields already had their press at the
+            // pass above; what is left is its tracks, its swatches and its padding -- and a press there is
+            // the picker's even when the panel floats over a rail that would otherwise answer it. Without
+            // this a picker that has slid under a rail answers nothing: the rail's arms read their own
+            // rectangles, which the picker's surface overlaps, and the pan tail answers unconditionally.
+            // A press anywhere else still falls through to the arms, so switching chips mid-picker and
+            // dismissing it with a press outside both work as before.
+            if (onPicker) {
+                colourPopover.mouseClicked(mouseX, mouseY, button);
                 return true;
             }
 
@@ -26219,6 +26889,18 @@ public final class QuestBookScreen extends ArmatureScreen
                 // The player's own panel: its one control is a widget and the pass has already offered it
                 // the press, so what is left is the bar.
                 if (pressBar(appearanceView.bar(), mouseX, mouseY)) {
+                    return true;
+                }
+            }
+            else if (on == PanelKind.PINNED && button == 0) {
+                // The player's watchlist: the switch is a widget the pass has already offered, so what is
+                // left is the bar and the rows the panel draws itself -- a row opens its quest, its Unpin
+                // end lets go of it. Left only, like the element panel's: the canvas keeps the middle press.
+                if (pressBar(pinnedView.bar(), mouseX, mouseY)) {
+                    return true;
+                }
+                if (onPinnedTarget(mouseX, mouseY)) {
+                    pressPinnedPanel(mouseX, mouseY);
                     return true;
                 }
             }
@@ -27491,6 +28173,13 @@ public final class QuestBookScreen extends ArmatureScreen
         // wheel is a modal with a hole in it, and this one has two -- see the naming card below.
         if (wheel == PanelKind.SETTINGS) {
             appearanceView.bar().wheel(scrollY);
+            return true;
+        }
+
+        // The pinned list's own rows: a watchlist longer than its rail scrolls like every other list,
+        // and the clamp is the viewport's, set from the same rows the drawing walks.
+        if (wheel == PanelKind.PINNED) {
+            pinnedView.bar().wheel(scrollY);
             return true;
         }
 

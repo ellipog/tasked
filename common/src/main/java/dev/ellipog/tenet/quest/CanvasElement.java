@@ -295,12 +295,18 @@ public sealed interface CanvasElement {
      * @param shadow the font's own drop shadow. Off by default, because a backdrop is the usual answer and
      *               both at once is a smudge; on is what a label floating over a chapter needs, and it is
      *               the reason the seam grew a second text call rather than a boolean on the first.
+     * @param fixed  ignore the zoom, but follow the pan: drawn where the position lands at zoom one,
+     *               at the file's own size at every zoom. Off by default, because a decoration that stays
+     *               put while its chapter is zoomed reads as pinned to the screen rather than placed on it
+     *               -- which is exactly what this is for, and exactly what should stay opt-in.
      */
-    record Text(Common common, int x, int y, QuestText text, double scale, int color, boolean shadow)
+    record Text(Common common, int x, int y, QuestText text, double scale, int color, boolean shadow,
+                boolean fixed)
             implements CanvasElement {
 
         /** The fields this arm adds. */
-        public static final Set<String> FIELDS = Set.of("x", "y", "text", "scale", "color", "shadow");
+        public static final Set<String> FIELDS = Set.of("x", "y", "text", "scale", "color", "shadow",
+                "fixed");
 
         /**
          * The scale bounds.
@@ -321,7 +327,8 @@ public sealed interface CanvasElement {
                 Codecs.clampedDouble(MIN_SCALE, MAX_SCALE).optionalFieldOf("scale", 1.0)
                         .forGetter(Text::scale),
                 Argb.CODEC.optionalFieldOf("color", Argb.WHITE).forGetter(Text::color),
-                Codec.BOOL.optionalFieldOf("shadow", false).forGetter(Text::shadow)
+                Codec.BOOL.optionalFieldOf("shadow", false).forGetter(Text::shadow),
+                Codec.BOOL.optionalFieldOf("fixed", false).forGetter(Text::fixed)
         ).apply(instance, Text::new));
 
         @Override
@@ -331,7 +338,7 @@ public sealed interface CanvasElement {
 
         @Override
         public Text translated(int dx, int dy) {
-            return new Text(common, x + dx, y + dy, text, scale, color, shadow);
+            return new Text(common, x + dx, y + dy, text, scale, color, shadow, fixed);
         }
 
         /**
@@ -343,7 +350,7 @@ public sealed interface CanvasElement {
          */
         @Override
         public Text withBox(int x, int y, int width, int height) {
-            return new Text(common, x, y, text, scale, color, shadow);
+            return new Text(common, x, y, text, scale, color, shadow, fixed);
         }
     }
 

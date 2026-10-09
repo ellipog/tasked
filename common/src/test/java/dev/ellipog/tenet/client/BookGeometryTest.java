@@ -399,12 +399,13 @@ class BookGeometryTest {
         private static final Set<String> SIDEBAR_CONTROLS = Set.of("addChapter", "addGroup");
 
         /**
-         * The header's controls: Close, Rewards, the party button and the settings button. The author's band
+         * The header's controls: Close, Rewards, the party button, the settings button and the pinned
+         * button. The author's band
          * is not here even though it is built by the same method -- a control's surface is where it is
          * drawn rather than where it is constructed, and the band is a surface of its own below this one.
          */
         private static final Set<String> HEADER_CONTROLS =
-                Set.of("close", "rewards", "party", "settings");
+                Set.of("close", "rewards", "party", "settings", "pinned");
 
         /**
          * The author's band: four controls in a strip of the panel's own chrome.
@@ -1074,7 +1075,8 @@ class BookGeometryTest {
         // which shows up as a control that is occasionally somewhere else.
         //
         // The source order in `controls()` is: close, the rewards button, the party button, the settings
-        // button, the author's band, the sidebar's two add buttons, then the view cluster. The chapter rows
+        // button, the pinned button, the author's band, the sidebar's two add buttons, then the view
+        // cluster. The chapter rows
         // were ahead of close and are gone; the two appearance rows were between close and the cluster and
         // are gone -- see the note in that method for why each went.
         //
@@ -1083,7 +1085,7 @@ class BookGeometryTest {
         // the other direction; a list here that named four keys the geometry under test does not have would
         // be asserting a lie.
         assertEquals(
-                List.of("close", "rewards", "party", "settings",
+                List.of("close", "rewards", "party", "settings", "pinned",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(first.keySet()));
 
@@ -1091,7 +1093,8 @@ class BookGeometryTest {
         // order, in the slot it holds between the header's controls and the sidebar's two.
         BookGeometry author = new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true);
         assertEquals(
-                List.of("close", "rewards", "party", "settings", "author", "assets", "edit", "advanced",
+                List.of("close", "rewards", "party", "settings", "pinned", "author", "assets", "edit",
+                        "advanced",
                         "addChapter", "addGroup", "zoomIn", "zoomOut", "centre"),
                 List.copyOf(author.controls().keySet()));
         assertEquals(author.controls(), new BookGeometry(SCREENSHOT_WIDTH, SCREENSHOT_HEIGHT, true, true)

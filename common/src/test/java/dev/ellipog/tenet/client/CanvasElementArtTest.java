@@ -341,8 +341,7 @@ class CanvasElementArtTest {
 
     @Test
     @DisplayName("a label's box is its measured text, and a line's hit test is the route rather than the box")
-    void theBoxAndTheHitTest() {
-        RecordingRenderer r = RecordingRenderer.create();
+    void theBoxAndTheHitTest() {        RecordingRenderer r = RecordingRenderer.create();
         CanvasElementArt.Frame frame = frame(r);
 
         // The box, measured rather than guessed: six pixels a character in this recorder, so the width is
@@ -381,6 +380,42 @@ class CanvasElementArtTest {
         assertNotNull(CanvasElementArt.boxOf(unknown, frame));
         assertEquals(0, CanvasElementArt.boxOf(unknown, frame).width());
         assertTrue(draw(unknown).calls().isEmpty(), "and drawing it asks for nothing at all");
+    }
+
+    @Test
+    @DisplayName("a fixed label stays where it is put while the canvas zooms")
+    void fixedLabelsIgnoreTheZoom() {
+        // Twice zoomed, from a corner that is not the origin: the canvas-anchored box travels with both,
+        // and the fixed one is measured from the view's own corner instead.
+        RecordingRenderer r = RecordingRenderer.create();
+        Viewport zoomed = Viewport.of(0.25F, 4F).bounds(100, 50, VIEW_WIDTH, VIEW_HEIGHT);
+        assertTrue(zoomed.setScale(2F));
+        CanvasElementArt.Frame frame = new CanvasElementArt.Frame(r, zoomed,
+                (element, field, text) -> text.value(), id -> QuestState.COMPLETED, true);
+
+        CanvasElement text = element("{ \"type\": \"text\", \"id\": \"t\", \"x\": 10, \"y\": 20,"
+                + " \"text\": \"abcd\", \"color\": \"#FFFFFFFF\" }");
+        CanvasElementArt.Box box = CanvasElementArt.boxOf(text, frame);
+        assertEquals(120, box.left(), "canvas-anchored: the position zooms with the canvas");
+        assertEquals(90, box.top());
+
+        CanvasElement fixed = element("{ \"type\": \"text\", \"id\": \"f\", \"x\": 10, \"y\": 20,"
+                + " \"text\": \"abcd\", \"color\": \"#FFFFFFFF\", \"fixed\": true }");
+        CanvasElementArt.Box still = CanvasElementArt.boxOf(fixed, frame);
+        assertEquals(110, still.left(), "fixed: measured from the view's own corner instead");
+        assertEquals(70, still.top());
+        assertEquals(box.width(), still.width(), "and the size is the file's own at every zoom");
+        assertEquals(box.height(), still.height());
+
+        // Panned as well as zoomed: the fixed label follows the pan like everything else, and only the
+        // zoom is ignored -- so toggling it at the zoom things are placed at changes nothing at all.
+        zoomed.setOffset(30, 40);
+        CanvasElementArt.Box moved = CanvasElementArt.boxOf(text, frame);
+        assertEquals(150, moved.left(), "canvas-anchored: origin, pan and zoomed position");
+        assertEquals(130, moved.top());
+        CanvasElementArt.Box held = CanvasElementArt.boxOf(fixed, frame);
+        assertEquals(140, held.left(), "fixed: origin, pan and unzoomed position");
+        assertEquals(110, held.top());
     }
 
     @Test

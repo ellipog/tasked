@@ -65,11 +65,20 @@ class ElementPanelLayoutTest {
                 + " \"height\": 64, \"rotation\": 12, \"image\": { \"sprite\": \"minecraft:block/stone\" } }");
     }
 
-    /** Every row key of a list, in order. */
+    /**
+     * Every row key of a list, in order — a pair row contributing both halves.
+     *
+     * <p>A pair's own key is its left half's, and the scroll view only knows that one; the right half is
+     * reached through {@code Action.right()}. A sweep over keys that forgot the halves would report every
+     * paired field as missing from the form, so both are listed here.
+     */
     private static List<String> keys(List<ToolsLayout.Action> rows) {
         List<String> out = new ArrayList<>();
         for (ToolsLayout.Action row : rows) {
             out.add(row.key());
+            if (row.kind() == ToolsLayout.Action.Kind.PAIR && row.right() != null) {
+                out.add(row.right().key());
+            }
         }
         return out;
     }
@@ -90,9 +99,12 @@ class ElementPanelLayoutTest {
         assertTrue(keys.contains("element.logo.rotation"));
         assertTrue(keys.contains("element.logo.click.type"));
         // Where it sits, first, as the model declares it: a form with a size and no position cannot express
-        // what the file already says. See `theWorkedExampleHasNoFieldWithoutARow`.
-        assertEquals(List.of("element.logo.x", "element.logo.y"), keys.subList(1, 3),
-                "a picture opens with its position, like the file and the settings page both do");
+        // what the file already says. See `theWorkedExampleHasNoFieldWithoutARow`. One pair row for both
+        // coordinates, under the position section's own heading.
+        assertEquals("element.logo.#position", keys.get(1),
+                "a picture opens with its position section: " + keys);
+        assertEquals(List.of("element.logo.x", "element.logo.y"), keys.subList(2, 4),
+                "and one pair row for both coordinates, like the file and the settings page both do");
         // The common fields are last, whatever the arm: where it sits, whether it is a draft, what it waits for.
         assertEquals(List.of("element.logo.order", "element.logo.dev", "element.logo.requires"),
                 keys.subList(keys.size() - 3, keys.size()));
@@ -135,6 +147,26 @@ class ElementPanelLayoutTest {
     }
 
     @Test
+    @DisplayName("only a label offers a fixed position, and it sits beside the position it redefines")
+    void onlyLabelsOfferAFixedPosition() {
+        List<ToolsLayout.Action> rows = ElementPanelLayout.rows(element(
+                "{ \"type\": \"text\", \"id\": \"t\", \"text\": \"x\" }"));
+        assertEquals(ToolsLayout.Action.Kind.SWITCH, kindOf(rows, "element.t.fixed"),
+                "staying put is a flag, off by default");
+        List<String> keys = keys(rows);
+        assertTrue(keys.indexOf("element.t.fixed") > keys.indexOf("element.t.#position"),
+                "in the position section: " + keys);
+
+        assertFalse(keys(ElementPanelLayout.rows(picture())).contains("element.logo.fixed"),
+                "a picture travels with the canvas, always");
+        assertFalse(keys(ElementPanelLayout.rows(element(
+                        "{ \"type\": \"line\", \"id\": \"l\", \"x1\": 0, \"y1\": 0, \"x2\": 8, \"y2\": 8 }")))
+                        .contains("element.l.fixed"),
+                "and so does a line");
+        assertNotNull(ElementPanelLayout.help("fixed"), "with a sentence saying what staying put means");
+    }
+
+    @Test
     @DisplayName("a picture's source is a picker and two text rows, and the picker comes first")
     void thePictureOffersAPicker() {
         // The button is the ordinary way to give a picture a file -- the pack's own PNGs, with a catalogue the
@@ -147,9 +179,10 @@ class ElementPanelLayoutTest {
                 "and it comes before the two rows it fills in");
 
         List<ToolsLayout.Action> rows = ElementPanelLayout.rows(picture());
-        assertEquals(ToolsLayout.Action.Kind.BUTTON, rows.get(picker).kind(),
+        ToolsLayout.Action button = rowOf(rows, "element.logo." + ElementPanelLayout.PICK_TEXTURE);
+        assertEquals(ToolsLayout.Action.Kind.BUTTON, button.kind(),
                 "a button, because choosing a file is a choice rather than a value to type");
-        assertEquals("tenet.dev.element.pick_file", rows.get(picker).label(),
+        assertEquals("tenet.dev.element.pick_file", button.label(),
                 "and its label is a key the language file has");
     }
 
@@ -161,8 +194,11 @@ class ElementPanelLayoutTest {
         // text boxes makes an author type a number they could have dragged, and offers a blank box for a field
         // with four legal values and no others.
         List<ToolsLayout.Action> rows = ElementPanelLayout.rows(picture());
-        assertEquals(ToolsLayout.Action.Kind.FIELD, kindOf(rows, "element.logo.width"),
-                "a number is a scrubbable field");
+        assertEquals(ToolsLayout.Action.Kind.PAIR, kindOf(rows, "element.logo.width"),
+                "a size is one pair row for both edges, not two stacked numbers");
+        ToolsLayout.Action size = rowOf(rows, "element.logo.width");
+        assertEquals("element.logo.height", size.right().key(), "width first, height second");
+        assertEquals(ToolsLayout.Action.Kind.FIELD, size.right().kind());
         assertEquals(ToolsLayout.Action.Kind.FIELD, kindOf(rows, "element.logo.rotation"));
         assertEquals(ToolsLayout.Action.Kind.FIELD, kindOf(rows, "element.logo.alpha"));
         assertEquals(ToolsLayout.Action.Kind.CHOICE, kindOf(rows, "element.logo.click.type"),
@@ -360,6 +396,20 @@ class ElementPanelLayoutTest {
                             () -> row.key() + " opens on " + value + ", outside " + range.min() + ".."
                                     + range.max());
                 }
+                // And a pair's halves, which are numbers under the pair's own key: the sweep above only
+                // sees the left half's key, so the right half gets its own bounds check here.
+                if (row.kind() == ToolsLayout.Action.Kind.PAIR && row.right() != null) {
+                    for (ToolsLayout.Action half : List.of(row, row.right())) {
+                        String[] halfField = ChapterPanelLayout.elementFieldOf(half.key());
+                        assertNotNull(halfField, half.key());
+                        ElementPanelLayout.Range range = ElementPanelLayout.rangeOf(type, halfField[1]);
+                        double value = ElementPanelLayout.numberOf(arm, halfField[1]);
+                        assertTrue(value >= range.min() && value <= range.max(),
+                                () -> half.key() + " opens on " + value + ", outside " + range.min()
+                                        + ".." + range.max());
+                        numbers++;
+                    }
+                }
                 if (row.kind() == ToolsLayout.Action.Kind.CHOICE) {
                     String value = ElementPanelLayout.effectiveValueOf(arm, field[1]);
                     assertTrue(ElementPanelLayout.valuesOf(field[1]).contains(value),
@@ -432,6 +482,17 @@ class ElementPanelLayoutTest {
             assertEquals(type, CanvasElement.fromJson(arm).orElseThrow().type(),
                     "the arm's own type name is what the range table is asked with");
             for (ToolsLayout.Action row : ElementPanelLayout.rows(arm)) {
+                if (row.kind() == ToolsLayout.Action.Kind.PAIR && row.right() != null) {
+                    // A pair row: both halves are numbers the form offers, under two keys.
+                    for (ToolsLayout.Action half : List.of(row, row.right())) {
+                        String[] halfField = ChapterPanelLayout.elementFieldOf(half.key());
+                        assertNotNull(halfField, half.key());
+                        assertNotNull(ElementPanelLayout.rangeOf(type, halfField[1]),
+                                half.key() + " is a number with no range, so its box could not move");
+                        numbers++;
+                    }
+                    continue;
+                }
                 if (row.kind() != ToolsLayout.Action.Kind.FIELD) {
                     continue;
                 }
@@ -450,8 +511,10 @@ class ElementPanelLayoutTest {
     void anUnknownKindGetsNoFields() {
         List<String> keys = keys(ElementPanelLayout.rows(element(
                 "{ \"type\": \"tenet:badge\", \"id\": \"b\" }")));
-        assertEquals(List.of("element.b", "element.b.order", "element.b.dev", "element.b.requires"), keys,
-                "no rows for fields nobody can name, and the three every element has");
+        assertEquals(
+                List.of("element.b", "element.b.#show", "element.b.order", "element.b.dev",
+                        "element.b.requires"),
+                keys, "no rows for fields nobody can name, and the three every element has");
     }
 
     @Test
@@ -469,12 +532,102 @@ class ElementPanelLayoutTest {
                 ChapterPanelLayout.Problems.NONE, "logo")) {
             if (row.key().startsWith(ChapterPanelLayout.ELEMENT_PREFIX)) {
                 fromTab.add(row.key());
+                if (row.kind() == ToolsLayout.Action.Kind.PAIR && row.right() != null) {
+                    fromTab.add(row.right().key());
+                }
             }
         }
-        List<String> fromPanel = keys(ElementPanelLayout.rows(
-                ChapterPanelLayout.elementById(chapter, "logo")));
+        List<String> fromPanel = keys(ElementPanelLayout.rowsForPanel(
+                ChapterPanelLayout.elementById(chapter, "logo"), Set.of()));
 
-        assertEquals(fromPanel, fromTab, "one form, two places to read it");
+        assertEquals("element.logo", fromTab.get(0), "the tab keeps the title its fold hangs from");
+        assertEquals(fromTab.subList(1, fromTab.size()), fromPanel,
+                "one form, two places to read it: the panel drops only the title its chrome replaces");
+    }
+
+    @Test
+    @DisplayName("each arm groups its rows under section headings that fold")
+    void sectionsGroupAndFold() {
+        // The look half of this round: a picture's form scans as blocks rather than twenty equal lines,
+        // and a block puts itself away. The fold state is the caller's set, the way the Chapter tab keeps
+        // its own folds; this class only reads which blocks to skip.
+        List<String> sections = new ArrayList<>();
+        for (ToolsLayout.Action row : ElementPanelLayout.rows(picture())) {
+            if (row.kind() == ToolsLayout.Action.Kind.HEADING && !row.key().equals("element.logo")) {
+                sections.add(row.key());
+            }
+        }
+        assertEquals(
+                List.of("element.logo.#position", "element.logo.#size", "element.logo.#source",
+                        "element.logo.#look", "element.logo.#caption", "element.logo.#press",
+                        "element.logo.#show"),
+                sections, "position, size, source, look, caption, press, show: " + sections);
+        for (String section : sections) {
+            assertTrue(ToolsLayout.folds(section), section + " is drawn as a section, so it must fold");
+        }
+
+        // One section put away: its heading stays and its rows go.
+        List<String> folded = keys(ElementPanelLayout.rows(picture(), Set.of("element.logo.#look")));
+        assertTrue(folded.contains("element.logo.#look"), "the heading stays: it says what was put away");
+        assertFalse(folded.contains("element.logo.rotation"), "and its rows go");
+        assertFalse(folded.contains("element.logo.alpha"));
+        assertTrue(folded.contains("element.logo.width"), "while the other blocks stay");
+
+        // The title put away: the whole form goes, which is what the Chapter tab's fold button on it means.
+        assertEquals(List.of("element.logo"),
+                keys(ElementPanelLayout.rows(picture(), Set.of("element.logo"))));
+    }
+
+    @Test
+    @DisplayName("the panel drops the title its chrome replaces, and nothing else")
+    void thePanelDropsOnlyTheTitle() {
+        JsonObject picture = picture();
+        List<String> full = keys(ElementPanelLayout.rows(picture, Set.of()));
+        List<String> panel = keys(ElementPanelLayout.rowsForPanel(picture, Set.of()));
+        assertEquals(full.subList(1, full.size()), panel);
+        for (ToolsLayout.Action row : ElementPanelLayout.rowsForPanel(picture, Set.of())) {
+            if (row.kind() != ToolsLayout.Action.Kind.HEADING) {
+                continue;
+            }
+            assertTrue(row.key().contains(".#"),
+                    "every heading left is a folding section, not the title the chrome repeats: "
+                            + row.key());
+        }
+    }
+
+    @Test
+    @DisplayName("a press with no type and no target says so instead of offering a box")
+    void anIdlePressNamesItself() {
+        // A press whose type is none carries no data, so its blank box was a field the file cannot hold.
+        // What is there instead is read-only and names the way out; a file that holds data anyway keeps
+        // the text row, because a value the file carries stays editable.
+        JsonObject idle = element("{ \"type\": \"image\", \"id\": \"p\","
+                + " \"image\": { \"sprite\": \"minecraft:block/stone\" } }");
+        assertEquals(ToolsLayout.Action.Kind.VALUE, kindOf(ElementPanelLayout.rows(idle), "element.p.click.data"),
+                "no type and no target is a fact, not a field");
+
+        JsonObject pressed = element("{ \"type\": \"image\", \"id\": \"p\","
+                + " \"click\": { \"type\": \"open_quest\", \"data\": \"the_open_road\" },"
+                + " \"image\": { \"sprite\": \"minecraft:block/stone\" } }");
+        assertEquals(ToolsLayout.Action.Kind.TEXT, kindOf(ElementPanelLayout.rows(pressed), "element.p.click.data"),
+                "a target the file carries is edited like any other word");
+
+        JsonObject stray = element("{ \"type\": \"image\", \"id\": \"p\","
+                + " \"click\": { \"data\": \"the_open_road\" },"
+                + " \"image\": { \"sprite\": \"minecraft:block/stone\" } }");
+        assertEquals(ToolsLayout.Action.Kind.TEXT, kindOf(ElementPanelLayout.rows(stray), "element.p.click.data"),
+                "and stray data with no type stays editable rather than stranded");
+    }
+
+    @Test
+    @DisplayName("every field an author can wonder about has hover help, and a colour speaks for itself")
+    void everyFieldHasHelpWhereItNeedsIt() {
+        for (String field : List.of("x", "y", "x1", "width", "height", "rotation", "order", "dev",
+                "requires", "image.texture", "click.type", "click.data", "#position", "#press", "#show")) {
+            assertNotNull(ElementPanelLayout.help(field), field + " has no hover sentence");
+        }
+        assertNull(ElementPanelLayout.help("tint"), "a chip shows the colour it edits");
+        assertNull(ElementPanelLayout.help("no_such_field"), "and an unknown field says nothing");
     }
 
     @Test

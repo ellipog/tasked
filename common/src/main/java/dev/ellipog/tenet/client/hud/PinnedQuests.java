@@ -70,6 +70,15 @@ public final class PinnedQuests {
 
     private static List<String> pins = List.of();
 
+    /**
+     * Whether a quest the player is done with leaves the HUD on its own.
+     *
+     * <p>On unless the player said otherwise: a pin is a promise to watch something, and a quest whose
+     * rewards are all collected has nothing left to watch. The pin itself stays -- unpinning is the
+     * player's own act, and an auto-hide that deleted pins would spend what somebody placed.
+     */
+    private static boolean hideClaimed = true;
+
     private static Path file;
 
     /** The tree revision the pins were last checked against; -1 means "not yet". */
@@ -128,6 +137,20 @@ public final class PinnedQuests {
         List<String> next = new ArrayList<>(pins);
         next.remove(questId);
         put(next);
+    }
+
+    /** Whether finished quests hide themselves once their rewards are collected. On by default. */
+    public static boolean hideClaimed() {
+        return hideClaimed;
+    }
+
+    /** Sets the auto-hide and writes it. A value already in force writes nothing new. */
+    public static void setHideClaimed(boolean next) {
+        if (hideClaimed == next) {
+            return;
+        }
+        hideClaimed = next;
+        save();
     }
 
     /**
@@ -201,7 +224,9 @@ public final class PinnedQuests {
 
         if (Files.isRegularFile(path)) {
             try {
-                pins = parse(Files.readString(path, StandardCharsets.UTF_8));
+                String text = Files.readString(path, StandardCharsets.UTF_8);
+                pins = parse(text);
+                hideClaimed = parseHideClaimed(text);
             }
             catch (IOException | RuntimeException e) {
                 Constants.LOG.warn("tenet: {} could not be read, so nothing is pinned. Deleting the file will"
@@ -249,6 +274,27 @@ public final class PinnedQuests {
         return List.copyOf(read);
     }
 
+    /**
+     * The auto-hide the file asks for: on unless it says {@code false}.
+     *
+     * <p>Absent, mistyped or unreadable is the default rather than a refusal: this flag refines the list
+     * rather than replacing it, and a hand edit that meant to change the pins must not silently change
+     * the hiding with it. Anything that is not JSON at all never reaches here -- {@link #load} catches
+     * that first, and the default holds.
+     */
+    static boolean parseHideClaimed(String json) {
+        try {
+            JsonElement flag = JsonParser.parseString(json).getAsJsonObject().get("hideClaimed");
+            if (flag != null && flag.isJsonPrimitive() && flag.getAsJsonPrimitive().isBoolean()) {
+                return flag.getAsBoolean();
+            }
+        }
+        catch (RuntimeException ignored) {
+            // Not an object, or not JSON: the caller's contract, and the default.
+        }
+        return true;
+    }
+
     /** Writes the file. Answer given rather than the default so a test can assert the format. */
     public static String write(List<String> written) {
         JsonArray array = new JsonArray();
@@ -279,6 +325,7 @@ public final class PinnedQuests {
     /** Forgets the pins and the file. For a test, and for a client leaving a world it never owned. */
     public static void reset() {
         pins = List.of();
+        hideClaimed = true;
         file = null;
         lastTree = -1L;
     }
@@ -299,7 +346,13 @@ public final class PinnedQuests {
         try {
             // Through JsonWrite, which creates the directory and writes by rename -- so a crash mid-save
             // leaves the previous list rather than a half-written file the next load has to guess at.
-            JsonWrite.atomically(file, write(pins));
+            // The flag travels only when it differs from the default, the file's own diff convention:
+            // a file that restates every value cannot be read for what the player changed.
+            JsonObject root = JsonParser.parseString(write(pins)).getAsJsonObject();
+            if (!hideClaimed) {
+                root.addProperty("hideClaimed", false);
+            }
+            JsonWrite.atomically(file, root.toString());
         }
         catch (IOException e) {
             Constants.LOG.warn("tenet: the pinned quests could not be written to {}", file, e);

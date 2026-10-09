@@ -122,7 +122,7 @@ public final class HudElementPreview extends ArmatureButton {
             }
             HudOverlay.paint(element, renderer,
                     BookGeometry.Rect.at(getX(), getY(), width, height),
-                    screen.frameMeasure(), HudOverlay.Face.EDITOR, nowMillis);
+                    screen.frameMeasure(), HudOverlay.Face.EDITOR, nowMillis, screen.playerId());
             return;
         }
         // An element that is switched off is still drawn here, and drawn dim: this is the one place a

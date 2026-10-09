@@ -188,11 +188,23 @@ public final class ToolsPanel {
                     case VALUE -> drawValue(r, row, slot, onScreen, measure);
                     case PAIR -> {
                         // Two labels, one per half, from the same split the pair widget uses -- see
-                        // `ToolsLayout.pairLeft`.
-                        drawRowLabel(r, row, ToolsLayout.pairLeft(slot),
-                                ToolsLayout.pairLeft(onScreen), measure);
-                        drawRowLabel(r, row.right(), ToolsLayout.pairRight(slot, row.right().key()),
-                                ToolsLayout.pairRight(onScreen, row.right().key()), measure);
+                        // `ToolsLayout.pairLeft`. Stacked, the labels share the label band above the
+                        // control's, the way every other stacked label takes its own band: splitting the
+                        // whole row would centre them over the boundary between the label and the boxes.
+                        if (mode == InspectLayout.Mode.STACKED) {
+                            Slot label = InspectLayout.labelBand(slot);
+                            Slot seen = InspectLayout.labelBand(onScreen);
+                            drawRowLabel(r, row, ToolsLayout.pairLeft(label),
+                                    ToolsLayout.pairLeft(seen), measure);
+                            drawRowLabel(r, row.right(), ToolsLayout.pairRight(label, row.right().key()),
+                                    ToolsLayout.pairRight(seen, row.right().key()), measure);
+                        }
+                        else {
+                            drawRowLabel(r, row, ToolsLayout.pairLeft(slot),
+                                    ToolsLayout.pairLeft(onScreen), measure);
+                            drawRowLabel(r, row.right(), ToolsLayout.pairRight(slot, row.right().key()),
+                                    ToolsLayout.pairRight(onScreen, row.right().key()), measure);
+                        }
                     }
                     case CHIP -> {
                         // A colour row's label goes where every other row's does, and the chip goes in the

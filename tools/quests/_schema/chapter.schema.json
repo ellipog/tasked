@@ -369,6 +369,11 @@
           "default": false,
           "description": "text: draw the font's own drop shadow under the words. Off by default, because a label with a backdrop behind it does not want one - on is for a label floating over a chapter, where there is no backdrop to draw."
         },
+        "fixed": {
+          "type": "boolean",
+          "default": false,
+          "description": "text: ignore the zoom, but follow the pan - drawn where the position lands at zoom one, at the file's own size at every zoom. Off by default, because a decoration that stays put while its chapter is zoomed reads as pinned to the screen rather than placed on it."
+        },
         "arrowhead": {
           "enum": ["none", "start", "end", "both"],
           "default": "none",

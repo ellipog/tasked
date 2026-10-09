@@ -276,4 +276,42 @@ class PinnedQuestsTest {
         PinnedQuests.tick();
         assertEquals(List.of("a"), PinnedQuests.pinned());
     }
+
+    @Test
+    @DisplayName("finished quests hide themselves unless the player said otherwise, and the choice round-trips")
+    void hideClaimedRoundTrips(@TempDir Path dir) throws IOException {
+        assertTrue(PinnedQuests.hideClaimed(), "on by default: a watched quest with nothing left to watch"
+                + " is a box nobody asked for");
+
+        Path file = dir.resolve(PinnedQuests.FILE_NAME);
+        PinnedQuests.load(file);
+        PinnedQuests.pin("a");
+        PinnedQuests.setHideClaimed(false);
+        assertFalse(PinnedQuests.hideClaimed());
+
+        PinnedQuests.load(file);
+        assertEquals(List.of("a"), PinnedQuests.pinned(), "the pins survive the flag");
+        assertFalse(PinnedQuests.hideClaimed(), "and so does switching it off");
+        assertEquals("{\"pins\":[\"a\"],\"hideClaimed\":false}", Files.readString(file),
+                "written only when it differs: a file that restates every value cannot be read for what"
+                        + " the player changed");
+
+        PinnedQuests.setHideClaimed(true);
+        PinnedQuests.load(file);
+        assertTrue(PinnedQuests.hideClaimed());
+        assertEquals("{\"pins\":[\"a\"]}", Files.readString(file),
+                "and back to the default leaves the file as it was");
+    }
+
+    @Test
+    @DisplayName("a mistyped flag is the default rather than a refusal")
+    void aMistypedFlagIsTheDefault(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(PinnedQuests.FILE_NAME);
+        Files.writeString(file, "{\"pins\":[\"a\"],\"hideClaimed\":\"eventually\"}",
+                StandardCharsets.UTF_8);
+        PinnedQuests.load(file);
+
+        assertEquals(List.of("a"), PinnedQuests.pinned(), "the pins never pay for the flag's mistake");
+        assertTrue(PinnedQuests.hideClaimed(), "and the mistake reads as on");
+    }
 }
