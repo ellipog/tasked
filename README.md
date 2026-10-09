@@ -9,6 +9,14 @@ not content.
 > **Before its first stable release.** The format and the API may still break, so read
 > the release notes before upgrading.
 
+## Why Tenet
+
+- **The server decides what counts.** The client draws what it is told and nothing more, so editing your own game completes nothing.
+- **[Validator points at file and line](docs/authoring/validation.md).** A bad file is reported with its path and skipped — one broken quest never takes the server down.
+- **[Fifteen task, ten reward, six condition types](docs/authoring/tasks.md).** Tasks ask, rewards pay, conditions gate either — see the [task](docs/authoring/tasks.md), [reward](docs/authoring/rewards.md), and [condition](docs/authoring/conditions.md) guides.
+- **[Editor with undo, and nothing really deletes](docs/index.md#removing-something-and-getting-it-back).** Bulk-select nodes, edit as one batch per chapter with one undo, and every delete is a `.deleted` tombstone that `/tenet restore` brings back.
+- **[Parties share progress](docs/commands.md#parties).** Built on Armature teams — `ONE_MEMBER`, `POOLED`, or `OWNER_ONLY` counting, server-authoritative throughout.
+
 ## Playing
 
 Install **Tenet and Armature** together, on client and server. The loader will name
