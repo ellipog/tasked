@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -52,10 +53,10 @@ class QuestSettingsTest {
     }
 
     @Test
-    @DisplayName("a file that says nothing about behaviour gets the old behaviour (T26)")
+    @DisplayName("a file that says nothing about behaviour gets the quiet behaviour (T26)")
     void behaviourDefaultsAreTheOldBehaviour() {
         QuestSettings defaults = QuestSettings.DEFAULTS;
-        assertTrue(defaults.showLockIcons(), "marks drawn, as FTB reads an absent field");
+        assertFalse(defaults.showLockIcons(), "no marks unless the file asks for them");
         assertTrue(!defaults.hideExcludedQuests() && !defaults.pauseGame()
                         && !defaults.disableGui() && !defaults.dropBookOnDeath(),
                 "nothing hidden, paused, refused or dropped");
@@ -65,7 +66,7 @@ class QuestSettingsTest {
         assertTrue(defaults.emergencyItems().isEmpty());
 
         QuestSettings read = read("{}");
-        assertTrue(read.showLockIcons(), "absent draws rather than refusing");
+        assertFalse(read.showLockIcons(), "absent hides rather than refusing");
         assertEquals(defaults.emergencyItemsCooldown(), read.emergencyItemsCooldown());
     }
 

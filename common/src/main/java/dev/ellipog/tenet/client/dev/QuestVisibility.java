@@ -188,10 +188,9 @@ public final class QuestVisibility {
      * Whether a locked quest wears its lock mark on the canvas.
      *
      * <p>FTB Quests' {@code show_lock_icons} with the quest's own {@code hide_lock_icon}: the
-     * file hides every mark, or this quest hides its own, and either silence wins. Read where the
-     * node is drawn, off the tree's setting and the quest's flag — both travel on the tree, so no
-     * reader needs the file. Absent draws on both sides, which is what every file written before
-     * either field existed says.
+     * file hides every mark unless it says otherwise, and this quest hides its own — either
+     * silence wins. Read where the node is drawn, off the tree's setting and the quest's
+     * flag — both travel on the tree, so no reader needs the file.
      */
     public static boolean drawsLockMark(boolean showLockIcons, boolean hideLockIcon) {
         return showLockIcons && !hideLockIcon;

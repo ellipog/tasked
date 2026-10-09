@@ -63,6 +63,15 @@ public final class HudLayout {
     public static final int BUTTON_GAP = 4;
 
     /**
+     * The anchor switch of the inventory button's row: Window or Inventory.
+     *
+     * <p>Wide enough for "Inventory" at nine characters without truncating: a switch that reads as
+     * "Inven..." would be a control that does not say what it does. "Window" at six leaves the
+     * remainder empty, which is the better of the two faults.
+     */
+    public static final int ANCHOR_WIDTH = 64;
+
+    /**
      * A drawn element's background-strength slider, on its own line under its controls.
      *
      * <p>From {@code ArmatureSlider}: a compile-time constant, so this stays game-free like the switch's
@@ -120,10 +129,17 @@ public final class HudLayout {
      * slider line on a control's row would be a control for something nothing reads. The slider needs its
      * own line the way the switch and the buttons share theirs -- a slider squeezed beside them would be a
      * 60-pixel track, which is its own minimum and therefore no room to aim in.
+     *
+     * <p>The book's button carries a second control line for the same reason: the anchor switch and the
+     * Under preset share nothing with the show/hide switch and Reset above them, and squeezed beside them
+     * the anchor's own label would truncate. Like the slider line, only this element gets one.
      */
     public static int rowHeight(HudElement element) {
         if (element.kind() == HudElement.Kind.HUD) {
             return LABEL_LINE + CONTROL_LINE + ROW_GAP + SLIDER_LINE + ROW_GAP;
+        }
+        if (element == HudElement.INVENTORY_BUTTON) {
+            return LABEL_LINE + CONTROL_LINE + ROW_GAP + CONTROL_LINE + ROW_GAP;
         }
         return ROW_HEIGHT;
     }
@@ -207,6 +223,53 @@ public final class HudLayout {
     }
 
     /**
+     * An inventory-anchored element's box: its stored offset, re-based on the panel's live corner.
+     *
+     * <p>The whole of the inventory anchor: the file holds an offset from the panel's top-left, and
+     * the panel's live corner is added back every time anything is placed -- an inventory open, a
+     * resize, the editor's next frame. A GUI scale or a window size that moves the centred panel
+     * therefore moves the button with it, because the number that moved is re-read rather than
+     * remembered. The clamp is still the window's, like every other position here.
+     */
+    public static BookGeometry.Rect boxAtInventory(int panelLeft, int panelTop, int x, int y,
+                                                   int width, int height,
+                                                   int screenWidth, int screenHeight) {
+        return boxAt(panelLeft + x, panelTop + y, width, height, screenWidth, screenHeight);
+    }
+
+    /**
+     * What the file holds for an inventory-anchored element, from where its box is on the window.
+     *
+     * <p>The inverse of the re-basing above, and deliberately unclamped: an offset is panel-relative,
+     * so a window clamp would be a bound from the wrong space. Negative values place above or left of
+     * the panel, and values past the panel's far edge place below or right of it; the window clamp at
+     * draw time decides what any of those mean on a window too small to hold them.
+     */
+    public static int inventoryX(int windowX, int panelLeft) {
+        return windowX - panelLeft;
+    }
+
+    /** The same, vertically. */
+    public static int inventoryY(int windowY, int panelTop) {
+        return windowY - panelTop;
+    }
+
+    /**
+     * Where an inventory-anchored offset lands on the window, before the clamp.
+     *
+     * <p>What toggling back to the window frame stores: the button stays visibly where it is, and the
+     * next placement clamps it like any other window position.
+     */
+    public static int windowX(int inventoryX, int panelLeft) {
+        return panelLeft + inventoryX;
+    }
+
+    /** The same, vertically. */
+    public static int windowY(int inventoryY, int panelTop) {
+        return panelTop + inventoryY;
+    }
+
+    /**
      * Where the top of a box goes, from what the file holds.
      *
      * <p>Top-left for a top-left element: the stored number <i>is</i> the top. Centred for a middle
@@ -283,6 +346,31 @@ public final class HudLayout {
                 Math.max(0, chrome.width() - INSET * 2), SLIDER_LINE);
     }
 
+    /**
+     * The book's button row's anchor switch, on its own line under its controls.
+     *
+     * <p>Left, like the auto-hide switch: it names what the row is measured from rather than acting on
+     * the row, so it sits under the label's start rather than with the actions on the right. Only
+     * meaningful for the button's row.
+     */
+    public static BookGeometry.Rect anchorToggle(int index, BookGeometry.Rect chrome,
+                                                 List<HudElement> elements) {
+        return BookGeometry.Rect.at(chrome.x() + INSET, anchorTop(index, chrome, elements),
+                ANCHOR_WIDTH, CONTROL_LINE);
+    }
+
+    /**
+     * The Under preset beside it: one press puts the button centred under the inventory panel.
+     *
+     * <p>Beside the switch the way Reset sits beside the show/hide switch: the two answer one question
+     * -- what the button is measured from, and where under the panel that is -- so they share a line.
+     */
+    public static BookGeometry.Rect anchorUnder(int index, BookGeometry.Rect chrome,
+                                                List<HudElement> elements) {
+        return BookGeometry.Rect.at(chrome.x() + INSET + ANCHOR_WIDTH + BUTTON_GAP,
+                anchorTop(index, chrome, elements), BUTTON_WIDTH, CONTROL_LINE);
+    }
+
     /** Done, in the chrome's foot. */
     public static BookGeometry.Rect done(BookGeometry.Rect chrome) {
         return BookGeometry.Rect.at(chrome.right() - INSET - BUTTON_WIDTH,
@@ -315,5 +403,10 @@ public final class HudLayout {
     private static int controlTop(int index, BookGeometry.Rect chrome,
                                   List<HudElement> elements) {
         return rowTop(index, chrome, elements) + LABEL_LINE;
+    }
+
+    private static int anchorTop(int index, BookGeometry.Rect chrome,
+                                  List<HudElement> elements) {
+        return controlTop(index, chrome, elements) + CONTROL_LINE + ROW_GAP;
     }
 }

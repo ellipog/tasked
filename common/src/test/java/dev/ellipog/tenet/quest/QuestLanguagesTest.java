@@ -346,4 +346,161 @@ class QuestLanguagesTest {
                     "and the tree's own problem kept its severity");
         }
     }
+
+    // ------------------------------------------------------------------
+    // Keys that name nothing
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("stale keys")
+    class StaleKeys {
+
+        /**
+         * A tree with a group, a chapter, a quest and a label, without touching the disk.
+         *
+         * <p>Headless: the codecs ask for no registry, and the index keeps its own problems, so
+         * only the language warnings under test reach the caller's list. The fixed names are
+         * {@code fileWithChapter}'s — group {@code group}, chapter {@code chapter} — with quest
+         * {@code a} and label {@code sign} beside them; tables are passed by name, as the loader
+         * keys them.
+         */
+        private static QuestIndex tree() {
+            return Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"elements\": [{\"type\": \"text\", \"id\": \"sign\", \"x\": 0, \"y\": 0,"
+                            + " \"text\": \"Hello\"}],",
+                    Fixtures.q("a").at(0, 0).build()));
+        }
+
+        private static Problems stale(Path configDir, QuestIndex index, java.util.Set<String> tables)
+                throws IOException {
+            Problems problems = new Problems();
+            QuestLanguages loaded = QuestLanguages.load(questRoot(configDir), problems);
+            loaded.warnStale(index, tables, problems);
+            return problems;
+        }
+
+        private static String warnings(Problems problems) {
+            return problems.all().stream()
+                    .filter(problem -> problem.severity() == DataProblem.Severity.WARNING)
+                    .map(DataProblem::render)
+                    .reduce("", (a, b) -> a + "\n" + b);
+        }
+
+        @Test
+        @DisplayName("keys for loaded objects are quiet")
+        void keysForLoadedObjectsAreQuiet(@TempDir Path configDir) throws IOException {
+            locale(configDir, "en_us.json", flat("quest.a.title", "A", "quest.a.subtitle", "Sub",
+                    "quest.a.description", "Words", "quest.a.description.0", "Words",
+                    "chapter.chapter.title", "C", "chapter.chapter.subtitle", "Sub",
+                    "group.group.title", "G", "rewardTable.loot.title", "Loot",
+                    "book.title", "Book", "element.sign.text", "Sign"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertTrue(problems.isEmpty(), () -> "nothing stale in a file that names live objects:\n"
+                    + problems.all());
+        }
+
+        @Test
+        @DisplayName("keys for deleted objects warn, and the book still loads")
+        void keysForDeletedObjectsWarnButDoNotFail(@TempDir Path configDir) throws IOException {
+            // A deleted quest's keys stay behind silently, and the tree's own string stays on
+            // screen with nothing saying which file holds the dead key. One warning per file,
+            // never an error: a converted pack with leftover keys still loads cleanly.
+            locale(configDir, "en_us.json", flat("quest.gone.title", "Gone",
+                    "chapter.gone.title", "Gone", "group.gone.title", "Gone",
+                    "rewardTable.gone.title", "Gone", "element.gone.text", "Gone"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertFalse(problems.hasErrors(), "stale keys must never fail a load:\n" + problems.all());
+            assertEquals(1, problems.warningCount(), "one warning for the file:\n" + problems.all());
+            String report = warnings(problems);
+            assertTrue(report.contains("quest.gone.title") && report.contains("no such quest"),
+                    "the quest key is named with its reason:\n" + report);
+            assertTrue(report.contains("chapter.gone.title") && report.contains("no such chapter"),
+                    "and so is the chapter's:\n" + report);
+            assertTrue(report.contains("element.gone.text") && report.contains("no such element"),
+                    "and the label's:\n" + report);
+            assertTrue(problems.forFile("es_es.json").isEmpty() && !problems.forFile("en_us.json").isEmpty(),
+                    "reported against the file that holds them:\n" + problems.all());
+        }
+
+        @Test
+        @DisplayName("another case suggests the lowercase id")
+        void wrongCaseSuggestsTheLowercaseId(@TempDir Path configDir) throws IOException {
+            // The spelling a hand-merged FTB file most often gets wrong: FTB ids are uppercase
+            // hex, Tenet ids are lowercase, and the reader builds its lookups from the lowercase
+            // one — so an uppercase key is dead, and the fix is spelled out rather than implied.
+            locale(configDir, "en_us.json",
+                    flat("quest.A.title", "A", "rewardTable.LOOT.title", "Loot"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertFalse(problems.hasErrors());
+            String report = warnings(problems);
+            assertTrue(report.contains("did you mean \"a\""), "the quest's fix is named:\n" + report);
+            assertTrue(report.contains("did you mean \"loot\""), "and the table's:\n" + report);
+        }
+
+        @Test
+        @DisplayName("a key through an alias points at the id")
+        void aliasKeyedEntriesPointAtTheId(@TempDir Path configDir) throws IOException {
+            // Readers build their lookups from the canonical id, so an alias-keyed entry is never
+            // read — and saying "no such quest" about one would be wrong, because the quest is
+            // there. The warning names the id the key should use instead.
+            QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                    Fixtures.q("a").alias("aye").at(0, 0).build()));
+            locale(configDir, "en_us.json", flat("quest.aye.title", "Aye"));
+
+            Problems problems = stale(configDir, index, java.util.Set.of());
+
+            assertFalse(problems.hasErrors());
+            assertTrue(warnings(problems).contains("is an alias"),
+                    "the alias is named as an alias, not as a missing quest:\n" + problems.all());
+        }
+
+        @Test
+        @DisplayName("live objects with unread fields warn")
+        void unreadFieldsWarn(@TempDir Path configDir) throws IOException {
+            // The object is there but no reader looks the field up: a chapter description, a
+            // group description, a key past what the format reads. Same severity, different
+            // sentence — the fix is to remove the key, not to fix a name.
+            locale(configDir, "en_us.json", flat("quest.a.flavour", "Hmm",
+                    "chapter.chapter.description", "Words", "group.group.description", "Words",
+                    "element.sign.subtitle", "Sub", "book.subtitle", "Sub"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertFalse(problems.hasErrors());
+            assertTrue(warnings(problems).contains("nothing in the book is read through"),
+                    "unread fields are reported as unread:\n" + problems.all());
+        }
+
+        @Test
+        @DisplayName("keys in no book namespace are left alone")
+        void nonBookKeysAreLeftAlone(@TempDir Path configDir) throws IOException {
+            // The overlay serves any key, and a script may own the ones no reader looks up —
+            // judging those would be a warning about somebody else's data.
+            locale(configDir, "en_us.json", flat("shared", "Shared", "my_mod.bonus", "Bonus"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertTrue(problems.isEmpty(), () -> "script-owned keys are not this check's:\n"
+                    + problems.all());
+        }
+
+        @Test
+        @DisplayName("each file is reported under its own name")
+        void eachFileIsReportedUnderItsOwnName(@TempDir Path configDir) throws IOException {
+            locale(configDir, "en_us.json", flat("quest.gone.title", "Gone"));
+            locale(configDir, "es_es.json", flat("quest.gone.title", "Ido"));
+
+            Problems problems = stale(configDir, tree(), java.util.Set.of("loot"));
+
+            assertEquals(1, problems.forFile("en_us.json").size(), "one warning per file");
+            assertEquals(1, problems.forFile("es_es.json").size(), "one warning per file");
+            assertEquals(2, problems.warningCount(), "two files, two warnings:\n" + problems.all());
+        }
+    }
 }

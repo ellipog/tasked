@@ -79,7 +79,7 @@ quietly becomes required fails there first.
 | chapter `always_invisible` | `alwaysInvisible` (chapter) | Same flag: the chapter is withheld from every reader whatever its gate says, while the gate itself still opens, completes and gates its quests. Its progress reads 100%, and the editor still lists it. No uses in the reference pack. |
 | `tags` (quest, chapter, task, reward, group) | `tags` | Same list on every object. Each tag is lowercase letters, digits and underscores, the same rule an id follows. A `#tag` lookup resolves to the first object of the asked kind carrying it — in commands, scripts and `open_quest` clicks. The reference pack's one use is `["village"]` on a quest. |
 | quest `guide_page` | `guidePage` (quest) | Same string. Tenet has no guide integration: the quest card shows it as a `Guide: <page>` reference and nothing reads it further. Empty means absent. No uses in the reference pack. |
-| file `show_lock_icons` | `showLockIcons` (index settings) | Whether a locked quest wears its padlock. Absent draws on both sides (`!contains \|\| getBoolean`), so a file that never heard of the field draws exactly as before. |
+| file `show_lock_icons` | `showLockIcons` (index settings) | Whether a locked quest wears its padlock. Tenet hides when absent; FTB draws when absent (`!contains \|\| getBoolean`), so the tool writes an explicit `true` unless the FTB file says `false` — that explicit key is what preserves an old pack's marks. |
 | file `hide_excluded_quests` | `hideExcludedQuests` (index settings) | Whether quests shut out for good vanish from the reader's book. Tenet's exclusion is a taken `exclusiveGroup` or a reached `maxCompletableDependents` cap resolving to LOCKED, and the server marks those quests on the progress wire — the client cannot tell "excluded" from "not yet" by the state alone. |
 | file `pause_game` | `pauseGame` (index settings) | Whether the book pauses the world in single player: `isPauseScreen` answers this rather than a constant. |
 | file `disable_gui` | `disableGui` (index settings) | The book refuses to open: every open path answers "The quest book is disabled in this pack" instead of a screen. FTB's own semantics are unclear; Tenet reads it as a pack-level switch. |
@@ -124,9 +124,15 @@ values — Tenet reads the result, never the preset:
 
 ## Deliberately unmapped here
 
-Claim-timed repeats
-and ghost validation are
-**not** on this page: each needs Tenet work first, and the tool must gate on that work rather
-than emit fields nothing reads. The file settings that have no Tenet home — `drop_loot_crates`,
+Ghost validation lives Tenet-side rather than on this page: a taskless quest with no dependant
+warns on load, a taskless quest with one loads quietly, and the tool names each ghost in its report
+rather than suppressing the check. The file settings that have no Tenet home — `drop_loot_crates`,
 `loot_crate_no_drop` (loot crates are out of scope) and `verify_on_load` (a loader flag) — are
 rows above marked _tool-reported_ rather than mappings.
+
+Third-party task and reward types (`custom` entries, `eternalcurrencies:currency`,
+`questsadditions:*`, `quest_loot`, and the crate types a `loot_crate` sub-object would have named)
+are **not** mapped to Tenet types either: Tenet loads each such node as an unknown placeholder and
+warns, so the quest still plays around it, and the tool reports every use as manual work — install
+the mod that provides it, or replace the node. An FTB `loot` reward itself converts as a weighted
+table; only the physical crate, its opener and its drops are manual work.

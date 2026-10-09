@@ -482,8 +482,8 @@ public final class QuestSettingsLayout {
             rows.add(new Row("disableRecipeMod", Row.Kind.CHOICE, "tenet.dev.quest.disable_recipe_mod"));
             // Whether this quest wears its own lock mark: the quest's half of the file's
             // `showLockIcons`, beside the other answers about who sees what. A switch rather
-            // than a picker — absent draws, and either silence wins, so there is no third
-            // state to defer to.
+            // than a picker — absent defers to the file, and either silence wins, so there
+            // is no third state.
             rows.add(switchRow("hideLockIcon", "tenet.dev.quest.hide_lock_icon"));
             rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
             rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));

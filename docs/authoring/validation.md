@@ -25,7 +25,7 @@ Because a file with a structural error is **not decoded at all**, one mistake pr
 rather than a validator complaint followed by a codec complaint about the same thing. The same holds
 one level down: a broken entry in a task's or reward's `conditions` list is reported at the entry's
 own line, and the enclosing task's codec does not repeat it — a condition whose `type` no build knows
-is one error listing the condition types, not two messages saying it twice.
+is one warning listing the condition types, not two messages saying it twice.
 
 **Cross-file checks happen when the whole tree is known.** A file on its own cannot know that an id is
 duplicated in another file — or that it collides with another thing's `aliases`, which the loader claims
@@ -86,6 +86,47 @@ cannot declare the root is read as if it were not there, and the tree loads by f
 > [!WARNING]
 > A file can decode cleanly and still be wrong — a circular dependency is the usual one. Reload counts
 > files that had *problems*, not files that parsed, so "loaded" never means "correct".
+
+## Ghosts, crowding and duplicates
+
+A quest with no tasks and no rewards is only a warning when **nothing depends on it** — a ghost,
+almost always a quest someone started and did not finish writing. A taskless quest with a dependant
+is a junction, a milestone or a chapter gate, and it loads quietly: FTB authors use empty quests
+that way, and warning about them would be noise on every converted pack. Quest links and image
+gates pointing at the quest do not count — only `dependsOn` makes a dependant — and a taskless
+quest completes on the tick its gate opens, with no press on it.
+
+Two quests at exactly the same position warn as a duplicate — one will be drawn over the other. Two
+titled quests in one row warn when they are closer than 64 pixels, the grid a converted pack is laid
+out on: below that even short titles collide, while at 64 and above the book truncates what does not
+fit. Pairs with no drawn titles never warn, and a gap of zero is reported once, as a duplicate rather
+than as crowding.
+
+## Unknown task, reward and condition types
+
+A `type` no build here registers — an addon that is not installed, or a third-party type like
+`eternalcurrencies:currency`, `questsadditions:*` or `quest_loot` — is a **warning**, and the node is
+kept as an unknown placeholder that carries the id. The file still loads, and the row says which mod
+is missing. An unknown task can never satisfy and offers no button; an unknown reward is never
+auto-granted, so an automatic path leaves it for the claim rather than marking it collected unpaid;
+an unknown condition reads as unmet, so a gate it guards stays shut. An unknown *field* on a known
+type is still an error — a typo must fail loudly, and there is no way to tell a misspelling from a
+field a future build adds.
+
+## Stale translations and retired fields
+
+A `lang/` key for a quest that was deleted, or written against the wrong id, warns rather than failing
+the load — one warning per file, naming the keys and, where the spelling is close, the id that was
+meant. A key written against an alias or a tag warns too: readers build their lookups from the
+object's own id, so the warning names the id the key should use. Keys in no book namespace are left
+alone — the overlay serves any key, and a script may own the ones no reader looks up. See
+[[tenet:authoring/languages]] for the key shapes.
+
+A `version` in a per-kind file, and an `id` or `loot_crate` in a reward-table file, warn the same way:
+leftovers the codec never reads, from an older schema or a converted file, which is why refusing the
+file over them would be wrong. Anything else unknown is still an error. The editor schemas describe
+what to write rather than what loads — so a leftover shows an editor hint as well as the load warning,
+and both say the same thing.
 
 The in-game editor refuses a write that would not validate, and reports the first problem's line, so
 the round trip through the book cannot produce a file the loader would reject.

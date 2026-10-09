@@ -967,6 +967,131 @@ class QuestValidatorTest {
         return problems.all().stream().noneMatch(problem -> problem.path().contains(field));
     }
 
+    // ------------------------------------------------------------------
+    // Retired fields: warned about, never refused
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("retired fields")
+    class RetiredFields {
+
+        @Test
+        @DisplayName("a version in a per-kind quest warns instead of refusing the file")
+        void versionInAPerKindQuestWarns() {
+            // A file split out of a version-1 tree may have kept its "version", which means
+            // nothing where the folder layout already says the format. Refusing the file over
+            // it would cost the quest over one ignored number.
+            Problems problems = validateQuest("""
+                    {"id": "one", "title": "One", "version": 1}""");
+
+            DataProblem problem = containing(problems, "\"version\" means nothing here");
+            assertEquals(DataProblem.Severity.WARNING, problem.severity(),
+                    "a leftover must never fail a load");
+            assertFalse(problems.hasErrors(), "the quest still loads:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a version in per-kind group and chapter files warns too")
+        void versionInGroupAndChapterWarns() {
+            Problems group = new Problems();
+            QuestValidator.validateGroupDocument(
+                    Fixtures.document("group.json", """
+                            {"id": "g", "title": "G", "version": 1, "chapters": []}"""), group);
+            Problems chapter = new Problems();
+            QuestValidator.validateChapterDocument(
+                    Fixtures.document("chapter.json", """
+                            {"id": "c", "title": "C", "version": 1, "quests": []}"""), chapter);
+
+            assertEquals(DataProblem.Severity.WARNING,
+                    containing(group, "\"version\" means nothing here").severity());
+            assertEquals(DataProblem.Severity.WARNING,
+                    containing(chapter, "\"version\" means nothing here").severity());
+            assertFalse(group.hasErrors(), "the group still loads:" + messages(group));
+            assertFalse(chapter.hasErrors(), "the chapter still loads:" + messages(chapter));
+        }
+
+        @Test
+        @DisplayName("a version at the version-1 root keeps its own rule")
+        void versionAtTheVersion1RootIsUntouched() {
+            // The root is the one place version means something, so the retired rule must not
+            // fire there: a clean version-1 file stays clean, with no new warning.
+            Problems problems = validate(Fixtures.file(Fixtures.q("a").build()));
+
+            assertTrue(problems.isEmpty(), "a version-1 file with version 1 stays clean, got:"
+                    + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a table id warns and names the file, not another field")
+        void tableIdWarnsAndNamesTheFile() {
+            // An FTB reward table carries its hex id at the root; Tenet tables are named by their
+            // file. The id is not read, but the table still loads — and the warning must not point
+            // at "uid": a table file's root uid is ignored too, so that rename would trade one
+            // dead field for another.
+            Problems problems = validateTable("""
+                    {"id": "3a3bdbA4e9ad13c4",
+                     "entries": [{ "weight": 1,
+                       "reward": { "type": "tenet:item", "item": "minecraft:stone" } }]}""");
+
+            DataProblem problem = containing(problems, "\"id\" is not read");
+            assertEquals(DataProblem.Severity.WARNING, problem.severity());
+            assertTrue(problem.message().contains("reward_tables/<name>.json"),
+                    "the warning names what actually names the table: " + problem.message());
+            assertFalse(problem.message().contains("uid"),
+                    "and offers no rename that does nothing there: " + problem.message());
+            assertFalse(problems.hasErrors(), "the table still loads:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("an inline table id points at uid, which is the handle that works there")
+        void inlineTableIdPointsAtUid() {
+            // The one place "uid" means something: an inline table is addressed by its handle, so
+            // a converted inline id has a rename rather than only a removal.
+            Problems problems = validateQuest("""
+                    {"id": "one", "title": "One",
+                     "rewards": [{"type": "tenet:random",
+                       "inline": {"id": "old",
+                         "entries": [{ "weight": 1,
+                           "reward": { "type": "tenet:item", "item": "minecraft:stone" } }]}}]}""");
+
+            DataProblem problem = containing(problems, "\"id\" is not read");
+            assertEquals(DataProblem.Severity.WARNING, problem.severity());
+            assertTrue(problem.message().contains("rename this to \"uid\""),
+                    "the inline warning offers the rename: " + problem.message());
+            assertFalse(problems.hasErrors(), "the reward still loads:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a loot_crate warns but the table's entries still load")
+        void lootCrateWarnsButTheTableLoads() {
+            // The physical crate has no Tenet home, so the sub-object is not read — while the
+            // table around it is. Refusing the file would cost every entry over one mechanic.
+            Problems problems = validateTable("""
+                    {"loot_crate": {"string_id": "crate", "color": 1},
+                     "entries": [{ "weight": 1,
+                       "reward": { "type": "tenet:item", "item": "minecraft:stone" } }]}""");
+
+            DataProblem problem = containing(problems, "\"loot_crate\" has no Tenet home");
+            assertEquals(DataProblem.Severity.WARNING, problem.severity());
+            assertFalse(problems.hasErrors(), "the entries still load:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("anything else unknown is still an error: the retired list is closed")
+        void otherUnknownTableFieldsAreStillErrors() {
+            // The tolerance is three names, not a direction. An FTB snake_case leftover like
+            // "loot_size" is a file that was never converted, and loading it as if it were
+            // would pay the default loot size while wearing the author's number.
+            Problems problems = validateTable("""
+                    {"loot_size": 2,
+                     "entries": [{ "weight": 1,
+                       "reward": { "type": "tenet:item", "item": "minecraft:stone" } }]}""");
+
+            assertEquals(DataProblem.Severity.ERROR,
+                    containing(problems, "unknown field \"loot_size\"").severity());
+        }
+    }
+
     @Test
     @DisplayName("an icon whose components do not decode is refused -- the loader would skip the quest")    void iconWithABrokenPatchIsRefused() {
         // The icon's half of the per-type codec check: a component patch the codec cannot read would

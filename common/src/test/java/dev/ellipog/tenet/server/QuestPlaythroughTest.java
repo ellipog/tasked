@@ -203,6 +203,7 @@ class QuestPlaythroughTest {
         seeded.addAll(seedChargeChapter(configDir));
         seeded.addAll(seedLinkChapter(configDir));
         seeded.addAll(seedTeamStageChapter(configDir));
+        seeded.addAll(seedJunctionChapter(configDir));
         Collections.sort(seeded);
         examples = List.copyOf(seeded);
 
@@ -3205,6 +3206,42 @@ class QuestPlaythroughTest {
     }
 
     @Test
+    @Order(220)
+    @DisplayName("a taskless junction completes on the tick its last dependency does")
+    void tasklessJunctionCompletesWithItsGate() {
+        // FTB's junction nodes: a quest with no tasks auto-completes once its dependencies are
+        // met, with no press on it, and its own dependant unlocks behind it. Solo, for the reason
+        // order 200 gives: a leftover party would count the wrong player's progress.
+        asOperator("/tenet party leave");
+        assertEquals(player.getUUID(), ownerOf(player), "solo for this test: no party counting");
+
+        // A replay from a clean slate whatever order 218's sweep left behind: clearing the
+        // dependant clears its whole closure, so the gate and both of its own gates are fresh.
+        asOperator("/tenet reset junction_after with-dependencies");
+        tickOnce();
+
+        assertEquals(QuestState.LOCKED, stateOf("junction_gate"), "gated twice over, so locked");
+        assertEquals(QuestState.LOCKED, stateOf("junction_after"), "and so is what waits on it");
+
+        assertEquals(1, asOperator("/tenet submit junction_a 0").result(), "the first press records");
+        assertEquals(QuestState.COMPLETED, stateOf("junction_a"),
+                "a quest with no gate finishes at once");
+        assertNotEquals(QuestState.COMPLETED, stateOf("junction_gate"),
+                "one of two gates is still shut");
+
+        assertEquals(1, asOperator("/tenet submit junction_b 0").result(),
+                "the second press records");
+        assertTrue(tickUntil(() -> stateOf("junction_gate") == QuestState.COMPLETED,
+                        Duration.ofSeconds(20)),
+                "the taskless junction should finish on a tick once its last dependency does,"
+                        + " with no press on it");
+        assertNotEquals(QuestState.LOCKED, stateOf("junction_after"),
+                "and its dependant unlocks behind it");
+
+        note("a taskless junction finished on its gate's tick and opened its dependant");
+    }
+
+    @Test
     @DisplayName("a locale is packed once per language, however many players read it")
     void aLocaleIsPackedOncePerLanguage() {
         // The claim the per-locale cache exists for, and it is measured rather than asserted in prose
@@ -3804,6 +3841,61 @@ class QuestPlaythroughTest {
                 "team_gallery/team_works/team_summons.json",
                 "team_gallery/team_works/team_mark.json",
                 "team_gallery/team_works/team_fall.json");
+    }
+
+    /**
+     * The junction gallery: two checkmark gates, a taskless quest behind both, and a quest behind
+     * that.
+     *
+     * <p>Written by the test for the reason the flex gallery is: no example quest is a taskless
+     * junction with a dependant, and order 220 asks what the tick does with one. Checkmarks
+     * throughout, so no inventory couples the questions: the two gates are presses, the junction
+     * has nothing to press, and the dependant's own press is never touched. No titles are drawn,
+     * so the position checks have nothing to say either.
+     */
+    private static List<String> seedJunctionChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/junction_gallery");
+        Path chapter = quests.resolve("junction_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "junction_gallery", "title": "Junction Gallery", "chapters": ["junction_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "junction_works", "title": "Junction Works",
+                  "quests": ["junction_a.json", "junction_b.json", "junction_gate.json",
+                    "junction_after.json"] }
+                """);
+        Files.writeString(chapter.resolve("junction_a.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "junction_a",
+                  "title": "Junction A", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "First" }] }
+                """);
+        Files.writeString(chapter.resolve("junction_b.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "junction_b",
+                  "title": "Junction B", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Second" }] }
+                """);
+        Files.writeString(chapter.resolve("junction_gate.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "junction_gate",
+                  "title": "Junction Gate", "x": 32, "y": 64,
+                  "icon": { "item": "minecraft:hopper" },
+                  "dependsOn": ["junction_a", "junction_b"] }
+                """);
+        Files.writeString(chapter.resolve("junction_after.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "junction_after",
+                  "title": "Junction After", "x": 32, "y": 128,
+                  "icon": { "item": "minecraft:paper" },
+                  "dependsOn": ["junction_gate"],
+                  "tasks": [{ "type": "tenet:checkmark", "title": "After" }] }
+                """);
+        return List.of("junction_gallery/group.json", "junction_gallery/junction_works/chapter.json",
+                "junction_gallery/junction_works/junction_a.json",
+                "junction_gallery/junction_works/junction_b.json",
+                "junction_gallery/junction_works/junction_gate.json",
+                "junction_gallery/junction_works/junction_after.json");
     }
 
     private static List<String> seedRewardInboxChapter(Path configDir) throws IOException {

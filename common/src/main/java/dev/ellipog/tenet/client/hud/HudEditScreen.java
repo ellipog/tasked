@@ -49,6 +49,13 @@ import java.util.Map;
  * the ghost's corner was not the real panel's corner, so a number written from one was read from the other
  * and the control moved between the editor and the game. There is one coordinate space now, and no stand-in.
  *
+ * <p>Except the one this screen draws when the button is inventory-anchored: an outline of the closed-book
+ * survival panel, from the same centring the game uses. An offset needs a corner to be read against, and
+ * the editor has no inventory open -- so the ghost is the corner, drawn from {@code InventoryPanel} rather
+ * than invented beside it, which is what makes a drop on the outline land on the real panel. It is a guide
+ * under the chrome and the previews, never a hit target, and it stands down whenever the button is back in
+ * the window frame.
+ *
  * <h2>Moving things: drag, and the arrows for the last pixel</h2>
  *
  * <p>Grab the element and drag it; the drop writes where the widget's corner is, clamped onto the window.
@@ -82,6 +89,8 @@ public final class HudEditScreen extends ArmatureScreen {
     private final Map<HudElement, ArmatureSwitch> switches = new EnumMap<>(HudElement.class);
     private final Map<HudElement, ArmatureButton> resets = new EnumMap<>(HudElement.class);
     private final Map<HudElement, ArmatureSlider> dims = new EnumMap<>(HudElement.class);
+    private final Map<HudElement, ArmatureButton> anchors = new EnumMap<>(HudElement.class);
+    private final Map<HudElement, ArmatureButton> unders = new EnumMap<>(HudElement.class);
     private ArmatureButton done;
 
     /**
@@ -142,6 +151,22 @@ public final class HudEditScreen extends ArmatureScreen {
                 addRenderableWidget(dim);
                 dims.put(element, dim);
             }
+
+            // The book's button rows its anchor on a second line of its own: what the button is measured
+            // from -- the window, or the inventory panel -- plus the Under preset that puts it centred
+            // under the panel in one press. Built for the button only, like the slider is built for a
+            // drawn element only; the HUD's own two have no panel to be measured from.
+            if (element == HudElement.INVENTORY_BUTTON) {
+                ArmatureButton anchor = new ArmatureButton(0, 0, HudLayout.ANCHOR_WIDTH,
+                        HudLayout.CONTROL_LINE, anchorLabel(element), () -> toggleAnchor(element));
+                addRenderableWidget(anchor);
+                anchors.put(element, anchor);
+                ArmatureButton under = new ArmatureButton(0, 0, HudLayout.BUTTON_WIDTH,
+                        HudLayout.CONTROL_LINE, Component.translatable("tenet.hud.anchor_under"),
+                        () -> placeUnder(element));
+                addRenderableWidget(under);
+                unders.put(element, under);
+            }
         }
 
         done = new ArmatureButton(0, 0, HudLayout.BUTTON_WIDTH, HudLayout.CONTROL_LINE,
@@ -167,6 +192,7 @@ public final class HudEditScreen extends ArmatureScreen {
         frameMeasure = Measure.of(renderer::textWidth, renderer.lineHeight());
         long now = Util.getMillis();
 
+        drawGhost(renderer);
         for (HudElement element : HudElement.values()) {
             follow(element, mouseX, mouseY, frameMeasure, now);
         }
@@ -191,6 +217,43 @@ public final class HudEditScreen extends ArmatureScreen {
     private Measure frameMeasure;
 
     /**
+     * The inventory panel's ghost: the closed-book survival panel, drawn from the same centring the
+     * game uses.
+     *
+     * <p>Only while the button is inventory-anchored: in the window frame there is no panel to show,
+     * and an outline that is always there would be chrome claiming to be content. Drawn under the
+     * chrome and the previews, so it never covers anything -- a guide is looked <i>at</i> while placing
+     * and looked <i>past</i> the rest of the time.
+     *
+     * <p>This is the ghost the first panel anchor could not have: that one centred a panel the editor
+     * invented while the game centred its own, so one stored number read two corners. This one draws
+     * {@link InventoryPanel#rect} with the book closed, which is the same call the game makes -- so
+     * dropping the button on this outline and opening the inventory lands it on the real panel. With
+     * the recipe book open the live panel sits left of this outline and the button follows it there;
+     * that delta is the anchor working, not the editor misreading.
+     */
+    private void drawGhost(GuiRenderer renderer) {
+        if (HudSettings.origin(HudElement.INVENTORY_BUTTON) != HudElement.Origin.INVENTORY) {
+            return;
+        }
+        BookGeometry.Rect ghost = ghostPanel();
+        ArmatureTheme.outline(renderer, ghost.x(), ghost.y(), ghost.width(), ghost.height(),
+                ArmatureTheme.panelEdge());
+    }
+
+    /**
+     * The corner every inventory-anchored number in this screen is measured from.
+     *
+     * <p>The closed-book survival panel at this window's size: the same centring the game uses, so a
+     * drop here reads the same corner an inventory open reads. Creative's panel is wider and shorter
+     * and an open recipe book pushes survival's left -- both documented deltas the live placement
+     * follows and this fixed guide cannot.
+     */
+    private BookGeometry.Rect ghostPanel() {
+        return InventoryPanel.rect(width, height, true, false);
+    }
+
+    /**
      * Where each element draws: where it is stored.
      *
      * <p>Every frame, against the window as it is <i>now</i> -- which is what makes this work at any size.
@@ -207,6 +270,10 @@ public final class HudEditScreen extends ArmatureScreen {
      *
      * <p>Skipped for an element the widget pass is currently carrying: that one is where the pointer put it,
      * and putting it back to the stored position every frame would fight the drag that has not finished.
+     *
+     * <p>An inventory-anchored button is re-based on the ghost's corner, the way the game re-bases it on
+     * the live panel's: the stored number is an offset, so drawing it at the offset alone would park it
+     * in the window's corner while the file means the panel's.
      */
     private void follow(HudElement element, int mouseX, int mouseY, Measure measure, long now) {
         HudElementPreview preview = previews.get(element);
@@ -219,8 +286,19 @@ public final class HudEditScreen extends ArmatureScreen {
             HudOverlay.Size size = HudOverlay.size(element, measure, HudOverlay.Face.EDITOR, now, playerId());
             preview.resize(size.width(), size.height());
         }
-        BookGeometry.Rect box = HudLayout.boxAt(element, width, height,
-                HudSettings.x(element), HudSettings.y(element), preview.getWidth(), preview.getHeight());
+        BookGeometry.Rect box;
+        if (element == HudElement.INVENTORY_BUTTON
+                && HudSettings.origin(element) == HudElement.Origin.INVENTORY) {
+            BookGeometry.Rect ghost = ghostPanel();
+            box = HudLayout.boxAtInventory(ghost.x(), ghost.y(),
+                    HudSettings.x(element), HudSettings.y(element),
+                    preview.getWidth(), preview.getHeight(), width, height);
+        }
+        else {
+            box = HudLayout.boxAt(element, width, height,
+                    HudSettings.x(element), HudSettings.y(element),
+                    preview.getWidth(), preview.getHeight());
+        }
         preview.at(box.x(), box.y());
     }
 
@@ -245,6 +323,8 @@ public final class HudEditScreen extends ArmatureScreen {
             if (dim != null) {
                 placeSlider(dim, HudLayout.slider(index, chrome, order));
             }
+            place(anchors.get(element), HudLayout.anchorToggle(index, chrome, order));
+            place(unders.get(element), HudLayout.anchorUnder(index, chrome, order));
             index++;
         }
 
@@ -320,6 +400,14 @@ public final class HudEditScreen extends ArmatureScreen {
         if (preview == null) {
             return;
         }
+        if (selected == HudElement.INVENTORY_BUTTON
+                && HudSettings.origin(selected) == HudElement.Origin.INVENTORY) {
+            // An offset, not a window pixel: nudged exactly, with no clamp from the wrong space. The
+            // window clamp at draw time decides what an offset past the panel means on a small window.
+            HudSettings.setPosition(selected, HudSettings.x(selected) + dx * step,
+                    HudSettings.y(selected) + dy * step);
+            return;
+        }
         int left = HudLayout.placed(HudSettings.x(selected) + dx * step, width - preview.getWidth());
         int top = HudLayout.placed(HudLayout.placedTop(selected, height, HudSettings.y(selected),
                 preview.getHeight()) + dy * step, height - preview.getHeight());
@@ -359,6 +447,72 @@ public final class HudEditScreen extends ArmatureScreen {
             // home would be a reset that did not.
             dim.setValue(HudSettings.dim(element));
         }
+        // And the anchor, for the same reason again: the shipped layout is window pixels, so a reset
+        // that left the inventory origin behind would not be home.
+        refreshAnchorButton(element);
+    }
+
+    /**
+     * The anchor switch's label: what the button is measured from right now.
+     *
+     * <p>The switch <i>is</i> its label -- Window or Inventory -- rather than a bare toggle beside a
+     * name, because the row's label line already names the element and a second switch with no words
+     * of its own would read as a second show/hide.
+     */
+    private static Component anchorLabel(HudElement element) {
+        return Component.translatable(HudSettings.origin(element) == HudElement.Origin.INVENTORY
+                ? "tenet.hud.anchor_inventory" : "tenet.hud.anchor_window");
+    }
+
+    /** Re-reads the anchor switch after anything that changed what it names. */
+    private void refreshAnchorButton(HudElement element) {
+        ArmatureButton anchor = anchors.get(element);
+        if (anchor != null) {
+            anchor.setMessage(anchorLabel(element));
+        }
+    }
+
+    /**
+     * Flips what the button is measured from, without moving it on screen.
+     *
+     * <p>Converted through the ghost's corner at this window's size, so the preview -- and, with the
+     * book closed, the game -- draws the button where it already is: switching frames rewrites the
+     * numbers, not the place. Both writes land because they are one decision in two fields: the origin
+     * the position is read through, and the position in it.
+     */
+    private void toggleAnchor(HudElement element) {
+        BookGeometry.Rect ghost = ghostPanel();
+        if (HudSettings.origin(element) == HudElement.Origin.INVENTORY) {
+            int windowX = HudLayout.windowX(HudSettings.x(element), ghost.x());
+            int windowY = HudLayout.windowY(HudSettings.y(element), ghost.y());
+            HudSettings.setOrigin(element, HudElement.Origin.WINDOW);
+            HudSettings.setPosition(element, windowX, windowY);
+        }
+        else {
+            int inventoryX = HudLayout.inventoryX(HudSettings.x(element), ghost.x());
+            int inventoryY = HudLayout.inventoryY(HudSettings.y(element), ghost.y());
+            HudSettings.setOrigin(element, HudElement.Origin.INVENTORY);
+            HudSettings.setPosition(element, inventoryX, inventoryY);
+        }
+        refreshAnchorButton(element);
+    }
+
+    /**
+     * Puts the button centred under the inventory panel in one press.
+     *
+     * <p>Anchors to the inventory first when it is not there already: a preset that left the window
+     * frame behind would write a panel offset the game reads as a window corner, which is the jump
+     * every conversion here exists to prevent. Measured against the ghost, so the editor and the
+     * closed-book game agree; the preview follows on the next frame.
+     */
+    private void placeUnder(HudElement element) {
+        HudElementPreview preview = previews.get(element);
+        BookGeometry.Rect ghost = ghostPanel();
+        int[] offset = InventoryPanel.underOffset(ghost.width(), ghost.height(),
+                preview == null ? element.width() : preview.getWidth());
+        HudSettings.setOrigin(element, HudElement.Origin.INVENTORY);
+        HudSettings.setPosition(element, offset[0], offset[1]);
+        refreshAnchorButton(element);
     }
 
     /**
@@ -370,10 +524,22 @@ public final class HudEditScreen extends ArmatureScreen {
      * the file holds exactly once, through the element's anchor: routing the corner through
      * {@code boxAt} instead would read it as a centre-offset a second time, and the box would jump by
      * half its height on release -- which is the fault this shape exists to prevent.
+     *
+     * <p>An inventory-anchored button stores the corner less the ghost's corner instead, unclamped: the
+     * offset is panel-relative, so the window clamp would be a bound from the wrong space, and routing
+     * it through {@code boxAtInventory} would re-add the corner a second time.
      */
     void drop(HudElement element) {
         HudElementPreview preview = previews.get(element);
         if (preview == null) {
+            return;
+        }
+        if (element == HudElement.INVENTORY_BUTTON
+                && HudSettings.origin(element) == HudElement.Origin.INVENTORY) {
+            BookGeometry.Rect ghost = ghostPanel();
+            HudSettings.setPosition(element,
+                    HudLayout.inventoryX(preview.getX(), ghost.x()),
+                    HudLayout.inventoryY(preview.getY(), ghost.y()));
             return;
         }
         int left = HudLayout.placed(preview.getX(), width - preview.getWidth());

@@ -287,8 +287,8 @@ public record Quest(
      *
      * <p>FTB Quests' {@code hide_lock_icon} on the quest: the quest's half of the file's
      * {@code showLockIcons}. Either silence wins — see {@link QuestVisibility#drawsLockMark} for
-     * the answer the canvas actually draws with. Absent draws, which is what every file written
-     * before this field existed says.
+     * the answer the canvas actually draws with. Absent defers to the file, which is what every
+     * file written before this field existed says.
      */
     public boolean hideLockIcon() {
         return presentation.hideLockIcon();

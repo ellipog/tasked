@@ -72,8 +72,8 @@
         },
         "showLockIcons": {
           "type": "boolean",
-          "default": true,
-          "description": "Whether a locked quest wears its padlock on the canvas. A quest opts out for itself with `hideLockIcon`; either silence wins. FTB Quests calls this show_lock_icons."
+          "default": false,
+          "description": "Whether a locked quest wears its padlock on the canvas. No marks unless the file asks for them; write `true` for FTB's old always-drawn marks. A quest opts out for itself with `hideLockIcon`; either silence wins. FTB Quests calls this show_lock_icons."
         },
         "hideExcludedQuests": {
           "type": "boolean",

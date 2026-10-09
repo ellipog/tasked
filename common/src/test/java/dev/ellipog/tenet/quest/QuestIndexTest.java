@@ -70,8 +70,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>{@link Crowding#closeTogetherInARowWarn}. That check was added because a screenshot showed three
  * quest titles interleaved into what looked like a corrupt string, and the cause was a questline
  * authored 64 pixels apart with titles about 90 pixels wide. The client now copes with that — it
- * truncates to the measured room and drops a label that would sit over a node — but a layout that
- * hides what the author wrote is worth reporting at load, and a check with no test is a check that
+ * truncates to the measured room and drops a label that would sit over a node — and converted packs
+ * are laid out on a 64-pixel grid, so the check warns only below 64 pixels: a layout that hides
+ * what the author wrote is worth reporting at load, and a check with no test is a check that
  * quietly stops working.
  */
 class QuestIndexTest {
@@ -733,7 +734,69 @@ class QuestIndexTest {
 
             assertTrue(!problems.hasErrors(), "an empty quest still loads:");
             assertMentions(problems, "no tasks and no rewards");
+            assertMentions(problems, "nothing depends on it");
             assertEquals(1, problems.warningCount(), "exactly one warning:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a taskless quest with a dependant is a junction, not a ghost")
+        void junctionWithADependantDoesNotWarn() {
+            // FTB authors use empty quests as visual junctions, milestones and chapter gates, and a
+            // branch behind one has to open. Warning about those would be noise on every converted
+            // pack, so only a taskless quest with nothing behind it warns. Apart on the canvas, so
+            // the position checks have nothing to say: this test is about the ghost rule.
+            Problems problems = problemsOf(Fixtures.file(
+                    q("junction").noTasks().at(0, 0).build(),
+                    q("after").dependsOn("junction").at(132, 0).build()));
+
+            assertTrue(!problems.hasErrors(), "a junction still loads:");
+            assertDoesNotMention(problems, "no tasks and no rewards");
+            assertEquals(0, problems.warningCount(), "no warnings at all:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a dependant through an alias spares the junction too")
+        void aliasDependantCounts() {
+            // The dependant set resolves by id or by normalised alias, so a gate written through an
+            // alias still counts: the lookup's job is to not break a reference somebody wrote in
+            // another spelling, and the ghost check reads through the same table. Apart on the canvas,
+            // for the reason the junction test gives.
+            Problems problems = problemsOf(Fixtures.file(
+                    q("junction").noTasks().alias("gate").at(0, 0).build(),
+                    q("after").dependsOn("gate").at(132, 0).build()));
+
+            assertTrue(!problems.hasErrors(), "an aliased gate still loads:");
+            assertDoesNotMention(problems, "no tasks and no rewards");
+            assertEquals(0, problems.warningCount(), "no warnings at all:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a taskless quest with rewards is a payout waiting for a task, not a ghost")
+        void tasklessQuestWithRewardsDoesNotWarn() {
+            // Nothing to do in it yet, but something to give from it: the fixture builder never
+            // emits rewards, so this one is raw JSON.
+            Problems problems = problemsOf(Fixtures.file(
+                    """
+                            {"id": "prize", "title": "Prize",
+                             "rewards": [{"type": "tenet:item", "item": "minecraft:stone"}]}"""));
+
+            assertTrue(!problems.hasErrors(), "a reward-only quest still loads:");
+            assertDoesNotMention(problems, "no tasks and no rewards");
+        }
+
+        @Test
+        @DisplayName("a quest with only inbound links still warns: links gate nothing")
+        void linkAloneDoesNotSpareTheGhost() {
+            // A link mirrors without gating, so a quest nothing depends on is still a ghost however
+            // many markers point at it. The link id must not shadow the quest; the target resolves.
+            Problems problems = problemsOf(Fixtures.fileWithChapter(
+                    "\"links\": [{\"id\": \"marker\", \"quest\": \"lonely\", \"x\": 0, \"y\": 0}],",
+                    q("lonely").noTasks().build()));
+
+            assertTrue(!problems.hasErrors(), "a linked-to ghost still loads:");
+            assertMentions(problems, "no tasks and no rewards");
+            assertEquals(1, problems.warningCount(), "the ghost, and only the ghost:"
+                    + messages(problems));
         }
     }
 
@@ -753,21 +816,36 @@ class QuestIndexTest {
     class Crowding {
 
         @Test
-        @DisplayName("two long titles 64px apart in one row warn, if both are drawn")
+        @DisplayName("two long titles 32px apart in one row warn, if both are drawn")
         void closeTogetherInARowWarn() {
-            // 64 is the spacing that produced the bug: three nodes 64px apart carrying titles around
-            // 90-120px, so their labels were drawn through each other.
+            // 32 is below the 64-pixel threshold converted packs are laid out on: two labels about
+            // 120px wide in 32 pixels of room cannot both be drawn, and the client truncating them
+            // is what this warning is about.
             //
             // `showTitle(true)` on both is not incidental detail -- it is what makes this the case the
             // check is about. Titles are off by default, so without it there would be nothing drawn in
-            // that 64 pixels and nothing to collide.
+            // that 32 pixels and nothing to collide.
             Problems problems = problemsOf(Fixtures.file(
                     q(LONG_ID).at(0, 0).showTitle(true).build(),
-                    q(WIDER_ID).at(64, 0).showTitle(true).build()));
+                    q(WIDER_ID).at(32, 0).showTitle(true).build()));
 
             assertTrue(!problems.hasErrors(), "crowding is a warning, not a failure:");
             assertMentions(problems, "pixels apart in the same row");
             assertMentions(problems, "will overlap and run together");
+        }
+
+        @Test
+        @DisplayName("the same two titles on the 64-pixel conversion grid do not warn")
+        void conversionGridSpacingDoesNotWarn() {
+            // 64 is the spacing the migration tool writes and the threshold itself: a gap at the
+            // threshold is room enough, so a converted row with two long titles loads quietly. The
+            // client still truncates what does not fit -- this check is about cramped authoring,
+            // not about exact overlap.
+            Problems problems = problemsOf(Fixtures.file(
+                    q(LONG_ID).at(0, 0).showTitle(true).build(),
+                    q(WIDER_ID).at(64, 0).showTitle(true).build()));
+
+            assertDoesNotMention(problems, "pixels apart in the same row");
         }
 
         @Test
@@ -885,19 +963,33 @@ class QuestIndexTest {
         }
 
         @Test
-        @DisplayName("a row of five reports each crowded neighbour pair")
+        @DisplayName("a row of three reports each crowded neighbour pair")
         void everyCrowdedPairInARowIsReported() {
             // Each adjacent pair, not just the first. An author who fixes only the pair they were told
             // about would otherwise have to reload once per collision.
             Problems problems = problemsOf(Fixtures.file(
                     q(LONG_ID).at(0, 0).showTitle(true).build(),
-                    q(WIDER_ID).at(64, 0).showTitle(true).build(),
-                    q(LONG_ID + "_b").at(128, 0).showTitle(true).build()));
+                    q(WIDER_ID).at(32, 0).showTitle(true).build(),
+                    q(LONG_ID + "_b").at(64, 0).showTitle(true).build()));
 
             long crowded = problems.all().stream()
                     .filter(problem -> problem.message().contains("pixels apart in the same row"))
                     .count();
             assertEquals(2, crowded, "two adjacent pairs:" + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a rounding nudge apart is not a duplicate: the tool's +1,+1 lands here")
+        void nudgedApartIsNotADuplicate() {
+            // The migration tool resolves a rounding collision by nudging (+1,+1) and reporting it,
+            // so the position this produces must load quietly: one pixel apart is not stacked, and
+            // with neither name drawn there is nothing to crowd either.
+            Problems problems = problemsOf(Fixtures.file(
+                    q(LONG_ID).at(0, 0).build(),
+                    q(WIDER_ID).at(1, 0).build()));
+
+            assertDoesNotMention(problems, "is at the same position");
+            assertEquals(0, problems.warningCount(), "no warnings at all:" + messages(problems));
         }
     }
 

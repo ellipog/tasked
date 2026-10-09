@@ -25,6 +25,12 @@ package dev.ellipog.tenet.client.hud;
  * editor and the game. The user-visible symptom was exactly that, and a straight position in one space
  * cannot have it.
  *
+ * <p><b>The button can be measured from the panel again, as an opt-in {@link Origin}.</b> What broke the
+ * first version was not the offset but the ghost: the editor's corner was invented while the game's was
+ * centred, so no stored number could satisfy both. The ghost now draws from the same centring the game
+ * uses (see {@code InventoryPanel}), so the two corners agree whenever the recipe book is closed -- and
+ * when it is open the button follows the live panel, which is the behaviour the first version wanted.
+ *
  * <h2>What a box here means, now that two of the four are not boxes</h2>
  *
  * <p>{@link #width()} and {@link #height()} are a <b>control's</b> real box and, for a drawn element, only
@@ -44,7 +50,7 @@ package dev.ellipog.tenet.client.hud;
  */
 public enum HudElement {
 
-    /** The quest book's button, in the window's top-left corner. Drawn by the inventory screen. */
+    /** The quest book's button, in the window's top-left corner. Drawn by container screens. */
     INVENTORY_BUTTON("inventory_button", 2, 2, 16, 16, 2, true, Kind.CONTROL, Anchor.TOP_LEFT, 1.0),
 
     /**
@@ -89,6 +95,55 @@ public enum HudElement {
          * frame, and the editor's preview is resized from that so what is grabbed is what is drawn.
          */
         HUD
+    }
+
+    /**
+     * What a stored position is measured from.
+     *
+     * <p>Window for everything that has always been a window position: the stored numbers are window
+     * pixels either way, so a frame is not a second coordinate space, only a second origin in the same
+     * one. The book's button is the one element that can be measured from the inventory panel instead:
+     * a button placed under the inventory as a window pixel stops being under it the moment the GUI
+     * scale or the window size moves the centred panel, while an offset from the panel's own corner
+     * survives both, because the game re-adds the panel's live corner every time the button is placed.
+     */
+    public enum Origin {
+
+        /** A window pixel from the window's top-left corner, as it has always been. */
+        WINDOW("window"),
+
+        /** An offset from the live inventory panel's top-left corner. */
+        INVENTORY("inventory");
+
+        private final String id;
+
+        Origin(String id) {
+            this.id = id;
+        }
+
+        /** The key this origin is stored under in {@code hud.json}. */
+        public String id() {
+            return id;
+        }
+
+        /**
+         * The origin a stored key names, or null when it names none this build has.
+         *
+         * <p>Null rather than a default, for the same reason as {@link #named}: a key written by a
+         * newer build must cost that entry and nothing else.
+         */
+        public static Origin named(String id) {
+            if (id == null) {
+                return null;
+            }
+            String wanted = id.trim();
+            for (Origin origin : values()) {
+                if (origin.id.equalsIgnoreCase(wanted) || origin.name().equalsIgnoreCase(wanted)) {
+                    return origin;
+                }
+            }
+            return null;
+        }
     }
 
     /**
@@ -201,6 +256,30 @@ public enum HudElement {
     /** Whether it is drawn before anybody switches it off. */
     public boolean defaultOn() {
         return defaultOn;
+    }
+
+    /**
+     * What a stored position is measured from before anybody moves it.
+     *
+     * <p>Window, for every element: the shipped layout is all window pixels, so a file nobody has
+     * touched stays exactly where it has always been.
+     */
+    public Origin defaultOrigin() {
+        return Origin.WINDOW;
+    }
+
+    /**
+     * Whether this element may be measured from that origin.
+     *
+     * <p>Only the book's button: it is the only element drawn on somebody else's screen, so it is the
+     * only one with a panel to be measured from. The HUD's own two are drawn on the world, where an
+     * inventory corner would be a second opinion about a place nothing draws.
+     */
+    public boolean supportsOrigin(Origin origin) {
+        if (origin == null || origin == Origin.WINDOW) {
+            return true;
+        }
+        return this == INVENTORY_BUTTON;
     }
 
     /**

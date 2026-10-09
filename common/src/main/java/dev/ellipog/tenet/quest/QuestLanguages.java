@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +52,14 @@ import java.util.regex.Pattern;
  * and the file is refused. The rest load, and the questline is unaffected: an author with a typo in
  * a translation should get a working book, the file named, and the offending key pointed at — not a
  * server that refuses to start or a book that will not open.
+ *
+ * <h2>Keys that name nothing warn, and never fail</h2>
+ *
+ * <p>A key for a quest that was deleted, or written against the wrong id, is otherwise silent: the
+ * overlay merges, the lookup misses, and the tree's own string stays on screen with nothing saying
+ * which file holds the dead key. {@link #warnStale} reports those after the load, as warnings, so
+ * a converted pack with leftover keys still loads cleanly. Keys in no book-shaped namespace are
+ * left alone — scripts may own them.
  */
 public final class QuestLanguages {
 
@@ -70,7 +79,7 @@ public final class QuestLanguages {
 
     /** No folder, or an empty one: the state every pack without translations is in. */
     public static final QuestLanguages EMPTY =
-            new QuestLanguages(Map.of(), Set.of());
+            new QuestLanguages(Map.of(), Set.of(), Map.of());
 
     /** Locale id to that locale's entries, name-sorted so a resolution cannot depend on read order. */
     private final Map<String, Map<String, String>> bundles;
@@ -78,9 +87,20 @@ public final class QuestLanguages {
     /** The locale ids whose file is there and was refused, name-sorted. */
     private final Set<String> refused;
 
-    private QuestLanguages(Map<String, Map<String, String>> bundles, Set<String> refused) {
+    /**
+     * Locale id to the file it was read from, for messages about a bundle's contents.
+     *
+     * <p>The id alone cannot name the file: {@code es-ES.json} normalises to {@code es_es}, so
+     * rebuilding the name from the id would point at a file that is not there. The stale-key
+     * warnings below are reported per file, which is why the name is kept rather than derived.
+     */
+    private final Map<String, String> files;
+
+    private QuestLanguages(Map<String, Map<String, String>> bundles, Set<String> refused,
+                           Map<String, String> files) {
         this.bundles = bundles;
         this.refused = refused;
+        this.files = files;
     }
     /**
      * Reads {@code lang/*.json} from a quest root, reporting into the caller's problem list.
@@ -98,6 +118,7 @@ public final class QuestLanguages {
 
         Map<String, Map<String, String>> bundles = new TreeMap<>();
         Set<String> refused = new TreeSet<>();
+        Map<String, String> displays = new TreeMap<>();
         for (Path file : files) {
             String name = file.getFileName().toString();
             String id = normalise(name.substring(0, name.length() - SUFFIX.length()));
@@ -151,13 +172,15 @@ public final class QuestLanguages {
             // pick one of several relatives. It picked a different one per run. See
             // `QuestLanguagesTest`'s "any sibling beats English, in name order".
             bundles.put(id, java.util.Collections.unmodifiableMap(entries));
+            displays.put(id, name);
         }
 
         if (bundles.isEmpty() && refused.isEmpty()) {
             return EMPTY;
         }
         return new QuestLanguages(java.util.Collections.unmodifiableMap(bundles),
-                java.util.Collections.unmodifiableSet(refused));
+                java.util.Collections.unmodifiableSet(refused),
+                java.util.Collections.unmodifiableMap(displays));
     }
 
     /** The locales this pack has, name-sorted. Empty when it ships no translations. */
@@ -258,6 +281,225 @@ public final class QuestLanguages {
         // entries followed by the served one's, and the packed JSON is written in it. A payload whose
         // key order varied per build would be a cache whose bytes differed for no reason.
         return java.util.Collections.unmodifiableMap(merged);
+    }
+
+    /**
+     * Warns about keys that name nothing this book reads, one warning per file.
+     *
+     * <h2>What counts as stale, and what is left alone</h2>
+     *
+     * <p>A key in one of the book's own namespaces — {@code quest.<id>.title} and its siblings,
+     * {@code chapter.<id>.title|subtitle}, {@code group.<id>.title},
+     * {@code rewardTable.<id>.title}, {@code element.<id>.text|title}, {@code book.title} — names
+     * nothing when its object is gone, when it is spelled for another case, when it goes through
+     * an alias the readers never consult, or when no reader looks the field up at all. Any of
+     * those is otherwise silent: the overlay merges, the lookup misses, and the tree's own string
+     * stays on screen with nothing saying which file holds the dead key. So each is a warning, and
+     * a warning is all it is: a converted pack with leftover keys still loads cleanly.
+     *
+     * <p>Keys in no book-shaped namespace are left alone. The overlay serves any key, and a script
+     * may own the ones no reader looks up — judging those would be a warning about somebody else's
+     * data.
+     *
+     * @param index    the loaded tree, for what quests, chapters, groups and elements exist
+     * @param tableIds the reward tables that loaded, keyed by file name as the loader keys them
+     * @param problems the load's own report, so the warnings reach the log and the reload answer
+     */
+    public void warnStale(QuestIndex index, Set<String> tableIds, Problems problems) {
+        Set<String> quests = new LinkedHashSet<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            quests.add(entry.quest().id());
+        }
+        Set<String> chapters = new LinkedHashSet<>();
+        for (QuestIndex.ChapterEntry entry : index.chapters()) {
+            chapters.add(entry.chapter().id());
+        }
+        Set<String> groups = new LinkedHashSet<>();
+        for (QuestIndex.GroupEntry entry : index.groups()) {
+            groups.add(entry.group().id());
+        }
+        Set<String> elements = new LinkedHashSet<>();
+        for (QuestIndex.ChapterEntry entry : index.chapters()) {
+            for (CanvasElement element : entry.chapter().elements()) {
+                elements.add(element.id());
+            }
+        }
+
+        for (Map.Entry<String, Map<String, String>> bundle : bundles.entrySet()) {
+            List<String> stale = new java.util.ArrayList<>();
+            for (String key : bundle.getValue().keySet()) {
+                String reason = staleReason(index, quests, chapters, groups, tableIds, elements, key);
+                if (reason != null) {
+                    stale.add("\"" + key + "\" (" + reason + ")");
+                }
+            }
+            if (stale.isEmpty()) {
+                continue;
+            }
+            int shown = Math.min(stale.size(), 6);
+            String listing = String.join(", ", stale.subList(0, shown));
+            if (stale.size() > shown) {
+                listing += ", and " + (stale.size() - shown) + " more";
+            }
+            problems.add(files.getOrDefault(bundle.getKey(), bundle.getKey() + ".json"),
+                    new JsonLocation(1, 1, "$"), DataProblem.Severity.WARNING,
+                    stale.size() + " of this file's keys name nothing this book reads: " + listing
+                            + "\n    a key for a deleted quest stays behind silently, and the tree's"
+                            + " own string stays on screen with nothing saying which file holds the"
+                            + " dead key - remove them, or fix the names");
+        }
+    }
+
+    /** Why a key names nothing, or null when something reads it. */
+    private static String staleReason(QuestIndex index, Set<String> quests, Set<String> chapters,
+                                      Set<String> groups, Set<String> tableIds,
+                                      Set<String> elements, String key) {
+        String[] parts = key.split("\\.", -1);
+        if (parts.length < 2) {
+            return null;
+        }
+        return switch (parts[0]) {
+            case "quest" -> {
+                String owner = canonicalId(quests, parts[1]);
+                if (owner == null) {
+                    yield missingOwner(index, "quest", quests, parts[1]);
+                }
+                yield questField(parts) ? null : unread(key);
+            }
+            case "chapter" -> {
+                String owner = canonicalId(chapters, parts[1]);
+                if (owner == null) {
+                    yield missingOwner(index, "chapter", chapters, parts[1]);
+                }
+                yield chapterField(parts) ? null : unread(key);
+            }
+            case "group" -> {
+                String owner = canonicalId(groups, parts[1]);
+                if (owner == null) {
+                    yield missingOwner(index, "group", groups, parts[1]);
+                }
+                yield titled(parts) ? null : unread(key);
+            }
+            case "rewardTable" -> {
+                String owner = canonicalId(tableIds, parts[1]);
+                if (owner == null) {
+                    yield missingTable(tableIds, parts[1]);
+                }
+                yield titled(parts) ? null : unread(key);
+            }
+            case "element" -> {
+                String owner = canonicalId(elements, parts[1]);
+                if (owner == null) {
+                    yield "no such element";
+                }
+                yield elementField(parts) ? null : unread(key);
+            }
+            case "book" -> {
+                yield key.equals("book.title") ? null : unread(key);
+            }
+            default -> null;
+        };
+    }
+
+    /**
+     * The live id spelled exactly this way, or null.
+     *
+     * <p>A set lookup rather than a scan, and the difference is load-bearing: this answers for
+     * every key in every locale file, so a scan here is quadratic in the size of the pack on
+     * every reload. The case-fold below stays a scan, which is honest because it only runs for
+     * keys that already missed — stale keys are few, and valid ones never reach it.
+     */
+    private static String canonicalId(Set<String> live, String id) {
+        return live.contains(id) ? id : null;
+    }
+
+    /**
+     * Why an id in a quest, chapter or group key names nothing.
+     *
+     * <p>Three different mistakes, told apart because the fixes differ: another case (keys use the
+     * lowercase id — the spelling a hand-merged FTB file most often gets wrong), an alias or tag
+     * (keys use the object's own id, which the readers build their lookups from), or nothing at
+     * all (the object is gone and the key stayed behind).
+     */
+    private static String missingOwner(QuestIndex index, String kind, Set<String> live, String id) {
+        for (String each : live) {
+            if (each.equalsIgnoreCase(id)) {
+                return "no " + kind + " with that id - did you mean \"" + each + "\"?"
+                        + " Keys use the lowercase id";
+            }
+        }
+        String aliasOf = aliasTarget(index, kind, id);
+        if (aliasOf != null) {
+            if (id.startsWith("#")) {
+                return "\"" + id + "\" is a tag, and translation keys use the " + kind + "'s own id"
+                        + " (\"" + aliasOf + "\" answers it today)";
+            }
+            return "\"" + id + "\" is an alias of " + kind + " \"" + aliasOf + "\", and translation"
+                    + " keys use the " + kind + "'s own id";
+        }
+        return "no such " + kind;
+    }
+
+    /** Why a table id names nothing: tables have no aliases, so only the case can be wrong. */
+    private static String missingTable(Set<String> tableIds, String id) {
+        for (String each : tableIds) {
+            if (each.equalsIgnoreCase(id)) {
+                return "no reward table with that id - did you mean \"" + each + "\"?"
+                        + " Tables are named by their file";
+            }
+        }
+        return "no such reward table";
+    }
+
+    /**
+     * What an alias or tag lookup resolves to, for the guidance when a key goes through one.
+     *
+     * <p>Only called when no live id spells it exactly, so any hit here is an alias or a tag
+     * rather than the id itself. Tables and elements have neither, so those kinds answer null.
+     */
+    private static String aliasTarget(QuestIndex index, String kind, String id) {
+        return switch (kind) {
+            case "quest" -> index.quest(id).map(entry -> entry.quest().id()).orElse(null);
+            case "chapter" -> index.chapter(id).map(entry -> entry.chapter().id()).orElse(null);
+            case "group" -> index.group(id).map(entry -> entry.group().id()).orElse(null);
+            default -> null;
+        };
+    }
+
+    /** Nothing in the book looks a key like this up. */
+    private static String unread(String key) {
+        return "nothing in the book is read through \"" + key + "\"";
+    }
+
+    /** A quest's translatable fields: title, subtitle, and the description roads. */
+    private static boolean questField(String[] parts) {
+        if (parts.length < 3) {
+            return false;
+        }
+        if (parts[2].equals("title") || parts[2].equals("subtitle")) {
+            return parts.length == 3;
+        }
+        if (parts[2].equals("description")) {
+            return parts.length == 3
+                    || (parts.length == 4 && !parts[3].isEmpty()
+                            && parts[3].chars().allMatch(Character::isDigit));
+        }
+        return false;
+    }
+
+    /** A single title, and nothing else. */
+    private static boolean titled(String[] parts) {
+        return parts.length == 3 && parts[2].equals("title");
+    }
+
+    /** A chapter's subtitle beside its title. */
+    private static boolean chapterField(String[] parts) {
+        return parts.length == 3 && (parts[2].equals("title") || parts[2].equals("subtitle"));
+    }
+
+    /** An element's two texts: the label's words and the picture's. */
+    private static boolean elementField(String[] parts) {
+        return parts.length == 3 && (parts[2].equals("text") || parts[2].equals("title"));
     }
 
     /**

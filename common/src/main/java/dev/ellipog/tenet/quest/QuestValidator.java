@@ -162,8 +162,9 @@ public final class QuestValidator {
         if (!isObject(document, "$", problems)) {
             return;
         }
-        Checks.rejectUnknown(document, "$", withSchema(dev.ellipog.tenet.quest.loot.RewardTable.FIELDS),
-                problems);
+        warnRetiredTableFields(document, "$", problems, false);
+        Checks.rejectUnknown(document, "$", union(withSchema(dev.ellipog.tenet.quest.loot.RewardTable.FIELDS),
+                RETIRED_TABLE_FIELDS), problems);
         checkTableBounds(document, problems);
         // Table presentation: whether a reward row draws this table's title, and whether it draws
         // an item tooltip. Both are display-only — a typo here changes what the player reads, not
@@ -336,7 +337,8 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, allowedFields, problems);
+        warnRetiredVersion(document, path, problems);
+        Checks.rejectUnknown(document, path, union(allowedFields, RETIRED_VERSION), problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
         // Checked, and it was not until the codec rejected one. A field the validator does not look at
@@ -440,7 +442,8 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, allowedFields, problems);
+        warnRetiredVersion(document, path, problems);
+        Checks.rejectUnknown(document, path, union(allowedFields, RETIRED_VERSION), problems);
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
         // A chapter's description was the one text field nothing looked at, and the two layouts' chapter
@@ -640,7 +643,8 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, allowedFields, problems);
+        warnRetiredVersion(document, path, problems);
+        Checks.rejectUnknown(document, path, union(allowedFields, RETIRED_VERSION), problems);
 
         Checks.id(document, path + ".id", problems);
         requiredText(document, path + ".title", problems);
@@ -1233,8 +1237,10 @@ public final class QuestValidator {
         if (!document.has(inlinePath) || !isObject(document, inlinePath, problems)) {
             return;
         }
+        warnRetiredTableFields(document, inlinePath, problems, true);
         Checks.rejectUnknown(document, inlinePath,
-                dev.ellipog.tenet.quest.loot.RewardTable.FIELDS, problems);
+                union(dev.ellipog.tenet.quest.loot.RewardTable.FIELDS, RETIRED_TABLE_FIELDS),
+                problems);
         if (document.has(inlinePath + ".useTitle")) {
             Checks.optionalBool(document, inlinePath + ".useTitle", problems);
         }
@@ -2453,6 +2459,69 @@ public final class QuestValidator {
 
     // Shared with QuestIndex so that both agree on where a quest is. If one of these changes, the
     // other's error messages move with it rather than silently pointing somewhere else.
+
+    /**
+     * Fields an older schema or a converted file may still carry, warned about rather than refused.
+     *
+     * <p>Each one is harmless because the codec ignores it — which is exactly why refusing the
+     * file over it would be wrong. Anything else unknown is still an error: a typo must fail
+     * loudly, and the names below are the closed list that does not. See {@link
+     * #warnRetiredVersion} and {@link #warnRetiredTableFields} for what each name is.
+     */
+    private static final Set<String> RETIRED_VERSION = Set.of("version");
+
+    /** The table roots' retired names, beside the version every per-kind root tolerates. */
+    private static final Set<String> RETIRED_TABLE_FIELDS = Set.of("version", "id", "loot_crate");
+
+    /**
+     * Warns for a {@code version} where the folder layout already answers the format question.
+     *
+     * <p>A version-1 file carries {@code version} at its root, and that root keeps its own
+     * strict rule (an error below 1, a warning past what this build reads). A per-kind file
+     * split out of one may have kept it — and it means nothing there, because a file's format
+     * is its position in the tree rather than a number an author remembers to update. So it is
+     * a warning naming the removal, and the file still loads: the codec never read it.
+     */
+    private static void warnRetiredVersion(JsonDocument document, String path, Problems problems) {
+        if (document.has(path + ".version")) {
+            problems.warn(document, path + ".version",
+                    "\"version\" means nothing here - remove it."
+                            + " Only a version-1 file's root reads it; the folder layout says"
+                            + " which format every other file is.");
+        }
+    }
+
+    /**
+     * Warns for the table roots' retired names.
+     *
+     * <p>An FTB reward table carries {@code id}; Tenet tables are named by their file, so the id is
+     * not read — while an inline table is addressed by its {@code uid} handle, which is the rename
+     * the warning offers there. An FTB table may carry {@code loot_crate}; Tenet has no crate home,
+     * so the crate is not read while the table's entries still are. Refusing the file over either
+     * would cost every entry in the table, and every quest reward pointing at it, over one
+     * sub-object nothing reads.
+     *
+     * @param inline whether this root is an inline table rather than a table file: only the inline
+     *               one has a use for {@code uid} (a table file's root {@code uid} is ignored, like
+     *               the id), so only it is offered the rename
+     */
+    private static void warnRetiredTableFields(JsonDocument document, String path, Problems problems,
+                                               boolean inline) {
+        warnRetiredVersion(document, path, problems);
+        if (document.has(path + ".id")) {
+            problems.warn(document, path + ".id", inline
+                    ? "\"id\" is not read: an inline table is addressed by its \"uid\" handle -"
+                            + " rename this to \"uid\", or remove it."
+                    : "\"id\" is not read: a table in its own file is named by the file,"
+                            + " reward_tables/<name>.json - remove this.");
+        }
+        if (document.has(path + ".loot_crate")) {
+            problems.warn(document, path + ".loot_crate",
+                    "\"loot_crate\" has no Tenet home, so the crate is not read - but the table's"
+                            + " entries still are. Loot crates are out of scope for migration: the"
+                            + " physical crate, its opener and its drops are manual work.");
+        }
+    }
 
     /**
      * A field set plus {@code $schema}, for the root of a version-2 per-kind document.

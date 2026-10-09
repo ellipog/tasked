@@ -32,8 +32,8 @@ public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQues
     public static final double GRID_SCALE_MIN = 1.0 / 32.0;
     public static final double GRID_SCALE_MAX = 8.0;
 
-    /** A file that says nothing about how it behaves: shown locks, no hiding, no pausing. */
-    public static final QuestSettingsExtra DEFAULT = new QuestSettingsExtra(true, false, false, false,
+    /** A file that says nothing about how it behaves: hidden locks, no hiding, no pausing. */
+    public static final QuestSettingsExtra DEFAULT = new QuestSettingsExtra(false, false, false, false,
             false, 0.5, "", 300, List.of());
 
     /** The field names this contributes, for the validator to allow in the settings block. */
@@ -44,11 +44,12 @@ public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQues
     public static final MapCodec<QuestSettingsExtra> MAP_CODEC = RecordCodecBuilder.mapCodec(
             instance -> instance.group(
                     // Whether a locked quest wears its lock mark on the canvas. FTB Quests'
-                    // `show_lock_icons`, and absent is shown there too (`!contains || getBoolean`), so a
-                    // file that never heard of the field draws exactly as before. A quest opts out for
-                    // itself with `hideLockIcon`; either silence wins. Read by the client, so it travels
-                    // on the tree (sparse: only `false` crosses, because that is the unusual answer).
-                    Codec.BOOL.optionalFieldOf("showLockIcons", true)
+                    // `show_lock_icons` draws when absent — so the migration tool writes an explicit
+                    // `true` for a pack that never heard of the field, and Tenet's own absent is
+                    // hidden: no mark unless a pack asks for one. A quest hides its own with
+                    // `hideLockIcon`; either silence wins. Read by the client, so it travels
+                    // on the tree (sparse: only `true` crosses, because that is the unusual answer).
+                    Codec.BOOL.optionalFieldOf("showLockIcons", false)
                             .forGetter(QuestSettingsExtra::showLockIcons),
                     // Whether quests shut out by an exclusive choice vanish from the reader's book. FTB
                     // Quests' `hide_excluded_quests`: a quest another questline's completion excluded is

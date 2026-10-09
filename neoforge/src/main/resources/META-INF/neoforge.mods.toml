@@ -67,6 +67,13 @@ versionRange = "[16,)"
 ordering = "AFTER"
 side = "CLIENT"
 
+# The one mixin this mod carries: four getters over the open container's live panel corner
+# and size, client-only, so an inventory-anchored button keeps its gap outside a taller or wider
+# panel instead of being swallowed by it. See ContainerPanelAccessor for why recomputing stops
+# working the moment panels stop being constants.
+[[mixins]]
+config = "tenet.mixins.json"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

@@ -268,17 +268,19 @@ class QuestManifestTest {
         }
 
         @Test
-        @DisplayName("and a version field is refused, because the folder layout already says which format this is")
-        void aVersionFieldIsRefused() {
+        @DisplayName("and a version field warns rather than refusing, because the file still loads")
+        void aVersionFieldWarnsRatherThanRefusing() {
             // A group.json cannot be anything but version 2 -- the folder it sits in settles it, the same
             // way a flat file at the root is version 1 by position. A version number would be a second
-            // answer to a settled question, and a second answer is a thing that can disagree.
+            // answer to a settled question, so it is still reported -- but as a warning naming the
+            // removal, not as a refusal: the codec never read it, and refusing the file over one
+            // ignored number would cost the whole group. See QuestValidator's retired-fields rule.
             Problems problems = validateGroupDoc("""
                     { "id": "g", "title": "G", "version": 2, "chapters": [] }
                     """);
 
-            assertTrue(problems.hasErrors(), messages(problems));
-            assertMentions(problems, "unknown field \"version\"");
+            assertFalse(problems.hasErrors(), messages(problems));
+            assertMentions(problems, "\"version\" means nothing here");
         }
     }
 

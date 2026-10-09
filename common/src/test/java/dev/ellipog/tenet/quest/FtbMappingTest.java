@@ -515,10 +515,12 @@ class FtbMappingTest {
     @Test
     @DisplayName("file lock, pause, gui, book, grid and message flags decode (T26)")
     void fileBehaviourFlags() {
-        // Absent is the default on every one, and the defaults are the old behaviour: marks
-        // shown, nothing hidden, the world unpaused, the book opening, no custom locked word.
+        // Absent is the default on every one, and the defaults are quiet: marks hidden unless
+        // asked for, nothing hidden, the world unpaused, the book opening, no custom locked word.
+        // (FTB draws an absent mark, so the tool writes an explicit true for packs that never
+        // heard of the field — see the mapping page.)
         var absent = settings("{}");
-        assertTrue(absent.showLockIcons(), "absent draws, like FTB's !contains || getBoolean");
+        assertFalse(absent.showLockIcons(), "absent hides");
         assertFalse(absent.hideExcludedQuests());
         assertFalse(absent.pauseGame());
         assertFalse(absent.disableGui());
@@ -528,12 +530,12 @@ class FtbMappingTest {
         assertEquals(300, absent.emergencyItemsCooldown());
         assertTrue(absent.emergencyItems().isEmpty());
 
-        var parsed = settings("{\"showLockIcons\": false, \"hideExcludedQuests\": true,"
+        var parsed = settings("{\"showLockIcons\": true, \"hideExcludedQuests\": true,"
                 + " \"pauseGame\": true, \"disableGui\": true, \"dropBookOnDeath\": true,"
                 + " \"gridScale\": 1.0, \"lockMessage\": \"Sealed\","
                 + " \"emergencyItemsCooldown\": 60,"
                 + " \"emergencyItems\": [{\"item\": \"minecraft:torch\", \"count\": 8}]}");
-        assertFalse(parsed.showLockIcons());
+        assertTrue(parsed.showLockIcons(), "an explicit true draws every mark");
         assertTrue(parsed.hideExcludedQuests());
         assertTrue(parsed.pauseGame());
         assertTrue(parsed.disableGui());
@@ -561,10 +563,10 @@ class FtbMappingTest {
     }
 
     @Test
-    @DisplayName("quest hideLockIcon decodes, defaulting to drawn (T26)")
+    @DisplayName("quest hideLockIcon decodes, defaulting to deferring (T26)")
     void questHideLockIcon() {
         assertFalse(quest("{\"id\": \"a\", \"title\": \"A\"}").hideLockIcon(),
-                "absent draws, which is every file written before the field");
+                "absent defers to the file, which is every file written before the field");
         assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"hideLockIcon\": true}")
                 .hideLockIcon());
     }

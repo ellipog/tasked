@@ -176,7 +176,7 @@
     "hideLockIcon": {
       "type": "boolean",
       "default": false,
-      "description": "This quest wears no padlock on the canvas when it is locked: the quest's half of the file's `showLockIcons`. Either silence wins, and absent draws. FTB Quests calls this hide_lock_icon."
+      "description": "This quest wears no padlock on the canvas when it is locked: the quest's half of the file's `showLockIcons`. Either silence wins, and absent defers to the file. FTB Quests calls this hide_lock_icon."
     },
     "hideTextUntilComplete": {
       "type": "boolean",

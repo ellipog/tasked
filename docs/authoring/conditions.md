@@ -39,8 +39,10 @@ was satisfied while its condition held stays satisfied if the condition stops ho
 complete — which is the same direction the engine's task counting has always taken. Rewards are the
 exception by nature: they are paid on the day, so a reward's condition is checked on the day.
 
-An unknown condition type is an error in the file, reported at its own line by the
-[[tenet:authoring/validation|validator]], exactly as an unknown task or reward type is.
+An unknown condition type is a warning in the file, reported at its own line by the
+[[tenet:authoring/validation|validator]], exactly as an unknown task or reward type is: the node is
+kept as a placeholder that names the missing mod, and the gate it guards stays shut until that mod
+is loaded.
 
 ## Every condition has these
 

@@ -92,9 +92,10 @@ public final class TenetNeoForgeClient {
                 "key.categories.tenet",
                 () -> ArmatureClient.openScreen(Tenet.HUD_EDIT_SCREEN));
 
-        // The quest book's other door. `addListener` is this loader's way of putting a widget on a screen
-        // that is being initialised, and it is the whole of the loader-shaped half; what to add and where
-        // is Tenet's, in `InventoryQuestBookButton`.
+        // The quest book's other door: a control on every container screen, wherever EMI and JEI draw.
+        // `addListener` is this loader's way of putting a widget on a screen that is being initialised,
+        // and it is the whole of the loader-shaped half; what to add and where is Tenet's, in
+        // `InventoryQuestBookButton`.
         NeoForge.EVENT_BUS.addListener((ScreenEvent.Init.Post event) -> {
             InventoryQuestBookButton button = InventoryQuestBookButton.forScreen(event.getScreen());
             if (button != null) {

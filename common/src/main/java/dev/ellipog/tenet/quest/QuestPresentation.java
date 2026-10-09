@@ -54,8 +54,7 @@ import java.util.Set;
  *
  * <p>{@code hideLockIcon} is the quest's half of the file's {@code showLockIcons}: this quest
  * wears no lock mark on the canvas. Either silence wins — the file hiding every mark, or this
- * quest hiding its own — and absent draws, which is what every file written before this field
- * existed says.
+ * quest hiding its own — and absent defers to the file.
  *
  * <p>{@code tags} is FTB Quests' {@code tags}, present on every object: words this quest answers
  * to in lookups by tag. Each tag is {@code ^[a-z0-9_]{1,64}$}, the same rule a quest id follows,
@@ -112,7 +111,7 @@ public record QuestPresentation(int minWidth, boolean hideDependentLines, boolea
                             .forGetter(QuestPresentation::disableRecipeMod),
                     // Whether this quest wears no lock mark of its own. Beside the file's
                     // `showLockIcons`, which hides every mark: either silence wins, and absent
-                    // draws, which is what every file written before this field says.
+                    // defers to the file.
                     Codec.BOOL.optionalFieldOf("hideLockIcon", false)
                             .forGetter(QuestPresentation::hideLockIcon),
                     Codec.STRING.listOf().optionalFieldOf("tags", List.of())

@@ -548,8 +548,8 @@ public final class ClientQuestCache {
                         /**
                          * Whether this quest wears no lock mark of its own on the canvas. The
                          * quest's half of the file's {@code showLockIcons}: either silence wins,
-                         * and the canvas reads both. Absent means drawn, which is what a
-                         * version-19 server always says.
+                         * and the canvas reads both. Absent means the quest does not opt out;
+                         * whether a mark draws is the file's answer.
                          */
                         boolean hideLockIcon,
                         /**
@@ -990,12 +990,12 @@ public final class ClientQuestCache {
      *
      * <p>Every one travels sparse and unversioned — absent means the default, which is what a
      * server that predates the key always says — so each default here must match the file's:
-     * marks shown, nothing hidden, the world unpaused, the book opening, and no custom locked
+     * marks hidden, nothing hidden, the world unpaused, the book opening, and no custom locked
      * word. {@code acceptTree}'s catch and {@code clear()} both
      * reset them with everything else, so a malformed tree or a disconnect cannot leave one
      * pack's answers on another's book.
      */
-    private static volatile boolean showLockIcons = true;
+    private static volatile boolean showLockIcons = false;
     private static volatile boolean hideExcludedQuests = false;
     private static volatile boolean pauseGame = false;
     private static volatile boolean guiDisabled = false;
@@ -1365,8 +1365,8 @@ public final class ClientQuestCache {
 
     /**
      * Whether a locked quest wears its lock mark: the file's {@code showLockIcons}, read with the
-     * quest's own {@code hideLockIcon} where a node is drawn. True for every server that predates
-     * the key, which sent none at all.
+     * quest's own {@code hideLockIcon} where a node is drawn. False for every server that predates
+     * the key, which sent none at all — an old tree draws no marks on a new client.
      */
     public static boolean showLockIcons() {
         return showLockIcons;
@@ -1902,7 +1902,7 @@ public final class ClientQuestCache {
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
             bookTextureIcon = "";
-            showLockIcons = true;
+            showLockIcons = false;
             hideExcludedQuests = false;
             pauseGame = false;
             guiDisabled = false;
@@ -2023,7 +2023,7 @@ public final class ClientQuestCache {
         bookIcon = "";
         bookIconStack = ItemStack.EMPTY;
         bookTextureIcon = "";
-        showLockIcons = true;
+        showLockIcons = false;
         hideExcludedQuests = false;
         pauseGame = false;
         guiDisabled = false;
@@ -2214,7 +2214,8 @@ public final class ClientQuestCache {
         // so absence is the default — which is what a server that predates the key always says,
         // and what the accessors above promise. Read here, beside the book's identity, for the
         // same reason: they travel with the tree, and the catch and `clear()` reset them below.
-        showLockIcons = !root.has("showLockIcons") || root.get("showLockIcons").getAsBoolean();
+        showLockIcons = root.has("showLockIcons")
+                && root.get("showLockIcons").getAsBoolean();
         hideExcludedQuests = root.has("hideExcludedQuests")
                 && root.get("hideExcludedQuests").getAsBoolean();
         pauseGame = root.has("pauseGame") && root.get("pauseGame").getAsBoolean();

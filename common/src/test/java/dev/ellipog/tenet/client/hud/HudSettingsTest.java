@@ -246,4 +246,70 @@ class HudSettingsTest {
         assertEquals(12, HudSettings.x(HudElement.INVENTORY_BUTTON));
         assertNull(HudSettings.file());
     }
+
+    @Test
+    @DisplayName("every element ships measured from the window until the button opts into the panel")
+    void originDefaultsToWindow(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(HudSettings.FILE_NAME);
+        HudSettings.load(file);
+
+        for (HudElement element : HudElement.values()) {
+            assertEquals(HudElement.Origin.WINDOW, HudSettings.origin(element),
+                    element + " is a window pixel before anybody chooses otherwise");
+        }
+        assertEquals("{\"elements\":{}}", HudSettings.write(HudSettings.changed()),
+                "and a default nobody chose is not stored beside itself");
+
+        HudSettings.setOrigin(HudElement.INVENTORY_BUTTON, HudElement.Origin.INVENTORY);
+        assertEquals(HudElement.Origin.INVENTORY, HudSettings.origin(HudElement.INVENTORY_BUTTON));
+        assertEquals("{\"elements\":{\"inventory_button\":{\"anchor\":\"inventory\"}}}",
+                HudSettings.write(HudSettings.changed()),
+                "while a chosen panel anchor writes only what it changed");
+
+        HudSettings.load(file);
+        assertEquals(HudElement.Origin.INVENTORY, HudSettings.origin(HudElement.INVENTORY_BUTTON),
+                "the anchor survived the file");
+
+        HudSettings.setOrigin(HudElement.INVENTORY_BUTTON, HudElement.Origin.WINDOW);
+        assertEquals(HudElement.Origin.WINDOW, HudSettings.origin(HudElement.INVENTORY_BUTTON));
+        assertTrue(HudSettings.changed().isEmpty(),
+                "and a choice put back to the default leaves the entry with it");
+    }
+
+    @Test
+    @DisplayName("an anchor on anything but the button reads as the window")
+    void originIsTheButtonsAlone(@TempDir Path dir) throws IOException {
+        HudSettings.load(dir.resolve(HudSettings.FILE_NAME));
+
+        HudSettings.setOrigin(HudElement.PINNED_QUESTS, HudElement.Origin.INVENTORY);
+        assertEquals(HudElement.Origin.WINDOW, HudSettings.origin(HudElement.PINNED_QUESTS),
+                "the pins have no panel to be measured from");
+        assertTrue(HudSettings.changed().isEmpty(),
+                "and a choice nothing reads is not stored beside anything");
+    }
+
+    @Test
+    @DisplayName("an anchor of the wrong type costs its entry, an unknown one reads as the default")
+    void aBadAnchorCostsWhatItShould(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve(HudSettings.FILE_NAME);
+        Files.writeString(file, "{\"elements\":{\"inventory_button\":{\"x\":30,\"anchor\":4}}}",
+                StandardCharsets.UTF_8);
+        HudSettings.load(file);
+
+        assertEquals(HudElement.INVENTORY_BUTTON.defaultX(), HudSettings.x(HudElement.INVENTORY_BUTTON),
+                "a field of the wrong type costs the entry, like every other field here");
+        assertTrue(HudSettings.changed().isEmpty());
+
+        // Unknown vocabulary, but the right type: a newer build's origin, or a typo by hand. The
+        // position beside it is still the player's, so the entry stays and the anchor reads as the
+        // default -- a window pixel is the reading that cannot strand a control.
+        Files.writeString(file, "{\"elements\":{\"inventory_button\":{\"x\":30,\"anchor\":\"drawer\"}}}",
+                StandardCharsets.UTF_8);
+        HudSettings.load(file);
+
+        assertEquals(30, HudSettings.x(HudElement.INVENTORY_BUTTON), "the position survived");
+        assertEquals(HudElement.Origin.WINDOW, HudSettings.origin(HudElement.INVENTORY_BUTTON),
+                "and the anchor nobody here defines reads as the default");
+        assertEquals(1, HudSettings.changed().size(), "with the entry kept, not dropped");
+    }
 }

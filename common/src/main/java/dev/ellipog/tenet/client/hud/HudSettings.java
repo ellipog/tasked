@@ -36,7 +36,9 @@ import java.util.Map;
  * <h2>What a stored value is, and what it is not</h2>
  *
  * <p>A <b>position in the window's own pixels</b> -- the same space the HUD is measured in and the same space
- * the editor draws in, so a number written there is a number the game draws at, at any window size. Read
+ * the editor draws in, so a number written there is a number the game draws at, at any window size -- unless
+ * the book's button is anchored to the inventory panel, in which case it is an <b>offset from the panel's
+ * top-left corner</b>, re-based on the panel's live corner at every placement. Read
  * through the element's {@code Anchor}: a middle-anchored element's y is an offset from the window's
  * vertical centre rather than an absolute pixel, which is what lets its default of 0 mean "centred" on
  * every window without a constant naming a middle that moves.
@@ -61,13 +63,16 @@ public final class HudSettings {
      * One element's deviation from its defaults; a missing field is the element's own default.
      *
      * <p>Boxed rather than primitive, because "the player did not say" and "the player said the default"
-     * have to be different answers: the first writes no field at all, and the second removes one.
+     * have to be different answers: the first writes no field at all, and the second removes one. The
+     * anchor is a string rather than an origin for the same reason a hand-edited coordinate is kept as
+     * written: a value no build here defines is still a value the file holds, and what is read from it
+     * is the default rather than a guess.
      */
-    public record Entry(Integer x, Integer y, Boolean on, Double dim) {
+    public record Entry(Integer x, Integer y, Boolean on, Double dim, String anchor) {
 
         /** Whether this says nothing, and so should not be in the file. */
         public boolean empty() {
-            return x == null && y == null && on == null && dim == null;
+            return x == null && y == null && on == null && dim == null && anchor == null;
         }
     }
 
@@ -101,11 +106,29 @@ public final class HudSettings {
         return said == null ? element.defaultDim() : said;
     }
 
+    /**
+     * What a stored position is measured from.
+     *
+     * <p>Window unless the player chose the inventory panel for the book's button. An anchor no build
+     * here defines -- a newer build's vocabulary, or a typo by hand -- reads as the default rather
+     * than costing the entry: the position beside it is still the player's, and a window pixel is the
+     * reading that cannot strand a control. An anchor on any other element reads as the default too,
+     * because only the button has a panel to be measured from; the file keeps what it was handed either
+     * way, like every other setting here.
+     */
+    public static HudElement.Origin origin(HudElement element) {
+        if (!element.supportsOrigin(HudElement.Origin.INVENTORY)) {
+            return element.defaultOrigin();
+        }
+        HudElement.Origin said = HudElement.Origin.named(entry(element).anchor());
+        return said == null ? element.defaultOrigin() : said;
+    }
+
     /** Switches an element on or off and writes the choice. */
     public static void setOn(HudElement element, boolean next) {
         Entry before = entry(element);
         put(element, new Entry(before.x(), before.y(), next == element.defaultOn() ? null : next,
-                before.dim()));
+                before.dim(), before.anchor()));
     }
 
     /**
@@ -119,7 +142,7 @@ public final class HudSettings {
         put(element, new Entry(
                 nextX == element.defaultX() ? null : nextX,
                 nextY == element.defaultY() ? null : nextY,
-                before.on(), before.dim()));
+                before.on(), before.dim(), before.anchor()));
     }
 
     /**
@@ -133,7 +156,23 @@ public final class HudSettings {
         Entry before = entry(element);
         double clamped = Math.min(1.0, Math.max(0.0, next));
         put(element, new Entry(before.x(), before.y(), before.on(),
-                clamped == element.defaultDim() ? null : clamped));
+                clamped == element.defaultDim() ? null : clamped, before.anchor()));
+    }
+
+    /**
+     * Remembers what a stored position is measured from and writes it.
+     *
+     * <p>Coerced rather than refused when the element has no panel to be measured from: only the
+     * book's button supports the inventory origin, so anything else asking for it arrived by hand,
+     * and a file claiming the pins sit relative to an inventory corner would be a file that lies
+     * about what it holds. A value back at the default removes the field, like every other setting
+     * here.
+     */
+    public static void setOrigin(HudElement element, HudElement.Origin next) {
+        Entry before = entry(element);
+        HudElement.Origin kept = element.supportsOrigin(next) ? next : element.defaultOrigin();
+        String stored = kept == null || kept == element.defaultOrigin() ? null : kept.id();
+        put(element, new Entry(before.x(), before.y(), before.on(), before.dim(), stored));
     }
 
     /** Puts one element back to everything it shipped with, and writes that. */
@@ -241,6 +280,7 @@ public final class HudSettings {
         Integer y = null;
         Boolean on = null;
         Double dim = null;
+        String anchor = null;
 
         if (entry.has("x")) {
             JsonElement value = entry.get("x");
@@ -270,7 +310,14 @@ public final class HudSettings {
             }
             dim = value.getAsDouble();
         }
-        return new Entry(x, y, on, dim);
+        if (entry.has("anchor")) {
+            JsonElement value = entry.get("anchor");
+            if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) {
+                return null;
+            }
+            anchor = value.getAsString();
+        }
+        return new Entry(x, y, on, dim, anchor);
     }
 
     private static boolean isNumber(JsonElement value) {
@@ -306,6 +353,9 @@ public final class HudSettings {
             if (entry.dim() != null) {
                 stored.addProperty("dim", entry.dim());
             }
+            if (entry.anchor() != null) {
+                stored.addProperty("anchor", entry.anchor());
+            }
             elements.add(element.id(), stored);
         }
 
@@ -334,7 +384,7 @@ public final class HudSettings {
 
     private static Entry entry(HudElement element) {
         Entry found = entries.get(element);
-        return found == null ? new Entry(null, null, null, null) : found;
+        return found == null ? new Entry(null, null, null, null, null) : found;
     }
 
     private static void put(HudElement element, Entry entry) {

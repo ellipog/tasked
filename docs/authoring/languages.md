@@ -110,6 +110,7 @@ file for a translation to work:
 | A chapter | `chapter.<id>.title`, `chapter.<id>.subtitle` |
 | A chapter group | `group.<id>.title` |
 | A reward table | `rewardTable.<name>.title` |
+| A canvas element's label or picture | `element.<id>.text`, `element.<id>.title` |
 | The book | `book.title` |
 
 The book's key translates the `bookTitle` in `index.json` — the name the header draws — so a pack
@@ -144,6 +145,15 @@ Then `my_pack.punch` is tried first and `quest.punch_a_tree.title` second — th
 said about this exact quest wins over the pack-wide convention. The `fallback` is what a player reads
 when neither is translated, which is why the validator warns when it is missing: without it a missing
 translation shows the raw key.
+
+### Stale keys
+
+A key for an object that is gone — a deleted quest, a renamed table — warns on reload, with the file
+named and, where the spelling is close, the id that was meant. It never fails the load: a pack with
+leftover keys still plays. Write keys against the object's own lowercase id: another case, an alias
+or a tag is a key no reader looks up, and the warning names the id it should have been. Keys in no
+book namespace are left alone — the overlay serves any key, and a script may own the ones no reader
+looks up.
 
 ## What a player sees, and what the editor sees
 

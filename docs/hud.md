@@ -1,6 +1,6 @@
 # The HUD
 
-Tenet draws three things outside its own screens: the quest book's button over your inventory, the quests
+Tenet draws three things outside its own screens: the quest book's button over your containers, the quests
 you have pinned, and the notices that tell you something just happened. All three are yours to place —
 switch them off, move them, or put them back where they shipped — in the **HUD editor**, which opens on
 `H` or from the book's Settings card.
@@ -106,11 +106,20 @@ Drag an element to move it. Every position is a pair of pixels in your window, s
 thing in the editor and in the game at any window size; nothing travels with anything else, and a position
 that would land off the window is pulled back onto it as you drop it.
 
+The inventory button's row carries two extra controls: an **anchor switch** reading `Window` or
+`Inventory`, and an **Under** button. Window is where it ships -- a window pixel from the window's
+corner. Inventory measures the button from the inventory panel's own corner instead, so a button put
+under the inventory stays under it when the GUI scale, the window size, or the recipe book moves the
+panel; switching between the two keeps the button visibly where it is and only rewrites the numbers.
+`Under` anchors to the inventory and centres the button under the panel in one press. While the button
+is inventory-anchored the editor draws the closed-book panel as an outline to place against; with the
+recipe book open the live panel sits left of that outline and the button follows it there.
+
 The elements are:
 
 | Element | Where it ships | What it is |
 |---|---|---|
-| **Inventory button** | Top-left, over your inventory | The quest book's other door. Shown on your own inventory in survival *and* creative, and not on containers. |
+| **Inventory button** | Top-left, over containers | The quest book's other door. Shown on every container screen — your inventory in survival *and* creative, chests, crafting, furnaces and modded interfaces, wherever EMI and JEI draw. Anchor it to the inventory from its editor row and it follows the panel across GUI scales; on a taller or wider container a button parked outside keeps its gap outside instead of being swallowed — `Under` stays under the chest, not inside it. |
 | **Pinned quests** | Middle-left of the HUD | The boxes described above. |
 | **Notifications** | Top-left of the HUD | The notices described above. |
 
@@ -125,10 +134,14 @@ touched does not exist and one you have put back is empty:
 {
   "elements": {
     "pinned_quests": { "x": 210, "y": 8 },
-    "notifications": { "on": false }
+    "notifications": { "on": false },
+    "inventory_button": { "x": 80, "y": 170, "anchor": "inventory" }
   }
 }
 ```
+
+An `anchor` of `"inventory"` measures the button from the inventory panel's corner; left out, the
+button is a window pixel as it has always been.
 
 `pinned.json` holds your pins, in the order they are drawn — most recent first:
 

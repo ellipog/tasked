@@ -102,9 +102,10 @@ public final class TenetFabricClient implements ClientModInitializer {
                 "key.categories.tenet",
                 () -> ArmatureClient.openScreen(Tenet.HUD_EDIT_SCREEN));
 
-        // The quest book's other door: a control in the player's own inventory. What to add and where is
-        // Tenet's and lives in `InventoryQuestBookButton`; that a widget may be added to somebody else's
-        // screen at all is this loader's business, which is why the two lines below are here.
+        // The quest book's other door: a control on every container screen, wherever EMI and JEI draw.
+        // What to add and where is Tenet's and lives in `InventoryQuestBookButton`; that a widget may be
+        // added to somebody else's screen at all is this loader's business, which is why the two lines
+        // below are here.
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             InventoryQuestBookButton button = InventoryQuestBookButton.forScreen(screen);
             if (button != null) {

@@ -36,11 +36,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What is deliberately not asserted here</h2>
  *
- * <p>Nothing about where an element is <i>relative to a panel</i>. An earlier version of this class did:
- * positions were offsets from the inventory panel's corner so the button travelled with the panel when the
- * recipe book slid it across the window. That made the editor draw a ghost of a panel it did not have, with
+ * <p>Nothing about where a <i>drawn</i> element is relative to a panel. An earlier version of this class
+ * did: positions were offsets from the inventory panel's corner so the button travelled with the panel when
+ * the recipe book slid it across the window. That made the editor draw a ghost of a panel it did not have, with
  * a corner that was not the real panel's corner, and the two spaces disagreed -- so the anchor went, and with
- * it every test about it. A window position is the whole of the model now.
+ * it every test about it. A window position is the whole of the model now, except the button's opt-in
+ * inventory origin: that offset is re-based on the panel's live corner at every placement, and the ghost it
+ * is edited against draws from the same centring the game uses, so the two corners agree by construction.
+ * What is asserted about it is the re-basing, the round trip, and the row that switches it -- never a pixel
+ * the game owns.
  */
 @DisplayName("the HUD editor's layout")
 class HudLayoutTest {
@@ -415,8 +419,10 @@ class HudLayoutTest {
 
     @Test
     @DisplayName("a drawn row is taller than a control row by exactly its slider line")
-    void hudRowsCarryASliderLine() {        assertEquals(HudLayout.ROW_HEIGHT, HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
-                "a control's row is unchanged");
+    void hudRowsCarryASliderLine() {        assertEquals(
+                HudLayout.ROW_HEIGHT + HudLayout.CONTROL_LINE + HudLayout.ROW_GAP,
+                HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
+                "the button's second line is the anchor switch and the Under preset, not a slider");
         assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
                 HudLayout.rowHeight(HudElement.PINNED_QUESTS));
         assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
@@ -439,6 +445,78 @@ class HudLayoutTest {
     private static boolean overlaps(BookGeometry.Rect one, BookGeometry.Rect other) {
         return one.x() < other.right() && other.x() < one.right()
                 && one.y() < other.bottom() && other.y() < one.bottom();
+    }
+
+    @Test
+    @DisplayName("an inventory-anchored box is the corner plus the offset, clamped like any other box")
+    void inventoryAnchorRebasesTheCorner() {
+        for (int width : WIDTHS) {
+            for (int height : HEIGHTS) {
+                for (boolean survival : new boolean[] {true, false}) {
+                    for (boolean book : new boolean[] {true, false}) {
+                        BookGeometry.Rect panel =
+                                InventoryPanel.rect(width, height, survival, book);
+                        for (int[] offset : new int[][] {{0, 0}, {80, 170}, {-30, -30}, {2000, 2000}}) {
+                            BookGeometry.Rect box = HudLayout.boxAtInventory(panel.x(), panel.y(),
+                                    offset[0], offset[1], 16, 16, width, height);
+                            assertEquals(
+                                    HudLayout.boxAt(panel.x() + offset[0], panel.y() + offset[1],
+                                            16, 16, width, height),
+                                    box, "one place either way at " + width + "x" + height);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("toggling frames keeps the visible place: the conversions round-trip")
+    void frameConversionsRoundTrip() {
+        for (int corner : new int[] {-300, 0, 62, 5000}) {
+            for (int offset : new int[] {-500, -8, 0, 80, 4000}) {
+                assertEquals(corner, HudLayout.windowX(HudLayout.inventoryX(corner, offset), offset),
+                        "window to offset and back through a corner at " + corner);
+                assertEquals(offset, HudLayout.inventoryX(HudLayout.windowX(offset, corner), corner),
+                        "offset to window and back through a corner at " + corner);
+                assertEquals(corner, HudLayout.windowY(HudLayout.inventoryY(corner, offset), offset));
+                assertEquals(offset, HudLayout.inventoryY(HudLayout.windowY(offset, corner), corner));
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("the button's row carries an anchor line the other rows do not")
+    void buttonRowCarriesTheAnchorLine() {
+        assertEquals(HudLayout.ROW_HEIGHT + HudLayout.CONTROL_LINE + HudLayout.ROW_GAP,
+                HudLayout.rowHeight(HudElement.INVENTORY_BUTTON),
+                "a second control line, like the slider line on a drawn row");
+        assertEquals(HudLayout.ROW_HEIGHT + HudLayout.SLIDER_LINE + HudLayout.ROW_GAP,
+                HudLayout.rowHeight(HudElement.NOTIFICATIONS),
+                "a drawn row keeps its slider line, anchor or no anchor");
+
+        java.util.List<HudElement> all = java.util.List.of(HudElement.values());
+        BookGeometry.Rect chrome = HudLayout.chrome(640, 480, all);
+        int button = all.indexOf(HudElement.INVENTORY_BUTTON);
+        BookGeometry.Rect toggle = HudLayout.anchorToggle(button, chrome, all);
+        BookGeometry.Rect under = HudLayout.anchorUnder(button, chrome, all);
+
+        assertTrue(inside(toggle, chrome), "the anchor switch is inside the chrome: " + toggle);
+        assertTrue(inside(under, chrome), "and the Under preset with it: " + under);
+        assertFalse(overlaps(toggle, under), "the two do not collide");
+        assertEquals(HudLayout.CONTROL_LINE, toggle.height(), "on a control line of their own");
+        assertEquals(HudLayout.ANCHOR_WIDTH + HudLayout.BUTTON_GAP, under.x() - toggle.x(),
+                "side by side like the switch and Reset above them");
+        assertFalse(overlaps(toggle, HudLayout.reset(button, chrome, all)),
+                "clear of the row's own Reset");
+        assertFalse(overlaps(under, HudLayout.done(chrome)), "and clear of the foot");
+        for (int index = 0; index < all.size(); index++) {
+            if (index == button) {
+                continue;
+            }
+            assertFalse(overlaps(toggle, HudLayout.label(index, chrome, all)),
+                    "and clear of row " + index);
+        }
     }
 
     @Test

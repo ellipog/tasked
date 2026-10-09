@@ -205,6 +205,9 @@ public final class TenetQuests {
         // rather than only to whoever happened to be reading the log.
         languages = QuestLanguages.load(QuestEditor.root(ArmatureApi.platform().configDir()),
                 result.problems());
+        // Keys for deleted quests stay behind silently, so they are reported here, against the
+        // same report: warnings, never errors, so a pack with leftover keys still loads cleanly.
+        languages.warnStale(index, rewardTables.keySet(), result.problems());
         problems = result.problems();
 
         report(result);

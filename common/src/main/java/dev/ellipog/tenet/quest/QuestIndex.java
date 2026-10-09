@@ -320,7 +320,7 @@ public final class QuestIndex {
                     }
 
                     checkSelfDependency(document, path, quest, problems);
-                    checkPlacement(document, path, quest, problems);
+                    checkMinRequired(document, path, quest, problems);
                 }
             }
         }
@@ -333,11 +333,12 @@ public final class QuestIndex {
         QuestIndex index = new QuestIndex(groupList, chapterList, questList, byChapter, quests, chapters,
                 groups);
         index.checkDependencies(problems);
+        index.checkGhosts(problems);
         index.checkChapterRules(problems);
         index.checkElementRequirements(problems);
         index.checkLinks(problems);
         index.checkDuplicatePositions(problems);
-        // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 64,0
+        // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 32,0
         // are *crowded* -- each is fine on its own and the two together cannot both show a title.
         index.checkCrowdedRows(problems);
         return index;
@@ -808,14 +809,58 @@ public final class QuestIndex {
         }
     }
 
-    private static void checkPlacement(JsonDocument document, String questPath, Quest quest,
-                                       Problems problems) {
-        // A quest with nothing to do and nothing to give is almost always one someone started and
-        // did not finish writing.
-        if (quest.tasks().isEmpty() && quest.rewards().isEmpty()) {
-            problems.warn(document, questPath,
-                    "this quest has no tasks and no rewards, so there is nothing to do in it");
+    /**
+     * A quest with nothing to do, nothing to give, and nothing gated behind it.
+     *
+     * <h2>Why a junction is fine and a ghost is not</h2>
+     *
+     * <p>FTB authors use taskless quests as visual junctions, milestones and chapter gates, and a
+     * branch behind one has to open — so a quest with no tasks and no rewards that <i>does</i> gate
+     * something is a legitimate node, and warning about it would be noise on every converted pack.
+     * What is left is the ghost: nothing to do in it, nothing to give from it, and nothing gated
+     * behind it — almost always a quest someone started and did not finish writing.
+     *
+     * <h2>Why this runs after assembly rather than per piece</h2>
+     *
+     * <p>Whether anything depends on a quest is a question about the whole tree, which does not
+     * exist while the pieces are still being claimed — the same reason dangling dependencies are
+     * reported here and not by the validator. The dependant set is computed from every quest's
+     * {@code dependsOn}, resolved by id or by normalised alias, so a gate written through an alias
+     * still spares its junction.
+     *
+     * <p>Links and image gates pointing at the quest do not count as dependants: a link mirrors
+     * without gating, and an element's {@code requires} draws without unlocking — neither opens
+     * anything, so a quest with only inbound links still warns.
+     */
+    private void checkGhosts(Problems problems) {
+        Set<String> hasDependants = new LinkedHashSet<>();
+        for (QuestEntry entry : quests()) {
+            for (QuestRef dependency : entry.quest().dependencies()) {
+                QuestEntry target = byIdentifier.get(key(dependency.id()));
+                if (target != null) {
+                    hasDependants.add(target.quest().id());
+                }
+            }
         }
+        for (QuestEntry entry : quests()) {
+            Quest quest = entry.quest();
+            if (!quest.tasks().isEmpty() || !quest.rewards().isEmpty()) {
+                continue;
+            }
+            if (hasDependants.contains(quest.id())) {
+                continue;
+            }
+            problems.warn(entry.document(), entry.path(),
+                    "this quest has no tasks and no rewards, and nothing depends on it, so there is"
+                            + " nothing to do in it and nothing it unlocks. A junction or a milestone"
+                            + " needs a dependant; anything else needs a task."
+                            + "\n    quest links and image gates pointing here do not count - only"
+                            + " dependsOn makes a dependant");
+        }
+    }
+
+    private static void checkMinRequired(JsonDocument document, String questPath, Quest quest,
+                                         Problems problems) {
         if (quest.minRequired() > quest.dependencies().size()) {
             problems.error(document, questPath + ".minRequired", "minRequired is " + quest.minRequired()
                     + " but there are only " + quest.dependencies().size()
@@ -858,8 +903,14 @@ public final class QuestIndex {
      * side. Below that the book still works — it truncates by width and drops a label that would sit
      * over another node — but a questline authored tighter than this will read as cramped, so the
      * author is told at load rather than at play.
+     *
+     * <p>64 rather than the label's own width, deliberately. The migration tool lays converted packs
+     * out on a 64-pixel grid, so a threshold at or above that would warn on every converted row with
+     * two long titles — noise on a pack whose layout the author never chose. The client copes with
+     * 64 pixels of room by truncating, which is what makes the lower threshold honest rather than
+     * lenient; below it even short titles collide and the nodes themselves crowd.
      */
-    private static final int MIN_LABEL_SPACING = 128;
+    private static final int MIN_LABEL_SPACING = 64;
 
     /**
      * A rough width per character, for deciding whether a title will be truncated.

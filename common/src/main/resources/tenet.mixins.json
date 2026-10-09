@@ -1,0 +1,13 @@
+{
+    "required": true,
+    "minVersion": "0.8.5",
+    "package": "dev.ellipog.tenet.mixin",
+    "refmap": "tenet.refmap.json",
+    "compatibilityLevel": "JAVA_21",
+    "client": [
+        "ContainerPanelAccessor"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

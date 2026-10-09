@@ -78,6 +78,37 @@ class HudElementTest {
     }
 
     @Test
+    @DisplayName("either spelling names an origin, and a key no build defines names nothing")
+    void originsReadBothSpellings() {
+        assertEquals(HudElement.Origin.WINDOW, HudElement.Origin.named("window"),
+                "the id the file holds");
+        assertEquals(HudElement.Origin.WINDOW, HudElement.Origin.named("WINDOW"),
+                "and the constant's own name, which is what somebody reading the enum would guess");
+        assertEquals(HudElement.Origin.INVENTORY, HudElement.Origin.named("inventory"));
+        assertEquals(HudElement.Origin.INVENTORY, HudElement.Origin.named("INVENTORY"));
+        assertNull(HudElement.Origin.named("drawer"), "a key written by a newer build names nothing");
+        assertNull(HudElement.Origin.named(null));
+    }
+
+    @Test
+    @DisplayName("every element ships measured from the window, and only the button may leave it")
+    void onlyTheButtonLeavesTheWindow() {
+        for (HudElement element : HudElement.values()) {
+            assertEquals(HudElement.Origin.WINDOW, element.defaultOrigin(),
+                    element + " ships as a window pixel");
+            assertTrue(element.supportsOrigin(HudElement.Origin.WINDOW),
+                    "and the window is always a legal answer");
+            assertTrue(element.supportsOrigin(null), "as is no answer at all");
+        }
+        assertTrue(HudElement.INVENTORY_BUTTON.supportsOrigin(HudElement.Origin.INVENTORY),
+                "the button is drawn on somebody else's screen, so it has a panel to be measured from");
+        for (HudElement element : new HudElement[] {
+                HudElement.PINNED_QUESTS, HudElement.NOTIFICATIONS}) {
+            assertFalse(element.supportsOrigin(HudElement.Origin.INVENTORY),
+                    element + " is drawn on the world, where an inventory corner is unanswerable");
+        }
+    }
+    @Test
     @DisplayName("the tone is the how, so the editor asks one question about a drawn thing")
     void theKindsSplitControlsFromDrawnElements() {
         assertEquals(HudElement.Kind.CONTROL, HudElement.INVENTORY_BUTTON.kind(),

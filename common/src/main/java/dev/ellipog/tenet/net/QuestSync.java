@@ -478,8 +478,8 @@ public final class QuestSync {
         // exactly the bytes it sent before — and a reader that never heard of them draws the
         // defaults, which are the same. No version bump, for the reason the version's own note
         // gives: every change here is of the additive kind. Absence always means the default.
-        if (!settings.showLockIcons()) {
-            root.addProperty("showLockIcons", false);
+        if (settings.showLockIcons()) {
+            root.addProperty("showLockIcons", true);
         }
         if (settings.hideExcludedQuests()) {
             root.addProperty("hideExcludedQuests", true);
@@ -776,9 +776,9 @@ public final class QuestSync {
             json.addProperty("disableToast", true);
         }
         // Whether this quest wears no lock mark of its own. Sparse and unversioned, like the
-        // viewer flag below: absent means drawn, which is what every tree a version-19 server
-        // ever sent says. The file's own `showLockIcons` travels on the root beside it; either
-        // silence wins, and the canvas reads both.
+        // viewer flag below: absent means the quest does not opt out, and whether a mark draws
+        // is the file's answer on the root beside it; either silence wins, and the canvas
+        // reads both.
         if (quest.hideLockIcon()) {
             json.addProperty("hideLockIcon", true);
         }

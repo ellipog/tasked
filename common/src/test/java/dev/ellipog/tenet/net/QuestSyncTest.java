@@ -235,11 +235,11 @@ class QuestSyncTest {
     }
 
     @Test
-    @DisplayName("a quest hiding its lock mark says so on the wire, and a marked one sends nothing (T26)")
+    @DisplayName("a quest hiding its lock mark says so on the wire, and a quiet one sends nothing (T26)")
     void hideLockIconArrives() {
-        // Sparse and unversioned, like the viewer flag above: absent means drawn, which is every
-        // quest a version-19 server ever sent. The file's own `showLockIcons` travels on the root
-        // beside it; the canvas reads both, and either silence wins.
+        // Sparse and unversioned, like the viewer flag above: absent means the quest does not opt
+        // out, and whether a mark draws is the file's answer on the root beside it; either
+        // silence wins, and the canvas reads both.
         QuestIndex index = Fixtures.indexOf(Fixtures.file(
                 """
                         {"id": "plain", "title": "Plain"}""",
@@ -247,7 +247,7 @@ class QuestSyncTest {
                         {"id": "quiet", "title": "Quiet", "hideLockIcon": true}"""));
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
 
-        assertFalse(entryFor("plain").hideLockIcon(), "a quest that says nothing is marked");
+        assertFalse(entryFor("plain").hideLockIcon(), "a quest that says nothing does not opt out");
         assertTrue(entryFor("quiet").hideLockIcon(), "an explicit hide survives the wire");
 
         String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
@@ -267,7 +267,7 @@ class QuestSyncTest {
             assertFalse(json.contains(key), "a defaulting pack sends no " + key);
         }
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
-        assertTrue(ClientQuestCache.showLockIcons(), "absent draws, like FTB's !contains");
+        assertFalse(ClientQuestCache.showLockIcons(), "absent hides every mark");
         assertFalse(ClientQuestCache.hideExcludedQuests(), "absent hides nothing");
         assertFalse(ClientQuestCache.pauseGame(), "absent keeps the world ticking");
         assertFalse(ClientQuestCache.guiDisabled(), "absent opens the book");
@@ -278,14 +278,14 @@ class QuestSyncTest {
         // the writer reads is the live one — the keys' presence is the fact, exactly as it is for
         // every other sparse field on this wire.
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-        root.addProperty("showLockIcons", false);
+        root.addProperty("showLockIcons", true);
         root.addProperty("hideExcludedQuests", true);
         root.addProperty("pauseGame", true);
         root.addProperty("disableGui", true);
         root.addProperty("lockMessage", "Sealed");
         ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
                 root.toString().getBytes(StandardCharsets.UTF_8));
-        assertFalse(ClientQuestCache.showLockIcons(), "the file hides every mark");
+        assertTrue(ClientQuestCache.showLockIcons(), "the file shows every mark");
         assertTrue(ClientQuestCache.hideExcludedQuests(), "the file hides the shut-out");
         assertTrue(ClientQuestCache.pauseGame(), "the file stills the world");
         assertTrue(ClientQuestCache.guiDisabled(), "the file closes the book");

@@ -23,6 +23,9 @@
     },
     "license": "${license}",
     "environment": "*",
+    "mixins": [
+        "tenet.mixins.json"
+    ],
     "entrypoints": {
         "main": [
             "dev.ellipog.tenet.fabric.TenetFabric"
