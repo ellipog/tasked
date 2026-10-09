@@ -82,7 +82,19 @@ public final class ClientQuestCache {
                              */
                             String tagId,
                             /** The gates this task carries, for the locked row's hover. Empty for none. */
-                            List<ConditionEntry> conditions) {
+                            List<ConditionEntry> conditions,
+                            /**
+                             * Whether this task's completion is announced. FTB Quests'
+                             * {@code disable_toast} on the task. Absent on the wire means announced,
+                             * which is what a version-16 server always says.
+                             */
+                            boolean disableToast,
+                            /**
+                             * The texture path when the author overrode the picture with a texture.
+                             * Empty means the type's own picture — an author item or egg travels in
+                             * the display's own item, exactly as a type's would.
+                             */
+                            String textureIcon) {
 
         /** Whether this row draws an item at all, as opposed to text. */
         public boolean hasItem() {
@@ -152,7 +164,18 @@ public final class ClientQuestCache {
                               String labelFallback, String labelArg, String itemId, String auto, boolean team,
                               boolean excludeFromClaimAll,
                               /** The gates this reward carries, for the locked row's hover. Empty for none. */
-                              List<ConditionEntry> conditions) {
+                              List<ConditionEntry> conditions,
+                              /**
+                               * Whether collecting this reward is announced. Recorded since version 17
+                               * for the reward-level notice; no notice reads it yet, so it travels as
+                               * data for the notice that will. Absent means announced.
+                               */
+                              boolean disableToast,
+                              /**
+                               * The texture path when the author overrode the picture with a texture.
+                               * Empty means the type's own picture, like the task's own.
+                               */
+                              String textureIcon) {
 
         public boolean hasItem() {
             return !item.isEmpty();
@@ -237,6 +260,13 @@ public final class ClientQuestCache {
     public record GroupEntry(String id, String title, boolean collapsedByDefault, ItemStack icon,
                              String iconId,
                              /**
+                              * The texture path when the group wears a texture icon, and empty otherwise.
+                              * Kept apart from {@code iconId} so the missing-item reading stays an item
+                              * reading: a texture draws through the blit rather than the stack, and an
+                              * empty id is simply no icon.
+                              */
+                             String textureIcon,
+                             /**
                               * The heading's English words when its title is a translation key, and
                               * empty when it is a plain string. See {@link #titleText()}.
                               */
@@ -271,13 +301,30 @@ public final class ClientQuestCache {
      * exactly what a version-11 client does with them.
      */
     public record ChapterEntry(String id, String groupId, String title, ItemStack icon, String iconId,
+                               /**
+                                * The texture path when the chapter wears a texture icon, empty otherwise.
+                                * See {@link GroupEntry#textureIcon} for why this is its own field rather
+                                * than a second meaning of the id.
+                                */
+                               String textureIcon,
                                List<String> dependsOn, dev.ellipog.tenet.quest.PrerequisiteMode prerequisiteMode,
                                int minRequired, boolean hideUntilDependenciesComplete,
                                /** The title's English words when it is a key, empty when it is text. */
-                               String titleFallback) {
+                               String titleFallback,
+                               /**
+                                * The quest this chapter centres on when selected, by id or alias. Empty
+                                * when the chapter says nothing — the canvas centres on its bounding box,
+                                * which is what a version-16 server always says.
+                                */
+                               String autofocus) {
 
         public ChapterEntry {
             dependsOn = List.copyOf(dependsOn);
+        }
+
+        /** Whether this chapter names a quest to centre on. False for every older server. */
+        public boolean hasAutofocus() {
+            return !autofocus.isEmpty();
         }
 
         /** Whether this chapter waits on anything. False for every chapter of an older server. */
@@ -301,7 +348,18 @@ public final class ClientQuestCache {
      * @param title   what to call it: the author's own title, or the id opened out
      * @param iconId  the item id as written, kept beside the resolved stack so a missing item can say so
      */
-    public record TableSummary(String id, String title, ItemStack icon, String iconId, int entries) {
+    public record TableSummary(String id, String title, ItemStack icon, String iconId, int entries,
+                               /**
+                                * Whether a reward row that rolls this table draws the table's title.
+                                * FTB Quests' {@code use_title}. Absent on the wire means the generic
+                                * roll sentence, which is what a version-16 server always says.
+                                */
+                               boolean useTitle,
+                               /**
+                                * Whether that row draws no item tooltip. FTB Quests'
+                                * {@code hide_tooltip}. Absent means the tooltip draws.
+                                */
+                               boolean hideTooltip) {
 
         /**
          * The table as the player reads it.
@@ -363,8 +421,15 @@ public final class ClientQuestCache {
                          * The icon's id as the server sent it, kept beside the resolved stack: a stack
                          * that failed to resolve with an id that was sent is a <b>missing item</b>, and
                          * the screens say so; an empty id is simply no icon.
+                         *
+                         * <p>An item id for the item arm, an entity id for the entity arm (drawn as its
+                         * egg, or missing when it has none), and empty for the texture arm — whose path
+                         * travels in {@link #textureIcon} instead, so no missing-item branch fires for a
+                         * picture that was never a stack.
                          */
                         String iconId,
+                        /** The texture path when this quest wears a texture icon, empty otherwise. */
+                        String textureIcon,
                         /**
                          * The chapter's icon, and the id it was resolved from: the sidebar's chapter row
                          * draws it, and the id keeps the same "missing item" reading the quest's own pair
@@ -372,6 +437,8 @@ public final class ClientQuestCache {
                          * an unauthored icon is the model's paper default rather than nothing.
                          */
                         ItemStack chapterIcon, String chapterIconId,
+                        /** The texture path when the chapter wears a texture icon, empty otherwise. */
+                        String chapterTextureIcon,
                         /**
                          * The per-line styles this quest's own dependencies carry, keyed by dependency
                          * id. Empty means every line follows {@link #chapterDependencyStyle()}, which is
@@ -433,7 +500,24 @@ public final class ClientQuestCache {
                          * press naming an alias opens the quest rather than reporting a broken control —
                          * which is what an {@code open_quest} click carrying a pre-rename spelling is.
                          */
-                        List<String> aliases) {
+                        List<String> aliases,
+                        /**
+                         * The minimum width of this quest's detail panel, already resolved against
+                         * the chapter's default by the server. Zero means unset — the panel kind
+                         * decides — which is what a version-16 server always says.
+                         */
+                        int minWidth,
+                        /**
+                         * Whether the dependency lines leaving this quest for its dependants are
+                         * drawn. The outgoing half of {@code hideDependencyLines}. Absent on the
+                         * wire means drawn, which is what a version-16 server always says.
+                         */
+                        boolean hideDependentLines,
+                        /**
+                         * Whether completing this quest is announced. ORed with the silent
+                         * auto-claim modes where notices are decided. Absent means announced.
+                         */
+                        boolean disableToast) {
 
         public Entry {
             descriptionFallbacks = List.copyOf(descriptionFallbacks);
@@ -816,6 +900,8 @@ public final class ClientQuestCache {
     private static volatile String bookTitle = "";
     private static volatile String bookIcon = "";
     private static volatile ItemStack bookIconStack = ItemStack.EMPTY;
+    /** The book's texture path when its icon is a texture, and empty otherwise. See {@link #bookIcon}. */
+    private static volatile String bookTextureIcon = "";
 
     /**
      * Which tree this cache holds, as a number that only ever increases.
@@ -1127,6 +1213,16 @@ public final class ClientQuestCache {
     /** The pack's icon for the book, or {@link ItemStack#EMPTY}. */
     public static ItemStack bookIcon() {
         return bookIconStack;
+    }
+
+    /**
+     * The book's texture path when its icon is a texture, and empty otherwise.
+     *
+     * <p>Drawn through the blit rather than the stack, like every other texture icon: the stack is
+     * empty for a texture, and the id is empty with it so no missing-item branch fires.
+     */
+    public static String bookTextureIcon() {
+        return bookTextureIcon;
     }
 
     public static long syncedAt() {
@@ -1585,6 +1681,7 @@ public final class ClientQuestCache {
             bookTitle = "";
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
+            bookTextureIcon = "";
             treeReceived = false;
         }
     }
@@ -1700,6 +1797,7 @@ public final class ClientQuestCache {
         bookTitle = "";
         bookIcon = "";
         bookIconStack = ItemStack.EMPTY;
+        bookTextureIcon = "";
         treeReceived = false;
         // The sampled outlines go with the trees that asked for them: they are keyed by shape and
         // angle, so they cannot go stale, but a world's worth of them is not this world's to keep.
@@ -1747,12 +1845,14 @@ public final class ClientQuestCache {
         if (root.has("groups")) {
             for (JsonElement element : root.getAsJsonArray("groups")) {
                 JsonObject group = element.getAsJsonObject();
+                ResolvedIcon icon = resolveIcon(group, "icon", "iconComponents", "iconKind");
                 parsedGroups.add(new GroupEntry(
                         str(group, "id"),
                         str(group, "title"),
                         group.has("collapsedByDefault") && group.get("collapsedByDefault").getAsBoolean(),
-                        stack(str(group, "icon"), 1, group.get("iconComponents")),
-                        str(group, "icon"),
+                        icon.stack(),
+                        icon.id(),
+                        icon.texture(),
                         str(group, "titleFallback")));
             }
         }
@@ -1784,18 +1884,22 @@ public final class ClientQuestCache {
                                     chapter.get("prerequisiteMode"))
                             .result().orElse(dev.ellipog.tenet.quest.PrerequisiteMode.ALL_COMPLETED);
                 }
+                ResolvedIcon chapterIcon =
+                        resolveIcon(chapter, "icon", "iconComponents", "iconKind");
                 parsedChapters.add(new ChapterEntry(
                         str(chapter, "id"),
                         str(chapter, "groupId"),
                         str(chapter, "title"),
-                        stack(str(chapter, "icon"), 1, chapter.get("iconComponents")),
-                        str(chapter, "icon"),
+                        chapterIcon.stack(),
+                        chapterIcon.id(),
+                        chapterIcon.texture(),
                         List.copyOf(dependsOn),
                         mode,
                         chapter.has("minRequired") ? Math.max(0, chapter.get("minRequired").getAsInt()) : 0,
                         chapter.has("hideUntilDependenciesComplete")
                                 && chapter.get("hideUntilDependenciesComplete").getAsBoolean(),
-                        str(chapter, "titleFallback")));
+                        str(chapter, "titleFallback"),
+                        str(chapter, "autofocus")));
 
                 // The canvas's decoration, when the server sent any -- version 14 and a chapter that has
                 // some. Read by the element codec rather than field by field, which is the other half of
@@ -1847,7 +1951,9 @@ public final class ClientQuestCache {
                         str(table, "title"),
                         stack(str(table, "icon"), 1, table.get("iconComponents")),
                         str(table, "icon"),
-                        table.has("entries") ? table.get("entries").getAsInt() : 0));
+                        table.has("entries") ? table.get("entries").getAsInt() : 0,
+                        table.has("useTitle") && table.get("useTitle").getAsBoolean(),
+                        table.has("hideTooltip") && table.get("hideTooltip").getAsBoolean()));
             }
         }
 
@@ -1868,8 +1974,10 @@ public final class ClientQuestCache {
         // they travel with the tree; `acceptTree`'s catch and `clear()` both reset them with everything
         // else, so a malformed tree or a disconnect cannot leave one pack's name on another's book.
         bookTitle = str(root, "bookTitle");
-        bookIcon = str(root, "bookIcon");
-        bookIconStack = bookIcon.isEmpty() ? ItemStack.EMPTY : iconOf(bookIcon, null);
+        ResolvedIcon book = resolveIcon(root, "bookIcon", "bookIconComponents", "bookIconKind");
+        bookIcon = book.id();
+        bookIconStack = book.stack();
+        bookTextureIcon = book.texture();
 
         List<Entry> parsed = new ArrayList<>(quests.size());
         for (JsonElement element : quests) {
@@ -1935,6 +2043,13 @@ public final class ClientQuestCache {
                 }
             }
 
+            // The quest's picture and its chapter's, in whichever arm the server sent: an item
+            // resolves to a stack, a texture to a path for the blit, an entity to its egg. Absent
+            // kind means the item arm, which is every icon a version-17 tree ever sent.
+            ResolvedIcon questIcon = resolveIcon(quest, "icon", "iconComponents", "iconKind");
+            ResolvedIcon questChapterIcon =
+                    resolveIcon(quest, "chapterIcon", "chapterIconComponents", "chapterIconKind");
+
             parsed.add(new Entry(
                     // Empty for a server that predates groups, which the sidebar reads as "no group"
                     // and answers by drawing the flat chapter list.
@@ -1950,7 +2065,7 @@ public final class ClientQuestCache {
                     str(quest, "title"),
                     str(quest, "subtitle"),
                     List.copyOf(description),
-                    stack(str(quest, "icon"), 1, quest.get("iconComponents")),
+                    questIcon.stack(),
                     quest.has("x") ? quest.get("x").getAsInt() : 0,
                     quest.has("y") ? quest.get("y").getAsInt() : 0,
                     // Clamped for the same reason, and by the same argument, as `iconScale` below: the
@@ -2012,9 +2127,11 @@ public final class ClientQuestCache {
                     List.copyOf(rewards),
                     quest.has("invisible") && quest.get("invisible").getAsBoolean(),
                     quest.has("optional") && quest.get("optional").getAsBoolean(),
-                    str(quest, "icon"),
-                    stack(str(quest, "chapterIcon"), 1, quest.get("chapterIconComponents")),
-                    str(quest, "chapterIcon"),
+                    questIcon.id(),
+                    questIcon.texture(),
+                    questChapterIcon.stack(),
+                    questChapterIcon.id(),
+                    questChapterIcon.texture(),
                     dependencyLines(quest),
                     DependencyStyle.from(quest.get("chapterDependencyStyle")).resolved(),
                     // Kept as the file wrote it; a server that sends nothing (or something that is not
@@ -2033,7 +2150,14 @@ public final class ClientQuestCache {
                     // Former ids, when the server sent any -- version 16 and a quest that was renamed.
                     // Absent means none, which is what a version-15 tree always says: the key's presence
                     // is the fact, as it is for every other sparse field on this wire.
-                    readAliases(quest)));
+                    readAliases(quest),
+                    // How this quest presents itself, since version 17. The width arrives already
+                    // resolved against the chapter's default; zero means the panel kind decides,
+                    // which is what a version-16 server always says.
+                    quest.has("minWidth") ? Math.max(0, quest.get("minWidth").getAsInt()) : 0,
+                    quest.has("hideDependentLines")
+                            && quest.get("hideDependentLines").getAsBoolean(),
+                    quest.has("disableToast") && quest.get("disableToast").getAsBoolean()));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
@@ -2146,7 +2270,9 @@ public final class ClientQuestCache {
                 str(json, "observeTarget"),
                 json.has("observeTicks") ? json.get("observeTicks").getAsInt() : 0,
                 str(json, "tag"),
-                conditionEntries(json));
+                conditionEntries(json),
+                json.has("disableToast") && json.get("disableToast").getAsBoolean(),
+                str(json, "textureIcon"));
     }
 
     private static RewardEntry rewardEntry(JsonObject json) {
@@ -2163,7 +2289,9 @@ public final class ClientQuestCache {
                 str(json, "auto"),
                 json.has("team") && json.get("team").getAsBoolean(),
                 json.has("excludeFromClaimAll") && json.get("excludeFromClaimAll").getAsBoolean(),
-                conditionEntries(json));
+                conditionEntries(json),
+                json.has("disableToast") && json.get("disableToast").getAsBoolean(),
+                str(json, "textureIcon"));
     }
 
     /**
@@ -2502,6 +2630,59 @@ public final class ClientQuestCache {
      */
     public static ItemStack iconOf(String id, JsonElement components) {
         return stack(id, 1, components);
+    }
+
+    /**
+     * One icon as the tree sent it: the id, the kind beside it, and the components the item arm
+     * carries. Resolved into the stack to draw, the id to keep, and the texture path when the arm
+     * is a texture.
+     *
+     * @param idField         the wire id: an item id, a texture path, or an entity id
+     * @param componentsField the item arm's component patch, absent on the other arms
+     * @param kindField       the arm: absent means the item arm, which is every icon a version-17
+     *                        tree ever sent
+     */
+    private record ResolvedIcon(ItemStack stack, String id, String texture) {
+    }
+
+    private static ResolvedIcon resolveIcon(JsonObject json, String idField, String componentsField,
+                                            String kindField) {
+        String id = str(json, idField);
+        String kind = json.has(kindField) && !json.get(kindField).isJsonNull()
+                ? json.get(kindField).getAsString() : "";
+        if ("texture".equals(kind)) {
+            // A picture, not a stack: the id stays out of the missing-item reading and the path
+            // travels on its own, for the blit at the draw site.
+            return new ResolvedIcon(ItemStack.EMPTY, "", id);
+        }
+        if ("entity".equals(kind)) {
+            return new ResolvedIcon(eggStack(id), id, "");
+        }
+        return new ResolvedIcon(stack(id, 1, json.get(componentsField)), id, "");
+    }
+
+    /**
+     * An entity's spawn egg, or empty.
+     *
+     * <p>The {@code <path>_spawn_egg} convention every vanilla mob follows: an entity arm draws as
+     * the stack every icon surface already knows how to draw, with no entity render anywhere. An
+     * entity with no egg — a missing mod, or a mod that names its eggs unconventionally — resolves
+     * to empty with the entity's id kept beside it, which is what draws the missing mark naming it.
+     */
+    private static ItemStack eggStack(String entityId) {
+        if (entityId == null || entityId.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        ResourceLocation entity = ResourceLocation.tryParse(entityId);
+        if (entity == null) {
+            return ItemStack.EMPTY;
+        }
+        ResourceLocation egg = ResourceLocation.fromNamespaceAndPath(entity.getNamespace(),
+                entity.getPath() + "_spawn_egg");
+        if (!BuiltInRegistries.ITEM.containsKey(egg)) {
+            return ItemStack.EMPTY;
+        }
+        return stack(egg.toString(), 1, null);
     }
 
     private static String str(JsonObject object, String key) {

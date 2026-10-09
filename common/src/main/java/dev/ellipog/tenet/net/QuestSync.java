@@ -239,6 +239,24 @@ public final class QuestSync {
      * {@code open_quest} press carrying an alias opens the quest instead of reporting a control
      * that does nothing.
      *
+     * <p>Version 17 added the authoring flags — each quest's <b>{@code minWidth}</b>,
+     * <b>{@code hideDependentLines}</b> and <b>{@code disableToast}</b>, each task's and each
+     * reward's {@code disableToast}, each chapter's <b>{@code autofocus}</b>, and each reward
+     * table's <b>{@code useTitle}</b> and <b>{@code hideTooltip}</b>. The same additive kind: a
+     * version-16 reader ignores the keys and draws the old panel width, the old edges and the old
+     * toasts, which is a plainer picture rather than a wrong one. {@code minWidth} travels
+     * already resolved against the chapter's {@code defaultMinWidth}, like the reveal flags, so
+     * the client reads one number and never a ladder.
+     *
+     * <p>Version 18 added each icon's <b>kind</b> — {@code iconKind} beside a quest's, a chapter's
+     * (both the chapters[] copy and the per-quest copy), a group's and the book's icon — and each
+     * task's and reward's <b>{@code textureIcon}</b>, the author's texture override. Absent kind
+     * means the item arm, which is every icon a version-17 tree ever sent: a version-17 reader draws
+     * a texture path or an entity id as a missing item, which names the picture it cannot draw rather
+     * than drawing nothing. Components travel only on the item arm, because only an item has any.
+     * An author item or egg travels in the display's own item, exactly as a type's would, so those
+     * need no new key at all.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -264,7 +282,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 16;
+    public static final int TREE_VERSION = 18;
 
     /**
      * The quest tree, as JSON.
@@ -329,10 +347,7 @@ public final class QuestSync {
             // Optional, and sent only when the group declares one: a group with no icon falls back on
             // the client to the first chapter under it, which is a client-side choice rather than a
             // value the file has to spell out. See `QuestBookScreen.buildSidebar()`.
-            group.icon().ifPresent(icon -> {
-                one.addProperty("icon", icon.item().toString());
-                componentsAsJson(icon, "iconComponents", one);
-            });
+            group.icon().ifPresent(icon -> iconAsJson(icon, one, "icon", "iconComponents", "iconKind"));
             groups.add(one);
         }
 
@@ -375,6 +390,10 @@ public final class QuestSync {
             if (chapter.rules().hideUntilDependenciesComplete()) {
                 one.addProperty("hideUntilDependenciesComplete", true);
             }
+            // The quest this chapter centres on when selected, since version 17. Only when set:
+            // absence means the old bounding-box centre, which is what a version-16 reader does with
+            // a chapter it hears nothing about.
+            chapter.rules().autofocus().ifPresent(ref -> one.addProperty("autofocus", ref.id()));
             // `completesWhen` deliberately does not cross. What a reader draws is the chapter's state, and
             // the milestone list is the author's own account of how that state is reached -- the chapter
             // tab reads it from the file replica, which is where every other authoring field comes from.
@@ -428,9 +447,11 @@ public final class QuestSync {
         if (!settings.bookTitle().isEmpty()) {
             root.addProperty("bookTitle", settings.bookTitle());
         }
-        if (!settings.bookIcon().isEmpty()) {
-            root.addProperty("bookIcon", settings.bookIcon());
-        }
+        // The book's own icon, when the index declares one. An item id the client resolves, a texture
+        // it blits, or an entity it reads as an egg — the kind travels beside the id since version 18,
+        // and absence means no icon, which is what every pack that predates the field gets.
+        settings.bookIcon().ifPresent(icon -> iconAsJson(icon, root, "bookIcon", "bookIconComponents",
+                "bookIconKind"));
         root.add("groups", groups);
         root.add("chapters", chapters);
         root.add("quests", quests);
@@ -492,6 +513,14 @@ public final class QuestSync {
             dev.ellipog.tenet.quest.ItemRef icon = table.displayIcon();
             one.addProperty("icon", icon.item().toString());
             componentsAsJson(icon, "iconComponents", one);
+            // Table presentation, since version 17. Only when true: absence means the old row — the
+            // generic roll sentence and the item tooltip — which is what a version-16 reader draws.
+            if (table.useTitle()) {
+                one.addProperty("useTitle", true);
+            }
+            if (table.hideTooltip()) {
+                one.addProperty("hideTooltip", true);
+            }
             tables.add(one);
         }
         return tables;
@@ -593,8 +622,11 @@ public final class QuestSync {
         // that used to draw a raw key on a node, so this is the fix as much as it is the feature.
         textAsJson(quest.title(), "title", json);
         quest.subtitle().ifPresent(subtitle -> textAsJson(subtitle, "subtitle", json));
-        json.addProperty("icon", quest.icon().item().toString());
-        componentsAsJson(quest.icon(), "iconComponents", json);
+        // The quest's picture since version 18: an item id (with its components), a texture path, or
+        // an entity id, with the kind beside it. Absent kind means the item arm, which is every quest
+        // a version-17 server ever sent — and a version-17 reader draws a texture path or an entity id
+        // as a missing item, which is the honest fallback for a picture it cannot draw.
+        iconAsJson(quest.icon(), json, "icon", "iconComponents", "iconKind");
         json.addProperty("x", quest.layout().x());
         json.addProperty("y", quest.layout().y());
         json.addProperty("size", quest.layout().size());
@@ -663,6 +695,22 @@ public final class QuestSync {
         json.addProperty("hideDependencyLines", quest.rules().hideDependencyLines());
         json.addProperty("hideTextUntilComplete", quest.rules().hideTextUntilComplete());
         json.addProperty("hideDetailsUntilStartable", quest.rules().hideDetailsUntilStartable());
+        // How this quest presents itself, since version 17. The width travels already resolved
+        // against the chapter's default — like the reveal flags above — so the client reads one
+        // number: the quest's own when it sets one, else the chapter's, else 0 for the kind's
+        // default. The edge flag and the toast flag are the quest's own; absence is the ordinary
+        // case and means drawn edges and announced completion, which is what a version-16 reader
+        // does with a quest it hears nothing about.
+        int minWidth = quest.minWidth() != 0
+                ? quest.minWidth()
+                : chapter.rules().defaultMinWidth();
+        json.addProperty("minWidth", minWidth);
+        if (quest.hideDependentLines()) {
+            json.addProperty("hideDependentLines", true);
+        }
+        if (quest.disableToast()) {
+            json.addProperty("disableToast", true);
+        }
         json.addProperty("invisibleUntilTasks", quest.rules().invisibleUntilTasks());
         quest.exclusiveGroup().ifPresent(group -> json.addProperty("exclusiveGroup", group));
         json.addProperty("showTitle", quest.showTitle());
@@ -750,6 +798,18 @@ public final class QuestSync {
         // into every key produced.
         json.addProperty("labelArg", display.labelArg());
         json.addProperty("optional", task.optional());
+        // Whether this task's completion is announced, since version 17. Only when true: absence
+        // means announced, which is what a version-16 reader does with a task it hears nothing
+        // about. Read beside the quest's own flag where notices are decided.
+        if (task.common().disableToast()) {
+            json.addProperty("disableToast", true);
+        }
+        // The author's texture, since version 18: the row blits it rather than the stack. Only when
+        // set — absence means the type's own picture, which is every task a version-17 tree sent. An
+        // author item or egg travels in the display's own item, exactly as a type's would.
+        if (!display.textureIcon().isEmpty()) {
+            json.addProperty("textureIcon", display.textureIcon());
+        }
         // Whether the row shows a Submit button, asked with the chapter's consume-items default: an
         // item task that does not say whether it consumes inherits it, and a row that hid the button
         // while the take still happened is the promise this field exists to keep. See
@@ -805,6 +865,17 @@ public final class QuestSync {
                 .toLowerCase(java.util.Locale.ROOT));
         json.addProperty("team", reward.common().teamReward(settings.defaultTeamReward()));
         json.addProperty("excludeFromClaimAll", reward.common().excludeFromClaimAll());
+        // Recorded since version 17 for the reward-level notice. Only when true: absence means
+        // announced, which is what a version-16 reader does. No notice reads it yet — only quest
+        // and task notices exist — so this travels as data for the notice that will.
+        if (reward.common().disableToast()) {
+            json.addProperty("disableToast", true);
+        }
+        // The author's texture, since version 18: the row blits it rather than the stack. Only when
+        // set, for the reason the task's own gives above.
+        if (!display.textureIcon().isEmpty()) {
+            json.addProperty("textureIcon", display.textureIcon());
+        }
         conditionsAsJson(reward.common().conditions(), json);
         return json;
     }
@@ -855,7 +926,7 @@ public final class QuestSync {
      *
      * <h2>How "authored" is decided, and why identity is the right test</h2>
      *
-     * <p>{@code optionalFieldOf("icon", ItemRef.DEFAULT_ICON)} substitutes that <b>same instance</b>
+     * <p>{@code optionalFieldOf("icon", Icon.DEFAULT_ICON)} substitutes that <b>same instance</b>
      * when the field is absent, so {@code ==} separates "the file said nothing" from "the file said
      * paper" — and the second is preserved, because a chapter that genuinely wants paper keeps it.
      * Comparing by value would not work: an authored paper is equal to the default. The behaviour this
@@ -863,12 +934,29 @@ public final class QuestSync {
      * codec in a library this project does not own.
      */
     private static void chapterIcon(Chapter chapter, JsonObject json, String idField, String componentsField) {
-        if (chapter.icon() == ItemRef.DEFAULT_ICON) {
+        if (chapter.icon() == dev.ellipog.tenet.quest.Icon.DEFAULT_ICON) {
             json.addProperty(idField, "");
             return;
         }
-        json.addProperty(idField, chapter.icon().item().toString());
-        componentsAsJson(chapter.icon(), componentsField, json);
+        iconAsJson(chapter.icon(), json, idField, componentsField, idField + "Kind");
+    }
+
+    /**
+     * One icon: the id the client resolves, blits or reads as an egg, with the arm beside it.
+     *
+     * <p>The kind travels only when the icon is not an item: absence means the item arm, which is
+     * every icon a version-17 tree ever sent. An older reader therefore draws a texture path or an
+     * entity id as a missing item — the honest fallback, and the additive kind this file's own
+     * ledger demands. Components travel only on the item arm, because only an item has any.
+     */
+    private static void iconAsJson(dev.ellipog.tenet.quest.Icon icon, JsonObject json, String idField,
+                                   String componentsField, String kindField) {
+        json.addProperty(idField, icon.wireId());
+        if (icon instanceof dev.ellipog.tenet.quest.Icon.Item item) {
+            componentsAsJson(item.ref(), componentsField, json);
+            return;
+        }
+        json.addProperty(kindField, icon.wireKind());
     }
 
     /**

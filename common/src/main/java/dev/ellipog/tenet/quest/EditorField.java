@@ -43,6 +43,16 @@ public record EditorField(String path, String label, Kind kind, String unit, Str
     public enum Kind {
         /** An item, chosen in the item picker: its icon, its name, and the id as small print. */
         ITEM,
+        /**
+         * An icon object ({@code item}, {@code texture} or {@code entity}), chosen in the item
+         * picker for the item arm.
+         *
+         * <p>Unlike {@link #ITEM}, edits only its own field: the picker's commit writes the whole
+         * object in one op, so there is no sibling {@code components} field beside it. The
+         * components travel <i>inside</i> the object the pick writes, which is why
+         * {@link #fieldNames} names only this path for this kind.
+         */
+        ICON,
         /** A tag, chosen from the tag list the datapack declares. */
         TAG,
         /** A whole number, with a stepper and its unit beside it. */
@@ -97,6 +107,11 @@ public record EditorField(String path, String label, Kind kind, String unit, Str
     /** An item, with the picker. */
     public static EditorField item(String path, String label) {
         return new EditorField(path, label, Kind.ITEM, "", "", null, null);
+    }
+
+    /** An icon object, with the picker for its item arm. */
+    public static EditorField icon(String path, String label) {
+        return new EditorField(path, label, Kind.ICON, "", "", null, null);
     }
 
     /** An item tag, chosen from the tags the datapack declares. */

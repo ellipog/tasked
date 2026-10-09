@@ -46,7 +46,7 @@ class EditorSpecsTest {
      */
     private static final Map<String, Set<EditorField.Kind>> IDS_MUST_BE_LISTED = Map.ofEntries(
             Map.entry("item", Set.of(EditorField.Kind.ITEM)),
-            Map.entry("icon", Set.of(EditorField.Kind.ITEM)),
+            Map.entry("icon", Set.of(EditorField.Kind.ITEM, EditorField.Kind.ICON)),
             Map.entry("dimension", Set.of(EditorField.Kind.SEARCH)),
             Map.entry("biome", Set.of(EditorField.Kind.SEARCH)),
             Map.entry("structure", Set.of(EditorField.Kind.SEARCH)),
@@ -66,10 +66,10 @@ class EditorSpecsTest {
             Set<String> paths = paths(TaskTypes.editorOf(id));
             Set<String> declared = TaskTypes.fieldsOf(id);
 
-            // The registered set is the type's own fields plus the three every task has, so the form is
+            // The registered set is the type's own fields plus the six every task has, so the form is
             // asked to draw all of them -- with `conditions` exempt, because a list of objects is not a
             // cell and the entry card draws it as its own section (see the note on the line below). The
-            // other two ride on the form through COMMON_EDITOR and must be drawn here.
+            // other five ride on the form through COMMON_EDITOR and must be drawn here.
             assertTrue(paths.containsAll(minus(declared, Set.of("conditions"))),
                     id + " declares " + new TreeSet<>(minus(minus(declared, Set.of("conditions")), paths))
                             + ", which its form does not draw");
@@ -100,7 +100,8 @@ class EditorSpecsTest {
                     id + " declares " + new TreeSet<>(minus(minus(declared, RewardCommon.FIELDS), paths))
                             + ", which its form does not draw");
             assertTrue(paths.containsAll(
-                            Set.of("auto", "excludeFromClaimAll", "ignoreRewardBlocking")),
+                            Set.of("auto", "excludeFromClaimAll", "ignoreRewardBlocking", "disableToast",
+                                    "title", "icon")),
                     id + " has no control for the base mechanics");
             Set<String> undrawn = minus(declared, paths);
             // `team` is the panel's; `conditions` is the entry card's own section, as on the task side.

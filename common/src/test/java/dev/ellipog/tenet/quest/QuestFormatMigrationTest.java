@@ -263,7 +263,7 @@ class QuestFormatMigrationTest {
                         + " | " + chapter.defaultPrerequisiteMode()
                         + " | consume=" + chapter.defaultConsumeItems()
                         + " | theme=" + chapter.theme().orElse("-")
-                        + " | icon=" + chapter.icon().item()
+                        + " | icon=" + chapter.icon().describe()
                         + " | paragraphs=" + chapter.description().size());
                 for (Quest quest : chapter.quests()) {
                     // Every field is labelled, including the ones whose values are short and unmistakable
@@ -277,7 +277,7 @@ class QuestFormatMigrationTest {
                             + " | shape=" + quest.layout().shape()
                             + " | size=" + quest.layout().size()
                             + " | iconScale=" + quest.layout().iconScale()
-                            + " | icon=" + quest.icon().item()
+                            + " | icon=" + quest.icon().describe()
                             + " | depends=" + quest.dependencies().stream().map(QuestRef::id).toList()
                             + " | tasks=" + quest.tasks().size()
                             + " | rewards=" + quest.rewards().size()

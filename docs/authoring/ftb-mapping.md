@@ -32,6 +32,9 @@ quietly becomes required fails there first.
 | `team_reward` (+ file `default_reward_team`) | `team` (+ `defaultTeamReward`) | Absent defers to the file default on both sides. |
 | `exclude_from_claim_all` | `excludeFromClaimAll` on every reward | Same flag. FTB forbids changing it on loot, random and choice rewards; keep that behaviour in the tool. |
 | `ignore_reward_blocking` | `ignoreRewardBlocking` on every reward | Same flag. |
+| `disable_toast` (reward) | `disableToast` on every reward | Same flag, recorded on the model, the wire and the editor. Reward-level notices do not exist yet, so it travels as data for the notice that will; a reward in a quieted quest stays quiet through the quest's own flag. |
+| `title` (task, from lang `task.<id>.title`) | `title` on every task and reward | The row's own words instead of the type's sentence. A checkmark reads its button from here, exactly as before — the key is unchanged, so old files read the same way. |
+| `icon` (task/reward override) | `icon` on every task and reward | An item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture on a row (quest and chapter nodes name the missing entity instead). |
 | `command` + `silent` | `tenet:command` (`command`, `permissionLevel`, `silent`) | Same flag; placeholders (`{p}`, `{x}`/`{y}`/`{z}`, `{quest}`, `{chapter}`, `{team}`) carry over. `feedback_message` is **not** mapped — it needs Tenet work. |
 | `item` + `only_one` | `tenet:item` + `onlyOne` | Same flag: checked by item type, ignoring components, on both sides. Table entries keep `weight` and `randomBonus` as written. |
 
@@ -42,7 +45,15 @@ quietly becomes required fails there first.
 | `require_sequential_tasks` (quest) | `sequentialTasks` (quest) | Same flag. The **chapter** default has no Tenet home yet — inline the resolved value onto each quest until one exists. |
 | `hide_quest_until_deps_complete` | `hideUntilDependenciesComplete` | Absent defers to the chapter default on both sides; `false` forces the quest visible. |
 | `hide_quest_until_deps_visible` | `hideUntilDependenciesVisible` | Same tristate behaviour. |
-| `hide_dependency_lines` | `hideDependencyLines` | Incoming lines only; hiding the outgoing side needs Tenet work. |
+| `hide_dependency_lines` | `hideDependencyLines` | Incoming lines only; the outgoing side is `hideDependentLines` below. |
+| `hide_dependent_lines` | `hideDependentLines` | The outgoing half: lines leaving this quest for its dependants. Either silence wins. |
+| `disable_toast` (quest, task) | `disableToast` (quest, every task) | Same flag. A quieted quest announces no completion and no task rows; a quieted task skips only its own row. Either silence wins over the auto-claim ladder. |
+| `min_width` (quest) | `minWidth` (quest) | Same field, 0–3000, 0 unset. A quest's own value wins over the chapter's `defaultMinWidth`. |
+| chapter `default_min_width` | `defaultMinWidth` (chapter) | The chapter default for its quests' panel width. |
+| chapter `autofocus_id` | `autofocus` (chapter) | The quest, by id or alias in this chapter, the canvas centres on when selected. Absent centres on the chapter's bounding box. |
+| quest/chapter/group/book icon (`custom_icon` texture, `entity_face`) | `icon` (`texture`, `entity` arms) | A texture file draws stretched into the icon's box; an entity draws as its spawn egg where one exists, else the missing mark naming it. The item arm is the shape every old file uses, so it reads unchanged. |
+| table `use_title` | `useTitle` (reward table) | A reward row that rolls the table wears the table's title rather than the generic roll sentence. |
+| table `hide_tooltip` | `hideTooltip` (reward table) | A reward row that rolls the table draws no hover, unless the row is locked — a shut gate is still explained. |
 | `hide_text_until_complete` | `hideTextUntilComplete` | Same flag. |
 | `hide_details_until_startable` | `hideDetailsUntilStartable` | Same flag. |
 | `invisible` (+ `invisible_until_tasks`) | `invisible` (+ `invisibleUntilTasks`) | Same pair, same counting rule. |
@@ -52,9 +63,7 @@ quietly becomes required fails there first.
 
 ## Deliberately unmapped here
 
-`optional` (quest), `flexibleProgress`, task/reward titles and icons, chapter images, quest
-links, `min_width`, `autofocus`,
-`hide_dependent_lines`, `disable_toast`, claim-timed repeats, the energy task, the manual-only
+Claim-timed repeats, the energy task, the manual-only
 flag, filter expressions, the toast and currency rewards, team stages, progress-mutating command
 variants, file settings, presets and chapter appearance defaults, and ghost validation are all
 **not** on this page: each needs Tenet work first, and the tool must gate on that work rather

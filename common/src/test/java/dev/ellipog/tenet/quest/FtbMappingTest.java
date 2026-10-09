@@ -234,6 +234,48 @@ class FtbMappingTest {
     }
 
     @Test
+    @DisplayName("disable_toast decodes on every quest object")
+    void disableToastOnEveryObject() {
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"disableToast\": true}").disableToast());
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\"}").disableToast());
+        assertTrue(task("{\"type\": \"tenet:checkmark\", \"title\": \"x\", \"disableToast\": true}")
+                .common().disableToast());
+        assertFalse(task("{\"type\": \"tenet:checkmark\", \"title\": \"x\"}")
+                .common().disableToast());
+        var reward = assertInstanceOf(ItemReward.class,
+                reward("{\"type\": \"tenet:item\", \"item\": \"minecraft:stone\","
+                        + " \"disableToast\": true}"));
+        assertTrue(reward.common().disableToast());
+    }
+
+    @Test
+    @DisplayName("min_width, autofocus, hide_dependent_lines and table display decode")
+    void presentationAndTableDisplayDecode() {
+        assertEquals(250, quest("{\"id\": \"a\", \"title\": \"A\", \"minWidth\": 250}").minWidth());
+        assertEquals(0, quest("{\"id\": \"a\", \"title\": \"A\"}").minWidth());
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"hideDependentLines\": true}")
+                .hideDependentLines());
+        var chapter = chapter("{\"id\": \"c\", \"title\": \"C\","
+                + " \"defaultMinWidth\": 350, \"autofocus\": \"a\"}");
+        assertEquals(350, chapter.rules().defaultMinWidth());
+        assertEquals("a", chapter.rules().autofocus().orElseThrow().id());
+    }
+
+    @Test
+    @DisplayName("texture and entity icons decode on quests, chapters, groups and the book")
+    void iconArmsDecode() {
+        assertInstanceOf(Icon.Texture.class, quest("{\"id\": \"a\", \"title\": \"A\","
+                + " \"icon\": {\"texture\": \"my_pack:textures/gui/emblem.png\"}}").icon());
+        assertInstanceOf(Icon.Entity.class, quest("{\"id\": \"a\", \"title\": \"A\","
+                + " \"icon\": {\"entity\": \"minecraft:creeper\"}}").icon());
+        assertInstanceOf(Icon.Item.class, quest(
+                "{\"id\": \"a\", \"title\": \"A\", \"icon\": {\"item\": \"minecraft:stone\"}}").icon());
+        var textured = chapter("{\"id\": \"c\", \"title\": \"C\","
+                + " \"icon\": {\"texture\": \"my_pack:textures/gui/emblem.png\"}}");
+        assertInstanceOf(Icon.Texture.class, textured.icon());
+    }
+
+    @Test
     @DisplayName("command silent decodes")
     void commandSilent() {
         var parsed = assertInstanceOf(CommandReward.class,

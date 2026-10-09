@@ -70,9 +70,10 @@ withheld until its own prerequisites are met — a quest that should be visible 
 itself left out of a reader's book, so the whole chapter arrives as one reveal.
 
 The fields a group or a chapter can carry beyond those are on [[tenet:authoring/quests]], because they are the
-same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`, and the
+same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`,
+`defaultFlexibleProgress`, `defaultMinWidth`, and the
 `dependencyStyle` a chapter's lines are drawn with. A chapter's own `dependsOn`, `prerequisiteMode`,
-`minRequired`, `completesWhen` and `hideUntilDependenciesComplete` are documented there too, under
+`minRequired`, `completesWhen`, `autofocus` and `hideUntilDependenciesComplete` are documented there too, under
 *[a chapter's own dependencies](quests.md#a-chapters-own-dependencies)*.
 
 > [!WARNING]

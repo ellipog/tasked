@@ -30,12 +30,32 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
 | `title` | What the player sees, under the node and at the top of its card. |
 | `subtitle` | One line beneath the title. Optional. |
 | `description` | Paragraphs, read as markdown — see below. |
-| `icon` | An item, as `{ "item": "minecraft:oak_log" }`. Defaults to paper. |
+| `icon` | An item, a texture file, or an entity — see below. Defaults to paper. |
 | `aliases` | Former ids, so a rename does not orphan progress. |
 
 Chapters have ids, titles, subtitles and icons too, and the same rules apply to them. A chapter
 **group** has an id, a title, a description and an icon, and no subtitle: a group is a heading over
 chapters, and a second line of prose above them belongs to the chapter it is about.
+
+### Icons
+
+An icon is one of three arms, named by its key:
+
+```json
+{ "item": "minecraft:oak_log", "count": 1 }
+{ "texture": "my_pack:textures/gui/emblem.png" }
+{ "entity": "minecraft:creeper" }
+```
+
+An item is drawn as the item, with its count and data components. A texture is a file's path —
+`textures/` and `.png` included — drawn stretched into the icon's box; a path nothing holds draws
+the missing texture. An entity is drawn as its spawn egg where one exists; an entity with no egg
+draws the missing mark naming it. The item arm is the shape every file written before the union
+uses, so old files read unchanged.
+
+Texture and entity icons are drawn on quest nodes (and the links that mirror them), the quest
+card, sidebar rows, the book's header, and toasts. The in-game picker sets the
+item arm; texture and entity arms are written in the file until the picker learns them.
 
 ## Writing a description
 
@@ -100,6 +120,7 @@ would not yet see, which is the point of the `hideTextUntilComplete` flag below.
 | `rotation` | `0` | Degrees clockwise. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |
 | `iconScale` | `0.75` | How much of the node the icon fills; the outline caps it, so a shape with less room draws the largest item it can hold. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
 | `showTitle` | `false` | Draw the quest's name under its node. Off by default, because a canvas of fifty names is a wall of text — the name is on hover either way. |
+| `minWidth` | `0` | Minimum width of the quest's detail panel, 0–3000. `0` is unset: the chapter's `defaultMinWidth` decides, and then the panel kind's default. |
 
 A shape of `none` draws no panel at all: the node is its icon, and the whole square is clickable. Every
 other outline is hit-tested by its own pixels, so a click lands on exactly what is drawn.
@@ -172,6 +193,7 @@ A chapter can wait on other chapters, the same way a quest waits on quests. Unti
 | `prerequisiteMode` | `all_completed` | The rule over *this chapter's* `dependsOn` — the same four values a quest uses. **Not** `defaultPrerequisiteMode`, which is the mode a quest in this chapter inherits. |
 | `minRequired` | `0` | How many of `dependsOn` must be satisfied, replacing the mode's own count: "any two of these three chapters". May not exceed the list. |
 | `completesWhen` | — | The quests, in any chapter, that finish this one. The chapter reports **completed** once every one of them is; a repeatable quest counts from its first completion. Empty means the chapter never reports completed. |
+| `autofocus` | — | The quest, by id or alias **in this chapter**, the canvas centres on when the chapter is selected. Absent centres on the chapter's bounding box. A name that resolves to nothing, or to a quest on another canvas, is an error. |
 | `hideUntilDependenciesComplete` | `false` | Leave the chapter out of the book entirely until its gate is met. Off, it is listed dimmed. Authors always see it, or the flag could not be authored. |
 | `defaultHideUntilDependenciesComplete` | `false` | What **the quests in this chapter** do about their own prerequisites unless a quest says otherwise: on, a quest here is hidden until its own rule is met. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same default for the reveal that waits on a prerequisite being *visible*. |
@@ -269,7 +291,7 @@ from another chapter — so nothing warns about it.
 
 ## Visibility
 
-Seven flags, each hiding one different thing. All of them are presentation: a hidden quest still
+Eight flags, each hiding one different thing. All of them are presentation: a hidden quest still
 loads, still counts for progress, and is always shown to the editor.
 
 | Field | Default | Hides |
@@ -279,8 +301,21 @@ loads, still counts for progress, and is always shown to the editor.
 | `hideUntilDependenciesComplete` | the chapter's | Until the prerequisite *rule* is satisfied — the same rule the card's "2 of 3 met" counts, so `minRequired` and the started-based modes are honoured. Three states: leave it out and the chapter's `defaultHideUntilDependenciesComplete` decides, `true` forces it on, and `false` opts out of a chapter that hides its quests by default. |
 | `hideUntilDependenciesVisible` | the chapter's | Until at least one prerequisite is itself visible. Recursive, so a chain reveals itself one link at a time from its first visible end. The same three states as the row above. A quest with **no** prerequisites is visible: an empty rule is met. |
 | `hideDependencyLines` | `false` | The lines arriving at this quest. The quest itself is unaffected, and quests that depend on it still draw their lines to it. |
+| `hideDependentLines` | `false` | The lines leaving this quest for its dependants. The outgoing half of the row above: a quest that fans out to twenty dependants draws twenty lines across the chapter, and the author may want the quest without the clutter. Either silence wins. |
 | `hideTextUntilComplete` | `false` | The description, until the quest is completed — for a quest whose text would give away what it asks for. |
 | `hideDetailsUntilStartable` | `false` | Task and reward details, until the quest can be started. The prerequisites stay: they are what tells the reader how to unlock it. |
+
+## Announcements
+
+`disableToast` quiets a completion. It lives on the quest, on every task, and on every reward —
+FTB Quests' `disable_toast` on every quest object — and either silence wins over the auto-claim
+ladder: a quest that asked for no toast gets none, whatever its `auto` says.
+
+| Where | Quiets |
+|---|---|
+| quest | The quest's completion notice, and every task row arriving with it. |
+| task | That task's row only; its siblings still speak. |
+| reward | Recorded on the model, the wire and the editor for the reward-level notice. No such notice exists yet — only quest and task notices do — so it travels as data for the notice that will. A reward in a quieted quest stays quiet through the quest's own flag. |
 
 ## Stages
 
@@ -315,6 +350,7 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 | `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. |
 | `defaultHideUntilDependenciesComplete` | `false` | Whether the chapter's quests are hidden until their own prerequisite rule is met — the reveal flag below, set once for a whole chapter. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same, for the reveal that waits on a prerequisite being visible. |
+| `defaultMinWidth` | `0` | What the chapter's quests use for their detail-panel width unless a quest says otherwise: a quest's own `minWidth` wins, and `0` (unset) means the panel kind decides. |
 | `autoClaim` | the pack's | Whether this chapter's quests hand their rewards over on completion — `disabled`, `enabled`, `no_toast`, `invisible`, or `default` for the pack setting. The row that spares players fifty early-game claim clicks. See [[tenet:authoring/rewards]]. |
 | `dependencyStyle` | built-ins | The drawing defaults for the chapter's lines. |
 | `theme` | — | A palette the chapter asks to be drawn in. A client concept: the catalogue lives on the client, so the name is a plain string here, and a client that cannot resolve it says so. |

@@ -151,6 +151,7 @@ class ChapterPanelLayoutTest {
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
                         "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress",
+                        "defaultMinWidth", "autofocus",
                         "defaultPrerequisiteMode", "autoClaim",
                         "prerequisiteMode", "minRequired", "dependsOn", "completesWhen",
                         "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",

@@ -148,6 +148,19 @@ public final class QuestVisibility {
     }
 
     /**
+     * Whether this quest's outgoing dependency lines are drawn — the lines leaving it for the quests
+     * that depend on it.
+     *
+     * <p>The outgoing half of {@link #drawsDependencyLines}: that flag hides the lines arriving at a
+     * quest, this one hides the lines it sends on. FTB Quests ships both halves; a quest that fans out
+     * to twenty dependants draws twenty lines across the chapter, and the author may want the quest
+     * without the clutter. Read on the <i>source</i> quest where edges are collected.
+     */
+    public static boolean drawsDependentLines(boolean hideDependentLines) {
+        return !hideDependentLines;
+    }
+
+    /**
      * Whether the card's description is readable.
      *
      * <p>Hidden until completed, so the card is a name and an icon and nothing else — for a quest whose

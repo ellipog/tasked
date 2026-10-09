@@ -185,17 +185,23 @@ public final class QuestNotifier {
     private static QuestNotifications.Snapshot snapshotOf(ClientQuestCache.Entry entry, UUID self) {
         RewardAutoClaim mode = entry.effectiveAutoClaim();
         List<Boolean> tasks = new ArrayList<>(entry.tasks().size());
+        List<Boolean> muted = new ArrayList<>(entry.tasks().size());
         for (int i = 0; i < entry.tasks().size(); i++) {
             // The public predicate rather than the entry-taking overload, which is the cache's own: the rule
             // for "is this task finished" must have one reader, and that reader is the cache.
             tasks.add(ClientQuestCache.taskDone(entry.id(), i));
+            muted.add(entry.tasks().get(i).disableToast());
         }
         return new QuestNotifications.Snapshot(
                 entry.id(),
                 ClientQuestCache.stateOf(entry.id()),
                 self != null && ClientQuestCache.canClaimFor(self, entry.id()),
-                mode.automatic() && !mode.notifies(),
-                tasks);
+                // The quest's own quiet flag ORs with the silent auto-claim modes: either silence wins,
+                // and it quiets the task notices of that quest too, because the two are one author's
+                // answer to "do not tell me about this quest".
+                (mode.automatic() && !mode.notifies()) || entry.disableToast(),
+                tasks,
+                muted);
     }
 
     /**
@@ -229,7 +235,8 @@ public final class QuestNotifier {
      * stack and the HUD's draw, and the label, title, icon and token a {@code QuestToast} needs. Resolved
      * once, so a notice that reached the HUD and one that reached the toast cannot say different words.
      */
-    private record Said(Component message, String token, ItemStack icon, Component label, Component title) {
+    private record Said(Component message, String token, ItemStack icon, String texture, Component label,
+                         Component title) {
     }
 
     /** Says one notice the way its moment asks for. */
@@ -267,7 +274,7 @@ public final class QuestNotifier {
             // told once, and the token is what makes the two notices the same notice. One token per kind,
             // so a quest's completion and a task of it are not confused for each other.
             minecraft.getToasts().addToast(
-                    new QuestToast(said.token(), said.icon(), said.label(), said.title()));
+                    new QuestToast(said.token(), said.icon(), said.texture(), said.label(), said.title()));
         }
         // A soft chime rather than the advancement fanfare this first shipped with: a pack with a
         // hundred quests plays this a hundred times, and the challenge sting is a celebration-sized
@@ -287,6 +294,7 @@ public final class QuestNotifier {
                 Component.translatable("tenet.quest.completed", entry.titleText()),
                 QuestToast.tokenFor(questId),
                 entry.icon(),
+                entry.textureIcon(),
                 Component.translatable("tenet.toast.completed"),
                 Component.literal(entry.titleText()));
     }
@@ -309,6 +317,7 @@ public final class QuestNotifier {
                 Component.translatable("tenet.notice.task_completed", text),
                 QuestToast.tokenForTask(notice.subjectId(), notice.index()),
                 task.icon(),
+                "",
                 Component.translatable("tenet.toast.task_completed"),
                 Component.literal(text));
     }
@@ -321,6 +330,7 @@ public final class QuestNotifier {
                         Component.translatable("tenet.notice.chapter_completed", chapter.titleText()),
                         QuestToast.tokenForChapter(chapterId),
                         chapter.icon(),
+                        chapter.textureIcon(),
                         Component.translatable("tenet.toast.chapter_completed"),
                         Component.literal(chapter.titleText()));
             }

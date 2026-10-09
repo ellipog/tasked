@@ -50,13 +50,20 @@ public final class QuestToast implements Toast {
 
     private final String token;
     private final ItemStack icon;
+    /** The texture path when the subject wears a texture icon, and empty otherwise. */
+    private final String texture;
     private final Component label;
     private final Component title;
     private long bornAt = -1L;
 
     public QuestToast(String token, ItemStack icon, Component label, Component title) {
+        this(token, icon, "", label, title);
+    }
+
+    public QuestToast(String token, ItemStack icon, String texture, Component label, Component title) {
         this.token = token;
         this.icon = icon;
+        this.texture = texture == null ? "" : texture;
         this.label = label;
         this.title = title;
     }
@@ -93,7 +100,14 @@ public final class QuestToast implements Toast {
         GuiGraphicsRenderer r = new GuiGraphicsRenderer(graphics);
         try (ArmatureTheme.Scope ignored = ArmatureTheme.scope(ClientAppearance.LOOK.main())) {
             ArmatureTheme.panel(r, 0, 0, width(), height());
-            r.icon(icon, 5, (height() - ICON_BOX) / 2, ICON_BOX);
+            net.minecraft.resources.ResourceLocation textureId =
+                    texture.isEmpty() ? null : net.minecraft.resources.ResourceLocation.tryParse(texture);
+            if (textureId != null) {
+                r.texture(textureId, 5, (height() - ICON_BOX) / 2, ICON_BOX, ICON_BOX);
+            }
+            else {
+                r.icon(icon, 5, (height() - ICON_BOX) / 2, ICON_BOX);
+            }
 
             int textX = 5 + ICON_BOX + 6;
             int room = width() - textX - 6;

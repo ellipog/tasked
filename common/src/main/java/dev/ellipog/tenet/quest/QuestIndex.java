@@ -619,6 +619,27 @@ public final class QuestIndex {
                                 + "\n    this chapter is completed when every quest named here is, so a"
                                 + " name that resolves to nothing means it never reports completed");
             }
+
+            // The quest this chapter centres on when selected. Must resolve, and must live in this
+            // chapter: centring one canvas on a quest drawn on another is a file that says nothing
+            // the client can honour, and a name that resolves to nothing centres on nothing.
+            if (rules.autofocus().isPresent()) {
+                String target = rules.autofocus().get().id();
+                if (!byIdentifier.containsKey(key(target))) {
+                    Optional<String> suggestion = nearest(byIdentifier.keySet(), target);
+                    problems.error(entry.document(), entry.path() + ".autofocus",
+                            "no quest with id or alias \"" + target + "\" exists"
+                                    + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                    + "\n    a chapter that centres on nothing centres on its bounding"
+                                    + " box instead - remove the field for that");
+                }
+                else if (entry.chapter().quest(target).isEmpty()) {
+                    problems.error(entry.document(), entry.path() + ".autofocus",
+                            "no quest \"" + target + "\" in this chapter"
+                                    + "\n    autofocus centres this chapter's canvas, so a quest drawn on"
+                                    + " another canvas is nothing this canvas can centre on");
+                }
+            }
         }
 
         checkCompletedEdgesHaveCompletions(problems);

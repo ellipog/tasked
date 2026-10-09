@@ -149,9 +149,9 @@ class TableRowFieldsTest {
                         id + " packs " + line.controls().size() + " controls onto one line");
                 total += line.controls().size();
             }
-            // The three base mechanics ride on every type, so no form can be smaller than their line --
+            // The six base mechanics ride on every type, so no form can be smaller than their lines --
             // which is also what makes an addon's type reachable: the switches at least are always there.
-            assertTrue(total >= 3, id + " draws only " + total + " control(s), so its own fields are lost");
+            assertTrue(total >= 6, id + " draws only " + total + " control(s), so its own fields are lost");
         }
     }
 
@@ -193,16 +193,17 @@ class TableRowFieldsTest {
         List<TableRowFields.Line> lines = TableRowFields.lines(new AddonReward());
 
         // The raw row, and then the base mechanics like every other type: an addon's reward still says
-        // when it is given and whether Claim all may take it, and those three switches are the panel's
+        // when it is given and whether Claim all may take it, and those six switches are the panel's
         // own knowledge rather than the type's.
-        assertEquals(3, lines.size(), "the raw row, then the mechanics packed two-and-one");
+        assertEquals(5, lines.size(), "the raw row, then the mechanics on four lines");
         assertEquals(1, lines.get(0).controls().size());
         assertEquals(TableRowFields.Kind.RAW, lines.get(0).controls().get(0).kind(),
                 "an addon's type is editable the day it registers, or the panel is a wall to it");
 
         List<TableRowFields.Control> all = controls(new AddonReward());
-        assertEquals(4, all.size(), "the raw row and the three base mechanics");
-        for (String field : List.of("auto", "excludeFromClaimAll", "ignoreRewardBlocking")) {
+        assertEquals(7, all.size(), "the raw row and the six base mechanics");
+        for (String field : List.of("auto", "excludeFromClaimAll", "ignoreRewardBlocking", "disableToast",
+                "title", "icon")) {
             assertTrue(all.stream().anyMatch(control -> field.equals(control.field())),
                     "an addon's reward must still be able to say what " + field + " is");
         }
@@ -291,7 +292,7 @@ class TableRowFieldsTest {
     }
 
     @Test
-    @DisplayName("the three base mechanics are on every type, in the registry's own words")
+    @DisplayName("the six base mechanics are on every type, in the registry's own words")
     void baseMechanicsRideOnEveryType() {
         for (ResourceLocation id : RewardTypes.ids()) {
             Set<String> drawn = drawnFields(instance(id));
@@ -299,6 +300,9 @@ class TableRowFieldsTest {
             assertTrue(drawn.contains("auto"), id + " cannot say when it is given");
             assertTrue(drawn.contains("excludeFromClaimAll"), id + " cannot be kept out of Claim all");
             assertTrue(drawn.contains("ignoreRewardBlocking"), id + " cannot be exempted from blocking");
+            assertTrue(drawn.contains("disableToast"), id + " cannot be quieted");
+            assertTrue(drawn.contains("title"), id + " cannot be renamed");
+            assertTrue(drawn.contains("icon"), id + " cannot be re-pictured");
         }
     }
 }

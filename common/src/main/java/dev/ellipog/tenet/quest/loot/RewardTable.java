@@ -54,14 +54,19 @@ import java.util.Set;
  *   <li>{@code uid} — the handle of a table written <b>inline</b> in a quest or another table. A file's
  *       root table has no use for one, and the loader ignores it there; see {@code InlineTables} for
  *       why an inline table is addressed by a handle rather than by its position.</li>
+ *   <li>{@code useTitle} — draw the table's title on a reward row that rolls it, rather than the
+ *       generic "roll the X table" sentence. FTB Quests' {@code use_title}, which ATM10 sets on its
+ *       tables.</li>
+ *   <li>{@code hideTooltip} — draw no item tooltip on that row. FTB Quests' {@code hide_tooltip}.</li>
  * </ul>
  */
 public record RewardTable(double emptyWeight, int lootSize, List<Entry> entries,
-                          Optional<String> title, Optional<ItemRef> icon, Optional<String> uid) {
+                          Optional<String> title, Optional<ItemRef> icon, Optional<String> uid,
+                          boolean useTitle, boolean hideTooltip) {
 
     /** The fields this contributes, for the validator and the editor. */
-    public static final Set<String> FIELDS =
-            Set.of("emptyWeight", "lootSize", "entries", "title", "icon", "uid");
+    public static final Set<String> FIELDS = Set.of("emptyWeight", "lootSize", "entries", "title",
+            "icon", "uid", "useTitle", "hideTooltip");
 
     /**
      * How many times a table may throw, named once.
@@ -115,7 +120,8 @@ public record RewardTable(double emptyWeight, int lootSize, List<Entry> entries,
 
     /** A table with no title, icon or handle: what a file that declares none of them means. */
     public RewardTable(double emptyWeight, int lootSize, List<Entry> entries) {
-        this(emptyWeight, lootSize, entries, Optional.empty(), Optional.empty(), Optional.empty());
+        this(emptyWeight, lootSize, entries, Optional.empty(), Optional.empty(), Optional.empty(),
+                false, false);
     }
 
     public static final MapCodec<RewardTable> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
@@ -130,7 +136,9 @@ public record RewardTable(double emptyWeight, int lootSize, List<Entry> entries,
             Entry.CODEC.listOf().fieldOf("entries").forGetter(RewardTable::entries),
             Codec.STRING.optionalFieldOf("title").forGetter(RewardTable::title),
             ItemRef.CODEC.optionalFieldOf("icon").forGetter(RewardTable::icon),
-            Codec.STRING.optionalFieldOf("uid").forGetter(RewardTable::uid)
+            Codec.STRING.optionalFieldOf("uid").forGetter(RewardTable::uid),
+            Codec.BOOL.optionalFieldOf("useTitle", false).forGetter(RewardTable::useTitle),
+            Codec.BOOL.optionalFieldOf("hideTooltip", false).forGetter(RewardTable::hideTooltip)
     ).apply(instance, RewardTable::new));
 
     public static final Codec<RewardTable> CODEC = MAP_CODEC.codec();

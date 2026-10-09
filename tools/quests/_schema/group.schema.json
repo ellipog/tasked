@@ -29,8 +29,8 @@
       "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
     },
     "icon": {
-      "$ref": "#/definitions/itemRef",
-      "description": "The item the book draws on this group's row. Optional: without it the row falls back to the first chapter under the group."
+      "$ref": "#/definitions/icon",
+      "description": "The picture the book draws on this group's row: an item, a texture file, or an entity drawn as its spawn egg. Optional: without it the row falls back to the first chapter under the group."
     },
     "collapsedByDefault": {
       "type": "boolean",
@@ -63,6 +63,34 @@
           "additionalProperties": true
         }
       }
+    },
+
+    "icon": {
+      "description": "What a group shows as its picture: an item, a texture file, or an entity drawn as its spawn egg. An item object is the arm every file written before the union uses, so old files read unchanged.",
+      "anyOf": [
+        { "$ref": "#/definitions/itemRef" },
+        {
+          "type": "object",
+          "required": ["texture"],
+          "properties": {
+            "texture": {
+              "type": "string",
+              "description": "A texture file by its own path, e.g. my_pack:textures/gui/emblem.png. Drawn stretched into the icon's box; a path nothing holds draws the missing texture."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["entity"],
+          "properties": {
+            "entity": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+              "description": "An entity id, e.g. minecraft:creeper. Drawn as its spawn egg where one exists; an entity with no egg draws the missing mark naming it."
+            }
+          }
+        }
+      ]
     },
 
     "text": {

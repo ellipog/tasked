@@ -63,6 +63,34 @@
       }
     },
 
+    "icon": {
+      "description": "What a quest, chapter, group or the book shows as its picture: an item, a texture file, or an entity drawn as its spawn egg. An item object is the arm every file written before the union uses, so old files read unchanged.",
+      "anyOf": [
+        { "$ref": "#/definitions/itemRef" },
+        {
+          "type": "object",
+          "required": ["texture"],
+          "properties": {
+            "texture": {
+              "type": "string",
+              "description": "A texture file by its own path, e.g. my_pack:textures/gui/emblem.png. Drawn stretched into the icon's box; a path nothing holds draws the missing texture."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["entity"],
+          "properties": {
+            "entity": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+              "description": "An entity id, e.g. minecraft:creeper. Drawn as its spawn egg where one exists; an entity with no egg draws the missing mark naming it."
+            }
+          }
+        }
+      ]
+    },
+
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9_]{1,64}$",
@@ -263,6 +291,16 @@
           "type": "string",
           "description": "The editor's handle for a table written `inline` in a quest or in another table: it is what the editor addresses when a reward sits above or below it in a list. A table in its own file under `reward_tables/` is addressed by its file name, does not use this, and the loader ignores it there."
         },
+        "useTitle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw this table's title on a reward row that rolls it, rather than the generic roll sentence. FTB Quests calls this use_title."
+        },
+        "hideTooltip": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw no item tooltip on a reward row that rolls this table. FTB Quests calls this hide_tooltip."
+        },
 "entries": {
           "type": "array",
           "items": {
@@ -375,7 +413,7 @@
           "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
         },
         "icon": {
-          "$ref": "#/definitions/itemRef",
+          "$ref": "#/definitions/icon",
           "description": "The item the book draws on the group's row. Optional: an absent icon falls back to the first chapter under the group."
         },
         "collapsedByDefault": {
@@ -633,7 +671,7 @@
           "items": { "$ref": "#/definitions/text" },
           "description": "One string per paragraph. Separate from a single newline-containing string on purpose. Markdown is read in these strings."
         },
-        "icon": { "$ref": "#/definitions/itemRef" },
+        "icon": { "$ref": "#/definitions/icon" },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
 
         "progressionMode": {
@@ -655,6 +693,17 @@
           "type": "boolean",
           "default": false,
           "description": "Whether this chapter's quests may work their tasks before their dependencies are met, unless a quest says otherwise. Either this or a quest's flexibleProgress makes the quest flexible."
+        },
+        "defaultMinWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3000,
+          "default": 0,
+          "description": "What the quests in this chapter use for their detail-panel width unless a quest says otherwise: a quest's own minWidth wins over this, and 0 (unset) means the panel kind decides. FTB Quests calls this default_min_width."
+        },
+        "autofocus": {
+          "type": "string",
+          "description": "The quest this chapter centres on when it is selected, by id or alias, in this chapter. Absent centres on the chapter's bounding box. FTB Quests calls this autofocus_id."
         },
         "autoClaim": {
           "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
@@ -736,7 +785,7 @@
         "title": { "$ref": "#/definitions/text" },
         "subtitle": { "$ref": "#/definitions/text" },
         "description": { "type": "array", "items": { "$ref": "#/definitions/text" } },
-        "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
+        "icon": { "$ref": "#/definitions/icon", "description": "Defaults to paper if absent." },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
 
         "dependsOn": {
@@ -859,6 +908,23 @@
           "default": false,
           "description": "Draw no dependency lines arriving at this quest. The quest itself is unaffected, and quests that depend on it still draw their lines to it."
         },
+        "hideDependentLines": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw no dependency lines leaving this quest for its dependants. The outgoing half of hideDependencyLines. FTB Quests calls this hide_dependent_lines."
+        },
+        "minWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3000,
+          "default": 0,
+          "description": "Minimum width of this quest's detail panel. 0 is unset: the chapter's defaultMinWidth decides, and then the panel kind's default. FTB Quests calls this min_width."
+        },
+        "disableToast": {
+          "type": "boolean",
+          "default": false,
+          "description": "Completing this quest raises no toast. Combines with the silent auto-claim modes: either silence wins. FTB Quests calls this disable_toast."
+        },
         "hideTextUntilComplete": {
           "type": "boolean",
           "default": false,
@@ -899,6 +965,19 @@
           "items": { "$ref": "#/definitions/condition" },
           "description": "Tasks and rewards. Gates that must all hold for a player before the task counts for them, or the reward is paid to them."
         },
+        "disableToast": {
+          "type": "boolean",
+          "default": false,
+          "description": "Tasks and rewards. This task finishing, or this reward collected, raises no toast. FTB Quests calls this disable_toast."
+        },
+        "title": {
+          "$ref": "#/definitions/text",
+          "description": "Tasks and rewards. The words the row wears instead of the type's own sentence. Absent means the type decides. A checkmark's title is its button's text."
+        },
+        "icon": {
+          "$ref": "#/definitions/icon",
+          "description": "Tasks and rewards. The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. Absent means the type decides."
+        },
 
         "item": {
           "$ref": "#/definitions/namespacedId",
@@ -933,10 +1012,6 @@
         "tag": {
           "type": "string",
           "description": "tenet:item_tag (task) — an item tag; any item in it counts."
-        },
-        "title": {
-          "$ref": "#/definitions/text",
-          "description": "tenet:checkmark (task) — the label on the button a player presses."
         },
         "dimension": {
           "$ref": "#/definitions/namespacedId",

@@ -36,7 +36,7 @@ public record ChapterGroup(
         String id,
         QuestText title,
         List<QuestText> description,
-        Optional<ItemRef> icon,
+        Optional<Icon> icon,
         List<String> aliases,
         boolean collapsedByDefault,
         List<Chapter> chapters
@@ -82,7 +82,7 @@ public record ChapterGroup(
                     .forGetter(ChapterGroup::description),
             // Optional, unlike a chapter's own icon: a group with none falls back on the client to the
             // first chapter under it, so absent and "authored as paper" have to stay distinguishable.
-            ItemRef.CODEC.optionalFieldOf("icon").forGetter(ChapterGroup::icon),
+            Icon.CODEC.optionalFieldOf("icon").forGetter(ChapterGroup::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(ChapterGroup::aliases),
             // Whether the book shows this group's chapters the first time it sees the tree.
             //

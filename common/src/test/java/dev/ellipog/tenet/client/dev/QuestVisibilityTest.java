@@ -238,5 +238,14 @@ class QuestVisibilityTest {
             assertTrue(QuestVisibility.drawsDependencyLines(false));
             assertFalse(QuestVisibility.drawsDependencyLines(true));
         }
+
+        @Test
+        @DisplayName("hideDependentLines is the outgoing flag, inverted once beside it")
+        void outgoingLines() {
+            assertTrue(QuestVisibility.drawsDependentLines(false),
+                    "without the flag the lines a quest sends on are drawn");
+            assertFalse(QuestVisibility.drawsDependentLines(true),
+                    "with it the quest is drawn and its outgoing lines are not");
+        }
     }
 }

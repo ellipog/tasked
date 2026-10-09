@@ -24,6 +24,9 @@ folded open, so a chapter can be read at a glance and unfolded only where someth
 | `auto` | `default` | When it is handed over. See below. |
 | `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
 | `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tenet rewards block`. |
+| `disableToast` | `false` | Collecting this reward raises no toast. Recorded for the reward-level notice; no such notice exists yet, so it travels as data for the notice that will. See [[tenet:authoring/quests#announcements]]. |
+| `title` | the type's own | The words the row wears instead of the type's own sentence. |
+| `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
 | `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tenet:authoring/conditions]]. |
 
 `auto` decides the moment the reward changes hands:
@@ -186,6 +189,8 @@ A table is a list of entries, each an ordinary reward with a weight:
 | `title` | the id | What the in-game editor calls the table. Absent, the id is opened out: `tier_1_ores` reads as "Tier 1 ores". |
 | `icon` | see below | The item the editor's table browser draws for it: `{ "item": "minecraft:iron_ingot" }`, with an optional `count` and `components` — the same shape a quest's `icon` uses. |
 | `uid` | — | The editor's handle for a table written `inline`. A table in its own file does not need one, and the loader ignores it there. |
+| `useTitle` | `false` | A reward row that rolls this table wears the table's title rather than the generic roll sentence. |
+| `hideTooltip` | `false` | A reward row that rolls this table draws no hover — unless the row is locked, which is still explained, because hiding why a reward is shut would read as a broken row. |
 
 An absent `icon` is not a blank row: the editor draws the first entry that has an item, so a table of
 ore drops shows an ore rather than the chest every table reward type carries. A table of experience or
@@ -229,7 +234,7 @@ it is, without an edit path into it.
 
 | | |
 |---|---|
-| **The header** | the title (type it — a blank title falls back to the id), the number of rolls, the entry count, the total weight, and the mode the chances are read as. |
+| **The header** | the title (type it — a blank title falls back to the id), the number of rolls, the entry count, the total weight, and the mode the chances are read as. Two toggles sit beside the title: **Title** (the row wears this table's title) and **Tip** (the row draws no hover). |
 | **The rows** | one per entry: its icon and name, its weight with a stepper, and **the chance that weight means** — `Always` for a weight of zero, a percentage otherwise, `(per roll)` when the table rolls more than once, with the chance of seeing it *at least once* on hover. |
 | **The fold** | an entry's own fields, exactly as the card draws a reward's: the item (the picker, with the data of the stack you are holding), the count, and — for an entry that is itself a table — a button that opens it, with a breadcrumb back. |
 | **+ Item** | the item picker, appending one entry at weight 1. You can also **drag a stack in from EMI or JEI**: EMI lands it at the row under the pointer, JEI appends it to the end of the list, with its count and its data. |

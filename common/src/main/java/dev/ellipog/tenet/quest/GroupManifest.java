@@ -64,7 +64,7 @@ public record GroupManifest(
         String id,
         QuestText title,
         List<QuestText> description,
-        Optional<ItemRef> icon,
+        Optional<Icon> icon,
         List<String> aliases,
         boolean collapsedByDefault,
         List<String> chapters
@@ -91,7 +91,7 @@ public record GroupManifest(
             QuestText.CODEC.fieldOf("title").forGetter(GroupManifest::title),
             QuestText.LIST_OR_ONE.optionalFieldOf("description", List.of())
                     .forGetter(GroupManifest::description),
-            ItemRef.CODEC.optionalFieldOf("icon").forGetter(GroupManifest::icon),
+            Icon.CODEC.optionalFieldOf("icon").forGetter(GroupManifest::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(GroupManifest::aliases),
             Codec.BOOL.optionalFieldOf("collapsedByDefault", false)
                     .forGetter(GroupManifest::collapsedByDefault),

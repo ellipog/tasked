@@ -28,6 +28,9 @@ import java.util.Optional;
  * }
  * }</pre>
  *
+ * <p>The icon is an {@link Icon}: an item, a texture file, or an entity drawn as its egg. A bare
+ * item object is the item arm, so every file written before the union reads unchanged.
+ *
  * <h2>Three things here that FTB Quests does not have</h2>
  *
  * <p><b>{@code aliases}.</b> Progress is stored against a quest's id. Change the id — which every
@@ -57,7 +60,7 @@ public record Quest(
         QuestText title,
         Optional<QuestText> subtitle,
         List<QuestText> description,
-        ItemRef icon,
+        Icon icon,
         QuestLayout layout,
         List<String> aliases,
         List<QuestRef> dependencies,
@@ -94,14 +97,25 @@ public record Quest(
         boolean flexibleProgress,
         List<QuestTask> tasks,
         List<QuestReward> rewards,
-        QuestRules rules
+        QuestRules rules,
+        /**
+         * How this quest presents itself: how wide its card wants to be, which of its outgoing
+         * edges are drawn, and whether its completion is announced.
+         *
+         * <p>Grouped for the mundane reason {@link QuestRules} gives — the codec's sixteen
+         * components — and the JSON stays flat regardless: {@code minWidth},
+         * {@code hideDependentLines} and {@code disableToast} sit on the quest beside every other
+         * flag. Read the delegates below rather than this field; the grouping is a codec's answer
+         * to a codec's limit, not a concept an author meets.
+         */
+        QuestPresentation presentation
 ) {
 
     /** A quest with nothing in it. The starting point for the editor's "new quest" button. */
     public static Quest blank(String id, QuestText title) {
-        return new Quest(id, title, Optional.empty(), List.of(), ItemRef.DEFAULT_ICON, QuestLayout.DEFAULT,
+        return new Quest(id, title, Optional.empty(), List.of(), Icon.DEFAULT_ICON, QuestLayout.DEFAULT,
                 List.of(), List.of(), Map.of(), Optional.empty(), 0, false, List.of(), List.of(),
-                QuestRules.DEFAULT);
+                QuestRules.DEFAULT, QuestPresentation.DEFAULT);
     }
 
     // ------------------------------------------------------------------
@@ -169,6 +183,36 @@ public record Quest(
         return rules.requiresStage();
     }
 
+    /**
+     * The minimum width of this quest's detail panel, or 0 when unset.
+     *
+     * <p>Zero defers to the chapter's {@code defaultMinWidth}; either set wins over the panel
+     * kind's default. See {@link QuestPresentation}.
+     */
+    public int minWidth() {
+        return presentation.minWidth();
+    }
+
+    /**
+     * Whether the dependency lines <i>leaving</i> this quest for its dependants are drawn.
+     *
+     * <p>The outgoing half of {@code hideDependencyLines}: that flag hides the lines arriving at
+     * a quest, this one hides the lines it sends on. See {@link QuestPresentation}.
+     */
+    public boolean hideDependentLines() {
+        return presentation.hideDependentLines();
+    }
+
+    /**
+     * Whether completing this quest raises no toast.
+     *
+     * <p>FTB Quests' {@code disable_toast} on the quest. ORed with the silent auto-claim modes
+     * where notices are decided; see {@link QuestPresentation}.
+     */
+    public boolean disableToast() {
+        return presentation.disableToast();
+    }
+
     // ------------------------------------------------------------------
 
     /**
@@ -232,7 +276,7 @@ public record Quest(
             QuestText.CODEC.fieldOf("title").forGetter(Quest::title),
             QuestText.CODEC.optionalFieldOf("subtitle").forGetter(Quest::subtitle),
             QuestText.CODEC.listOf().optionalFieldOf("description", List.of()).forGetter(Quest::description),
-            ItemRef.CODEC.optionalFieldOf("icon", ItemRef.DEFAULT_ICON).forGetter(Quest::icon),
+            Icon.CODEC.optionalFieldOf("icon", Icon.DEFAULT_ICON).forGetter(Quest::icon),
             // A MapCodec, so x/y/shape/size are flat on the quest in JSON.
             QuestLayout.MAP_CODEC.forGetter(Quest::layout),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(Quest::aliases),
@@ -250,6 +294,10 @@ public record Quest(
             TaskTypes.dispatchCodec().listOf().optionalFieldOf("tasks", List.of()).forGetter(Quest::tasks),
             RewardTypes.dispatchCodec().listOf().optionalFieldOf("rewards", List.of()).forGetter(Quest::rewards),
             // Also a MapCodec: the flags stay flat on the quest.
-            QuestRules.MAP_CODEC.forGetter(Quest::rules)
+            QuestRules.MAP_CODEC.forGetter(Quest::rules),
+            // And this one: the presentation flags stay flat for the same reason. The sixteenth
+            // component — this record is full, and the next quest-level group needs a new home
+            // rather than a seventeenth field.
+            QuestPresentation.MAP_CODEC.forGetter(Quest::presentation)
     ).apply(instance, Quest::new));
 }

@@ -327,6 +327,15 @@ public final class ChapterPanelLayout {
                 rows.add(ToolsLayout.Action.toggle("defaultFlexibleProgress",
                         "tenet.dev.chapter.flexible",
                         flagOn(chapter, "defaultFlexibleProgress") ? ToolsLayout.ON : ToolsLayout.OFF));
+                // The panel width the chapter's quests want unless one says otherwise: a quest's own
+                // minWidth wins over this, and 0 (unset) means the panel kind decides.
+                rows.add(ToolsLayout.Action.text("defaultMinWidth", "tenet.dev.chapter.default_min_width",
+                        numberText(chapter, "defaultMinWidth")));
+                // The quest this chapter centres on when selected, by id or alias in this chapter.
+                // A text row like the gate lists below: the validator is what says a name does not
+                // resolve, and empty clears it back to the bounding-box centre.
+                rows.add(ToolsLayout.Action.text("autofocus", "tenet.dev.chapter.autofocus",
+                        text(chapter, "autofocus", "")));
                 rows.add(choiceRow(chapter, PREREQUISITE));
                 rows.add(choiceRow(chapter, AUTO_CLAIM));
                 // The chapter's own gate, above the line-style rows because it is what the chapter *is* in
@@ -798,6 +807,8 @@ public final class ChapterPanelLayout {
             Map.entry("progressionMode", "tenet.dev.chapter.help.progression"),
             Map.entry("defaultConsumeItems", "tenet.dev.chapter.help.consume_items"),
             Map.entry("defaultFlexibleProgress", "tenet.dev.chapter.help.flexible_progress"),
+            Map.entry("defaultMinWidth", "tenet.dev.chapter.help.default_min_width"),
+            Map.entry("autofocus", "tenet.dev.chapter.help.autofocus"),
             Map.entry("defaultPrerequisiteMode", "tenet.dev.chapter.help.prerequisite"),
             Map.entry("autoClaim", "tenet.dev.chapter.help.auto_claim"),
             Map.entry("prerequisiteMode", "tenet.dev.chapter.help.gate_mode"),

@@ -171,7 +171,7 @@ class QuestManifestTest {
             GroupManifest one = decode(GroupManifest.CODEC, """
                     { "id": "g", "title": "G", "icon": { "item": "minecraft:anvil" }, "chapters": [] }
                     """);
-            assertEquals("minecraft:anvil", one.icon().orElseThrow().item().toString());
+            assertEquals("minecraft:anvil", one.icon().orElseThrow().describe());
 
             Problems problems = validateGroupDoc("""
                     { "id": "g", "title": "G", "icon": { "item": "minecraft:anvil" }, "chapters": [] }
@@ -327,14 +327,14 @@ class QuestManifestTest {
             ChapterManifest absent = decode(ChapterManifest.CODEC, """
                     { "id": "c", "title": "C", "quests": [] }
                     """);
-            assertSame(ItemRef.DEFAULT_ICON, absent.icon(),
+            assertSame(Icon.DEFAULT_ICON, absent.icon(),
                     "an absent icon is the default instance itself, not a copy of it");
 
             ChapterManifest authored = decode(ChapterManifest.CODEC, """
                     { "id": "c", "title": "C", "icon": { "item": "minecraft:paper" }, "quests": [] }
                     """);
-            assertEquals("minecraft:paper", authored.icon().item().toString(), "authored paper is paper");
-            assertNotSame(ItemRef.DEFAULT_ICON, authored.icon(),
+            assertEquals("minecraft:paper", authored.icon().describe(), "authored paper is paper");
+            assertNotSame(Icon.DEFAULT_ICON, authored.icon(),
                     "and it is a different instance, which is the only thing that tells the two apart");
         }
 
@@ -363,7 +363,7 @@ class QuestManifestTest {
 
             assertEquals("Hot work", manifest.subtitle().orElseThrow().value());
             assertEquals(3, manifest.description().size(), "a blank paragraph is a line break, not a mistake");
-            assertEquals("minecraft:anvil", manifest.icon().item().toString());
+            assertEquals("minecraft:anvil", manifest.icon().describe());
             assertEquals(List.of("toolsmith"), manifest.aliases());
             assertEquals(PrerequisiteMode.ONE_COMPLETED, manifest.defaultPrerequisiteMode());
             assertEquals(ProgressionMode.LINEAR, manifest.progressionMode());

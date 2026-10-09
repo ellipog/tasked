@@ -138,7 +138,7 @@ class RewardTableTest {
         RewardTable table = new RewardTable(0, 2, List.of(entry(1, item("stone"))),
                 java.util.Optional.of("Tier 1 minerals"),
                 java.util.Optional.of(new ItemRef(ResourceLocation.withDefaultNamespace("iron_ingot"), 1)),
-                java.util.Optional.of("a-handle"));
+                java.util.Optional.of("a-handle"), false, false);
 
         RewardTable decoded = RewardTable.CODEC.parse(JsonOps.INSTANCE,
                 RewardTable.CODEC.encodeStart(JsonOps.INSTANCE, table).getOrThrow()).getOrThrow();
@@ -148,7 +148,7 @@ class RewardTableTest {
         assertEquals("a-handle", decoded.uid().orElseThrow());
 
         RewardTable blank = new RewardTable(0, 1, List.of(), java.util.Optional.of("  "),
-                java.util.Optional.empty(), java.util.Optional.of(""));
+                java.util.Optional.empty(), java.util.Optional.of(""), false, false);
         assertTrue(blank.title().isEmpty(), "a blank title is no title");
         assertTrue(blank.uid().isEmpty(), "and a blank handle is no handle");
     }
@@ -159,7 +159,7 @@ class RewardTableTest {
 
     private static RewardTable named(String title, RewardTable.Entry... entries) {
         return new RewardTable(0, 1, List.of(entries), java.util.Optional.of(title),
-                java.util.Optional.empty(), java.util.Optional.empty());
+                java.util.Optional.empty(), java.util.Optional.empty(), false, false);
     }
 
     @Test
@@ -240,7 +240,7 @@ class RewardTableTest {
         RewardTable declared = new RewardTable(0, 1, List.of(entry(1, ore)),
                 java.util.Optional.empty(),
                 java.util.Optional.of(new ItemRef(ResourceLocation.withDefaultNamespace("chest"), 1)),
-                java.util.Optional.empty());
+                java.util.Optional.empty(), false, false);
         assertEquals("minecraft:chest", declared.displayIcon().item().toString(),
                 "an author's icon wins outright");
 

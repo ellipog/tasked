@@ -225,7 +225,13 @@ public final class TableRowFields {
                 new Control(Kind.FLAG, "excludeFromClaimAll", "Claim separately",
                         "Claim all leaves this one for its own press"),
                 new Control(Kind.FLAG, "ignoreRewardBlocking", "Ignore blocking",
-                        "give it even while the team's rewards are being held"));
+                        "give it even while the team's rewards are being held"),
+                new Control(Kind.FLAG, "disableToast", "Quiet reward",
+                        "collecting this reward raises no toast"),
+                new Control(Kind.TEXT, "title", "Title",
+                        "the words this row wears; empty means the type's own sentence"),
+                new Control(Kind.ITEM, "icon", "Picture",
+                        "the picture this row wears; empty means the type's own"));
     }
 
     /**

@@ -63,6 +63,11 @@ public final class QuestNodeArt {
      *                   {@code ItemStack.EMPTY} because the game-free tests cannot build a stack at all
      *                   — touching that class bootstraps the item registry, which there is no registry
      *                   to bootstrap — and "no item" is a real state a caller may want to draw.
+     * @param texture    the texture path drawn in the middle when the icon is a texture, and empty
+     *                   otherwise. A texture wins over the item: the two never arrive together, because
+     *                   the cache resolves one arm and keeps the other's half empty. Drawn stretched into
+     *                   the icon's box; a path nothing holds draws the game's missing texture, like an
+     *                   image element's missing file.
      * @param iconScale  how much of the node the icon is asked to fill; the outline caps it
      * @param edge       the panel's border colour, from the node's state
      * @param ring       the hover or selection ring's colour, or 0 for none
@@ -70,8 +75,14 @@ public final class QuestNodeArt {
      * @param drawsPanel whether the panel is drawn at all — false for {@link QuestShape#NONE}, whose
      *                   node is its icon and whose geometry is still a square for the hit test
      */
-    public record Look(int size, QuestShape shape, Shape geometry, ItemStack icon, double iconScale,
-                       int edge, int ring, int wash) {
+    public record Look(int size, QuestShape shape, Shape geometry, ItemStack icon, String texture,
+                        double iconScale, int edge, int ring, int wash) {
+
+        /** The item-arm shape, for a caller with no texture: the texture is empty, not null. */
+        public Look(int size, QuestShape shape, Shape geometry, ItemStack icon, double iconScale,
+                    int edge, int ring, int wash) {
+            this(size, shape, geometry, icon, "", iconScale, edge, ring, wash);
+        }
     }
 
     /**
@@ -159,9 +170,24 @@ public final class QuestNodeArt {
         // A landmark has room at any zoom; a small node runs out of room at a specific *size*. Asking the
         // zoom instead is what drew a large gear node as an empty outline with a stand-in block — the box is
         // the honest question and it was already being asked. See CanvasSettings.
-        boolean drewItem = look.icon() != null && !look.icon().isEmpty()
-                && iconBox[2] >= CanvasSettings.iconMinBox()
-                && r.icon(look.icon(), iconBox[0], iconBox[1], iconBox[2]);
+        //
+        // A texture icon draws through the blit rather than the stack: the cache keeps the stack empty
+        // for a texture, so the item path below would read it as "no icon" and draw the block. A path
+        // nothing holds draws the game's missing texture, which names the picture nobody can draw.
+        boolean drewItem = false;
+        if (!look.texture().isEmpty() && iconBox[2] >= CanvasSettings.iconMinBox()) {
+            net.minecraft.resources.ResourceLocation texture =
+                    net.minecraft.resources.ResourceLocation.tryParse(look.texture());
+            if (texture != null) {
+                r.texture(texture, iconBox[0], iconBox[1], iconBox[2], iconBox[2]);
+                drewItem = true;
+            }
+        }
+        if (!drewItem) {
+            drewItem = look.icon() != null && !look.icon().isEmpty()
+                    && iconBox[2] >= CanvasSettings.iconMinBox()
+                    && r.icon(look.icon(), iconBox[0], iconBox[1], iconBox[2]);
+        }
 
         if (!drewItem) {
             // No icon, or one the client cannot resolve, or a node too small to hold one. A block in the

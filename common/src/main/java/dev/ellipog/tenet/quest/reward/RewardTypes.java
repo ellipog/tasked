@@ -61,7 +61,14 @@ public final class RewardTypes {
                     dev.ellipog.tenet.quest.EditorField.flag("excludeFromClaimAll", "Claim separately")
                             .hint("Claim all leaves this one for its own press"),
                     dev.ellipog.tenet.quest.EditorField.flag("ignoreRewardBlocking", "Ignore blocking")
-                            .hint("give it even while the team's rewards are being held"));
+                            .hint("give it even while the team's rewards are being held"),
+                    dev.ellipog.tenet.quest.EditorField.flag("disableToast", "Quiet reward")
+                            .hint("collecting this reward raises no toast"),
+                    dev.ellipog.tenet.quest.EditorField.text("title", "Title",
+                                    "the words the row wears instead of the type's own")
+                            .hint("the words this reward's row wears; empty means the type's own sentence"),
+                    dev.ellipog.tenet.quest.EditorField.icon("icon", "Picture")
+                            .hint("the picture this reward's row wears; empty means the type's own"));
 
     /**
      * The four table-backed rewards share one form: <b>one</b> control.
@@ -300,9 +307,49 @@ public final class RewardTypes {
             return RewardDisplay.ofTranslatableText("tenet.reward.unknown_type",
                     "Unknown reward type: " + unknown.type(), unknown.type().toString(), 1);
         }
-        return REGISTRY.get(reward.type())
+        RewardDisplay computed = REGISTRY.get(reward.type())
                 .map(entry -> entry.display().apply(reward))
                 .orElse(RewardDisplay.NONE);
+        return withAuthorOverrides(reward.common(), computed);
+    }
+
+    /**
+     * A reward wearing its author's words and picture instead of its type's own.
+     *
+     * <p>Absent title and icon mean the type decides, which is every file written before the two
+     * fields existed. An entity icon resolves to its egg on the server that holds the registries;
+     * an entity with no egg keeps the type's own picture, for the reason
+     * {@code TaskTypes} gives beside its own egg lookup.
+     */
+    private static RewardDisplay withAuthorOverrides(RewardCommon common, RewardDisplay computed) {
+        RewardDisplay out = computed;
+        if (common.title().isPresent()) {
+            out = out.withAuthorTitle(common.title().get());
+        }
+        if (common.icon().isPresent()) {
+            dev.ellipog.tenet.quest.Icon icon = common.icon().get();
+            if (icon instanceof dev.ellipog.tenet.quest.Icon.Item item) {
+                out = out.withAuthorItem(item.ref());
+            }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Texture texture) {
+                out = out.withAuthorTexture(texture.texture().toString());
+            }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Entity entity) {
+                ItemRef egg = eggOf(entity.entity());
+                out = egg != null ? out.withAuthorItem(egg) : out;
+            }
+        }
+        return out;
+    }
+
+    private static ItemRef eggOf(net.minecraft.resources.ResourceLocation entity) {
+        net.minecraft.resources.ResourceLocation egg =
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(entity.getNamespace(),
+                        entity.getPath() + "_spawn_egg");
+        if (!net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(egg)) {
+            return null;
+        }
+        return new ItemRef(egg, 1);
     }
 
     /** The icon for a reward's type, for a listing. Paper for an unregistered type. */

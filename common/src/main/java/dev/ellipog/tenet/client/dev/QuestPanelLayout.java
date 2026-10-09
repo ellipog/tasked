@@ -910,6 +910,7 @@ public final class QuestPanelLayout {
     private static InspectField<?> declared(String path, String label) {
         if (path.equals("x") || path.equals("y") || path.equals("size")
                 || path.equals("repeatCooldownTicks") || path.equals("minRequired")
+                || path.equals("minWidth")
                 || path.endsWith(".count") || path.endsWith(".amount")
                 || path.endsWith(".autoSubmitTicks")) {
             return InspectField.integer(label, -1000000, 1000000);
@@ -918,7 +919,9 @@ public final class QuestPanelLayout {
             return InspectField.decimal(label, 0.25, 8.0);
         }
         if (path.equals("showTitle") || path.equals("repeatable") || path.equals("sequentialTasks")
-                || path.equals("invisible") || path.endsWith(".consumeItems")
+                || path.equals("invisible") || path.equals("hideDependentLines")
+                || path.equals("disableToast") || path.endsWith(".disableToast")
+                || path.endsWith(".consumeItems")
                 || path.endsWith(".optional")) {
             return InspectField.flag(label);
         }
@@ -948,6 +951,7 @@ public final class QuestPanelLayout {
             Map.entry("customName", "tenet.dev.field.custom_name"),
             Map.entry("description", "tenet.dev.field.description"),
             Map.entry("dimension", "tenet.dev.field.dimension"),
+            Map.entry("disableToast", "tenet.dev.field.disable_toast"),
             Map.entry("entity", "tenet.dev.field.entity"),
             Map.entry("entityTypeTag", "tenet.dev.field.entity_type_tag"),
             Map.entry("excludeFromClaimAll", "tenet.dev.field.exclude_from_claim_all"),

@@ -36,6 +36,16 @@
       "type": "string",
       "description": "The editor's handle for a table written `inline` in a quest or in another table: it is what the editor addresses when a reward sits above or below it in a list. A table in its own file under `reward_tables/` is addressed by its file name, does not use this, and the loader ignores it there."
     },
+    "useTitle": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw this table's title on a reward row that rolls it, rather than the generic roll sentence. FTB Quests calls this use_title."
+    },
+    "hideTooltip": {
+      "type": "boolean",
+      "default": false,
+      "description": "Draw no item tooltip on a reward row that rolls this table. FTB Quests calls this hide_tooltip."
+    },
     "entries": {
       "type": "array",
       "items": {

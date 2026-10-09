@@ -99,13 +99,13 @@ class QuestSettingsPanelTest {
     }
 
     private static QuestSettingsPanel.View view(QuestShape shape, String hovered) {
-        return new QuestSettingsPanel.View("Smelt Iron", null, shape, shape.geometry(), 0, 96, 0.5,
+        return new QuestSettingsPanel.View("Smelt Iron", null, "", shape, shape.geometry(), 0, 96, 0.5,
                 true, -1, hovered, "all_completed", false, false);
     }
 
     /** The same, turned: what the preview does with an angle. */
     private static QuestSettingsPanel.View turned(QuestShape shape, int rotation, String hovered) {
-        return new QuestSettingsPanel.View("Smelt Iron", null, shape,
+        return new QuestSettingsPanel.View("Smelt Iron", null, "", shape,
                 dev.ellipog.armature.client.ui.shape.Shapes.rotated(shape.geometry(), rotation),
                 rotation, 96, 0.5, true, -1, hovered, "all_completed", false, false);
     }
@@ -204,7 +204,7 @@ class QuestSettingsPanelTest {
         Layout layout = QuestSettingsLayout.build(rows, frame.controls().width(),
                 Measure.monospace(6, 9));
         RecordingRenderer r = new RecordingRenderer();
-        QuestSettingsPanel.View drafted = new QuestSettingsPanel.View("Smelt Iron", null,
+        QuestSettingsPanel.View drafted = new QuestSettingsPanel.View("Smelt Iron", null, "",
                 QuestShape.GEAR, dev.ellipog.armature.client.ui.shape.Shapes.rotated(
                         QuestShape.GEAR.geometry(), 0),
                 0, 320, 0.5, true, -1, null, "all_completed", false, false);

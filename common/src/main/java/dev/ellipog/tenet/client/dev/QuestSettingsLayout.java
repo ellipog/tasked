@@ -390,6 +390,9 @@ public final class QuestSettingsLayout {
         rows.add(new Row("iconScale", Row.Kind.SLIDER, "tenet.dev.quest.icon_scale"));
         rows.add(new Row("icon", Row.Kind.ICON, "tenet.dev.quest.icon"));
         rows.add(switchRow("showTitle", "tenet.dev.quest.show_title"));
+        // How wide this quest's card wants to be, beside the size it is drawn at: a converted pack sets
+        // it on hundreds of quests, so it sits with the basic placement rather than behind Advanced.
+        rows.add(new Row("minWidth", Row.Kind.NUMBER, "tenet.dev.quest.min_width"));
         rows.add(new Row("h:placement", Row.Kind.HEADING, "tenet.dev.quest.placement"));
         // X and Y are axis letters, not prose: every language names a coordinate the same way, and the
         // sweep's boundary is the same one that leaves ids and enum values alone.
@@ -440,8 +443,15 @@ public final class QuestSettingsLayout {
             rows.add(new Row("hideUntilDependenciesVisible", Row.Kind.CHOICE,
                     "tenet.dev.quest.hide_until_deps_shown"));
             rows.add(switchRow("hideDependencyLines", "tenet.dev.quest.hide_dependency_lines"));
+            // The outgoing half, beside the incoming one: a quest that fans out to twenty dependants
+            // draws twenty lines across the chapter, and the author may want the quest without them.
+            rows.add(switchRow("hideDependentLines", "tenet.dev.quest.hide_dependent_lines"));
             rows.add(switchRow("hideTextUntilComplete", "tenet.dev.quest.hide_text_until_done"));
             rows.add(switchRow("hideDetailsUntilStartable", "tenet.dev.quest.hide_details_until_startable"));
+            // Whether this quest's completion is announced, beside the other visibility answers: either
+            // this or a silent auto-claim mode quiets it, and the two are one author's answer from
+            // opposite ends.
+            rows.add(switchRow("disableToast", "tenet.dev.quest.disable_toast"));
             rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
             rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));
             rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tenet.dev.quest.repeat_cooldown"));

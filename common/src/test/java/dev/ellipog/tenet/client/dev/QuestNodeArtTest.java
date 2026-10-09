@@ -155,6 +155,36 @@ class QuestNodeArtTest {
         }
     }
 
+    @Nested
+    @DisplayName("the texture icon")
+    class Texture {
+
+        @Test
+        @DisplayName("a texture icon draws through the blit rather than the stack")
+        void textureDrawsThroughTheBlit() {
+            RecordingRenderer r = new RecordingRenderer();
+            QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "my_pack:textures/gui/emblem.png", 0.75,
+                    0xFF1069B4, 0, 0));
+
+            assertEquals(1, r.textures().size(), "one blit, not an item: " + r.describe());
+            assertEquals("my_pack:textures/gui/emblem.png",
+                    r.textures().get(0).texture().toString(),
+                    "the blit names the authored path");
+        }
+
+        @Test
+        @DisplayName("a texture that is not a path falls back to the block, not a throw")
+        void unparseableTextureFallsBack() {
+            RecordingRenderer r = new RecordingRenderer();
+            QuestNodeArt.draw(r, 0, 0, new QuestNodeArt.Look(48, QuestShape.ROUNDED,
+                    QuestShape.ROUNDED.geometry(), null, "not a path :::", 0.75,
+                    0xFF1069B4, 0, 0));
+
+            assertTrue(r.textures().isEmpty(), "nothing unparseable reaches the blit: " + r.describe());
+        }
+    }
+
     @Test
     @DisplayName("the panel's colours come from the caller, not from a second state table here")
     void theCallerOwnsTheState() {

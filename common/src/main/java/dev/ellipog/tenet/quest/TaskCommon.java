@@ -8,6 +8,7 @@ import dev.ellipog.tenet.quest.condition.ConditionTypes;
 import dev.ellipog.tenet.quest.condition.QuestCondition;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -32,18 +33,41 @@ import java.util.Set;
  * <pre>{@code
  * { "type": "tenet:checkmark", "conditions": [ { "type": "tenet:stage", "stage": "pack:marked" } ] }
  * }</pre>
+ *
+ * <p>{@code disableToast} is FTB Quests' {@code disable_toast} on the task: this task finishing
+ * raises no task toast. It ORs with the quest's own flag and the silent auto-claim modes where
+ * notices are decided — a quieted task in an announced quest stays quiet, and an announced task
+ * in a quieted quest stays quiet too.
+ *
+ * <p>{@code title} and {@code icon} are the author's overrides: the words the row wears instead of
+ * the type's own sentence, and the picture it wears instead of the type's own. Absent means the
+ * type decides, which is every file written before these fields existed. See
+ * {@link dev.ellipog.tenet.quest.task.TaskTypes#displayOf} for the resolution.
  */
-public record TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions) {
+public record TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions,
+                         boolean disableToast, Optional<QuestText> title, Optional<Icon> icon) {
 
-    /** The shape every task type's defaults use: no conditions. */
+    /** The shape every task type's defaults use: no conditions, announced, computed words. */
     public TaskCommon(boolean optional, int autoSubmitTicks) {
-        this(optional, autoSubmitTicks, List.of());
+        this(optional, autoSubmitTicks, List.of(), false, Optional.empty(), Optional.empty());
+    }
+
+    /** The shape for a task with conditions but the default announcement and words. */
+    public TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions) {
+        this(optional, autoSubmitTicks, conditions, false, Optional.empty(), Optional.empty());
+    }
+
+    /** The shape for a task with conditions and announcement but computed words. */
+    public TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions,
+                      boolean disableToast) {
+        this(optional, autoSubmitTicks, conditions, disableToast, Optional.empty(), Optional.empty());
     }
 
     public static final TaskCommon DEFAULT = new TaskCommon(false, 20);
 
     /** The field names this contributes, for the validator to allow at task level. */
-    public static final Set<String> FIELDS = Set.of("optional", "autoSubmitTicks", "conditions");
+    public static final Set<String> FIELDS = Set.of("optional", "autoSubmitTicks", "conditions",
+            "disableToast", "title", "icon");
 
     public static final MapCodec<TaskCommon> MAP_CODEC = mapCodec(20);
 
@@ -63,7 +87,10 @@ public record TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondit
                 // Read through the dispatch codec, which is the only one that knows "type". Built lazily
                 // there, so this static does not capture a half-initialised registry -- see QuestTask.
                 ConditionTypes.dispatchCodec().listOf().optionalFieldOf("conditions", List.of())
-                        .forGetter(TaskCommon::conditions)
+                        .forGetter(TaskCommon::conditions),
+                Codec.BOOL.optionalFieldOf("disableToast", false).forGetter(TaskCommon::disableToast),
+                QuestText.CODEC.optionalFieldOf("title").forGetter(TaskCommon::title),
+                Icon.CODEC.optionalFieldOf("icon").forGetter(TaskCommon::icon)
         ).apply(instance, TaskCommon::new));
     }
 }

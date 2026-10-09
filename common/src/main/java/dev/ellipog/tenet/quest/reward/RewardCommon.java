@@ -40,14 +40,43 @@ import java.util.Set;
  * reward whose conditions are unmet is not lost: it stays unclaimed, and the same paths pick it up
  * the moment they hold. The short constructor keeps every existing default and test from carrying a
  * list they never fill.
+ *
+ * <p>{@code disableToast} is FTB Quests' {@code disable_toast} on the reward: collecting this
+ * reward raises no toast. Rewards have no toast of their own today — only quest and task notices
+ * exist — so this is recorded on the model, the wire and the editor now, and honoured the moment a
+ * reward-level notice does. An announced reward in a quieted quest stays quiet; the quest's flag
+ * already covers that path.
+ *
+ * <p>{@code title} and {@code icon} are the author's overrides: the words the row wears instead of
+ * the type's own sentence, and the picture it wears instead of the type's own. Absent means the
+ * type decides, which is every file written before these fields existed. See
+ * {@link RewardTypes#displayOf} for the resolution.
  */
 public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
-                           boolean ignoreRewardBlocking, List<QuestCondition> conditions) {
+                           boolean ignoreRewardBlocking, List<QuestCondition> conditions,
+                           boolean disableToast, Optional<dev.ellipog.tenet.quest.QuestText> title,
+                           Optional<dev.ellipog.tenet.quest.Icon> icon) {
 
-    /** The four-field shape: no conditions. */
+    /** The four-field shape: no conditions, announced, computed words. */
     public RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
                         boolean ignoreRewardBlocking) {
-        this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, List.of());
+        this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, List.of(), false,
+                Optional.empty(), Optional.empty());
+    }
+
+    /** The five-field shape: conditions, announced, computed words. */
+    public RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
+                        boolean ignoreRewardBlocking, List<QuestCondition> conditions) {
+        this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, conditions, false,
+                Optional.empty(), Optional.empty());
+    }
+
+    /** The six-field shape: conditions, announcement, computed words. */
+    public RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
+                        boolean ignoreRewardBlocking, List<QuestCondition> conditions,
+                        boolean disableToast) {
+        this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, conditions, disableToast,
+                Optional.empty(), Optional.empty());
     }
 
     /** What a reward that says nothing is: every axis deferred. */
@@ -55,8 +84,8 @@ public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean
             new RewardCommon(Optional.empty(), RewardAutoClaim.DEFAULT, false, false);
 
     /** The fields this contributes, for the validator and the editor's row list. */
-    public static final Set<String> FIELDS =
-            Set.of("team", "auto", "excludeFromClaimAll", "ignoreRewardBlocking", "conditions");
+    public static final Set<String> FIELDS = Set.of("team", "auto", "excludeFromClaimAll",
+            "ignoreRewardBlocking", "conditions", "disableToast", "title", "icon");
 
     public static final MapCodec<RewardCommon> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.BOOL.optionalFieldOf("team").forGetter(RewardCommon::team),
@@ -66,7 +95,11 @@ public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean
             // Through the dispatch codec, built lazily there -- see QuestCondition for the
             // class-initialisation cycle that makes this the pattern rather than a constant.
             ConditionTypes.dispatchCodec().listOf().optionalFieldOf("conditions", List.of())
-                    .forGetter(RewardCommon::conditions)
+                    .forGetter(RewardCommon::conditions),
+            Codec.BOOL.optionalFieldOf("disableToast", false).forGetter(RewardCommon::disableToast),
+            dev.ellipog.tenet.quest.QuestText.CODEC.optionalFieldOf("title")
+                    .forGetter(RewardCommon::title),
+            dev.ellipog.tenet.quest.Icon.CODEC.optionalFieldOf("icon").forGetter(RewardCommon::icon)
     ).apply(instance, RewardCommon::new));
 
     /** Whether this reward goes to the whole team, given the quest tree's own default. */

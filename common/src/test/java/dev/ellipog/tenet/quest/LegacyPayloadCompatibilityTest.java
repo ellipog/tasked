@@ -260,7 +260,7 @@ class LegacyPayloadCompatibilityTest {
         assertTrue(stripped.rewards().isEmpty(), "an absent rewards list is empty, not null");
         assertTrue(stripped.prerequisiteMode().isEmpty(), "absent means 'the chapter decides'");
         assertEquals(0, stripped.minRequired());
-        assertEquals(ItemRef.DEFAULT_ICON, stripped.icon(), "an absent icon is paper, not null");
+        assertEquals(Icon.DEFAULT_ICON, stripped.icon(), "an absent icon is paper, not null");
         assertEquals(QuestLayout.DEFAULT, stripped.layout(),
                 "an absent layout is the whole documented default, not a zeroed record");
         assertEquals(QuestRules.DEFAULT, stripped.rules());
@@ -276,7 +276,7 @@ class LegacyPayloadCompatibilityTest {
         assertTrue(stripped.description().isEmpty());
         assertTrue(stripped.aliases().isEmpty());
         assertTrue(stripped.quests().isEmpty(), "an absent quests list is empty, not null");
-        assertEquals(ItemRef.DEFAULT_ICON, stripped.icon());
+        assertEquals(Icon.DEFAULT_ICON, stripped.icon());
         assertEquals(PrerequisiteMode.ALL_COMPLETED, stripped.defaultPrerequisiteMode());
         assertEquals(ProgressionMode.FLEXIBLE, stripped.progressionMode(),
                 "FLEXIBLE, so that declaring a dependency in a stripped chapter still means something");
@@ -342,7 +342,7 @@ class LegacyPayloadCompatibilityTest {
         assertEquals(ProgressionMode.FLEXIBLE, parsed.progressionMode());
         assertEquals(PrerequisiteMode.ALL_COMPLETED, parsed.defaultPrerequisiteMode());
         assertFalse(parsed.defaultConsumeItems());
-        assertEquals(ItemRef.DEFAULT_ICON, parsed.icon());
+        assertEquals(Icon.DEFAULT_ICON, parsed.icon());
         assertTrue(parsed.links().isEmpty(), "an absent links list is empty, not null");
     }
 

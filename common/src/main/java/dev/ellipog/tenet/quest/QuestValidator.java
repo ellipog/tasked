@@ -86,12 +86,14 @@ public final class QuestValidator {
     private static final Set<String> CHAPTER_DOCUMENT_FIELDS = withSchema(CHAPTER_FIELDS);
 
     /**
-     * A quest's own fields, plus the layout's and the rules'.
+     * A quest's own fields, plus the layout's, the rules' and the presentation's.
      *
-     * <p>{@link QuestRules} holds fifteen of these — the repeat flags, the reveal flags, the five hide
+     * <p>{@link QuestRules} holds sixteen of these — the repeat flags, the reveal flags, the five hide
      * flags, {@code invisibleUntilTasks}, {@code requiresStage} and {@code autoClaim}, listed in
      * {@link QuestRules#FIELDS} — because {@code RecordCodecBuilder} caps out at sixteen components and
-     * the flat quest was over it. They are flat in JSON regardless; the grouping is only visible in Java.
+     * the flat quest was over it. {@link QuestPresentation} holds three more — {@code minWidth},
+     * {@code hideDependentLines} and {@code disableToast} — for the same reason, listed in its own
+     * {@code FIELDS}. They are flat in JSON regardless; the grouping is only visible in Java.
      */
     private static final Set<String> QUEST_FIELDS = union(
             union(Set.of(
@@ -99,7 +101,7 @@ public final class QuestValidator {
                     "dependencyLines", "prerequisiteMode", "minRequired", "flexibleProgress",
                     "tasks", "rewards"),
                     QuestLayout.FIELDS),
-            QuestRules.FIELDS);
+            union(QuestRules.FIELDS, QuestPresentation.FIELDS));
 
     /** Every type currently registered, for the fallback when a task's own type is unknown. */
     private static Set<String> allTaskFields() {
@@ -160,6 +162,15 @@ public final class QuestValidator {
         Checks.rejectUnknown(document, "$", withSchema(dev.ellipog.tenet.quest.loot.RewardTable.FIELDS),
                 problems);
         checkTableBounds(document, problems);
+        // Table presentation: whether a reward row draws this table's title, and whether it draws
+        // an item tooltip. Both are display-only — a typo here changes what the player reads, not
+        // whether the file loads — so each is a closed-set check.
+        if (document.has("$.useTitle")) {
+            Checks.optionalBool(document, "$.useTitle", problems);
+        }
+        if (document.has("$.hideTooltip")) {
+            Checks.optionalBool(document, "$.hideTooltip", problems);
+        }
         var entries = Checks.array(document, "$.entries", problems);
         if (entries == null) {
             return;
@@ -503,6 +514,30 @@ public final class QuestValidator {
                 Checks.optionalBool(document, path + "." + defaulted, problems);
             }
         }
+        // The chapter's default panel width for its quests: a quest's own minWidth wins over this,
+        // and zero (unset) means the panel kind decides. Same bounds as the quest's own field.
+        if (document.has(path + ".defaultMinWidth")) {
+            Checks.optionalInt(document, path + ".defaultMinWidth", problems).ifPresent(width -> {
+                if (width < QuestPresentation.MIN_WIDTH_MIN
+                        || width > QuestPresentation.MIN_WIDTH_MAX) {
+                    problems.error(document, path + ".defaultMinWidth",
+                            "defaultMinWidth must be between " + QuestPresentation.MIN_WIDTH_MIN + " and "
+                                    + QuestPresentation.MIN_WIDTH_MAX + ", found " + width);
+                }
+            });
+        }
+        // The quest this chapter centres on when selected. A name, not an id check here: whether
+        // it resolves is the index's cross-file pass (a chapter file cannot see its quests' ids
+        // from here when quests live in separate files), so this checks only that it names
+        // something. An empty string would centre on nothing.
+        if (document.has(path + ".autofocus")) {
+            Checks.optionalString(document, path + ".autofocus", problems).ifPresent(name -> {
+                if (name.isBlank()) {
+                    problems.error(document, path + ".autofocus",
+                            "an autofocus quest may not be empty - remove the field to centre on the chapter");
+                }
+            });
+        }
 
         // A theme name is checked for being a non-empty string and nothing more, and that stopping
         // point is the point of it: the theme catalogue is a <b>client</b> concept, and this validator
@@ -739,6 +774,27 @@ public final class QuestValidator {
             });
         }
 
+        // How this quest presents itself: how wide its card wants to be, which of its outgoing
+        // edges are drawn, and whether its completion is announced. All three are presentation —
+        // a typo here changes what the player sees, not whether the file loads — so each is a
+        // closed-set check rather than a codec surprise.
+        if (document.has(path + ".minWidth")) {
+            Checks.optionalInt(document, path + ".minWidth", problems).ifPresent(width -> {
+                if (width < QuestPresentation.MIN_WIDTH_MIN
+                        || width > QuestPresentation.MIN_WIDTH_MAX) {
+                    problems.error(document, path + ".minWidth",
+                            "minWidth must be between " + QuestPresentation.MIN_WIDTH_MIN + " and "
+                                    + QuestPresentation.MIN_WIDTH_MAX + ", found " + width);
+                }
+            });
+        }
+        if (document.has(path + ".hideDependentLines")) {
+            Checks.optionalBool(document, path + ".hideDependentLines", problems);
+        }
+        if (document.has(path + ".disableToast")) {
+            Checks.optionalBool(document, path + ".disableToast", problems);
+        }
+
         checkDependencies(document, path + ".dependsOn", "quest", problems);
         checkDependencyLines(document, path + ".dependencyLines", problems);
         checkTasks(document, path + ".tasks", problems);
@@ -841,6 +897,17 @@ public final class QuestValidator {
 
         if (document.has(path + ".optional")) {
             Checks.optionalBool(document, path + ".optional", problems);
+        }
+        if (document.has(path + ".disableToast")) {
+            Checks.optionalBool(document, path + ".disableToast", problems);
+        }
+        // The author's words and picture for this task's row: a QuestText and an icon union, checked
+        // like every other text and icon in this file rather than by the task's own codec.
+        if (document.has(path + ".title")) {
+            checkText(document, path + ".title", problems);
+        }
+        if (document.has(path + ".icon")) {
+            checkIcon(document, path + ".icon", problems);
         }
         if (document.has(path + ".autoSubmitTicks")) {
             Checks.optionalInt(document, path + ".autoSubmitTicks", problems).ifPresent(ticks -> {
@@ -978,6 +1045,16 @@ public final class QuestValidator {
         // catch. A warning rather than an error: the file is not broken, the setting is. The engine
         // skips such a reward rather than eating it (see QuestReward#autoGrantable), so this is an
         // author being told their intent cannot be honoured, not a defect to refuse.
+        if (document.has(path + ".disableToast")) {
+            Checks.optionalBool(document, path + ".disableToast", problems);
+        }
+        // The author's words and picture for this reward's row, checked like the task's own above.
+        if (document.has(path + ".title")) {
+            checkText(document, path + ".title", problems);
+        }
+        if (document.has(path + ".icon")) {
+            checkIcon(document, path + ".icon", problems);
+        }
         if (document.has(path + ".auto")) {
             // Which modes are automatic is the enum's own answer, asked rather than spelled out here:
             // three hand-written names were a second copy of `automatic()`, and a sixth mode added to
@@ -1073,6 +1150,12 @@ public final class QuestValidator {
         }
         Checks.rejectUnknown(document, inlinePath,
                 dev.ellipog.tenet.quest.loot.RewardTable.FIELDS, problems);
+        if (document.has(inlinePath + ".useTitle")) {
+            Checks.optionalBool(document, inlinePath + ".useTitle", problems);
+        }
+        if (document.has(inlinePath + ".hideTooltip")) {
+            Checks.optionalBool(document, inlinePath + ".hideTooltip", problems);
+        }
         var entries = Checks.array(document, inlinePath + ".entries", problems);
         if (entries == null) {
             return;
@@ -1239,16 +1322,74 @@ public final class QuestValidator {
         if (!isObject(document, path, problems)) {
             return;
         }
-        Checks.rejectUnknown(document, path, ItemRef.FIELDS, problems);
-        checkItem(document, path, problems);
+        Checks.rejectUnknown(document, path, dev.ellipog.tenet.quest.Icon.FIELDS, problems);
 
-        // And the reference's own codec -- the icon's half of the entry check in checkTask: a
-        // component patch the codec cannot read would otherwise reach the loader, which skips the
-        // whole quest over it. The codec's own message names what it was unhappy about.
-        document.get(path).ifPresent(object -> Checks.parse(ItemRef.CODEC, object)
+        // Which arm the object names. The item arm wins a tie, because "item" is the key every old
+        // file carries and the two new keys never appear beside it except by mistake; the codec
+        // reads the same way, so the two cannot disagree about which arm a file means.
+        if (document.has(path + ".item")) {
+            checkItem(document, path, problems);
+
+            // And the reference's own codec -- the icon's half of the entry check in checkTask: a
+            // component patch the codec cannot read would otherwise reach the loader, which skips the
+            // whole quest over it. The codec's own message names what it was unhappy about.
+            document.get(path).ifPresent(object -> Checks.parse(ItemRef.CODEC, object)
+                    .error().ifPresent(error -> problems.error(document, path,
+                            "this is not a usable item reference:\n    "
+                                    + error.message().replace("\n", "\n    "))));
+            return;
+        }
+        if (document.has(path + ".texture")) {
+            // A texture is a client's file, like a theme name: this validator runs on a dedicated
+            // server too, which has no textures to check against. So the name is checked for shape
+            // and nothing more, and the client draws nothing for a path it cannot resolve — the same
+            // treatment a missing image element gets.
+            Checks.optionalString(document, path + ".texture", problems).ifPresent(raw -> {
+                if (raw.isBlank()) {
+                    problems.error(document, path + ".texture",
+                            "a texture path may not be empty - write the file's path,"
+                                    + " e.g. \"my_pack:textures/gui/emblem.png\"");
+                }
+                else if (net.minecraft.resources.ResourceLocation.tryParse(raw) == null) {
+                    problems.error(document, path + ".texture", "\"" + raw
+                            + "\" is not a namespaced path;"
+                            + " expected something like \"my_pack:textures/gui/emblem.png\"");
+                }
+            });
+            return;
+        }
+        if (document.has(path + ".entity")) {
+            Checks.optionalString(document, path + ".entity", problems).ifPresent(raw -> {
+                if (raw.isBlank()) {
+                    problems.error(document, path + ".entity",
+                            "an entity id may not be empty - write e.g. \"minecraft:creeper\"");
+                    return;
+                }
+                net.minecraft.resources.ResourceLocation id =
+                        net.minecraft.resources.ResourceLocation.tryParse(raw);
+                if (id == null) {
+                    problems.error(document, path + ".entity", "\"" + raw
+                            + "\" is not a valid entity id;"
+                            + " expected something like \"minecraft:creeper\"");
+                    return;
+                }
+                // A warning rather than an error, like an unknown item: a missing mod is often
+                // temporary, so the id is kept and the quest loads, and the node says what is missing.
+                if (!net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
+                    problems.warn(document, path + ".entity", "there is no entity " + id
+                            + " - the mod is probably not installed."
+                            + " The id is kept and the quest still loads;"
+                            + " its node will say the entity is missing");
+                }
+            });
+            return;
+        }
+        // No arm key at all: the codec refuses it, and its message is the precise one — but only the
+        // validator runs before the loader, so the sentence here names the three keys.
+        document.get(path).ifPresent(object -> Checks.parse(
+                        dev.ellipog.tenet.quest.Icon.CODEC, object)
                 .error().ifPresent(error -> problems.error(document, path,
-                        "this is not a usable item reference:\n    "
-                                + error.message().replace("\n", "\n    "))));
+                        "this is not a usable icon: write one of \"item\", \"texture\" or \"entity\"")));
     }
 
     /**

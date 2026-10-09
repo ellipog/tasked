@@ -27,6 +27,9 @@ one command away:
 | `optional` | `false` | This one does not have to be done for the quest to complete. |
 | `autoSubmitTicks` | the type's own cadence | How often the task is re-checked, in ticks — twenty to the second. A type picks a sensible interval for its own cost; raise it for an expensive check. |
 | `conditions` | none | Gates this task on the player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold. See [[tenet:authoring/conditions]]. |
+| `disableToast` | `false` | Finishing this task raises no task toast. A quieted task in an announced quest stays quiet; an announced task in a quieted quest stays quiet through the quest's own flag. See [[tenet:authoring/quests#announcements]]. |
+| `title` | the type's own | The words the row wears instead of the type's own sentence. A checkmark's title is its button's text; a checkmark that says nothing draws "?". |
+| `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
 
 ## What a player has to do, and what just happens
 

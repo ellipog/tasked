@@ -39,26 +39,32 @@ import java.util.Optional;
  *                      entity. Empty for a type whose sentence counts something instead, where the
  *                      count is the argument.
  * @param count         how much counts as done, for a {@code 5 / 8} against live progress
+ * @param textureIcon   the texture path when the author overrode the picture with a texture, and
+ *                      empty otherwise. Drawn through the blit rather than the stack; an entity
+ *                      override arrives here already resolved to its egg (or the type's own picture
+ *                      when it has none), because the wire carries pictures, not registries.
  */
-public record TaskDisplay(Optional<ItemRef> item, String label, String labelFallback, String labelArg, int count) {
+public record TaskDisplay(Optional<ItemRef> item, String label, String labelFallback, String labelArg, int count,
+                          String textureIcon) {
 
-    public static final TaskDisplay NONE = new TaskDisplay(Optional.empty(), "", "", "", 1);
+    public static final TaskDisplay NONE = new TaskDisplay(Optional.empty(), "", "", "", 1, "");
 
     public TaskDisplay {
         item = item == null ? Optional.empty() : item;
         label = label == null ? "" : label;
         labelFallback = labelFallback == null ? "" : labelFallback;
         labelArg = labelArg == null ? "" : labelArg;
+        textureIcon = textureIcon == null ? "" : textureIcon;
     }
 
     /** A task about an item, drawn with the item's own name. */
     public static TaskDisplay ofItem(ItemRef item, int count) {
-        return new TaskDisplay(Optional.of(item), "", "", "", Math.max(1, count));
+        return new TaskDisplay(Optional.of(item), "", "", "", Math.max(1, count), "");
     }
 
     /** A task with no item, drawn with this text. Literal — a key with no translation. */
     public static TaskDisplay ofText(String text, int count) {
-        return new TaskDisplay(Optional.empty(), text, "", "", Math.max(1, count));
+        return new TaskDisplay(Optional.empty(), text, "", "", Math.max(1, count), "");
     }
 
     /**
@@ -69,11 +75,27 @@ public record TaskDisplay(Optional<ItemRef> item, String label, String labelFall
      * five-argument form, and the note on {@code labelArg} for why the difference is not cosmetic.
      */
     public static TaskDisplay ofTranslatableText(String key, String fallback, int count) {
-        return new TaskDisplay(Optional.empty(), key, fallback, "", Math.max(1, count));
+        return new TaskDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "");
     }
 
     /** A task with no item, whose sentence names something: the key is formatted with {@code labelArg}. */
     public static TaskDisplay ofTranslatableText(String key, String fallback, String labelArg, int count) {
-        return new TaskDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count));
+        return new TaskDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "");
+    }
+
+    /** This display wearing the author's words instead of the type's own sentence. */
+    public TaskDisplay withAuthorTitle(dev.ellipog.tenet.quest.QuestText title) {
+        return new TaskDisplay(item, title.value(), title.fallback().orElse(""), labelArg, count,
+                textureIcon);
+    }
+
+    /** This display wearing the author's item instead of the type's own picture. */
+    public TaskDisplay withAuthorItem(ItemRef ref) {
+        return new TaskDisplay(Optional.of(ref), label, labelFallback, labelArg, count, "");
+    }
+
+    /** This display wearing the author's texture instead of the type's own picture. */
+    public TaskDisplay withAuthorTexture(String path) {
+        return new TaskDisplay(Optional.empty(), label, labelFallback, labelArg, count, path);
     }
 }

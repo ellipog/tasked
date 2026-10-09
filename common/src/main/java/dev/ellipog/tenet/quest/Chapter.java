@@ -59,7 +59,7 @@ public record Chapter(
         QuestText title,
         Optional<QuestText> subtitle,
         List<QuestText> description,
-        ItemRef icon,
+        Icon icon,
         List<String> aliases,
         PrerequisiteMode defaultPrerequisiteMode,
         ProgressionMode progressionMode,
@@ -227,7 +227,7 @@ public record Chapter(
             QuestText.CODEC.fieldOf("title").forGetter(Chapter::title),
             QuestText.CODEC.optionalFieldOf("subtitle").forGetter(Chapter::subtitle),
             QuestText.CODEC.listOf().optionalFieldOf("description", List.of()).forGetter(Chapter::description),
-            ItemRef.CODEC.optionalFieldOf("icon", ItemRef.DEFAULT_ICON).forGetter(Chapter::icon),
+            Icon.CODEC.optionalFieldOf("icon", Icon.DEFAULT_ICON).forGetter(Chapter::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(Chapter::aliases),
             PrerequisiteMode.CODEC.optionalFieldOf("defaultPrerequisiteMode", PrerequisiteMode.ALL_COMPLETED)
                     .forGetter(Chapter::defaultPrerequisiteMode),

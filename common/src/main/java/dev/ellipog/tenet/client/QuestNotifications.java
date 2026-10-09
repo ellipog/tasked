@@ -110,17 +110,33 @@ public final class QuestNotifications {
      *                  about quests — and it suppresses every task notice for that quest rather than
      *                  announcing all of them, which is the safe direction: a missing field must not read
      *                  as "everything just finished"
+     * @param taskMuted whether each task is quieted by its author's {@code disableToast}, in the tree's
+     *                  order. Shorter than {@code tasks} reads as announced for the missing tail — a
+     *                  server too old to send it quieted nothing — which is the safe direction: a missing
+     *                  field must not silence a notice the author never asked to quiet.
      */
     public record Snapshot(String questId, QuestState state, boolean claimable, boolean silent,
-                           List<Boolean> tasks) {
+                           List<Boolean> tasks, List<Boolean> taskMuted) {
 
         public Snapshot {
             tasks = List.copyOf(tasks);
+            taskMuted = List.copyOf(taskMuted);
+        }
+
+        /** The five-argument shape, for a caller with no per-task quiet: nothing is muted. */
+        public Snapshot(String questId, QuestState state, boolean claimable, boolean silent,
+                        List<Boolean> tasks) {
+            this(questId, state, claimable, silent, tasks, List.of());
         }
 
         /** The three-argument shape, for a caller with no task picture. See {@link #tasks}. */
         public Snapshot(String questId, QuestState state, boolean claimable, boolean silent) {
-            this(questId, state, claimable, silent, List.of());
+            this(questId, state, claimable, silent, List.of(), List.of());
+        }
+
+        /** Whether the task at {@code index} is quieted by its author. Missing reads as announced. */
+        public boolean taskMuted(int index) {
+            return index >= 0 && index < taskMuted.size() && taskMuted.get(index);
         }
     }
 
@@ -157,7 +173,8 @@ public final class QuestNotifications {
     }
 
     /** What one quest was at the last sample. */
-    private record Sample(QuestState state, boolean claimable, List<Boolean> tasks) {
+    private record Sample(QuestState state, boolean claimable, List<Boolean> tasks,
+                            List<Boolean> taskMuted) {
     }
 
     private final Map<String, Sample> last = new LinkedHashMap<>();
@@ -289,7 +306,8 @@ public final class QuestNotifications {
         for (Snapshot snapshot : now) {
             seen.add(snapshot.questId());
             Sample was = last.put(snapshot.questId(),
-                    new Sample(snapshot.state(), snapshot.claimable(), snapshot.tasks()));
+                    new Sample(snapshot.state(), snapshot.claimable(), snapshot.tasks(),
+                            snapshot.taskMuted()));
             if (was == null) {
                 continue;   // a join, or a quest the tree just gained: nothing to compare against
             }
@@ -316,12 +334,13 @@ public final class QuestNotifications {
      *
      * <p>Only as far as both pictures reach: an index the previous sample did not carry has no baseline, and
      * a transition against nothing is not a transition. See the class note's "what a task baseline cannot
-     * see".
+     * see". A task its author quieted is skipped either way: the baseline is still replaced, so a later
+     * un-quieting does not announce an old arrival.
      */
     private static void addTaskNotices(List<Notice> notices, Snapshot now, Sample was) {
         int counted = Math.min(now.tasks().size(), was.tasks().size());
         for (int i = 0; i < counted; i++) {
-            if (!was.tasks().get(i) && now.tasks().get(i)) {
+            if (!was.tasks().get(i) && now.tasks().get(i) && !now.taskMuted(i)) {
                 notices.add(new Notice(Kind.TASK_COMPLETED, now.questId(), i));
             }
         }

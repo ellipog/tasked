@@ -173,6 +173,158 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a quest's presentation crosses the wire, with the width resolved against the chapter")
+    void presentationFlagsArrive() {
+        // The width travels resolved: the quest's own wins, else the chapter's default, else 0 for the
+        // kind's default. The edge flag and the toast flag are the quest's own; absence is the ordinary
+        // case and means drawn edges and announced completion.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("\"defaultMinWidth\": 350,",
+                """
+                        {"id": "plain", "title": "Plain"}""",
+                """
+                        {"id": "wide", "title": "Wide", "minWidth": 250,
+                         "hideDependentLines": true, "disableToast": true}""",
+                """
+                        {"id": "chapter_wide", "title": "Chapter Wide"}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals(250, entryFor("wide").minWidth(), "the quest's own width wins");
+        assertEquals(350, entryFor("chapter_wide").minWidth(), "else the chapter's default");
+        assertEquals(350, entryFor("plain").minWidth(), "a quest with no width reads the chapter's");
+        assertTrue(entryFor("wide").hideDependentLines(), "the outgoing edge flag survives the wire");
+        assertFalse(entryFor("plain").hideDependentLines(), "absent means drawn");
+        assertTrue(entryFor("wide").disableToast(), "the quiet flag survives the wire");
+        assertFalse(entryFor("plain").disableToast(), "absent means announced");
+
+        // And a chapter that says nothing leaves the kind to decide: zero, which is what a
+        // version-16 server always said by sending nothing at all.
+        QuestIndex bare = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "bare", "title": "Bare"}"""));
+        ClientQuestCache.acceptTree(bare.questCount(), bare.chapterCount(), QuestSync.treeAsJson(bare));
+        assertEquals(0, entryFor("bare").minWidth(), "unset means the panel kind decides");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"hideDependentLines\":true"), "the edge flag travels as a boolean");
+        assertTrue(json.contains("\"disableToast\":true"), "the quiet flag travels as a boolean");
+    }
+
+    @Test
+    @DisplayName("a quiet task and a quiet reward say so on the wire, and loud ones send nothing")
+    void quietTasksAndRewardsArrive() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "q", "title": "Q",
+                         "tasks": [{"type": "tenet:checkmark", "title": "loud"},
+                                   {"type": "tenet:checkmark", "title": "quiet", "disableToast": true}],
+                         "rewards": [{"type": "tenet:xp", "amount": 1},
+                                     {"type": "tenet:xp", "amount": 2, "disableToast": true}]}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("q");
+        assertFalse(entry.tasks().get(0).disableToast(), "a task that says nothing is announced");
+        assertTrue(entry.tasks().get(1).disableToast(), "a quiet task survives the wire");
+        assertFalse(entry.rewards().get(0).disableToast(), "a reward that says nothing is announced");
+        assertTrue(entry.rewards().get(1).disableToast(), "a quiet reward survives the wire");
+    }
+
+    @Test
+    @DisplayName("a chapter's autofocus crosses the wire, and a chapter without one sends nothing")
+    void autofocusArrives() {
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapters(
+                Fixtures.chapterWith("first", "\"autofocus\": \"one\",",
+                        Fixtures.q("one").build()),
+                Fixtures.chapter("second", Fixtures.q("two").build())));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.ChapterEntry first = ClientQuestCache.chapters().stream()
+                .filter(chapter -> chapter.id().equals("first")).findFirst().orElseThrow();
+        ClientQuestCache.ChapterEntry second = ClientQuestCache.chapters().stream()
+                .filter(chapter -> chapter.id().equals("second")).findFirst().orElseThrow();
+        assertEquals("one", first.autofocus(), "the focus quest survives the wire");
+        assertTrue(second.autofocus().isEmpty(), "absent means the bounding-box centre");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"autofocus\":\"one\""), "autofocus should travel as a name");
+    }
+
+    @Test
+    @DisplayName("a quest's texture and entity icons cross the wire with their kind beside them")
+    void iconKindsArrive() {
+        // Absent kind means the item arm, which is every icon a version-17 tree ever sent. A texture
+        // travels as its path with kind "texture"; an entity as its id with kind "entity", resolved
+        // on arrival to its egg.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "plain", "title": "Plain"}""",
+                """
+                        {"id": "pictured", "title": "Pictured",
+                         "icon": {"texture": "my_pack:textures/gui/emblem.png"}}""",
+                """
+                        {"id": "creeper", "title": "Creeper",
+                         "icon": {"entity": "minecraft:creeper"}}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertTrue(entryFor("plain").textureIcon().isEmpty(), "an item icon carries no texture");
+        assertEquals("my_pack:textures/gui/emblem.png", entryFor("pictured").textureIcon(),
+                "the texture path survives the wire");
+        assertTrue(entryFor("pictured").icon().isEmpty(), "and no stack pretends to be it");
+        assertTrue(entryFor("pictured").iconId().isEmpty(),
+                "so no missing-item branch fires for a picture");
+        assertFalse(entryFor("creeper").icon().isEmpty(),
+                "a creeper draws its egg: " + entryFor("creeper").iconId());
+        assertEquals("minecraft:creeper", entryFor("creeper").iconId());
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"iconKind\":\"texture\""), "the texture kind travels beside its path");
+        assertTrue(json.contains("\"iconKind\":\"entity\""), "and the entity kind beside its id");
+    }
+
+    @Test
+    @DisplayName("an entity with no egg arrives as a named missing icon rather than nothing")
+    void egglessEntityArrivesNamed() {
+        // A modded entity with no egg under the vanilla naming convention: nothing to draw, but the
+        // id is kept, so the node says what is missing rather than drawing nothing.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "odd", "title": "Odd",
+                         "icon": {"entity": "no_such_mod:some_mob"}}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertTrue(entryFor("odd").icon().isEmpty(), "no egg draws nothing");
+        assertEquals("no_such_mod:some_mob", entryFor("odd").iconId(),
+                "but the id is kept, so the node says what is missing");
+    }
+
+    @Test
+    @DisplayName("an author's texture on a task and a reward crosses the wire beside the stack")
+    void authorTexturesArrive() {
+        // The texture path travels as its own key; the stack stays empty, so no missing branch fires
+        // for a picture. An author item or egg travels in the display's own item instead and needs no
+        // new key — the ledger in QuestSync says so, and this pins it.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "q", "title": "Q",
+                         "tasks": [{"type": "tenet:checkmark", "title": "a"},
+                                   {"type": "tenet:checkmark", "title": "b",
+                                    "icon": {"texture": "my_pack:textures/gui/emblem.png"}}],
+                         "rewards": [{"type": "tenet:xp", "amount": 1},
+                                     {"type": "tenet:xp", "amount": 2,
+                                      "icon": {"texture": "my_pack:textures/gui/emblem.png"}}]}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("q");
+        assertTrue(entry.tasks().get(0).textureIcon().isEmpty(), "a task that says nothing sends none");
+        assertEquals("my_pack:textures/gui/emblem.png", entry.tasks().get(1).textureIcon());
+        assertTrue(entry.rewards().get(0).textureIcon().isEmpty());
+        assertEquals("my_pack:textures/gui/emblem.png", entry.rewards().get(1).textureIcon());
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"textureIcon\":\"my_pack:textures/gui/emblem.png\""),
+                "the texture path travels as its own key");
+    }
+
+    @Test
     @DisplayName("an out-of-range icon scale from a server is clamped rather than drawn")
     void anOutOfRangeIconScaleIsClamped() {
         // The codec already bounds this on the *server*, over that server's files. What arrives is a
@@ -1153,7 +1305,7 @@ class QuestSyncTest {
         }
 
         @Test
-        @DisplayName("the version a quest's aliases arrived at is pinned, so bumping it is a decision")
+        @DisplayName("the version the icon kinds arrived at is pinned, so bumping it is a decision")
         void theAliasVersionIsPinned() {
             // Deliberately a literal rather than `QuestSync.TREE_VERSION` on both sides, which is how the
             // case above is written and why it could not notice this feature: a reader importing the
@@ -1161,10 +1313,12 @@ class QuestSyncTest {
             // number with itself. This is the one place the number is written down twice on purpose.
             //
             // Version 14 added the elements; version 15 added the links beside them; version 16 added
-            // the aliases. The ledger in QuestSync carries the history; this pins the present, because
-            // bumping is a deliberate break rather than a side effect of an edit.
-            assertEquals(16, QuestSync.TREE_VERSION,
-                    "version 16 added a quest's aliases to quests[]. Bumping this is a "
+            // the aliases; version 17 added the authoring flags; version 18 added each icon's kind.
+            // The ledger in QuestSync carries the history; this pins the present, because bumping is
+            // a deliberate break rather than a side effect of an edit.
+            assertEquals(18, QuestSync.TREE_VERSION,
+                    "version 18 added each icon's kind beside its id. "
+                            + "Bumping this is a "
                             + "deliberate break rather than a side effect of an edit -- see the ledger in "
                             + "QuestSync for what each version added.");
         }

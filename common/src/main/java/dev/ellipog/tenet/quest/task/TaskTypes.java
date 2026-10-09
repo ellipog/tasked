@@ -84,6 +84,12 @@ public final class TaskTypes {
     private static final List<EditorField> COMMON_EDITOR = List.of(
             EditorField.flag("optional", "Optional")
                     .hint("shown to the player, but the quest does not wait for it"),
+            EditorField.flag("disableToast", "Quiet task")
+                    .hint("finishing this task raises no task toast"),
+            EditorField.text("title", "Title", "the words the row wears instead of the type's own")
+                    .hint("the words this task's row wears; empty means the type's own sentence"),
+            EditorField.icon("icon", "Picture")
+                    .hint("the picture this task's row wears; empty means the type's own"),
             EditorField.number("autoSubmitTicks", "Checked every", "ticks")
                     .hint("how often the server re-checks this task; ticks, twenty to the second"));
 
@@ -124,12 +130,11 @@ public final class TaskTypes {
 
     /** {@code tenet:checkmark} — the player says they did it. */
     public static final QuestTaskType<CheckmarkTask> CHECKMARK = register(
-            "checkmark", CheckmarkTask.MAP_CODEC, CheckmarkTask.FIELDS, java.util.List.of(
-                    EditorField.text("title", "Tick text", "the words on the button a player presses")
-                            .hint("the words on the button a player presses to say they did it")),
+            "checkmark", CheckmarkTask.MAP_CODEC, CheckmarkTask.FIELDS, java.util.List.of(),
             CheckmarkTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("knowledge_book"), 1), CheckmarkTask.DISPLAY,
-            () -> new CheckmarkTask(TaskCommon.DEFAULT, QuestText.literal("Did it")));
+            () -> new CheckmarkTask(new TaskCommon(false, 20, java.util.List.of(), false,
+                    java.util.Optional.of(QuestText.literal("Did it")), java.util.Optional.empty())));
 
     /** {@code tenet:dimension} — be in a dimension. */
     public static final QuestTaskType<DimensionTask> DIMENSION = register(
@@ -435,9 +440,55 @@ public final class TaskTypes {
             return TaskDisplay.ofTranslatableText("tenet.task.unknown_type",
                     "Unknown task type: " + unknown.type(), unknown.type().toString(), 1);
         }
-        return REGISTRY.get(task.type())
+        TaskDisplay computed = REGISTRY.get(task.type())
                 .map(entry -> entry.display().apply(task))
                 .orElse(TaskDisplay.NONE);
+        return withAuthorOverrides(task.common(), computed);
+    }
+
+    /**
+     * A task wearing its author's words and picture instead of its type's own.
+     *
+     * <p>Absent title and icon mean the type decides, which is every file written before the two
+     * fields existed. An entity icon resolves to its egg here, on the server that holds the
+     * registries; an entity with no egg keeps the type's own picture, because a task row without
+     * one is a row that lost its subject rather than a mark about a missing mod.
+     */
+    private static TaskDisplay withAuthorOverrides(TaskCommon common, TaskDisplay computed) {
+        TaskDisplay out = computed;
+        if (common.title().isPresent()) {
+            out = out.withAuthorTitle(common.title().get());
+        }
+        if (common.icon().isPresent()) {
+            dev.ellipog.tenet.quest.Icon icon = common.icon().get();
+            if (icon instanceof dev.ellipog.tenet.quest.Icon.Item item) {
+                out = out.withAuthorItem(item.ref());
+            }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Texture texture) {
+                out = out.withAuthorTexture(texture.texture().toString());
+            }
+            else if (icon instanceof dev.ellipog.tenet.quest.Icon.Entity entity) {
+                ItemRef egg = eggOf(entity.entity());
+                out = egg != null ? out.withAuthorItem(egg) : out;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * An entity's spawn egg as a reference, or null.
+     *
+     * <p>The {@code <path>_spawn_egg} convention, asked of the server's own registry: the display is
+     * computed where the registries live, so the wire carries the picture rather than the question.
+     */
+    private static ItemRef eggOf(net.minecraft.resources.ResourceLocation entity) {
+        net.minecraft.resources.ResourceLocation egg =
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(entity.getNamespace(),
+                        entity.getPath() + "_spawn_egg");
+        if (!net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(egg)) {
+            return null;
+        }
+        return new ItemRef(egg, 1);
     }
 
     /** Every registered id, sorted. For messages, the validator, and {@code /tenet types}. */

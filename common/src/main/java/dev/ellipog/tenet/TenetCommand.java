@@ -984,7 +984,8 @@ public final class TenetCommand {
             return item.item().describe();
         }
         if (task instanceof dev.ellipog.tenet.quest.task.CheckmarkTask checkmark) {
-            return checkmark.title().value();
+            return checkmark.common().title().map(
+                    dev.ellipog.tenet.quest.QuestText::value).orElse("?");
         }
         return "";
     }

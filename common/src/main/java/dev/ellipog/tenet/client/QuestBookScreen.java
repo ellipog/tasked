@@ -1793,6 +1793,9 @@ public final class QuestBookScreen extends ArmatureScreen
         TABLE_ROLLS_UP,
         TABLE_ROLLS_DOWN,
         TABLE_PREVIEW,
+        /** The editor's header, first line: how a reward row draws this table. */
+        TABLE_USE_TITLE,
+        TABLE_HIDE_TOOLTIP,
         /** One entry: its weight, its fold, its own fields, and its cross. */
         TABLE_WEIGHT,
         TABLE_WEIGHT_UP,
@@ -2948,8 +2951,14 @@ public final class QuestBookScreen extends ArmatureScreen
         if (icon > 0) {
             int iconY = top + 9 - (icon - 8) / 2;
             ItemStack stack = ClientQuestCache.bookIcon();
+            String texture = ClientQuestCache.bookTextureIcon();
             if (!stack.isEmpty()) {
                 r.icon(stack, left + BookGeometry.HEADER_INSET, iconY, icon);
+            }
+            else if (!texture.isEmpty()
+                    && net.minecraft.resources.ResourceLocation.tryParse(texture) != null) {
+                r.texture(net.minecraft.resources.ResourceLocation.parse(texture),
+                        left + BookGeometry.HEADER_INSET, iconY, icon, icon);
             }
             else {
                 int x = left + BookGeometry.HEADER_INSET;
@@ -2967,7 +2976,8 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** The header's icon box, or zero when the pack declares no icon at all. */
     private static int headerIconSize() {
-        return ClientQuestCache.bookIconId().isEmpty() ? 0 : 12;
+        return ClientQuestCache.bookIconId().isEmpty() && ClientQuestCache.bookTextureIcon().isEmpty()
+                ? 0 : 12;
     }
 
     /** Where the header's title starts: after the inset, and after the icon when there is one. */
@@ -3283,14 +3293,24 @@ public final class QuestBookScreen extends ArmatureScreen
     }
 
     /**
-     * One sidebar row's icon: the stack to draw, and the id it was resolved from.
+     * One sidebar row's icon: the stack to draw, the id it was resolved from, and the texture path
+     * when the row wears a texture icon.
      *
-     * <p>The pair, for the same reason {@link ClientQuestCache.Entry} keeps it: a stack that failed to
+     * <p>The trio, for the same reason {@link ClientQuestCache.Entry} keeps it: a stack that failed to
      * resolve with an id behind it is a <b>missing item</b>, which the row can say on hover, while an
      * empty id is simply no icon, which it cannot. One is a broken pack worth chasing and the other is
-     * a chapter that never declared one.
+     * a chapter that never declared one. A texture draws through the button's blit rather than its
+     * stack, so the id stays empty for one and no missing branch fires for a picture.
      */
-    private record SidebarIcon(ItemStack stack, String id) {
+    private record SidebarIcon(ItemStack stack, String id, String texture) {
+
+        /** The button's texture, or null when the row wears an item or nothing. */
+        net.minecraft.resources.ResourceLocation textureId() {
+            if (texture == null || texture.isEmpty()) {
+                return null;
+            }
+            return net.minecraft.resources.ResourceLocation.tryParse(texture);
+        }
     }
 
     /**
@@ -3313,21 +3333,23 @@ public final class QuestBookScreen extends ArmatureScreen
         // The explicit chapter list first, when the server sent one: it has an icon for every chapter,
         // including a chapter with no quests -- which is the one row that cannot borrow one from a quest.
         for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
-            SidebarIcon icon = new SidebarIcon(chapter.icon(), chapter.iconId());
+            SidebarIcon icon = new SidebarIcon(chapter.icon(), chapter.iconId(), chapter.textureIcon());
             if (!chapter.groupId().isEmpty()) {
                 firstChapter.putIfAbsent(chapter.groupId(), icon);
             }
             icons.putIfAbsent(SidebarLayout.chapterKey(chapter.id()), icon);
         }
         for (ClientQuestCache.Entry entry : ClientQuestCache.entries()) {
-            SidebarIcon icon = new SidebarIcon(entry.chapterIcon(), entry.chapterIconId());
+            SidebarIcon icon = new SidebarIcon(entry.chapterIcon(), entry.chapterIconId(),
+                    entry.chapterTextureIcon());
             if (!entry.chapterGroupId().isEmpty()) {
                 firstChapter.putIfAbsent(entry.chapterGroupId(), icon);
             }
             icons.putIfAbsent(SidebarLayout.chapterKey(entry.chapterId()), icon);
         }
         for (ClientQuestCache.GroupEntry group : ClientQuestCache.groups()) {
-            SidebarIcon authored = new SidebarIcon(group.icon(), group.iconId());
+            SidebarIcon authored =
+                    new SidebarIcon(group.icon(), group.iconId(), group.textureIcon());
             SidebarIcon shown = authored.id().isEmpty()
                     ? firstChapter.getOrDefault(group.id(), authored) : authored;
             icons.put(SidebarLayout.groupKey(group.id()), shown);
@@ -3874,7 +3896,18 @@ public final class QuestBookScreen extends ArmatureScreen
         // which was the same answer while the editor was the only column a floor existed for; the dock is a
         // column now, and clamping it to a card's action bar would be a measurement about a control it does
         // not have.
-        return kind == PanelKind.QUEST && mayEditNow() ? editorMinimumWidth() : 0;
+        int floor = kind == PanelKind.QUEST && mayEditNow() ? editorMinimumWidth() : 0;
+        // A quest's own minimum width, since version 17. The author asks for a panel at least this
+        // wide; the geometry still caps it above, so a 3000-wide ask reads as the widest rail rather
+        // than a window wider than the screen. Zero is unset — the kind decides — which is what a
+        // version-16 server always says.
+        if (kind == PanelKind.QUEST) {
+            ClientQuestCache.Entry shown = entryFor(editTarget());
+            if (shown != null && shown.minWidth() > floor) {
+                floor = shown.minWidth();
+            }
+        }
+        return floor;
     }
 
     /**
@@ -4698,6 +4731,24 @@ public final class QuestBookScreen extends ArmatureScreen
         }
 
         List<ClientQuestCache.Entry> quests = questsIn(chapter);
+        // A chapter that names a quest centres on it rather than on the whole canvas — FTB Quests'
+        // `autofocus_id`. Resolved by id or alias within this chapter; a name that resolves nowhere
+        // (or elsewhere, which the loader already refused) falls through to the bounding box, which
+        // is the honest fallback: the chapter still lands in the middle rather than off the edge.
+        for (ClientQuestCache.ChapterEntry candidate : ClientQuestCache.chapters()) {
+            if (candidate.id().equals(chapter) && candidate.hasAutofocus()) {
+                for (ClientQuestCache.Entry entry : quests) {
+                    if (entry.matches(candidate.autofocus())) {
+                        viewport().centreOn(entry.x(), entry.y(),
+                                entry.x() + entry.size(), entry.y() + entry.size());
+                        pannedChapter = chapter;
+                        centred = true;
+                        return;
+                    }
+                }
+                break;
+            }
+        }
         float minX = Float.MAX_VALUE;
         float maxX = -Float.MAX_VALUE;
         float minY = Float.MAX_VALUE;
@@ -8903,10 +8954,14 @@ public final class QuestBookScreen extends ArmatureScreen
             // The row's item, when there is one: a chapter's own icon, or a group's authored icon, or
             // the first chapter under a group that authored none. A missing item leaves the row without
             // a mark rather than with an empty box, and says so on hover -- the id is kept for exactly
-            // that, the same "missing is not absent" reading the quest header draws in its corner.
+            // that, the same "missing is not absent" reading the quest header draws in its corner. A
+            // texture draws through the button's blit rather than its stack.
             SidebarIcon icon = icons.get(row.key());
             if (icon != null && !icon.stack().isEmpty()) {
                 button.icon(icon.stack());
+            }
+            else if (icon != null && icon.textureId() != null) {
+                button.texture(icon.textureId());
             }
             else if (icon != null && !icon.id().isEmpty()) {
                 button.tooltip(List.of(Component.translatable("tenet.screen.missing_item_hint")));
@@ -10026,6 +10081,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 dev.ellipog.tenet.client.dev.FieldDraft.CHAPTER_OWNER,
                 ClientChapterReplica.chapterTree(entry.chapterId()));
         return new dev.ellipog.tenet.client.dev.QuestSettingsPanel.View(titleOf(entry), entry.icon(),
+                entry.textureIcon(),
                 shape, previewGeometry(shape, rotation), rotation, size, iconScale, showTitle,
                 hoveredCell, hoveredKey,
                 entry.chapterDefaultPrerequisiteMode().name().toLowerCase(java.util.Locale.ROOT),
@@ -10584,12 +10640,17 @@ public final class QuestBookScreen extends ArmatureScreen
         if (field.kind() == EditorField.Kind.FLAG) {
             return flagOn(entry, field.path()) ? field.label() : "";
         }
-        String value = rawValue(entry, field.path());
+        // The picture override reads one level down, like the form's own box does: the badge names
+        // the item rather than showing nothing for a set picture.
+        String value = (field.kind() == EditorField.Kind.ITEM
+                        || field.kind() == EditorField.Kind.ICON) && "icon".equals(field.path())
+                ? rawValue(entry, "icon.item")
+                : rawValue(entry, field.path());
         if (value.isEmpty()) {
             return "";
         }
         return switch (field.kind()) {
-            case ITEM -> {
+            case ITEM, ICON -> {
                 ItemStack stack = itemStack(value);
                 yield stack.isEmpty() ? value : stack.getHoverName().getString();
             }
@@ -10638,7 +10699,12 @@ public final class QuestBookScreen extends ArmatureScreen
                            int index, String pathPrefix, int mouseX, int mouseY) {
         EditorField field = cell.field();
         String path = pathPrefix + "." + field.path();
-        String value = rawValue(entry, field.path());
+        // The icon override is an object, not an id: its item lives one level down, and the box must
+        // read that rather than the object itself, which would show "pick an item" over a set icon.
+        String value = (field.kind() == EditorField.Kind.ITEM
+                        || field.kind() == EditorField.Kind.ICON) && "icon".equals(field.path())
+                ? rawValue(entry, "icon.item")
+                : rawValue(entry, field.path());
         boolean on = flagOn(entry, field.path());
         boolean replaced = InlineEdit.replaces(path, editingPath);
         Measure measure = textMeasure(r);
@@ -10690,7 +10756,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 registerTarget(EditAction.CYCLE_CHOICE, path, cell.value(), cell.value().x() + 4,
                         cell.value().y() + 3, value, member, index);
             }
-            case ITEM -> {
+            case ITEM, ICON -> {
                 int textX = drawItemValue(r, cell.value(), value, replaced, mouseX, mouseY);
                 target(r, EditAction.ITEM, path, cell.value(), textX, cell.value().y() + 3, value, member,
                         index, mouseX, mouseY);
@@ -10945,10 +11011,38 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** A reward row's sentence; the task row's rule, one member over. */
     private static String rowText(String member, ClientQuestCache.RewardEntry reward) {
+        // A table that asks for its title names the row: FTB Quests' `use_title`. The reward's own
+        // sentence is the generic roll ("Roll the X table"); the table's title is what the author
+        // wants read instead. Only for a named table whose summary says so — an inline table has no
+        // summary, and a table that says nothing keeps the generic sentence a version-16 client drew.
+        ClientQuestCache.TableSummary table = tableOf(reward);
+        if (table != null && table.useTitle()) {
+            return table.titleText();
+        }
         String arg = reward.labelArg();
         return arg.isEmpty()
                 ? reward.text().getString()
                 : reward.text(prettyArg(member, reward.type(), arg)).getString();
+    }
+
+    /**
+     * The named table a reward rolls, or null.
+     *
+     * <p>A table reward's subject is its table id — the display carries it as the label's argument —
+     * so the row can ask the summaries what that table wants. Null for every other reward, and for a
+     * table this client was never told about (an older server, or a table that failed to load).
+     */
+    private static ClientQuestCache.TableSummary tableOf(ClientQuestCache.RewardEntry reward) {
+        String type = reward.type();
+        if (!type.equals("tenet:random") && !type.equals("tenet:loot")
+                && !type.equals("tenet:all_table") && !type.equals("tenet:choice")) {
+            return null;
+        }
+        String table = reward.labelArg();
+        if (table.isEmpty() || table.equals("inline")) {
+            return null;
+        }
+        return ClientQuestCache.table(table);
     }
 
     /**
@@ -11677,6 +11771,8 @@ public final class QuestBookScreen extends ArmatureScreen
             case FIELD, RAW -> openInlineEditor(target, mouseX, mouseY);
             // An item is picked, not typed: the text field is still there (it is the picker's search
             // box, and a whole id in it commits), but it is no longer the whole of how a field is set.
+            // (An icon override's cell registers this same action; the picker's commit writes the
+            // whole object for a path ending in ".icon".)
             case ITEM -> openItemPicker(target, false);
             // The table control's three presses: the card opens the browser, the chip opens the editor,
             // and the cross clears the reference. All three are the card's, so they act on the reward
@@ -12563,12 +12659,18 @@ public final class QuestBookScreen extends ArmatureScreen
             sendField(quest, objectPath, rebuilt);
         }
         else if ("icon.item".equals(path)) {
+            // The item arm, merged over what is there but with the other arms dropped: a pick replaces
+            // whatever the icon wore — a texture or an entity choice does not linger beside the new
+            // item, because the codec reads the item arm first and the validator would report the
+            // leftover as unknown. The count is kept, because the picker chooses the item, not how many.
             JsonObject icon = new JsonObject();
             JsonElement existing = QuestPanelLayout.get(replicaQuest(), "icon");
             if (existing != null && existing.isJsonObject()) {
                 icon = existing.getAsJsonObject().deepCopy();
             }
             icon.addProperty("item", id);
+            icon.remove("texture");
+            icon.remove("entity");
             if (components == null) {
                 icon.remove("components");
             }
@@ -12576,6 +12678,17 @@ public final class QuestBookScreen extends ArmatureScreen
                 icon.add("components", components);
             }
             sendField(quest, "icon", icon);
+        }
+        else if (path.endsWith(".icon")) {
+            // A task's or a reward's picture override: the whole icon object in one op, like the
+            // quest's own above. A pick replaces whatever arm the override wore, and the count is
+            // always one — an override is a picture, not a stack.
+            JsonObject icon = new JsonObject();
+            icon.addProperty("item", id);
+            if (components != null) {
+                icon.add("components", components);
+            }
+            sendField(quest, path, icon);
         }
         else {
             sendField(quest, path, new JsonPrimitive(id));
@@ -12619,8 +12732,8 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         if (id == null) {
-            // The whole object, not its `item` member: both codecs read `icon` as an item reference
-            // whose item is required, so an emptied member would be a file that will not load.
+            // The whole object, not its `item` member: the icon union reads an arm by its key, so an
+            // emptied member would be a file that will not load.
             if (group) {
                 send(new EditorOp.SetGroup("icon", null));
             }
@@ -19038,6 +19151,34 @@ public final class QuestBookScreen extends ArmatureScreen
                     "what this table is called - the id at the right is its file name"));
         }
 
+        // How a reward row draws this table, as two toggles on the title's line: whether the row wears
+        // the table's title (FTB `use_title`) and whether it draws an item tooltip (FTB `hide_tooltip`
+        // suppresses it). Beside the title box because that is what the first toggle draws, and drawn
+        // from the drafted model so a press reads back on the next frame without waiting for the server.
+        if (model.isPresent() && tableTitleBox != null) {
+            int chipY = header.y() + 1;
+            BookGeometry.Rect titleChip = BookGeometry.Rect.at(tableTitleBox.right() + 4, chipY, 44, 12);
+            BookGeometry.Rect tipChip = BookGeometry.Rect.at(titleChip.right() + 4, chipY, 44, 12);
+            boolean useTitle = model.get().useTitle();
+            boolean hideTooltip = model.get().hideTooltip();
+            drawChip(r, titleChip, "Title" + (useTitle ? ":on" : ":off"),
+                    titleChip.contains(mouseX, mouseY));
+            drawChip(r, tipChip, "Tip" + (hideTooltip ? ":off" : ":on"),
+                    tipChip.contains(mouseX, mouseY));
+            registerTarget(EditAction.TABLE_USE_TITLE, "", titleChip, titleChip.x(), titleChip.y(),
+                    "", null, -1);
+            registerTarget(EditAction.TABLE_HIDE_TOOLTIP, "", tipChip, tipChip.x(), tipChip.y(),
+                    "", null, -1);
+            if (titleChip.contains(mouseX, mouseY)) {
+                pendingLabels.add(new PendingLabel(titleChip,
+                        "a reward row draws this table's title rather than the generic roll sentence"));
+            }
+            if (tipChip.contains(mouseX, mouseY)) {
+                pendingLabels.add(new PendingLabel(tipChip,
+                        "a reward row draws no item tooltip for this table"));
+            }
+        }
+
         if (model.isEmpty()) {
             String why = root == null
                     ? "Waiting for this table's file..."
@@ -19558,7 +19699,12 @@ public final class QuestBookScreen extends ArmatureScreen
                                  int mouseX, int mouseY) {
         boolean hot = box.contains(mouseX, mouseY);
         JsonObject entry = draftedEntry(index);
-        String value = entry == null ? "" : rawValue(entry, "reward." + control.field());
+        // The picture override is an object, not an id: its item lives one level down, and the box
+        // must read that rather than the object itself, which would show an empty "Picture" control
+        // over a set icon — the card's own entry form reads it the same way.
+        String value = entry == null ? ""
+                : "icon".equals(control.field()) ? rawValue(entry, "reward.icon.item")
+                        : rawValue(entry, "reward." + control.field());
         int baseline = box.y() + (box.height() - 8) / 2;
         // The field this control commits to is the field the editor would be standing in for.
         boolean replaced = dev.ellipog.tenet.client.dev.InlineEdit
@@ -20219,6 +20365,19 @@ public final class QuestBookScreen extends ArmatureScreen
                 tablePreview = dev.ellipog.tenet.client.dev.TableEditorLayout
                         .nextPreview(tablePreview);
             }
+            // How a reward row draws this table: each press flips the drafted value, so a burst of
+            // presses accumulates like the rolls stepper above rather than fighting the replica.
+            case TABLE_USE_TITLE, TABLE_HIDE_TOOLTIP -> {
+                var model = tableModel();
+                if (model.isPresent()) {
+                    boolean next = target.action() == EditAction.TABLE_USE_TITLE
+                            ? !model.get().useTitle()
+                            : !model.get().hideTooltip();
+                    sendTableValue(target.action() == EditAction.TABLE_USE_TITLE
+                            ? "useTitle" : "hideTooltip",
+                            new com.google.gson.JsonPrimitive(next));
+                }
+            }
             case TABLE_ROLLS_UP, TABLE_ROLLS_DOWN -> {
                 // Read from the drafted model, so a burst of presses accumulates: the second press sees
                 // the first press's value rather than the replica the server has not answered about yet.
@@ -20590,7 +20749,9 @@ public final class QuestBookScreen extends ArmatureScreen
         pickIcon = tablePickSubjectFor(tablePickPath, entryIndex);
         pickingItemPath = path == null || path.isEmpty() ? "entries.new" : path;
         pickingItemCurrent = "";
-        pickingItemClearPath = null;
+        // Only the picture override may be cleared: it is optional, so removing the whole object
+        // restores the type's own picture. Every other item field here is required by its type.
+        pickingItemClearPath = path != null && path.endsWith(".icon") ? path : null;
         pickerSource = null;
         pickerObserveType = "";
         pickerFrame = null;
@@ -20648,13 +20809,37 @@ public final class QuestBookScreen extends ArmatureScreen
             return;
         }
         if (id == null) {
-            status("tenet.status.that_field_cannot_be_cleared", true);
+            // Only the picture override may be cleared: it is optional, so removing the whole object
+            // restores the type's own picture. Every other item field here is required by its type, and
+            // clearing one would corrupt the file — the defect the picker's clear row exists to prevent.
+            if (path.endsWith(".icon")) {
+                JsonObject fields = new JsonObject();
+                fields.add(path, com.google.gson.JsonNull.INSTANCE);
+                sendTableOp(new dev.ellipog.tenet.editor.TableOp.SetFields(tableAddress, fields));
+                status("tenet.status.cleared", false);
+            }
+            else {
+                status("tenet.status.that_field_cannot_be_cleared", true);
+            }
             rebuildWidgets();
             return;
         }
         JsonElement components = data == null || data.isEmpty()
                 ? null : com.google.gson.JsonParser.parseString(data);
-        if (path.isEmpty()) {
+        if (path.endsWith(".icon")) {
+            // A reward's picture override: the whole icon object in one op, like the card's own entry
+            // above. A pick replaces whatever arm the override wore.
+            JsonObject icon = new JsonObject();
+            icon.addProperty("item", id);
+            if (components != null) {
+                icon.add("components", components);
+            }
+            JsonObject fields = new JsonObject();
+            fields.add(path, icon);
+            sendTableOp(new dev.ellipog.tenet.editor.TableOp.SetFields(tableAddress, fields));
+            status("Set to " + id, false);
+        }
+        else if (path.isEmpty()) {
             // A new entry, from the stack that was picked: an item reward, which is what "add this item
             // to the table" means before the author tunes it. The shape comes from the one factory rather
             // than being built here -- this hand-built copy was right while the type picker's was wrong --
@@ -22778,6 +22963,7 @@ public final class QuestBookScreen extends ArmatureScreen
                 // refused an icon on a landmark node that had room to spare, and the refusal showed as an
                 // empty outline. See CanvasSettings and QuestNodeArt.
                 entry.icon(),
+                entry.textureIcon(),
                 fieldDraft.decimal(entry.chapterId(), entry.id(), "iconScale", entry.iconScale()),
                 edge, ring, wash));
 
@@ -22813,7 +22999,7 @@ public final class QuestBookScreen extends ArmatureScreen
             ring = ArmatureTheme.selectedRing();
         }
         QuestLinkArt.draw(new QuestLinkArt.Frame(r, viewport()), slot.slot(), slot.target().icon(),
-                state, ring);
+                slot.target().textureIcon(), state, ring);
     }
 
     /** A dashed one-pixel square around a node that is hidden from players. */
@@ -23673,6 +23859,14 @@ public final class QuestBookScreen extends ArmatureScreen
                     // nowhere reads as a rendering fault, and the overlay names the dependency.
                     continue;
                 }
+                // The outgoing half: the source quest asked for the fan-out without the spokes. Read
+                // on the dependency (the line's source), beside the incoming read on the dependent
+                // above — either silence wins, and a quest that hides its own outgoing lines still
+                // appears as a prerequisite everywhere its name is read.
+                if (!dev.ellipog.tenet.client.dev.QuestVisibility
+                        .drawsDependentLines(dependency.hideDependentLines())) {
+                    continue;
+                }
                 // Coloured by the *dependent's* rule rather than by completion: under the two
                 // started-based modes a prerequisite with any task progress already satisfies, and a
                 // line drawn dark for it was the canvas telling a player they were stuck when they
@@ -23702,6 +23896,13 @@ public final class QuestBookScreen extends ArmatureScreen
                 ClientQuestCache.Entry dependent = ordered.get(i);
                 if (!dev.ellipog.tenet.client.dev.QuestVisibility
                         .drawsDependencyLines(dependent.hideDependencyLines())) {
+                    continue;
+                }
+                // The road's outgoing half, for the same reason as the edge above: a quest that hides
+                // its outgoing lines breaks the road after itself, and the chapters after it read as
+                // unconnected rather than as hidden.
+                if (!dev.ellipog.tenet.client.dev.QuestVisibility
+                        .drawsDependentLines(previous.hideDependentLines())) {
                     continue;
                 }
                 boolean done = ClientQuestCache.stateOf(previous.id()) == QuestState.COMPLETED;
@@ -26242,6 +26443,13 @@ public final class QuestBookScreen extends ArmatureScreen
             pendingLabels.add(new PendingLabel(BookGeometry.Rect.at(iconX, iconY, iconBox, iconBox),
                     "missing item - the id is kept, so the mod can come back"));
         }
+        else if (!entry.textureIcon().isEmpty()
+                && net.minecraft.resources.ResourceLocation.tryParse(entry.textureIcon()) != null) {
+            // A texture icon draws through the blit rather than the stack: the cache keeps the stack
+            // empty for a texture, so the item path below would draw nothing.
+            r.texture(net.minecraft.resources.ResourceLocation.parse(entry.textureIcon()),
+                    iconX, iconY, iconBox, iconBox);
+        }
         else {
             r.icon(entry.icon(), iconX, iconY, iconBox);
         }
@@ -27228,8 +27436,17 @@ public final class QuestBookScreen extends ArmatureScreen
 
         int textX = x;
         ItemStack toDraw = task.hasItem() ? task.item() : task.icon();
+        net.minecraft.resources.ResourceLocation taskTexture =
+                task.textureIcon().isEmpty() ? null
+                        : net.minecraft.resources.ResourceLocation.tryParse(task.textureIcon());
         if (missingItem) {
             drawItemPlaceholder(r, x, y, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (taskTexture != null) {
+            // The author's texture: blitted rather than drawn as a stack, which the cache keeps empty
+            // for a texture so no missing branch fires for a picture.
+            r.texture(taskTexture, x, y, ROW_ICON, ROW_ICON);
             textX = x + ROW_ICON + 5;
         }
         else if (r.icon(toDraw, x, y, ROW_ICON)) {
@@ -27420,21 +27637,38 @@ public final class QuestBookScreen extends ArmatureScreen
         if (row.contains(mouseX, mouseY)) {
             // The task row's rule, one member over: the player's explanation, never the author's.
             // A reward is collected rather than handed in, so there is no second line to pick.
-            List<String> lines = new ArrayList<>(
-                    QuestPanelLayout.playerTooltip("rewards", reward.type(), false, false));
-            appendConditionLines(lines, reward.conditions(),
-                    ClientQuestCache.rewardLockOf(entry.id(), index));
-            if (RecipeLookups.canOpen(target)) {
-                lines.add("Click for recipes");
+            //
+            // A table that hides its tooltip draws no hover here — FTB Quests' `hide_tooltip` — unless
+            // the row is locked: a gate the player does not meet is still explained, because hiding
+            // why a reward is shut would read as a broken row rather than a quiet one.
+            ClientQuestCache.TableSummary table = tableOf(reward);
+            boolean hideTooltip = table != null && table.hideTooltip() && !locked;
+            if (!hideTooltip) {
+                List<String> lines = new ArrayList<>(
+                        QuestPanelLayout.playerTooltip("rewards", reward.type(), false, false));
+                appendConditionLines(lines, reward.conditions(),
+                        ClientQuestCache.rewardLockOf(entry.id(), index));
+                if (RecipeLookups.canOpen(target)) {
+                    lines.add("Click for recipes");
+                }
+                rowTooltips.add(new RowTooltip(row, lines));
             }
-            rowTooltips.add(new RowTooltip(row, lines));
         }
         rowWash(r, row, contentRight, hover);
 
         int textX = x;
         ItemStack toDraw = reward.hasItem() ? reward.item() : reward.icon();
+        net.minecraft.resources.ResourceLocation rewardTexture =
+                reward.textureIcon().isEmpty() ? null
+                        : net.minecraft.resources.ResourceLocation.tryParse(reward.textureIcon());
         if (missingItem) {
             drawItemPlaceholder(r, x, y, ROW_ICON);
+            textX = x + ROW_ICON + 5;
+        }
+        else if (rewardTexture != null) {
+            // The author's texture, blitted rather than drawn as a stack — the task row's rule, one
+            // member over.
+            r.texture(rewardTexture, x, y, ROW_ICON, ROW_ICON);
             textX = x + ROW_ICON + 5;
         }
         else if (r.icon(toDraw, x, y, ROW_ICON)) {

@@ -314,6 +314,55 @@ class QuestNotificationsTest {
         }
 
         @Test
+        @DisplayName("a quest quieted by its author announces no completion")
+        void aQuietQuestAnnouncesNoCompletion() {
+            // The quest-level disableToast: the same silence as a silent auto-claim mode, asked by name
+            // rather than by ladder. FTB Quests' disable_toast on the quest.
+            diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false)));
+
+            assertEquals(List.of(), diff.sample(List.of(
+                    new Snapshot("a", QuestState.COMPLETED, false, true))),
+                    "a quest that asked for no toast gets none");
+        }
+
+        @Test
+        @DisplayName("a quest quieted by its author says nothing about its tasks either")
+        void aQuietQuestSilencesItsTasks() {
+            diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false,
+                    List.of(false, false))));
+
+            assertEquals(List.of(), diff.sample(List.of(
+                    new Snapshot("a", QuestState.STARTED, false, true,
+                            List.of(true, true)))),
+                    "quieting the quest quiets its rows too, like the silent modes do");
+        }
+
+        @Test
+        @DisplayName("a task quieted by its author is skipped while its siblings speak")
+        void aQuietTaskIsSkipped() {
+            // The per-task disableToast: one muted arrival among two, and only the unmuted one is told.
+            diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false,
+                    List.of(false, false), List.of(false, true))));
+
+            assertEquals(List.of(new Notice(Kind.TASK_COMPLETED, "a", 0)),
+                    diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false,
+                            List.of(true, true), List.of(false, true)))));
+        }
+
+        @Test
+        @DisplayName("a muted task still moves the baseline, so un-quieting does not announce old news")
+        void aMutedTaskMovesTheBaseline() {
+            diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false,
+                    List.of(false), List.of(true))));
+            diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false, false,
+                    List.of(true), List.of(true))));
+
+            // The arrival happened while muted; lifting the mute later is not a second arrival.
+            assertEquals(List.of(), diff.sample(List.of(new Snapshot("a", QuestState.STARTED, false,
+                    false, List.of(true), List.of(false)))));
+        }
+
+        @Test
         @DisplayName("a join seeds the task picture and announces none of it")
         void aJoinSeedsTheTasks() {
             assertEquals(List.of(), diff.sample(List.of(tasks("a", QuestState.COMPLETED, true, true))));

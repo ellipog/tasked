@@ -14,6 +14,7 @@ import dev.ellipog.tenet.quest.reward.RewardAutoClaim;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -38,7 +39,7 @@ import java.util.Set;
  */
 public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTeamReward,
                             boolean suppressAllAutoclaiming, int detectionDelay,
-                            String bookTitle, String bookIcon, String fallbackLocale,
+                            String bookTitle, Optional<Icon> bookIcon, String fallbackLocale,
                             int clickCommandLevel) {
 
     /**
@@ -46,7 +47,7 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      *
      * <p>Automatic claiming is <b>off</b>, as in FTB Quests: a finished quest announcing a payout and
      * handing it over in the same breath is a choice an author makes, not one the mod makes for them.
-     * An empty title and icon mean "draw the client's own title and no icon", which is what every
+     * An empty title and no icon mean "draw the client's own title and no icon", which is what every
      * pack that predates these fields gets.
      *
      * <p>{@code en_us} as the fallback locale, because that is the language the tree's own strings
@@ -55,12 +56,55 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      * strings are in. See {@link QuestLanguages}.
      */
     public static final QuestSettings DEFAULTS =
-            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", "", "en_us", 0);
+            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", Optional.empty(),
+                    "en_us", 0);
 
     /** The field names, for the validator and the schema. */
     public static final Set<String> FIELDS =
             Set.of("defaultAutoClaim", "defaultTeamReward", "suppressAllAutoclaiming", "detectionDelay",
                     "bookTitle", "bookIcon", "fallbackLocale", "clickCommandLevel");
+
+    /**
+     * The book's icon: an item id as a bare string (every {@code index.json} written before the
+     * icon union), an icon object, or an empty string for none.
+     *
+     * <p>Declared before {@link #MAP_CODEC}, because that codec reads it during this class's own
+     * initialisation and a reference the other way is a forward one the compiler refuses.
+     */
+    private static final Codec<Optional<Icon>> BOOK_ICON_CODEC = new Codec<>() {
+        @Override
+        public <T> com.mojang.serialization.DataResult<T> encode(Optional<Icon> icon,
+                                                                  com.mojang.serialization.DynamicOps<T> ops,
+                                                                  T prefix) {
+            if (icon.isEmpty()) {
+                return com.mojang.serialization.DataResult.success(ops.createString(""));
+            }
+            return Icon.CODEC.encode(icon.get(), ops, prefix);
+        }
+
+        @Override
+        public <T> com.mojang.serialization.DataResult<com.mojang.datafixers.util.Pair<Optional<Icon>, T>>
+        decode(com.mojang.serialization.DynamicOps<T> ops, T input) {
+            if (ops.getStringValue(input).result().isPresent()) {
+                String raw = ops.getStringValue(input).result().orElse("");
+                if (raw.isEmpty()) {
+                    return com.mojang.serialization.DataResult.success(
+                            com.mojang.datafixers.util.Pair.of(Optional.empty(), input));
+                }
+                net.minecraft.resources.ResourceLocation id =
+                        net.minecraft.resources.ResourceLocation.tryParse(raw);
+                if (id == null) {
+                    return com.mojang.serialization.DataResult.error(
+                            () -> "\"" + raw + "\" is not a namespaced id");
+                }
+                return com.mojang.serialization.DataResult.success(
+                        com.mojang.datafixers.util.Pair.of(
+                                Optional.of((Icon) new Icon.Item(new ItemRef(id, 1))), input));
+            }
+            return Icon.CODEC.decode(ops, input)
+                    .map(pair -> pair.mapFirst(icon -> Optional.of(icon)));
+        }
+    };
 
     public static final MapCodec<QuestSettings> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardAutoClaim.CODEC.optionalFieldOf("defaultAutoClaim", RewardAutoClaim.DISABLED)
@@ -70,7 +114,11 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
                     .forGetter(QuestSettings::suppressAllAutoclaiming),
             Codec.intRange(0, 72000).optionalFieldOf("detectionDelay", 20).forGetter(QuestSettings::detectionDelay),
             Codec.STRING.optionalFieldOf("bookTitle", "").forGetter(QuestSettings::bookTitle),
-            Codec.STRING.optionalFieldOf("bookIcon", "").forGetter(QuestSettings::bookIcon),
+            // An item id as a bare string (every file written before the union), an icon object, or
+            // an empty string for none. Written back as the object the union encodes — a legacy string
+            // normalises on the next settings write, which the loader reads the same way.
+            BOOK_ICON_CODEC.optionalFieldOf("bookIcon", Optional.empty())
+                    .forGetter(QuestSettings::bookIcon),
             // Read through the same normalisation the loader uses, so an author who writes
             // "en-US" gets the locale the files are keyed by rather than one that never matches.
             Codec.STRING.optionalFieldOf("fallbackLocale", "en_us").forGetter(QuestSettings::fallbackLocale),

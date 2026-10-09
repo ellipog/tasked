@@ -44,10 +44,15 @@ final class RecordingRenderer implements GuiRenderer {
     record Scaled(ResourceLocation texture, int x, int y, int width, int height) {
     }
 
+    /** One whole-file blit, as {@link #texture} was told to draw it. */
+    record Textured(ResourceLocation texture, int x, int y, int width, int height) {
+    }
+
     private final List<Fill> fills = new ArrayList<>();
     private final List<Drawn> texts = new ArrayList<>();
     private final Map<ResourceLocation, TextureSize> sizes = new LinkedHashMap<>();
     private final List<Scaled> scaled = new ArrayList<>();
+    private final List<Textured> textures = new ArrayList<>();
     private int batches;
 
     @Override
@@ -120,9 +125,10 @@ final class RecordingRenderer implements GuiRenderer {
 
     @Override
     public void texture(ResourceLocation texture, int x, int y, int width, int height) {
-        // The panels this recorder exists for draw no textures -- the pin star is a viewer page's, and
-        // the page's own recorder keeps it. A no-op rather than a throw, for the same reason icon and
-        // face answer false: a test may draw a panel that happens to contain one.
+        // Recorded, like every other draw on this recorder: a node wearing a texture icon draws one
+        // blit, and a test that wants to tell it from an item icon reads this list. (It used to be a
+        // no-op on the grounds that no panel drew a texture; nodes do now.)
+        textures.add(new Textured(texture, x, y, width, height));
     }
 
     /**
@@ -220,6 +226,11 @@ final class RecordingRenderer implements GuiRenderer {
         return List.copyOf(scaled);
     }
 
+    /** The whole-file blits drawn through {@link #texture}, in order. */
+    List<Textured> textures() {
+        return List.copyOf(textures);
+    }
+
     List<Drawn> texts() {
         return List.copyOf(texts);
     }
@@ -231,6 +242,6 @@ final class RecordingRenderer implements GuiRenderer {
 
     /** Everything drawn, for an assertion's message: a missing control is not visible in a false. */
     String describe() {
-        return "fills=" + fills + " texts=" + texts + " scaled=" + scaled;
+        return "fills=" + fills + " texts=" + texts + " scaled=" + scaled + " textures=" + textures;
     }
 }

@@ -70,8 +70,9 @@ public final class QuestSettingsPanel {
      *     default (...)" value — because "Default" alone makes an author open the chapter file to find
      *     out what it defaults <i>to</i>
      */
-    public record View(String title, ItemStack icon, QuestShape shape, Shape geometry, int rotation,
-                       int size, double iconScale, boolean showTitle, int hoveredCell,
+    public record View(String title, ItemStack icon, String textureIcon, QuestShape shape,
+                        Shape geometry, int rotation,
+                        int size, double iconScale, boolean showTitle, int hoveredCell,
                        String hoveredKey, String chapterRequirement,
                        /**
                         * The chapter's default for its quests' own {@code hideUntilDependenciesComplete},
@@ -117,6 +118,9 @@ public final class QuestSettingsPanel {
             Map.entry("hideUntilDependenciesComplete", "tenet.dev.help.hide_until_deps_done"),
             Map.entry("hideUntilDependenciesVisible", "tenet.dev.help.hide_until_deps_shown"),
             Map.entry("hideDependencyLines", "tenet.dev.help.hide_dependency_lines"),
+            Map.entry("hideDependentLines", "tenet.dev.help.hide_dependent_lines"),
+            Map.entry("minWidth", "tenet.dev.help.min_width"),
+            Map.entry("disableToast", "tenet.dev.help.disable_toast"),
             Map.entry("hideTextUntilComplete", "tenet.dev.help.hide_text_until_done"),
             Map.entry("hideDetailsUntilStartable", "tenet.dev.help.hide_details_until_startable"),
             Map.entry("id", "tenet.dev.help.id"),
@@ -179,7 +183,7 @@ public final class QuestSettingsPanel {
         // node-edge tokens, and a preview drawn with the state ink would show a border the canvas will
         // not draw -- the exact kind of preview that drifts from the thing it previews.
         QuestNodeArt.draw(r, x, y, new QuestNodeArt.Look(drawn, shape, view.geometry(), view.icon(),
-                iconScale, ArmatureTheme.nodeEdgeAvailable(), 0, 0));
+                view.textureIcon(), iconScale, ArmatureTheme.nodeEdgeAvailable(), 0, 0));
 
         if (view.showTitle() && !view.title().isEmpty()) {
             QuestNodeArt.caption(r, x, y, drawn, view.title(), pane.x(), pane.right(),
@@ -503,6 +507,13 @@ public final class QuestSettingsPanel {
                 button.y() + (button.height() - 8) / 2, ArmatureTheme.body());
         if (view.icon() != null && !view.icon().isEmpty()) {
             r.icon(view.icon(), strip.x(), strip.y() + (strip.height() - 16) / 2, 16);
+        }
+        else if (view.textureIcon() != null && !view.textureIcon().isEmpty()) {
+            net.minecraft.resources.ResourceLocation texture =
+                    net.minecraft.resources.ResourceLocation.tryParse(view.textureIcon());
+            if (texture != null) {
+                r.texture(texture, strip.x(), strip.y() + (strip.height() - 16) / 2, 16, 16);
+            }
         }
     }
 

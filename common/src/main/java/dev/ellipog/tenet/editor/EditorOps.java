@@ -577,6 +577,14 @@ public final class EditorOps {
             // `minRequired` all move a resolved state, which is CONTENT by `reachOfPath`'s default.
             "invisible", "hideUntilDependenciesVisible", "hideUntilDependenciesComplete",
             "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "hideDependencyLines",
+            // How a quest presents itself rather than what it gates: the panel width it wants, the
+            // outgoing edges it draws, and whether its completion is announced. Client-derived like
+            // the visibility flags above, so no stored progress moves when one changes.
+            "hideDependentLines", "minWidth", "disableToast",
+            // A chapter's own presentation the same way: the panel width its quests want unless one
+            // says otherwise, and the quest it centres on when selected. Viewport and panel facts,
+            // derived on the client from the tree it has just been sent.
+            "defaultMinWidth", "autofocus",
             "dependencyLines",
             // A chapter's and a group's own appearance, and the book's name and icon.
             "theme", "collapsedByDefault", "bookTitle", "bookIcon");

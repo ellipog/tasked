@@ -23,30 +23,50 @@ import java.util.Optional;
  *                      command. Empty for a type whose sentence counts something instead, where the
  *                      count is the argument.
  * @param count         how many, for a {@code x8} after the name
+ * @param textureIcon   the texture path when the author overrode the picture with a texture, and
+ *                      empty otherwise. See {@link dev.ellipog.tenet.quest.task.TaskDisplay} for why
+ *                      an entity override arrives resolved to its egg.
  */
 public record RewardDisplay(Optional<ItemRef> item, String label, String labelFallback, String labelArg,
-                            int count) {
+                            int count, String textureIcon) {
 
-    public static final RewardDisplay NONE = new RewardDisplay(Optional.empty(), "", "", "", 1);
+    public static final RewardDisplay NONE = new RewardDisplay(Optional.empty(), "", "", "", 1, "");
 
     public RewardDisplay {
         item = item == null ? Optional.empty() : item;
         label = label == null ? "" : label;
         labelFallback = labelFallback == null ? "" : labelFallback;
         labelArg = labelArg == null ? "" : labelArg;
+        textureIcon = textureIcon == null ? "" : textureIcon;
     }
 
     public static RewardDisplay ofItem(ItemRef item) {
-        return new RewardDisplay(Optional.of(item), "", "", "", Math.max(1, item.count()));
+        return new RewardDisplay(Optional.of(item), "", "", "", Math.max(1, item.count()), "");
     }
 
     /** A reward whose sentence counts something: the key is formatted with {@code count}. */
     public static RewardDisplay ofTranslatableText(String key, String fallback, int count) {
-        return new RewardDisplay(Optional.empty(), key, fallback, "", Math.max(1, count));
+        return new RewardDisplay(Optional.empty(), key, fallback, "", Math.max(1, count), "");
     }
 
     /** A reward whose sentence names something: the key is formatted with {@code labelArg}. */
     public static RewardDisplay ofTranslatableText(String key, String fallback, String labelArg, int count) {
-        return new RewardDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count));
+        return new RewardDisplay(Optional.empty(), key, fallback, labelArg, Math.max(1, count), "");
+    }
+
+    /** This display wearing the author's words instead of the type's own sentence. */
+    public RewardDisplay withAuthorTitle(dev.ellipog.tenet.quest.QuestText title) {
+        return new RewardDisplay(item, title.value(), title.fallback().orElse(""), labelArg, count,
+                textureIcon);
+    }
+
+    /** This display wearing the author's item instead of the type's own picture. */
+    public RewardDisplay withAuthorItem(ItemRef ref) {
+        return new RewardDisplay(Optional.of(ref), label, labelFallback, labelArg, count, "");
+    }
+
+    /** This display wearing the author's texture instead of the type's own picture. */
+    public RewardDisplay withAuthorTexture(String path) {
+        return new RewardDisplay(Optional.empty(), label, labelFallback, labelArg, count, path);
     }
 }

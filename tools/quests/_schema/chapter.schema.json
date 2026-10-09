@@ -24,7 +24,7 @@
       ],
       "description": "Paragraphs. A bare string is also accepted, for a one-line description."
     },
-    "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
+    "icon": { "$ref": "#/definitions/icon", "description": "Defaults to paper if absent." },
     "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
 
     "progressionMode": {
@@ -46,6 +46,17 @@
       "type": "boolean",
       "default": false,
       "description": "Whether this chapter's quests may work their tasks before their dependencies are met, unless a quest says otherwise. Either this or a quest's flexibleProgress makes the quest flexible. Do not confuse with progressionMode, which chains the quest list in order."
+    },
+    "defaultMinWidth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3000,
+      "default": 0,
+      "description": "What the quests in this chapter use for their detail-panel width unless a quest says otherwise: a quest's own minWidth wins over this, and 0 (unset) means the panel kind decides. FTB Quests calls this default_min_width."
+    },
+    "autofocus": {
+      "type": "string",
+      "description": "The quest this chapter centres on when it is selected, by id or alias, in this chapter. Absent centres on the chapter's bounding box. A name that resolves to nothing, or to a quest in another chapter, is an error. FTB Quests calls this autofocus_id."
     },
     "autoClaim": {
       "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
@@ -242,6 +253,34 @@
           "additionalProperties": true
         }
       }
+    },
+
+    "icon": {
+      "description": "What a chapter shows as its picture: an item, a texture file, or an entity drawn as its spawn egg. An item object is the arm every file written before the union uses, so old files read unchanged.",
+      "anyOf": [
+        { "$ref": "#/definitions/itemRef" },
+        {
+          "type": "object",
+          "required": ["texture"],
+          "properties": {
+            "texture": {
+              "type": "string",
+              "description": "A texture file by its own path, e.g. my_pack:textures/gui/emblem.png. Drawn stretched into the icon's box; a path nothing holds draws the missing texture."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["entity"],
+          "properties": {
+            "entity": {
+              "type": "string",
+              "pattern": "^[a-z0-9_.-]+:[a-z0-9_/.-]+$",
+              "description": "An entity id, e.g. minecraft:creeper. Drawn as its spawn egg where one exists; an entity with no egg draws the missing mark naming it."
+            }
+          }
+        }
+      ]
     },
 
     "dependencyStyle": {

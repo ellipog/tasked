@@ -90,8 +90,11 @@ class ItemPickerTest {
         // nothing wrong, the save was allowed, and the quest left the tree at the next load. A task's
         // item is required, so there is nothing a clear row could do there but corrupt the file.
         // The icon is the one optional item field -- and clearing it removes the whole "icon" object,
-        // because deleting only the leaf would leave {"icon": {}}, which the codec refuses too.
+        // because deleting only the leaf would leave {"icon": {}}, which the codec refuses too. A
+        // task's or a reward's picture override clears the same way, restoring the type's picture.
         assertEquals("icon", ItemPicker.clearPath("icon.item"));
+        assertEquals("tasks.0.icon", ItemPicker.clearPath("tasks.0.icon"));
+        assertEquals("rewards.2.icon", ItemPicker.clearPath("rewards.2.icon"));
         assertNull(ItemPicker.clearPath("tasks.0.item"), "an item task needs its item");
         assertNull(ItemPicker.clearPath("rewards.2.item"));
         assertNull(ItemPicker.clearPath("title"));

@@ -112,7 +112,9 @@ class ConsentToTakeTest {
     @Test
     @DisplayName("waiting is about what is taken, not about whether a button exists")
     void aButtonWithNothingToTakeIsStillRegisteredByTheTick() {
-        CheckmarkTask check = new CheckmarkTask(TaskCommon.DEFAULT, QuestText.literal("I read the sign"));
+        CheckmarkTask check = new CheckmarkTask(new TaskCommon(false, 20, java.util.List.of(), false,
+                java.util.Optional.of(QuestText.literal("I read the sign")),
+                java.util.Optional.empty()));
         TaskBehaviour<QuestTask> through = behaviour(check);
 
         assertTrue(through.canSubmitByHand(check, false), "a checkmark is only ever a press");

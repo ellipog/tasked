@@ -5,6 +5,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -119,11 +120,30 @@ public record ChapterRules(
          * is no opt-out, which is why a migration tool inlines the resolved value onto each quest
          * and leaves this off.
          */
-        boolean defaultFlexibleProgress) {
+        boolean defaultFlexibleProgress,
+        /**
+         * The chapter's default for its quests' {@code minWidth}: how wide a quest's detail panel
+         * wants to be unless the quest says otherwise.
+         *
+         * <p>Zero means unset — the panel takes its kind's default — because every file written
+         * before this field existed says nothing. A quest's own {@code minWidth} wins over this.
+         * FTB Quests' {@code default_min_width}.
+         */
+        int defaultMinWidth,
+        /**
+         * The quest this chapter centres on when it is selected, by id or alias.
+         *
+         * <p>FTB Quests' {@code autofocus_id}. Absent means the old behaviour: the canvas centres
+         * on the chapter's bounding box. A name that resolves to nothing is reported at load,
+         * because the chapter would then centre on nothing; a name that resolves to a quest in
+         * another chapter is reported too, for the same reason. Links and image {@code requires}
+         * are not the canvas's centre and do not count here.
+         */
+        Optional<QuestRef> autofocus) {
 
     /** A chapter with no gate, no declared completion, no hiding and no defaults for its quests. */
     public static final ChapterRules DEFAULT = new ChapterRules(List.of(), PrerequisiteMode.ALL_COMPLETED,
-            0, List.of(), false, false, false, false);
+            0, List.of(), false, false, false, false, 0, Optional.empty());
 
     /**
      * The bounds of {@link #minRequired}.
@@ -139,7 +159,8 @@ public record ChapterRules(
     /** The field names this contributes, for the validator to allow. */
     public static final Set<String> FIELDS = Set.of("dependsOn", "prerequisiteMode", "minRequired",
             "completesWhen", "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
-            "defaultHideUntilDependenciesVisible", "defaultFlexibleProgress");
+            "defaultHideUntilDependenciesVisible", "defaultFlexibleProgress", "defaultMinWidth",
+            "autofocus");
 
     /** How many of {@link #dependsOn} must be satisfied. */
     public int requiredCount() {
@@ -176,7 +197,12 @@ public record ChapterRules(
             Codec.BOOL.optionalFieldOf("defaultHideUntilDependenciesVisible", false)
                     .forGetter(ChapterRules::defaultHideUntilDependenciesVisible),
             Codec.BOOL.optionalFieldOf("defaultFlexibleProgress", false)
-                    .forGetter(ChapterRules::defaultFlexibleProgress)
+                    .forGetter(ChapterRules::defaultFlexibleProgress),
+            // Zero is unset, like a quest's own minWidth: every file written before this field
+            // existed says nothing, and nothing must read as the old behaviour.
+            Codec.intRange(QuestPresentation.MIN_WIDTH_MIN, QuestPresentation.MIN_WIDTH_MAX)
+                    .optionalFieldOf("defaultMinWidth", 0).forGetter(ChapterRules::defaultMinWidth),
+            QuestRef.CODEC.optionalFieldOf("autofocus").forGetter(ChapterRules::autofocus)
     ).apply(instance, ChapterRules::new));
 
     public static final Codec<ChapterRules> CODEC = MAP_CODEC.codec();

@@ -36,12 +36,12 @@ class BookRowTargetsTest {
 
     private static ClientQuestCache.TaskEntry task(ItemStack item, String itemId, String tagId) {
         return new ClientQuestCache.TaskEntry(ItemStack.EMPTY, item, 1, false, false, false, "tenet:item",
-                "", "", "", itemId, "", "", 0, tagId, List.of());
+                "", "", "", itemId, "", "", 0, tagId, List.of(), false, "");
     }
 
     private static ClientQuestCache.RewardEntry reward(ItemStack item, String itemId) {
         return new ClientQuestCache.RewardEntry(ItemStack.EMPTY, item, 1, "tenet:item", "", "", "",
-                itemId, "", false, false, List.of());
+                itemId, "", false, false, List.of(), false, "");
     }
 
     @Test

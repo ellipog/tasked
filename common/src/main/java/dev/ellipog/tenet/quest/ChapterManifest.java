@@ -73,7 +73,7 @@ public record ChapterManifest(
         QuestText title,
         Optional<QuestText> subtitle,
         List<QuestText> description,
-        ItemRef icon,
+        Icon icon,
         List<String> aliases,
         PrerequisiteMode defaultPrerequisiteMode,
         ProgressionMode progressionMode,
@@ -101,7 +101,8 @@ public record ChapterManifest(
     /** The field names this contributes. Equal to {@link Chapter#FIELDS} — see {@link GroupManifest}. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress", "dependencyStyle",
+            "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress", "defaultMinWidth",
+            "autofocus", "dependencyStyle",
             "theme", "themePatch", "autoClaim",
             "dependsOn", "prerequisiteMode", "minRequired", "completesWhen",
             "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
@@ -142,7 +143,7 @@ public record ChapterManifest(
             QuestText.CODEC.optionalFieldOf("subtitle").forGetter(ChapterManifest::subtitle),
             QuestText.LIST_OR_ONE.optionalFieldOf("description", List.of())
                     .forGetter(ChapterManifest::description),
-            ItemRef.CODEC.optionalFieldOf("icon", ItemRef.DEFAULT_ICON).forGetter(ChapterManifest::icon),
+            Icon.CODEC.optionalFieldOf("icon", Icon.DEFAULT_ICON).forGetter(ChapterManifest::icon),
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(ChapterManifest::aliases),
             PrerequisiteMode.CODEC.optionalFieldOf("defaultPrerequisiteMode", PrerequisiteMode.ALL_COMPLETED)
                     .forGetter(ChapterManifest::defaultPrerequisiteMode),

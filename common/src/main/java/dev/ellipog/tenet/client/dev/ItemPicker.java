@@ -102,9 +102,18 @@ public final class ItemPicker {
      * would leave {@code {"icon": {}}}, which the codec refuses. And a task's or a reward's item is
      * required by its type, so there is nothing a clear row could do there but corrupt the file: the
      * defect this method exists to make unreachable. The row is simply not offered.
+     *
+     * <p>A task's or a reward's picture <i>override</i> is optional like the quest's own icon, so its
+     * clear row removes the whole override object it names.
      */
     public static String clearPath(String fieldPath) {
-        return "icon.item".equals(fieldPath) ? "icon" : null;
+        if ("icon.item".equals(fieldPath)) {
+            return "icon";
+        }
+        if (fieldPath != null && fieldPath.endsWith(".icon")) {
+            return fieldPath;
+        }
+        return null;
     }
 
     /**

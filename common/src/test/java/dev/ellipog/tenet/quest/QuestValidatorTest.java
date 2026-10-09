@@ -827,16 +827,16 @@ class QuestValidatorTest {
     }
 
     @Test
-    @DisplayName("an icon object with no item was already refused, and stays refused")
+    @DisplayName("an icon object with no arm was already refused, and stays refused")
     void iconWithoutAnItemIsRefused() {
         // Pinned because the picker's clear row is about to rely on it: clearing an icon has to remove
         // the whole object, since removing only the leaf leaves this -- which does not load either.
         Problems problems = validateQuest("""
                 {"id": "one", "title": "One", "icon": {}}""");
 
-        assertTrue(containing(problems, "missing required field item").severity()
+        assertTrue(containing(problems, "not a usable icon").severity()
                         == DataProblem.Severity.ERROR,
-                "the icon's required item is the existing check the clear path is built around");
+                "the icon's required arm is the existing check the clear path is built around");
     }
 
     // ------------------------------------------------------------------
