@@ -150,15 +150,99 @@ class FtbTextTest {
     }
 
     @Test
-    @DisplayName("a raw JSON component arrives whole, with its words flattened")
+    @DisplayName("a raw JSON component arrives as one run per leaf, words unjoined")
     void jsonComponent() {
-        FtbText.JsonText component = assertInstanceOf(FtbText.JsonText.class,
-                parse("{\"text\": \"Hello \", \"extra\": [{\"text\": \"there\"}]}").get(0));
-        assertEquals("Hello there", component.fallback());
+        List<FtbText.Segment> parts =
+                parse("{\"text\": \"Hello \", \"extra\": [{\"text\": \"there\"}]}");
+        assertEquals(2, parts.size(), parts.toString());
+        assertEquals("Hello ", assertInstanceOf(FtbText.JsonText.class, parts.get(0)).fallback());
+        assertEquals("there", assertInstanceOf(FtbText.JsonText.class, parts.get(1)).fallback());
+        assertEquals("Hello there",
+                FtbText.pages("{\"text\": \"Hello \", \"extra\": [{\"text\": \"there\"}]}", key -> "")
+                        .get(0).residual(),
+                "the residual joins the runs verbatim");
 
         FtbText.JsonText keyed = assertInstanceOf(FtbText.JsonText.class,
                 parse("{\"translate\": \"quest.a.title\"}").get(0));
         assertEquals("quest.a.title", keyed.fallback(), "a key with no fallback is its own words");
+    }
+
+    @Test
+    @DisplayName("a JSON open_url arrives as a blue underlined link run")
+    void jsonOpenUrl() {
+        // The shape ATM10's video links arrive in (potion-brewer quest).
+        String video =
+                "{\"clickEvent\":{\"action\":\"open_url\",\"value\":\"https://youtu.be/DOW4xkxqp6g\"},"
+                        + "\"color\":\"blue\",\"text\":\"VIDEO LINK HERE\",\"underlined\":true}";
+        List<FtbText.Segment> segments = parse(video);
+        assertEquals(1, segments.size(), segments.toString());
+        FtbText.JsonText link = assertInstanceOf(FtbText.JsonText.class, segments.get(0));
+        assertEquals("VIDEO LINK HERE", link.fallback());
+        assertEquals("https://youtu.be/DOW4xkxqp6g", link.link());
+        assertTrue(link.quest().isEmpty(), "a URL opens nowhere else");
+        assertEquals(0xFF5555FF, link.argb(), "vanilla blue, not a nearby one");
+        assertTrue(link.underline());
+
+        FtbText.Rendered rendered = FtbText.pages(video, key -> "").get(0);
+        assertEquals("VIDEO LINK HERE", rendered.residual());
+        FtbText.Span span = FtbText.spanAt(rendered.spans(), 0);
+        assertEquals("https://youtu.be/DOW4xkxqp6g", span.link(), "the span opens its address");
+        assertTrue(span.underline());
+        assertEquals("VIDEO LINK HERE",
+                FtbText.plain(video), "one-ink surfaces read the label");
+    }
+
+    @Test
+    @DisplayName("a JSON change_page arrives as a quest jump in its own ink")
+    void jsonChangePage() {
+        // The shape ATM10's questline jumps arrive in (dissolution-chamber quest).
+        String jump =
+                "{ \"text\": \"INDUSTRIAL FOREGOING QUESTLINE\", \"color\": \"#55FF55\", "
+                        + "\"underlined\": true, \"clickEvent\": { \"action\": \"change_page\", "
+                        + "\"value\": \"193F91842D2ED7D9\" } }";
+        FtbText.JsonText quest = assertInstanceOf(FtbText.JsonText.class, parse(jump).get(0));
+        assertEquals("INDUSTRIAL FOREGOING QUESTLINE", quest.fallback());
+        assertTrue(quest.link().isEmpty(), "a quest jump opens no URL");
+        assertEquals("193F91842D2ED7D9", quest.quest(), "FTB's value is a quest id, not a page");
+        assertEquals(0xFF55FF55, quest.argb(), "the hex ink survives");
+        assertTrue(quest.underline());
+
+        FtbText.Rendered rendered = FtbText.pages(jump, key -> "").get(0);
+        FtbText.Span span = FtbText.spanAt(rendered.spans(), 0);
+        assertEquals("193F91842D2ED7D9", span.quest());
+        assertTrue(span.link().isEmpty());
+    }
+
+    @Test
+    @DisplayName("JSON runs inherit the look, and unknown presses open nothing")
+    void jsonInheritanceAndRefusals() {
+        // A parent's ink with a child's own press: the press wins, the ink stays inherited.
+        List<FtbText.Segment> segments = parse("{\"color\": \"green\", \"extra\": ["
+                + "{\"text\": \"plain \"},"
+                + "{\"text\": \"linked\", \"clickEvent\": {\"action\": \"open_url\", "
+                + "\"value\": \"https://example.invalid\"}}]}");
+        assertEquals(2, segments.size(), segments.toString());
+        FtbText.JsonText plain = assertInstanceOf(FtbText.JsonText.class, segments.get(0));
+        assertEquals("plain ", plain.fallback());
+        assertTrue(plain.link().isEmpty() && plain.quest().isEmpty());
+        assertEquals(0xFF55FF55, plain.argb(), "green inherits down");
+        FtbText.JsonText linked = assertInstanceOf(FtbText.JsonText.class, segments.get(1));
+        assertEquals("https://example.invalid", linked.link());
+        assertEquals(0xFF55FF55, linked.argb(), "and across to the pressed run");
+
+        // FTB's guide addresses have no shelf here: words, nowhere to press.
+        FtbText.JsonText docs = assertInstanceOf(FtbText.JsonText.class,
+                parse("{\"text\": \"Guide\", \"clickEvent\": {\"action\": \"open_url\", "
+                        + "\"value\": \"docs:some/page\"}}").get(0));
+        assertEquals("Guide", docs.fallback());
+        assertTrue(docs.link().isEmpty() && docs.quest().isEmpty(), "docs: opens nothing");
+
+        // Anything outside the two quest-book actions: words, nowhere to press.
+        FtbText.JsonText other = assertInstanceOf(FtbText.JsonText.class,
+                parse("{\"text\": \"Run\", \"clickEvent\": {\"action\": \"run_command\", "
+                        + "\"value\": \"/say hi\"}}").get(0));
+        assertEquals("Run", other.fallback());
+        assertTrue(other.link().isEmpty() && other.quest().isEmpty());
     }
 
     @Test

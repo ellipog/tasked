@@ -89,13 +89,27 @@ public final class FtbText {
     }
 
     /**
-     * A whole string that is a raw JSON text component rather than prose with tokens.
+     * A raw JSON text component's clickable run: one leaf's words with the look they inherit.
      *
-     * @param fallback the component's visible words, flattened lossily (texts and translate keys,
-     *                 in order); the consumer draws this, and the raw travels so a richer reader can
-     *                 do better later. Unparseable JSON never arrives here — it stays prose.
+     * <p>Vanilla inheritance: a child's colour, emphasis and click event win over its parent's,
+     * and what neither names arrives as white unflagged prose with nowhere to press. The converter
+     * passes pack text through verbatim, so this is where a component's {@code clickEvent} becomes
+     * something the book can press: {@code open_url} travels as {@code link} and opens through the
+     * same http/https-only opener every other link uses ({@code docs:} addresses have no guide to
+     * open with and arrive with nowhere to press, the prose half of the image click's shelf
+     * message), and FTB's {@code change_page} — whose value FTB's own reader treats as a quest to
+     * open rather than a book page — travels as {@code quest} for the client to resolve by id or
+     * alias. Any other action arrives as words with nowhere to press.
+     *
+     * @param raw      the whole component source, so a richer reader can do better later;
+     *                 unparseable JSON never arrives here — it stays prose
+     * @param fallback this run's visible words
+     * @param link     a URL this run opens, or empty
+     * @param quest    a quest id this run opens, or empty; never both this and {@code link}
+     * @param argb     this run's ink
      */
-    public record JsonText(String raw, String fallback) implements Segment {
+    public record JsonText(String raw, String fallback, String link, String quest, int argb,
+                           boolean bold, boolean italic, boolean underline) implements Segment {
     }
 
     /** Plain prose arrives in this ink. */
@@ -106,11 +120,12 @@ public final class FtbText {
      *
      * @param argb      the ink as {@code 0xAARRGGBB}; {@link #WHITE} is unstyled prose
      * @param link      a URL this span opens, or empty
+     * @param quest     a quest id this span opens, or empty; never both this and {@code link}
      * @param underline struck-through text arrives with this set: the seam has no strikethrough run,
      *                  and an underline is the closest visible emphasis that survives it
      */
-    public record Span(int start, int end, int argb, String link, boolean bold, boolean italic,
-                       boolean underline) {
+    public record Span(int start, int end, int argb, String link, String quest, boolean bold,
+                       boolean italic, boolean underline) {
     }
 
     /**
@@ -199,17 +214,17 @@ public final class FtbText {
             // Struck-through arrives underlined: the seam has no strikethrough run, and an underline
             // is the closest visible emphasis that survives it. Obfuscated is dropped to plain, and
             // both degradations are recorded rather than hidden.
-            case Text text -> span(residual, spans, text.text(), text.argb(), "", text.bold(),
-                    text.italic(), text.underline() || text.strike());
-            case OpenUrl open -> span(residual, spans, open.label(), WHITE, open.url(), false, false,
-                    true);
+            case Text text -> span(residual, spans, text.text(), text.argb(), "", "",
+                    text.bold(), text.italic(), text.underline() || text.strike());
+            case OpenUrl open -> span(residual, spans, open.label(), WHITE, open.url(), "", false,
+                    false, true);
             case Substitute sub -> {
                 String resolved = substitute.apply(sub.key());
-                span(residual, spans, resolved == null ? "" : resolved, WHITE, "", false, false,
+                span(residual, spans, resolved == null ? "" : resolved, WHITE, "", "", false, false,
                         false);
             }
-            case JsonText json -> span(residual, spans, json.fallback(), WHITE, "", false, false,
-                    false);
+            case JsonText json -> span(residual, spans, json.fallback(), json.argb(), json.link(),
+                    json.quest(), json.bold(), json.italic(), json.underline());
             // An inline picture contributes no words: it is recorded with its offset above, and the
             // caller lays it out. Consumed rather than left as prose, because the alternative
             // is the raw token on screen.
@@ -222,13 +237,14 @@ public final class FtbText {
 
     /** Words plus the look that covers exactly them. Empty words record nothing. */
     private static void span(StringBuilder residual, List<Span> spans, String words, int argb,
-                             String link, boolean bold, boolean italic, boolean underline) {
+                             String link, String quest, boolean bold, boolean italic,
+                             boolean underline) {
         if (words.isEmpty()) {
             return;
         }
         int from = residual.length();
         residual.append(words);
-        spans.add(new Span(from, residual.length(), argb, link, bold, italic, underline));
+        spans.add(new Span(from, residual.length(), argb, link, quest, bold, italic, underline));
     }
 
     /** The look covering an index, or null where the residual has no words at all. */
@@ -344,7 +360,7 @@ public final class FtbText {
                 }
                 case JsonText json -> {
                     if (!json.fallback().isEmpty()) {
-                        runs.add(new InkRun(json.fallback(), WHITE, false));
+                        runs.add(new InkRun(json.fallback(), json.argb(), json.underline()));
                     }
                 }
                 default -> {
@@ -500,13 +516,14 @@ public final class FtbText {
      * <p>Adjacent words with the same look arrive as one {@link Text}: merging is what keeps a
      * sentence with one code in it two runs rather than a run per character. Rainbow text never
      * merges — each character carries its own ink — which is the honest cost of a gradient. A string
-     * that is a raw JSON component arrives as a single {@link JsonText} and nothing else.
+     * that is a raw JSON component arrives as one {@link JsonText} run per leaf, each with the look
+     * it inherits, and nothing else.
      */
     public static List<Segment> parse(String text) {
         Objects.requireNonNull(text, "text");
-        JsonText component = asComponent(text);
+        List<Segment> component = components(text);
         if (component != null) {
-            return List.of(component);
+            return component;
         }
         List<Segment> out = new ArrayList<>();
         StringBuilder words = new StringBuilder();
@@ -786,21 +803,21 @@ public final class FtbText {
     }
 
     /**
-     * Whether a string is a raw JSON text component, and its flattened words if so.
+     * A string that is a raw JSON text component, as its clickable runs, or null when prose.
      *
      * <p>Strict on purpose: an object must hold at least one of {@code text}, {@code translate} or
      * {@code extra} — anything else, including a brace a description uses as prose (which Gson's
-     * lenient reader would happily call an object), stays prose. An array must be non-empty. A
-     * component that parses but holds no words arrives with an empty fallback rather than failing,
-     * because a token the reader cannot draw is still a string the file was allowed to hold.
+     * lenient reader would happily call an object), stays prose. An array must be non-empty. Runs
+     * with no words are skipped rather than recorded, because a token the reader cannot draw is
+     * still a string the file was allowed to hold.
      */
-    static JsonText asComponent(String text) {
+    static List<Segment> components(String text) {
         String stripped = text.strip();
         if (stripped.length() < 2) {
             return null;
         }
-        char first = stripped.charAt(0);
-        if (first != '{' && first != '[') {
+        char open = stripped.charAt(0);
+        if (open != '{' && open != '[') {
             return null;
         }
         com.google.gson.JsonElement parsed;
@@ -824,40 +841,167 @@ public final class FtbText {
         else {
             return null;
         }
-        StringBuilder words = new StringBuilder();
-        flatten(parsed, words);
-        return new JsonText(stripped, words.toString().strip());
+        List<Segment> runs = new ArrayList<>();
+        collect(stripped, parsed, WHITE, false, false, false, "", "", runs);
+        if (!runs.isEmpty()) {
+            // The whole-component strip the old reader did, kept at the edges: a component that
+            // is all padding reads as nothing, and inner joins stay verbatim.
+            JsonText first = (JsonText) runs.get(0);
+            String leading = first.fallback().stripLeading();
+            if (leading.isEmpty()) {
+                runs.remove(0);
+            }
+            else if (leading.length() != first.fallback().length()) {
+                runs.set(0, withFallback(first, leading));
+            }
+        }
+        if (!runs.isEmpty()) {
+            JsonText last = (JsonText) runs.get(runs.size() - 1);
+            String trailing = last.fallback().stripTrailing();
+            if (trailing.isEmpty()) {
+                runs.remove(runs.size() - 1);
+            }
+            else if (trailing.length() != last.fallback().length()) {
+                runs.set(runs.size() - 1, withFallback(last, trailing));
+            }
+        }
+        return List.copyOf(runs);
     }
 
-    /** The visible words of a component, in order: {@code text}s, {@code translate} keys, extras. */
-    private static void flatten(com.google.gson.JsonElement element, StringBuilder words) {
+    /** One run with different words: the edge strip above, preserving the look. */
+    private static JsonText withFallback(JsonText run, String fallback) {
+        return new JsonText(run.raw(), fallback, run.link(), run.quest(), run.argb(), run.bold(),
+                run.italic(), run.underline());
+    }
+
+    /**
+     * One component subtree's clickable runs, in order, with the look runs inherit.
+     *
+     * <p>A child's colour, emphasis and click event win over its parent's; what neither names
+     * keeps the inherited look. That is vanilla's own rule, and matching it is what makes a
+     * converted video link the same blue rather than a nearby one.
+     */
+    private static void collect(String raw, com.google.gson.JsonElement element, int argb,
+                                boolean bold, boolean italic, boolean underline, String link,
+                                String quest, List<Segment> runs) {
         if (element == null || element.isJsonNull()) {
             return;
         }
         if (element.isJsonPrimitive()) {
             if (element.getAsJsonPrimitive().isString()) {
-                words.append(element.getAsString());
+                String words = element.getAsString();
+                if (!words.isEmpty()) {
+                    runs.add(new JsonText(raw, words, link, quest, argb, bold, italic, underline));
+                }
             }
             return;
         }
         if (element.isJsonArray()) {
             for (com.google.gson.JsonElement each : element.getAsJsonArray()) {
-                flatten(each, words);
+                collect(raw, each, argb, bold, italic, underline, link, quest, runs);
             }
             return;
         }
         com.google.gson.JsonObject object = element.getAsJsonObject();
+        int ink = object.has("color") && object.get("color").isJsonPrimitive()
+                ? colorOf(object.get("color").getAsString(), argb) : argb;
+        // Vanilla's key is `underlined`; `strikethrough` degrades the way `&m` does, and
+        // `obfuscated` has no run flag to land on, so it arrives as plain — both recorded.
+        boolean ownBold = flagOf(object, "bold", bold);
+        boolean ownItalic = flagOf(object, "italic", italic);
+        boolean ownUnderline = flagOf(object, "underlined", underline)
+                || flagOf(object, "strikethrough", false);
+        String ownLink = link;
+        String ownQuest = quest;
+        if (object.has("clickEvent") && object.get("clickEvent").isJsonObject()) {
+            com.google.gson.JsonObject event = object.getAsJsonObject("clickEvent");
+            String action = event.has("action") && event.get("action").isJsonPrimitive()
+                    ? event.get("action").getAsString() : "";
+            String value = event.has("value") && event.get("value").isJsonPrimitive()
+                    ? event.get("value").getAsString() : "";
+            if (action.equals("open_url") && !value.isEmpty() && !value.startsWith("docs:")) {
+                ownLink = value;
+                ownQuest = "";
+            }
+            else if (action.equals("change_page") && !value.isEmpty()) {
+                // FTB's repurposing: the value is a quest to open (`HEXID` or `HEXID/page`),
+                // never a book page — see the record note.
+                ownLink = "";
+                ownQuest = value;
+            }
+            else if (!action.isEmpty()) {
+                // A press Tenet has no reader for arrives as words with nowhere to press.
+                ownLink = "";
+                ownQuest = "";
+            }
+        }
         if (object.has("text")) {
-            flatten(object.get("text"), words);
+            collect(raw, object.get("text"), ink, ownBold, ownItalic, ownUnderline, ownLink,
+                    ownQuest, runs);
         }
         else if (object.has("translate")) {
             // A key with no fallback on hand: the key itself, which is what the game shows when a
             // translation is missing too.
             com.google.gson.JsonElement key = object.get("translate");
-            words.append(key.isJsonPrimitive() ? key.getAsString() : "");
+            String words = key.isJsonPrimitive() ? key.getAsString() : "";
+            if (!words.isEmpty()) {
+                runs.add(new JsonText(raw, words, ownLink, ownQuest, ink, ownBold, ownItalic,
+                        ownUnderline));
+            }
         }
         if (object.has("extra")) {
-            flatten(object.get("extra"), words);
+            collect(raw, object.get("extra"), ink, ownBold, ownItalic, ownUnderline, ownLink,
+                    ownQuest, runs);
         }
+    }
+
+    /** A vanilla colour name or {@code #RRGGBB}, or the inherited ink when it names neither. */
+    private static int colorOf(String name, int fallback) {
+        if (name != null) {
+            if (name.startsWith("#") && name.length() == 7 && isHex(name, 1, 6)) {
+                return 0xFF000000 | Integer.parseUnsignedInt(name.substring(1), 16);
+            }
+            int slot = switch (name.toLowerCase(java.util.Locale.ROOT)) {
+                case "black" -> 0;
+                case "dark_blue" -> 1;
+                case "dark_green" -> 2;
+                case "dark_aqua" -> 3;
+                case "dark_red" -> 4;
+                case "dark_purple" -> 5;
+                case "gold" -> 6;
+                case "gray" -> 7;
+                case "dark_gray" -> 8;
+                case "blue" -> 9;
+                case "green" -> 10;
+                case "aqua" -> 11;
+                case "red" -> 12;
+                case "light_purple" -> 13;
+                case "yellow" -> 14;
+                case "white" -> 15;
+                default -> -1;
+            };
+            if (slot >= 0) {
+                return PALETTE[slot];
+            }
+        }
+        return fallback;
+    }
+
+    /** A JSON true/false (or its string spelling) with the inherited flag when it names neither. */
+    private static boolean flagOf(com.google.gson.JsonObject object, String key, boolean inherited) {
+        if (!object.has(key) || !object.get(key).isJsonPrimitive()) {
+            return inherited;
+        }
+        com.google.gson.JsonPrimitive value = object.getAsJsonPrimitive(key);
+        if (value.isBoolean()) {
+            return value.getAsBoolean();
+        }
+        if (value.isString()) {
+            String word = value.getAsString().toLowerCase(java.util.Locale.ROOT);
+            if (word.equals("true") || word.equals("false")) {
+                return word.equals("true");
+            }
+        }
+        return inherited;
     }
 }

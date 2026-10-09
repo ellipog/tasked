@@ -113,7 +113,12 @@ the converter passes pack text through verbatim, and the tokens are a render-tim
   breaking the card.
 - `{open_url:...}` opens through the same http/https-only rule a markdown link uses, and
   `{substitute:key}` resolves against the locale overlay.
-- A whole paragraph that is a raw JSON text component reads its flattened words.
+- A whole paragraph that is a raw JSON text component reads its clickable runs: `open_url`
+  opens through the same http/https-only rule, and FTB's `change_page` — whose value FTB's own
+  reader treats as a quest to open rather than a book page — opens that quest by id or alias. Any
+  other click action reads as words with nowhere to press, and `docs:` addresses read the same
+  way: there is no guide shelf here. Colours and emphasis inherit down the component the way
+  vanilla reads them.
 - `\&` is a literal ampersand — which is also the rule for Tenet-native packs: `&` starts a colour
   code, FTB-style, so `R&B` reads as `R` and a literal one is written `\&`.
 

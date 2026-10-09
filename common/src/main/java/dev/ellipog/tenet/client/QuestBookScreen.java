@@ -585,8 +585,12 @@ public final class QuestBookScreen extends ArmatureScreen
                               List<FtbText.Span> spans, FtbText.PlacedImage image) {
     }
 
-    /** A link as it was drawn: its rectangle on screen, and where it goes. */
-    private record LinkRect(BookGeometry.Rect box, String url) {
+    /**
+     * A link as it was drawn: its rectangle on screen, and where it goes — a URL, a quest id,
+     * never both. A quest id is FTB's {@code change_page} repurposing, resolved by id or alias
+     * when it is pressed rather than when it is drawn.
+     */
+    private record LinkRect(BookGeometry.Rect box, String url, String quest) {
     }
 
     /**
@@ -22616,7 +22620,15 @@ public final class QuestBookScreen extends ArmatureScreen
     private void drawLinkTarget(GuiRenderer r, int mouseX, int mouseY) {
         for (LinkRect link : linkRects) {
             if (link.box().contains(mouseX, mouseY)) {
-                drawTooltip(r, List.of(link.url()), mouseX, mouseY);
+                if (link.quest().isEmpty()) {
+                    drawTooltip(r, List.of(link.url()), mouseX, mouseY);
+                }
+                else {
+                    // The quest's own title, where there is one: the reader wants where it goes.
+                    ClientQuestCache.Entry target = entryFor(link.quest());
+                    drawTooltip(r, List.of(target == null ? link.quest() : target.titleText()),
+                            mouseX, mouseY);
+                }
                 return;
             }
         }
@@ -23824,19 +23836,7 @@ public final class QuestBookScreen extends ArmatureScreen
         }
         ClickAction click = image.click();
         switch (click.type()) {
-            case OPEN_QUEST -> {
-                ClientQuestCache.Entry target = entryFor(click.data());
-                if (target == null) {
-                    status("No quest with id or alias \"" + click.data() + "\" to open", true);
-                    return;
-                }
-                // Through the entry's own id rather than the string in the file: `click.data` may be an
-                // alias, and opening by an alias works only as long as every lookup resolves one.
-                selectedQuest = target.id();
-                selectedElement = null;
-                multiSelection.clear();
-                openOverlay(target.id());
-            }
+            case OPEN_QUEST -> openQuest(click.data());
             // The description links' own opener, so a picture's URL and a sentence's URL are refused and
             // opened by one rule: http and https only, and a bad address says so.
             case OPEN_URI -> openLink(click.data());
@@ -23855,6 +23855,35 @@ public final class QuestBookScreen extends ArmatureScreen
             default -> {
             }
         }
+    }
+
+    /**
+     * A press naming a quest, by id or alias in any letter case: the book opens it, or says so.
+     *
+     * <p>One rule for a picture's {@code open_quest} click and a sentence's {@code change_page}:
+     * FTB's own reader treats the latter as the former, so this build does too. A press naming
+     * nothing is the validator's miss reaching the reader — a stale client, or a pack edited
+     * under one — and it is answered rather than silent, the second line of defence.
+     */
+    private void openQuest(String idOrAlias) {
+        String quest = idOrAlias == null ? "" : idOrAlias;
+        int page = quest.indexOf('/');
+        if (page >= 0) {
+            quest = quest.substring(0, page);
+        }
+        ClientQuestCache.Entry target = entryFor(quest);
+        if (target == null) {
+            status("No quest with id or alias \"" + idOrAlias + "\" to open", true);
+            return;
+        }
+        // Through the entry's own id rather than the string in the file: the press may name an
+        // alias, and opening by an alias works only as long as every lookup resolves one.
+        // A `change_page` value may carry FTB's `/page` suffix after its quest id; the card
+        // scrolls rather than pages, so the suffix is read and left behind.
+        selectedQuest = target.id();
+        selectedElement = null;
+        multiSelection.clear();
+        openOverlay(target.id());
     }
 
     /**
@@ -26854,8 +26883,8 @@ public final class QuestBookScreen extends ArmatureScreen
         for (FtbText.Span span : page.spans()) {
             if (span.start() < to && span.end() > from) {
                 spans.add(new FtbText.Span(Math.max(span.start(), from) - from,
-                        Math.min(span.end(), to) - from, span.argb(), span.link(), span.bold(),
-                        span.italic(), span.underline()));
+                        Math.min(span.end(), to) - from, span.argb(), span.link(), span.quest(),
+                        span.bold(), span.italic(), span.underline()));
             }
         }
         for (RichText.Paragraph block : RichText.parse(chunk)) {
@@ -26951,9 +26980,11 @@ public final class QuestBookScreen extends ArmatureScreen
                     boolean italic = piece.italic() || (look != null && look.italic());
                     String link = piece.link() != null ? piece.link()
                             : look == null || look.link().isEmpty() ? null : look.link();
-                    boolean underline = link != null || (look != null && look.underline());
+                    String quest = look == null || look.quest().isEmpty() ? null : look.quest();
+                    boolean underline =
+                            link != null || quest != null || (look != null && look.underline());
                     int width = r.styledWidth(piece.text(), bold, italic, piece.scale());
-                    BookGeometry.Rect box = link == null ? null
+                    BookGeometry.Rect box = link == null && quest == null ? null
                             : BookGeometry.Rect.at(x, lineY, width, advance);
                     boolean hot = box != null && box.contains(mouseX, mouseY);
                     int colour;
@@ -26973,7 +27004,8 @@ public final class QuestBookScreen extends ArmatureScreen
                     r.styledText(List.of(new GuiRenderer.StyledRun(piece.text(), bold, italic,
                             underline, piece.scale())), x, lineY, colour);
                     if (box != null) {
-                        linkRects.add(new LinkRect(box, link));
+                        linkRects.add(new LinkRect(box, link == null ? "" : link,
+                                quest == null ? "" : quest));
                     }
                     x += width;
                     offset += piece.text().length();
@@ -29210,7 +29242,12 @@ public final class QuestBookScreen extends ArmatureScreen
         pressedLink = null;
         if (button == 0 && link != null) {
             if (link.box().contains(mouseX, mouseY)) {
-                openLink(link.url());
+                if (!link.url().isEmpty()) {
+                    openLink(link.url());
+                }
+                else if (!link.quest().isEmpty()) {
+                    openQuest(link.quest());
+                }
             }
             return true;
         }
