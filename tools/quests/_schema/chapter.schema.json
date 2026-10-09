@@ -25,7 +25,7 @@
       "description": "Paragraphs. A bare string is also accepted, for a one-line description."
     },
     "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
-    "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+    "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
 
     "progressionMode": {
       "enum": ["flexible", "linear"],
@@ -41,6 +41,11 @@
       "type": "boolean",
       "default": false,
       "description": "Whether item tasks in this chapter take the items unless the task says otherwise. The inherited default, which is why it lives here: an author sets it once for a whole trade chapter."
+    },
+    "defaultFlexibleProgress": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this chapter's quests may work their tasks before their dependencies are met, unless a quest says otherwise. Either this or a quest's flexibleProgress makes the quest flexible. Do not confuse with progressionMode, which chains the quest list in order."
     },
     "autoClaim": {
       "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
@@ -108,6 +113,12 @@
       "type": "array",
       "items": { "$ref": "#/definitions/element" },
       "description": "What is drawn on this chapter's canvas besides its quests: pictures, labels, lines and boxes. Decoration in every sense - an element holds no progress, gates nothing and is never counted for this chapter's completion, and all of them draw beneath the quest nodes. Each element's `type` chooses which of the fields in the definition below apply to it."
+    },
+
+    "links": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/link" },
+      "description": "Markers pointing at other quests: each draws in the node layer with its target's state and icon, and pressing it opens that quest, switching chapters when the quest lives elsewhere. A link holds no progress, gates nothing and is never counted for this chapter's completion; no dependency, gate or milestone may name one."
     }
   },
 
@@ -333,6 +344,11 @@
           "default": false,
           "description": "image: turn about this element's own top-left corner instead of its centre. FTB Quests calls this alignToCorner, and it is what a logo pinned by its corner needs - the two pivots are visibly different pictures."
         },
+        "locked": {
+          "type": "boolean",
+          "default": false,
+          "description": "image: pin the picture against the editor's drag - grips and moves leave it where it is. Readers are unaffected. FTB Quests calls this position_locked, and the migration tool maps it onto this key."
+        },
         "image": { "$ref": "#/definitions/imageSource" },
         "tint": {
           "type": ["string", "integer"],
@@ -450,18 +466,55 @@
     },
 
     "click": {
-      "description": "What pressing an element does. All seven names FTB Quests can write are readable here, and the four this build cannot run - run_command, custom_event, show_recipe, show_docs - are reported as errors naming them, because a click that silently does nothing reads as a bug in the mod rather than as a gap in it.",
+      "description": "What pressing an element does. All seven names FTB Quests can write are readable here, and all seven run: a command through the server's dispatcher, an event through the script bus, a recipe through a viewer, a guide page as a message, a quest or a page straight.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "type": {
           "enum": ["none", "open_quest", "open_uri", "run_command", "custom_event", "show_recipe", "show_docs"],
           "default": "none",
-          "description": "What a press does. none is an element that is not pressable; open_quest opens another quest by id or alias; open_uri opens an http or https address in the browser. The other four are readable and refused, so that a converted pack is told what it is losing rather than left with a dead button."
+          "description": "What a press does. none is an element that is not pressable; open_quest opens another quest by id or alias; open_uri opens an http or https address in the browser; show_recipe opens the item's recipes in a viewer, or says there is none installed; show_docs names a guide page, which has no integration and answers with a message; run_command runs server-side as the pressing player at the pack's level; custom_event fires a script event by id."
         },
         "data": {
           "type": "string",
-          "description": "What the action acts on: a quest id or alias for open_quest, an http or https URL for open_uri. Unused by none."
+          "description": "What the action acts on: a quest id or alias for open_quest, an http or https URL for open_uri, an item id for show_recipe, mod and book for show_docs, a command for run_command, an event id for custom_event. Unused by none."
+        }
+      }
+    },
+
+    "link": {
+      "description": "One marker pointing at another quest. Drawn in the node layer with the target's state and icon; pressing it opens that quest. A link is never counted for its chapter's completion and no dependency, gate or milestone may name one.",
+      "type": "object",
+      "required": ["id", "quest"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id",
+          "description": "Unique within this chapter, and never equal to any quest, chapter or group id or alias: two nodes addressed by one name means a press opens whichever the lookup finds first."
+        },
+        "quest": {
+          "type": "string",
+          "description": "The target quest, by id or alias, in any chapter. A name that resolves to nothing is reported at load, because the link would then mirror nothing and its press would do nothing. FTB Quests calls this linked_quest, and the migration tool maps it onto this key."
+        },
+        "x": {
+          "type": "integer",
+          "description": "The left edge in canvas pixels, measured the same way a quest node's `x` is. The migration tool converts FTB's centre-based doubles to this corner."
+        },
+        "y": {
+          "type": "integer",
+          "description": "The top edge in canvas pixels."
+        },
+        "shape": {
+          "enum": ["rounded", "square", "circle", "diamond", "hexagon", "octagon", "pentagon", "gear", "heart", "tome", "star", "none"],
+          "default": "rounded",
+          "description": "The node's shape. Absent draws as the target quest does."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 512,
+          "default": 48,
+          "description": "The node's size in pixels, 16 to 512. Absent draws at the target quest's size."
         }
       }
     },
@@ -470,6 +523,12 @@
       "type": "string",
       "pattern": "^[a-z0-9_]{1,64}$",
       "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]{1,64}$",
+      "description": "A former id, in any letter case. Lookups ignore case, so an uppercase alias resolves the same chapter; ids themselves stay lowercase."
     },
 
     "name": {

@@ -20,7 +20,7 @@
       "description": "One string per paragraph. Separate from a single newline-containing string on purpose: a wall of text is what FTB Quests' one-string descriptions become."
     },
     "icon": { "$ref": "#/definitions/itemRef", "description": "Defaults to paper if absent." },
-    "aliases": { "type": "array", "items": { "$ref": "#/definitions/id" } },
+    "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
 
     "dependsOn": {
       "type": "array",
@@ -76,6 +76,16 @@
       "type": "boolean",
       "default": false,
       "description": "Tasks must be done in order: the second cannot be handed in until the first is."
+    },
+    "optional": {
+      "type": "boolean",
+      "default": false,
+      "description": "This quest does not gate its dependants: they count it as neither satisfied nor required, so it neither helps nor blocks them. Dependency lines from it are still drawn. For side quests and branches nothing waits for."
+    },
+    "flexibleProgress": {
+      "type": "boolean",
+      "default": false,
+      "description": "Tasks may be worked on before this quest's dependencies are met; completion waits for them. Either this or the chapter's defaultFlexibleProgress makes the quest flexible. Do not confuse with the chapter's progressionMode, which chains the quest list in order."
     },
     "autoClaim": {
       "enum": ["default", "disabled", "enabled", "no_toast", "invisible"],
@@ -261,6 +271,12 @@
       "type": "string",
       "pattern": "^[a-z0-9_]{1,64}$",
       "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]{1,64}$",
+      "description": "A former id, in any letter case. Lookups ignore case, so an uppercase alias resolves the same quest; ids themselves stay lowercase."
     },
 
     "namespacedId": {

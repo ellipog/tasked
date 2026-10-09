@@ -159,8 +159,13 @@ public final class ElementPanelLayout {
             }
             case CanvasElement.TYPE_IMAGE -> {
                 section(rows, id, "position", "tenet.dev.element.section.position", folded,
-                        inner -> pairNumber(inner, element, id, "x", "tenet.dev.element.x",
-                                "y", "tenet.dev.element.y"));
+                        inner -> {
+                            pairNumber(inner, element, id, "x", "tenet.dev.element.x",
+                                    "y", "tenet.dev.element.y");
+                            // Pinned beside the coordinates it protects: a lock anywhere else would read
+                            // as a property of the picture rather than of where it sits.
+                            flag(inner, element, id, "locked", "tenet.dev.element.locked");
+                        });
                 section(rows, id, "size", "tenet.dev.element.section.size", folded,
                         inner -> pairNumber(inner, element, id, "width", "tenet.dev.element.width",
                                 "height", "tenet.dev.element.height"));
@@ -636,6 +641,7 @@ public final class ElementPanelLayout {
             Map.entry("height", "tenet.dev.element.help.size"),
             Map.entry("rotation", "tenet.dev.element.help.rotation"),
             Map.entry("corner", "tenet.dev.element.help.corner"),
+            Map.entry("locked", "tenet.dev.element.help.locked"),
             Map.entry("alpha", "tenet.dev.element.help.alpha"),
             Map.entry("order", "tenet.dev.element.help.order"),
             Map.entry("dev", "tenet.dev.element.help.dev"),

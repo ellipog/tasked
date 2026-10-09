@@ -38,7 +38,8 @@ import java.util.Set;
  */
 public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTeamReward,
                             boolean suppressAllAutoclaiming, int detectionDelay,
-                            String bookTitle, String bookIcon, String fallbackLocale) {
+                            String bookTitle, String bookIcon, String fallbackLocale,
+                            int clickCommandLevel) {
 
     /**
      * What a tree that says nothing gets.
@@ -54,12 +55,12 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      * strings are in. See {@link QuestLanguages}.
      */
     public static final QuestSettings DEFAULTS =
-            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", "", "en_us");
+            new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", "", "en_us", 0);
 
     /** The field names, for the validator and the schema. */
     public static final Set<String> FIELDS =
             Set.of("defaultAutoClaim", "defaultTeamReward", "suppressAllAutoclaiming", "detectionDelay",
-                    "bookTitle", "bookIcon", "fallbackLocale");
+                    "bookTitle", "bookIcon", "fallbackLocale", "clickCommandLevel");
 
     public static final MapCodec<QuestSettings> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardAutoClaim.CODEC.optionalFieldOf("defaultAutoClaim", RewardAutoClaim.DISABLED)
@@ -72,7 +73,13 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
             Codec.STRING.optionalFieldOf("bookIcon", "").forGetter(QuestSettings::bookIcon),
             // Read through the same normalisation the loader uses, so an author who writes
             // "en-US" gets the locale the files are keyed by rather than one that never matches.
-            Codec.STRING.optionalFieldOf("fallbackLocale", "en_us").forGetter(QuestSettings::fallbackLocale)
+            Codec.STRING.optionalFieldOf("fallbackLocale", "en_us").forGetter(QuestSettings::fallbackLocale),
+            // What a canvas click's command runs as: the player's own level, or elevated. Never above
+            // 2, and never the presser's own level however high that is -- a click that escalated its
+            // presser would be a privilege boundary drawn in the wrong place. File-only, like the
+            // detection delay: it is read by the server that runs the command, and no client draws it.
+            Codec.intRange(0, 2).optionalFieldOf("clickCommandLevel", 0)
+                    .forGetter(QuestSettings::clickCommandLevel)
     ).apply(instance, QuestSettings::new));
 
     /**

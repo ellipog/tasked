@@ -419,6 +419,11 @@ public final class QuestSettingsLayout {
         rows.add(new Row("minRequired", Row.Kind.NUMBER, "tenet.dev.quest.min_required"));
         rows.add(new Row("maxCompletableDependents", Row.Kind.NUMBER, "tenet.dev.quest.max_dependents"));
         rows.add(new Row("exclusiveGroup", Row.Kind.FIELD, "tenet.dev.quest.exclusive_group"));
+        // Beside the other dependency rules rather than behind Advanced: this is the side quest, and
+        // a converted pack sets it hundreds of times. Burying the most-used migration flag would be
+        // the editor hiding exactly what an author is looking for.
+        rows.add(switchRow("optional", "tenet.dev.quest.optional"));
+        rows.add(switchRow("flexibleProgress", "tenet.dev.quest.flexible_progress"));
         // **The three sections Normal mode puts away, each gated where it is written.** One `if` around a
         // block rather than a key per row, because a section is what is being hidden -- and because the
         // block is the only place that knows where the section ends. See `Advanced` for the cut and for why

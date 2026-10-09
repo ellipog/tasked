@@ -64,6 +64,11 @@ public record ItemTagTask(TaskCommon common, ResourceLocation tag, int count,
         }
 
         @Override
+        public boolean readsInventory() {
+            return true;
+        }
+
+        @Override
         public int current(ItemTagTask task, TaskContext context) {
             TagKey<Item> tag = TagKey.create(Registries.ITEM, task.tag());
             return ItemCounting.countIn(context.player().getInventory(), tag, task.count());

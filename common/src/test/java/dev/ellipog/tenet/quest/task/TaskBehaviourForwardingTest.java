@@ -66,4 +66,29 @@ class TaskBehaviourForwardingTest {
         assertFalse(through.waitsForSubmit(task, true),
                 "and the tick registers it: declining the chapter's default is the whole point of the field");
     }
+
+    @Test
+    @DisplayName("only the inventory-backed types read the inventory, through the registry")
+    void readsInventorySurvivesTheWrapper() {
+        // The pack's detection_delay floors exactly these types' re-evaluation. A type missing
+        // here keeps its own cadence whatever the pack says; a type wrongly present here is
+        // throttled for no reason. Pinned through behaviourOf, the engine's only door.
+        assertTrue(TaskTypes.behaviourOf(itemTask(Optional.empty())).orElseThrow().readsInventory(),
+                "item tasks count carried items");
+        assertTrue(TaskTypes.behaviourOf(new ItemTagTask(TaskCommon.DEFAULT,
+                        ResourceLocation.withDefaultNamespace("logs"), 1, Optional.empty()))
+                        .orElseThrow().readsInventory(),
+                "item-tag tasks count carried items");
+        assertTrue(TaskTypes.behaviourOf(new FluidTask(TaskCommon.DEFAULT,
+                        ResourceLocation.withDefaultNamespace("water"), 1000))
+                        .orElseThrow().readsInventory(),
+                "fluid tasks count carried buckets");
+        assertFalse(TaskTypes.behaviourOf(new StatTask(TaskCommon.DEFAULT,
+                        ResourceLocation.withDefaultNamespace("walk_one_cm"), 100))
+                        .orElseThrow().readsInventory(),
+                "a stat lookup is not an inventory walk");
+        assertFalse(TaskTypes.behaviourOf(new XpTask(TaskCommon.DEFAULT, 30, false))
+                        .orElseThrow().readsInventory(),
+                "nor is an XP level read");
+    }
 }

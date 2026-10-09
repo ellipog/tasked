@@ -145,17 +145,19 @@ class ChapterPanelLayoutTest {
         List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), Set.of());
 
         assertEquals(List.of(ChapterPanelLayout.IDENTITY, ChapterPanelLayout.RULES,
-                        ChapterPanelLayout.QUESTS),
+                        ChapterPanelLayout.LINKS, ChapterPanelLayout.QUESTS),
                 rows.stream().filter(ToolsLayout.Action::isHeading).map(ToolsLayout.Action::key).toList(),
                 "one heading per section, in the order an author reads them");
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
                         ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
-                        "progressionMode", "defaultConsumeItems", "defaultPrerequisiteMode", "autoClaim",
+                        "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress",
+                        "defaultPrerequisiteMode", "autoClaim",
                         "prerequisiteMode", "minRequired", "dependsOn", "completesWhen",
                         "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
                         "defaultHideUntilDependenciesVisible",
                         "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
-                        "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight"),
+                        "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight",
+                        dev.ellipog.tenet.client.dev.LinkPanelLayout.ADD_LINK),
                 rows.stream().filter(row -> !row.isHeading()
                                 && !row.key().startsWith(ChapterPanelLayout.VALUE_PREFIX + "quest:"))
                         .map(ToolsLayout.Action::key).toList(),
@@ -544,7 +546,7 @@ class ChapterPanelLayoutTest {
         List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(chapter(), group, Set.of());
 
         assertEquals(List.of(ChapterPanelLayout.IDENTITY, ChapterPanelLayout.RULES,
-                        ChapterPanelLayout.GROUP, ChapterPanelLayout.QUESTS),
+                        ChapterPanelLayout.GROUP, ChapterPanelLayout.LINKS, ChapterPanelLayout.QUESTS),
                 rows.stream().filter(ToolsLayout.Action::isHeading).map(ToolsLayout.Action::key).toList(),
                 "the group's section sits between the rules and the quest list, ahead of the scroll");
         assertEquals(List.of("group.title", "group.icon.item", "group.collapsedByDefault"),

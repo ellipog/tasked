@@ -105,6 +105,19 @@ public interface TaskBehaviour<T> {
     }
 
     /**
+     * Whether this task is answered by reading inventories.
+     *
+     * <p>Only the tasks that count carried items say so: item, item-tag and fluid tasks. The
+     * engine floors their re-evaluation interval at the pack's {@code detectionDelay} — FTB
+     * Quests' minimum ticks between inventory checks — so a pack that polls inventory every sixty
+     * ticks does not pay for a task that asked every twenty. Every other type keeps its own
+     * cadence whatever the pack says: a stat lookup is not an inventory walk.
+     */
+    default boolean readsInventory() {
+        return false;
+    }
+
+    /**
      * Taken when the task is satisfied: up to {@code count} of whatever it asks for, from this player,
      * answering how much was actually taken.
      *

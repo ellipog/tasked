@@ -314,6 +314,88 @@ class QuestIndexTest {
         }
     }
 
+    @Nested
+    @DisplayName("case-insensitive lookup")
+    class CaseInsensitiveLookup {
+
+        @Test
+        @DisplayName("an id, an alias and every case mix of either resolve the same quest")
+        void everyCaseMixResolvesTheSameQuest() {
+            // FTB Quests ids are uppercase hexadecimal and FTB never cared about case, so neither
+            // does the lookup: the table is keyed by the lowercased name, and each entry keeps its
+            // own id for display, storage and progress.
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, Fixtures.file(
+                    q("myquest").alias("OldName").build()));
+
+            assertTrue(!problems.hasErrors(), "nothing here is a clash:" + messages(problems));
+            for (String spelling : new String[] {"myquest", "MYQUEST", "MyQuest", "mYqUeSt",
+                    "oldname", "OLDNAME", "OldName", "oLdNaMe"}) {
+                assertEquals("myquest", index.quest(spelling).orElseThrow().quest().id(),
+                        "spelling " + spelling + " should resolve");
+            }
+        }
+
+        @Test
+        @DisplayName("a dependency written in another case resolves")
+        void dependencyInAnotherCaseResolves() {
+            // The validator still requires lowercase dependency strings, so this file would hear
+            // about that there; the index's job is only to not break the reference.
+            Problems problems = problemsOf(Fixtures.file(
+                    q("myquest").build(),
+                    q("b").dependsOn("MYQUEST").build()));
+
+            assertDoesNotMention(problems, "no quest with id or alias");
+        }
+
+        @Test
+        @DisplayName("two names differing only in case on two quests are a clash naming the other")
+        void caseOnlyClashIsAnError() {
+            // Normalisation must not loosen duplicate detection: a lookup of "abc" would be
+            // ambiguous, and it never picks a winner.
+            Problems problems = problemsOf(Fixtures.file(
+                    q("abc").build(),
+                    q("def").alias("ABC").build()));
+
+            assertTrue(problems.hasErrors(), "a case-only clash is fatal:" + messages(problems));
+            assertMentions(problems, "is already used by another quest");
+        }
+
+        @Test
+        @DisplayName("an alias differing from its own id only in case says so")
+        void aliasMatchingOwnIdInAnotherCaseIsAnError() {
+            // It names nothing the id does not already name, so it is an error rather than dead
+            // weight: a file carrying it is a file somebody will "fix" by pointing at it.
+            Problems problems = problemsOf(Fixtures.file(
+                    q("abc").alias("ABC").build()));
+
+            assertTrue(problems.hasErrors(), "a no-op alias is fatal:" + messages(problems));
+            assertMentions(problems, "differs from this quest's own id only in case");
+        }
+
+        @Test
+        @DisplayName("a self-dependency in another case is still a self-dependency")
+        void selfDependencyInAnotherCaseIsAnError() {
+            Problems problems = problemsOf(Fixtures.file(
+                    q("loop").dependsOn("LOOP").build()));
+
+            assertTrue(problems.hasErrors(), "a self-dependency never unlocks:");
+            assertMentions(problems, "depends on itself");
+        }
+
+        @Test
+        @DisplayName("chapters resolve in any case too")
+        void chaptersResolveInAnyCase() {
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems,
+                    Fixtures.fileWithChapter("\"id\": \"my_chapter\",", q("a").build()));
+
+            assertTrue(!problems.hasErrors(), "nothing here is a clash:" + messages(problems));
+            assertTrue(index.chapter("MY_CHAPTER").isPresent(), "the chapter should resolve");
+            assertTrue(index.chapter("My_Chapter").isPresent(), "in any case mix");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Dependencies
     // ------------------------------------------------------------------
@@ -481,6 +563,99 @@ class QuestIndexTest {
             // fifth element type would have to keep: a gate reads a quest's state and changes nothing.
             Problems problems = problemsOf(chapterWithElements(
                     "[ { \"type\": \"rect\", \"id\": \"box\", \"requires\": \"a\" } ]"));
+
+            assertFalse(problems.hasErrors(), messages(problems));
+            assertDoesNotMention(problems, "dependsOn");
+            assertDoesNotMention(problems, "completed");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Quest links
+    // ------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("a link's target")
+    class LinkTargets {
+
+        /** A chapter carrying a link list, with one quest so the file is not otherwise odd. */
+        private static String chapterWithLinks(String links) {
+            return Fixtures.fileWithChapter("\"links\": " + links + ",", q("a").build());
+        }
+
+        @Test
+        @DisplayName("a target that names no quest is an error, with the consequence spelled out")
+        void unresolvedTargetIsAnError() {
+            // The cross-file half, and the one an author cannot see from the chapter they are editing:
+            // the target may live in a chapter they have never opened.
+            Problems problems = problemsOf(chapterWithLinks(
+                    "[ { \"id\": \"gate_hint\", \"quest\": \"nowhere\" } ]"));
+
+            assertTrue(problems.hasErrors(), "a link with no target:");
+            assertMentions(problems, "no quest with id or alias \"nowhere\" exists");
+            assertMentions(problems, "pressing it would do nothing");
+            assertTrue(problems.all().stream()
+                            .anyMatch(problem -> problem.path().contains("links[0].quest")),
+                    "named at its own path: " + messages(problems));
+        }
+
+        @Test
+        @DisplayName("a near miss suggests the id that was probably meant")
+        void unresolvedTargetSuggestsANearMiss() {
+            Problems problems = problemsOf(Fixtures.fileWithChapter(
+                    "\"links\": [ { \"id\": \"gate_hint\", \"quest\": \"punch_a_tre\" } ],",
+                    q("punch_a_tree").build()));
+
+            assertMentions(problems, "did you mean \"punch_a_tree\"?");
+        }
+
+        @Test
+        @DisplayName("a target resolves, by id or by alias")
+        void resolvedTargetIsClean() {
+            Problems problems = problemsOf(Fixtures.fileWithChapter(
+                    "\"links\": [ { \"id\": \"gate_hint\", \"quest\": \"old_name\" } ],",
+                    q("renamed").alias("old_name").build()));
+
+            assertFalse(problems.hasErrors(), "an alias should resolve:" + messages(problems));
+            assertDoesNotMention(problems, "no quest with id or alias");
+        }
+
+        @Test
+        @DisplayName("a link's id must not shadow a quest, or a press opens the wrong node")
+        void linkIdMayNotShadowAQuest() {
+            // The shape every converted pack takes: sixteen hex digits either side. Without this a
+            // canvas addresses two nodes by one name, and the press opens whichever the lookup
+            // finds first — a fault with no visible cause, since both spellings are plausible.
+            Problems problems = problemsOf(chapterWithLinks(
+                    "[ { \"id\": \"a\", \"quest\": \"a\" } ]"));
+
+            assertTrue(problems.hasErrors(), "a link sharing its target's name:");
+            assertMentions(problems, "must not equal any quest, chapter or group id or alias");
+            assertMentions(problems, "\"a\" names the quest \"a\"");
+        }
+
+        @Test
+        @DisplayName("a link id is not a quest, so a target can never find one")
+        void aLinkIdIsNotAQuest() {
+            // The trap the resolution check exists for, from the other side: a target naming a link
+            // would silently point at a marker, and the link would mirror nothing. Only quests
+            // resolve.
+            Problems problems = problemsOf(chapterWithLinks(
+                    "[ { \"id\": \"marker\", \"quest\": \"a\" },"
+                            + " { \"id\": \"echo\", \"quest\": \"marker\" } ]"));
+
+            assertTrue(problems.hasErrors(), "a target naming a link:");
+            assertMentions(problems, "no quest with id or alias \"marker\" exists");
+        }
+
+        @Test
+        @DisplayName("a link is never counted for a chapter's completion, however it points")
+        void linksAreNotProgress() {
+            // The property that lets the editor classify every link edit as cosmetic, and the one a
+            // link with ambitions would have to keep: a marker reads a quest's state and changes
+            // nothing. Pinned beside the elements' own case, which says the same for decorations.
+            Problems problems = problemsOf(chapterWithLinks(
+                    "[ { \"id\": \"gate_hint\", \"quest\": \"a\" } ]"));
 
             assertFalse(problems.hasErrors(), messages(problems));
             assertDoesNotMention(problems, "dependsOn");

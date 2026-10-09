@@ -137,6 +137,9 @@ public final class Advanced {
             "order", "rotation", "corner", "tint", "alpha",
             // Whether a reader sees it at all, and what it waits for.
             "dev", "requires",
+            // Whether the editor's drag may move it. Advanced for the same reason `dev` is: pinning
+            // is something an author reaches for once a layout is done, not while placing it.
+            "locked",
             // A refinement of the border an author already gave the box.
             "borderWidth",
             // The words painted into a picture, and every property of them the form offers -- the inset and
@@ -247,6 +250,27 @@ public final class Advanced {
         return !on() && field != null && ELEMENT_KEYS.contains(field);
     }
 
+    /**
+     * Whether one of the Chapter tab's link rows is hidden at this depth.
+     *
+     * <p>The cut is the same rule the elements keep: what a link <b>is</b> is basic — its target, where
+     * it sits, how to point it and where it goes — and what qualifies its drawing is Advanced. A link
+     * has six rows and two of them are refinements, so the shallow form is the working form rather
+     * than a locked one.
+     */
+    public static boolean hidesLink(String field) {
+        return !on() && field != null && LINK_KEYS.contains(field);
+    }
+
+    /**
+     * The link fields Normal mode puts away: the shape and the size.
+     *
+     * <p>Refinements of the drawing an author already placed, and for the same reason the element's
+     * tint and rotation are Advanced: a marker that points at the right quest in the wrong shape is
+     * a finished job with a nicer shape available, not an unfinished one.
+     */
+    private static final Set<String> LINK_KEYS = Set.of("shape", "size");
+
     // ------------------------------------------------------------------
     // What the cut is, for the test that keeps it honest
     // ------------------------------------------------------------------
@@ -269,5 +293,10 @@ public final class Advanced {
     /** Every canvas element field this depth hides, by the name {@link #hidesElement} reads. */
     public static Set<String> elementKeys() {
         return ELEMENT_KEYS;
+    }
+
+    /** Every quest link field this depth hides, by the name {@link #hidesLink} reads. */
+    public static Set<String> linkKeys() {
+        return LINK_KEYS;
     }
 }

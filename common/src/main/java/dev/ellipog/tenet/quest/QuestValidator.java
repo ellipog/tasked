@@ -96,7 +96,8 @@ public final class QuestValidator {
     private static final Set<String> QUEST_FIELDS = union(
             union(Set.of(
                     "id", "title", "subtitle", "description", "icon", "aliases", "dependsOn",
-                    "dependencyLines", "prerequisiteMode", "minRequired", "tasks", "rewards"),
+                    "dependencyLines", "prerequisiteMode", "minRequired", "flexibleProgress",
+                    "tasks", "rewards"),
                     QuestLayout.FIELDS),
             QuestRules.FIELDS);
 
@@ -457,6 +458,11 @@ public final class QuestValidator {
         if (document.has(path + ".defaultConsumeItems")) {
             Checks.optionalBool(document, path + ".defaultConsumeItems", problems);
         }
+        // The chapter default for early task progress: a quest that says nothing about
+        // flexibleProgress follows this. Either true makes the quest flexible.
+        if (document.has(path + ".defaultFlexibleProgress")) {
+            Checks.optionalBool(document, path + ".defaultFlexibleProgress", problems);
+        }
         // The chapter rung of the auto-claim ladder, on the chapter walk. Checked like every other
         // closed set, so a typo is reported here rather than silently deferring to the pack setting.
         if (document.has(path + ".autoClaim")) {
@@ -544,6 +550,11 @@ public final class QuestValidator {
         // state, and the one an author is most likely to be editing while the elements are wrong.
         checkElements(document, path + ".elements", problems);
 
+        // And the chapter's markers, for the same reason and in the same place: a link is not a quest,
+        // so the quest walk below never sees one, and a chapter of nothing but links is still a file
+        // an author can get wrong.
+        checkLinks(document, path + ".links", problems);
+
         if (!document.has(path + ".quests")) {
             problems.warn(document, path, "no \"quests\" - this chapter is empty");
             return;
@@ -608,6 +619,17 @@ public final class QuestValidator {
         }
         if (document.has(path + ".sequentialTasks")) {
             Checks.optionalBool(document, path + ".sequentialTasks", problems);
+        }
+        // Whether the quest gates its dependants. False is the rule; true is the side quest that
+        // nothing waits for. Read by the engine, so a typo here would silently gate — the drift the
+        // closed-set checks prevent.
+        if (document.has(path + ".optional")) {
+            Checks.optionalBool(document, path + ".optional", problems);
+        }
+        // Whether tasks may be worked on before dependencies are met. False defers to the chapter's
+        // default; either true makes the quest flexible. Same closed set, same reason.
+        if (document.has(path + ".flexibleProgress")) {
+            Checks.optionalBool(document, path + ".flexibleProgress", problems);
         }
         if (document.has(path + ".showTitle")) {
             Checks.optionalBool(document, path + ".showTitle", problems);
@@ -1600,6 +1622,10 @@ public final class QuestValidator {
         // `rotation` is deliberately absent: the codec wraps it, so every whole number is a legal turn and
         // there is nothing to be out of range. See Codecs.wrappedInt for why wrapping rather than clamping
         // is the only reading of an angle that is not a lie.
+        // `corner` needs no check either: a boolean is a boolean, and anything else fails the codec with
+        // the file's own line. `locked` is the same shape with one thing worth saying — it must be a real
+        // boolean rather than a truthy word — so it is checked like the label's flags.
+        Checks.optionalBool(document, at + ".locked", problems);
         checkColour(document, at + ".tint", problems);
         checkText(document, at + ".title", problems);
         checkClick(document, at + ".click", problems);
@@ -1634,6 +1660,82 @@ public final class QuestValidator {
                 CanvasElement.Rect.MAX_BORDER, problems);
         checkColour(document, at + ".fillColor", problems);
         checkColour(document, at + ".borderColor", problems);
+    }
+
+    /**
+     * Everything wrong with a chapter's {@code links}.
+     *
+     * <h2>Shape here, resolution in the index</h2>
+     *
+     * <p>Like the elements above it: this walk can say whether each link names its fields well, and
+     * only the post-assembly pass can say whether the quest it points at exists. A link id has to be
+     * unique within its chapter, which is the check only this walk can make; whether it collides
+     * with a <i>quest</i> is a question about the whole tree, so that half lives in
+     * {@code QuestIndex} beside the dangling-target check.
+     */
+    private static void checkLinks(JsonDocument document, String path, Problems problems) {
+        if (!document.has(path)) {
+            return;
+        }
+        JsonElement raw = document.get(path).orElse(null);
+        if (raw == null || !raw.isJsonArray()) {
+            problems.error(document, path, "expected a list of links, found " + Checks.kindOf(raw)
+                    + ". Each entry names a quest with \"quest\", by id or alias.");
+            return;
+        }
+        com.google.gson.JsonArray links = raw.getAsJsonArray();
+        Set<String> ids = new LinkedHashSet<>();
+        for (int i = 0; i < links.size(); i++) {
+            checkLink(document, path + "[" + i + "]", links.get(i), ids, problems);
+        }
+    }
+
+    /** One link: its fields first, because only known fields are checkable at all. */
+    private static void checkLink(JsonDocument document, String at, JsonElement entry,
+                                  Set<String> ids, Problems problems) {
+        if (entry == null || !entry.isJsonObject()) {
+            problems.error(document, at, "expected a link object, found " + Checks.kindOf(entry));
+            return;
+        }
+        Checks.rejectUnknown(document, at, QuestLink.FIELDS, problems);
+
+        // Present, well shaped, and not already used in this chapter. The charset is the same rule
+        // a quest's id gets — one answer to "what is an id" — and the uniqueness half is the check
+        // only this walk can make: a link's id is what an edit names it by, so two links sharing
+        // one is a file in which the second can never be addressed.
+        Optional<String> id = Checks.id(document, at + ".id", problems);
+        if (id.isPresent() && !ids.add(id.get())) {
+            problems.error(document, at + ".id", "two links in this chapter share the id \"" + id.get()
+                    + "\" - a link's id has to be unique within its chapter, because it is what an"
+                    + " edit names it by");
+        }
+
+        Checks.string(document, at + ".quest", problems).ifPresent(name -> {
+            if (name.isBlank()) {
+                problems.error(document, at + ".quest", "\"quest\" is a quest's id or alias, and this"
+                        + " one is empty - remove the link to draw nothing, or name its target");
+            }
+        });
+
+        if (document.has(at + ".shape")) {
+            Checks.optionalString(document, at + ".shape", problems)
+                    .ifPresent(name -> checkEnum(document, at + ".shape", name, QuestShape.class,
+                            problems));
+        }
+        if (document.has(at + ".size")) {
+            // A warning, not an error, for the reason the quest's own size gives: the codec clamps,
+            // so refusing here would refuse a file that loads. The sentence says what the value was
+            // read as, because that is the part the author needs.
+            Checks.optionalInt(document, at + ".size", problems).ifPresent(size -> {
+                if (size < QuestLayout.MIN_SIZE || size > QuestLayout.MAX_SIZE) {
+                    problems.warn(document, at + ".size",
+                            "size must be between " + QuestLayout.MIN_SIZE + " and "
+                                    + QuestLayout.MAX_SIZE + ", found " + size + " - it is read as "
+                                    + Math.max(QuestLayout.MIN_SIZE,
+                                            Math.min(QuestLayout.MAX_SIZE, size)));
+                }
+            });
+        }
     }
 
     /**
@@ -1705,13 +1807,12 @@ public final class QuestValidator {
     }
 
     /**
-     * What pressing an element does, including the four actions this build refuses.
+     * What pressing an element does.
      *
-     * <p>Refusing them is the whole reason all seven names are readable. A converted pack that clicks
-     * through to a guide page would otherwise keep a field that does nothing at all, and a click that does
-     * nothing reads as a bug in this mod rather than as a gap in it. An error here costs the author the
-     * chapter until they change or remove the action — which is the trade T6 of the migration plan chose
-     * deliberately, and the reason the conversion tool gates on it.
+     * <p>All seven names are readable and all seven run, so there is no refusal branch: a name no
+     * version has is refused by the codec, and every name the codec reads has an arm below. An arm
+     * added without a case here is a compile error rather than a silent gap, because the switch is
+     * exhaustive over the enum.
      */
     private static void checkClick(JsonDocument document, String at, Problems problems) {
         JsonElement element = document.get(at).orElse(null);
@@ -1746,12 +1847,6 @@ public final class QuestValidator {
             // be two reports of one mistake.
             return;
         }
-        if (!type.supported()) {
-            problems.error(document, at + ".type", "\"" + lowered + "\" is a click this build cannot run,"
-                    + " so the element would look pressable and do nothing - it can run "
-                    + quoted(supportedClicks()) + ". Change the action, or remove the field.");
-            return;
-        }
 
         String data = Checks.optionalString(document, at + ".data", problems).orElse("");
         switch (type) {
@@ -1761,8 +1856,46 @@ public final class QuestValidator {
                 }
             }
             case OPEN_URI -> checkUri(document, at + ".data", data, problems);
-            default -> {
-                // NONE carries no data, and the four that do have already been refused above.
+            case SHOW_RECIPE -> {
+                if (data.isBlank()) {
+                    problems.error(document, at + ".data", "show_recipe needs an item id to look up");
+                }
+                else if (ResourceLocation.tryParse(data) == null) {
+                    problems.error(document, at + ".data", "\"" + data + "\" is not an id this game can"
+                            + " resolve - write namespace:path in lowercase, e.g. minecraft:blast_furnace");
+                }
+            }
+            case SHOW_DOCS -> {
+                // `<mod>,<book>[,<page>[,<anchor>]]`: the mod and the book name the shelf, and the rest
+                // names the page on it. Checked for shape rather than existence, because whether a guide
+                // book exists is a client's mod list, and this validator runs on a dedicated server that
+                // has no catalogue at all.
+                String[] parts = data.split(",", -1);
+                if (parts.length < 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                    problems.error(document, at + ".data", "show_docs names <mod>,<book>[,<page>[,<anchor>]]"
+                            + " - the mod and the book it opens, with the page after them");
+                }
+            }
+            case RUN_COMMAND -> {
+                if (data.isBlank()) {
+                    problems.error(document, at + ".data", "run_command needs a command to run");
+                }
+            }
+            case CUSTOM_EVENT -> {
+                // A `namespace:path` id, checked for shape rather than listeners: whether a script
+                // listens is a server's runtime, and this validator runs at load. An id that is not
+                // one is refused here rather than silently never firing there.
+                if (data.isBlank()) {
+                    problems.error(document, at + ".data",
+                            "custom_event needs an event id, namespace:path");
+                }
+                else if (ResourceLocation.tryParse(data) == null) {
+                    problems.error(document, at + ".data", "\"" + data + "\" is not an event id -"
+                            + " write namespace:path in lowercase, e.g. my_pack:gate_opened");
+                }
+            }
+            case NONE -> {
+                // Carries no data.
             }
         }
     }
@@ -1795,14 +1928,6 @@ public final class QuestValidator {
             problems.error(document, path, "open_uri opens http and https addresses only, and this one is"
                     + (scheme.isEmpty() ? " not an address with a scheme at all" : " \"" + scheme + "\""));
         }
-    }
-
-    /** The click types this build can run, for a message. Read from the enum, so the list cannot go stale. */
-    private static List<String> supportedClicks() {
-        return java.util.Arrays.stream(ClickAction.Type.values())
-                .filter(ClickAction.Type::supported)
-                .map(type -> type.name().toLowerCase(java.util.Locale.ROOT))
-                .toList();
     }
 
     /** A namespaced id in this game's spelling, which the codec would refuse the whole file over. */
@@ -2007,8 +2132,12 @@ public final class QuestValidator {
     }
 
     /**
-     * An alias has the same rules as an id, because that is what it is: another name for the same
-     * thing, looked up the same way.
+     * An alias has looser rules than an id: letters of either case, digits and underscores.
+     *
+     * <p>Ids stay lowercase — the lookup normalises, but the files do not, so a mixed-case id is
+     * still an authoring error. Aliases accept uppercase because converted packs arrive with
+     * uppercase hexadecimal names, and refusing them would refuse the pack. Length is the same
+     * bound an id gets. See {@link QuestIndex} for why the two jobs are split that way.
      */
     private static void checkAlias(JsonDocument document, String path, String alias, Problems problems) {
         if (alias.isEmpty() || alias.length() > ChapterNaming.MAX_LENGTH) {
@@ -2018,8 +2147,9 @@ public final class QuestValidator {
         }
         for (int i = 0; i < alias.length(); i++) {
             char c = alias.charAt(i);
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
-                problems.error(document, path, "alias '" + alias + "' is not valid; only lowercase letters, "
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+                    || c == '_')) {
+                problems.error(document, path, "alias '" + alias + "' is not valid; only letters, "
                         + "digits and underscores are allowed");
                 return;
             }

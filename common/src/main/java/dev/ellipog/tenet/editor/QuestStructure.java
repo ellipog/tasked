@@ -1482,6 +1482,36 @@ public final class QuestStructure {
         if (!completesWhen.isEmpty()) {
             file.setStrings("completesWhen", completesWhen);
         }
+
+        // A link's target follows its quest through the copy, for the reason a quest's `dependsOn`
+        // does: a milestone inside the copy is a copy, not the original, and a duplicated chapter is
+        // a self-contained sequence rather than one that points at the originals. A target outside
+        // the copy has no re-id and is left alone, which is the only correct reading of it.
+        //
+        // This differs from `requires` and `click.data` on purpose, and the difference is gate versus
+        // shortcut: a gate announces the original tier wherever it is drawn, while a marker is
+        // standing in for a quest — and a copy whose markers mirror the originals while its own
+        // quests diverge would rot silently, with nothing anywhere saying which node a press opens.
+        // Link ids travel untouched, like element ids: nothing outside this chapter addresses one.
+        com.google.gson.JsonElement links = file.get("links");
+        if (links != null && links.isJsonArray()) {
+            com.google.gson.JsonArray array = links.getAsJsonArray();
+            for (int i = 0; i < array.size(); i++) {
+                com.google.gson.JsonElement each = array.get(i);
+                if (!each.isJsonObject() || !each.getAsJsonObject().has("quest")) {
+                    continue;
+                }
+                com.google.gson.JsonElement target = each.getAsJsonObject().get("quest");
+                if (!target.isJsonPrimitive() || !target.getAsJsonPrimitive().isString()) {
+                    continue;
+                }
+                for (ReId reId : reIds) {
+                    if (reId.from().equals(target.getAsString())) {
+                        file.setText("links." + i + ".quest", reId.to());
+                    }
+                }
+            }
+        }
         return file.json();
     }
 

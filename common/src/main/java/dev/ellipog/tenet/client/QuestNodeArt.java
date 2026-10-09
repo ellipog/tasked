@@ -3,6 +3,7 @@ package dev.ellipog.tenet.client;
 import dev.ellipog.armature.client.ArmatureTheme;
 import dev.ellipog.armature.client.render.GuiRenderer;
 import dev.ellipog.armature.client.ui.shape.Shape;
+import dev.ellipog.tenet.progress.QuestState;
 import dev.ellipog.tenet.quest.QuestShape;
 
 import net.minecraft.world.item.ItemStack;
@@ -73,9 +74,40 @@ public final class QuestNodeArt {
                        int edge, int ring, int wash) {
     }
 
+    /**
+     * The panel's border colour for a state.
+     *
+     * <p>The border reads the node-edge tokens rather than the state inks, and that is the whole of
+     * what those four tokens are for. One description rather than one per caller: the canvas's nodes
+     * and its links wear the same edges, and two switches answering one question is how one of them
+     * stops meaning it.
+     */
+    public static int edgeFor(QuestState state) {
+        return switch (state) {
+            case COMPLETED -> ArmatureTheme.nodeEdgeComplete();
+            case STARTED -> ArmatureTheme.nodeEdgeInProgress();
+            case UNLOCKED -> ArmatureTheme.nodeEdgeAvailable();
+            case LOCKED -> ArmatureTheme.nodeEdgeBlocked();
+        };
+    }
+
+    /**
+     * The state wash's colour for a state, or 0 for none.
+     *
+     * <p>Like {@link #edgeFor}: one description for both callers. A finished node is dimmed, a
+     * locked one more so, and the rest wear nothing — the wash follows the shape, so it dims what
+     * is there without hiding what the quest is.
+     */
+    public static int washFor(QuestState state) {
+        return switch (state) {
+            case LOCKED -> ArmatureTheme.nodeDim();
+            case COMPLETED -> ArmatureTheme.nodeDoneWash();
+            case STARTED, UNLOCKED -> 0;
+        };
+    }
+
     /** Draws one node with its corner at {@code x, y}. */
-    public static void draw(GuiRenderer r, int x, int y, Look look) {
-        int size = look.size();
+    public static void draw(GuiRenderer r, int x, int y, Look look) {        int size = look.size();
         Shape geometry = look.geometry();
 
         // The hover and selection ring, drawn FIRST and one pixel larger, so the node's own panel

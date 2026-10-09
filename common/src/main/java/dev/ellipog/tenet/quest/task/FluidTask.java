@@ -64,6 +64,11 @@ public record FluidTask(TaskCommon common, ResourceLocation fluid, int amount) i
         }
 
         @Override
+        public boolean readsInventory() {
+            return true;
+        }
+
+        @Override
         public int current(FluidTask task, TaskContext context) {
             Item bucket = bucketFor(task.fluid());
             if (bucket == Items.AIR) {

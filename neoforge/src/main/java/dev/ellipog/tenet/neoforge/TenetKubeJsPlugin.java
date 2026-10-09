@@ -17,6 +17,7 @@ import dev.latvian.mods.kubejs.script.ScriptManager;
 import dev.latvian.mods.kubejs.script.ScriptType;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 
@@ -70,6 +71,9 @@ public final class TenetKubeJsPlugin implements KubeJSPlugin {
     private static final EventHandler REWARD_CLAIMED = EVENTS.server("rewardClaimed", () -> RewardEvent.class);
     private static final EventHandler STAGE_ADDED = EVENTS.server("stageAdded", () -> StageEvent.class);
     private static final EventHandler STAGE_REMOVED = EVENTS.server("stageRemoved", () -> StageEvent.class);
+    // And the canvas press, by the id the file named: one handler sorts every pack's presses, because
+    // the event carries which id fired rather than being one handler per id.
+    private static final EventHandler CLICK_EVENT = EVENTS.server("clickEvent", () -> ClickEvent.class);
 
     @Override
     public void init() {
@@ -85,6 +89,9 @@ public final class TenetKubeJsPlugin implements KubeJSPlugin {
                 (player, stage) -> STAGE_ADDED.post(new StageEvent(player, stage.toString())));
         TenetEvents.STAGE_REMOVED.register(
                 (player, stage) -> STAGE_REMOVED.post(new StageEvent(player, stage.toString())));
+        TenetEvents.CLICK_EVENT.register(
+                (player, id, chapter, element) -> CLICK_EVENT.post(new ClickEvent(player, id, chapter,
+                        element)));
     }
 
     @Override
@@ -243,6 +250,25 @@ public final class TenetKubeJsPlugin implements KubeJSPlugin {
         StageEvent(ServerPlayer player, String stage) {
             this.player = player;
             this.stage = stage;
+        }
+    }
+
+    /** A canvas press whose click is a script event. */
+    public static final class ClickEvent implements KubeEvent {
+
+        public final ServerPlayer player;
+        /** The {@code namespace:path} id the file named. */
+        public final String id;
+        /** The chapter holding the pressed element. */
+        public final String chapter;
+        /** The pressed element's id. */
+        public final String element;
+
+        ClickEvent(ServerPlayer player, ResourceLocation id, String chapter, String element) {
+            this.player = player;
+            this.id = id.toString();
+            this.chapter = chapter;
+            this.element = element;
         }
     }
 }

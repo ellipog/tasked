@@ -311,7 +311,7 @@ public final class ClientQuestCache {
          * pack's conventional key is the whole of its translation road.
          */
         public String titleText() {
-            return ClientLocale.text("rewardTable." + id + ".title", title);
+            return FtbText.plain(ClientLocale.text("rewardTable." + id + ".title", title));
         }
     }
 
@@ -353,6 +353,12 @@ public final class ClientQuestCache {
                         boolean chapterLinear, int orderInChapter,
                         List<String> dependencies, List<TaskEntry> tasks, List<RewardEntry> rewards,
                         boolean invisible,
+                        /**
+                         * Whether this quest gates its dependants. Sparse on the wire: absent means
+                         * it does. The card and the canvas read it for the same counts the engine
+                         * keeps — see {@link dev.ellipog.tenet.client.dev.DependencyProgress}.
+                         */
+                        boolean optional,
                         /**
                          * The icon's id as the server sent it, kept beside the resolved stack: a stack
                          * that failed to resolve with an id that was sent is a <b>missing item</b>, and
@@ -418,10 +424,42 @@ public final class ClientQuestCache {
                          * which resolves to the canonical paragraph that travelled beside it.
                          */
                         String titleFallback, String subtitleFallback, String chapterTitleFallback,
-                        List<String> descriptionFallbacks) {
+                        List<String> descriptionFallbacks,
+                        /**
+                         * The quest's former ids, for the lookups the server answers by id or alias.
+                         *
+                         * <p>Sparse on the wire: absent means "no aliases", which is every quest that was
+                         * never renamed. The client needs them for the same lookups the server does, so a
+                         * press naming an alias opens the quest rather than reporting a broken control —
+                         * which is what an {@code open_quest} click carrying a pre-rename spelling is.
+                         */
+                        List<String> aliases) {
 
         public Entry {
             descriptionFallbacks = List.copyOf(descriptionFallbacks);
+            aliases = List.copyOf(aliases);
+        }
+
+        /**
+         * Whether {@code idOrAlias} refers to this quest.
+         *
+         * <p>Without regard to letter case, because lookups are: the server normalises the same way,
+         * and a client that resolved case-sensitively would refuse a reference the server accepts.
+         * See {@code Quest#matches} for the server's own half of this.
+         */
+        public boolean matches(String idOrAlias) {
+            if (idOrAlias == null) {
+                return false;
+            }
+            if (id.equalsIgnoreCase(idOrAlias)) {
+                return true;
+            }
+            for (String alias : aliases) {
+                if (alias.equalsIgnoreCase(idOrAlias)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /**
@@ -436,9 +474,25 @@ public final class ClientQuestCache {
             return text(title, titleFallback, "quest." + id + ".title");
         }
 
+        /**
+         * The quest's title with its FTB tokens still in it, for the surfaces that wear colours.
+         *
+         * <p>The same resolution as {@link #titleText} — the same words, agreed by construction — and
+         * only the ink differs. Measuring still takes the stripped reading, because colours are
+         * widthless and the two must agree about how wide the words are.
+         */
+        public String titleTextRaw() {
+            return textRaw(title, titleFallback, "quest." + id + ".title");
+        }
+
         /** The subtitle, as the player reads it. Authoring paths use {@link #subtitle()}. */
         public String subtitleText() {
             return text(subtitle, subtitleFallback, "quest." + id + ".subtitle");
+        }
+
+        /** The subtitle with its FTB tokens still in it. See {@link #titleTextRaw}. */
+        public String subtitleTextRaw() {
+            return textRaw(subtitle, subtitleFallback, "quest." + id + ".subtitle");
         }
 
         /**
@@ -451,6 +505,11 @@ public final class ClientQuestCache {
          */
         public String chapterTitleText() {
             return text(chapterTitle, chapterTitleFallback, "chapter." + chapterId + ".title");
+        }
+
+        /** The chapter title with its FTB tokens still in it. See {@link #titleTextRaw}. */
+        public String chapterTitleTextRaw() {
+            return textRaw(chapterTitle, chapterTitleFallback, "chapter." + chapterId + ".title");
         }
 
         /**
@@ -489,7 +548,11 @@ public final class ClientQuestCache {
             List<String> out = new java.util.ArrayList<>(description.size());
             for (int i = 0; i < description.size(); i++) {
                 String fallback = i < descriptionFallbacks.size() ? descriptionFallbacks.get(i) : "";
-                out.add(text(description.get(i), fallback, "quest." + id + ".description." + i));
+                // Resolved, not stripped: the prose renderer reads the tokens itself -- colours, page
+                // breaks, pictures, links -- and a description stripped here would arrive with none of
+                // them while still wearing its markdown, which reads as half a feature. Titles strip
+                // because their surfaces draw one ink; this surface draws run by run.
+                out.add(textRaw(description.get(i), fallback, "quest." + id + ".description." + i));
             }
             return List.copyOf(out);
         }
@@ -591,7 +654,13 @@ public final class ClientQuestCache {
                              * waiting for a press — both read as "no button", which is the direction that
                              * cannot offer a press the server would refuse.
                              */
-                            Set<Integer> ready) {
+                            Set<Integer> ready,
+                            /**
+                             * How many times a repeatable quest has been finished. Absent for a quest
+                             * never repeated, which reads as zero — the direction that cannot invent a
+                             * history.
+                             */
+                            int timesCompleted) {
 
         /** Who is holding what toward one task, in the order the server named them. Empty for nobody. */
         Map<UUID, Integer> contributorsOf(int taskIndex) {
@@ -699,6 +768,17 @@ public final class ClientQuestCache {
      * fallback that a reader has to notice, which is the property an additive field is for.
      */
     private static volatile Map<String, List<CanvasElement>> chapterElements = Map.of();
+
+    /**
+     * What each chapter draws among its quests as markers, by chapter id.
+     *
+     * <p>Beside {@link #chapterElements} rather than inside it, because a link is not an element: it
+     * is drawn in the node layer with its target's state rather than behind the nodes with a tint.
+     * Empty for a chapter with no markers, which is nearly all of them, and empty for a server older
+     * than version 15 — and both read the same way: a canvas with no shortcuts. Nothing here is a
+     * fallback a reader has to notice, which is the property an additive field is for.
+     */
+    private static volatile Map<String, List<dev.ellipog.tenet.quest.QuestLink>> chapterLinks = Map.of();
 
     /** The reward tables the server declared, for the editor's browser. Empty on an older server. */
     private static volatile List<TableSummary> tables = List.of();
@@ -869,6 +949,19 @@ public final class ClientQuestCache {
     }
 
     /**
+     * One chapter's markers, in the order the file wrote them.
+     *
+     * <p>Declaration order, and <b>not</b> draw order: links share the node layer with quests, whose
+     * picking the screen already settles, so there is no second order for this cache to define.
+     * Empty for a chapter with no markers and for one this client has never heard of, which read the
+     * same way: nothing is drawn. Never null.
+     */
+    public static List<dev.ellipog.tenet.quest.QuestLink> links(String chapterId) {
+        List<dev.ellipog.tenet.quest.QuestLink> held = chapterId == null ? null : chapterLinks.get(chapterId);
+        return held == null ? List.of() : held;
+    }
+
+    /**
      * Which tree this cache holds. See the field's own note for why a caller compares it.
      *
      * <p>Read by a screen to decide whether the outline it built is still the one to draw. Only
@@ -919,6 +1012,23 @@ public final class ClientQuestCache {
      * @param fallback the English words, empty when {@code value} is a literal
      */
     private static String text(String value, String fallback, String conventionalKey) {
+        // FTB text tokens read out, because every surface that draws one ink draws through here:
+        // titles, subtitles, chapter titles and element words. A title carrying `&a` reads the words
+        // without the ink; an escaped `\&` reads as `&`. Descriptions do not pass through here — they
+        // keep their structure for the prose renderer, which wears the colours. Titles wear one ink
+        // everywhere else, and one ink with the codes still in it is garbage.
+        return FtbText.plain(textRaw(value, fallback, conventionalKey));
+    }
+
+    /**
+     * The same resolution with the tokens still in it, for the surfaces that wear colours.
+     *
+     * <p>Two readers rather than a flag, because the stripped and the coded readings answer different
+     * questions: measuring and one-ink drawing take the stripped, and the colour pass takes the coded.
+     * Both resolve the same locale chain, so a title never disagrees with itself about <i>which</i>
+     * words it is — only about what ink they wear.
+     */
+    private static String textRaw(String value, String fallback, String conventionalKey) {
         if (fallback.isEmpty()) {
             // A plain string in the file is not a key, so only the conventional key can translate it.
             return ClientLocale.text(conventionalKey, value);
@@ -1178,6 +1288,20 @@ public final class ClientQuestCache {
             if (taskIndex < 0 || taskIndex >= quest.tasks().size()) {
                 return false;
             }
+            // No button on a quest the press would be refused for. Two cases, and both are the
+            // server's own rule (`!state.isPlayable()` refuses the submit) read through what the
+            // client can see. A locked quest refuses every press, so it offers none. A completed
+            // repeatable still cooling refuses too: the round's tasks read 0 of 1, so the count rule
+            // below would offer one. The button comes back when the cooldown reads zero -- a replayable
+            // quest resolves playable on the server while its stored state stays completed, and the
+            // cooldown is what tells the two apart here -- whether by this client's own countdown or
+            // by the next sync.
+            QuestState seen = stateOf(questId);
+            if (seen == QuestState.LOCKED
+                    || seen == QuestState.COMPLETED
+                            && cooldownOf(questId, ClientTicker.ticks()) > 0) {
+                return false;
+            }
             TaskEntry task = quest.tasks().get(taskIndex);
             if (!task.manual() || !taskLockOf(questId, taskIndex).isEmpty()) {
                 return false;
@@ -1391,6 +1515,17 @@ public final class ClientQuestCache {
         return Math.max(0L, found.cooldown() - elapsed);
     }
 
+    /**
+     * How many times a repeatable quest has been finished, or zero.
+     *
+     * <p>Zero for a quest the server never counted — including every quest from a server that
+     * predates the field — which reads as "never repeated" rather than inventing a history.
+     */
+    public static int timesCompletedOf(String questId) {
+        Progress found = progress.get(questId);
+        return found == null ? 0 : found.timesCompleted();
+    }
+
     // ------------------------------------------------------------------
     // Writing
     // ------------------------------------------------------------------
@@ -1446,6 +1581,7 @@ public final class ClientQuestCache {
             // payload and shadows the list.
             ClientQuestCache.chapters = List.of();
             chapterElements = Map.of();
+            chapterLinks = Map.of();
             bookTitle = "";
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
@@ -1544,6 +1680,9 @@ public final class ClientQuestCache {
         // And the decoration, which is a description of a server's pack as surely as its chapters are:
         // leaving it would draw the last world's labels over the next one's canvas.
         chapterElements = Map.of();
+        // And the markers with it, for the same reason: a shortcut to a quest on the last world's
+        // canvas must not survive onto the next one's.
+        chapterLinks = Map.of();
         tables = List.of();
         refusedTables = List.of();
         progress = Map.of();
@@ -1623,6 +1762,7 @@ public final class ClientQuestCache {
         // requires, and nothing tests the version number to find out. The key's presence is the fact.
         List<ChapterEntry> parsedChapters = new ArrayList<>();
         Map<String, List<CanvasElement>> parsedElements = new LinkedHashMap<>();
+        Map<String, List<dev.ellipog.tenet.quest.QuestLink>> parsedLinks = new LinkedHashMap<>();
         if (root.has("chapters")) {
             for (JsonElement element : root.getAsJsonArray("chapters")) {
                 JsonObject chapter = element.getAsJsonObject();
@@ -1672,6 +1812,24 @@ public final class ClientQuestCache {
                     }
                     if (!parsed.isEmpty()) {
                         parsedElements.put(str(chapter, "id"), List.copyOf(parsed));
+                    }
+                }
+
+                // The chapter's markers, when the server sent any -- version 15 and a chapter that has
+                // some. Read by the link codec rather than field by field, which is the other half of
+                // the writer's decision to send each link's own object: one reader, and a field added
+                // to a link arrives without anybody remembering to read it.
+                //
+                // A link this client cannot read is skipped rather than taking the chapter with it, for
+                // the same reason as an element: one marker missing from a canvas rather than a chapter
+                // that will not draw.
+                if (chapter.has("links") && chapter.get("links").isJsonArray()) {
+                    List<dev.ellipog.tenet.quest.QuestLink> parsed = new ArrayList<>();
+                    for (JsonElement each : chapter.getAsJsonArray("links")) {
+                        dev.ellipog.tenet.quest.QuestLink.fromJson(each).ifPresent(parsed::add);
+                    }
+                    if (!parsed.isEmpty()) {
+                        parsedLinks.put(str(chapter, "id"), List.copyOf(parsed));
                     }
                 }
             }
@@ -1853,6 +2011,7 @@ public final class ClientQuestCache {
                     List.copyOf(tasks),
                     List.copyOf(rewards),
                     quest.has("invisible") && quest.get("invisible").getAsBoolean(),
+                    quest.has("optional") && quest.get("optional").getAsBoolean(),
                     str(quest, "icon"),
                     stack(str(quest, "chapterIcon"), 1, quest.get("chapterIconComponents")),
                     str(quest, "chapterIcon"),
@@ -1870,7 +2029,11 @@ public final class ClientQuestCache {
                     str(quest, "titleFallback"),
                     str(quest, "subtitleFallback"),
                     str(quest, "chapterTitleFallback"),
-                    List.copyOf(descriptionFallbacks)));
+                    List.copyOf(descriptionFallbacks),
+                    // Former ids, when the server sent any -- version 16 and a quest that was renamed.
+                    // Absent means none, which is what a version-15 tree always says: the key's presence
+                    // is the fact, as it is for every other sparse field on this wire.
+                    readAliases(quest)));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
@@ -1878,6 +2041,9 @@ public final class ClientQuestCache {
         // Whole rather than merged, like every other list here: a chapter that lost its last element has
         // to lose it on this client too, and a tree is a description of the pack rather than a delta.
         chapterElements = Map.copyOf(parsedElements);
+        // And the markers with them: a chapter that lost its last link loses it here too, for the same
+        // reason and on the same message, so the two are always from one moment.
+        chapterLinks = Map.copyOf(parsedLinks);
         tables = List.copyOf(parsedTables);
         refusedTables = List.copyOf(parsedRefused);
     }
@@ -2147,7 +2313,8 @@ public final class ClientQuestCache {
                         lockMap(one, "taskLocks"),
                         lockMap(one, "rewardLocks"),
                         one.has("settled") && one.get("settled").getAsBoolean(),
-                        Set.copyOf(ready)));
+                        Set.copyOf(ready),
+                        one.has("timesCompleted") ? Math.max(0, one.get("timesCompleted").getAsInt()) : 0));
             }
         }
         progress = Map.copyOf(next);
@@ -2339,5 +2506,25 @@ public final class ClientQuestCache {
 
     private static String str(JsonObject object, String key) {
         return object.has(key) && !object.get(key).isJsonNull() ? object.get(key).getAsString() : "";
+    }
+
+    /**
+     * A quest's former ids, as the tree sent them, or empty.
+     *
+     * <p>Strings only: an entry that is not one is skipped rather than throwing, because a tree from
+     * a newer server may carry shapes this client has never heard of — and the whole of this parse
+     * is lenient for exactly that reason.
+     */
+    private static List<String> readAliases(JsonObject quest) {
+        if (!quest.has("aliases") || !quest.get("aliases").isJsonArray()) {
+            return List.of();
+        }
+        List<String> aliases = new ArrayList<>();
+        for (JsonElement each : quest.getAsJsonArray("aliases")) {
+            if (each.isJsonPrimitive() && each.getAsJsonPrimitive().isString()) {
+                aliases.add(each.getAsString());
+            }
+        }
+        return List.copyOf(aliases);
     }
 }

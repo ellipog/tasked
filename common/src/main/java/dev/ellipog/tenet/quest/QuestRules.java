@@ -25,8 +25,9 @@ import java.util.Set;
  *
  * <h2>The two families here, and why the second one arrived</h2>
  *
- * <p>The first six flags are about what a quest <i>is</i>: repeatable, sequential, invisible, named,
- * exclusive. The rest are about what a player may <b>see and when</b> — a family FTB Quests ships and
+ * <p>The first flags are about what a quest <i>is</i>: repeatable, sequential, invisible, named,
+ * exclusive — and now <i>optional</i>: a quest that does not gate its dependants. The rest are about
+ * what a player may <b>see and when</b> — a family FTB Quests ships and
  * this mod did not, and the reason they are worth having is that a questline with a surprise in it
  * cannot be written without them. A locked quest is normally <i>shown</i> as locked, which is the
  * point of a map; hiding one until its prerequisites are met, or hiding its text until it is done, is
@@ -41,6 +42,18 @@ public record QuestRules(boolean repeatable,
                          boolean showTitle,
                          Optional<String> exclusiveGroup,
                          int maxCompletableDependents,
+                         /**
+                          * Whether this quest gates the quests that depend on it.
+                          *
+                          * <p>False is the rule: a dependency must be satisfied before its dependants
+                          * unlock. True means "this quest doesn't gate" — its dependants count it as
+                          * neither satisfied nor required, so it neither helps nor blocks them. That is
+                          * FTB Quests' {@code optional}, and the reason it exists is the side quest: a
+                          * branch the player may do, drawn with its dependency lines, that nothing waits
+                          * for. Lines from an optional quest are still drawn; the client reads this flag
+                          * off the wire for its counts, exactly as the engine does.
+                          */
+                         boolean optional,
                          /**
                           * Whether this quest is withheld until its own prerequisite <b>rule</b> is met.
                           *
@@ -93,12 +106,12 @@ public record QuestRules(boolean repeatable,
                          Optional<RewardAutoClaim> autoClaim) {
 
     public static final QuestRules DEFAULT = new QuestRules(false, 0, false, false, false,
-            Optional.empty(), 0, Optional.empty(), Optional.empty(), false, false, false, 0,
+            Optional.empty(), 0, false, Optional.empty(), Optional.empty(), false, false, false, 0,
             Optional.empty(), Optional.empty());
 
     /** The field names this contributes, for the validator to allow at quest level. */
     public static final Set<String> FIELDS = Set.of("repeatable", "repeatCooldownTicks", "sequentialTasks",
-            "invisible", "showTitle", "exclusiveGroup", "maxCompletableDependents",
+            "invisible", "showTitle", "exclusiveGroup", "maxCompletableDependents", "optional",
             "hideUntilDependenciesComplete", "hideUntilDependenciesVisible", "hideDependencyLines",
             "hideTextUntilComplete", "hideDetailsUntilStartable", "invisibleUntilTasks", "requiresStage",
             "autoClaim");
@@ -173,6 +186,10 @@ public record QuestRules(boolean repeatable,
             // must not both be taken want the group.
             Codec.intRange(MIN_COUNT, MAX_COUNT).optionalFieldOf("maxCompletableDependents", 0)
                     .forGetter(QuestRules::maxCompletableDependents),
+            // Whether this quest gates its dependants. False is the rule; true is the side quest
+            // that nothing waits for. Read by the engine (excluded from both counts) and sent on
+            // the wire for the client's own counts, so the two cannot disagree.
+            Codec.BOOL.optionalFieldOf("optional", false).forGetter(QuestRules::optional),
             // The reveal family. Each is a presentation decision, and each is checked by the client
             // against state it already has -- see `QuestVisibility`.
             // Absent rather than defaulted, for the same reason `autoClaim` is absent: "this quest has no

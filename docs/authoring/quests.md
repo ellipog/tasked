@@ -58,6 +58,33 @@ files are written a line per paragraph and joining them would re-wrap prose an a
 wrapped. The file keeps the raw markdown — the editor shows it as written, and only the reader's card
 renders it.
 
+## FTB text codes
+
+A description converted from FTB Quests keeps its text tokens, and the reader's card reads them —
+the converter passes pack text through verbatim, and the tokens are a render-time reading:
+
+- `&` and `§` colour and style codes (`&a` green, `&l` bold, `&o` italic, `&n` underline, `&r`
+  reset), `&#RRGGBB` hex, and `&z` rainbow. Struck-through (`&m`) arrives underlined and obfuscated
+  (`&k`) arrives plain: the seam has no run for either, and those are the closest survivals.
+- `{@pagebreak}` starts a new paragraph run — the card scrolls rather than paging, so a boundary is
+  a break and not a pager.
+- `{image:path width:N height:N align:center}` draws the picture inline in the prose, fitted to the
+  column and centred unless told otherwise. Files stretch to fill, like chapter pictures; the same
+  `.png`-means-file rule applies, and a file the pack does not ship draws nothing rather than
+  breaking the card.
+- `{open_url:...}` opens through the same http/https-only rule a markdown link uses, and
+  `{substitute:key}` resolves against the locale overlay.
+- A whole paragraph that is a raw JSON text component reads its flattened words.
+- `\&` is a literal ampersand — which is also the rule for Tenet-native packs: `&` starts a colour
+  code, FTB-style, so `R&B` reads as `R` and a literal one is written `\&`.
+
+Titles, subtitles, chapter titles and element words read the words without the ink: those surfaces
+draw one ink, so `&aChapter 2` reads as `Chapter 2` in white. Descriptions wear the colours,
+because the card draws run by run. The quest card's header and the canvas labels wear them too —
+a title there draws its runs, truncated like plain text, because colours are widthless and styles
+are dropped where widths are measured. Everywhere else a title is one ink: sidebar rows, toasts,
+captions and the HUD read the stripped words, and never the raw codes.
+
 A chapter's and a group's description are parsed and shown to nobody: neither reaches the reader's
 card -- a chapter's does not cross to the client at all, and the chapter panel shows only a paragraph
 count -- so the reading above is a quest's description. The editor always shows text that a reader
@@ -96,6 +123,31 @@ open. They may live in other files, and a reference that resolves to nothing is 
 
 `minRequired` replaces the *count*, not the *bar*: the mode still decides what each one must reach, so
 `one_started` with `minRequired: 2` means "any two of these, started".
+
+### Optional quests
+
+A quest with `"optional": true` does not gate the quests that depend on it: they count it as
+neither satisfied nor required, so it neither helps nor blocks them. That is the side quest — a
+branch the player may do, drawn with its dependency lines, that nothing waits for. `minRequired`
+counts non-optional dependencies only, and the card's "2 of 3 met" counts the same denominator the
+engine enforces.
+
+### Early progress
+
+A quest with `"flexibleProgress": true` lets its tasks be worked on before its dependencies are
+met; completion still waits for them. A quest that says nothing follows its chapter's
+`defaultFlexibleProgress` — either true makes the quest flexible, and there is no opt-out, so a
+migration tool writes the resolved value onto each quest and leaves the chapter default off.
+
+What that means in play: progress on a flexible quest accumulates while its gate is shut — the
+card shows the real counts, and the dependency lines show what is missing — and an already-maxed
+quest completes on the first tick after its gate opens. A submit or a kill that maxes the last
+task does not finish the gate's other quests in the same call; the next tick does that, once per
+team rather than once per node.
+
+Do not confuse this with the chapter's `progressionMode`: that one chains a chapter's quest list
+in order (`flexible` there means "order means nothing", `linear` means the list is the road), and
+this one is about whether *dependency edges* block task progress. Two different axes.
 
 ### A chapter's own dependencies
 
@@ -194,9 +246,15 @@ For a whole chapter:
 | `repeatable` | `false` | Completable more than once. `timesCompleted` survives each completion, and something depending on it stays satisfied. |
 | `repeatCooldownTicks` | `0` | Ticks to wait between completions. 2400 is two minutes. |
 | `sequentialTasks` | `false` | Tasks must be handed in in order: the second cannot be handed in until the first is. |
+| `flexibleProgress` | `false` | Tasks may be worked on before the dependencies are met; completion still waits for them. Either this or the chapter's `defaultFlexibleProgress` makes the quest flexible. |
 | `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tenet:authoring/rewards]]. |
 | `exclusiveGroup` | — | Quests sharing a name are mutually exclusive: completing one locks the others, permanently. A [[exclusive-group]] is a choice of paths. Scoped to the chapter. |
 | `maxCompletableDependents` | `0` | At most this many of the quests depending on this one may complete; the rest stay locked for good. `0` is no cap. A dependent already completed stays completed. |
+
+A repeatable quest's cooldown runs from the moment its **last unclaimed reward is claimed**,
+not from the completion: the round ends when its payout is fully collected, and the count moves
+then too. A repeatable with nothing to collect — no rewards, or everything automatic — resets at
+completion instead, because no claim will ever arrive to end it.
 
 The chapter's own `progressionMode` decides whether the chapter is walked one quest at a time or
 unlocked as it becomes available:

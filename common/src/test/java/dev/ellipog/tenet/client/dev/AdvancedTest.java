@@ -245,6 +245,28 @@ class AdvancedTest {
                     "the depth marks the element field \"" + marked + "\" and no arm builds a row for it, so "
                             + "hiding it hides nothing. The rows the fixture produced: " + elementRows);
         }
+
+        // And the quest links' own vocabulary, against the rows the form really builds, for the same
+        // reason: a key here that no row produces is a mark against nothing.
+        Set<String> linkRows = new TreeSet<>();
+        for (ToolsLayout.Action row : LinkPanelLayout.rows(linkFixture(), Set.of())) {
+            String[] field = ChapterPanelLayout.linkFieldOf(row.key());
+            if (field != null) {
+                linkRows.add(field[1]);
+            }
+            if (row.right() != null) {
+                String[] half = ChapterPanelLayout.linkFieldOf(row.right().key());
+                if (half != null) {
+                    linkRows.add(half[1]);
+                }
+            }
+        }
+        assertFalse(linkRows.isEmpty(), "the fixture must produce link rows for this to mean anything");
+        for (String marked : Advanced.linkKeys()) {
+            assertTrue(linkRows.contains(marked),
+                    "the depth marks the link field \"" + marked + "\" and the form builds no row for it, so "
+                            + "hiding it hides nothing. The rows the fixture produced: " + linkRows);
+        }
     }
 
     @Test
@@ -309,9 +331,9 @@ class AdvancedTest {
         List<ToolsLayout.Action> shallow = chapterRows();
         DevMode.setAdvanced(true);
 
-        assertEquals(List.of("h:identity", "h:group", "h:elements", "h:quests"), headings(shallow),
-                "the shallow chapter tab is identity, the group, its elements and its quests");
-        assertEquals(List.of("h:identity", "h:rules", "h:group", "h:elements", "h:quests"), headings(deep),
+        assertEquals(List.of("h:identity", "h:group", "h:elements", "h:links", "h:quests"), headings(shallow),
+                "the shallow chapter tab is identity, the group, its elements, its links and its quests");
+        assertEquals(List.of("h:identity", "h:rules", "h:group", "h:elements", "h:links", "h:quests"), headings(deep),
                 "and the deep one has the rules between them");
     }
 
@@ -493,6 +515,13 @@ class AdvancedTest {
             }
         }
         return keys;
+    }
+
+    /** One link's tree, for the form the depth cut is checked against. */
+    private static JsonObject linkFixture() {
+        return JsonParser.parseString(
+                "{ \"id\": \"gate_hint\", \"quest\": \"the_deep\", \"x\": 336, \"y\": -64 }")
+                .getAsJsonObject();
     }
 
     /**

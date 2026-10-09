@@ -128,9 +128,34 @@ complete. Both reach every client with the tree — they are presentation, and t
 keep a secret.
 
 **`click` makes an element pressable**: `open_quest` opens another quest by id or alias, and `open_uri`
-opens an `http` or `https` address in the browser. The four FTB actions this build cannot run
-(`run_command`, `custom_event`, `show_recipe`, `show_docs`) are **refused at load with a message naming
-the action**, so a converted pack is told what it is losing rather than left with a dead button.
+opens an `http` or `https` address in the browser. `show_recipe` opens the named item's recipes in a
+viewer — or says there is none installed, because a viewer is a soft dependency. `show_docs` names a
+guide page as `<mod>,<book>[,<page>[,<anchor>]]`, and answers with a message naming it: guide books
+have no integration here, and a click that silently did nothing would read as a bug in the mod.
+`run_command` runs server-side as the pressing player, through the server's own dispatcher, at the
+pack's `clickCommandLevel` — with `{p}`, `{x}`/`{y}`/`{z}`, `{chapter}` and `{element}` filled in,
+and the command's own output as the feedback. `custom_event` fires `TenetEvents.clickEvent` with the
+`namespace:path` id the file named — see [[tenet:authoring/kubejs]] — so a script sorts presses by id.
+
+**`links` marks quests that live elsewhere**: each entry draws in the node layer with its target's
+state and icon, and pressing it opens that quest — switching chapters when the quest lives in
+another one. A link holds no progress, gates nothing and is never counted for its chapter's
+completion; no `dependsOn`, gate or milestone may name one.
+
+```json
+{ "id": "gate_hint", "quest": "the_deep_descent", "x": 336, "y": -64 }
+```
+
+`quest` is the target by id or alias, in any chapter — a name that resolves to nothing is reported
+with the file and line, because the link would then mirror nothing and its press would do nothing.
+A link's `id` must not equal any quest, chapter or group id or alias. `x` and `y` are the top-left
+corner in canvas pixels, exactly as for a quest; `shape` and `size` default to the target's own
+(`rounded`, 48). FTB Quests calls the target `linked_quest` and writes centre-based doubles, and
+the migration tool maps both onto this shape.
+
+**`locked: true` pins a picture against the editor's drag**: grips and moves leave it where it is,
+while readers see no difference. FTB Quests calls this `position_locked`, and the migration tool
+maps it onto this key — a deliberate edit still writes, so unlocking is always one switch away.
 
 Elements are translated like everything else: `element.<id>.text` for a label's words and
 `element.<id>.title` for a picture's caption, in the same `lang` folder as `quest.<id>.title`. A
@@ -177,7 +202,8 @@ thing it affects:
 | `defaultAutoClaim` | `disabled` | What a reward with `auto: "default"` does — see [[tenet:authoring/rewards]] |
 | `defaultTeamReward` | `false` | Whether a reward that does not say otherwise is one claim for the team |
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
-| `detectionDelay` | `20` | Ticks after a player joins before their first task check, so a login does not run the whole book on one tick |
+| `detectionDelay` | `20` | Minimum ticks between inventory checks: an item, item-tag or fluid task is re-read no more often than this, whatever its own interval says. Other task types keep their own cadence. |
+| `clickCommandLevel` | `0` | What a canvas click's `run_command` runs as: `0` is the pressing player's own level, `2` is elevated enough for `say`, `give` and `summon` without opening op. Never above `2`, and never the presser's own level however high that is. File-only: no client draws it, so the Book panel has no row for it. |
 | `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title |
 | `bookIcon` | `""` | The item id the book wears in its header; an id a client cannot resolve is drawn as a missing-item mark |
 
@@ -216,6 +242,13 @@ alias, and a chapter may not take one another chapter holds. A clash is reported
 entry is not loaded at all, so the editor refuses it before the write. That is also why renaming
 something back to a name it used to have is allowed while renaming it onto somebody else's old name is
 not.
+
+Lookups ignore letter case: an id, an alias, and any case mix of either resolve to the same quest,
+chapter or group. That is for converted packs, whose ids may be uppercase hexadecimal — the case is
+never what makes a reference fail. The files themselves stay lowercase: ids and `dependsOn` entries
+must still be written that way, while aliases may use uppercase. An alias that differs from its own
+id only in case is an error, because it names nothing the id does not already name; and two names
+that differ only in case on two different objects are a clash, which fails fast naming both.
 
 > [!CAUTION]
 > **Renaming an id without an alias orphans the progress stored under the old one.** A player keeps

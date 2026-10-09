@@ -319,6 +319,35 @@ class QuestValidatorTest {
     }
 
     @Test
+    @DisplayName("an alias may use uppercase, because converted packs arrive with it")
+    void uppercaseAliasIsAccepted() {
+        // Ids stay lowercase — the lookup normalises, but the files do not, so a mixed-case id is
+        // still an authoring error. Aliases accept uppercase because FTB Quests ids are uppercase
+        // hexadecimal, and refusing them would refuse the converted pack.
+        String json = Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"aliases\": [\"OldName\"], \"tasks\": []}");
+
+        Problems problems = validate(json);
+        assertTrue(problems.all().stream().noneMatch(problem -> problem.message().contains("alias")),
+                "an uppercase alias should not be reported, got:\n"
+                        + problems.all().stream().map(DataProblem::render)
+                                .collect(Collectors.joining("\n")));
+    }
+
+    @Test
+    @DisplayName("a dependency in uppercase is still an authoring error, even though it resolves")
+    void uppercaseDependencyIsRejected() {
+        // The split the plan asks for: the validator keeps files uniform (lowercase), the lookup
+        // resolves anyway. A reference somebody wrote correctly in another case is not a failure
+        // FTB has ever had — but this file is still asked to spell it the uniform way.
+        String json = Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": []},"
+                        + "{\"id\": \"b\", \"title\": \"b\", \"dependsOn\": [\"A\"], \"tasks\": []}");
+
+        containing(validate(json), "is not a valid quest id");
+    }
+
+    @Test
     @DisplayName("an enum value that is close to a real one lists the options")
     void badEnumValue() {
         Problems problems = validate(Fixtures.file(
@@ -335,8 +364,7 @@ class QuestValidatorTest {
 
     @Test
     @DisplayName("a cooldown on a quest that is not repeatable warns rather than failing")
-    void cooldownWithoutRepeatWarns() {
-        // Not an error: it does nothing, but it is not wrong. A validator that fails a working
+    void cooldownWithoutRepeatWarns() {        // Not an error: it does nothing, but it is not wrong. A validator that fails a working
         // file is a validator people learn to ignore.
         Problems problems = validate(Fixtures.file(
                 Fixtures.q("a").repeatCooldownTicks(600).build()));
@@ -345,6 +373,33 @@ class QuestValidatorTest {
         assertTrue(containing(problems, "only means something on a repeatable quest").severity()
                         == DataProblem.Severity.WARNING,
                 "it should be a warning");
+    }
+
+    @Test
+    @DisplayName("a quest flagged optional is clean")
+    void optionalQuestIsClean() {
+        // The engine reads it, so a typo here would silently gate — the drift the closed-set
+        // checks prevent. Accepted as a boolean like its neighbouring flags.
+        Problems problems = validate(Fixtures.file(Fixtures.q("a").optional(true).build()));
+
+        assertTrue(problems.all().stream().noneMatch(problem -> problem.message().contains("optional")),
+                "an optional flag should not be reported, got:\n"
+                        + problems.all().stream().map(DataProblem::render)
+                                .collect(Collectors.joining("\n")));
+    }
+
+    @Test
+    @DisplayName("a quest and chapter flagged for flexible progress are clean")
+    void flexibleProgressIsClean() {
+        Problems problems = validate(Fixtures.fileWithChapter(
+                "\"defaultFlexibleProgress\": true,",
+                Fixtures.q("a").flexibleProgress(true).build()));
+
+        assertTrue(problems.all().stream()
+                        .noneMatch(problem -> problem.message().contains("lexible")),
+                "flexible flags should not be reported, got:\n"
+                        + problems.all().stream().map(DataProblem::render)
+                                .collect(Collectors.joining("\n")));
     }
 
     @Test
@@ -1234,9 +1289,22 @@ class QuestValidatorTest {
         }
 
         @Test
+        @DisplayName("a picture's pin must be a real boolean, and saying nothing is unlocked")
+        void lockedMustBeABoolean() {
+            // The same shape as the label's flags: absent is off, a word is a mistake worth naming.
+            Problems clean = chapter("[ { \"type\": \"image\", \"id\": \"i\", \"locked\": true, "
+                    + "\"image\": { \"sprite\": \"minecraft:air\" } } ]");
+            assertEquals(0, clean.errorCount(), "a pinned picture: " + messages(clean));
+
+            Problems wordy = chapter("[ { \"type\": \"image\", \"id\": \"i\", \"locked\": \"yes\", "
+                    + "\"image\": { \"sprite\": \"minecraft:air\" } } ]");
+            assertTrue(containing(wordy, "expected true or false").path().contains("elements[0].locked"),
+                    "at the pin's own field: " + messages(wordy));
+        }
+
+        @Test
         @DisplayName("a picture names exactly one source, and the codec cannot say so")
-        void aPictureNeedsOneSource() {
-            // The one thing the codec genuinely cannot refuse: it reads the file arm first, so an object
+        void aPictureNeedsOneSource() {            // The one thing the codec genuinely cannot refuse: it reads the file arm first, so an object
             // carrying both would quietly lose its sprite, and an object carrying neither has nothing to
             // draw. See ImageSource for why the leniency is there and this is where it is reported.
             assertTrue(messages(chapter("[ { \"type\": \"image\", \"id\": \"i\", \"image\": "
@@ -1252,21 +1320,55 @@ class QuestValidatorTest {
         }
 
         @Test
-        @DisplayName("a click this build cannot run is an error that names it and the three that work")
-        void unsupportedClicksAreErrors() {
-            // The whole reason all seven names are readable. A converted pack that clicked through to a
-            // guide page would otherwise keep a field that does nothing, and a dead button reads as a bug in
-            // this mod rather than as a gap in it.
-            Problems problems = chapter("[ { \"type\": \"image\", \"id\": \"i\", "
-                    + "\"image\": { \"sprite\": \"minecraft:air\" }, "
-                    + "\"click\": { \"type\": \"show_docs\", \"data\": \"mod,book\" } } ]");
+        @DisplayName("every action this build runs loads clean with well-formed data")
+        void allSupportedActionsAreClean() {
+            // The inverse of the old refusal test: with nothing left to refuse, what this pins is that
+            // every name the codec reads has a validator arm that accepts its well-formed data. A type
+            // added to the enum without an arm would fail the switch's exhaustiveness at compile time;
+            // a type with an arm that refuses its own valid data fails here.
+            assertEquals(0, chapter(click("none", "")).errorCount(), "none carries nothing");
+            assertEquals(0, chapter(click("open_quest", "some_quest")).errorCount(),
+                    "a dangling target is the index's to report, not this validator's");
+            assertEquals(0, chapter(click("open_uri", "https://example.invalid")).errorCount());
+            assertEquals(0, chapter(click("run_command", "say hi")).errorCount());
+            assertEquals(0, chapter(click("custom_event", "my_pack:sounded")).errorCount());
+            assertEquals(0, chapter(click("show_recipe", "minecraft:blast_furnace")).errorCount());
+            assertEquals(0, chapter(click("show_docs", "mod,book")).errorCount());
+        }
 
-            DataProblem error = containing(problems, "show_docs");
-            assertEquals(DataProblem.Severity.ERROR, error.severity(), messages(problems));
-            assertTrue(error.message().contains("none") && error.message().contains("open_quest")
-                            && error.message().contains("open_uri"),
-                    "and names the three it can run: " + error.message());
-            assertTrue(error.path().contains("click.type"), "at the action's own field: " + error.path());
+        @Test
+        @DisplayName("a recipe press names an item, and a docs press names a shelf and a book")
+        void recipeAndDocsDataAreChecked() {            // The shape the openers need: a viewer opens an item, and a guide press names the mod and
+            // the book it would have opened. Checked here rather than at the press, so an author hears
+            // about it at load with the file and the line.
+            assertTrue(messages(chapter(click("show_recipe", ""))).contains("needs an item id"));
+            assertTrue(messages(chapter(click("show_recipe", "Not An Id"))).contains("not an id"));
+            assertEquals(0, chapter(click("show_recipe", "minecraft:blast_furnace")).errorCount(),
+                    "an item id is clean: " + messages(chapter(click("show_recipe", "minecraft:blast_furnace"))));
+
+            assertTrue(messages(chapter(click("show_docs", "justamod"))).contains("<mod>,<book>"));
+            assertTrue(messages(chapter(click("show_docs", "mod,"))).contains("<mod>,<book>"),
+                    "a book with no name is no address");
+            assertEquals(0, chapter(click("show_docs", "mod,book")).errorCount(), "mod and book are enough");
+            assertEquals(0, chapter(click("show_docs", "mod,book,page,anchor")).errorCount(),
+                    "and the page and the anchor ride along");
+        }
+
+        @Test
+        @DisplayName("a command press names a command, and an event press names an event id")
+        void commandAndEventDataAreChecked() {
+            // The shape the server needs: a command it can run, and an id it can fire. Checked here
+            // rather than at the press, so an author hears about it at load with the file and the line
+            // -- and whether anything listens is deliberately not checked, because listeners are runtime.
+            assertTrue(messages(chapter(click("run_command", ""))).contains("needs a command to run"));
+            assertEquals(0, chapter(click("run_command", "say {p} pressed it")).errorCount(),
+                    "any non-blank command is well-formed: the dispatcher is what refuses a bad one");
+
+            assertTrue(messages(chapter(click("custom_event", ""))).contains("needs an event id"));
+            assertTrue(messages(chapter(click("custom_event", "Not An Id")))
+                    .contains("not an event id"));
+            assertEquals(0, chapter(click("custom_event", "my_pack:sounded")).errorCount(),
+                    "namespace:path is clean");
         }
 
         @Test
@@ -1316,6 +1418,84 @@ class QuestValidatorTest {
             assertEquals(0, chapter("[ { \"type\": \"rect\", \"id\": \"b\", "
                             + "\"requires\": \"some_quest\" } ]").errorCount(),
                     "a name that resolves to nothing is not this validator's to refuse");
+        }
+    }
+
+    /**
+     * A chapter's markers.
+     *
+     * <p>What a single chapter can answer — the shape of the list, the fields a link allows, and the
+     * values the codec is too lenient to refuse. Whether the quest a link points at exists is
+     * {@code QuestIndex}'s, and is asserted in {@code QuestIndexTest}. Everything here is a fact
+     * about the file.
+     */
+    @Nested
+    @DisplayName("quest links")
+    class QuestLinks {
+
+        private static Problems chapterWithLinks(String links) {
+            Problems problems = new Problems();
+            QuestValidator.validateChapterDocument(Fixtures.document("first_steps/chapter.json",
+                    "{ \"id\": \"first_steps\", \"title\": \"First Steps\", \"quests\": [],"
+                            + " \"links\": " + links + " }"), problems);
+            return problems;
+        }
+
+        @Test
+        @DisplayName("a full link, spelled out, has nothing wrong with it")
+        void oneLinkIsClean() {
+            Problems clean = chapterWithLinks("""
+                    [ { "id": "gate_hint", "quest": "the_deep", "x": 336, "y": -64,
+                        "shape": "hexagon", "size": 64 } ]
+                    """);
+            assertEquals(0, clean.errorCount(), "a well-formed link: " + messages(clean));
+        }
+
+        @Test
+        @DisplayName("a link needs an id and a target, and nothing it does not know")
+        void idAndTargetAreRequired() {
+            assertTrue(messages(chapterWithLinks("[ { \"quest\": \"a\" } ]"))
+                    .contains("missing required field id"));
+            assertTrue(messages(chapterWithLinks("[ { \"id\": \"l\" } ]")).contains("missing required"),
+                    "a marker without a target is nothing: " + messages(chapterWithLinks(
+                            "[ { \"id\": \"l\" } ]")));
+            assertTrue(messages(chapterWithLinks(
+                            "[ { \"id\": \"l\", \"quest\": \"a\", \"linked_quest\": \"b\" } ]"))
+                            .contains("unknown field \"linked_quest\""),
+                    "FTB's spelling is the tool's to map, not the file's to carry");
+        }
+
+        @Test
+        @DisplayName("two links may not share an id, because the second could then never be addressed")
+        void idsAreUniqueWithinAChapter() {
+            Problems problems = chapterWithLinks("""
+                    [ { "id": "twice", "quest": "a" },
+                      { "id": "twice", "quest": "b" } ]
+                    """);
+            assertTrue(containing(problems, "share the id \"twice\"").path().contains("links[1].id"),
+                    "the second one is the one reported: " + messages(problems));
+        }
+
+        @Test
+        @DisplayName("an empty target is this file's problem, and a missing one is the index's")
+        void theTargetsShapeIsCheckedHere() {
+            assertTrue(messages(chapterWithLinks("[ { \"id\": \"l\", \"quest\": \"\" } ]"))
+                    .contains("is empty"));
+            assertEquals(0, chapterWithLinks("[ { \"id\": \"l\", \"quest\": \"some_quest\" } ]")
+                    .errorCount(), "a name that resolves to nothing is not this validator's to refuse");
+        }
+
+        @Test
+        @DisplayName("a shape is the node's own vocabulary, and a size outside it is read clamped")
+        void shapeAndSizeAreChecked() {
+            assertTrue(messages(chapterWithLinks("[ { \"id\": \"l\", \"quest\": \"a\", "
+                            + "\"shape\": \"round\" } ]")).contains("rounded"),
+                    "a near miss names the words that exist");
+            Problems clamped = chapterWithLinks("[ { \"id\": \"l\", \"quest\": \"a\", "
+                    + "\"size\": 4000 } ]");
+            assertTrue(containing(clamped, "must be between 16 and 512").severity()
+                    == DataProblem.Severity.WARNING, "clamped, not refused: " + messages(clamped));
+            assertEquals(0, clamped.errorCount(), "and the file still loads: " + messages(clamped));
         }
     }
 

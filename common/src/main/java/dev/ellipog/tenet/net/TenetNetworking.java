@@ -16,6 +16,8 @@ import dev.ellipog.tenet.editor.EditorOp;
 import dev.ellipog.tenet.editor.EditorOps;
 import dev.ellipog.tenet.client.ClientTicker;
 import dev.ellipog.tenet.progress.ProgressService;
+import dev.ellipog.tenet.quest.CanvasElement;
+import dev.ellipog.tenet.quest.ClickAction;
 import dev.ellipog.tenet.quest.QuestIndex;
 import dev.ellipog.tenet.quest.TenetQuests;
 import dev.ellipog.tenet.quest.TreeRefresh;
@@ -24,6 +26,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.levelgen.structure.Structure;
@@ -257,6 +260,15 @@ public final class TenetNetworking {
                 ArmatureNetwork.Direction.TO_SERVER,
                 null,
                 TenetNetworking::handleClaimChoice));
+
+        // --- a canvas press the client cannot run itself ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                ClickPayload.TYPE,
+                ClickPayload.CODEC,
+                ArmatureNetwork.Direction.TO_SERVER,
+                null,
+                TenetNetworking::handleClick));
 
         // --- one player's quest text, in the language they read ---
         //
@@ -624,6 +636,154 @@ public final class TenetNetworking {
 
         ProgressService.claim(server, sender, entry.get());
         sendToTeam(sender, ProgressSyncPayload.REASON_CHANGED);
+    }
+
+    /**
+     * A player pressed a canvas element whose click runs on the server.
+     *
+     * <h2>Everything is re-checked here</h2>
+     *
+     * <p>The client sent a chapter and an element id and nothing else, and none of it is trusted. The
+     * command or the event id comes from the server's own index — the file as the server loaded it —
+     * and the click still has to <i>be</i> a server-side action: an element the author has since
+     * changed to an {@code open_quest} is refused, not run as whatever it used to say. So a forged
+     * payload names nothing, a stale one runs nothing, and neither can choose what the server runs.
+     *
+     * <p>Commands run through the server's own dispatcher with the player as the source, at the level
+     * the pack configured — the player's own level, or elevated — and never above it, and never at
+     * the presser's own level however high that is. The command's own output is the feedback: the
+     * source is not suppressed, so the result gamerule decides what the presser sees, exactly as if
+     * they had typed it themselves at that level.
+     *
+     * <p>Public for the playthrough: this handler is the cheat boundary, and the boundary is what
+     * the playthrough presses — with forged ids, stale actions and a listener on the bus.
+     */
+    public static void handleClick(ClickPayload payload, ServerPlayer sender) {
+        QuestIndex index = TenetQuests.index();
+        MinecraftServer server = sender.getServer();
+        if (server == null || index.isEmpty()) {
+            return;
+        }
+
+        int level = TenetQuests.settings().clickCommandLevel();
+        Optional<ClickCommand> command =
+                resolveClickCommand(index, payload.chapterId(), payload.elementId(), level);
+        if (command.isPresent()) {
+            runClickCommand(server, sender, command.get());
+            return;
+        }
+        Optional<ClickEventFire> event =
+                resolveClickEvent(index, payload.chapterId(), payload.elementId());
+        if (event.isPresent()) {
+            ClickEventFire fire = event.get();
+            dev.ellipog.tenet.api.TenetEvents.CLICK_EVENT.invoker()
+                    .onClickEvent(sender, fire.event(), fire.chapterId(), fire.elementId());
+            return;
+        }
+        Constants.LOG.warn("tenet: {} pressed a canvas element with no server-side action '{}:{}'",
+                sender.getScoreboardName(), payload.chapterId(), payload.elementId());
+    }
+
+    /**
+     * A press that runs a command: what the server read, and the level it runs at.
+     *
+     * <p>The level is the configured one, capped at 2 and floored at 0 — never the presser's own,
+     * and never above the pack's answer. A click that escalated its presser would be a privilege
+     * boundary drawn in the wrong place.
+     */
+    record ClickCommand(String chapterId, String elementId, String command, int level) {
+    }
+
+    /** A press that fires a script event: what the server read, and where the press landed. */
+    record ClickEventFire(String chapterId, String elementId, ResourceLocation event) {
+    }
+
+    /**
+     * The command a press runs, resolved against the authoritative index.
+     *
+     * <p>Empty for every press that must not run one: an unknown chapter, an element the chapter
+     * does not hold, a click that is no longer a command, and a command that is blank. The caller
+     * tries the event arm next, so "empty" here is "not a command" rather than "refused" — the
+     * refusal is the warning when neither arm answers.
+     */
+    static Optional<ClickCommand> resolveClickCommand(QuestIndex index, String chapterId,
+                                                      String elementId, int configuredLevel) {
+        ClickAction click = clickOf(index, chapterId, elementId).orElse(null);
+        if (click == null || click.type() != ClickAction.Type.RUN_COMMAND || click.data().isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(new ClickCommand(chapterId, elementId, click.data(),
+                Math.max(0, Math.min(2, configuredLevel))));
+    }
+
+    /**
+     * The script event a press fires, resolved against the authoritative index.
+     *
+     * <p>Empty for every press that must not fire one, for the same reasons as the command arm: an
+     * unknown chapter or element, a click that is no longer an event, and an id that is not one.
+     */
+    static Optional<ClickEventFire> resolveClickEvent(QuestIndex index, String chapterId, String elementId) {
+        ClickAction click = clickOf(index, chapterId, elementId).orElse(null);
+        if (click == null || click.type() != ClickAction.Type.CUSTOM_EVENT) {
+            return Optional.empty();
+        }
+        ResourceLocation event =
+                click.data() == null ? null : ResourceLocation.tryParse(click.data());
+        if (event == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new ClickEventFire(chapterId, elementId, event));
+    }
+
+    /**
+     * The click the chapter holds for the element, or empty.
+     *
+     * <p>Only images are pressable, so only an image's click can answer: a press naming anything
+     * else names no action, whatever the array around it holds.
+     */
+    private static Optional<ClickAction> clickOf(QuestIndex index, String chapterId, String elementId) {
+        if (index == null || chapterId == null || elementId == null) {
+            return Optional.empty();
+        }
+        return index.chapter(chapterId)
+                .flatMap(entry -> entry.chapter().elements().stream()
+                        .filter(element -> element instanceof CanvasElement.Image)
+                        .map(element -> (CanvasElement.Image) element)
+                        .filter(image -> image.id().equals(elementId))
+                        .map(CanvasElement.Image::click)
+                        .findFirst());
+    }
+
+    /** Runs a resolved click command as the pressing player, at the resolved level. */
+    private static void runClickCommand(MinecraftServer server, ServerPlayer sender, ClickCommand resolved) {
+        net.minecraft.commands.CommandSourceStack source = sender.createCommandSourceStack();
+        if (resolved.level() > 0) {
+            source = source.withPermission(resolved.level());
+        }
+        var pos = sender.blockPosition();
+        server.getCommands().performPrefixedCommand(source, substituteClick(resolved.command(),
+                sender.getScoreboardName(), pos.getX(), pos.getY(), pos.getZ(), resolved.chapterId(),
+                resolved.elementId()));
+    }
+
+    /**
+     * A click command with every placeholder filled in.
+     *
+     * <p>An unknown brace-word is left as written rather than blanked: a command that says
+     * {@code {player}} to an operator reading the log is a one-second fix, and a command that
+     * silently loses the word is a mystery. That is the command reward's own rule, and a click
+     * shares its vocabulary on purpose: a pack moved from FTB Quests should not have to learn a
+     * second one for the same sentence.
+     */
+    static String substituteClick(String command, String playerName, int x, int y, int z,
+                                  String chapterId, String elementId) {
+        return command
+                .replace("{p}", playerName)
+                .replace("{x}", String.valueOf(x))
+                .replace("{y}", String.valueOf(y))
+                .replace("{z}", String.valueOf(z))
+                .replace("{chapter}", chapterId)
+                .replace("{element}", elementId);
     }
 
     /**

@@ -76,6 +76,14 @@ public record ItemTask(TaskCommon common, ItemRef item, Optional<Boolean> consum
         }
 
         @Override
+        public boolean readsInventory() {
+            // Counted from inventories — or from a crafting statistic, which is cheaper, when the
+            // task asks for that instead. Either way the pack's inventory floor applies: slowing
+            // the poll of a stat-backed task costs nothing and keeps one rule for the type.
+            return true;
+        }
+
+        @Override
         public int current(ItemTask task, TaskContext context) {
             ItemStack template = task.item().toStack();
             if (template.isEmpty()) {

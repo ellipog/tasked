@@ -16,7 +16,12 @@ import dev.ellipog.tenet.quest.PrerequisiteMode;
  */
 public enum QuestState {
 
-    /** Dependencies are not satisfied. Nothing a player does can advance it. */
+    /**
+     * Dependencies are not satisfied. Nothing a player does can advance it — unless the quest is
+     * flexible ({@code flexibleProgress} or its chapter's default), in which case tasks accumulate
+     * while the gate is shut and completion waits for it to open. Flexible quests therefore never
+     * resolve to this while they are measurable; they read UNLOCKED or STARTED instead.
+     */
     LOCKED,
 
     /** Dependencies are satisfied. Nothing done yet. */

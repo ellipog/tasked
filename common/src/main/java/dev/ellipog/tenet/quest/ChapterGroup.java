@@ -63,9 +63,14 @@ public record ChapterGroup(
         return chapters.stream().filter(chapter -> chapter.matches(idOrAlias)).findFirst();
     }
 
-    /** Whether {@code idOrAlias} refers to this group. */
+    /**
+     * Whether {@code idOrAlias} refers to this group.
+     *
+     * <p>Without regard to letter case, because lookups are. See {@link QuestIndex}.
+     */
     public boolean matches(String idOrAlias) {
-        return id.equals(idOrAlias) || aliases.contains(idOrAlias);
+        return id.equalsIgnoreCase(idOrAlias)
+                || aliases.stream().anyMatch(alias -> alias.equalsIgnoreCase(idOrAlias));
     }
 
     public static final Codec<ChapterGroup> CODEC = RecordCodecBuilder.create(instance -> instance.group(

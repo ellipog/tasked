@@ -249,6 +249,187 @@ class ProgressionEngineTest {
         }
     }
 
+    @Nested
+    @DisplayName("with optional dependencies")
+    class OptionalQuests {
+
+        @Test
+        @DisplayName("an unmet optional dependency does not lock, under ALL_COMPLETED")
+        void unmetOptionalDoesNotLock() {
+            QuestIndex index = indexOf(q("side").optional(true).build(),
+                    q("d").dependsOn("side").build());
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, TeamProgress.empty(), "d"));
+        }
+
+        @Test
+        @DisplayName("a completed optional dependency does not satisfy, under ONE_COMPLETED")
+        void completedOptionalDoesNotSatisfy() {
+            // Both halves of "neither helps nor blocks": the quest below is locked with only its
+            // optional dependency done, and unlocked the moment its mandatory one is — whether or
+            // not the optional one ever finishes.
+            QuestIndex index = indexOf(q("side").optional(true).build(), q("main").build(),
+                    q("d").dependsOn("side", "main").prerequisiteMode("one_completed").build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "d"));
+            assertEquals(QuestState.LOCKED, stateOf(index, completedQuests(index, "side"), "d"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, completedQuests(index, "main"), "d"));
+            assertEquals(QuestState.UNLOCKED,
+                    stateOf(index, completedQuests(index, "main", "side"), "d"));
+        }
+
+        @Test
+        @DisplayName("mandatory gates still gate, under ALL_COMPLETED with a mix")
+        void mandatoryStillGates() {
+            QuestIndex index = indexOf(q("side").optional(true).build(), q("main").build(),
+                    q("d").dependsOn("side", "main").build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "d"));
+            assertEquals(QuestState.LOCKED, stateOf(index, completedQuests(index, "side"), "d"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, completedQuests(index, "main"), "d"));
+        }
+
+        @Test
+        @DisplayName("the started-based modes ignore optionals the same way")
+        void startedModesIgnoreOptionals() {
+            QuestIndex index = indexOf(q("side").optional(true).build(), q("main").build(),
+                    q("d").dependsOn("side", "main").prerequisiteMode("all_started").build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "d"));
+            assertEquals(QuestState.LOCKED, stateOf(index, startedQuests(index, "side"), "d"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, startedQuests(index, "main"), "d"));
+
+            QuestIndex one = indexOf(q("side").optional(true).build(), q("main").build(),
+                    q("d").dependsOn("side", "main").prerequisiteMode("one_started").build());
+            assertEquals(QuestState.LOCKED, stateOf(one, TeamProgress.empty(), "d"));
+            assertEquals(QuestState.LOCKED, stateOf(one, startedQuests(one, "side"), "d"));
+            assertEquals(QuestState.UNLOCKED, stateOf(one, startedQuests(one, "main"), "d"));
+        }
+
+        @Test
+        @DisplayName("minRequired counts non-optional dependencies only")
+        void minRequiredCountsNonOptionals() {
+            QuestIndex index = indexOf(q("a").build(), q("b").build(), q("side").optional(true).build(),
+                    q("d").dependsOn("a", "b", "side").minRequired(2).build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, completedQuests(index, "a"), "d"));
+            assertEquals(QuestState.UNLOCKED, stateOf(index, completedQuests(index, "a", "b"), "d"));
+            // Two of the counted three, with the optional one among them, is still only one.
+            assertEquals(QuestState.LOCKED, stateOf(index, completedQuests(index, "a", "side"), "d"));
+        }
+
+        @Test
+        @DisplayName("several optionals leave a quest open on their own")
+        void severalOptionals() {
+            QuestIndex index = indexOf(q("s1").optional(true).build(), q("s2").optional(true).build(),
+                    q("d").dependsOn("s1", "s2").build());
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, TeamProgress.empty(), "d"));
+        }
+
+        @Test
+        @DisplayName("the required count the command reports excludes optionals too")
+        void reportedCountExcludesOptionals() {
+            QuestIndex index = indexOf(q("side").optional(true).build(), q("main").build(),
+                    q("d").dependsOn("side", "main").build());
+
+            assertEquals(1,
+                    ProgressionEngine.requiredCount(index, Fixtures.quest(index, "d"),
+                            dev.ellipog.tenet.quest.PrerequisiteMode.ALL_COMPLETED));
+        }
+    }
+
+    @Nested
+    @DisplayName("with flexible progress")
+    class Flexible {
+
+        @Test
+        @DisplayName("a flexible quest is measurable while its gate is shut, not locked")
+        void flexibleIsMeasurableBehindItsGate() {
+            QuestIndex index = indexOf(q("gate").build(),
+                    q("early").dependsOn("gate").flexibleProgress(true).build());
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, TeamProgress.empty(), "early"),
+                    "a flexible quest waits on nothing to start working");
+            assertEquals(QuestState.STARTED, stateOf(index, startedQuests(index, "early"), "early"),
+                    "and progress on it reads as started");
+        }
+
+        @Test
+        @DisplayName("without the flag the same quest is locked")
+        void inflexibleIsLocked() {
+            QuestIndex index = indexOf(q("gate").build(), q("late").dependsOn("gate").build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "late"));
+            assertEquals(QuestState.LOCKED, stateOf(index, startedQuests(index, "late"), "late"));
+        }
+
+        @Test
+        @DisplayName("the chapter default makes every quiet quest flexible")
+        void chapterDefaultIsFlexible() {
+            QuestIndex index = indexWithChapter("\"defaultFlexibleProgress\": true,",
+                    q("gate").build(), q("early").dependsOn("gate").build());
+
+            assertEquals(QuestState.UNLOCKED, stateOf(index, TeamProgress.empty(), "early"));
+        }
+
+        @Test
+        @DisplayName("either the quest or the chapter makes it flexible")
+        void eitherSideMakesItFlexible() {
+            QuestIndex flagged = indexWithChapter("", q("gate").build(),
+                    q("early").dependsOn("gate").flexibleProgress(true).build());
+            assertEquals(QuestState.UNLOCKED, stateOf(flagged, TeamProgress.empty(), "early"));
+
+            QuestIndex plain = indexWithChapter("", q("gate").build(),
+                    q("late").dependsOn("gate").build());
+            assertEquals(QuestState.LOCKED, stateOf(plain, TeamProgress.empty(), "late"));
+        }
+
+        @Test
+        @DisplayName("a flexible quest still unlocks normally once its gate opens")
+        void gateOpeningUnlocks() {
+            QuestIndex index = indexOf(q("gate").build(),
+                    q("early").dependsOn("gate").flexibleProgress(true).build());
+
+            assertEquals(QuestState.UNLOCKED,
+                    stateOf(index, completedQuests(index, "gate"), "early"));
+        }
+
+        @Test
+        @DisplayName("linear order still applies to a flexible quest")
+        void linearOrderStillApplies() {
+            // Flexible is about dependency edges, not about list order: a second quest in a linear
+            // chapter still waits on the first, because that axis is a different question.
+            QuestIndex index = indexWithChapter("\"progressionMode\": \"linear\",",
+                    q("first").build(), q("second").flexibleProgress(true).build());
+
+            assertEquals(QuestState.LOCKED, stateOf(index, TeamProgress.empty(), "second"));
+            assertEquals(QuestState.UNLOCKED,
+                    stateOf(index, completedQuests(index, "first"), "second"));
+        }
+
+        @Test
+        @DisplayName("the gate helper judges already-resolved states")
+        void gateHelper() {
+            QuestIndex index = indexOf(q("gate").build(), q("side").optional(true).build(),
+                    q("early").dependsOn("gate", "side").flexibleProgress(true).build());
+            var entry = Fixtures.quest(index, "early");
+            var questEntry = index.quest("early").orElseThrow();
+
+            var shut = ProgressionEngine.resolve(index, TeamProgress.empty(), NOW).states();
+            assertFalse(ProgressionEngine.dependenciesSatisfied(index, questEntry, shut));
+
+            var open = ProgressionEngine
+                    .resolve(index, completedQuests(index, "gate"), NOW).states();
+            assertTrue(ProgressionEngine.dependenciesSatisfied(index, questEntry, open),
+                    "the optional dependency is left out, so the gate alone opens it");
+
+            assertTrue(ProgressionEngine.isFlexible(entry, index.chapters().get(0).chapter()));
+            assertFalse(ProgressionEngine.isFlexible(Fixtures.quest(index, "gate"),
+                    index.chapters().get(0).chapter()));
+        }
+    }
+
     // ------------------------------------------------------------------
     // A cap on how many dependents may complete
     // ------------------------------------------------------------------

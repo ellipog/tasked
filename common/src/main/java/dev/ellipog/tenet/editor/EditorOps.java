@@ -115,6 +115,23 @@ public final class EditorOps {
                 json.addProperty("path", set.path());
                 json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
             }
+            case EditorOp.InsertLink insert -> {
+                json.addProperty("kind", "insertLink");
+                json.addProperty("index", insert.index());
+                // The tree inline, like an element's: it is what the file will hold, and a string
+                // holding JSON inside JSON is two escapes waiting to disagree.
+                json.add("link", insert.tree());
+            }
+            case EditorOp.RemoveLink remove -> {
+                json.addProperty("kind", "removeLink");
+                json.addProperty("link", remove.link());
+            }
+            case EditorOp.SetLink set -> {
+                json.addProperty("kind", "setLink");
+                json.addProperty("link", set.link());
+                json.addProperty("path", set.path());
+                json.add("value", set.value() == null ? JsonNull.INSTANCE : set.value());
+            }
             case EditorOp.SetGroup set -> {
                 json.addProperty("kind", "group");
                 json.addProperty("path", set.path());
@@ -248,6 +265,12 @@ public final class EditorOps {
                                 ? json.get("element").getAsJsonObject() : null);
                 case "removeElement" -> new EditorOp.RemoveElement(text(json, "element"));
                 case "setElement" -> new EditorOp.SetElement(text(json, "element"), text(json, "path"),
+                        json.has("value") ? json.get("value") : JsonNull.INSTANCE);
+                case "insertLink" -> new EditorOp.InsertLink((int) number(json, "index"),
+                        json.has("link") && json.get("link").isJsonObject()
+                                ? json.get("link").getAsJsonObject() : null);
+                case "removeLink" -> new EditorOp.RemoveLink(text(json, "link"));
+                case "setLink" -> new EditorOp.SetLink(text(json, "link"), text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
                 case "group" -> new EditorOp.SetGroup(text(json, "path"),
                         json.has("value") ? json.get("value") : JsonNull.INSTANCE);
@@ -461,6 +484,11 @@ public final class EditorOps {
             case EditorOp.InsertElement ignored -> true;
             case EditorOp.RemoveElement ignored -> true;
             case EditorOp.SetElement ignored -> true;
+            // And a quest link for the same reason: it is one entry in the same file, holding no
+            // progress and gating nothing, so a drag's two writes join one snapshot the same way.
+            case EditorOp.InsertLink ignored -> true;
+            case EditorOp.RemoveLink ignored -> true;
+            case EditorOp.SetLink ignored -> true;
             case EditorOp.Delete ignored -> true;
             case EditorOp.Batch ignored -> false;
             case EditorOp.Undo ignored -> false;
@@ -586,6 +614,11 @@ public final class EditorOps {
             case EditorOp.InsertElement ignored -> TreeRefresh.Touch.COSMETIC;
             case EditorOp.RemoveElement ignored -> TreeRefresh.Touch.COSMETIC;
             case EditorOp.SetElement ignored -> TreeRefresh.Touch.COSMETIC;
+            // And a quest link for the same reason: a marker reads a quest's state and changes nothing,
+            // so every edit to one is cosmetic too.
+            case EditorOp.InsertLink ignored -> TreeRefresh.Touch.COSMETIC;
+            case EditorOp.RemoveLink ignored -> TreeRefresh.Touch.COSMETIC;
+            case EditorOp.SetLink ignored -> TreeRefresh.Touch.COSMETIC;
 
             // Ids move, or a quest arrives or leaves: a delta is keyed by id and names its removals.
             case EditorOp.Create ignored -> TreeRefresh.Touch.CONTENT;
@@ -639,6 +672,11 @@ public final class EditorOps {
             // here would be a full re-resolve of every quest for a decoration. The `tasks`/`rewards` check
             // above stays first, because a path that reaches one of those is content whatever else it names.
             if (step.equals("elements")) {
+                return TreeRefresh.Touch.COSMETIC;
+            }
+            // And a chapter's whole link list, for the same reason: nothing under `links` can move a
+            // stored progress position either.
+            if (step.equals("links")) {
                 return TreeRefresh.Touch.COSMETIC;
             }
         }
@@ -751,6 +789,15 @@ public final class EditorOps {
                     finish(editor, op, editor.removeElement(remove.element()), null, save);
             case EditorOp.SetElement set ->
                     finish(editor, op, editor.setElement(set.element(), set.path(), value(set.value())),
+                            null, save);
+            // The three link edits, each against the chapter's own file like the element writes above --
+            // a link has no file of its own, which is the whole of what makes them this shape.
+            case EditorOp.InsertLink insert ->
+                    finish(editor, op, editor.insertLink(insert.index(), insert.tree()), null, save);
+            case EditorOp.RemoveLink remove ->
+                    finish(editor, op, editor.removeLink(remove.link()), null, save);
+            case EditorOp.SetLink set ->
+                    finish(editor, op, editor.setLink(set.link(), set.path(), value(set.value())),
                             null, save);
             case EditorOp.SetGroup set ->
                     finish(editor, op, editor.setGroup(set.path(), value(set.value())), null, save);

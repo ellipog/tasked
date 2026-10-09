@@ -5,6 +5,7 @@ import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import dev.ellipog.tenet.Tenet;
+import dev.ellipog.tenet.Constants;
 import dev.ellipog.tenet.quest.QuestTask;
 import dev.ellipog.tenet.quest.TaskCommon;
 import dev.ellipog.tenet.quest.TaskContext;
@@ -64,29 +65,53 @@ public record CustomTask(TaskCommon common, String id, int value) implements Que
         }
 
         /**
-         * What the handler says, or zero when nothing provides it.
+         * What the handler says, or zero when nothing provides it -- or when providing it throws.
          *
          * <p>Zero rather than an error, and no log line -- deliberately unlike {@code CustomReward}, which
          * warns once when its handler is missing. A reward grants once and a log line is read once; a task is
          * polled every twenty ticks, and a warning per poll is a log nobody can read. The runtime signal is
          * the row itself, showing no progress, and the author's signal is the validator -- which warns at
          * the file's own line when this build has no handler for the id.
+         *
+         * <p>A handler that <i>throws</i> is caught and read as zero, with one warning per id: the alternative
+         * is a script error crashing the server tick that polled it, which is what happened the first time a
+         * script called a record accessor as a property. The warning names the id so the author knows which
+         * script to open; the task stays inert until it is fixed.
          */
         @Override
         public int current(CustomTask task, TaskContext context) {
             return CustomTasks.handler(task.id())
-                    .map(handler -> handler.current(task, context))
+                    .map(handler -> {
+                        try {
+                            return handler.current(task, context);
+                        }
+                        catch (RuntimeException | Error thrown) {
+                            CustomTasks.warnOnce(task.id(), thrown);
+                            return 0;
+                        }
+                    })
                     .orElse(0);
         }
 
         /**
          * Only if the handler says so: a custom task is measured, and a handler that wants a button asks for
          * one -- {@code canSubmitByHand} is the question the reader's Submit control is built from.
+         *
+         * <p>Guarded like {@link #current}: this runs on UI paths, and a throwing handler must cost a
+         * missing button rather than a render crash.
          */
         @Override
         public boolean canSubmitByHand(CustomTask task, boolean chapterDefault) {
             return CustomTasks.handler(task.id())
-                    .map(handler -> handler.canSubmitByHand(task))
+                    .map(handler -> {
+                        try {
+                            return handler.canSubmitByHand(task);
+                        }
+                        catch (RuntimeException | Error thrown) {
+                            CustomTasks.warnOnce(task.id(), thrown);
+                            return false;
+                        }
+                    })
                     .orElse(false);
         }
 
@@ -138,6 +163,23 @@ public record CustomTask(TaskCommon common, String id, int value) implements Que
 
         private static final Map<String, Handler> HANDLERS = new ConcurrentHashMap<>();
 
+        /** Handler ids whose failure has already been warned about, so a poll-every-tick throw warns once. */
+        private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
+
+        /**
+         * Warns about a throwing handler the first time per id.
+         *
+         * <p>Once rather than per poll, because the poll runs every twenty ticks per player and a warning
+         * per poll is a log nobody can read. Reset by {@link #clear}, so a script reload that is still
+         * broken warns again rather than failing silently forever.
+         */
+        static void warnOnce(String id, Throwable thrown) {
+            if (WARNED.add(id)) {
+                Constants.LOG.warn("tenet: custom task \"{}\" threw while being measured; it reads as no"
+                        + " progress until the handler is fixed ({})", id, thrown.toString());
+            }
+        }
+
         /**
          * Registers a handler.
          *
@@ -163,6 +205,7 @@ public record CustomTask(TaskCommon common, String id, int value) implements Que
         /** Forgets every handler. Called before a script reload, so a reload does not keep a dead script's. */
         public static void clear() {
             HANDLERS.clear();
+            WARNED.clear();
         }
     }
 }

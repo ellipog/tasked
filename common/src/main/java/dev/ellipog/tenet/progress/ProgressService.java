@@ -474,7 +474,9 @@ public final class ProgressService {
 
         for (Map.Entry<QuestIndex.QuestEntry, QuestProgress> each : touched.entrySet()) {
             Quest quest = each.getKey().quest();
-            if (ProgressionEngine.tasksSatisfied(quest, each.getValue()) && canComplete(quest, working)) {
+            if (ProgressionEngine.tasksSatisfied(quest, each.getValue()) && canComplete(quest, working)
+                    && gateOpenForFlexible(TenetQuests.index(), each.getKey(), quest,
+                            resolution.states())) {
                 working = complete(server, owner, killer, each.getKey(), working.put(quest, each.getValue()));
             }
             else {
@@ -549,6 +551,13 @@ public final class ProgressService {
         Map<String, Map<UUID, Integer>> contributions =
                 CONTRIBUTIONS.computeIfAbsent(owner, key -> new LinkedHashMap<>());
 
+        // FTB Quests' detection_delay, read once per pass: the minimum ticks between inventory
+        // checks. A pack that polls inventory every sixty ticks must not pay for a task that asked
+        // every twenty — and a task that never reads an inventory keeps its own cadence whatever
+        // the pack says, because a stat lookup is not an inventory walk. The default is twenty,
+        // which is the interval it floors, so a pack that says nothing behaves exactly as before.
+        int inventoryFloor = TenetQuests.settings().detectionDelay();
+
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
             if (!resolution.stateOf(quest).isPlayable()) {
@@ -596,6 +605,15 @@ public final class ProgressService {
                 String key = keyOf(quest, taskIndex);
                 int interval = task.common().autoSubmitTicks();
 
+                Optional<dev.ellipog.tenet.quest.task.TaskBehaviour<QuestTask>> behaviour =
+                        TaskTypes.behaviourOf(task);
+                if (behaviour.isEmpty()) {
+                    continue;
+                }
+                // Inventory-backed tasks wait at least the pack's detection delay between reads.
+                if (behaviour.get().readsInventory()) {
+                    interval = Math.max(interval, inventoryFloor);
+                }
                 // The scheduling decision, which belongs to `isDue` rather than to this loop. It is a
                 // method because it went wrong twice, and both times the cause was arithmetic no test
                 // could reach from here: an overflow, and a clock that goes backwards when a player
@@ -604,12 +622,6 @@ public final class ProgressService {
                     continue;
                 }
                 lastEvaluated.put(key, now);
-
-                Optional<dev.ellipog.tenet.quest.task.TaskBehaviour<QuestTask>> behaviour =
-                        TaskTypes.behaviourOf(task);
-                if (behaviour.isEmpty()) {
-                    continue;
-                }
 
                 int required = behaviour.get().required(task);
 
@@ -745,7 +757,8 @@ public final class ProgressService {
             //
             // The `else if` is what still carries genuinely new task progress to disk on the tick the
             // refusal happens, rather than dropping it on the floor.
-            if (ProgressionEngine.tasksSatisfied(quest, questProgress) && canComplete(quest, working)) {
+            if (ProgressionEngine.tasksSatisfied(quest, questProgress) && canComplete(quest, working)
+                    && gateOpenForFlexible(index, entry, quest, resolution.states())) {
                 working = complete(server, owner, earner, entry, working.put(quest, questProgress));
                 changed = true;
             }
@@ -813,14 +826,35 @@ public final class ProgressService {
             return progress;
         }
 
+        // The gate half of flexible progress. This runs outside any evaluation pass — commands,
+        // submits and the death event all land here — so it judges a fresh resolution rather than
+        // a pass's states. The tick's own check above already answered for the pass it holds; this
+        // is what stops a submit or a kill from finishing a flexible quest whose gate is still shut.
         long now = server.overworld().getGameTime();
+        if (ProgressionEngine.isFlexible(quest, entry.chapter())
+                && !ProgressionEngine.dependenciesSatisfied(TenetQuests.index(), entry,
+                        ProgressionEngine.resolve(TenetQuests.index(), progress, now).states())) {
+            return progress;
+        }
+
         QuestSettings settings = TenetQuests.settings();
 
         // `resetTasks` clears the round's claims as a side effect of building a fresh round, so
         // anything marked below is marked after it rather than before. Setting first and resetting
         // second is the ordering that looks natural and is silently wrong.
-        QuestProgress recorded = quest.repeatable() ? current.resetTasks() : current;
-        recorded = recorded.completedAt(now);
+        //
+        // A repeatable round with a payout still to collect keeps its tasks: the payout is the
+        // round, and clearing it now would erase what "completed" means to look at, while starting
+        // the cooldown now would time what nobody is waiting for. Its claims are wiped — the next
+        // round's payout must read as uncollected — but its clock and its count wait for the final
+        // claim (see the claim path). A round with nothing to wait for, rewards or not, resets here.
+        QuestProgress recorded;
+        if (quest.repeatable() && !quest.rewards().isEmpty()) {
+            recorded = current.withClaims(QuestClaims.NONE).completed();
+        }
+        else {
+            recorded = (quest.repeatable() ? current.resetTasks() : current).completedAt(now);
+        }
 
         // The rewards that hand themselves over, which is what the auto-claim modes are for. Resolved
         // and recorded now -- before anything is granted -- so a crash between the two cannot
@@ -842,6 +876,14 @@ public final class ProgressService {
         // The round is over for the completer when they have nothing left to collect; see QuestProgress.
         boolean outstanding = outstandingFor(quest, recorded, player.getUUID(), settings);
         recorded = recorded.withRewardsClaimed(!outstanding);
+
+        // A repeatable round nobody has anything left to collect from is over the moment it is
+        // paid: with no payout waiting, no claim will ever arrive to end it, so the count moves
+        // and the cooldown starts now rather than at a claim that never comes. The claims stay
+        // marked — wiping them here would re-offer what was just paid.
+        if (quest.repeatable() && !quest.rewards().isEmpty() && !outstanding) {
+            recorded = recorded.repeatRoundOver(now);
+        }
 
         TeamProgress saved = progress.put(quest, recorded);
         ProgressStore.of(server).put(owner, saved);
@@ -1330,6 +1372,7 @@ public final class ProgressService {
             QuestProgress updated = current.withClaims(marked);
             updated = updated.withRewardsClaimed(
                     !outstandingFor(quest, updated, player.getUUID(), settings));
+            updated = endRepeatableRoundIfCollected(server, quest, current, updated);
             store.put(owner, team.put(quest, updated));
 
             Constants.LOG.info("tenet: {} collected {} of {} reward(s) for '{}' (team {}){}",
@@ -1543,6 +1586,7 @@ public final class ProgressService {
         QuestProgress updated = current.withClaims(marked);
         updated = updated.withRewardsClaimed(
                 !outstandingFor(quest, updated, player.getUUID(), settings));
+        updated = endRepeatableRoundIfCollected(server, quest, current, updated);
         store.put(owner, team.put(quest, updated));
         TenetEvents.REWARD_CLAIMED.invoker().onRewardClaimed(player, quest, reward);
         // No chat line; see the claim path above.
@@ -1773,6 +1817,44 @@ public final class ProgressService {
         // Finished. Only a repeatable quest can be finished again, and only once whatever it was
         // holding has been collected -- or when it never held anything.
         return quest.repeatable() && (quest.rewards().isEmpty() || current.rewardsClaimed());
+    }
+
+    /**
+     * Whether a quest's dependency gate is open, for the flexible quests that measure early.
+     *
+     * <p>Always true for a quest that is not flexible: those only ever measure while playable, and
+     * playable means the gate already opened. A flexible quest accumulates task progress while its
+     * dependencies are unmet, so its completion needs this second half — tasks satisfied <b>and</b>
+     * gate open — judged on already-resolved states rather than a fresh resolution per quest.
+     *
+     * <p>Called with the pass's own resolution, which is stale by up to one pass for chains that
+     * complete mid-pass: a flexible quest whose gate opened earlier in this same pass completes on
+     * the next tick rather than this one. Fifty milliseconds, invisible, and bounded — and the
+     * alternative (re-resolving per quest) would turn every tick into a quadratic walk.
+     */
+    private static boolean gateOpenForFlexible(QuestIndex index, QuestIndex.QuestEntry entry, Quest quest,
+                                               Map<String, QuestState> states) {
+        return !ProgressionEngine.isFlexible(quest, entry.chapter())
+                || ProgressionEngine.dependenciesSatisfied(index, entry, states);
+    }
+
+    /**
+     * Ends a repeatable round whose payout this claim just finished collecting.
+     *
+     * <p>One helper for both payout paths that mark claims — the claim sweep and the choice answer
+     * — because the round ends the same way whichever press collected it, and two copies of "the
+     * last unclaimed reward was just claimed" would be two chances to disagree about when a round
+     * is over. The timer starts here, the tasks reset here, and the count moves here; a round with
+     * nothing to wait for never reaches this, because its completion already ended it.
+     */
+    private static QuestProgress endRepeatableRoundIfCollected(MinecraftServer server, Quest quest,
+                                                               QuestProgress before,
+                                                               QuestProgress updated) {
+        if (quest.repeatable() && !quest.rewards().isEmpty()
+                && updated.rewardsClaimed() && !before.rewardsClaimed()) {
+            return updated.repeatRoundOver(server.overworld().getGameTime());
+        }
+        return updated;
     }
 
     /**

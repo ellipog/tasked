@@ -204,6 +204,11 @@ public sealed interface CanvasElement {
      *                 FTB's {@code alignToCorner}, kept under its own reading rather than dropped as
      *                 cosmetic: a real pack uses it on a logo turned slightly off square, and the two
      *                 pivots are visibly different pictures.
+     * @param locked   whether the editor's drag leaves this picture where it is. FTB's
+     *                 {@code position_locked}: a pinned logo survives a marquee drag and a stray grip grab.
+     *                 Readers are unaffected — this gates gestures, not visibility — and a deliberate edit
+     *                 still writes, because a lock that could never be opened on purpose would be a picture
+     *                 nobody could move. The migration tool maps FTB's spelling onto this key.
      * @param tint     multiplied into the picture, RGB and alpha alike. <b>White is the identity</b>, which
      *                 is its default, and a tint that carries an alpha <i>multiplies</i> with {@code alpha}
      *                 rather than replacing it — so "fade this" has one meaning whichever of the two fields
@@ -220,12 +225,12 @@ public sealed interface CanvasElement {
      * @param click    what pressing it does. See {@link ClickAction} for the four names this build refuses.
      */
     record Image(Common common, int x, int y, int width, int height, int rotation, boolean corner,
-                 ImageSource image, int tint, int alpha, Optional<QuestText> title,
+                 boolean locked, ImageSource image, int tint, int alpha, Optional<QuestText> title,
                  Optional<ElementLabel> label, ClickAction click) implements CanvasElement {
 
         /** The fields this arm adds. */
         public static final Set<String> FIELDS = Set.of(
-                "x", "y", "width", "height", "rotation", "corner", "image", "tint", "alpha",
+                "x", "y", "width", "height", "rotation", "corner", "locked", "image", "tint", "alpha",
                 "title", "label", "click");
 
         /**
@@ -251,6 +256,7 @@ public sealed interface CanvasElement {
                 Codecs.clampedInt(MIN_EDGE, MAX_EDGE).optionalFieldOf("height", 32).forGetter(Image::height),
                 Codecs.wrappedInt(360).optionalFieldOf("rotation", 0).forGetter(Image::rotation),
                 Codec.BOOL.optionalFieldOf("corner", false).forGetter(Image::corner),
+                Codec.BOOL.optionalFieldOf("locked", false).forGetter(Image::locked),
                 ImageSource.CODEC.fieldOf("image").forGetter(Image::image),
                 Argb.CODEC.optionalFieldOf("tint", Argb.WHITE).forGetter(Image::tint),
                 Codecs.clampedInt(MIN_ALPHA, MAX_ALPHA).optionalFieldOf("alpha", MAX_ALPHA)
@@ -267,20 +273,20 @@ public sealed interface CanvasElement {
 
         @Override
         public Image translated(int dx, int dy) {
-            return new Image(common, x + dx, y + dy, width, height, rotation, corner, image, tint, alpha,
-                    title, label, click);
+            return new Image(common, x + dx, y + dy, width, height, rotation, corner, locked, image, tint,
+                    alpha, title, label, click);
         }
 
         @Override
         public Image withBox(int x, int y, int width, int height) {
-            return new Image(common, x, y, width, height, rotation, corner, image, tint, alpha, title, label,
-                    click);
+            return new Image(common, x, y, width, height, rotation, corner, locked, image, tint, alpha, title,
+                    label, click);
         }
 
         @Override
         public Image withRotation(int degrees) {
-            return new Image(common, x, y, width, height, degrees, corner, image, tint, alpha, title, label,
-                    click);
+            return new Image(common, x, y, width, height, degrees, corner, locked, image, tint, alpha, title,
+                    label, click);
         }
     }
 

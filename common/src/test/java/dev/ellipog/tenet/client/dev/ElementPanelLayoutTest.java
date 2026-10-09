@@ -442,6 +442,22 @@ class ElementPanelLayoutTest {
                 "an absent flag is off, which is the codec's own default");
     }
 
+    @Test
+    @DisplayName("a picture offers its pin beside its position, off until the file says otherwise")
+    void aPinnedPictureOffersItsLock() {
+        List<String> keys = keys(ElementPanelLayout.rows(picture()));
+        assertTrue(keys.contains("element.logo.locked"), "the pin is a row: " + keys);
+        assertTrue(keys.indexOf("element.logo.locked") > keys.indexOf("element.logo.y"),
+                "beside the coordinates it protects: " + keys);
+
+        JsonObject pinned = element("{ \"type\": \"image\", \"id\": \"p\", \"locked\": true,"
+                + " \"image\": { \"sprite\": \"minecraft:block/stone\" } }");
+        assertEquals(ToolsLayout.ON, rowOf(ElementPanelLayout.rows(pinned), "element.p.locked")
+                .buttonLabel(), "the state rides in the button's label, like every other flag");
+        assertEquals("tenet.dev.element.locked",
+                rowOf(ElementPanelLayout.rows(pinned), "element.p.locked").label());
+    }
+
     /** One row, by key. */
     private static ToolsLayout.Action rowOf(List<ToolsLayout.Action> rows, String key) {
         for (ToolsLayout.Action row : rows) {
@@ -622,8 +638,9 @@ class ElementPanelLayoutTest {
     @Test
     @DisplayName("every field an author can wonder about has hover help, and a colour speaks for itself")
     void everyFieldHasHelpWhereItNeedsIt() {
-        for (String field : List.of("x", "y", "x1", "width", "height", "rotation", "order", "dev",
-                "requires", "image.texture", "click.type", "click.data", "#position", "#press", "#show")) {
+        for (String field : List.of("x", "y", "x1", "width", "height", "rotation", "locked", "order",
+                "dev", "requires", "image.texture", "click.type", "click.data", "#position", "#press",
+                "#show")) {
             assertNotNull(ElementPanelLayout.help(field), field + " has no hover sentence");
         }
         assertNull(ElementPanelLayout.help("tint"), "a chip shows the colour it edits");
@@ -642,6 +659,7 @@ class ElementPanelLayoutTest {
             assertTrue(shallow.contains("element.logo." + ElementPanelLayout.PICK_TEXTURE),
                     "and the picker, because choosing the file is what the picture is");
             assertFalse(shallow.contains("element.logo.rotation"), "how it is drawn goes");
+            assertFalse(shallow.contains("element.logo.locked"), "and the pin with it");
             assertFalse(shallow.contains("element.logo.order"));
             assertFalse(shallow.contains("element.logo.click.type"));
         }

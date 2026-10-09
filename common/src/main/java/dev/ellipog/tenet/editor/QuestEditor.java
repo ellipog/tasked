@@ -653,6 +653,130 @@ public final class QuestEditor {
     }
 
     /**
+     * Inserts one quest link into the chapter's file, under an id the server chooses.
+     *
+     * <p>The tree is the caller's, built from the link's own defaults, so the model does not need to
+     * know what a link is: what lands in the file is what the loader will read back, and
+     * validate-on-apply is what refuses a shape the format does not take. The id is the tree's own
+     * when it is free <b>among this chapter's links</b> and suffixed when it is not.
+     *
+     * <p>Among the links only, and not against the chapter's quests: a link id that equals a quest
+     * id is a file the index refuses, and the author picking that name is told so with both objects
+     * named. Minting already-suffixed names against every quest in the pack would be the editor
+     * guessing at a fault the author has not made — the same argument
+     * {@link #freeElementId} makes for elements.
+     *
+     * @param index where in the array, clamped to its length, so appending is the size
+     */
+    public boolean insertLink(int index, JsonObject tree) {
+        if (tree == null) {
+            return false;
+        }
+        push();
+        try {
+            JsonObject placed = tree.deepCopy();
+            String wanted = placed.has("id") && placed.get("id").isJsonPrimitive()
+                    ? placed.get("id").getAsString() : "link";
+            placed.addProperty("id", freeLinkId(wanted));
+            manifest.insert("links", index, placed);
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Removes one quest link by id.
+     *
+     * <p>A plain removal, with no tombstone, for the reason {@link #removeElement} gives at length:
+     * a link is one entry in {@code chapter.json}, so the snapshot this method's caller took
+     * <i>is</i> the recovery. Refused rather than silently ignored when no link has the id, because
+     * an editor whose link list and file disagree should be told.
+     */
+    public boolean removeLink(String link) {
+        int at = linkIndex(link);
+        if (at < 0) {
+            return false;
+        }
+        push();
+        try {
+            if (!manifest.removeIndex("links", at)) {
+                undo.pop();
+                return false;
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Changes one field of one quest link, by id.
+     *
+     * <p>The same shapes and the same rules as {@link #setElement} — push, write, and a path nothing
+     * can be written to costs the pushed snapshot and nothing else — with the id resolved to a
+     * position in the links array first. That resolution is the one thing this has that the chapter
+     * write does not, and it is why a link is addressed by its id rather than by its index: an
+     * index is a fact about the array, and a drag that moved a link while the panel was open would
+     * silently retarget the write.
+     */
+    public boolean setLink(String link, String path, Object value) {
+        int at = linkIndex(link);
+        if (at < 0 || path == null || path.isBlank()) {
+            return false;
+        }
+        push();
+        try {
+            // Dotted rather than bracketed: this file's paths spell an array position as a step, which is
+            // what `tasks.1` already does everywhere else in the editor.
+            String full = "links." + at + "." + path;
+            switch (value) {
+                case String text -> manifest.setText(full, text);
+                case Number number -> manifest.setNumber(full, number.doubleValue());
+                case Boolean flag -> manifest.setFlag(full, flag);
+                case List<?> list -> manifest.setStrings(full, list.stream().map(String::valueOf).toList());
+                case JsonElement json -> manifest.setJson(full, json);
+                case null -> manifest.remove(full);
+                default -> {
+                    undo.pop();
+                    return false;
+                }
+            }
+        }
+        catch (JsonFile.UnwritablePath unwritable) {
+            undo.pop();
+            return false;
+        }
+        return true;
+    }
+
+    /** The position of a link by id in this chapter's own file, or -1. */
+    private int linkIndex(String id) {
+        if (id == null || id.isBlank()) {
+            return -1;
+        }
+        // `root()` rather than `json()`: the latter is the file's own text, which is what gets written, and
+        // this needs the tree.
+        JsonElement links = manifest.root().get("links");
+        if (links == null || !links.isJsonArray()) {
+            return -1;
+        }
+        com.google.gson.JsonArray array = links.getAsJsonArray();
+        for (int i = 0; i < array.size(); i++) {
+            JsonElement each = array.get(i);
+            if (each.isJsonObject() && each.getAsJsonObject().has("id")
+                    && id.equals(each.getAsJsonObject().get("id").getAsString())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * An id no element in this chapter uses, preferring the one asked for.
      *
      * <p>Scoped to the chapter, unlike {@link #freeId}, and the difference is the namespace an element lives
@@ -674,6 +798,32 @@ public final class QuestEditor {
         }
         // Distinct even in the pathological case, because two elements sharing an id is a file the validator
         // refuses -- see the canvas element's own note on why uniqueness is checked.
+        return wanted + "_" + System.currentTimeMillis();
+    }
+
+    /**
+     * An id no link in this chapter uses, preferring the one asked for.
+     *
+     * <p>Scoped to the chapter's links, unlike {@link #freeId}, and the difference is the namespace a
+     * link lives in: a link's id must be unique among the chapter's links, and must not equal any
+     * quest, chapter or group id or alias anywhere in the pack. The second half is the index's to
+     * report rather than this method's to prevent — it can see the whole tree, and this sees one
+     * file — so a minted id that collides elsewhere is an error naming both objects, not a name
+     * nobody chose.
+     */
+    private String freeLinkId(String base) {
+        String wanted = base == null || base.isBlank() ? "link" : base;
+        if (linkIndex(wanted) < 0) {
+            return wanted;
+        }
+        for (int n = 2; n < 1000; n++) {
+            String candidate = wanted + "_" + n;
+            if (linkIndex(candidate) < 0) {
+                return candidate;
+            }
+        }
+        // Distinct even in the pathological case, because two links sharing an id is a file the validator
+        // refuses -- see the link's own note on why uniqueness is checked.
         return wanted + "_" + System.currentTimeMillis();
     }
 

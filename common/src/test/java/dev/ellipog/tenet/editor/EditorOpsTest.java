@@ -150,6 +150,14 @@ class EditorOpsTest {
         roundTrip(editor, new EditorOp.RemoveElement("box"));
         roundTrip(editor, new EditorOp.SetElement("box", "width", new JsonPrimitive(96)));
         roundTrip(editor, new EditorOp.SetElement("box", "fillColor", JsonNull.INSTANCE));
+        // The quest links, whose payload is a whole tree for the same reason an element's is: a link
+        // is six fields, and the one thing a round trip has to prove is that the tree survives
+        // **whole** -- an id and a value read back is not enough, because the fields this build does
+        // not know are the ones a reconstruction would drop.
+        roundTrip(editor, new EditorOp.InsertLink(0, linkTree()));
+        roundTrip(editor, new EditorOp.RemoveLink("gate_hint"));
+        roundTrip(editor, new EditorOp.SetLink("gate_hint", "x", new JsonPrimitive(96)));
+        roundTrip(editor, new EditorOp.SetLink("gate_hint", "quest", JsonNull.INSTANCE));
         roundTrip(editor, new EditorOp.SetGroup("icon", icon));
         roundTrip(editor, new EditorOp.SetIndex("bookTitle", new JsonPrimitive("The Orrery Ledger")));
         roundTrip(editor, new EditorOp.SetIndex("bookIcon", JsonNull.INSTANCE));
@@ -209,6 +217,23 @@ class EditorOpsTest {
         JsonObject source = new JsonObject();
         source.addProperty("sprite", "minecraft:block/sculk");
         tree.add("image", source);
+        tree.addProperty("badgeColour", "#FF00FF");
+        return tree;
+    }
+
+    /**
+     * A quest link's tree, with a field this build does not read.
+     *
+     * <p>That extra field is the point of the fixture, for the reason the element's own gives: a
+     * link's tree crosses the wire whole, and a round trip that only proved the fields this build
+     * knows would not notice a codec that reconstructed the object from them.
+     */
+    private static JsonObject linkTree() {
+        JsonObject tree = new JsonObject();
+        tree.addProperty("id", "gate_hint");
+        tree.addProperty("quest", "one");
+        tree.addProperty("x", 64);
+        tree.addProperty("y", -32);
         tree.addProperty("badgeColour", "#FF00FF");
         return tree;
     }

@@ -93,6 +93,22 @@ class EditReachTest {
     }
 
     @Test
+    @DisplayName("a quest link is a marker, so every edit to one is cosmetic")
+    void linkEditsAreCosmetic() {
+        // The one place this feature could cost a player something: a CONTENT touch re-resolves every
+        // quest's state and sends a delta, and a link holds no progress at all. `SetLink` never
+        // reaches `reachOfPath` -- it is classified directly -- so both halves are pinned here.
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.InsertLink(0, new JsonObject())));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.RemoveLink("gate_hint")));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetLink("gate_hint", "x", VALUE)));
+        assertEquals(TreeRefresh.Touch.COSMETIC, reach(new EditorOp.SetChapter("links", VALUE)),
+                "and the whole list written at once is cosmetic too, which is the case the path rule covers");
+
+        // And the rule stays one-directional here as well.
+        assertEquals(TreeRefresh.Touch.CONTENT, field("tasks.0.links"));
+    }
+
+    @Test
     @DisplayName("an edit that can move a resolved state, but no row's position, is a delta")
     void contentEditsAreDeltas() {
         assertEquals(TreeRefresh.Touch.CONTENT, field("dependsOn"),

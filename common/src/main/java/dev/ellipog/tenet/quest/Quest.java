@@ -72,6 +72,26 @@ public record Quest(
         Map<String, DependencyStyle> dependencyLines,
         Optional<PrerequisiteMode> prerequisiteMode,
         int minRequired,
+        /**
+         * Whether this quest's tasks may be worked on before its dependencies are satisfied.
+         *
+         * <p>FTB Quests' {@code flexible} progression mode, as a flag rather than a mode: tasks
+         * accumulate while the gate is shut, completion waits for it to open, and already-maxed
+         * tasks finish on the first tick after it does. A quest that says nothing defers to its
+         * chapter's {@code defaultFlexibleProgress} — either true makes the quest flexible, which
+         * is why a migration tool inlines the resolved value onto each quest and leaves the
+         * chapter default off.
+         *
+         * <p>Top-level rather than in {@link QuestRules} for a mundane reason: the rules record is
+         * at sixteen codec components, which is all {@code RecordCodecBuilder} takes. It sits
+         * beside {@code prerequisiteMode} and {@code minRequired} because it qualifies the same
+         * thing they do — what "waiting on dependencies" means.
+         *
+         * <p>Do not confuse this with the chapter's {@code progressionMode}: that one chains a
+         * chapter's quest list in order (flexible/linear list chaining), and this one is about
+         * whether <i>dependency edges</i> block task progress. Two different axes.
+         */
+        boolean flexibleProgress,
         List<QuestTask> tasks,
         List<QuestReward> rewards,
         QuestRules rules
@@ -80,7 +100,7 @@ public record Quest(
     /** A quest with nothing in it. The starting point for the editor's "new quest" button. */
     public static Quest blank(String id, QuestText title) {
         return new Quest(id, title, Optional.empty(), List.of(), ItemRef.DEFAULT_ICON, QuestLayout.DEFAULT,
-                List.of(), List.of(), Map.of(), Optional.empty(), 0, List.of(), List.of(),
+                List.of(), List.of(), Map.of(), Optional.empty(), 0, false, List.of(), List.of(),
                 QuestRules.DEFAULT);
     }
 
@@ -98,6 +118,17 @@ public record Quest(
 
     public boolean sequentialTasks() {
         return rules.sequentialTasks();
+    }
+
+    /**
+     * Whether this quest gates the quests that depend on it.
+     *
+     * <p>An optional dependency counts as neither satisfied nor required: it neither helps nor
+     * blocks its dependants. See {@link QuestRules#optional} and
+     * {@link dev.ellipog.tenet.progress.ProgressionEngine}.
+     */
+    public boolean optional() {
+        return rules.optional();
     }
 
     /** The auto-claim mode in force for this quest; see {@link QuestRules#autoClaim}. */
@@ -152,10 +183,13 @@ public record Quest(
     /**
      * Whether {@code idOrAlias} refers to this quest.
      *
-     * <p>Checked against the id and every alias, which is what makes renaming safe.
+     * <p>Checked against the id and every alias without regard to letter case, because lookups
+     * are: a self-dependency written in the wrong case is still a self-dependency. See
+     * {@link QuestIndex}.
      */
     public boolean matches(String idOrAlias) {
-        return id.equals(idOrAlias) || aliases.contains(idOrAlias);
+        return id.equalsIgnoreCase(idOrAlias)
+                || aliases.stream().anyMatch(alias -> alias.equalsIgnoreCase(idOrAlias));
     }
 
     /** How many dependencies must be satisfied, given the effective mode. {@code minRequired} wins when set. */
@@ -209,6 +243,7 @@ public record Quest(
                     .optionalFieldOf("dependencyLines", Map.of()).forGetter(Quest::dependencyLines),
             PrerequisiteMode.CODEC.optionalFieldOf("prerequisiteMode").forGetter(Quest::prerequisiteMode),
             Codec.intRange(0, 64).optionalFieldOf("minRequired", 0).forGetter(Quest::minRequired),
+            Codec.BOOL.optionalFieldOf("flexibleProgress", false).forGetter(Quest::flexibleProgress),
             // Accessor methods rather than constants: caching these in a static field is what caused a
             // class-initialisation cycle that compiled cleanly and failed only at runtime. See the note
             // in QuestTask, which explains it in full.

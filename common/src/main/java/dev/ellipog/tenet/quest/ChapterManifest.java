@@ -43,8 +43,8 @@ import java.util.Optional;
  *
  * <h2>The chapter defaults live here, and not in each quest</h2>
  *
- * <p>{@code progressionMode}, {@code defaultPrerequisiteMode}, {@code defaultConsumeItems} and
- * {@code theme} are the same fields {@link Chapter} carries, for the same reason: a chapter of thirty
+ * <p>{@code progressionMode}, {@code defaultPrerequisiteMode}, {@code defaultConsumeItems}
+ * and {@code theme} are the same fields {@link Chapter} carries, for the same reason: a chapter for the same reason: a chapter of thirty
  * quests in a chain would otherwise repeat {@code "prerequisiteMode": "all_completed"} thirty times,
  * and the one place it differed would be the one place nobody noticed. See {@link Chapter}'s javadoc
  * for the argument each of them makes.
@@ -90,21 +90,23 @@ public record ChapterManifest(
         /**
          * Everything drawn on the canvas that is not a quest.
          *
-         * <p>Carried as the elements themselves rather than as JSON, which is the one place this manifest
+         * <p>Carried as the canvas itself rather than as JSON, which is the one place this manifest
          * is less "declared names" than the rest of it: a quest is a file this manifest names, and an
-         * element has no file to name — it lives in this chapter's own document. See {@link CanvasElement}.
+         * element or a link has no file to name — each lives in this chapter's own document.
+         * See {@link CanvasElement} and {@link QuestLink}.
          */
-        List<CanvasElement> elements
+        ChapterCanvas canvas
 ) {
 
     /** The field names this contributes. Equal to {@link Chapter#FIELDS} — see {@link GroupManifest}. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
-            "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
+            "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress", "dependencyStyle",
+            "theme", "themePatch", "autoClaim",
             "dependsOn", "prerequisiteMode", "minRequired", "completesWhen",
             "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
             "defaultHideUntilDependenciesVisible",
-            "quests", "elements");
+            "quests", "elements", "links");
 
     /**
      * This manifest as a chapter, with the quests its names resolved to.
@@ -116,7 +118,22 @@ public record ChapterManifest(
     public Chapter toChapter(List<Quest> resolved) {
         return new Chapter(id, title, subtitle, description, icon, aliases, defaultPrerequisiteMode,
                 progressionMode, defaultConsumeItems, dependencyStyle, theme, themePatch, autoClaim, rules,
-                resolved, elements);
+                resolved, canvas);
+    }
+
+    /**
+     * This manifest's elements, for the callers that predate the canvas grouping.
+     *
+     * <p>Like {@link Chapter#elements()}: the grouping is a codec's answer to a codec's limit, not
+     * a concept an author meets.
+     */
+    public List<CanvasElement> elements() {
+        return canvas.elements();
+    }
+
+    /** This manifest's links, in declaration order. See {@link Chapter#links()}. */
+    public List<QuestLink> links() {
+        return canvas.links();
     }
 
     public static final Codec<ChapterManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -148,9 +165,8 @@ public record ChapterManifest(
             // thing and the tree another" a thing that cannot happen here.
             ChapterRules.MAP_CODEC.forGetter(ChapterManifest::rules),
             Codec.STRING.listOf().optionalFieldOf("quests", List.of()).forGetter(ChapterManifest::quests),
-            // The elements themselves, read by the same codec the chapter uses, so a manifest and the
-            // chapter it becomes cannot disagree about what an element is.
-            CanvasElement.CODEC.listOf().optionalFieldOf("elements", List.of())
-                    .forGetter(ChapterManifest::elements)
+            // The canvas itself, read by the same codec the chapter uses, so a manifest and the
+            // chapter it becomes cannot disagree about what an element or a link is.
+            ChapterCanvas.MAP_CODEC.forGetter(ChapterManifest::canvas)
     ).apply(instance, ChapterManifest::new));
 }

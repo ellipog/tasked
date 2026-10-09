@@ -109,6 +109,8 @@ public final class QuestSettingsPanel {
             Map.entry("prerequisiteMode", "tenet.dev.help.prerequisite_mode"),
             Map.entry("minRequired", "tenet.dev.help.min_required"),
             Map.entry("maxCompletableDependents", "tenet.dev.help.max_dependents"),
+            Map.entry("optional", "tenet.dev.help.optional"),
+            Map.entry("flexibleProgress", "tenet.dev.help.flexible_progress"),
             Map.entry(QuestSettingsLayout.DEPENDENCY_SELECTED, "tenet.dev.help.add_selected"),
             Map.entry(QuestPanelLayout.DEPENDENCY_PICK, "tenet.dev.help.pick_on_canvas"),
             Map.entry("invisibleUntilTasks", "tenet.dev.help.visible_after_tasks"),

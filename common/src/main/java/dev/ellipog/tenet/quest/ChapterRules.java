@@ -107,11 +107,23 @@ public record ChapterRules(
          */
         boolean defaultHideUntilDependenciesComplete,
         /** The chapter's default for its quests' {@code hideUntilDependenciesVisible}. See above. */
-        boolean defaultHideUntilDependenciesVisible) {
+        boolean defaultHideUntilDependenciesVisible,
+        /**
+         * The chapter's default for its quests' {@code flexibleProgress}: whether they may work
+         * their tasks before their dependencies are met.
+         *
+         * <p>Here, beside the other quest-inherited defaults, rather than beside
+         * {@code defaultConsumeItems} for the mundane reason the class note gives: {@link Chapter}
+         * is at sixteen codec components, and this record is the grouped field with room. The
+         * JSON is flat either way. Either this or a quest's own flag makes it flexible — there
+         * is no opt-out, which is why a migration tool inlines the resolved value onto each quest
+         * and leaves this off.
+         */
+        boolean defaultFlexibleProgress) {
 
     /** A chapter with no gate, no declared completion, no hiding and no defaults for its quests. */
     public static final ChapterRules DEFAULT = new ChapterRules(List.of(), PrerequisiteMode.ALL_COMPLETED,
-            0, List.of(), false, false, false);
+            0, List.of(), false, false, false, false);
 
     /**
      * The bounds of {@link #minRequired}.
@@ -127,7 +139,7 @@ public record ChapterRules(
     /** The field names this contributes, for the validator to allow. */
     public static final Set<String> FIELDS = Set.of("dependsOn", "prerequisiteMode", "minRequired",
             "completesWhen", "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
-            "defaultHideUntilDependenciesVisible");
+            "defaultHideUntilDependenciesVisible", "defaultFlexibleProgress");
 
     /** How many of {@link #dependsOn} must be satisfied. */
     public int requiredCount() {
@@ -162,7 +174,9 @@ public record ChapterRules(
             Codec.BOOL.optionalFieldOf("defaultHideUntilDependenciesComplete", false)
                     .forGetter(ChapterRules::defaultHideUntilDependenciesComplete),
             Codec.BOOL.optionalFieldOf("defaultHideUntilDependenciesVisible", false)
-                    .forGetter(ChapterRules::defaultHideUntilDependenciesVisible)
+                    .forGetter(ChapterRules::defaultHideUntilDependenciesVisible),
+            Codec.BOOL.optionalFieldOf("defaultFlexibleProgress", false)
+                    .forGetter(ChapterRules::defaultFlexibleProgress)
     ).apply(instance, ChapterRules::new));
 
     public static final Codec<ChapterRules> CODEC = MAP_CODEC.codec();

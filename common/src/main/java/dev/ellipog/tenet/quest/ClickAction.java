@@ -10,17 +10,16 @@ import java.util.Set;
 /**
  * What pressing an element does.
  *
- * <h2>The seven names are FTB's, and four of them are not implemented</h2>
+ * <h2>The seven names are FTB's</h2>
  *
  * <p>{@code click_action} in FTB Quests is one string, {@code "<type>:<data>"}, whose type is one of seven.
- * All seven are readable here, and only three can be run: {@link Type#NONE}, {@link Type#OPEN_QUEST} and
- * {@link Type#OPEN_URI}. The other four — a server command, a script event, a recipe lookup, a guide page —
- * each need a subsystem this build does not have, and they are <b>a load-time error naming the type</b>
- * rather than a field that quietly does nothing.
+ * All seven are readable here, and all seven can be run: {@link Type#NONE}, {@link Type#OPEN_QUEST},
+ * {@link Type#OPEN_URI}, {@link Type#SHOW_RECIPE}, {@link Type#SHOW_DOCS}, {@link Type#RUN_COMMAND} and
+ * {@link Type#CUSTOM_EVENT}. The last two run on the server — a command through its dispatcher, an event
+ * through the script bus — which is why the press crosses the wire as identity rather than as words.
  *
- * <p>Reading all seven is what makes that error possible and precise: the value survives the decode, so
- * the message can say which action it cannot run and which three it can. Refusing the type at the codec
- * would have produced "not one of: none, open_quest, open_uri" — which tells an author their file came
+ * <p>Reading all seven is what makes a bad name reportable and precise: the value survives the decode, so
+ * an unknown type is refused naming the seven there are — which tells an author their file came
  * from somewhere that meant something, and not what to do about it.
  *
  * <p>The honest alternative — keep the field, draw nothing when it is pressed — is rejected on the same
@@ -47,16 +46,16 @@ public record ClickAction(Type type, String data) {
         /** Open a URL in the browser. Implemented, and http/https only. */
         OPEN_URI,
 
-        /** Run a command as the player. Not implemented in this build. */
+        /** Run a command as the player, through the server's dispatcher at the pack's level. */
         RUN_COMMAND,
 
-        /** Fire a script event. Not implemented in this build. */
+        /** Fire a script event, by id, through the script bus. */
         CUSTOM_EVENT,
 
-        /** Show a recipe in a viewer. Not implemented in this build. */
+        /** Show a recipe in a viewer. Needs a viewer installed; without one the press says so. */
         SHOW_RECIPE,
 
-        /** Open a guide page. Not implemented in this build. */
+        /** Open a guide page. Degraded to a message: there is no docs integration to open with. */
         SHOW_DOCS;
 
         public static final Codec<Type> CODEC = Codecs.enumByName(Type.class);
@@ -65,10 +64,12 @@ public record ClickAction(Type type, String data) {
          * Whether this build can actually run it.
          *
          * <p>A method rather than a list at the reporting site, so "which actions work" is one answer: the
-         * validator's message, the editor's picker and the click dispatch all read this.
+         * validator, the editor's picker and the click dispatch all read this. True for every name today —
+         * the set is pinned by test, so a future action that cannot run fails there rather than arriving
+         * silently.
          */
         public boolean supported() {
-            return this == NONE || this == OPEN_QUEST || this == OPEN_URI;
+            return true;
         }
     }
 

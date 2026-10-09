@@ -124,6 +124,7 @@ class PayloadTest {
                 "tenet:claim_reward",
                 "tenet:claim_reward_entry",
                 "tenet:claim_summary",
+                "tenet:click",
                 "tenet:edit_history",
                 "tenet:edit_problems",
                 "tenet:editor_op",
@@ -162,6 +163,9 @@ class PayloadTest {
         // The rewards panel's one press. A request like the single claim's, and registered the other
         // way round it would be a Claim all button that does nothing at all.
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tenet:claim_all"));
+        // A canvas press the client cannot run itself. A request like the single claim's: the other
+        // way round a picture's press would do nothing at all, and the server would never hear it.
+        assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tenet:click"));
         // What a grant had to drop. Server to client, because the server is the one that knows: the
         // other way round it would be a book asking a question the action bar already answers.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:reward_overflow"));
@@ -468,6 +472,38 @@ class PayloadTest {
 
         assertEquals("punch_a_tree", decoded.questId());
         assertEquals(3, decoded.taskIndex());
+    }
+
+    @Test
+    @DisplayName("a canvas press survives a round trip carrying identity and nothing else")
+    void clickPayloadRoundTrip() {
+        // The chapter and the element, and deliberately nothing else: a payload that could carry a
+        // command would be a payload a modified client could point at anything. The server reads
+        // what the press does from its own index, so these two ids are the whole of what a press is.
+        ClickPayload decoded = roundTrip(ClickPayload.CODEC,
+                new ClickPayload("first_steps", "logo"));
+
+        assertEquals("first_steps", decoded.chapterId());
+        assertEquals("logo", decoded.elementId());
+    }
+
+    @Test
+    @DisplayName("a canvas press with an overlong id is refused at the codec, not looked up")
+    void overlyLongClickIdIsRejected() {
+        // The client sends both fields, so both are untrusted input. A bounded string codec is what
+        // stops a client sending a megabyte of chapter and the server trying to resolve it.
+        String huge = "a".repeat(200);
+        FriendlyByteBuf plain = new FriendlyByteBuf(Unpooled.buffer());
+        RegistryFriendlyByteBuf buffer = RegistryFriendlyByteBuf.decorator(RegistryAccess.EMPTY).apply(plain);
+
+        boolean rejected = false;
+        try {
+            ClickPayload.CODEC.encode(buffer, new ClickPayload(huge, "logo"));
+        }
+        catch (RuntimeException e) {
+            rejected = true;
+        }
+        assertTrue(rejected, "the codec accepted a 200-character chapter id");
     }
 
     @Test

@@ -154,6 +154,25 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("an optional quest says so on the wire, and a mandatory one sends nothing")
+    void optionalFlagArrives() {
+        // Sparse, like the other rule flags: absent means the quest gates its dependants, which is
+        // every quest but the side branches. The client needs it for the same counts the engine
+        // keeps, so the card's "2 of 3 met" and the unlock cannot disagree.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                q("plain").build(),
+                q("side").optional(true).build()));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertFalse(entryFor("plain").optional(),
+                "a quest with no optional in its file should arrive gating its dependants");
+        assertTrue(entryFor("side").optional(), "an explicit optional should survive the wire");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"optional\":true"), "optional should travel as a boolean");
+    }
+
+    @Test
     @DisplayName("an out-of-range icon scale from a server is clamped rather than drawn")
     void anOutOfRangeIconScaleIsClamped() {
         // The codec already bounds this on the *server*, over that server's files. What arrives is a
@@ -460,6 +479,102 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a locked quest offers no Submit button, while its open neighbour does")
+    void lockedQuestOffersNoButton() {
+        // The screenshot this exists for: a locked quest's checkmark read 0 of 1 with "hand in"
+        // beside it, and the press was silently refused -- the server only accepts a playable
+        // quest's press. The button rule is the count rule plus the playability rule, and the
+        // lock is the half the count cannot see.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"tasks\": [{\"type\": \"tenet:checkmark\","
+                        + " \"title\": \"Go\"}]},"
+                        + "{\"id\": \"b\", \"title\": \"b\", \"dependsOn\": [\"a\"],"
+                        + " \"tasks\": [{\"type\": \"tenet:checkmark\", \"title\": \"Follow\"}]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        UUID team = UUID.randomUUID();
+
+        TeamProgress progress = TeamProgress.empty();
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+        dev.ellipog.tenet.progress.ProgressService.Live live = (questId, taskIndex) -> 0;
+        ClientQuestCache.acceptProgress(team, NOW,
+                QuestSync.progressDelta(resolution, progress, index, null,
+                        (questId, taskIndex) -> Map.of(), java.util.Set.of(), Map.of(), live).json(),
+                0);
+
+        assertEquals(QuestState.LOCKED, ClientQuestCache.stateOf("b"),
+                "fixture sanity: the dependency is unmet");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("b"),
+                "a locked quest refuses every press, so it offers none");
+        assertEquals(0, ClientQuestCache.firstSubmitTask("a"),
+                "and the open neighbour still offers its button");
+    }
+
+    @Test
+    @DisplayName("a description keeps its tokens for the prose renderer while its title strips")
+    void descriptionKeepsTokens() {
+        // The regression this exists for: descriptions resolved through the same stripping reader
+        // as titles, so page breaks, pictures, colours and links arrived already read out -- while
+        // markdown survived, which read as half a feature. Titles strip because their surfaces draw
+        // one ink; the description surface draws run by run, so it resolves raw.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"&aGreen\", \"description\": [\"&cRed {@pagebreak}next\","
+                        + " \"{image:pack:textures/a.png width:10 height:10}\"]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals("Green", entryFor("a").titleText(), "the title reads the words without the ink");
+        assertEquals(List.of("&cRed {@pagebreak}next",
+                "{image:pack:textures/a.png width:10 height:10}"), entryFor("a").descriptionText(),
+                "but the description keeps every token for the renderer");
+    }
+
+    @Test
+    @DisplayName("a repeatable round cooling down offers no Submit button, and offers it again after")
+    void coolingRepeatableHidesItsButton() {
+        // The bug this exists for: the round's tasks read 0 of 1 while cooling, so the count rule
+        // offered "hand in" -- and the press was silently refused, because the server only accepts
+        // a press the cooldown has released. A button whose only effect is a refusal is worse than
+        // no button, and the button has to come back on its own when the wait is over.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"repeatable\": true, "
+                        + "\"repeatCooldownTicks\": 100,"
+                        + " \"tasks\": [{\"type\": \"tenet:checkmark\", \"title\": \"Again\"}]}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        UUID team = UUID.randomUUID();
+
+        // The round just ended: claimed, counted, tasks cleared, clock running -- the same shape
+        // the claim path leaves behind (completed, then the round over). Accepted at client tick
+        // zero, so the test owns the clock: advancing the real ticker below counts the cooldown
+        // down from here.
+        TeamProgress progress =
+                progressWith(index, "a", QuestProgress.NONE.completedAt(NOW).repeatRoundOver(NOW));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+        dev.ellipog.tenet.progress.ProgressService.Live live = (questId, taskIndex) -> 0;
+        ClientQuestCache.acceptProgress(team, NOW,
+                QuestSync.progressDelta(resolution, progress, index, null,
+                        (questId, taskIndex) -> Map.of(), java.util.Set.of(), Map.of(), live).json(),
+                0);
+
+        assertEquals(QuestState.COMPLETED, ClientQuestCache.stateOf("a"),
+                "cooling reads as completed, as it should");
+        assertEquals(-1, ClientQuestCache.firstSubmitTask("a"),
+                "but there is no button while the press would be refused");
+
+        // A hundred client ticks later the wait is over, with no new sync: the countdown is local,
+        // and the button comes back on its own. The ticker is process-wide, so it is reset before
+        // leaving -- no other test may observe time having passed here.
+        try {
+            for (int i = 0; i < 100; i++) {
+                dev.ellipog.tenet.client.ClientTicker.advance();
+            }
+            assertEquals(0, ClientQuestCache.firstSubmitTask("a"),
+                    "the wait is over and the press would be accepted, so the button is back");
+        }
+        finally {
+            dev.ellipog.tenet.client.ClientTicker.reset();
+        }
+    }
+
+    @Test
     @DisplayName("an item-tag task carries its tag, and an item task carries none")
     void aTagTaskCarriesItsTag() {
         // The tag is a field rather than a fragment of the row's sentence: it is what lets a recipe
@@ -540,6 +655,23 @@ class QuestSyncTest {
         ClientQuestCache.Entry entry = entryFor("a");
         assertEquals("", entry.titleFallback());
         assertEquals("Punch a Tree", entry.titleText());
+    }
+
+    @Test
+    @DisplayName("a title carrying FTB colour codes reads the words without the ink")
+    void codedTitleReadsStripped() {
+        // The shape every converted chapter title arrives in. The one-ink surfaces draw through the
+        // same resolver, so stripping here is stripping everywhere: the sidebar, the canvas, the card
+        // header and the toasts all read this and never the raw field.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"&aChapter 2&r: &6The ATM Star\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals("Chapter 2: The ATM Star", entry.titleText(),
+                "a player must never be shown the raw codes");
+        assertEquals("&aChapter 2&r: &6The ATM Star", entry.title(),
+                "and the raw field is untouched, because the editor seeds its text fields from it");
     }
 
     @Test
@@ -1021,14 +1153,18 @@ class QuestSyncTest {
         }
 
         @Test
-        @DisplayName("the version a chapter's elements arrived at is pinned, so bumping it is a decision")
-        void theElementVersionIsPinned() {
+        @DisplayName("the version a quest's aliases arrived at is pinned, so bumping it is a decision")
+        void theAliasVersionIsPinned() {
             // Deliberately a literal rather than `QuestSync.TREE_VERSION` on both sides, which is how the
             // case above is written and why it could not notice this feature: a reader importing the
             // writer's constant is right for the *reader*, and a test that does the same is comparing a
             // number with itself. This is the one place the number is written down twice on purpose.
-            assertEquals(14, QuestSync.TREE_VERSION,
-                    "version 14 added a chapter's canvas elements to chapters[]. Bumping this is a "
+            //
+            // Version 14 added the elements; version 15 added the links beside them; version 16 added
+            // the aliases. The ledger in QuestSync carries the history; this pins the present, because
+            // bumping is a deliberate break rather than a side effect of an edit.
+            assertEquals(16, QuestSync.TREE_VERSION,
+                    "version 16 added a quest's aliases to quests[]. Bumping this is a "
                             + "deliberate break rather than a side effect of an edit -- see the ledger in "
                             + "QuestSync for what each version added.");
         }
@@ -1116,6 +1252,120 @@ class QuestSyncTest {
             assertTrue(ClientQuestCache.elements("chapter").isEmpty(), "a clear forgets them");
             assertTrue(ClientQuestCache.elements("anything").isEmpty(),
                     "and an unknown chapter is empty rather than null, before and after a clear");
+        }
+
+        @Test
+        @DisplayName("a chapter's links travel, in the order the file wrote them")
+        void chapterLinksTravel() {
+            // The tree carries the links rather than a summary of them, in declaration order like the
+            // elements: the file's order is what an author sees in the chapter tab, so it is a fact
+            // the server has and the client needs.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"links\": [ { \"id\": \"first_hint\", \"quest\": \"a\", \"x\": 64, \"y\": -32 },"
+                            + " { \"id\": \"second_hint\", \"quest\": \"a\", \"shape\": \"hexagon\","
+                            + " \"size\": 64 } ],",
+                    q("a").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject chapter = root.getAsJsonArray("chapters").get(0).getAsJsonObject();
+            JsonArray links = chapter.getAsJsonArray("links");
+            assertNotNull(links, "a chapter with links has to send them");
+            assertEquals(2, links.size());
+
+            JsonObject first = links.get(0).getAsJsonObject();
+            assertEquals("first_hint", first.get("id").getAsString());
+            assertEquals("a", first.get("quest").getAsString());
+            assertEquals(64, first.get("x").getAsInt());
+            assertEquals("hexagon", links.get(1).getAsJsonObject().get("shape").getAsString(),
+                    "and the second is where the file put it, with the shape it named");
+
+            // And the reader holds them, under the same names.
+            send(index);
+            List<dev.ellipog.tenet.quest.QuestLink> held = ClientQuestCache.links("chapter");
+            assertEquals(2, held.size());
+            assertEquals("first_hint", held.get(0).id());
+            assertEquals("a", held.get(0).quest().id());
+            assertEquals(dev.ellipog.tenet.quest.QuestShape.HEXAGON, held.get(1).shape(),
+                    "and the fields survived the trip");
+        }
+
+        @Test
+        @DisplayName("a chapter with no links sends no key at all, and reads as a canvas with no markers")
+        void aChapterWithNoLinksSendsNothing() {
+            // Absence is the ordinary case and it is the same reading an older server gets: a canvas
+            // with no markers. A key per chapter saying "nothing here" would be the largest thing in
+            // a tree of sixty-six chapters, which is why it is sent only when there is something to
+            // say. A version-15 tree, which is what a server without links sends, reads the
+            // same way.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            assertFalse(root.getAsJsonArray("chapters").get(0).getAsJsonObject().has("links"),
+                    "an empty list is sent as nothing rather than as an empty array");
+
+            send(index);
+            assertTrue(ClientQuestCache.links("chapter").isEmpty());
+            assertEquals(1, ClientQuestCache.chapters().size(), "and the chapter itself is still there");
+        }
+
+        @Test
+        @DisplayName("clearing the cache forgets a chapter's links, like everything else about a server")
+        void clearingForgetsLinks() {
+            // A clear is a change of server or of world, and a marker describes the pack it came from
+            // as surely as a chapter does. Leaving it would draw a shortcut to a quest on the last
+            // world's canvas over the next one's.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"links\": [ { \"id\": \"gate_hint\", \"quest\": \"a\" } ],", q("a").build()));
+
+            send(index);
+            assertEquals(1, ClientQuestCache.links("chapter").size(), "the fixture has to hold one");
+
+            ClientQuestCache.clear();
+            assertTrue(ClientQuestCache.links("chapter").isEmpty(), "a clear forgets them");
+            assertTrue(ClientQuestCache.links("anything").isEmpty(),
+                    "and an unknown chapter is empty rather than null, before and after a clear");
+        }
+
+        @Test
+        @DisplayName("a quest's aliases travel sparsely, and resolve on the client by id or alias")
+        void questAliasesTravel() {
+            // Sparse: absent means "no aliases", which is every quest that was never renamed -- and a
+            // version-15 tree, which is what a server without this feature sends, reads the same way.
+            // The client needs them for the same lookups the server does, so a press naming an alias
+            // opens the quest rather than reporting a broken control.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("",
+                    q("renamed").alias("old_name").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject quest = root.getAsJsonArray("quests").get(0).getAsJsonObject();
+            assertTrue(quest.has("aliases"), "a renamed quest has to send them");
+            assertEquals(1, quest.getAsJsonArray("aliases").size());
+            assertEquals("old_name", quest.getAsJsonArray("aliases").get(0).getAsString());
+
+            QuestIndex plain = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+            JsonObject plainQuest = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(plain), StandardCharsets.UTF_8)).getAsJsonObject()
+                    .getAsJsonArray("quests").get(0).getAsJsonObject();
+            assertFalse(plainQuest.has("aliases"),
+                    "an empty list is sent as nothing rather than as an empty array");
+
+            // And the reader resolves, in any letter case, with an empty list when the server sent none.
+            send(index);
+            ClientQuestCache.Entry entry = ClientQuestCache.entries().stream()
+                    .filter(each -> each.id().equals("renamed")).findFirst().orElseThrow();
+            assertTrue(entry.matches("renamed"), "the id resolves");
+            assertTrue(entry.matches("old_name"), "and so does the alias");
+            assertTrue(entry.matches("OLD_NAME"), "in any letter case, because lookups are");
+            assertFalse(entry.matches("nope"), "and nothing else does");
+
+            send(plain);
+            ClientQuestCache.Entry bare = ClientQuestCache.entries().stream()
+                    .filter(each -> each.id().equals("a")).findFirst().orElseThrow();
+            assertTrue(bare.matches("a"));
+            assertFalse(bare.matches("old_name"), "a quest with no aliases answers to its id alone");
         }
 
         @Test
@@ -1930,6 +2180,31 @@ class QuestSyncTest {
                 QuestSync.progressAsJson(resolution, TeamProgress.empty(), index), CLIENT_TICK);
 
         assertEquals(0, ClientQuestCache.cooldownOf("once", CLIENT_TICK));
+    }
+
+    @Test
+    @DisplayName("the completion count arrives, and an unrepeated quest sends none")
+    void timesCompletedArrives() {
+        // Sparse like the cooldown: absent means never repeated, which reads as zero rather than
+        // inventing a history. The card's count and the command's read this same number.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                q("daily").repeatable(true).repeatCooldownTicks(600).build(),
+                q("once").build()));
+        TeamProgress progress = progressWith(index, "daily",
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(true).repeatRoundOver(NOW));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW,
+                QuestSync.progressAsJson(resolution, progress, index), CLIENT_TICK);
+
+        assertEquals(1, ClientQuestCache.timesCompletedOf("daily"),
+                "the count did not survive the wire");
+        assertEquals(0, ClientQuestCache.timesCompletedOf("once"),
+                "an unrepeated quest reports zero, not a missing value");
+
+        String json = new String(QuestSync.progressAsJson(resolution, progress, index),
+                StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"timesCompleted\":1"), "the count should travel as a number");
     }
 
     // ------------------------------------------------------------------

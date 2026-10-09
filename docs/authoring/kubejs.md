@@ -49,6 +49,7 @@ function, and every event object is a description of what happened — public fi
 | `TenetEvents.rewardClaimed` | `player`, `quest`, `type` |
 | `TenetEvents.stageAdded` | `player`, `stage` |
 | `TenetEvents.stageRemoved` | `player`, `stage` |
+| `TenetEvents.clickEvent` | `player`, `id`, `chapter`, `element` |
 
 ## A worked script
 
@@ -69,11 +70,26 @@ TenetEvents.stageAdded(event => {
   console.info('[tenet] stage granted: ' + event.stage)
 })
 
+// A canvas press whose click is a script event: the picture names an id, and the script sorts
+// presses by it. The chapter and the element travel because a press is a place as well as an
+// event -- two pictures firing one id are still two pictures:
+//   { "type": "image", "id": "sounder", "click": { "type": "custom_event", "data": "my_pack:sounded" } }
+TenetEvents.clickEvent(event => {
+  if (event.id === 'my_pack:sounded') {
+    console.info('[tenet] ' + event.player.name.string + ' sounded ' + event.element)
+  }
+})
+
 // A custom task: the handler answers how far along the player is, counted the way the task's own
 // `value` counts. The quest names the id:
 //   { "type": "tenet:custom", "id": "my_pack:inducted_check", "value": 1 }
+//
+// The context is a Java record, so its fields are method calls -- `context.player()` and not
+// `context.player`. Without the parentheses the handler receives the method itself, and the
+// mistake only shows when the task is evaluated. A handler that throws reads as zero and warns
+// once, rather than crashing the tick that polled it.
 Tenet.registerTask('my_pack:inducted_check', (task, context) => {
-  return Tenet.hasStage(context.player, 'my_pack:inducted') ? 1 : 0
+  return Tenet.hasStage(context.player(), 'my_pack:inducted') ? 1 : 0
 })
 
 // A custom reward: the handler does whatever the pack needs when the reward is collected.

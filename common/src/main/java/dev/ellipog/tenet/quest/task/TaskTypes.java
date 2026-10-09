@@ -596,6 +596,11 @@ public final class TaskTypes {
                                      net.minecraft.world.entity.LivingEntity killed) {
                 return behaviour.onEntityDeath((T) task, killer, killed);
             }
+
+            @Override
+            public boolean readsInventory() {
+                return behaviour.readsInventory();
+            }
         };
     }
 

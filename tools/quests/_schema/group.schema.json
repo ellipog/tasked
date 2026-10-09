@@ -25,7 +25,7 @@
     },
     "aliases": {
       "type": "array",
-      "items": { "$ref": "#/definitions/id" },
+      "items": { "$ref": "#/definitions/alias" },
       "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
     },
     "icon": {
@@ -88,6 +88,12 @@
       "type": "string",
       "pattern": "^[a-z0-9_]{1,64}$",
       "description": "Lowercase letters, digits and underscores. This id appears in player progress files, so changing it needs an entry in `aliases`."
+    },
+
+    "alias": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]{1,64}$",
+      "description": "A former id, in any letter case. Lookups ignore case, so an uppercase alias resolves the same group; ids themselves stay lowercase."
     },
 
     "name": {

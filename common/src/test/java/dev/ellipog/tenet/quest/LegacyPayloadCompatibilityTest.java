@@ -284,6 +284,7 @@ class LegacyPayloadCompatibilityTest {
         assertTrue(stripped.theme().isEmpty());
         assertTrue(stripped.themePatch().isEmpty());
         assertEquals(dev.ellipog.tenet.quest.reward.RewardAutoClaim.DEFAULT, stripped.autoClaim());
+        assertTrue(stripped.links().isEmpty(), "an absent links list is empty, not null");
     }
 
     @Test
@@ -342,6 +343,7 @@ class LegacyPayloadCompatibilityTest {
         assertEquals(PrerequisiteMode.ALL_COMPLETED, parsed.defaultPrerequisiteMode());
         assertFalse(parsed.defaultConsumeItems());
         assertEquals(ItemRef.DEFAULT_ICON, parsed.icon());
+        assertTrue(parsed.links().isEmpty(), "an absent links list is empty, not null");
     }
 
     @Test

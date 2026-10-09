@@ -109,27 +109,34 @@ public record Chapter(
         ChapterRules rules,
         List<Quest> quests,
         /**
-         * Everything drawn on this chapter's canvas that is not a quest: pictures, labels, lines, boxes.
+         * Everything drawn on this chapter's canvas that is not a quest: pictures, labels, lines, boxes,
+         * and markers pointing at other quests.
          *
-         * <p>Decoration, and nothing else — an element holds no progress, gates nothing and is never
-         * counted for this chapter's completion. What it is for is what a wall of unlabelled nodes cannot
-         * say: which cluster is a tech tier, where one section ends and the next begins, and what the
-         * chapter is called when the sidebar is folded away. See {@link CanvasElement}.
+         * <p>Decoration and markers, and nothing else — neither holds progress, gates anything or is
+         * ever counted for this chapter's completion. What they are for is what a wall of unlabelled
+         * nodes cannot say: which cluster is a tech tier, where one section ends and the next begins,
+         * what the chapter is called when the sidebar is folded away, and which way a gate points.
+         * See {@link CanvasElement} and {@link QuestLink}.
+         *
+         * <p>Grouped into {@link ChapterCanvas} for the mundane reason that record gives — the codec's
+         * sixteen components — and the JSON stays flat regardless: {@code elements} and {@code links}
+         * sit beside {@code quests}, as if they were fields of their own.
          *
          * <p>Last rather than first because {@code quests} is what the chapter <i>is</i>; this is what is
-         * drawn behind it.
+         * drawn behind and among it.
          */
-        List<CanvasElement> elements
+        ChapterCanvas canvas
 ) {
 
     /**
      * The fields this chapter declares itself: everything but its gate, which {@link ChapterRules}
-     * declares beside its own codec.
+     * declares beside its own codec, and its canvas, which {@link ChapterCanvas} declares beside
+     * its own.
      */
     private static final java.util.Set<String> OWN_FIELDS = java.util.Set.of(
             "id", "title", "subtitle", "description", "icon", "aliases", "defaultPrerequisiteMode",
             "progressionMode", "defaultConsumeItems", "dependencyStyle", "theme", "themePatch", "autoClaim",
-            "quests", "elements");
+            "quests");
 
     /**
      * The field names this contributes, for the validator to allow.
@@ -143,10 +150,12 @@ public record Chapter(
      * again here, which is one copy fewer of a list that would otherwise appear three times — here, in
      * {@link ChapterManifest} and in the group that owns the fields. The manifest's own copy is
      * deliberate and pinned by a test; a third inside the record those names are declared in would only
-     * be a third thing to forget.
+     * be a third thing to forget. The canvas's two names come from {@link ChapterCanvas#FIELDS} the
+     * same way, for the same reason.
      */
     public static final java.util.Set<String> FIELDS = java.util.stream.Stream
-            .concat(OWN_FIELDS.stream(), ChapterRules.FIELDS.stream())
+            .concat(java.util.stream.Stream.concat(OWN_FIELDS.stream(), ChapterRules.FIELDS.stream()),
+                    ChapterCanvas.FIELDS.stream())
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     /** Finds a quest by id or alias. */
@@ -154,9 +163,14 @@ public record Chapter(
         return quests.stream().filter(quest -> quest.matches(idOrAlias)).findFirst();
     }
 
-    /** Whether {@code idOrAlias} refers to this chapter. */
+    /**
+     * Whether {@code idOrAlias} refers to this chapter.
+     *
+     * <p>Without regard to letter case, because lookups are. See {@link QuestIndex}.
+     */
     public boolean matches(String idOrAlias) {
-        return id.equals(idOrAlias) || aliases.contains(idOrAlias);
+        return id.equalsIgnoreCase(idOrAlias)
+                || aliases.stream().anyMatch(alias -> alias.equalsIgnoreCase(idOrAlias));
     }
 
     /** The index a quest sits at, or -1. Needed by linear progression, which cares about order. */
@@ -185,7 +199,27 @@ public record Chapter(
      * way in, so a caller holding a chapter does not have to know that.
      */
     public List<CanvasElement> elementsInDrawOrder() {
-        return CanvasElement.inDrawOrder(elements);
+        return CanvasElement.inDrawOrder(elements());
+    }
+
+    /**
+     * Everything drawn on this chapter's canvas that is not a quest.
+     *
+     * <p>Kept so no caller learns {@link #canvas()}'s name: the grouping is a codec's answer to a
+     * codec's limit, and the callers predate it.
+     */
+    public List<CanvasElement> elements() {
+        return canvas.elements();
+    }
+
+    /**
+     * The chapter's markers pointing at other quests, in declaration order.
+     *
+     * <p>Like {@link #elements()}, and for the same reason: the grouping is not a concept an author
+     * meets, so neither is the accessor that would name it.
+     */
+    public List<QuestLink> links() {
+        return canvas.links();
     }
 
     public static final Codec<Chapter> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -214,8 +248,8 @@ public record Chapter(
             // on the quest.
             ChapterRules.MAP_CODEC.forGetter(Chapter::rules),
             Quest.CODEC.listOf().optionalFieldOf("quests", List.of()).forGetter(Chapter::quests),
-            // Decoration, and the codec is the element's own: the tree writes what this reads, so a field
-            // added to an element travels without anybody remembering to send it. See CanvasElement#asJson.
-            CanvasElement.CODEC.listOf().optionalFieldOf("elements", List.of()).forGetter(Chapter::elements)
+            // The canvas, flat: `elements` and `links` sit on the chapter, as if they were fields of
+            // their own. See ChapterCanvas for why the grouping is invisible in JSON.
+            ChapterCanvas.MAP_CODEC.forGetter(Chapter::canvas)
     ).apply(instance, Chapter::new));
 }

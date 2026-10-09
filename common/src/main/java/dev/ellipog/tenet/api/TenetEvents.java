@@ -11,14 +11,15 @@ import net.minecraft.server.level.ServerPlayer;
 /**
  * The quest lifecycle, as events other mods — and KubeJS scripts, through the integration — listen to.
  *
- * <h2>Why these six</h2>
+ * <h2>Why these seven</h2>
  *
  * <p>The first four are the moments a pack author's code has an opinion about: a quest starting, a quest
  * completing, one task of it being satisfied, and a reward being handed over. FTB Quests' KubeJS
  * integration exposes the same four, and everything a script does with a quest is built from them. The
  * two stage events came with stages themselves: a stage is granted by a command, a reward or a script,
  * and the thing a script most often wants is to run something <i>when</i> it is granted rather than to
- * poll for it.
+ * poll for it. The click event is FTB's {@code custom_event} click action: a canvas press by id, for
+ * the packs whose buttons do something no quest does.
  *
  * <h2>Fired beside the write, in two places</h2>
  *
@@ -85,6 +86,19 @@ public final class TenetEvents {
         void onStageRemoved(ServerPlayer player, ResourceLocation stage);
     }
 
+    /**
+     * A player pressed a canvas element whose click is a script event.
+     *
+     * <p>The id is the {@code namespace:path} the file named, so one listener can sort many packs'
+     * presses by id rather than registering per press. The chapter and the element travel because a
+     * press is a place as well as an event: two pictures firing one id are still two pictures, and
+     * a script that cannot tell them apart cannot answer "which one".
+     */
+    @FunctionalInterface
+    public interface ClickEvent {
+        void onClickEvent(ServerPlayer player, ResourceLocation id, String chapterId, String elementId);
+    }
+
     public static final Event<QuestStarted> QUEST_STARTED = new Event<>(listeners ->
             (player, quest) -> {
                 for (QuestStarted listener : listeners) {
@@ -124,6 +138,13 @@ public final class TenetEvents {
             (player, stage) -> {
                 for (StageRemoved listener : listeners) {
                     listener.onStageRemoved(player, stage);
+                }
+            });
+
+    public static final Event<ClickEvent> CLICK_EVENT = new Event<>(listeners ->
+            (player, id, chapterId, elementId) -> {
+                for (ClickEvent listener : listeners) {
+                    listener.onClickEvent(player, id, chapterId, elementId);
                 }
             });
 }

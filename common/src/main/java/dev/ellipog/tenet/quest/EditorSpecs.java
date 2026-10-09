@@ -116,14 +116,18 @@ public final class EditorSpecs {
      * {@code permissionLevel} is a number, and that difference is real rather than an oversight.
      */
     private static boolean looksBoolean(String path) {
-        for (String prefix : List.of("is", "has", "ignore", "only", "silent", "consume", "show", "repeatable",
+        // `optional` on its own: the one boolean flag spelled as a single lowercase word, so no
+        // prefix or suffix below catches it. Task and quest forms both carry it.
+        if (path.equals("optional")) {
+            return true;
+        }        for (String prefix : List.of("is", "has", "ignore", "only", "silent", "consume", "show", "repeatable",
                 "invisible", "sequential", "enable", "disable", "allow", "use")) {
             if (path.startsWith(prefix)) {
                 return true;
             }
         }
         for (String suffix : List.of("Items", "Enabled", "Only", "Silent", "Levels", "Points", "Team",
-                "Optional", "Auto", "Allowed")) {
+                "Optional", "Auto", "Allowed", "Progress")) {
             if (path.endsWith(suffix)) {
                 return true;
             }

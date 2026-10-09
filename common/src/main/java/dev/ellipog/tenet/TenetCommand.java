@@ -539,7 +539,9 @@ public final class TenetCommand {
             if (!quest.dependencies().isEmpty()) {
                 context.getSource().sendSuccess(() -> Component.literal(
                         "  §7depends on: §f" + quest.dependencies().stream().map(ref -> ref.id()).toList()
-                                + " §7(" + mode + ", needs " + quest.requiredCount(mode) + ")"), false);
+                                + " §7(" + mode + ", needs "
+                                + dev.ellipog.tenet.progress.ProgressionEngine.requiredCount(
+                                        TenetQuests.index(), quest, mode) + ")"), false);
             }
             else {
                 context.getSource().sendSuccess(() -> Component.translatable("tenet.command.text.7no_dependencies"), false);
@@ -633,11 +635,13 @@ public final class TenetCommand {
             final QuestState shownState = state;
             final boolean showClaimable = claimable;
             long cooldown = resolution.cooldownOf(quest);
+            final int timesDone = teamProgress.progressOf(quest).timesCompleted();
             context.getSource().sendSuccess(() -> Component.literal(
                     "  " + stateColour(shownState) + shownState.label() + "§r "
                             + quest.title().value() + "  §8[" + quest.id() + "]"
                             + (showClaimable ? "  §6(rewards waiting - /tenet claim " + quest.id() + ")" : "")
-                            + (cooldown > 0 ? "  §7(ready in " + (cooldown / 20) + "s)" : "")), false);
+                            + (cooldown > 0 ? "  §7(ready in " + (cooldown / 20) + "s)" : "")
+                            + (timesDone > 0 ? "  §7(completed " + timesDone + "x)" : "")), false);
 
             var stored = teamProgress.progressOf(quest);
 

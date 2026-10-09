@@ -164,6 +164,43 @@ public sealed interface EditorOp {
     }
 
     /**
+     * A quest link's own tree, inserted into the chapter's file under a fresh id.
+     *
+     * <p>The tree travels whole, like an element's and for the same reason: a reconstruction out of
+     * field writes would drop every field this build does not know. A link is six fields rather
+     * than fifteen, but the argument does not get smaller with the object — the fields a future
+     * build adds are exactly the ones a reconstruction would lose. The id is preferred when it is
+     * free and suffixed when it is not, which is {@link Paste}'s rule and for the same reason.
+     *
+     * <p>{@code index} is where in the array, clamped to its length, so appending is {@code size()}.
+     */
+    record InsertLink(int index, JsonObject tree) implements EditorOp {
+    }
+
+    /**
+     * Removes one quest link from the chapter's file, by id.
+     *
+     * <p>A plain removal, like an element's and for the same reason: a link owns no file, so the
+     * snapshot the undo history takes around this edit <i>is</i> the recovery. The canvas's own
+     * delete therefore asks twice, and the docs say what recovery really is.
+     */
+    record RemoveLink(String link) implements EditorOp {
+    }
+
+    /**
+     * Sets one field of one quest link in the chapter's file.
+     *
+     * <p>Separate from {@link SetChapter} because a link is not the chapter: the path is relative
+     * to the link, and the id has to be resolved to a position in the array before anything can be
+     * written. A null value removes the field, as {@link SetField}'s does.
+     *
+     * <p>This is the only op a drag needs, because a move is a field write: two of them, one
+     * {@link Batch} around them so one gesture is one history step.
+     */
+    record SetLink(String link, String path, JsonElement value) implements EditorOp {
+    }
+
+    /**
      * Sets one field of the chapter's <b>group's</b> own file: its title, its icon, its collapsed flag.
      *
      * <h2>Why this carries no group id</h2>

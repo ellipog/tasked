@@ -145,4 +145,39 @@ class DependencyProgressTest {
         assertEquals(1, progress.required());
         assertTrue(progress.met(states(Map.of("a", QuestState.COMPLETED))));
     }
+
+    @Test
+    @DisplayName("an optional dependency is counted on neither side")
+    void optionalDependenciesAreExcluded() {
+        // The client's half of the engine's rule: a quest flagged optional neither helps nor blocks
+        // its dependants, so the card's "2 of 3 met" uses the same denominator the unlock does. The
+        // line itself is still drawn, and satisfies still answers per edge — optionality is about
+        // the rule, not about whether the line exists.
+        DependencyProgress progress = new DependencyProgress(PrerequisiteMode.ALL_COMPLETED, 0,
+                List.of("main", "side"), java.util.Set.of("side"));
+        assertEquals(1, progress.required());
+        assertEquals(1, progress.counted());
+
+        Function<String, QuestState> mainDone = states(Map.of("main", QuestState.COMPLETED));
+        assertEquals(1, progress.satisfied(mainDone));
+        assertTrue(progress.met(mainDone));
+        assertEquals(List.of(), progress.waitingFor(mainDone));
+
+        Function<String, QuestState> sideDone = states(Map.of("side", QuestState.COMPLETED));
+        assertEquals(0, progress.satisfied(sideDone), "a completed optional satisfies nothing");
+        assertFalse(progress.met(sideDone));
+        assertEquals(List.of("main"), progress.waitingFor(sideDone));
+
+        // ...but its edge still answers, because the line is still drawn.
+        assertTrue(progress.satisfies("side", sideDone));
+    }
+
+    @Test
+    @DisplayName("without optionals the four-argument form reads exactly as the three did")
+    void noOptionalsIsUnchanged() {
+        DependencyProgress progress = new DependencyProgress(PrerequisiteMode.ALL_COMPLETED, 0,
+                List.of("a", "b"), java.util.Set.of());
+        assertEquals(2, progress.required());
+        assertEquals(2, progress.counted());
+    }
 }

@@ -272,6 +272,31 @@ class SchemaCoverageTest {
         }
     }
 
+    @Test
+    @DisplayName("every quest link field is documented, in both schemas")
+    void theLinkFamilyIsDocumented() throws IOException {
+        // Held the way the element family is, and against both schemas for the same reason: the
+        // folder format has `chapter.json` and the legacy one-file format has a chapter object
+        // inside its tree, read by the same codec, so a link works in either and an editor
+        // autocompleting from either schema must offer it.
+        for (Path schema : List.of(CHAPTER_KIND, PUBLISHED)) {
+            JsonObject root = read(schema);
+            assertSameFields(schema + " definitions.link",
+                    root.getAsJsonObject("definitions").getAsJsonObject("link")
+                            .getAsJsonObject("properties").keySet(),
+                    QuestLink.FIELDS);
+
+            // And the array that holds them, on the object that owns it. Documenting the item shape
+            // is not enough if nothing offers the list: a chapter that may not write `links` is a
+            // chapter whose markers an editor reports as unknown fields.
+            JsonObject chapter = root.getAsJsonObject("definitions").has("chapter")
+                    ? root.getAsJsonObject("definitions").getAsJsonObject("chapter")
+                    : root;
+            assertTrue(chapter.getAsJsonObject("properties").has("links"),
+                    schema + " documents the link shape, but its chapter offers no `links` list");
+        }
+    }
+
     /**
      * A field set against a schema's properties, both ways.
      *

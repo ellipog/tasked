@@ -18,6 +18,7 @@ import dev.ellipog.tenet.quest.ItemRef;
 import dev.ellipog.tenet.quest.Quest;
 import dev.ellipog.tenet.quest.QuestIndex;
 import dev.ellipog.tenet.quest.QuestLanguages;
+import dev.ellipog.tenet.quest.QuestLink;
 import dev.ellipog.tenet.quest.QuestRef;
 import dev.ellipog.tenet.quest.QuestReward;
 import dev.ellipog.tenet.quest.QuestSettings;
@@ -223,6 +224,21 @@ public final class QuestSync {
      * whole design of the feature rather than a saving: an element holds no progress and gates nothing, so
      * there is no per-player fact about one to send and nothing for the progress channel to carry.
      *
+     * <p>Version 15 added each chapter's <b>{@code links}</b> — the markers pointing at other quests —
+     * beside the elements, and only for a chapter that has any. The same additive kind: a version-14
+     * reader ignores the array and draws a chapter with no markers, which misses a shortcut rather
+     * than a quest. What is deliberately <b>not</b> here, for the same reason as the elements, is a
+     * link's <i>state</i>: a link mirrors its target quest, whose state already travels on the
+     * progress channel, so sending it again would be a second answer that can disagree with the
+     * first.
+     *
+     * <p>Version 16 added each quest's <b>{@code aliases}</b> — the former ids a renamed quest still
+     * answers to — and only for a quest that has any. The same additive kind: a version-15 reader
+     * ignores the array and resolves by id alone, which misses a pre-rename spelling rather than a
+     * quest. What the client needs them for is the same lookups the server does, so an
+     * {@code open_quest} press carrying an alias opens the quest instead of reporting a control
+     * that does nothing.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -248,7 +264,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 14;
+    public static final int TREE_VERSION = 16;
 
     /**
      * The quest tree, as JSON.
@@ -381,6 +397,17 @@ public final class QuestSync {
                     elements.add(CanvasElement.asJson(element));
                 }
                 one.add("elements", elements);
+            }
+            // And the chapter's markers, since version 15 — one object per link, written by the link's
+            // own codec for the same reason as the elements above. Only when the chapter has any, for
+            // the same reason: most chapters have none, and an empty array per chapter would be bytes
+            // saying nothing on every tree a pack without links sends.
+            if (!chapter.links().isEmpty()) {
+                JsonArray links = new JsonArray();
+                for (QuestLink link : chapter.links()) {
+                    links.add(QuestLink.asJson(link));
+                }
+                one.add("links", links);
             }
             chapters.add(one);
         }
@@ -552,6 +579,16 @@ public final class QuestSync {
             json.add("dependencyLines", lines);
         }
         json.addProperty("id", quest.id());
+        // The quest's former ids, when it has any. Sparse: absent means "no aliases", which is every
+        // quest that was never renamed -- and the client needs them for the same lookups the server
+        // does, so a press naming an alias opens the quest rather than reporting a broken control.
+        if (!quest.aliases().isEmpty()) {
+            JsonArray aliases = new JsonArray();
+            for (String alias : quest.aliases()) {
+                aliases.add(alias);
+            }
+            json.add("aliases", aliases);
+        }
         // Both halves of each, since version 13. See `textAsJson`. The quest's own title is the field
         // that used to draw a raw key on a node, so this is the fix as much as it is the feature.
         textAsJson(quest.title(), "title", json);
@@ -603,6 +640,12 @@ public final class QuestSync {
                         .toLowerCase(java.util.Locale.ROOT));
         json.addProperty("minRequired", quest.minRequired());
         json.addProperty("maxCompletableDependents", quest.rules().maxCompletableDependents());
+        // Whether this quest gates its dependants. Sparse: absent means it does, which is every
+        // quest but the side branches — and the client needs it for the same counts the engine
+        // keeps, so the card's "2 of 3 met" and the engine's unlock cannot disagree.
+        if (quest.rules().optional()) {
+            json.addProperty("optional", true);
+        }
         // The reveal flags. Every one of them is a presentation decision the client makes against state
         // it already has -- dependency states, task progress -- so they travel as data and the client
         // needs no engine of its own.
@@ -1145,6 +1188,15 @@ public final class QuestSync {
         long remaining = resolution.cooldownOf(quest);
         if (remaining > 0) {
             one.addProperty("cooldown", remaining);
+        }
+
+        // How many times a repeatable quest has been finished. Sparse: absent means never, which
+        // is every quest but the repeated ones — and the card's count and the command's read the
+        // same number the engine keeps, because a second spelling of the count is how the two
+        // would come to disagree.
+        int timesDone = stored.timesCompleted();
+        if (timesDone > 0) {
+            one.addProperty("timesCompleted", timesDone);
         }
 
         // Per-task progress, indexed by task position -- the same keying QuestProgress uses, and it

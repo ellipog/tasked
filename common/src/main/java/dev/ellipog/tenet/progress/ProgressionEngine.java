@@ -82,6 +82,52 @@ public final class ProgressionEngine {
     private ProgressionEngine() {
     }
 
+    /**
+     * Whether a quest's tasks may be worked on before its dependencies are satisfied.
+     *
+     * <p>FTB Quests' {@code flexible} progression mode: the quest's own flag, or its chapter's
+     * default — either true makes it flexible, and there is no opt-out. The chapter default keeps
+     * hand-authoring pleasant; a migration tool inlines the resolved value onto each quest and
+     * leaves the default off, so the two can never disagree about one quest.
+     */
+    public static boolean isFlexible(Quest quest, Chapter chapter) {
+        return quest.flexibleProgress() || chapter.rules().defaultFlexibleProgress();
+    }
+
+    /**
+     * Whether a quest's dependencies are satisfied, judged from already-resolved states.
+     *
+     * <p>The completion half of flexible progress: a flexible quest's tasks may accumulate while
+     * its gate is shut, but it completes only once the gate opens. Optional dependencies are
+     * left out of both counts, exactly as the resolver leaves them — and a second spelling of
+     * that rule is how the gate and the resolver would come to disagree.
+     *
+     * @param states the resolution to judge against: the pass's own map from the resolver, or a
+     *               fresh {@link #resolve} for a call site that holds none
+     */
+    public static boolean dependenciesSatisfied(QuestIndex index, QuestIndex.QuestEntry entry,
+                                                Map<String, QuestState> states) {
+        Quest quest = entry.quest();
+        PrerequisiteMode effective = quest.prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
+        QuestState bar = QuestState.bar(effective);
+        int satisfied = 0;
+        int counted = 0;
+        for (QuestRef dependency : quest.dependencies()) {
+            Optional<QuestIndex.QuestEntry> target = index.quest(dependency.id());
+            if (target.isPresent() && target.get().quest().optional()) {
+                continue;
+            }
+            counted++;
+            QuestState state = target
+                    .map(found -> states.getOrDefault(found.quest().id(), QuestState.LOCKED))
+                    .orElse(QuestState.LOCKED);
+            if (state.isAtLeast(bar)) {
+                satisfied++;
+            }
+        }
+        return satisfied >= PrerequisiteMode.requiredCount(effective, quest.minRequired(), counted);
+    }
+
     /** Resolves every quest in the index. */
     public static Resolution resolve(QuestIndex index, TeamProgress progress, long now) {
         Map<String, QuestState> states = new LinkedHashMap<>();
@@ -219,20 +265,42 @@ public final class ProgressionEngine {
             // Dependencies. Resolve each first, so this is a depth-first walk of the graph.
             PrerequisiteMode effective = quest.prerequisiteMode(entry.chapter().defaultPrerequisiteMode());
 
+            // An optional dependency is left out of both counts: it neither helps nor blocks.
+            // That is FTB Quests' "this quest doesn't gate its dependants", and the reason both
+            // counts move rather than just the satisfied one is that leaving it in the required
+            // count would keep blocking under every ALL_ mode. Dependency lines are still drawn;
+            // optionality is presentation everywhere except here.
             int satisfied = 0;
+            int counted = 0;
             for (var dependency : quest.dependencies()) {
-                QuestState dependencyState = resolveById(index, dependency.id(), entry, progress, now, states,
-                        cooldowns, takenExclusiveGroups, cappedOut, positionInChapter, chapterStates,
-                        visiting);
+                Optional<QuestIndex.QuestEntry> target = index.quest(dependency.id());
+                if (target.isPresent() && target.get().quest().optional()) {
+                    continue;
+                }
+                counted++;
+                // Unresolved by the loader's reading: index.quest missed, so this resolves to
+                // LOCKED, which is what resolveById answers for a name nothing holds. The loader
+                // reports the dangling reference as an error; the engine reads it as unmet.
+                QuestState dependencyState = target.map(found -> resolveOne(index, found, progress,
+                                now, states, cooldowns, takenExclusiveGroups, cappedOut, positionInChapter,
+                                chapterStates, visiting))
+                        .orElse(QuestState.LOCKED);
                 if (dependencyState.isAtLeast(QuestState.bar(effective))) {
                     satisfied++;
                 }
             }
 
-            int required = quest.requiredCount(effective);
+            int required = PrerequisiteMode.requiredCount(effective, quest.minRequired(), counted);
             if (satisfied < required) {
-                states.put(quest.id(), QuestState.LOCKED);
-                return QuestState.LOCKED;
+                // A flexible quest stays measurable while its gate is shut: its tasks accumulate
+                // before its dependencies are done, and completion waits for them — the gate half
+                // lives in ProgressService's completion paths, which judge already-resolved states
+                // rather than re-resolving here. Everything else about the quest is unchanged: the
+                // chapter gate, exclusivity, caps and linear order above still lock it.
+                if (!isFlexible(quest, entry.chapter())) {
+                    states.put(quest.id(), QuestState.LOCKED);
+                    return QuestState.LOCKED;
+                }
             }
 
             // Linear progression: every quest earlier in the chapter must be complete as well.
@@ -290,6 +358,25 @@ public final class ProgressionEngine {
         }
         return resolveOne(index, found.get(), progress, now, states, cooldowns, takenExclusiveGroups,
                 cappedOut, positionInChapter, chapterStates, visiting);
+    }
+
+    /**
+     * How many of a quest's dependencies must be satisfied, excluding optional ones.
+     *
+     * <p>The display half of the engine's own counting: {@code /tenet progress} names the same
+     * number the resolver enforces, and a second spelling of the denominator is how the two would
+     * come to disagree. Unresolved names count as required — the loader reports them, and until
+     * they are fixed the quest behaves as gated rather than as open.
+     */
+    public static int requiredCount(QuestIndex index, Quest quest, PrerequisiteMode effective) {
+        int counted = 0;
+        for (QuestRef dependency : quest.dependencies()) {
+            if (index.quest(dependency.id()).map(target -> target.quest().optional()).orElse(false)) {
+                continue;
+            }
+            counted++;
+        }
+        return PrerequisiteMode.requiredCount(effective, quest.minRequired(), counted);
     }
 
     // ------------------------------------------------------------------

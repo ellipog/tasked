@@ -298,6 +298,28 @@ public final class Fixtures {
             return this;
         }
 
+        /**
+         * Whether this quest gates its dependants. The quest-level flag — not {@link #optional(int)},
+         * which marks one <i>task</i> as skippable. True is the side quest nothing waits for.
+         */
+        public Builder optional(boolean value) {
+            this.optionalQuest = value;
+            return this;
+        }
+
+        /**
+         * Whether this quest's tasks may be worked on before its dependencies are met. Completion
+         * still waits for them. False defers to the chapter's default; either true is flexible.
+         */
+        public Builder flexibleProgress(boolean value) {
+            this.flexibleProgress = value;
+            return this;
+        }
+
+        private Boolean optionalQuest;
+
+        private Boolean flexibleProgress;
+
         public Builder repeatable(boolean value) {
             this.repeatable = value;
             return this;
@@ -419,6 +441,12 @@ public final class Fixtures {
             }
             if (sequentialTasks != null) {
                 json.append(", \"sequentialTasks\": ").append(sequentialTasks);
+            }
+            if (optionalQuest != null) {
+                json.append(", \"optional\": ").append(optionalQuest);
+            }
+            if (flexibleProgress != null) {
+                json.append(", \"flexibleProgress\": ").append(flexibleProgress);
             }
             if (repeatable != null) {
                 json.append(", \"repeatable\": ").append(repeatable);

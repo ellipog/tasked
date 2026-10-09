@@ -54,7 +54,16 @@ public record CustomReward(RewardCommon common, String id) implements QuestRewar
                     + "that provides it is not loaded); it granted nothing", reward.id());
             return;
         }
-        handler.get().grant(context.player(), context);
+        // A handler that throws grants nothing, and the claim continues: the alternative is a script
+        // error crashing the claim -- or the tick that replays it -- which is what happened the first
+        // time a script called a record accessor as a property. Grants are rare, so every throw logs.
+        try {
+            handler.get().grant(context.player(), context);
+        }
+        catch (RuntimeException | Error thrown) {
+            Constants.LOG.warn("tenet: custom reward \"{}\" threw while being granted; it granted nothing"
+                    + " ({})", reward.id(), thrown.toString());
+        }
     };
 
     public static final Function<CustomReward, RewardDisplay> DISPLAY = reward ->

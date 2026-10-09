@@ -543,6 +543,90 @@ class QuestEditorTest {
     }
 
     @Test
+    @DisplayName("a link is inserted under an id the server chooses, and its tree arrives whole")
+    void insertingALinkKeepsItsTree() {
+        QuestEditor editor = open();
+
+        assertTrue(editor.insertLink(0, linkTree("gate_hint")));
+
+        JsonObject placed = firstLink(editor);
+        assertEquals("gate_hint", placed.get("id").getAsString());
+        assertEquals("one", placed.get("quest").getAsString());
+        // The field this build does not read, and the whole reason the tree travels rather than the fields:
+        // a link is six fields, so a reconstruction would drop this one silently.
+        assertEquals("#FF00FF", placed.get("badgeColour").getAsString(),
+                "a link's tree crosses whole, like a pasted quest's");
+    }
+
+    @Test
+    @DisplayName("an id already used by a link is suffixed, and the asked-for one is preferred when free")
+    void aTakenLinkIdIsSuffixed() {
+        QuestEditor editor = open();
+        assertTrue(editor.insertLink(0, linkTree("gate_hint")));
+        assertTrue(editor.insertLink(1, linkTree("gate_hint")));
+
+        com.google.gson.JsonArray links = linksOf(editor);
+        assertEquals("gate_hint", links.get(0).getAsJsonObject().get("id").getAsString());
+        assertEquals("gate_hint_2", links.get(1).getAsJsonObject().get("id").getAsString(),
+                "a duplicate keeps what it says under a name nobody else has");
+    }
+
+    @Test
+    @DisplayName("a link's field is written through its id, and an id that is not there refuses")
+    void settingALinkFieldNeedsTheId() {
+        // The refusal is the point of the test. A link is addressed by its id rather than by its
+        // position, so a stale id -- one an author deleted while the panel was open -- must write nothing
+        // rather than land on whichever link happens to sit at that index now.
+        QuestEditor editor = open();
+        assertTrue(editor.insertLink(0, linkTree("gate_hint")));
+
+        assertTrue(editor.setLink("gate_hint", "x", 96));
+        assertEquals(96, firstLink(editor).get("x").getAsInt());
+        assertEquals("#FF00FF", firstLink(editor).get("badgeColour").getAsString(),
+                "and the fields this build does not read are still on disk after a write to one it does");
+
+        assertFalse(editor.setLink("nowhere", "x", 1), "no such link, so nothing is written");
+        assertFalse(editor.removeLink("nowhere"), "and nothing is removed either");
+        assertEquals(1, linksOf(editor).size(), "the chapter still has its one link");
+        assertEquals(96, firstLink(editor).get("x").getAsInt(), "at the position it was given");
+    }
+
+    @Test
+    @DisplayName("removing a link takes it out of the chapter's own file, and undo puts it back")
+    void removingALink() {
+        QuestEditor editor = open();
+        assertTrue(editor.insertLink(0, linkTree("gate_hint")));
+        assertTrue(editor.removeLink("gate_hint"));
+        assertEquals(0, linksOf(editor).size());
+
+        // The recovery is the snapshot, which is the honest answer for something that owns no file -- see
+        // RemoveLink for why there is no tombstone here.
+        assertTrue(editor.canUndo(), "the removal is a step in the chapter's history");
+    }
+
+    /** This chapter's link list, from the file the editor holds. */
+    private static com.google.gson.JsonArray linksOf(QuestEditor editor) {
+        JsonObject chapter = com.google.gson.JsonParser.parseString(editor.chapterJson()).getAsJsonObject();
+        return chapter.has("links")
+                ? chapter.getAsJsonArray("links") : new com.google.gson.JsonArray();
+    }
+
+    private static JsonObject firstLink(QuestEditor editor) {
+        return linksOf(editor).get(0).getAsJsonObject();
+    }
+
+    /** A quest link with a field this build does not read, for the whole-tree assertions. */
+    private static JsonObject linkTree(String id) {
+        JsonObject tree = new JsonObject();
+        tree.addProperty("id", id);
+        tree.addProperty("quest", "one");
+        tree.addProperty("x", 64);
+        tree.addProperty("y", -32);
+        tree.addProperty("badgeColour", "#FF00FF");
+        return tree;
+    }
+
+    @Test
     @DisplayName("a delete refuses rather than destroy a copy that is already set aside")
     void aDeleteWillNotDestroyAnEarlierAside() throws IOException {
         // The aside name is fixed so that `restore` can find it -- a snapshot of this chapter's files is

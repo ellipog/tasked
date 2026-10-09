@@ -148,6 +148,10 @@ class SyncWiringTest {
                 "tenet:claim_reward",
                 "tenet:claim_reward_entry",
                 "tenet:claim_summary",
+                // A canvas press the client cannot run itself: the chapter and the element travel, and
+                // the server reads what the press does from its own index. The message is needed because
+                // no existing one carries a press — a click is not a task submission, a claim, or an edit.
+                "tenet:click",
                 // Not a viewer message either: the undo history being discarded, which `/tenet reload`
                 // sends because the client's undo *button* is drawn from counters of its own and would
                 // otherwise keep offering an undo over a history the server had thrown away.

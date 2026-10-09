@@ -66,6 +66,39 @@ public final class ChapterPanelLayout {
     public static final String ELEMENT_PREFIX = "element.";
 
     /**
+     * The chapter's quest links: the list, then the selected one's own fields.
+     *
+     * <p>Its own section rather than rows inside another, because a link is a thing with a target, a
+     * position and a shape — not a property of the chapter. And always present, unlike the elements
+     * section: decorations are made on the canvas, but a link is made here, so a heading over an
+     * empty list is the way in rather than a heading an author learns to ignore.
+     */
+    public static final String LINKS = "h:links";
+
+    /**
+     * What a quest link's row key starts with.
+     *
+     * <p>A link is in the chapter's own file but is not the chapter: its fields are its own, and a row key
+     * is both the identity in the scroll view and the path a commit goes to. So its paths carry a prefix —
+     * the arrangement {@link #ELEMENT_PREFIX} already has for elements — and the commit strips it and
+     * sends {@code EditorOp.SetLink}.
+     *
+     * <p>What follows is {@code <id>.<field>}, and the commit tells them apart by the dot, which is why
+     * a link's id may not contain one — the validator's own rule.
+     */
+    public static final String LINK_PREFIX = "link.";
+
+    /**
+     * How many links one section lists before it stops.
+     *
+     * <p>Like the elements' own limit and for the same reason: the list is a way <i>in</i> rather than a
+     * report, and past a couple of dozen the thing an author wants is on the canvas and not in a scroll
+     * they have to travel. The count of what was left out is shown, so the truncation is visible rather
+     * than silent.
+     */
+    private static final int LINK_LIST_LIMIT = 24;
+
+    /**
      * How many elements one section lists before it stops.
      *
      * <p>A chapter can hold as many decorations as its author wants, and the list is a way <i>in</i> rather
@@ -242,6 +275,19 @@ public final class ChapterPanelLayout {
     public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
                                                 String missingNote, Problems problems,
                                                 String selectedElement) {
+        return rows(chapter, group, folded, missingNote, problems, selectedElement, null);
+    }
+
+    /**
+     * The same, with the id of the quest link the author has selected.
+     *
+     * <p>A plain id beside the element's, because the links are <b>in the chapter this method is
+     * already handed</b> for the same reason the elements are. What the layout cannot know is which
+     * link the author is looking at, and that is the one thing this parameter is.
+     */
+    public static List<ToolsLayout.Action> rows(JsonObject chapter, GroupInfo group, Set<String> folded,
+                                                String missingNote, Problems problems,
+                                                String selectedElement, String selectedLink) {
         List<ToolsLayout.Action> rows = new ArrayList<>();
         problems(rows, problems);
         if (chapter == null || chapter.isEmpty()) {
@@ -276,6 +322,11 @@ public final class ChapterPanelLayout {
                 rows.add(choiceRow(chapter, PROGRESSION));
                 rows.add(ToolsLayout.Action.toggle("defaultConsumeItems", "tenet.dev.chapter.consume",
                         flagOn(chapter, "defaultConsumeItems") ? ToolsLayout.ON : ToolsLayout.OFF));
+                // Beside the consume default because it is the same shape: one word here spares every
+                // quest in the chapter repeating it. Either this or a quest's own flag makes it flexible.
+                rows.add(ToolsLayout.Action.toggle("defaultFlexibleProgress",
+                        "tenet.dev.chapter.flexible",
+                        flagOn(chapter, "defaultFlexibleProgress") ? ToolsLayout.ON : ToolsLayout.OFF));
                 rows.add(choiceRow(chapter, PREREQUISITE));
                 rows.add(choiceRow(chapter, AUTO_CLAIM));
                 // The chapter's own gate, above the line-style rows because it is what the chapter *is* in
@@ -340,6 +391,16 @@ public final class ChapterPanelLayout {
             if (!folded.contains(ELEMENTS)) {
                 elementList(rows, elements, selectedElement, folded);
             }
+        }
+
+        // The chapter's quest links, after the elements and before the quest list, for the reason both
+        // are where they are: a chapter with twenty quests would push a marker's fields below a scroll
+        // nobody makes, and the section is a way in rather than a report. Always present, unlike the
+        // elements section above it: decorations are made on the canvas, but a link is made here, so a
+        // heading over an empty list is the way in rather than a heading an author learns to ignore.
+        rows.add(section(LINKS, "tenet.dev.chapter.links", folded));
+        if (!folded.contains(LINKS)) {
+            linkList(rows, linksOf(chapter), selectedLink, folded);
         }
 
         rows.add(section(QUESTS, "tenet.dev.chapter.quests", folded));
@@ -497,6 +558,109 @@ public final class ChapterPanelLayout {
         rows.addAll(ElementPanelLayout.rows(element, folded));
     }
 
+    // ------------------------------------------------------------------
+    // The quest links
+    // ------------------------------------------------------------------
+
+    /**
+     * The chapter's own {@code links} array, as objects.
+     *
+     * <p>Read here rather than taken as a parameter, for the reason {@link #rows} gives for the
+     * elements: they are in the file this method already holds. A member that is not an object is
+     * skipped rather than refused — a file that fails the codec never reaches this panel, and the
+     * validator is what reports it.
+     */
+    public static List<JsonObject> linksOf(JsonObject chapter) {
+        JsonElement array = chapter == null ? null : chapter.get("links");
+        if (array == null || !array.isJsonArray()) {
+            return List.of();
+        }
+        List<JsonObject> links = new ArrayList<>();
+        for (JsonElement each : array.getAsJsonArray()) {
+            if (each.isJsonObject()) {
+                links.add(each.getAsJsonObject());
+            }
+        }
+        return List.copyOf(links);
+    }
+
+    /**
+     * The link a field row's key names — {@code {id, field}} — or null when the key is not one.
+     *
+     * <p>{@code link.add} is not a link's field: it is the section's own button, and it answers null
+     * here so the commit path cannot mistake it for a link called {@code add} with no field.
+     */
+    public static String[] linkFieldOf(String key) {
+        if (key == null || !key.startsWith(LINK_PREFIX)) {
+            return null;
+        }
+        String rest = key.substring(LINK_PREFIX.length());
+        int dot = rest.indexOf('.');
+        if (dot <= 0 || dot == rest.length() - 1) {
+            return null;
+        }
+        return new String[] {rest.substring(0, dot), rest.substring(dot + 1)};
+    }
+
+    /** The link with this id in a chapter's own tree, or null. */
+    public static JsonObject linkById(JsonObject chapter, String id) {
+        return linkById(linksOf(chapter), id);
+    }
+
+    /** The link with this id, or null. */
+    private static JsonObject linkById(List<JsonObject> links, String id) {
+        for (JsonObject link : links) {
+            if (id.equals(text(link, "id", ""))) {
+                return link;
+            }
+        }
+        return null;
+    }
+
+    /** The list of links, the way in, then the selected one's own fields. */
+    private static void linkList(List<ToolsLayout.Action> rows, List<JsonObject> links,
+                                 String selectedLink, Set<String> folded) {
+        rows.add(ToolsLayout.Action.button(LinkPanelLayout.ADD_LINK, "tenet.dev.link.add", ""));
+        int shown = Math.min(links.size(), LINK_LIST_LIMIT);
+        for (int i = 0; i < shown; i++) {
+            JsonObject link = links.get(i);
+            String id = text(link, "id", "");
+            // A read-only row, like a quest's and an element's: it holds no widget, and the press it
+            // answers is the *selection*, which the screen reads from the row's own key. The left-hand
+            // value says what it is and the right-hand one where it points, so a list of six markers
+            // is readable.
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "link:" + id,
+                    "link", linkName(link, id)));
+        }
+        if (links.size() > shown) {
+            rows.add(ToolsLayout.Action.value(VALUE_PREFIX + "link:more", "\u2026",
+                    Labels.of("tenet.dev.chapter.links_more", links.size() - shown)));
+        }
+        JsonObject selected = linkById(links, selectedLink);
+        if (selected != null) {
+            linkFields(rows, selected, folded);
+        }
+    }
+
+    /** What a link calls itself: where it points when it points somewhere, and its id otherwise. */
+    private static String linkName(JsonObject link, String id) {
+        String quest = text(link, "quest", "");
+        return quest.isEmpty() ? id : quest;
+    }
+
+    /**
+     * The selected link's own fields.
+     *
+     * <p>The rows themselves live in {@link LinkPanelLayout}, beside the element form and for the
+     * same reason: a form is a thing with a help table, a value reader and a range table, and the
+     * tab is a list of sections. This is the tab's way in: the list, then the chosen link's fields
+     * under it.
+     */
+    private static void linkFields(List<ToolsLayout.Action> rows, JsonObject link,
+                                   Set<String> folded) {
+        rows.addAll(LinkPanelLayout.rows(link, folded));
+    }
+
     /**
      * One foldable section's heading: the marker, then the key the panel resolves.
      *
@@ -633,6 +797,7 @@ public final class ChapterPanelLayout {
             Map.entry("aliases", "tenet.dev.chapter.help.aliases"),
             Map.entry("progressionMode", "tenet.dev.chapter.help.progression"),
             Map.entry("defaultConsumeItems", "tenet.dev.chapter.help.consume_items"),
+            Map.entry("defaultFlexibleProgress", "tenet.dev.chapter.help.flexible_progress"),
             Map.entry("defaultPrerequisiteMode", "tenet.dev.chapter.help.prerequisite"),
             Map.entry("autoClaim", "tenet.dev.chapter.help.auto_claim"),
             Map.entry("prerequisiteMode", "tenet.dev.chapter.help.gate_mode"),

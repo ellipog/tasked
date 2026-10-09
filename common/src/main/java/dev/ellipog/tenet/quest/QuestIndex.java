@@ -38,6 +38,21 @@ import java.util.Set;
  * <p>So there is one table keyed by both, and a clash between them is an error: if one quest's id
  * collides with another's alias, a lookup is ambiguous, and ambiguity here means somebody's progress
  * lands on the wrong quest.
+ *
+ * <h2>Lookups are case-insensitive; files stay lowercase</h2>
+ *
+ * <p>Every key in the three tables is stored lowercased, and every lookup lowercases first — so an
+ * id, an alias and any case mix of either resolve to the same entry. That is for FTB Quests, whose
+ * ids are uppercase hexadecimal and whose own reads never cared about case: a string an author, a
+ * command or a script wrote down may be in either case, and "the case is wrong" is not a failure
+ * FTB has ever had. Each entry keeps its own id, so nothing displayed or stored changes — player
+ * progress is keyed by canonical id and is untouched.
+ *
+ * <p>The validator still requires lowercase ids and dependency strings, and aliases may use
+ * uppercase: the validator's job is to keep files uniform, the lookup's job is to not break a
+ * reference somebody wrote correctly in another case. An alias that normalises onto another
+ * object's id or alias is still a hard error, and an alias that normalises onto its own id is
+ * also still an error — it differs from the id only in case, so it says nothing.
  */
 public final class QuestIndex {
 
@@ -311,6 +326,7 @@ public final class QuestIndex {
         index.checkDependencies(problems);
         index.checkChapterRules(problems);
         index.checkElementRequirements(problems);
+        index.checkLinks(problems);
         index.checkDuplicatePositions(problems);
         // Not the same question as checkDuplicatePositions: two quests at 0,0 are stacked, two at 64,0
         // are *crowded* -- each is fine on its own and the two together cannot both show a title.
@@ -397,6 +413,21 @@ public final class QuestIndex {
                                    Map<String, ChapterEntry> chapters,
                                    String alias, Object entry, String canonicalId, String what,
                                    JsonDocument document, String path, Problems problems) {
+        // Checked before the lookup, because the lookup would find the entry itself: an alias
+        // that lands on its own id is "declared twice" by the map's reading, and that message
+        // would send an author hunting for a second declaration that does not exist.
+        if (key(alias).equals(key(canonicalId))) {
+            // It differs from its own id only in case, so it says nothing: the id itself
+            // already resolves every spelling of it. Kept as an error rather than ignored,
+            // because a file carrying a name that means nothing is a file somebody will
+            // "fix" by pointing a reference at it.
+            problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
+                    "the alias \"" + alias + "\" differs from this " + what + "'s own id only in"
+                            + " case, so it names nothing the id does not already name: remove it");
+            return;
+        }
+        // Normalisation does not loosen duplicate detection: an alias that lands on another
+        // object's id or alias is still a hard error, and it never picks a winner.
         Object existing = lookup(groups, quests, chapters, kindOf(entry), alias);
         if (existing == null) {
             put(groups, quests, chapters, kindOf(entry), alias, entry);
@@ -431,7 +462,7 @@ public final class QuestIndex {
                                       JsonDocument document, String path, Problems problems) {
         Set<String> seen = new LinkedHashSet<>();
         for (String alias : aliases) {
-            if (!seen.add(alias)) {
+            if (!seen.add(key(alias))) {
                 problems.add(document.name(), document.nearestLocation(path), DataProblem.Severity.ERROR,
                         aliasTwiceMessage(alias, what));
                 continue;
@@ -472,19 +503,28 @@ public final class QuestIndex {
     private static Object lookup(Map<String, GroupEntry> groups, Map<String, QuestEntry> quests,
                                  Map<String, ChapterEntry> chapters, Kind kind, String identifier) {
         return switch (kind) {
-            case GROUP -> groups.get(identifier);
-            case CHAPTER -> chapters.get(identifier);
-            case QUEST -> quests.get(identifier);
+            case GROUP -> groups.get(key(identifier));
+            case CHAPTER -> chapters.get(key(identifier));
+            case QUEST -> quests.get(key(identifier));
         };
     }
 
     private static void put(Map<String, GroupEntry> groups, Map<String, QuestEntry> quests,
                             Map<String, ChapterEntry> chapters, Kind kind, String identifier, Object entry) {
         switch (kind) {
-            case GROUP -> groups.put(identifier, (GroupEntry) entry);
-            case CHAPTER -> chapters.put(identifier, (ChapterEntry) entry);
-            case QUEST -> quests.put(identifier, (QuestEntry) entry);
+            case GROUP -> groups.put(key(identifier), (GroupEntry) entry);
+            case CHAPTER -> chapters.put(key(identifier), (ChapterEntry) entry);
+            case QUEST -> quests.put(key(identifier), (QuestEntry) entry);
         }
+    }
+
+    /**
+     * The table key for an identifier or alias: lowercased, so every spelling resolves to the one
+     * entry. Entries keep their own ids — this is only the lookup key, never what is displayed,
+     * stored in progress, or written back to a file.
+     */
+    private static String key(String identifier) {
+        return identifier.toLowerCase(Locale.ROOT);
     }
 
     private static String describe(Object entry) {
@@ -511,7 +551,7 @@ public final class QuestIndex {
     private void checkDependencies(Problems problems) {
         for (QuestEntry entry : quests()) {
             for (QuestRef dependency : entry.quest().dependencies()) {
-                if (byIdentifier.containsKey(dependency.id())) {
+                if (byIdentifier.containsKey(key(dependency.id()))) {
                     continue;
                 }
                 Optional<String> suggestion = nearestIdentifier(dependency.id());
@@ -551,7 +591,7 @@ public final class QuestIndex {
                                     + "\"), so it can never be opened");
                     continue;
                 }
-                if (chaptersByIdentifier.containsKey(dependency.id())) {
+                if (chaptersByIdentifier.containsKey(key(dependency.id()))) {
                     continue;
                 }
                 Optional<String> suggestion = nearest(chaptersByIdentifier.keySet(), dependency.id());
@@ -569,7 +609,7 @@ public final class QuestIndex {
             }
 
             for (QuestRef milestone : rules.completesWhen()) {
-                if (byIdentifier.containsKey(milestone.id())) {
+                if (byIdentifier.containsKey(key(milestone.id()))) {
                     continue;
                 }
                 Optional<String> suggestion = nearest(byIdentifier.keySet(), milestone.id());
@@ -608,7 +648,7 @@ public final class QuestIndex {
                 String at = entry.path() + ".elements[" + i + "]";
 
                 Optional<String> requires = element.requires();
-                if (requires.isPresent() && !byIdentifier.containsKey(requires.get())) {
+                if (requires.isPresent() && !byIdentifier.containsKey(key(requires.get()))) {
                     Optional<String> suggestion = nearestIdentifier(requires.get());
                     problems.error(entry.document(), at + ".requires",
                             "no quest with id or alias \"" + requires.get() + "\" exists"
@@ -623,12 +663,67 @@ public final class QuestIndex {
                 // rather than as a gap in the mod -- and because this is the side that can name the line.
                 if (element instanceof CanvasElement.Image image
                         && image.click().type() == ClickAction.Type.OPEN_QUEST
-                        && !byIdentifier.containsKey(image.click().data())) {
+                        && !byIdentifier.containsKey(key(image.click().data()))) {
                     Optional<String> suggestion = nearestIdentifier(image.click().data());
                     problems.error(entry.document(), at + ".click.data",
                             "no quest with id or alias \"" + image.click().data() + "\" exists"
                                     + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
                                     + "\n    pressing this element would do nothing at all");
+                }
+            }
+        }
+    }
+
+    /**
+     * A chapter's links, resolved across the whole pack.
+     *
+     * <h2>Why this is a cross-file check rather than a validator one</h2>
+     *
+     * <p>For the reason the element's gate gives at length: one file cannot see another chapter's
+     * quests, and a link may point anywhere in the book — the marker belongs on the canvas the
+     * gate guards, and the quest it mirrors lives wherever that quest lives. Shape is the
+     * validator's; existence is the index's.
+     *
+     * <p>Only quests resolve, and a link's id must resolve to nothing at all. A link sharing its
+     * target's name is the shape every converted pack takes — sixteen hex digits either side — so
+     * the collision half of this check is not paranoia: without it a canvas addresses two nodes by
+     * one name, and the press opens whichever the lookup finds first. Element ids are a separate
+     * namespace this check does not join: elements are addressed by edit operations, links by the
+     * canvas, and neither reaches through the other.
+     *
+     * <p>Links are deliberately absent from every progression input: they are not dependencies, not
+     * milestones, and not dependants. A quest with only inbound links still warns as a ghost, and a
+     * link never completes, unlocks or counts anything.
+     */
+    private void checkLinks(Problems problems) {
+        for (ChapterEntry entry : chapters()) {
+            java.util.List<QuestLink> links = entry.chapter().links();
+            for (int i = 0; i < links.size(); i++) {
+                QuestLink link = links.get(i);
+                String at = entry.path() + ".links[" + i + "]";
+
+                if (quest(link.quest().id()).isEmpty()) {
+                    Optional<String> suggestion = nearestIdentifier(link.quest().id());
+                    problems.error(entry.document(), at + ".quest",
+                            "no quest with id or alias \"" + link.quest().id() + "\" exists"
+                                    + suggestion.map(s -> " - did you mean \"" + s + "\"?").orElse("")
+                                    + "\n    a link with no target draws a mirror of nothing, and"
+                                    + " pressing it would do nothing at all");
+                }
+
+                // Links are never claimed in any lookup table, so any hit is a real object — a
+                // quest, a chapter or a group — that this link would shadow on the canvas.
+                Object shadowed = byIdentifier.containsKey(key(link.id()))
+                        ? byIdentifier.get(key(link.id()))
+                        : chaptersByIdentifier.containsKey(key(link.id()))
+                                ? chaptersByIdentifier.get(key(link.id()))
+                                : groupsByIdentifier.get(key(link.id()));
+                if (shadowed != null) {
+                    problems.error(entry.document(), at + ".id",
+                            "a link's id must not equal any quest, chapter or group id or alias:"
+                                    + " \"" + link.id() + "\" names " + describe(shadowed)
+                                    + "\n    two nodes addressed by one name means a press opens"
+                                    + " whichever the lookup finds first");
                 }
             }
         }
@@ -843,9 +938,23 @@ public final class QuestIndex {
         return title.length() * APPROX_CHAR_WIDTH;
     }
 
-    /** Levenshtein over the known identifiers, for a "did you mean" on an unresolved dependency. */
+    /**
+     * Levenshtein over the known identifiers, for a "did you mean" on an unresolved dependency.
+     *
+     * <p>Answered with a canonical id rather than the table key: keys are lowercased, and a
+     * suggestion should spell the name the way its file does.
+     */
     private Optional<String> nearestIdentifier(String missed) {
-        return nearest(byIdentifier.keySet(), missed);
+        String best = null;
+        int bestDistance = 3;
+        for (QuestEntry entry : quests) {
+            int distance = editDistance(key(missed), key(entry.quest().id()));
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = entry.quest().id();
+            }
+        }
+        return Optional.ofNullable(best);
     }
 
     /**
@@ -891,19 +1000,19 @@ public final class QuestIndex {
     // Lookup
     // ------------------------------------------------------------------
 
-    /** A quest by id or alias. */
+    /** A quest by id or alias, in any letter case. */
     public Optional<QuestEntry> quest(String identifier) {
-        return Optional.ofNullable(byIdentifier.get(identifier));
+        return Optional.ofNullable(byIdentifier.get(key(identifier)));
     }
 
-    /** A chapter by id or alias. */
+    /** A chapter by id or alias, in any letter case. */
     public Optional<ChapterEntry> chapter(String identifier) {
-        return Optional.ofNullable(chaptersByIdentifier.get(identifier));
+        return Optional.ofNullable(chaptersByIdentifier.get(key(identifier)));
     }
 
-    /** A chapter group by id or alias. */
+    /** A chapter group by id or alias, in any letter case. */
     public Optional<GroupEntry> group(String identifier) {
-        return Optional.ofNullable(groupsByIdentifier.get(identifier));
+        return Optional.ofNullable(groupsByIdentifier.get(key(identifier)));
     }
 
     /**

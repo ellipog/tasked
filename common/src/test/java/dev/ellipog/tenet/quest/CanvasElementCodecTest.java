@@ -109,7 +109,7 @@ class CanvasElementCodecTest {
         CanvasElement.Image image = assertInstanceOf(CanvasElement.Image.class, read("""
                 { "type": "image", "id": "chapter_four", "order": 2,
                   "x": 64, "y": 32, "width": 333, "height": 64,
-                  "rotation": 270, "corner": true,
+                  "rotation": 270, "corner": true, "locked": true,
                   "image": { "texture": "atm:textures/questpics/chap4.png" },
                   "tint": "#80FF0000", "alpha": 200,
                   "title": { "translate": "element.chapter_four.title", "fallback": "Chapter 4" },
@@ -125,6 +125,7 @@ class CanvasElementCodecTest {
         assertEquals(64, image.height());
         assertEquals(270, image.rotation());
         assertTrue(image.corner());
+        assertTrue(image.locked(), "pinned against the editor's drag");
         assertEquals(new ImageSource.Texture(
                 net.minecraft.resources.ResourceLocation.parse("atm:textures/questpics/chap4.png")),
                 image.image());
@@ -159,6 +160,19 @@ class CanvasElementCodecTest {
 
         // Neither key is refused, because there is nothing to draw and no sensible value to invent.
         assertTrue(refuses("{ \"type\": \"image\", \"id\": \"n\", \"image\": {} }"));
+    }
+
+    @Test
+    @DisplayName("a picture without a lock is an unlocked picture, which the drag may move")
+    void lockedDefaultsToOff() {
+        CanvasElement.Image image = assertInstanceOf(CanvasElement.Image.class,
+                read("{ \"type\": \"image\", \"id\": \"s\", \"image\": "
+                        + "{ \"sprite\": \"minecraft:block/sculk\" } }"));
+        assertFalse(image.locked(), "absent is draggable: pinning is opt-in, like the draft flag");
+
+        // And the pin survives the trip the tree and the replica both take.
+        CanvasElement roundTripped = CanvasElement.fromJson(CanvasElement.asJson(image)).orElseThrow();
+        assertFalse(assertInstanceOf(CanvasElement.Image.class, roundTripped).locked());
     }
 
     @Test
@@ -296,11 +310,11 @@ class CanvasElementCodecTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("all seven actions FTB can write are readable, and exactly three can run")
+    @DisplayName("all seven actions FTB can write are readable, and all seven can run")
     void theClickVocabulary() {
-        // Reading the four this build cannot run is what makes refusing them possible with a message that
-        // names the type. A codec that dropped them would leave a converted pack with a dead button and
-        // nothing said about it -- the failure mode T6 of the migration plan exists to prevent.
+        // Reading every name is what makes the validator's per-type checks possible: a codec that
+        // dropped one would leave a converted pack with a dead button and nothing said about it --
+        // the failure mode T6 of the migration plan exists to prevent.
         for (ClickAction.Type type : ClickAction.Type.values()) {
             String name = type.name().toLowerCase(java.util.Locale.ROOT);
             CanvasElement.Image image = assertInstanceOf(CanvasElement.Image.class,
@@ -314,8 +328,8 @@ class CanvasElementCodecTest {
         Set<ClickAction.Type> runnable = java.util.Arrays.stream(ClickAction.Type.values())
                 .filter(ClickAction.Type::supported)
                 .collect(java.util.stream.Collectors.toSet());
-        assertEquals(Set.of(ClickAction.Type.NONE, ClickAction.Type.OPEN_QUEST, ClickAction.Type.OPEN_URI),
-                runnable, "the set this build runs is exactly these three, and the validator reads it here");
+        assertEquals(java.util.EnumSet.allOf(ClickAction.Type.class),
+                runnable, "every name runs: the set is pinned so a future action that cannot run fails here");
 
         // A name no version has is refused by the codec, which names the seven there are. On an image, since
         // that is the arm that has a `click` at all -- a field on the wrong arm is silently ignored by the
@@ -378,7 +392,7 @@ class CanvasElementCodecTest {
         assertTrue(all.containsAll(CanvasElement.FIELDS));
         assertTrue(all.containsAll(CanvasElement.Image.FIELDS));
         assertTrue(all.containsAll(CanvasElement.Rect.FIELDS));
-        assertEquals(30, all.size(), "four arms and the common set, minus the fields they share: " + all);
+        assertEquals(31, all.size(), "four arms and the common set, minus the fields they share: " + all);
     }
 
     @Test

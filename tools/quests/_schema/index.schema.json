@@ -49,6 +49,13 @@
           "type": "string",
           "default": "en_us",
           "description": "The locale the tree's own strings are written in, e.g. \"en_us\". It is what a player reads when `lang/<locale>.json` has nothing for their language, and it sits underneath whichever locale they are served, so a pack can keep the strings every language shares in this one file and only the differences elsewhere. A locale the pack ships no file for still gets this one; the two are looked up together."
+        },
+        "clickCommandLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0,
+          "description": "What a canvas click's run_command runs as: 0 is the pressing player's own level, 2 is elevated enough for say, give and summon without opening op. Never above 2, and never the presser's own level however high that is."
         }
       }
     },

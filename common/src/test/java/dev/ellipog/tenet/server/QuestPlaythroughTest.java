@@ -197,6 +197,8 @@ class QuestPlaythroughTest {
         seeded.addAll(seedAutoClaimChapter(configDir));
         seeded.addAll(seedEngineChapter(configDir));
         seeded.addAll(seedRewardInboxChapter(configDir));
+        seeded.addAll(seedFlexChapter(configDir));
+        seeded.addAll(seedLinkChapter(configDir));
         Collections.sort(seeded);
         examples = List.copyOf(seeded);
 
@@ -2489,6 +2491,241 @@ class QuestPlaythroughTest {
     }
 
     @Test
+    @Order(200)
+    @DisplayName("flexible progress accumulates early but neither completes nor pays")
+    void flexibleProgressWaitsForItsGate() {
+        // FTB's flexible mode as played: the item task maxes out before the gate quest is done,
+        // and nothing happens — no completion, no payout — until the gate opens, when the
+        // already-maxed quest finishes and its automatic reward is handed over.
+        //
+        // Solo for this test, because the party saga above leaves whoever knows what behind:
+        // under owner_only an item task counts the owner's pockets rather than the presser's, so a
+        // leftover mode plus moved ownership would measure the wrong player and this test would
+        // starve however long it ticked. Leaving is refused when already solo; either way the next
+        // line pins the state this test counts under. Merging is harmless here: the gate quest has
+        // no progress anywhere, so nothing merged can complete anything early.
+        asOperator("/tenet party leave");
+        assertEquals(player.getUUID(), ownerOf(player), "solo for this test: no party counting");
+        clearInventories();
+        HeadlessServer.Outcome given = asOperator("/give @s minecraft:oak_log 4");
+        assertEquals(1, given.result(), "the give should have worked:\n" + given.text());
+        assertEquals(4, countInInventory(Items.OAK_LOG), "the logs should be held");
+
+        // At least, not exactly: recorded progress is the best count ever seen and the count can
+        // overshoot the requirement (one stack of eight records eight for a task wanting four),
+        // so == 4 would fail on a record an earlier order already pushed past it.
+        assertTrue(tickUntil(() -> recordedTask("flex_early", 0) >= 4, Duration.ofSeconds(20)),
+                "the flexible quest should measure while its gate is shut");
+        assertEquals(QuestState.STARTED, stateOf("flex_early"),
+                "measured, but not completable: the gate is still shut");
+        assertEquals(0, countInInventory(Items.STICK),
+                "and nothing was paid before the gate opened");
+        assertRefused(asOperator("/tenet claim flex_early"),
+                "there is nothing to collect on a quest that has not completed");
+
+        HeadlessServer.Outcome opened = asOperator("/tenet submit flex_gate 0");
+        assertEquals(1, opened.result(), "the gate press should have worked:\n" + opened.text());
+        assertTrue(tickUntil(() -> stateOf("flex_early") == QuestState.COMPLETED,
+                Duration.ofSeconds(20)),
+                "the maxed quest should finish once its gate opens, with no further action");
+        assertTrue(countInInventory(Items.STICK) >= 2,
+                "and its automatic reward should have been handed over");
+
+        note("early progress waited for its gate, then completed and paid on its own");
+        clearInventories();
+    }
+
+    @Test
+    @Order(201)
+    @DisplayName("a chain of flexible quests completes over bounded ticks, one node at a time")
+    void flexibleChainCompletesWithoutACascade() {
+        // All three max their tasks before any gate opens; then the head is pressed and each tick
+        // finishes at most the next one. A recursive sweep would finish the whole chain inside one
+        // call — the harness calls tick directly, so one call completing three quests would show.
+        assertEquals(1, asOperator("/tenet submit flex_c3 0").result(), "the tail should record");
+        assertEquals(1, asOperator("/tenet submit flex_c2 0").result(), "and the middle");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_c1"), "nothing is done yet");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_c2"), "maxed but gated");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_c3"), "maxed but gated twice over");
+
+        assertEquals(1, asOperator("/tenet submit flex_c1 0").result(), "the head should finish");
+        assertEquals(QuestState.COMPLETED, stateOf("flex_c1"), "a quest with no gate finishes at once");
+
+        tickOnce();
+        assertEquals(QuestState.COMPLETED, stateOf("flex_c2"),
+                "one tick finishes the quest whose gate just opened");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_c3"),
+                "but not the one behind it: retro-completion is the tick's job, one node per pass, "
+                        + "not a cascade down the chain");
+
+        assertTrue(tickUntil(() -> stateOf("flex_c3") == QuestState.COMPLETED,
+                Duration.ofSeconds(20)),
+                "and the tail follows on its own tick");
+        note("three pre-maxed flexible quests finished over three passes, never in one call");
+    }
+
+    @Test
+    @Order(202)
+    @DisplayName("a submit that opens the gate does not finish the dependant in the same call")
+    void submitDoesNotCascadeToFlexibleDependants() {
+        // The event-path rule: a kill or a submit completes the single quest it touched, and the
+        // next tick picks up whatever that opened. Completing N quests inside one event would grant
+        // N automatic rewards and fire N events outside the tick's batching.
+        assertEquals(1, asOperator("/tenet submit flex_d2 0").result(), "the gated press records");
+        assertEquals(1, recordedTask("flex_d2", 0), "its task is maxed");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_d2"), "but the gate is still shut");
+
+        assertEquals(1, asOperator("/tenet submit flex_d1 0").result(), "the gate should finish");
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_d2"),
+                "the dependant must not finish inside the submit call that opened its gate");
+        tickOnce();
+        assertEquals(QuestState.COMPLETED, stateOf("flex_d2"),
+                "the next tick finishes what the submit opened");
+        note("a submit finished its own quest; the tick finished the dependant");
+    }
+
+    @Test
+    @Order(203)
+    @DisplayName("a repeatable round ends at its final claim, not at its completion")
+    void repeatableRoundEndsAtFinalClaim() {
+        // FTB's rule: the timer starts when the last unclaimed reward is claimed, the quest's
+        // progress resets then, and the count moves then. So a completed-but-unclaimed repeatable
+        // reads STARTED with its tasks still maxed and its count unmoved — past the point where a
+        // completion-timed cooldown would already have run out — and the claim ends the round.
+        //
+        // The STARTED (rather than COMPLETED) is the resolution's own doing, before and after this
+        // change: a repeatable finished with a payout nobody has collected is still playable, so it
+        // resolves as started. What pins the new rule is structural — tasks kept, count and clock
+        // untouched at completion; all three moving at the claim.
+        clearInventories();
+        assertEquals(1, asOperator("/tenet submit flex_repeat 0").result(), "the press records");
+        assertEquals(QuestState.STARTED, stateOf("flex_repeat"),
+                "finished but awaiting its payout, which still reads as playable");
+
+        assertEquals(0, timesCompletedOf("flex_repeat"),
+                "the count moves at the final claim, not at the completion");
+        assertEquals(1, recordedTask("flex_repeat", 0),
+                "and the maxed task stays maxed while the payout is waiting");
+        assertEquals(0L, lastCompletedAtOf("flex_repeat"),
+                "with no clock running: the cooldown has not started");
+
+        // Past the 100-tick cooldown, had it started at completion: the game time is set, not
+        // waited out, because this world's clock barely advances on its own and a sleep would be
+        // a race against an unknown tick rate. It must still read waiting, because its payout is
+        // uncollected and nothing about time changes that.
+        long settledAt = gameTime();
+        setGameTime(settledAt + 500);
+        tickOnce();
+        assertEquals(QuestState.STARTED, stateOf("flex_repeat"),
+                "an unclaimed repeatable is not replayable, however far time moves");
+        assertEquals(0, timesCompletedOf("flex_repeat"), "and still uncounted");
+
+        HeadlessServer.Outcome claimed = asOperator("/tenet claim flex_repeat");
+        assertEquals(1, claimed.result(), "the payout should have been handed over:\n"
+                + claimed.text());
+        assertEquals(1, timesCompletedOf("flex_repeat"), "the final claim moved the count");
+        assertEquals(0, recordedTask("flex_repeat", 0), "and cleared the round's tasks");
+        long claimedAt = lastCompletedAtOf("flex_repeat");
+        assertTrue(claimedAt >= settledAt + 500,
+                "with the cooldown running from the claim, not from 500 ticks before it");
+        assertEquals(QuestState.COMPLETED, stateOf("flex_repeat"),
+                "cooling down, which is the one state that reads as waiting on time");
+
+        setGameTime(claimedAt + 50);
+        tickOnce();
+        assertEquals(QuestState.COMPLETED, stateOf("flex_repeat"), "still cooling at +50");
+        setGameTime(claimedAt + 500);
+        tickOnce();
+        assertNotEquals(QuestState.COMPLETED, stateOf("flex_repeat"),
+                "and playable again once the claim-timed cooldown runs out");
+
+        // One more round, to prove the count moves per round and the second payout is real.
+        assertEquals(1, asOperator("/tenet submit flex_repeat 0").result(), "the next round records");
+        assertEquals(1, asOperator("/tenet claim flex_repeat").result(), "and pays");
+        assertEquals(2, timesCompletedOf("flex_repeat"), "two rounds, two completions counted");
+        assertTrue(countInInventory(Items.STICK) >= 2, "both rounds paid their stick");
+
+        note("a repeatable round ended at its final claim: count, reset and cooldown together");
+        clearInventories();
+    }
+
+    @Test
+    @Order(204)
+    @DisplayName("a repeatable with nothing to collect resets at completion")
+    void rewardlessRepeatableResetsAtCompletion() {
+        // The exception to the claim-timed rule: with no payout waiting, no claim will ever arrive
+        // to end the round, so the count moves and the round clears at completion instead. The
+        // quest reads STARTED throughout, for the reason the test above gives: a finished
+        // repeatable still reads as playable.
+        assertEquals(1, asOperator("/tenet submit flex_tick 0").result(), "the press records");
+        assertEquals(1, timesCompletedOf("flex_tick"), "counted at completion, with nothing to wait for");
+        assertEquals(0, recordedTask("flex_tick", 0), "and cleared at completion too");
+        assertEquals(1, asOperator("/tenet submit flex_tick 0").result(), "immediately replayable");
+        assertEquals(2, timesCompletedOf("flex_tick"), "a second round counts again");
+        note("a rewardless repeatable counted and cleared at completion");
+    }
+
+    @Test
+    @Order(205)
+    @DisplayName("a chapter of markers plays exactly like the chapter without them")
+    void linksNeitherGateNorSatisfyAnything() {
+        // The whole of a link's server-side contract, played: two quests gated the ordinary way with
+        // two markers pointing at them. The markers must change nothing — no gating, no satisfying,
+        // no completing, no paying — and the questline must read exactly as it would with no links file
+        // at all. The mirror itself is drawn on the client; what is pinned here is that there is
+        // nothing *to* mirror but the quests' own states.
+        assertNotEquals(QuestState.COMPLETED, stateOf("link_b"), "gated, whatever points at it");
+        assertEquals(1, asOperator("/tenet submit link_a 0").result(), "the gate should finish");
+        assertEquals(QuestState.COMPLETED, stateOf("link_a"), "a quest with no gate finishes at once");
+        assertEquals(QuestState.UNLOCKED, stateOf("link_b"),
+                "open because its dependency finished, not because a marker named it");
+
+        assertEquals(1, asOperator("/tenet submit link_b 0").result(), "the dependent finishes");
+        assertEquals(QuestState.COMPLETED, stateOf("link_b"), "with no further action");
+        note("two quests gated the ordinary way, with two markers watching and changing nothing");
+    }
+
+    @Test
+    @Order(206)
+    @DisplayName("a canvas press runs its command and fires its event on the server")
+    void clicksDispatchOnTheServer() {
+        // The cheat boundary, pressed for real: the wire's two ids resolve through the loaded index
+        // to the file's own words, and neither a forged press nor a command press fires the bus.
+        // The listener is permanent for the session, like every bus listener a mod registers — it
+        // records into a list this order owns, and nothing else in the suite fires this event.
+        List<String> fired = new ArrayList<>();
+        dev.ellipog.tenet.api.TenetEvents.CLICK_EVENT.register((firedPlayer, id, chapter, element) ->
+                fired.add(id + "@" + chapter + ":" + element + " by "
+                        + firedPlayer.getScoreboardName()));
+
+        server.callOnServerThread(() -> {
+            TenetNetworking.handleClick(
+                    new dev.ellipog.tenet.net.ClickPayload("link_works", "sig"), player);
+            return null;
+        });
+        assertEquals(List.of("tenet:link_probe@link_works:sig by " + player.getScoreboardName()), fired,
+                "the press fired the file's own event, naming where it landed and who pressed it");
+
+        // A command press reaches the dispatcher without error at the pack's level: `help` needs
+        // level 0, which is what the test pack configures by saying nothing.
+        server.callOnServerThread(() -> {
+            TenetNetworking.handleClick(
+                    new dev.ellipog.tenet.net.ClickPayload("link_works", "cmd"), player);
+            return null;
+        });
+        assertEquals(1, fired.size(), "a command is not an event, however it is addressed");
+
+        // And a forged press names nothing, runs nothing and fires nothing.
+        server.callOnServerThread(() -> {
+            TenetNetworking.handleClick(
+                    new dev.ellipog.tenet.net.ClickPayload("link_works", "ghost"), player);
+            return null;
+        });
+        assertEquals(1, fired.size(), "a press with no action behind it is a warning, not a run");
+        note("a press ran its command and fired its event; a forged one did neither");
+    }
+
+    @Test
     @DisplayName("a locale is packed once per language, however many players read it")
     void aLocaleIsPackedOncePerLanguage() {
         // The claim the per-locale cache exists for, and it is measured rather than asserted in prose
@@ -2766,6 +3003,143 @@ class QuestPlaythroughTest {
      * that needs a second chapter that is nothing like the first. They give different items, so which
      * one was paid is read off the inventory rather than inferred.
      */
+    private static List<String> seedFlexChapter(Path configDir) throws IOException {
+        // The flexible-progress gallery: early task progress that must not complete or pay before
+        // its gate opens, a three-chain for bounded retro-completion, and a submit pair for the
+        // no-cascade rule. Checkmarks everywhere except the one item task, so no inventory couples
+        // the three questions: the gate quest is a press, the chain is three presses, and only the
+        // early quest reads an inventory.
+        Path quests = configDir.resolve("tenet/quests/flex_gallery");
+        Path chapter = quests.resolve("flex_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "flex_gallery", "title": "Flex Gallery", "chapters": ["flex_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "flex_works", "title": "Flex Works",
+                  "quests": ["flex_gate.json", "flex_early.json", "flex_c1.json", "flex_c2.json",
+                    "flex_c3.json", "flex_d1.json", "flex_d2.json", "flex_repeat.json",
+                    "flex_tick.json"] }
+                """);
+        Files.writeString(chapter.resolve("flex_gate.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_gate",
+                  "title": "Flex Gate", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Open the gate" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_early.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_early",
+                  "title": "Flex Early", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:oak_log" },
+                  "dependsOn": ["flex_gate"], "flexibleProgress": true,
+                  "tasks": [{ "type": "tenet:item", "item": "minecraft:oak_log", "count": 4 }],
+                  "rewards": [{ "type": "tenet:item", "item": "minecraft:stick", "count": 2,
+                    "auto": "enabled" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_c1.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_c1",
+                  "title": "Flex Chain One", "x": 0, "y": 64,
+                  "icon": { "item": "minecraft:paper" }, "flexibleProgress": true,
+                  "tasks": [{ "type": "tenet:checkmark", "title": "First" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_c2.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_c2",
+                  "title": "Flex Chain Two", "x": 64, "y": 64,
+                  "icon": { "item": "minecraft:paper" }, "flexibleProgress": true,
+                  "dependsOn": ["flex_c1"],
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Second" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_c3.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_c3",
+                  "title": "Flex Chain Three", "x": 128, "y": 64,
+                  "icon": { "item": "minecraft:paper" }, "flexibleProgress": true,
+                  "dependsOn": ["flex_c2"],
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Third" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_d1.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_d1",
+                  "title": "Flex Direct One", "x": 0, "y": 128,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Press" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_d2.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_d2",
+                  "title": "Flex Direct Two", "x": 64, "y": 128,
+                  "icon": { "item": "minecraft:paper" }, "flexibleProgress": true,
+                  "dependsOn": ["flex_d1"],
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Press after" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_repeat.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_repeat",
+                  "title": "Flex Repeat", "x": 0, "y": 192,
+                  "icon": { "item": "minecraft:stick" },
+                  "repeatable": true, "repeatCooldownTicks": 100,
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Again" }],
+                  "rewards": [{ "type": "tenet:item", "item": "minecraft:stick", "count": 1,
+                    "auto": "disabled" }] }
+                """);
+        Files.writeString(chapter.resolve("flex_tick.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "flex_tick",
+                  "title": "Flex Tick", "x": 64, "y": 192,
+                  "icon": { "item": "minecraft:paper" },
+                  "repeatable": true,
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Tick" }] }
+                """);
+        return List.of("flex_gallery/group.json", "flex_gallery/flex_works/chapter.json",
+                "flex_gallery/flex_works/flex_gate.json", "flex_gallery/flex_works/flex_early.json",
+                "flex_gallery/flex_works/flex_c1.json", "flex_gallery/flex_works/flex_c2.json",
+                "flex_gallery/flex_works/flex_c3.json", "flex_gallery/flex_works/flex_d1.json",
+                "flex_gallery/flex_works/flex_d2.json", "flex_gallery/flex_works/flex_repeat.json",
+                "flex_gallery/flex_works/flex_tick.json");
+    }
+
+    /**
+     * The link gallery: two quests gated the ordinary way, with two markers pointing at them.
+     *
+     * <p>Written by the test for the reason the flex gallery is: no example quest carries links, and
+     * the order above asks whether markers change anything about a questline. One marker points at
+     * each quest — the pointed-at quest and the pointed-from chapter are the same chapter here, and
+     * cross-chapter pointing is the canvas's own navigation rather than a second server behavior.
+     */
+    private static List<String> seedLinkChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/link_gallery");
+        Path chapter = quests.resolve("link_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "link_gallery", "title": "Link Gallery", "chapters": ["link_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "link_works", "title": "Link Works",
+                  "quests": ["link_a.json", "link_b.json"],
+                  "links": [ { "id": "to_a", "quest": "link_a", "x": 128, "y": 0 },
+                             { "id": "to_b", "quest": "link_b", "x": 128, "y": 64 } ],
+                  "elements": [
+                    { "type": "image", "id": "cmd", "x": 192, "y": 0, "width": 32, "height": 32,
+                      "image": { "sprite": "minecraft:block/stone" },
+                      "click": { "type": "run_command", "data": "help" } },
+                    { "type": "image", "id": "sig", "x": 192, "y": 64, "width": 32, "height": 32,
+                      "image": { "sprite": "minecraft:block/stone" },
+                      "click": { "type": "custom_event", "data": "tenet:link_probe" } } ] }
+                """);
+        Files.writeString(chapter.resolve("link_a.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "link_a",
+                  "title": "Link Gate", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Press" }] }
+                """);
+        Files.writeString(chapter.resolve("link_b.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "link_b",
+                  "title": "Link Dependent", "x": 0, "y": 64,
+                  "icon": { "item": "minecraft:paper" },
+                  "dependsOn": ["link_a"],
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Press after" }] }
+                """);
+        return List.of("link_gallery/group.json", "link_gallery/link_works/chapter.json",
+                "link_gallery/link_works/link_a.json", "link_gallery/link_works/link_b.json");
+    }
+
     private static List<String> seedRewardInboxChapter(Path configDir) throws IOException {
         Path quests = configDir.resolve("tenet/quests/reward_inbox");
         Path chapter = quests.resolve("reward_inbox");
@@ -3058,6 +3432,37 @@ class QuestPlaythroughTest {
     /** How far along one task is recorded to be. Zero for a task nothing has ever written. */
     private static int recordedTask(String questId, int taskIndex) {
         return recordedTaskFor(player, questId, taskIndex);
+    }
+
+    /** The world's game time, read on the server thread like every other read here. */
+    private static long gameTime() {
+        return server.callOnServerThread(() -> server.server().overworld().getGameTime());
+    }
+
+    /** Sets the world's game time. Tests own the clock here because the headless world barely ticks. */
+    private static void setGameTime(long time) {
+        server.onServerThread(() -> ((net.minecraft.world.level.storage.ServerLevelData) server.server()
+                        .overworld()
+                        .getLevelData())
+                .setGameTime(time));
+    }
+
+    /** How many times a repeatable quest has finished. Zero for one that never has. */
+    private static int timesCompletedOf(String questId) {
+        return server.callOnServerThread(() -> {
+            UUID owner = ProgressService.progressOwner(server.server(), player);
+            return ProgressService.progressFor(server.server(), owner)
+                    .progressOf(quest(questId).quest()).timesCompleted();
+        });
+    }
+
+    /** The game time the last completion round was timed from. Zero when no clock is running. */
+    private static long lastCompletedAtOf(String questId) {
+        return server.callOnServerThread(() -> {
+            UUID owner = ProgressService.progressOwner(server.server(), player);
+            return ProgressService.progressFor(server.server(), owner)
+                    .progressOf(quest(questId).quest()).lastCompletedAt();
+        });
     }
 
     /**

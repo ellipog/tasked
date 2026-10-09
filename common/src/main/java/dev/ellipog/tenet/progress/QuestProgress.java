@@ -109,10 +109,42 @@ public record QuestProgress(QuestState state,
                 lastCompletedAt);
     }
 
-    /** Clears task progress and the round's claims, for a repeatable quest starting another round. */
+    /**
+     * Clears task progress and the round's claims, counting the round, for a repeatable quest with
+     * nothing to wait for — no rewards at all. A round with a payout still to collect must not take
+     * this path: clearing its tasks at completion would erase what "completed" means to look at,
+     * and wiping its claims would re-offer nothing. See {@link #completed} and
+     * {@link #repeatRoundOver} for that round's two halves.
+     */
     public QuestProgress resetTasks() {
         return new QuestProgress(state, Map.of(), QuestClaims.NONE, false, false, timesCompleted + 1,
                 lastCompletedAt);
+    }
+
+    /**
+     * Marks completed without touching the clock or the count.
+     *
+     * <p>For a repeatable round whose payout is still waiting: the timer starts when the last
+     * unclaimed reward is claimed, not when the quest completes, and the count moves then too. So
+     * completion records the state and stops — see {@link #repeatRoundOver} for the other half.
+     */
+    public QuestProgress completed() {
+        return new QuestProgress(QuestState.COMPLETED, taskProgress, claims, rewardsClaimed,
+                legacySettled, timesCompleted, lastCompletedAt);
+    }
+
+    /**
+     * Ends a repeatable round whose payout is now fully collected.
+     *
+     * <p>FTB Quests' rule: the repeat timer starts when the last unclaimed reward is claimed, the
+     * quest's progress resets at that moment, and the completion count moves then. Task progress
+     * is cleared and the clock restarts — but the claims stay marked, because "collected" is still
+     * true and wiping it would offer the same payout again. The next completion starts its round
+     * with fresh claims; see the completion path.
+     */
+    public QuestProgress repeatRoundOver(long gameTime) {
+        return new QuestProgress(state, Map.of(), claims, true, legacySettled, timesCompleted + 1,
+                gameTime);
     }
 
     public QuestProgress completedAt(long gameTime) {

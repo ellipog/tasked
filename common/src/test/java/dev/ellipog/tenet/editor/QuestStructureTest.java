@@ -434,8 +434,39 @@ class QuestStructureTest {
     }
 
     @Test
-    @DisplayName("two files declaring one id are copied as two, and the manifest matches the files")
-    void duplicatingAChapterWithTwoQuestsOfOneIdCopiesBoth() throws IOException {
+    @DisplayName("a duplicated chapter's links follow their quests through the copy")
+    void duplicatingAChapterRemapsItsLinks() throws IOException {
+        // A link is standing in for a quest, so a target inside the copy is the copy: a duplicated
+        // chapter whose markers mirror the originals while its own quests diverge would rot silently,
+        // with nothing anywhere saying which node a press opens. A target outside the copy has no
+        // re-id and is left alone, which is the only correct reading of it.
+        write("alpha/group.json", group("alpha", "[\"one\"]"));
+        write("alpha/one/chapter.json", """
+                { "$schema": "../../_schema/chapter.schema.json",
+                  "id": "one", "title": "one", "quests": ["first.json", "second.json"],
+                  "links": [ { "id": "inward", "quest": "first", "x": 0, "y": 0 },
+                             { "id": "outward", "quest": "elsewhere", "x": 64, "y": 0 } ] }
+                """);
+        write("alpha/one/first.json", quest("first", ""));
+        write("alpha/one/second.json", quest("second", ""));
+
+        QuestEditor editor = QuestEditor.open(root(), "one").orElseThrow();
+        EditorOps.Applied outcome = EditorOps.apply(editor,
+                new EditorOp.DuplicateChapter("one", "one_copy", "One Copy"));
+
+        assertTrue(outcome.ok(), outcome.messages().toString());
+        String manifest = Files.readString(root().resolve("alpha/one_copy/chapter.json"),
+                StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("\"quest\": \"first_copy\""),
+                "the inward link follows its quest: " + manifest);
+        assertTrue(manifest.contains("\"quest\": \"elsewhere\""),
+                "the outward link still points where it always did: " + manifest);
+        assertTrue(manifest.contains("\"id\": \"inward\"") && manifest.contains("\"id\": \"outward\""),
+                "and the links keep their own ids, like elements do: " + manifest);
+    }
+
+    @Test
+    @DisplayName("two files declaring one id are copied as two, and the manifest matches the files")    void duplicatingAChapterWithTwoQuestsOfOneIdCopiesBoth() throws IOException {
         // The format allows two files to declare one id -- the load reports it and drops the second at the
         // index -- and the copy's fresh ids were re-derived by matching the source id: both matched the first
         // entry, so one copy overwrote the other while the manifest listed a file that was never written.

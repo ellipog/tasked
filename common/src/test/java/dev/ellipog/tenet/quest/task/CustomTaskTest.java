@@ -99,6 +99,25 @@ class CustomTaskTest {
     }
 
     @Test
+    @DisplayName("a handler that throws reads as no progress, and never crashes the poll")
+    void aThrowingHandlerIsInert() {
+        // The crash this exists for: a script error inside a handler propagated through the progress
+        // tick and took the server down with it. A measured task is polled constantly, so the failure
+        // warns once and reads as zero -- twice here, because the second call is the one that would
+        // have spammed the log.
+        CustomTask.CustomTasks.register("test:throws", (task, context) -> {
+            throw new IllegalStateException("a script bug");
+        });
+        CustomTask task = task("test:throws", 5);
+
+        assertEquals(0, behaviourOf(task).current(task, null));
+        assertEquals(0, behaviourOf(task).current(task, null),
+                "and still zero on the next poll, with no second warning");
+        assertFalse(behaviourOf(task).canSubmitByHand(task, false),
+                "and no Submit button from a handler that cannot even answer");
+    }
+
+    @Test
     @DisplayName("no progress is ever taken: a custom task names nothing to take")
     void nothingIsEverTaken() {
         registerCounter("test:takes", 9);
