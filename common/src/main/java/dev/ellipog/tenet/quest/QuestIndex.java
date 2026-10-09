@@ -53,6 +53,15 @@ import java.util.Set;
  * reference somebody wrote correctly in another case. An alias that normalises onto another
  * object's id or alias is still a hard error, and an alias that normalises onto its own id is
  * also still an error — it differs from the id only in case, so it says nothing.
+ *
+ * <h2>A {@code #tag} resolves to the first object carrying it</h2>
+ *
+ * <p>FTB Quests' tag lookup: quests, chapters and groups each carry {@code tags}, and a lookup
+ * string of {@code "#village"} resolves to the first object of the asked kind with that tag, in
+ * declaration order. The three kinds resolve separately -- see {@link #questWithTag} -- so a tag
+ * shared by a quest and a chapter answers whichever the caller asked for. Dependency edges keep
+ * their id-or-alias charset (the validator refuses a {@code #} there), so this is for commands,
+ * scripts and clicks: the surfaces that name one thing to open or check, not the edges that gate.
  */
 public final class QuestIndex {
 
@@ -1023,17 +1032,71 @@ public final class QuestIndex {
 
     /** A quest by id or alias, in any letter case. */
     public Optional<QuestEntry> quest(String identifier) {
+        if (identifier != null && identifier.startsWith("#") && identifier.length() > 1) {
+            return questWithTag(identifier.substring(1));
+        }
         return Optional.ofNullable(byIdentifier.get(key(identifier)));
     }
 
     /** A chapter by id or alias, in any letter case. */
     public Optional<ChapterEntry> chapter(String identifier) {
+        if (identifier != null && identifier.startsWith("#") && identifier.length() > 1) {
+            return chapterWithTag(identifier.substring(1));
+        }
         return Optional.ofNullable(chaptersByIdentifier.get(key(identifier)));
     }
 
     /** A chapter group by id or alias, in any letter case. */
     public Optional<GroupEntry> group(String identifier) {
+        if (identifier != null && identifier.startsWith("#") && identifier.length() > 1) {
+            return groupWithTag(identifier.substring(1));
+        }
         return Optional.ofNullable(groupsByIdentifier.get(key(identifier)));
+    }
+
+    /**
+     * The first quest carrying {@code tag}, in declaration order, if any.
+     *
+     * <p>FTB Quests' {@code #tag} lookup: a string naming a tag resolves to the first object with
+     * it. Matched without regard to letter case, like every other lookup here, though tags
+     * themselves are lowercase by the validator's rule. Quests, chapters and groups each resolve
+     * within their own kind -- a {@code "#village"} asked of {@link #quest} finds the first
+     * <i>quest</i> with it, never a chapter -- because the three tables are separate lookups and
+     * a cross-kind answer would be ambiguous about what the caller gets back.
+     */
+    public Optional<QuestEntry> questWithTag(String tag) {
+        for (QuestEntry entry : quests) {
+            for (String held : entry.quest().tags()) {
+                if (held.equalsIgnoreCase(tag)) {
+                    return Optional.of(entry);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The first chapter carrying {@code tag}, in declaration order, if any. See {@link #questWithTag}. */
+    public Optional<ChapterEntry> chapterWithTag(String tag) {
+        for (ChapterEntry entry : chapters) {
+            for (String held : entry.chapter().rules().tags()) {
+                if (held.equalsIgnoreCase(tag)) {
+                    return Optional.of(entry);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The first chapter group carrying {@code tag}, in declaration order, if any. See {@link #questWithTag}. */
+    public Optional<GroupEntry> groupWithTag(String tag) {
+        for (GroupEntry entry : groups) {
+            for (String held : entry.group().tags()) {
+                if (held.equalsIgnoreCase(tag)) {
+                    return Optional.of(entry);
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     /**

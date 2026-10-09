@@ -28,6 +28,11 @@
       "items": { "$ref": "#/definitions/alias" },
       "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
     },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Words this group answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
+    },
     "icon": {
       "$ref": "#/definitions/icon",
       "description": "The picture the book draws on this group's row: an item, a texture file, or an entity drawn as its spawn egg. Optional: without it the row falls back to the first chapter under the group."

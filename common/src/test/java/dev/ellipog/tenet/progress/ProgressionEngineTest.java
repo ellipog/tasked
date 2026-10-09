@@ -613,6 +613,55 @@ class ProgressionEngineTest {
         }
     }
 
+    @Nested
+    @DisplayName("excluded ids (T26)")
+    class Excluded {
+
+        @Test
+        @DisplayName("names the siblings a taken group shut out, and not the quest that took it")
+        void takenGroupNamesSiblings() {
+            QuestIndex index = indexOf(q("sword").exclusiveGroup("spec").build(),
+                    q("pick").exclusiveGroup("spec").build(),
+                    q("neither").exclusiveGroup("spec").build());
+            TeamProgress progress = completedQuests(index, "sword");
+
+            assertEquals(java.util.Set.of("pick", "neither"),
+                    ProgressionEngine.excludedIds(index, progress),
+                    "the two shut out, and not the one that took the group");
+        }
+
+        @Test
+        @DisplayName("names nothing while every path is still available")
+        void nothingExcludedBeforeAnythingIsTaken() {
+            QuestIndex index = indexOf(q("sword").exclusiveGroup("spec").build(),
+                    q("pick").exclusiveGroup("spec").build());
+            assertTrue(ProgressionEngine.excludedIds(index, TeamProgress.empty()).isEmpty(),
+                    "no choice made, so nothing is shut out");
+        }
+
+        @Test
+        @DisplayName("names the branches a reached cap cut off, and not the ones that finished")
+        void reachedCapNamesCutOff() {
+            QuestIndex index = indexOf(q("root").noTasks().maxCompletableDependents(1).build(),
+                    q("left").dependsOn("root").build(),
+                    q("right").dependsOn("root").build());
+            TeamProgress progress = completedQuests(index, "left");
+
+            assertEquals(java.util.Set.of("right"),
+                    ProgressionEngine.excludedIds(index, progress),
+                    "the branch the cap left, and not the one that finished first");
+        }
+
+        @Test
+        @DisplayName("a merely locked quest is not excluded")
+        void lockedIsNotExcluded() {
+            QuestIndex index = indexOf(q("gate").build(),
+                    q("late").dependsOn("gate").build());
+            assertTrue(ProgressionEngine.excludedIds(index, TeamProgress.empty()).isEmpty(),
+                    "not yet unlocked is not shut out: the mark is the reason, not the state");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Linear vs flexible
     // ------------------------------------------------------------------
@@ -817,6 +866,20 @@ class ProgressionEngineTest {
 
             // The predicate is deliberately always-false: it should not even be consulted.
             assertTrue(a.isTaskUnlocked(2, i -> false));
+        }
+
+        @Test
+        @DisplayName("a chapter default makes its quests sequential (XS)")
+        void chapterDefaultSequential() {
+            QuestIndex index = indexOf(q("a").tasks(3).build());
+            Quest a = Fixtures.quest(index, "a");
+
+            assertTrue(a.isTaskUnlocked(2, i -> false, false),
+                    "a quest that says nothing follows its chapter, and this chapter says nothing");
+            assertFalse(a.isTaskUnlocked(1, i -> false, true),
+                    "either true makes the quest sequential, with no opt-out");
+            assertTrue(a.isTaskUnlocked(0, i -> false, true),
+                    "the first task is always unlocked");
         }
 
         @Test

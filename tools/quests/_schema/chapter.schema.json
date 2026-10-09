@@ -26,6 +26,11 @@
     },
     "icon": { "$ref": "#/definitions/icon", "description": "Defaults to paper if absent." },
     "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Words this chapter answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
+    },
 
     "progressionMode": {
       "enum": ["flexible", "linear"],
@@ -53,6 +58,11 @@
       "maximum": 3000,
       "default": 0,
       "description": "What the quests in this chapter use for their detail-panel width unless a quest says otherwise: a quest's own minWidth wins over this, and 0 (unset) means the panel kind decides. FTB Quests calls this default_min_width."
+    },
+    "defaultSequentialTasks": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this chapter's quests require their tasks in order unless a quest says otherwise. Either the quest's own sequentialTasks or this makes its tasks sequential. FTB Quests calls this require_sequential_tasks."
     },
     "autofocus": {
       "type": "string",
@@ -94,6 +104,11 @@
       "type": "boolean",
       "default": false,
       "description": "Whether this chapter is left out of the book for a reader until its own dependencies are met. Off, it is listed and drawn dimmed with what it is waiting for on hover. An author in edit mode always sees it, or the flag could not be authored. Note that this is presentation only: the gate itself is enforced whatever this says. Note also that it is not `defaultHideUntilDependenciesComplete` below: this one withholds the chapter's row, those decide what its quests do."
+    },
+    "alwaysInvisible": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this chapter is withheld from every reader, whatever its gate says. Beside hideUntilDependenciesComplete because they are the pair an author will confuse: that one withholds the row until the gate is met, this one withholds it always. The gate itself is unaffected."
     },
     "defaultHideUntilDependenciesComplete": {
       "type": "boolean",

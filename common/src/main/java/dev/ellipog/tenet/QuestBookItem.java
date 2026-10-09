@@ -34,7 +34,18 @@ public final class QuestBookItem extends Item {
         ItemStack stack = player.getItemInHand(hand);
 
         if (level.isClientSide) {
-            ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
+            // Refused with the pack's sentence when the pack disabled its book, like every other
+            // open. Read off the synced tree rather than through the screen — this class runs on a
+            // dedicated server too, where no screen class may load. See
+            // `QuestBookScreen.checkOpenAllowed` for the choke the client-only paths share.
+            if (dev.ellipog.tenet.client.ClientQuestCache.guiDisabled()) {
+                player.displayClientMessage(
+                        net.minecraft.network.chat.Component.translatable("tenet.screen.book_disabled"),
+                        false);
+            }
+            else {
+                ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
+            }
         }
 
         // sidedSuccess: the client is told the interaction succeeded so the swing animation

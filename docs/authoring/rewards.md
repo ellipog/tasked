@@ -27,6 +27,7 @@ folded open, so a chapter can be read at a glance and unfolded only where someth
 | `disableToast` | `false` | Collecting this reward raises no toast. Quiets the reward-level notice (toast description, command feedback). See [[tenet:authoring/quests#announcements]]. |
 | `title` | the type's own | The words the row wears instead of the type's own sentence. |
 | `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
+| `tags` | none | Words this reward answers to in lookups by tag — see [[tenet:authoring/quests#tags]]. Each tag is lowercase letters, digits and underscores, the same rule an id follows. |
 | `conditions` | none | Gates the payout on the receiving player: an item, a tag, a score, an advancement, a stage, or how many of a party are online. Every entry must hold, and every path that pays checks them. A reward that is an *entry of a reward table* cannot carry them — the validator refuses it, because an entry is handed out by the roll rather than claimed; put them on the table reward. See [[tenet:authoring/conditions]]. |
 
 `auto` decides the moment the reward changes hands:

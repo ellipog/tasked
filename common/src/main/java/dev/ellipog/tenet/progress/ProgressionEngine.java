@@ -484,6 +484,50 @@ public final class ProgressionEngine {
         return capped;
     }
 
+    /**
+     * The quests an exclusive choice has shut out for good: FTB Quests' "excluded by another
+     * questline", as ids.
+     *
+     * <p>The same first pass {@link #resolve} reads — a taken exclusive group, or a reached
+     * dependent cap — restated as a set of ids rather than as states, because the reader that
+     * hides excluded quests needs the <i>reason</i> and the state cannot carry it: LOCKED is also
+     * what "not yet unlocked" looks like. A quest that is satisfied for its dependents is not its
+     * own sibling: the one that took the group, and every dependent that finished before a cap was
+     * reached, keep their completion and are never named here.
+     *
+     * <p>Read by the sync, once per progress message, so the mark and the state travel together
+     * and cannot disagree. The engine itself is unchanged: this answers a question about stored
+     * progress, and resolution stays the only thing that grants or refuses.
+     */
+    public static Set<String> excludedIds(QuestIndex index, TeamProgress progress) {
+        Set<String> taken = new HashSet<>();
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            Quest quest = entry.quest();
+            Optional<String> group = quest.exclusiveGroup();
+            if (group.isEmpty()) {
+                continue;
+            }
+            if (satisfiedForDependents(quest, progress)) {
+                taken.add(exclusiveKey(entry.chapterId(), group.get()));
+            }
+        }
+
+        Set<String> excluded = new HashSet<>(cappedDependents(index, progress));
+        for (QuestIndex.QuestEntry entry : index.quests()) {
+            Quest quest = entry.quest();
+            Optional<String> group = quest.exclusiveGroup();
+            // The resolver's own rule, restated: in a taken group, and not the one that took it.
+            // A repeatable quest that is satisfied for its dependents is still playable after its
+            // cooldown, so it is not shut out — the same exception the resolver makes.
+            if (group.isPresent() && taken.contains(exclusiveKey(entry.chapterId(), group.get()))
+                    && !(quest.repeatable() && satisfiedForDependents(quest, progress))
+                    && !satisfiedForDependents(quest, progress)) {
+                excluded.add(quest.id());
+            }
+        }
+        return Set.copyOf(excluded);
+    }
+
     // ------------------------------------------------------------------
     // Cycle detection, for the loader
     // ------------------------------------------------------------------

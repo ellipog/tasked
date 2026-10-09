@@ -363,7 +363,7 @@ public final class TenetQuests {
                 + current.groupCount() + " chapter group(s)";
     }
 
-    /** A quest by id or alias, if it is loaded. */
+    /** A quest by id, alias, or {@code #tag}, if it is loaded. See {@link QuestIndex#quest}. */
     public static Optional<QuestIndex.QuestEntry> find(String idOrAlias) {
         return index().quest(idOrAlias);
     }

@@ -396,6 +396,59 @@ class QuestIndexTest {
         }
     }
 
+    @Nested
+    @DisplayName("tags")
+    class Tags {
+
+        @Test
+        @DisplayName("a #tag lookup resolves to the first quest carrying it")
+        void hashTagResolvesToFirstQuest() {
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, Fixtures.file(
+                    "{\"id\": \"first\", \"title\": \"First\", \"tags\": [\"village\"]}",
+                    "{\"id\": \"second\", \"title\": \"Second\", \"tags\": [\"village\"]}"));
+
+            assertFalse(problems.hasErrors(), "tags are clean:" + messages(problems));
+            assertEquals("first", index.quest("#village").orElseThrow().quest().id());
+            assertEquals("first", index.questWithTag("village").orElseThrow().quest().id(),
+                    "and the direct lookup agrees");
+            assertTrue(index.quest("#nowhere").isEmpty(), "a tag nobody carries resolves to nothing");
+            assertTrue(index.quest("#").isEmpty(), "a bare hash is not a tag");
+        }
+
+        @Test
+        @DisplayName("a tag shared by a quest and a chapter answers whichever was asked for")
+        void hashTagResolvesPerKind() {
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, Fixtures.fileWithChapters(
+                    Fixtures.chapterWith("one", "\"tags\": [\"shared\"],",
+                            "{\"id\": \"q\", \"title\": \"Q\", \"tags\": [\"shared\"]}")));
+
+            assertFalse(problems.hasErrors(), "tags are clean:" + messages(problems));
+            assertEquals("one", index.chapter("#shared").orElseThrow().chapter().id());
+            assertEquals("q", index.quest("#shared").orElseThrow().quest().id(),
+                    "a quest lookup never answers a chapter");
+        }
+
+        @Test
+        @DisplayName("a #tag on a group resolves to the first group carrying it")
+        void hashTagOnGroup() {
+            Problems problems = new Problems();
+            QuestIndex index = indexOf(problems, """
+                    {"version": 1, "chapterGroups": [
+                      {"id": "g1", "title": "G1", "tags": ["shared"],
+                       "chapters": [{"id": "c1", "title": "C1", "quests": []}]},
+                      {"id": "g2", "title": "G2", "tags": ["shared"],
+                       "chapters": [{"id": "c2", "title": "C2", "quests": []}]}
+                    ]}""");
+
+            assertFalse(problems.hasErrors(), "tags are clean:" + messages(problems));
+            assertEquals("g1", index.group("#shared").orElseThrow().group().id());
+            assertEquals("g1", index.groupWithTag("shared").orElseThrow().group().id(),
+                    "and the direct lookup agrees");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Dependencies
     // ------------------------------------------------------------------

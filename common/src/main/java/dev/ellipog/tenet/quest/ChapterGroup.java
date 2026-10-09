@@ -39,6 +39,14 @@ public record ChapterGroup(
         Optional<Icon> icon,
         List<String> aliases,
         boolean collapsedByDefault,
+        /**
+         * Words this group answers to in lookups by tag.
+         *
+         * <p>FTB Quests' {@code tags}, present on every object. Each tag is
+         * {@code ^[a-z0-9_]{1,64}$}, the same rule an id follows, and a lookup of
+         * {@code "#tag"} resolves to the first quest, chapter or group carrying it.
+         */
+        List<String> tags,
         List<Chapter> chapters
 ) {
 
@@ -56,7 +64,7 @@ public record ChapterGroup(
      * step by a test rather than by a comment.
      */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
-            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "chapters");
+            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "tags", "chapters");
 
     /** Finds a chapter by id or alias. */
     public Optional<Chapter> chapter(String idOrAlias) {
@@ -95,6 +103,7 @@ public record ChapterGroup(
             // property of the questline, and it applies once, on the first sight of a tree. See
             // Outline.seedFromDefaults.
             Codec.BOOL.optionalFieldOf("collapsedByDefault", false).forGetter(ChapterGroup::collapsedByDefault),
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(ChapterGroup::tags),
             Chapter.CODEC.listOf().optionalFieldOf("chapters", List.of()).forGetter(ChapterGroup::chapters)
     ).apply(instance, ChapterGroup::new));
 }

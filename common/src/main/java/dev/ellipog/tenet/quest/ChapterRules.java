@@ -139,11 +139,39 @@ public record ChapterRules(
          * another chapter is reported too, for the same reason. Links and image {@code requires}
          * are not the canvas's centre and do not count here.
          */
-        Optional<QuestRef> autofocus) {
+        Optional<QuestRef> autofocus,
+        /**
+         * The chapter's default for its quests' {@code sequentialTasks}: whether tasks must be
+         * done in order unless a quest says otherwise.
+         *
+         * <p>FTB Quests' {@code require_sequential_tasks}. Either the quest's own flag or this
+         * makes its tasks sequential — there is no opt-out, which is why a migration tool
+         * inlines the resolved value onto each quest when this is absent.
+         */
+        boolean defaultSequentialTasks,
+        /**
+         * Whether this chapter is withheld from every reader, whatever its gate says.
+         *
+         * <p>FTB Quests' {@code always_invisible}. Unlike {@link #hideUntilDependenciesComplete},
+         * which withholds the row until the gate is met, this withholds it always: a reader never
+         * sees the row, its progress reads 100%, and it answers no search. The gate itself is
+         * unaffected -- an always-invisible chapter still opens, still completes, and still gates
+         * its quests -- and the editor still lists it, or the flag could not be authored.
+         */
+        boolean alwaysInvisible,
+        /**
+         * Words this chapter answers to in lookups by tag.
+         *
+         * <p>FTB Quests' {@code tags}, present on every object. Each tag is
+         * {@code ^[a-z0-9_]{1,64}$} -- the same rule a quest id follows -- and a lookup of
+         * {@code "#tag"} resolves to the first quest, chapter or group carrying it. See
+         * {@link QuestIndex} for the resolution and the validator for the refusal.
+         */
+        List<String> tags) {
 
     /** A chapter with no gate, no declared completion, no hiding and no defaults for its quests. */
     public static final ChapterRules DEFAULT = new ChapterRules(List.of(), PrerequisiteMode.ALL_COMPLETED,
-            0, List.of(), false, false, false, false, 0, Optional.empty());
+            0, List.of(), false, false, false, false, 0, Optional.empty(), false, false, List.of());
 
     /**
      * The bounds of {@link #minRequired}.
@@ -160,7 +188,7 @@ public record ChapterRules(
     public static final Set<String> FIELDS = Set.of("dependsOn", "prerequisiteMode", "minRequired",
             "completesWhen", "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
             "defaultHideUntilDependenciesVisible", "defaultFlexibleProgress", "defaultMinWidth",
-            "autofocus");
+            "autofocus", "defaultSequentialTasks", "alwaysInvisible", "tags");
 
     /** How many of {@link #dependsOn} must be satisfied. */
     public int requiredCount() {
@@ -202,7 +230,13 @@ public record ChapterRules(
             // existed says nothing, and nothing must read as the old behaviour.
             Codec.intRange(QuestPresentation.MIN_WIDTH_MIN, QuestPresentation.MIN_WIDTH_MAX)
                     .optionalFieldOf("defaultMinWidth", 0).forGetter(ChapterRules::defaultMinWidth),
-            QuestRef.CODEC.optionalFieldOf("autofocus").forGetter(ChapterRules::autofocus)
+            QuestRef.CODEC.optionalFieldOf("autofocus").forGetter(ChapterRules::autofocus),
+            Codec.BOOL.optionalFieldOf("defaultSequentialTasks", false)
+                    .forGetter(ChapterRules::defaultSequentialTasks),
+            Codec.BOOL.optionalFieldOf("alwaysInvisible", false)
+                    .forGetter(ChapterRules::alwaysInvisible),
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of())
+                    .forGetter(ChapterRules::tags)
     ).apply(instance, ChapterRules::new));
 
     public static final Codec<ChapterRules> CODEC = MAP_CODEC.codec();

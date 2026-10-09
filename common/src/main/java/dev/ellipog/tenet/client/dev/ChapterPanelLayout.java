@@ -309,6 +309,11 @@ public final class ChapterPanelLayout {
                     description(chapter)));
             rows.add(ToolsLayout.Action.text("aliases", "tenet.dev.chapter.aliases",
                     String.join(", ", QuestPanelLayout.strings(chapter, "aliases"))));
+            // Words this chapter answers to in lookups by tag, comma-separated like the aliases
+            // above: `#tag` resolves to the first object carrying it. The validator is what says
+            // a tag is misspelled, and empty clears the list.
+            rows.add(ToolsLayout.Action.text("tags", "tenet.dev.chapter.tags",
+                    String.join(", ", QuestPanelLayout.strings(chapter, "tags"))));
         }
 
         // **The rules are Advanced, and gated here rather than by their keys.** A chapter's rules are keyed
@@ -331,6 +336,13 @@ public final class ChapterPanelLayout {
                 // minWidth wins over this, and 0 (unset) means the panel kind decides.
                 rows.add(ToolsLayout.Action.text("defaultMinWidth", "tenet.dev.chapter.default_min_width",
                         numberText(chapter, "defaultMinWidth")));
+                // Whether this chapter's quests require their tasks in order unless one says otherwise.
+                // Beside the other quest defaults because it is the same shape: one word here spares
+                // every quest in the chapter repeating it. Either this or a quest's own flag makes it
+                // sequential.
+                rows.add(ToolsLayout.Action.toggle("defaultSequentialTasks",
+                        "tenet.dev.chapter.sequential",
+                        flagOn(chapter, "defaultSequentialTasks") ? ToolsLayout.ON : ToolsLayout.OFF));
                 // The quest this chapter centres on when selected, by id or alias in this chapter.
                 // A text row like the gate lists below: the validator is what says a name does not
                 // resolve, and empty clears it back to the bounding-box centre.
@@ -353,6 +365,13 @@ public final class ChapterPanelLayout {
                 rows.add(ToolsLayout.Action.toggle("hideUntilDependenciesComplete",
                         "tenet.dev.chapter.hide_until_deps",
                         flagOn(chapter, "hideUntilDependenciesComplete") ? ToolsLayout.ON : ToolsLayout.OFF));
+                // Whether this chapter is withheld from every reader, whatever its gate says.
+                // Beside the row above because they are the pair an author will confuse: that one
+                // withholds the row until the gate is met, this one withholds it always. The gate
+                // itself is unaffected, and an author still sees the row, or this could not be undone.
+                rows.add(ToolsLayout.Action.toggle("alwaysInvisible",
+                        "tenet.dev.chapter.always_invisible",
+                        flagOn(chapter, "alwaysInvisible") ? ToolsLayout.ON : ToolsLayout.OFF));
                 // What this chapter's quests do about their *own* dependencies, unless a quest says
                 // otherwise. Beside the row above because they are the pair an author will confuse: that one
                 // withholds this chapter's row from a reader, these withhold its quests from everybody.
@@ -804,10 +823,12 @@ public final class ChapterPanelLayout {
             Map.entry("subtitle", "tenet.dev.chapter.help.subtitle"),
             Map.entry(ICON, "tenet.dev.chapter.help.icon"),
             Map.entry("aliases", "tenet.dev.chapter.help.aliases"),
+            Map.entry("tags", "tenet.dev.chapter.help.tags"),
             Map.entry("progressionMode", "tenet.dev.chapter.help.progression"),
             Map.entry("defaultConsumeItems", "tenet.dev.chapter.help.consume_items"),
             Map.entry("defaultFlexibleProgress", "tenet.dev.chapter.help.flexible_progress"),
             Map.entry("defaultMinWidth", "tenet.dev.chapter.help.default_min_width"),
+            Map.entry("defaultSequentialTasks", "tenet.dev.chapter.help.sequential_tasks"),
             Map.entry("autofocus", "tenet.dev.chapter.help.autofocus"),
             Map.entry("defaultPrerequisiteMode", "tenet.dev.chapter.help.prerequisite"),
             Map.entry("autoClaim", "tenet.dev.chapter.help.auto_claim"),
@@ -816,6 +837,7 @@ public final class ChapterPanelLayout {
             Map.entry("dependsOn", "tenet.dev.chapter.help.depends_on"),
             Map.entry("completesWhen", "tenet.dev.chapter.help.completes_when"),
             Map.entry("hideUntilDependenciesComplete", "tenet.dev.chapter.help.hide_until_deps"),
+            Map.entry("alwaysInvisible", "tenet.dev.chapter.help.always_invisible"),
             Map.entry("defaultHideUntilDependenciesComplete",
                     "tenet.dev.chapter.help.default_hide_deps_complete"),
             Map.entry("defaultHideUntilDependenciesVisible",

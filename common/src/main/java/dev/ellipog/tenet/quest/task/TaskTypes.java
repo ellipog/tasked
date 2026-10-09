@@ -90,6 +90,8 @@ public final class TaskTypes {
                     .hint("the words this task's row wears; empty means the type's own sentence"),
             EditorField.icon("icon", "Picture")
                     .hint("the picture this task's row wears; empty means the type's own"),
+            EditorField.text("tags", "Tags", "words this task answers to, comma-separated")
+                    .hint("words this task answers to in lookups by tag; empty means none"),
             EditorField.number("autoSubmitTicks", "Checked every", "ticks")
                     .hint("how often the server re-checks this task; ticks, twenty to the second"));
 
@@ -158,7 +160,8 @@ public final class TaskTypes {
             CheckmarkTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("knowledge_book"), 1), CheckmarkTask.DISPLAY,
             () -> new CheckmarkTask(new TaskCommon(false, 20, java.util.List.of(), false,
-                    java.util.Optional.of(QuestText.literal("Did it")), java.util.Optional.empty())));
+                    java.util.Optional.of(QuestText.literal("Did it")), java.util.Optional.empty(),
+                    java.util.List.of())));
 
     /** {@code tenet:dimension} — be in a dimension. */
     public static final QuestTaskType<DimensionTask> DIMENSION = register(

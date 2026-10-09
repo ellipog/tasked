@@ -228,6 +228,14 @@ public final class TenetCommand {
                                 .executes(ctx -> openBook(ctx,
                                         StringArgumentType.getString(ctx, "quest")))))
 
+                // The pack's emergency shelf: what `emergencyItems` names, once per cooldown. No
+                // permission gate, for the same reason `claim` has none — this is a player
+                // collecting what the pack offers, not an operator changing anything. FTB Quests'
+                // `emergency_items` and `emergency_items_cooldown`, under one command rather than a
+                // book button: there is no button, so the shelf is asked for by name.
+                .then(Commands.literal("emergency")
+                        .executes(TenetCommand::emergency))
+
                 .then(Commands.literal("types")
                         .executes(TenetCommand::types))
 
@@ -1111,6 +1119,15 @@ public final class TenetCommand {
                     "Run this as a player. Only a player has a screen to open."));
             return 0;
         }
+        // Refused with the pack's sentence when the pack disabled its book. The client refuses
+        // every other open path itself (see `QuestBookScreen.checkOpenAllowed`), but this path
+        // is decided here, on the server — sending the payload anyway would open what the file
+        // says is closed.
+        if (TenetQuests.settings().disableGui()) {
+            context.getSource().sendFailure(
+                    Component.translatable("tenet.screen.book_disabled"));
+            return 0;
+        }
         if (!questId.isEmpty() && TenetQuests.find(questId).isEmpty()) {
             context.getSource().sendFailure(
                     Component.translatable("tenet.command.quest.notfound", questId));
@@ -1126,6 +1143,73 @@ public final class TenetCommand {
             context.getSource().sendSuccess(
                     () -> Component.translatable("tenet.command.open_book.quest", id), false);
         }
+        return 1;
+    }
+
+    /**
+     * The last emergency grant, as a server tick per player.
+     *
+     * <p>In memory rather than in a save, like the push dedupe this file keeps nowhere: a restart
+     * forgiving a cooldown is the direction that cannot strand a player, and a map that survives a
+     * restart to enforce a wait would be the file's cooldown kept in two places. Keyed by player
+     * rather than by team, because the shelf is collected by one player — a teammate's emergency
+     * is not this player's.
+     *
+     * <p>On the server thread only — every writer is a command handler, which the server runs on
+     * the server thread — so a plain {@code HashMap} is correct, as it is for the sync's own
+     * per-player map.
+     */
+    private static final java.util.Map<java.util.UUID, Long> EMERGENCY_GRANTS = new java.util.HashMap<>();
+
+    /**
+     * Hands out the pack's emergency shelf: the file's {@code emergencyItems}, once per
+     * {@code emergencyItemsCooldown}.
+     *
+     * <p>FTB Quests' {@code emergency_items} and {@code emergency_items_cooldown}, under one
+     * command rather than a book button — there is no button, so the shelf is asked for by name.
+     * The grant is the reward path's lenient one: what fits goes into the inventory through
+     * {@code InventoryAccesses}, and the rest drops at the player's feet rather than vanishing.
+     * An unknown item is skipped rather than refused, like a missing item on a reward row: the
+     * shelf still hands out everything else.
+     */
+    private static int emergency(CommandContext<CommandSourceStack> context)
+            throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayerOrException();
+        QuestSettings settings = TenetQuests.settings();
+        if (settings.emergencyItems().isEmpty()) {
+            context.getSource().sendFailure(
+                    Component.translatable("tenet.command.emergency.empty"));
+            return 0;
+        }
+        long now = context.getSource().getServer().getTickCount();
+        Long last = EMERGENCY_GRANTS.get(player.getUUID());
+        long wait = settings.emergencyItemsCooldown() * 20L - (last == null ? Long.MAX_VALUE : now - last);
+        if (last != null && wait > 0) {
+            final long secondsLeft = (wait + 19) / 20;
+            context.getSource().sendFailure(
+                    Component.translatable("tenet.command.emergency.cooldown", secondsLeft));
+            return 0;
+        }
+        int granted = 0;
+        for (dev.ellipog.tenet.quest.ItemRef ref : settings.emergencyItems()) {
+            if (!ref.isKnown()) {
+                continue;
+            }
+            net.minecraft.world.item.ItemStack give = ref.toStack();
+            if (give.isEmpty()) {
+                continue;
+            }
+            net.minecraft.world.item.ItemStack remainder = dev.ellipog.tenet.inventory.InventoryAccesses
+                    .current().insert(player, give);
+            if (!remainder.isEmpty()) {
+                player.drop(remainder, false);
+            }
+            granted++;
+        }
+        EMERGENCY_GRANTS.put(player.getUUID(), now);
+        final int count = granted;
+        context.getSource().sendSuccess(
+                () -> Component.translatable("tenet.command.emergency.granted", count), false);
         return 1;
     }
 

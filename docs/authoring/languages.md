@@ -107,9 +107,13 @@ file for a translation to work:
 | Object | Keys |
 |---|---|
 | A quest | `quest.<id>.title`, `quest.<id>.subtitle`, `quest.<id>.description` |
-| A chapter | `chapter.<id>.title` |
+| A chapter | `chapter.<id>.title`, `chapter.<id>.subtitle` |
 | A chapter group | `group.<id>.title` |
 | A reward table | `rewardTable.<name>.title` |
+| The book | `book.title` |
+
+The book's key translates the `bookTitle` in `index.json` — the name the header draws — so a pack
+that ships it renames the book for every language it translates without touching the file.
 
 A task's or a reward's sentence is already a translation key of its own — a checkmark task's `title`,
 or a built-in sentence like `tenet.reward.xp.points` — so it needs no conventional key: put **its** key
@@ -162,6 +166,8 @@ client's options follows within a tick, with no reconnect at all.
 
 ## What is not translatable yet
 
-- A chapter's `subtitle` and `description`: nothing draws them for a player, so there is no surface for
-  a translation to reach. They are the editor's, and the editor shows the file.
+- A chapter's `description`: nothing draws it for a player, so there is no surface for
+  a translation to reach. It is the editor's, and the editor shows the file. The chapter's
+  `subtitle` does have one — the second line of its sidebar row's hover — so `chapter.<id>.subtitle`
+  translates it.
 - An FTB `image` object's title: Tenet has no image object, so the key has no home here.

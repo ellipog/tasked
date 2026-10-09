@@ -581,6 +581,21 @@ public final class EditorOps {
             // outgoing edges it draws, and whether its completion is announced. Client-derived like
             // the visibility flags above, so no stored progress moves when one changes.
             "hideDependentLines", "minWidth", "disableToast",
+            // Words a quest, chapter, group, task or reward answers to in lookups by tag, and the
+            // guide page a quest names: metadata a screen reads, never a count progress is stored
+            // against. A `#tag` lookup resolves from the tree the client has just been sent, so
+            // like every other presentation flag above this moves no stored progress either. (A
+            // path through `tasks` or `rewards` still answers CONTENT by the rule below, whatever
+            // its last step names.)
+            "tags", "guidePage",
+            // Whether a chapter is withheld from every reader, whatever its gate says: the reader's
+            // own row, derived on the client like the visibility flags above, so no stored progress
+            // moves when it changes. The gate itself is unaffected.
+            "alwaysInvisible",
+            // And whether recipe viewers list it: the viewer content is rebuilt from the tree the
+            // client has just been sent, so like every other presentation flag above this moves no
+            // stored progress either.
+            "disableRecipeMod",
             // A chapter's own presentation the same way: the panel width its quests want unless one
             // says otherwise, and the quest it centres on when selected. Viewport and panel facts,
             // derived on the client from the tree it has just been sent.

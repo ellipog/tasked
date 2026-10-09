@@ -440,6 +440,19 @@ class FtbMappingTest {
     }
 
     @Test
+    @DisplayName("chapter defaultSequentialTasks and file defaultConsumeItems decode (XS)")
+    void sequentialAndFileConsumeDefaults() {
+        var chapter = chapter("{\"id\": \"c\", \"title\": \"C\","
+                + " \"defaultSequentialTasks\": true}");
+        assertTrue(chapter.rules().defaultSequentialTasks());
+        assertFalse(chapter("{\"id\": \"c\", \"title\": \"C\"}").rules().defaultSequentialTasks());
+
+        var settings = settings("{\"defaultConsumeItems\": true}");
+        assertTrue(settings.defaultConsumeItems());
+        assertFalse(settings("{\"defaultAutoClaim\": \"disabled\"}").defaultConsumeItems());
+    }
+
+    @Test
     @DisplayName("file settings carry auto-claim and team defaults")
     void fileSettings() {
         var parsed = settings("{\"defaultAutoClaim\": \"no_toast\", \"defaultTeamReward\": true,"
@@ -447,5 +460,149 @@ class FtbMappingTest {
         assertEquals(RewardAutoClaim.NO_TOAST, parsed.defaultAutoClaim());
         assertTrue(parsed.defaultTeamReward());
         assertEquals(60, parsed.detectionDelay());
+    }
+
+    @Test
+    @DisplayName("chapter subtitle and the book title decode (G16)")
+    void chapterSubtitleAndBookTitleDecode() {
+        // FTB's `chapter_subtitle` (a single-element lang array in ATM10) becomes the chapter's
+        // `subtitle`: the one line under the chapter's name, drawn as the second line of its
+        // sidebar row's hover. Absent stays absent, which is every chapter that never had one.
+        var subtitled = chapter("{\"id\": \"c\", \"title\": \"C\","
+                + " \"subtitle\": \"Five quests, no tricks\"}");
+        assertEquals("Five quests, no tricks", subtitled.subtitle().orElseThrow().value());
+        assertTrue(chapter("{\"id\": \"c\", \"title\": \"C\"}").subtitle().isEmpty(),
+                "a chapter with no subtitle sends nothing on the wire");
+        // And FTB's file `title` (lang `file.<id>.title`, "All The Mods 10" in ATM10) becomes the
+        // index settings' `bookTitle`: what the header draws. Already a plain string, so the
+        // tool's value decodes as written and translates through `book.title` instead.
+        assertEquals("All The Mods 10",
+                settings("{\"bookTitle\": \"All The Mods 10\"}").bookTitle());
+        assertEquals("", settings("{}").bookTitle(),
+                "absent means the client's own title");
+    }
+
+    @Test
+    @DisplayName("quest disableRecipeMod keeps its tristate, and the file default decodes (T27)")
+    void recipeViewerFlags() {
+        // Absent is "no opinion" and the file's defaultDisableRecipeMod decides; false forces the
+        // quest listed. Collapsing absent into false would pin the file default the moment a quest
+        // is written — the same trap the hide flags' tristate closes.
+        assertEquals(Optional.empty(),
+                quest("{\"id\": \"a\", \"title\": \"A\"}").disableRecipeMod());
+        assertEquals(Optional.of(true),
+                quest("{\"id\": \"a\", \"title\": \"A\", \"disableRecipeMod\": true}")
+                        .disableRecipeMod());
+        assertEquals(Optional.of(false),
+                quest("{\"id\": \"a\", \"title\": \"A\", \"disableRecipeMod\": false}")
+                        .disableRecipeMod());
+
+        // The resolution: the quest's own flag wins when set, otherwise the file decides, and the
+        // viewers read the negation.
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\"}").showInRecipeMod(false),
+                "a quest that says nothing follows a permissive file");
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\"}").showInRecipeMod(true),
+                "a quest that says nothing follows a hiding file");
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\", \"disableRecipeMod\": true}")
+                .showInRecipeMod(false), "an explicit hide wins over a permissive file");
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"disableRecipeMod\": false}")
+                .showInRecipeMod(true), "an explicit show opts out of a hiding file");
+
+        assertTrue(settings("{\"defaultDisableRecipeMod\": true}").defaultDisableRecipeMod());
+        assertFalse(settings("{\"defaultAutoClaim\": \"disabled\"}").defaultDisableRecipeMod());
+    }
+
+    @Test
+    @DisplayName("file lock, pause, gui, book, grid and message flags decode (T26)")
+    void fileBehaviourFlags() {
+        // Absent is the default on every one, and the defaults are the old behaviour: marks
+        // shown, nothing hidden, the world unpaused, the book opening, no custom locked word.
+        var absent = settings("{}");
+        assertTrue(absent.showLockIcons(), "absent draws, like FTB's !contains || getBoolean");
+        assertFalse(absent.hideExcludedQuests());
+        assertFalse(absent.pauseGame());
+        assertFalse(absent.disableGui());
+        assertFalse(absent.dropBookOnDeath());
+        assertEquals(0.5, absent.gridScale());
+        assertEquals("", absent.lockMessage());
+        assertEquals(300, absent.emergencyItemsCooldown());
+        assertTrue(absent.emergencyItems().isEmpty());
+
+        var parsed = settings("{\"showLockIcons\": false, \"hideExcludedQuests\": true,"
+                + " \"pauseGame\": true, \"disableGui\": true, \"dropBookOnDeath\": true,"
+                + " \"gridScale\": 1.0, \"lockMessage\": \"Sealed\","
+                + " \"emergencyItemsCooldown\": 60,"
+                + " \"emergencyItems\": [{\"item\": \"minecraft:torch\", \"count\": 8}]}");
+        assertFalse(parsed.showLockIcons());
+        assertTrue(parsed.hideExcludedQuests());
+        assertTrue(parsed.pauseGame());
+        assertTrue(parsed.disableGui());
+        assertTrue(parsed.dropBookOnDeath());
+        assertEquals(1.0, parsed.gridScale());
+        assertEquals("Sealed", parsed.lockMessage());
+        assertEquals(60, parsed.emergencyItemsCooldown());
+        assertEquals(1, parsed.emergencyItems().size());
+        assertEquals("minecraft:torch", parsed.emergencyItems().get(0).item().toString());
+        assertEquals(8, parsed.emergencyItems().get(0).count());
+    }
+
+    @Test
+    @DisplayName("file gridScale is bounded, like the editor it came from (T26)")
+    void fileGridScaleIsBounded() {
+        assertTrue(QuestSettings.CODEC.parse(JsonOps.INSTANCE,
+                json("{\"gridScale\": 16}")).error().isPresent(),
+                "twice the editor's own maximum is not a grid");
+        assertTrue(QuestSettings.CODEC.parse(JsonOps.INSTANCE,
+                json("{\"gridScale\": 0}")).error().isPresent(),
+                "and neither is no grid at all");
+        assertEquals(QuestSettingsExtra.GRID_SCALE_MIN,
+                settings("{\"gridScale\": 0.03125}").gridScale(),
+                "while the editor's own minimum reads as written");
+    }
+
+    @Test
+    @DisplayName("quest hideLockIcon decodes, defaulting to drawn (T26)")
+    void questHideLockIcon() {
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\"}").hideLockIcon(),
+                "absent draws, which is every file written before the field");
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"hideLockIcon\": true}")
+                .hideLockIcon());
+    }
+
+    @Test
+    @DisplayName("chapter alwaysInvisible decodes, defaulting to shown (T30)")
+    void chapterAlwaysInvisible() {
+        assertFalse(chapter("{\"id\": \"c\", \"title\": \"C\"}").rules().alwaysInvisible(),
+                "absent is shown, which is every file written before the field");
+        assertTrue(chapter("{\"id\": \"c\", \"title\": \"C\", \"alwaysInvisible\": true}")
+                .rules().alwaysInvisible());
+    }
+
+    @Test
+    @DisplayName("tags decode on every quest object, defaulting to none (T30)")
+    void tagsOnEveryObject() {
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\"}").tags().isEmpty());
+        assertEquals(List.of("village", "early"),
+                quest("{\"id\": \"a\", \"title\": \"A\", \"tags\": [\"village\", \"early\"]}").tags());
+        assertEquals(List.of("village"),
+                chapter("{\"id\": \"c\", \"title\": \"C\", \"tags\": [\"village\"]}").rules().tags());
+        assertTrue(task("{\"type\": \"tenet:checkmark\", \"title\": \"x\"}").common().tags().isEmpty());
+        assertEquals(List.of("village"),
+                task("{\"type\": \"tenet:checkmark\", \"title\": \"x\", \"tags\": [\"village\"]}")
+                        .common().tags());
+        var reward = assertInstanceOf(ItemReward.class,
+                reward("{\"type\": \"tenet:item\", \"item\": \"minecraft:stone\","
+                        + " \"tags\": [\"village\"]}"));
+        assertEquals(List.of("village"), reward.common().tags());
+    }
+
+    @Test
+    @DisplayName("quest guidePage decodes, defaulting to none (T30)")
+    void questGuidePage() {
+        assertEquals("", quest("{\"id\": \"a\", \"title\": \"A\"}").guidePage(),
+                "absent names no page, which is every file written before the field");
+        assertEquals("my_pack:early_game",
+                quest("{\"id\": \"a\", \"title\": \"A\", \"guidePage\": \"my_pack:early_game\"}")
+                        .guidePage());
     }
 }

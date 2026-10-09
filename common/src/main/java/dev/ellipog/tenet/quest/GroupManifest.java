@@ -57,6 +57,7 @@ import java.util.Optional;
  *                          chapter's". See {@link ChapterGroup#icon()}.
  * @param aliases           former ids, so a rename does not orphan progress or break a reference
  * @param collapsedByDefault whether the book shows this group's chapters the first time it sees a tree
+ * @param tags              words this group answers to in lookups by tag, {@code "#tag"}
  * @param chapters          the <b>folder names</b> of this group's chapters, in the order they should
  *                          appear. Author-chosen, because nothing else can express intent here.
  */
@@ -67,12 +68,13 @@ public record GroupManifest(
         Optional<Icon> icon,
         List<String> aliases,
         boolean collapsedByDefault,
+        List<String> tags,
         List<String> chapters
 ) {
 
     /** The field names this contributes. Equal to {@link ChapterGroup#FIELDS} — see the class note. */
     public static final java.util.Set<String> FIELDS = java.util.Set.of(
-            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "chapters");
+            "id", "title", "description", "icon", "aliases", "collapsedByDefault", "tags", "chapters");
 
     /**
      * This manifest as a group, with the chapters its names resolved to.
@@ -83,7 +85,8 @@ public record GroupManifest(
      * folder the names resolve against.
      */
     public ChapterGroup toGroup(List<Chapter> resolved) {
-        return new ChapterGroup(id, title, description, icon, aliases, collapsedByDefault, resolved);
+        return new ChapterGroup(id, title, description, icon, aliases, collapsedByDefault, tags,
+                resolved);
     }
 
     public static final Codec<GroupManifest> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -95,6 +98,7 @@ public record GroupManifest(
             Codec.STRING.listOf().optionalFieldOf("aliases", List.of()).forGetter(GroupManifest::aliases),
             Codec.BOOL.optionalFieldOf("collapsedByDefault", false)
                     .forGetter(GroupManifest::collapsedByDefault),
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(GroupManifest::tags),
             Codec.STRING.listOf().optionalFieldOf("chapters", List.of()).forGetter(GroupManifest::chapters)
     ).apply(instance, GroupManifest::new));
 }

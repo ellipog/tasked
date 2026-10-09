@@ -114,7 +114,7 @@ class ConsentToTakeTest {
     void aButtonWithNothingToTakeIsStillRegisteredByTheTick() {
         CheckmarkTask check = new CheckmarkTask(new TaskCommon(false, 20, java.util.List.of(), false,
                 java.util.Optional.of(QuestText.literal("I read the sign")),
-                java.util.Optional.empty()));
+                java.util.Optional.empty(), java.util.List.of()));
         TaskBehaviour<QuestTask> through = behaviour(check);
 
         assertTrue(through.canSubmitByHand(check, false), "a checkmark is only ever a press");

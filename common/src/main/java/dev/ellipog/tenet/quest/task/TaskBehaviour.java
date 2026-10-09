@@ -77,7 +77,8 @@ public interface TaskBehaviour<T> {
 
     /**
      * Whether this task <b>takes</b> what it asks for when it is satisfied, rather than only checking
-     * presence. The chapter's {@code defaultConsumeItems} is the fallback for a task that does not say.
+     * presence. The chapter's {@code defaultConsumeItems} is the fallback for a task that does not say,
+     * and the file's own {@code defaultConsumeItems} is the fallback for a chapter that does not.
      *
      * <p>Here rather than in the engine, where it used to be an {@code instanceof ItemTask}: the
      * engine should not grow a branch per consumable type, and the knowledge of what a task costs

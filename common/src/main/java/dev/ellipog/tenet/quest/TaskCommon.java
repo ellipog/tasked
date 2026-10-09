@@ -43,31 +43,38 @@ import java.util.Set;
  * the type's own sentence, and the picture it wears instead of the type's own. Absent means the
  * type decides, which is every file written before these fields existed. See
  * {@link dev.ellipog.tenet.quest.task.TaskTypes#displayOf} for the resolution.
+ *
+ * <p>{@code tags} is FTB Quests' {@code tags}, present on every object: words this task answers
+ * to in lookups by tag. Each tag is {@code ^[a-z0-9_]{1,64}$}, the same rule an id follows.
  */
 public record TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions,
-                         boolean disableToast, Optional<QuestText> title, Optional<Icon> icon) {
+                         boolean disableToast, Optional<QuestText> title, Optional<Icon> icon,
+                          List<String> tags) {
 
     /** The shape every task type's defaults use: no conditions, announced, computed words. */
     public TaskCommon(boolean optional, int autoSubmitTicks) {
-        this(optional, autoSubmitTicks, List.of(), false, Optional.empty(), Optional.empty());
+        this(optional, autoSubmitTicks, List.of(), false, Optional.empty(), Optional.empty(),
+                List.of());
     }
 
     /** The shape for a task with conditions but the default announcement and words. */
     public TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions) {
-        this(optional, autoSubmitTicks, conditions, false, Optional.empty(), Optional.empty());
+        this(optional, autoSubmitTicks, conditions, false, Optional.empty(), Optional.empty(),
+                List.of());
     }
 
     /** The shape for a task with conditions and announcement but computed words. */
     public TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondition> conditions,
                       boolean disableToast) {
-        this(optional, autoSubmitTicks, conditions, disableToast, Optional.empty(), Optional.empty());
+        this(optional, autoSubmitTicks, conditions, disableToast, Optional.empty(), Optional.empty(),
+                List.of());
     }
 
     public static final TaskCommon DEFAULT = new TaskCommon(false, 20);
 
     /** The field names this contributes, for the validator to allow at task level. */
     public static final Set<String> FIELDS = Set.of("optional", "autoSubmitTicks", "conditions",
-            "disableToast", "title", "icon");
+            "disableToast", "title", "icon", "tags");
 
     public static final MapCodec<TaskCommon> MAP_CODEC = mapCodec(20);
 
@@ -90,7 +97,8 @@ public record TaskCommon(boolean optional, int autoSubmitTicks, List<QuestCondit
                         .forGetter(TaskCommon::conditions),
                 Codec.BOOL.optionalFieldOf("disableToast", false).forGetter(TaskCommon::disableToast),
                 QuestText.CODEC.optionalFieldOf("title").forGetter(TaskCommon::title),
-                Icon.CODEC.optionalFieldOf("icon").forGetter(TaskCommon::icon)
+                Icon.CODEC.optionalFieldOf("icon").forGetter(TaskCommon::icon),
+                Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(TaskCommon::tags)
         ).apply(instance, TaskCommon::new));
     }
 }

@@ -91,9 +91,11 @@ public final class QuestValidator {
      * <p>{@link QuestRules} holds sixteen of these — the repeat flags, the reveal flags, the five hide
      * flags, {@code invisibleUntilTasks}, {@code requiresStage} and {@code autoClaim}, listed in
      * {@link QuestRules#FIELDS} — because {@code RecordCodecBuilder} caps out at sixteen components and
-     * the flat quest was over it. {@link QuestPresentation} holds five more — {@code minWidth},
-     * {@code hideDependentLines}, {@code disableToast}, {@code ignoreRewardBlocking} and
-     * {@code requiresStageTeam} — for the same reason, listed in its own {@code FIELDS}. They are flat
+     * the flat quest was over it. {@link QuestPresentation} holds nine more — {@code minWidth},
+     * {@code hideDependentLines}, {@code disableToast}, {@code ignoreRewardBlocking},
+     * {@code requiresStageTeam}, {@code disableRecipeMod}, {@code hideLockIcon}, {@code tags}
+     * and {@code guidePage} — for the same
+     * reason, listed in its own {@code FIELDS}. They are flat
      * in JSON regardless; the grouping is only visible in Java.
      */
     private static final Set<String> QUEST_FIELDS = union(
@@ -349,6 +351,7 @@ public final class QuestValidator {
         checkTextOrList(document, path + ".description", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
+        checkTags(document, path + ".tags", problems);
         if (document.has(path + ".collapsedByDefault")) {
             Checks.optionalBool(document, path + ".collapsedByDefault", problems);
         }
@@ -454,6 +457,7 @@ public final class QuestValidator {
         checkIcon(document, path + ".icon", problems);
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
+        checkTags(document, path + ".tags", problems);
 
         // The codec defaults this, so its absence is not a problem — but a misspelled value is, and
         // that is the case an author actually hits.
@@ -507,10 +511,16 @@ public final class QuestValidator {
         if (document.has(path + ".hideUntilDependenciesComplete")) {
             Checks.optionalBool(document, path + ".hideUntilDependenciesComplete", problems);
         }
+        // Whether this chapter is withheld from every reader, whatever its gate says. Beside the
+        // row above because they are the pair an author will confuse: that one withholds the row
+        // until the gate is met, this one withholds it always. The gate itself is unaffected.
+        if (document.has(path + ".alwaysInvisible")) {
+            Checks.optionalBool(document, path + ".alwaysInvisible", problems);
+        }
         // The chapter's defaults for its quests, checked the same way. Note the pair above: the one
         // without `default` withholds the chapter's row, and these decide what its quests do.
         for (String defaulted : new String[] {"defaultHideUntilDependenciesComplete",
-                "defaultHideUntilDependenciesVisible"}) {
+                "defaultHideUntilDependenciesVisible", "defaultSequentialTasks"}) {
             if (document.has(path + "." + defaulted)) {
                 Checks.optionalBool(document, path + "." + defaulted, problems);
             }
@@ -640,6 +650,7 @@ public final class QuestValidator {
 
         Checks.optionalStringList(document, path + ".aliases", problems).forEach(alias ->
                 checkAlias(document, path + ".aliases", alias, problems));
+        checkTags(document, path + ".tags", problems);
 
         if (document.has(path + ".prerequisiteMode")) {
             Checks.optionalString(document, path + ".prerequisiteMode", problems)
@@ -777,9 +788,10 @@ public final class QuestValidator {
 
         // How this quest presents itself: how wide its card wants to be, which of its outgoing
         // edges are drawn, whether its completion is announced, whether its rewards survive a held
-        // payout, and which set the stage gate reads. All five are presentation — a typo here changes
-        // what the player sees, not whether the file loads — so each is a closed-set check rather
-        // than a codec surprise.
+        // payout, which set the stage gate reads, whether recipe viewers list it, and whether it
+        // wears its own lock mark. All seven are
+        // presentation — a typo here changes what the player sees, not whether the file loads — so
+        // each is a closed-set check rather than a codec surprise.
         if (document.has(path + ".minWidth")) {
             Checks.optionalInt(document, path + ".minWidth", problems).ifPresent(width -> {
                 if (width < QuestPresentation.MIN_WIDTH_MIN
@@ -801,6 +813,23 @@ public final class QuestValidator {
         }
         if (document.has(path + ".requiresStageTeam")) {
             Checks.optionalBool(document, path + ".requiresStageTeam", problems);
+        }
+        if (document.has(path + ".disableRecipeMod")) {
+            Checks.optionalBool(document, path + ".disableRecipeMod", problems);
+        }
+        if (document.has(path + ".hideLockIcon")) {
+            Checks.optionalBool(document, path + ".hideLockIcon", problems);
+        }
+        // The guide book page this quest belongs to, as a plain string. Tenet has no guide
+        // integration, so this is a reference the quest card shows and nothing more; empty
+        // means absent, and is refused here rather than carried as a page called nothing.
+        if (document.has(path + ".guidePage")) {
+            Checks.optionalString(document, path + ".guidePage", problems).ifPresent(page -> {
+                if (page.isBlank()) {
+                    problems.error(document, path + ".guidePage",
+                            "a guide page may not be empty - remove the field when the quest names none");
+                }
+            });
         }
 
         checkDependencies(document, path + ".dependsOn", "quest", problems);
@@ -909,6 +938,7 @@ public final class QuestValidator {
         if (document.has(path + ".disableToast")) {
             Checks.optionalBool(document, path + ".disableToast", problems);
         }
+        checkTags(document, path + ".tags", problems);
         // The author's words and picture for this task's row: a QuestText and an icon union, checked
         // like every other text and icon in this file rather than by the task's own codec.
         if (document.has(path + ".title")) {
@@ -1083,6 +1113,7 @@ public final class QuestValidator {
         if (document.has(path + ".disableToast")) {
             Checks.optionalBool(document, path + ".disableToast", problems);
         }
+        checkTags(document, path + ".tags", problems);
         // The author's words and picture for this reward's row, checked like the task's own above.
         if (document.has(path + ".title")) {
             checkText(document, path + ".title", problems);
@@ -1517,6 +1548,37 @@ public final class QuestValidator {
                 problems.error(document, elementPath, "'" + candidate
                         + "' is not a valid " + what
                         + " id; only lowercase letters, digits and underscores are allowed");
+            }
+        }
+    }
+
+    /**
+     * The lookup words on a group, a chapter, a quest or a task: FTB Quests' {@code tags}, present
+     * on every object.
+     *
+     * <p>Each tag follows the same rule an id does — lowercase letters, digits and underscores, at
+     * most {@link ChapterNaming#MAX_LENGTH} characters — because a tag is looked up by spelling,
+     * and a tag nothing can spell is a lookup that never answers. An absent list is the common case
+     * and costs nothing, which is what every file written before this field existed gets.
+     */
+    private static void checkTags(JsonDocument document, String path, Problems problems) {
+        var tags = Checks.optionalStringList(document, path, problems);
+        for (int i = 0; i < tags.size(); i++) {
+            String elementPath = path + "[" + i + "]";
+            String candidate = tags.get(i);
+            if (candidate.isEmpty()) {
+                problems.error(document, elementPath, "a tag may not be empty");
+                continue;
+            }
+            boolean wellFormed = candidate.length() <= ChapterNaming.MAX_LENGTH;
+            for (int j = 0; wellFormed && j < candidate.length(); j++) {
+                char ch = candidate.charAt(j);
+                wellFormed = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_';
+            }
+            if (!wellFormed) {
+                problems.error(document, elementPath, "'" + candidate
+                        + "' is not a valid tag;"
+                        + " only lowercase letters, digits and underscores are allowed");
             }
         }
     }

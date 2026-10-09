@@ -1,0 +1,106 @@
+package dev.ellipog.tenet.quest;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * The quest tree's own display and file behaviours, grouped.
+ *
+ * <p>Grouped for the mundane reason {@link ChapterRules} gives — {@code RecordCodecBuilder} stops at
+ * sixteen components and {@link QuestSettings} is at ten without these — and the real one: these
+ * are the answers about how the book <i>behaves</i> as a file (lock marks, pausing, the grid, the
+ * emergency shelf) rather than how its rewards and text are resolved. In JSON the fields are
+ * <b>flat</b> on the {@code settings} block, because this is a {@link MapCodec}, exactly as a
+ * quest's rules are flat on the quest. An author writes {@code "pauseGame": true}, not a nested
+ * object.
+ */
+public record QuestSettingsExtra(boolean showLockIcons, boolean hideExcludedQuests, boolean pauseGame,
+                                 boolean disableGui, boolean dropBookOnDeath, double gridScale,
+                                 String lockMessage, int emergencyItemsCooldown,
+                                 List<ItemRef> emergencyItems) {
+
+    /**
+     * The bounds of {@code gridScale}, taken from FTB Quests' own editor (1/32 to 8).
+     *
+     * <p>Named once so the codec, the validator and the schema can agree: three spellings of one
+     * range is how an out-of-range value gets accepted by one and refused by another.
+     */
+    public static final double GRID_SCALE_MIN = 1.0 / 32.0;
+    public static final double GRID_SCALE_MAX = 8.0;
+
+    /** A file that says nothing about how it behaves: shown locks, no hiding, no pausing. */
+    public static final QuestSettingsExtra DEFAULT = new QuestSettingsExtra(true, false, false, false,
+            false, 0.5, "", 300, List.of());
+
+    /** The field names this contributes, for the validator to allow in the settings block. */
+    public static final Set<String> FIELDS = Set.of("showLockIcons", "hideExcludedQuests", "pauseGame",
+            "disableGui", "dropBookOnDeath", "gridScale", "lockMessage", "emergencyItemsCooldown",
+            "emergencyItems");
+
+    public static final MapCodec<QuestSettingsExtra> MAP_CODEC = RecordCodecBuilder.mapCodec(
+            instance -> instance.group(
+                    // Whether a locked quest wears its lock mark on the canvas. FTB Quests'
+                    // `show_lock_icons`, and absent is shown there too (`!contains || getBoolean`), so a
+                    // file that never heard of the field draws exactly as before. A quest opts out for
+                    // itself with `hideLockIcon`; either silence wins. Read by the client, so it travels
+                    // on the tree (sparse: only `false` crosses, because that is the unusual answer).
+                    Codec.BOOL.optionalFieldOf("showLockIcons", true)
+                            .forGetter(QuestSettingsExtra::showLockIcons),
+                    // Whether quests shut out by an exclusive choice vanish from the reader's book. FTB
+                    // Quests' `hide_excluded_quests`: a quest another questline's completion excluded is
+                    // not shown. Tenet's exclusion is an exclusive group (or a dependent cap) resolving
+                    // to LOCKED, and the server marks those quests on the wire — the client cannot tell
+                    // "excluded" from "not yet" by the state alone. False draws them locked, as before.
+                    Codec.BOOL.optionalFieldOf("hideExcludedQuests", false)
+                            .forGetter(QuestSettingsExtra::hideExcludedQuests),
+                    // Whether the book pauses the world in single player. FTB Quests' `pause_game`:
+                    // `isPauseScreen` answers this rather than a constant, so an author reading mid-fight
+                    // keeps the default and a lore book may still the world. Read by the client, so it
+                    // travels on the tree (sparse: only `true` crosses).
+                    Codec.BOOL.optionalFieldOf("pauseGame", false)
+                            .forGetter(QuestSettingsExtra::pauseGame),
+                    // Whether the book refuses to open. FTB Quests' `disable_gui`, whose own semantics
+                    // are unclear; Tenet reads it as a pack-level "this book is not for players": every
+                    // open path answers with the same sentence instead of a screen. False opens, as before.
+                    Codec.BOOL.optionalFieldOf("disableGui", false)
+                            .forGetter(QuestSettingsExtra::disableGui),
+                    // Whether dying drops the quest book at the player's feet. FTB Quests'
+                    // `drop_book_on_death`: the book item is spawned where the player fell, so it can be
+                    // picked back up. False leaves death alone, as before.
+                    Codec.BOOL.optionalFieldOf("dropBookOnDeath", false)
+                            .forGetter(QuestSettingsExtra::dropBookOnDeath),
+                    // The editor canvas's grid step, in content units per cell edge. FTB Quests'
+                    // `grid_scale`, whose editor snaps to `1 / gridScale`. File-only for now: the
+                    // value is validated and stored, and the editor keeps its 8-unit step (see
+                    // `BookGeometry.SNAP_GRID`) until a later pass wires it — the snap is one
+                    // constant read at every drag site, not one knob, so wiring it is that pass's
+                    // work. It never moves a quest either way: a step says where a dragged node
+                    // lands, not where one is.
+                    Codec.doubleRange(GRID_SCALE_MIN, GRID_SCALE_MAX).optionalFieldOf("gridScale", 0.5)
+                            .forGetter(QuestSettingsExtra::gridScale),
+                    // What a locked quest is called when the pack has a better word than "Locked". FTB
+                    // Quests' `lock_message`: the author's own sentence, drawn wherever the state word
+                    // would be. Empty means the client's own word, which is what every pack that predates
+                    // this field gets. Read by the client, so it travels on the tree when set.
+                    Codec.STRING.optionalFieldOf("lockMessage", "")
+                            .forGetter(QuestSettingsExtra::lockMessage),
+                    // How long a player waits between emergency grants, in seconds. FTB Quests'
+                    // `emergency_items_cooldown` (FTB documents no unit; Tenet reads seconds, so the
+                    // file's 300 is five minutes). Zero means every press is granted, which is what a
+                    // pack with no cooldown in mind gets.
+                    Codec.intRange(0, 86400).optionalFieldOf("emergencyItemsCooldown", 300)
+                            .forGetter(QuestSettingsExtra::emergencyItemsCooldown),
+                    // What `/tenet emergency` hands out. FTB Quests' `emergency_items`: item references
+                    // with counts and components, exactly as a task writes them. Empty means the command
+                    // answers that there is nothing to grant, which is what every pack that predates this
+                    // field gets.
+                    ItemRef.CODEC.listOf().optionalFieldOf("emergencyItems", List.of())
+                            .forGetter(QuestSettingsExtra::emergencyItems)
+            ).apply(instance, QuestSettingsExtra::new));
+
+    public static final Codec<QuestSettingsExtra> CODEC = MAP_CODEC.codec();
+}

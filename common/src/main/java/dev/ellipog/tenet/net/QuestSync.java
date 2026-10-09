@@ -263,6 +263,13 @@ public final class QuestSync {
      * and withholds the button the way it withholds any press it cannot see coming, while the
      * server still accepts the press — the same direction every other additive key leans.
      *
+     * <p>Version 20 added each chapter's <b>{@code chapterSubtitle}</b> beside its
+     * {@code chapterTitle} on every quest of it — the one line under the chapter's name, with its
+     * English half in {@code chapterSubtitleFallback} since version 13's rule. Only when the chapter
+     * names one, like the quest's own {@code subtitle}: absence means no subtitle, which is every
+     * chapter a version-19 tree ever sent. A version-19 reader ignores both keys and draws the
+     * sidebar row without its second hover line, which is a plainer tooltip rather than a wrong one.
+     *
      * <p><b>This list names the versions a reader branches on, not every bump.</b> Nine and ten added
      * nothing a client has to know and left no prose anywhere to reconstruct them from, so a rung for
      * each would be a history this file cannot support. {@link #TREE_VERSION} is the authority; this is
@@ -288,7 +295,7 @@ public final class QuestSync {
      * reference each other, so this adds an instance of a coupling that is already there rather than a
      * new kind of one.
      */
-    public static final int TREE_VERSION = 19;
+    public static final int TREE_VERSION = 20;
 
     /**
      * The quest tree, as JSON.
@@ -396,6 +403,14 @@ public final class QuestSync {
             if (chapter.rules().hideUntilDependenciesComplete()) {
                 one.addProperty("hideUntilDependenciesComplete", true);
             }
+            // Whether this chapter is withheld from every reader, whatever its gate says. Only
+            // when true: absence means shown, which is what every older reader does with a
+            // chapter it hears nothing about. Sparse and unversioned, like the quest flags
+            // below: an old reader ignores the key and lists the chapter, which is the same
+            // additive shape as every bumped field, without moving TREE_VERSION.
+            if (chapter.rules().alwaysInvisible()) {
+                one.addProperty("alwaysInvisible", true);
+            }
             // The quest this chapter centres on when selected, since version 17. Only when set:
             // absence means the old bounding-box centre, which is what a version-16 reader does with
             // a chapter it hears nothing about.
@@ -458,6 +473,26 @@ public final class QuestSync {
         // and absence means no icon, which is what every pack that predates the field gets.
         settings.bookIcon().ifPresent(icon -> iconAsJson(icon, root, "bookIcon", "bookIconComponents",
                 "bookIconKind"));
+        // The file's own answers the client draws with, unversioned and sparse: each key travels
+        // only when it differs from the default, so a pack that never heard of these fields sends
+        // exactly the bytes it sent before — and a reader that never heard of them draws the
+        // defaults, which are the same. No version bump, for the reason the version's own note
+        // gives: every change here is of the additive kind. Absence always means the default.
+        if (!settings.showLockIcons()) {
+            root.addProperty("showLockIcons", false);
+        }
+        if (settings.hideExcludedQuests()) {
+            root.addProperty("hideExcludedQuests", true);
+        }
+        if (settings.pauseGame()) {
+            root.addProperty("pauseGame", true);
+        }
+        if (settings.disableGui()) {
+            root.addProperty("disableGui", true);
+        }
+        if (!settings.lockMessage().isEmpty()) {
+            root.addProperty("lockMessage", settings.lockMessage());
+        }
         root.add("groups", groups);
         root.add("chapters", chapters);
         root.add("quests", quests);
@@ -577,6 +612,11 @@ public final class QuestSync {
         // the text. The client resolves it against the pack's `chapter.<id>.title` when the chapter
         // wrote a key of its own.
         textAsJson(chapter.title(), "chapterTitle", json);
+        // Both halves of the chapter's subtitle, since version 20: see `textAsJson` for why the
+        // fallback cannot be folded into the text. Only when the chapter names one, like the quest's
+        // own subtitle below -- absence means no subtitle, which is every chapter a version-19 tree
+        // ever sent. The client resolves it against the pack's `chapter.<id>.subtitle`.
+        chapter.subtitle().ifPresent(subtitle -> textAsJson(subtitle, "chapterSubtitle", json));
 
         // The chapter's own icon, on every quest of it for the same reason `chapterTheme` is below: the
         // client groups entries by `chapterId` and has no chapter record to hang it on.
@@ -623,6 +663,24 @@ public final class QuestSync {
                 aliases.add(alias);
             }
             json.add("aliases", aliases);
+        }
+        // Words this quest answers to in lookups by tag, when it has any. Sparse: absent means
+        // "no tags", which is every quest an older server ever sent -- and the client needs them
+        // for the same `#tag` lookups the server answers, so a press naming a tag opens the
+        // first quest carrying it. Unversioned, like the flags below: an old reader ignores the
+        // key and resolves by id alone.
+        if (!quest.tags().isEmpty()) {
+            JsonArray tags = new JsonArray();
+            for (String tag : quest.tags()) {
+                tags.add(tag);
+            }
+            json.add("tags", tags);
+        }
+        // The guide book page this quest belongs to, when it names one. Sparse, for the same
+        // reason: absent means none, which is every quest an older server sent. A reference the
+        // quest card shows; Tenet has no guide integration, so nothing reads it further.
+        if (!quest.guidePage().isEmpty()) {
+            json.addProperty("guidePage", quest.guidePage());
         }
         // Both halves of each, since version 13. See `textAsJson`. The quest's own title is the field
         // that used to draw a raw key on a node, so this is the fix as much as it is the feature.
@@ -717,6 +775,21 @@ public final class QuestSync {
         if (quest.disableToast()) {
             json.addProperty("disableToast", true);
         }
+        // Whether this quest wears no lock mark of its own. Sparse and unversioned, like the
+        // viewer flag below: absent means drawn, which is what every tree a version-19 server
+        // ever sent says. The file's own `showLockIcons` travels on the root beside it; either
+        // silence wins, and the canvas reads both.
+        if (quest.hideLockIcon()) {
+            json.addProperty("hideLockIcon", true);
+        }
+        // Whether recipe viewers list this quest: the quest's own tristate resolved against the
+        // file's default, since the client holds no file record to resolve one from. Sparse and
+        // unversioned — sent only when hidden, so absence means shown, which is what every tree a
+        // version-19 server ever sent says. An old reader ignores the key and lists everything,
+        // which is the same additive shape as every bumped field, without moving TREE_VERSION.
+        if (!quest.showInRecipeMod(TenetQuests.settings().defaultDisableRecipeMod())) {
+            json.addProperty("hideFromViewers", true);
+        }
         json.addProperty("invisibleUntilTasks", quest.rules().invisibleUntilTasks());
         quest.exclusiveGroup().ifPresent(group -> json.addProperty("exclusiveGroup", group));
         json.addProperty("showTitle", quest.showTitle());
@@ -764,8 +837,10 @@ public final class QuestSync {
         json.add("dependsOn", dependencies);
 
         JsonArray tasks = new JsonArray();
+        boolean chapterConsumes = chapter.defaultConsumeItems()
+                || TenetQuests.settings().defaultConsumeItems();
         for (QuestTask task : quest.tasks()) {
-            tasks.add(taskAsJson(task, chapter.defaultConsumeItems()));
+            tasks.add(taskAsJson(task, chapterConsumes));
         }
         json.add("tasks", tasks);
 
@@ -1167,11 +1242,19 @@ public final class QuestSync {
         JsonObject changed = new JsonObject();
         Map<String, String> snapshot = new LinkedHashMap<>();
 
+        // Which quests an exclusive choice has shut out for good, decided once per message rather
+        // than once per quest: the engine's own first pass over stored progress, which is also
+        // what the resolver reads — so the mark and the LOCKED state cannot disagree. See
+        // `ProgressionEngine.excludedIds`.
+        java.util.Set<String> excluded = ProgressionEngine.excludedIds(index, progress);
+
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
+            boolean consumes = entry.chapter().defaultConsumeItems()
+                    || TenetQuests.settings().defaultConsumeItems();
             String encoded = oneQuestAsJson(resolution, progress, quest, contributors, stageLocked,
                     locks.getOrDefault(quest.id(), ProgressService.LockView.NONE), live,
-                    entry.chapter().defaultConsumeItems());
+                    consumes, excluded.contains(quest.id()));
 
             snapshot.put(quest.id(), encoded);
             if (previous == null || !encoded.equals(previous.get(quest.id()))) {
@@ -1240,7 +1323,8 @@ public final class QuestSync {
                                          java.util.Set<String> stageLocked,
                                          ProgressService.LockView locks,
                                          ProgressService.Live live,
-                                         boolean chapterConsumes) {
+                                         boolean chapterConsumes,
+                                         boolean excluded) {
         QuestProgress stored = progress.progressOf(quest);
 
         JsonObject one = new JsonObject();
@@ -1248,6 +1332,14 @@ public final class QuestSync {
         // state says, and the claimable flag below is decided from this same answer rather than separately.
         boolean gated = stageLocked.contains(quest.id());
         one.addProperty("state", (gated ? QuestState.LOCKED : resolution.stateOf(quest)).name());
+
+        // Shut out for good by an exclusive choice — a taken group, or a reached dependent cap —
+        // rather than merely not yet unlocked. Sparse: absent means still in the running, which is
+        // every quest on a server that predates the mark. The reader that hides excluded quests
+        // reads this rather than the state, which cannot tell the two apart.
+        if (excluded) {
+            one.addProperty("excluded", true);
+        }
 
         // Whether the quest is finished with something still to collect used to be sent here, as a
         // `claimable` flag built from ProgressService.anyoneCouldClaim. Nothing ever read it: the client

@@ -94,7 +94,12 @@ class TableRowFieldsTest {
             "components",
             // Which table an entry rolls. A named one is chosen in the browser rather than typed, and the
             // fold's own control is the chip that opens it.
-            "table");
+            "table",
+            // Words a reward answers to in lookups by tag. A fold's text box writes a string where the
+            // format holds a list, which is the corruption the inspector's own rows refuse by the same
+            // rule -- so a table entry's tags are file-only, and a quest's own reward sets them on
+            // its card, whose commit splits the comma list.
+            "tags");
 
     /** One instance of a registered type: its own defaults, encoded and decoded back. */
     private static QuestReward instance(ResourceLocation id) {

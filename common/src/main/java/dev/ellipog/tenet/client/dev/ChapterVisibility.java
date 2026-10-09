@@ -5,7 +5,7 @@ import dev.ellipog.tenet.progress.QuestState;
 /**
  * Whether a chapter is a row at all, for the person looking at the book.
  *
- * <h2>Two rules, and the second one is the interesting one</h2>
+ * <h2>Three rules, and the second one is the interesting one</h2>
  *
  * <p><b>A chapter with nothing to show is not a row.</b> That is the base rule, and it covers three
  * cases that a reader cannot tell apart and should not have to: a chapter whose quests are all still
@@ -21,6 +21,12 @@ import dev.ellipog.tenet.progress.QuestState;
  * same as the rule above: by default a gated chapter is listed and drawn dimmed, with what it is
  * waiting for on hover, because a map that shows a closed road is more use than one that omits it. The
  * author may withhold the row instead.
+ *
+ * <p><b>A chapter flagged always-invisible is a row for nobody but an author.</b> That flag is
+ * {@code alwaysInvisible} on the chapter -- FTB Quests' {@code always_invisible} -- and it holds
+ * whatever the gate says: a reader never sees the row, while an author still does, or the flag
+ * could not be authored. The gate itself is unaffected, and so is the chapter's progress, which
+ * reads 100%.
  *
  * <h2>What this is not</h2>
  *
@@ -50,6 +56,9 @@ public final class ChapterVisibility {
         /** Whether the chapter asks to be withheld from a reader until its own gate is met. */
         boolean hidesUntilDependenciesComplete(String chapterId);
 
+        /** Whether the chapter is withheld from every reader, whatever its gate says. */
+        boolean alwaysInvisible(String chapterId);
+
         /** How far the chapter has got, as the server resolved it. */
         QuestState state(String chapterId);
 
@@ -71,6 +80,11 @@ public final class ChapterVisibility {
         }
         if (authoring) {
             return true;
+        }
+        if (lookup.alwaysInvisible(chapterId)) {
+            // Withheld from every reader, whatever the gate says: FTB Quests' always_invisible.
+            // The gate itself is unaffected -- this decides what a screen draws and nothing else.
+            return false;
         }
         if (lookup.hidesUntilDependenciesComplete(chapterId)
                 && lookup.state(chapterId) == QuestState.LOCKED) {

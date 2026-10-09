@@ -4,6 +4,8 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -44,21 +46,42 @@ import java.util.Set;
  * {@link QuestRules} because the rules record filled first): read the team's stages rather than the
  * player's own. One member's induction then opens the quest for everybody. It sits here for the
  * mundane codec reason above, flat on the quest like everything else in this record.
+ *
+ * <p>{@code disableRecipeMod} is FTB Quests' {@code disable_recipe_mod} on the quest (shown in its
+ * editor as {@code disable_jei}): this quest stays out of recipe viewers (JEI, REI, EMI). A
+ * tristate — absent defers to the file's {@code defaultDisableRecipeMod}, which is what every file
+ * written before this field existed says. See {@link Quest#showInRecipeMod}.
+ *
+ * <p>{@code hideLockIcon} is the quest's half of the file's {@code showLockIcons}: this quest
+ * wears no lock mark on the canvas. Either silence wins — the file hiding every mark, or this
+ * quest hiding its own — and absent draws, which is what every file written before this field
+ * existed says.
+ *
+ * <p>{@code tags} is FTB Quests' {@code tags}, present on every object: words this quest answers
+ * to in lookups by tag. Each tag is {@code ^[a-z0-9_]{1,64}$}, the same rule a quest id follows,
+ * and a lookup of {@code "#tag"} resolves to the first quest, chapter or group carrying it.
+ *
+ * <p>{@code guidePage} is FTB Quests' {@code guide_page}: the guide book page this quest belongs
+ * to, as a plain string. Tenet has no guide integration, so this is carried as a reference the
+ * quest card shows and nothing more; empty means the quest names none.
  */
 public record QuestPresentation(int minWidth, boolean hideDependentLines, boolean disableToast,
-                                boolean ignoreRewardBlocking, boolean requiresStageTeam) {
+                                boolean ignoreRewardBlocking, boolean requiresStageTeam,
+                                Optional<Boolean> disableRecipeMod, boolean hideLockIcon,
+                                List<String> tags, String guidePage) {
 
     /** The bounds of {@code minWidth}, taken from FTB Quests' own editor (0 to 3000). */
     public static final int MIN_WIDTH_MIN = 0;
     public static final int MIN_WIDTH_MAX = 3000;
 
     /** A quest that says nothing about how it presents: unset width, drawn edges, announced. */
-    public static final QuestPresentation DEFAULT = new QuestPresentation(0, false, false, false, false);
+    public static final QuestPresentation DEFAULT = new QuestPresentation(0, false, false, false, false,
+            Optional.empty(), false, List.of(), "");
 
     /** The field names this contributes, for the validator to allow at quest level. */
     public static final Set<String> FIELDS =
             Set.of("minWidth", "hideDependentLines", "disableToast", "ignoreRewardBlocking",
-                    "requiresStageTeam");
+                    "requiresStageTeam", "disableRecipeMod", "hideLockIcon", "tags", "guidePage");
 
     public static final MapCodec<QuestPresentation> MAP_CODEC = RecordCodecBuilder.mapCodec(
             instance -> instance.group(
@@ -80,7 +103,22 @@ public record QuestPresentation(int minWidth, boolean hideDependentLines, boolea
                     // Which set the stage gate reads: the player's own, or the team's. Beside the
                     // gate it qualifies, flat on the quest like everything else here.
                     Codec.BOOL.optionalFieldOf("requiresStageTeam", false)
-                            .forGetter(QuestPresentation::requiresStageTeam)
+                            .forGetter(QuestPresentation::requiresStageTeam),
+                    // Whether recipe viewers list this quest. Absent rather than defaulted, for the
+                    // same reason the rules' reveal flags are absent: "this quest has no opinion" is
+                    // a real state, and writing `false` for a quest that said nothing would pin the
+                    // file's default the moment somebody looked at the file.
+                    Codec.BOOL.optionalFieldOf("disableRecipeMod")
+                            .forGetter(QuestPresentation::disableRecipeMod),
+                    // Whether this quest wears no lock mark of its own. Beside the file's
+                    // `showLockIcons`, which hides every mark: either silence wins, and absent
+                    // draws, which is what every file written before this field says.
+                    Codec.BOOL.optionalFieldOf("hideLockIcon", false)
+                            .forGetter(QuestPresentation::hideLockIcon),
+                    Codec.STRING.listOf().optionalFieldOf("tags", List.of())
+                            .forGetter(QuestPresentation::tags),
+                    Codec.STRING.optionalFieldOf("guidePage", "")
+                            .forGetter(QuestPresentation::guidePage)
             ).apply(instance, QuestPresentation::new));
 
     public static final Codec<QuestPresentation> CODEC = MAP_CODEC.codec();

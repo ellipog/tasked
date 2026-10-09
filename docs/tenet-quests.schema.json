@@ -412,6 +412,11 @@
           "items": { "$ref": "#/definitions/alias" },
           "description": "Former ids. Add one when renaming, and nothing that referenced the old name breaks."
         },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Words this group answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
+        },
         "icon": {
           "$ref": "#/definitions/icon",
           "description": "The item the book draws on the group's row. Optional: an absent icon falls back to the first chapter under the group."
@@ -673,6 +678,11 @@
         },
         "icon": { "$ref": "#/definitions/icon" },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Words this chapter answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
+        },
 
         "progressionMode": {
           "enum": ["flexible", "linear"],
@@ -741,6 +751,11 @@
           "default": false,
           "description": "Whether this chapter is left out of the book for a reader until its own dependencies are met. Off, it is listed and drawn dimmed with what it is waiting for on hover. An author in edit mode always sees it, or the flag could not be authored. Presentation only: the gate itself is enforced whatever this says. Not the same field as defaultHideUntilDependenciesComplete below: this one withholds the chapter's row, those decide what its quests do."
         },
+        "alwaysInvisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this chapter is withheld from every reader, whatever its gate says. Beside hideUntilDependenciesComplete because they are the pair an author will confuse: that one withholds the row until the gate is met, this one withholds it always. The gate itself is unaffected. FTB Quests calls this always_invisible."
+        },
         "defaultHideUntilDependenciesComplete": {
           "type": "boolean",
           "default": false,
@@ -787,6 +802,15 @@
         "description": { "type": "array", "items": { "$ref": "#/definitions/text" } },
         "icon": { "$ref": "#/definitions/icon", "description": "Defaults to paper if absent." },
         "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Words this quest answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. A lookup of `#tag` resolves to the first quest, chapter or group carrying it. FTB Quests calls this tags, present on every object."
+        },
+        "guidePage": {
+          "type": "string",
+          "description": "The guide book page this quest belongs to. A reference the quest card shows; Tenet has no guide integration, so nothing reads it further. Empty means absent. FTB Quests calls this guide_page."
+        },
 
         "dependsOn": {
           "type": "array",
@@ -930,6 +954,15 @@
           "default": false,
           "description": "This quest's rewards keep flowing while the team's payouts are held. Either the quest's flag or a reward's own flag exempts that reward. FTB Quests calls this ignore_reward_blocking."
         },
+        "disableRecipeMod": {
+          "type": "boolean",
+          "description": "Recipe viewers (JEI, REI, EMI) do not list this quest. Leave the field out and the file's `defaultDisableRecipeMod` decides; write `false` to opt out of a file that hides its quests by default. FTB Quests calls this disable_recipe_mod."
+        },
+        "hideLockIcon": {
+          "type": "boolean",
+          "default": false,
+          "description": "This quest wears no padlock on the canvas when it is locked: the quest's half of the file's `showLockIcons`. Either silence wins, and absent draws. FTB Quests calls this hide_lock_icon."
+        },
         "hideTextUntilComplete": {
           "type": "boolean",
           "default": false,
@@ -987,6 +1020,11 @@
         "icon": {
           "$ref": "#/definitions/icon",
           "description": "Tasks and rewards. The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. Absent means the type decides."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tasks and rewards. Words this row answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
         },
 
         "item": {

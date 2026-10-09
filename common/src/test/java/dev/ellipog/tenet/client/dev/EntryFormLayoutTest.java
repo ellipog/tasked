@@ -216,8 +216,8 @@ class EntryFormLayoutTest {
         // The packer puts as many narrow controls on a line as fit, so the common settings -- the three
         // short switches every reward carries -- share one line rather than stranding the third: that is
         // what makes them read as a settings row instead of chips floating at the right.
-        assertEquals(7, 1 + distinctLineCount(form.cells()),
-                "badge, item, count+consume, the two matches, title, picture, the four switches");
+        assertEquals(8, 1 + distinctLineCount(form.cells()),
+                "badge, item, count+consume, the two matches, title, picture, tags, the four switches");
         assertEquals(1 + distinctLineCount(form.cells()) + 1, form.lines(),
                 "and the condition picker's row, which every open entry carries");
         assertEquals(EntryFormLayout.lines("tasks", itemTask(), 600), form.lines(),
@@ -262,7 +262,7 @@ class EntryFormLayoutTest {
         EntryFormLayout.Form form = form("tasks", itemTask(), 600);
         List<String> paths = form.cells().stream().map(cell -> cell.field().path()).toList();
         assertEquals(List.of("item", "count", "consumeItems", "match", "onlyFromCrafting", "manualOnly",
-                "optional", "disableToast", "title", "icon", "autoSubmitTicks"), paths,
+                "optional", "disableToast", "title", "icon", "tags", "autoSubmitTicks"), paths,
                 "the type's fields, then the settings every task has");
 
         assertEquals(EditorField.Kind.ITEM, form.cells().get(0).field().kind());

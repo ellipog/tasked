@@ -10,6 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -455,6 +456,103 @@ class QuestValidatorTest {
                 "flexible flags should not be reported, got:\n"
                         + problems.all().stream().map(DataProblem::render)
                                 .collect(Collectors.joining("\n")));
+    }
+
+    @Test
+    @DisplayName("a quest that opts out of recipe viewers is clean, in either state")
+    void disableRecipeModIsClean() {
+        // Accepted as a boolean like its neighbouring presentation flags; absent is the third
+        // state and needs no check at all.
+        for (String json : List.of(
+                "{\"id\": \"a\", \"title\": \"a\", \"disableRecipeMod\": true}",
+                "{\"id\": \"a\", \"title\": \"a\", \"disableRecipeMod\": false}")) {
+            Problems problems = validate(Fixtures.file(json));
+
+            assertTrue(problems.all().stream()
+                            .noneMatch(problem -> problem.message().contains("isableRecipeMod")),
+                    "a disableRecipeMod flag should not be reported, got:\n"
+                            + problems.all().stream().map(DataProblem::render)
+                                    .collect(Collectors.joining("\n")));
+        }
+    }
+
+    @Test
+    @DisplayName("a quest that hides its lock mark is clean, in either state (T26)")
+    void hideLockIconIsClean() {
+        // Accepted as a boolean like its neighbouring presentation flags.
+        for (String json : List.of(
+                "{\"id\": \"a\", \"title\": \"a\", \"hideLockIcon\": true}",
+                "{\"id\": \"a\", \"title\": \"a\", \"hideLockIcon\": false}")) {
+            Problems problems = validate(Fixtures.file(json));
+
+            assertTrue(problems.all().stream()
+                            .noneMatch(problem -> problem.message().contains("ideLockIcon")),
+                    "a hideLockIcon flag should not be reported, got:\n"
+                            + problems.all().stream().map(DataProblem::render)
+                                    .collect(Collectors.joining("\n")));
+        }
+    }
+
+    @Test
+    @DisplayName("well-formed tags are clean on every quest object (T30)")
+    void tagsAreClean() {
+        Problems problems = validate(Fixtures.fileWithChapter(
+                "\"tags\": [\"village\"],",
+                "{\"id\": \"a\", \"title\": \"a\", \"tags\": [\"early\", \"village\"],"
+                        + " \"guidePage\": \"my_pack:early_game\","
+                        + " \"tasks\": [{\"type\": \"tenet:checkmark\", \"tags\": [\"t1\"]}],"
+                        + " \"rewards\": [{\"type\": \"tenet:xp\", \"levels\": true,"
+                        + " \"amount\": 1, \"tags\": [\"r1\"]}]}"));
+
+        assertTrue(problems.all().stream()
+                        .noneMatch(problem -> problem.message().contains("tag '")
+                                || problem.message().contains("a tag must be")
+                                || problem.message().contains("uide page")),
+                "well-formed tags and a guide page should not be reported, got:\n"
+                        + problems.all().stream().map(DataProblem::render)
+                                .collect(Collectors.joining("\n")));
+    }
+
+    @Test
+    @DisplayName("a tag outside the id charset is refused (T30)")
+    void badTagsAreRefused() {
+        // Uppercase and a dash: the rule is an id's rule, so both fail it.
+        for (String tag : List.of("Village", "early-game")) {
+            Problems problems = validate(Fixtures.file(
+                    "{\"id\": \"a\", \"title\": \"a\", \"tags\": [\"" + tag + "\"]}"));
+
+            DataProblem problem = containing(problems, "'" + tag + "'");
+            assertTrue(problem.message().contains("tag") && problem.message().contains("lowercase"),
+                    "the refusal names the rule: " + problem.message());
+        }
+        // And an empty string is refused by the list read itself, before the pattern is asked.
+        containing(validate(Fixtures.file("{\"id\": \"a\", \"title\": \"a\", \"tags\": [\"\"]}")),
+                "a tag may not be empty");
+    }
+
+    @Test
+    @DisplayName("a blank guide page is refused (T30)")
+    void blankGuidePageIsRefused() {
+        Problems problems = validate(Fixtures.file(
+                "{\"id\": \"a\", \"title\": \"a\", \"guidePage\": \"  \"}"));
+
+        containing(problems, "a guide page may not be empty");
+    }
+
+    @Test
+    @DisplayName("an always-invisible chapter is clean, in either state (T30)")
+    void alwaysInvisibleIsClean() {
+        for (String json : List.of(
+                Fixtures.fileWithChapter("\"alwaysInvisible\": true,", Fixtures.q("a").build()),
+                Fixtures.fileWithChapter("", Fixtures.q("a").build()))) {
+            Problems problems = validate(json);
+
+            assertTrue(problems.all().stream()
+                            .noneMatch(problem -> problem.message().contains("lwaysInvisible")),
+                    "an alwaysInvisible flag should not be reported, got:\n"
+                            + problems.all().stream().map(DataProblem::render)
+                                    .collect(Collectors.joining("\n")));
+        }
     }
 
     @Test

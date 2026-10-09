@@ -86,7 +86,13 @@ public final class TenetFabricClient implements ClientModInitializer {
                 Tenet.QUEST_BOOK_SCREEN,
                 InputConstants.KEY_B,
                 "key.categories.tenet",
-                () -> ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN));
+                // Refused with the pack's sentence when the pack disabled its book, like every
+                // other open. See `QuestBookScreen.checkOpenAllowed`.
+                () -> {
+                    if (QuestBookScreen.checkOpenAllowed()) {
+                        ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
+                    }
+                });
 
         // The HUD editor's own key. Declared through the same call as the book's, so both loaders get it
         // from one shape and the Controls list names it the same way.

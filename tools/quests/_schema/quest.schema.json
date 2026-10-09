@@ -21,6 +21,15 @@
     },
     "icon": { "$ref": "#/definitions/icon", "description": "Defaults to paper if absent." },
     "aliases": { "type": "array", "items": { "$ref": "#/definitions/alias" } },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Words this quest answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. A lookup of `#tag` resolves to the first quest, chapter or group carrying it. FTB Quests calls this tags, present on every object."
+    },
+    "guidePage": {
+      "type": "string",
+      "description": "The guide book page this quest belongs to. A reference the quest card shows; Tenet has no guide integration, so nothing reads it further. Empty means absent. FTB Quests calls this guide_page."
+    },
 
     "dependsOn": {
       "type": "array",
@@ -159,6 +168,15 @@
       "type": "boolean",
       "default": false,
       "description": "This quest's rewards keep flowing while the team's payouts are held. Either the quest's flag or a reward's own flag exempts that reward. FTB Quests calls this ignore_reward_blocking."
+    },
+    "disableRecipeMod": {
+      "type": "boolean",
+      "description": "Recipe viewers (JEI, REI, EMI) do not list this quest. Leave the field out and the file's `defaultDisableRecipeMod` decides; write `false` to opt out of a file that hides its quests by default. There is no `default` - absence is the unset state. FTB Quests calls this disable_recipe_mod."
+    },
+    "hideLockIcon": {
+      "type": "boolean",
+      "default": false,
+      "description": "This quest wears no padlock on the canvas when it is locked: the quest's half of the file's `showLockIcons`. Either silence wins, and absent draws. FTB Quests calls this hide_lock_icon."
     },
     "hideTextUntilComplete": {
       "type": "boolean",
@@ -505,6 +523,11 @@
         "icon": {
           "$ref": "#/definitions/icon",
           "description": "Tasks and rewards. The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. Absent means the type decides."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tasks and rewards. Words this row answers to in lookups by tag. Each tag is lowercase letters, digits and underscores, the same rule an id follows. FTB Quests calls this tags, present on every object."
         },
 
         "item": {

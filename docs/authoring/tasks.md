@@ -30,6 +30,7 @@ one command away:
 | `disableToast` | `false` | Finishing this task raises no task toast. A quieted task in an announced quest stays quiet; an announced task in a quieted quest stays quiet through the quest's own flag. See [[tenet:authoring/quests#announcements]]. |
 | `title` | the type's own | The words the row wears instead of the type's own sentence. A checkmark's title is its button's text; a checkmark that says nothing draws "?". |
 | `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
+| `tags` | none | Words this task answers to in lookups by tag — see [[tenet:authoring/quests#tags]]. Each tag is lowercase letters, digits and underscores, the same rule an id follows. |
 
 ## What a player has to do, and what just happens
 

@@ -84,6 +84,17 @@ class QuestVisibilityTest {
         return QuestVisibility.visible(id, lookup(quests), states, ruleMet, taskProgress);
     }
 
+    /** The same, with the pack's answer on quests an exclusive choice shut out. */
+    private static boolean visible(Map<String, Flags> quests, String id,
+                                   Function<String, QuestState> states,
+                                   Function<String, Boolean> ruleMet,
+                                   Function<String, Integer> taskProgress,
+                                   Function<String, Boolean> excluded,
+                                   boolean hideExcluded) {
+        return QuestVisibility.visible(id, lookup(quests), states, ruleMet, taskProgress,
+                excluded, hideExcluded);
+    }
+
     private static Function<String, QuestState> locked() {
         return id -> QuestState.LOCKED;
     }
@@ -246,6 +257,36 @@ class QuestVisibilityTest {
                     "without the flag the lines a quest sends on are drawn");
             assertFalse(QuestVisibility.drawsDependentLines(true),
                     "with it the quest is drawn and its outgoing lines are not");
+        }
+
+        @Test
+        @DisplayName("the lock mark draws unless the file or the quest hides it (T26)")
+        void lockMark() {
+            assertTrue(QuestVisibility.drawsLockMark(true, false),
+                    "shown file, willing quest: the mark draws");
+            assertFalse(QuestVisibility.drawsLockMark(false, false),
+                    "a file that hides every mark hides this one");
+            assertFalse(QuestVisibility.drawsLockMark(true, true),
+                    "a quest that hides its own mark hides it under a showing file");
+            assertFalse(QuestVisibility.drawsLockMark(false, true),
+                    "and under a hiding file too: either silence wins");
+        }
+
+        @Test
+        @DisplayName("an excluded quest hides only when the file hides the shut-out (T26)")
+        void excluded() {
+            Map<String, Flags> quests = Map.of("pick", Flags.plain());
+            Function<String, Boolean> shutOut = id -> id.equals("pick");
+            Function<String, Boolean> running = id -> false;
+            assertFalse(visible(quests, "pick", locked(), unmet(), noProgress(), shutOut, true),
+                    "shut out and hidden: the reader's book has no locked row for it");
+            assertTrue(visible(quests, "pick", locked(), unmet(), noProgress(), shutOut, false),
+                    "shut out but not hidden: it draws locked, as before");
+            assertTrue(visible(quests, "pick", locked(), unmet(), noProgress(), running, true),
+                    "still in the running: the setting has nothing to hide");
+            assertTrue(visible(quests, "pick", id -> QuestState.COMPLETED, unmet(), noProgress(),
+                            shutOut, true),
+                    "a completed quest shows itself whatever the mark says");
         }
     }
 }

@@ -32,10 +32,29 @@ gates. The [[task]]s and [[reward]]s it holds have pages of their own.
 | `description` | Paragraphs, read as markdown — see below. |
 | `icon` | An item, a texture file, or an entity — see below. Defaults to paper. |
 | `aliases` | Former ids, so a rename does not orphan progress. |
+| `tags` | Words this quest answers to in lookups by tag — see below. Each tag is lowercase letters, digits and underscores, the same rule an id follows. |
+| `guidePage` | The guide book page this quest belongs to. A reference the quest card shows as `Guide: <page>`; Tenet has no guide integration, so nothing reads it further. Empty means absent. |
 
-Chapters have ids, titles, subtitles and icons too, and the same rules apply to them. A chapter
+Chapters have ids, titles, subtitles and icons too, and the same rules apply to them. A chapter's
+`subtitle` is the one line under its name, drawn as the second line of its sidebar row's hover, and
+it is translated with `chapter.<id>.subtitle` — see [[tenet:authoring/languages]]. A chapter
 **group** has an id, a title, a description and an icon, and no subtitle: a group is a heading over
 chapters, and a second line of prose above them belongs to the chapter it is about.
+
+### Tags
+
+Quests, chapters, chapter groups, tasks and rewards each carry an optional `tags` list: words the
+object answers to in lookups by tag. A lookup of `#village` — in a command, in a script, or in an
+`open_quest` click — resolves to the first object of the asked kind carrying that tag, in
+declaration order. Dependency edges keep their id-or-alias charset (a `#` there is refused), so
+tags name one thing to open or check rather than gating anything.
+
+Each tag is lowercase letters, digits and underscores (`^[a-z0-9_]{1,64}$`), the same rule an id
+follows; anything else is an [error](validation.md). Quests, chapters, tasks and rewards edit tags
+as a comma list in the editor; a group's tags are file-only, like its aliases. There is no
+quest-book text search over tags yet: they are stored, validated, resolved for `#tag` lookups,
+and search integration is future work. FTB Quests calls this `tags`, present on every object — its one
+use in the reference pack is `["village"]` on a quest.
 
 ### Icons
 
@@ -195,6 +214,8 @@ A chapter can wait on other chapters, the same way a quest waits on quests. Unti
 | `completesWhen` | — | The quests, in any chapter, that finish this one. The chapter reports **completed** once every one of them is; a repeatable quest counts from its first completion. Empty means the chapter never reports completed. |
 | `autofocus` | — | The quest, by id or alias **in this chapter**, the canvas centres on when the chapter is selected. Absent centres on the chapter's bounding box. A name that resolves to nothing, or to a quest on another canvas, is an error. |
 | `hideUntilDependenciesComplete` | `false` | Leave the chapter out of the book entirely until its gate is met. Off, it is listed dimmed. Authors always see it, or the flag could not be authored. |
+| `alwaysInvisible` | `false` | Leave the chapter out of every reader's book, whatever its gate says. Beside the row above because they are the pair an author mixes up: that one withholds the row until the gate is met, this one withholds it always. The gate itself is unaffected — the chapter still opens, completes and gates its quests — its progress reads 100%, and authors still see the row. FTB Quests calls this `always_invisible`. |
+| `tags` | — | Words this chapter answers to in lookups by tag — see below. Each tag is lowercase letters, digits and underscores, the same rule an id follows. |
 | `defaultHideUntilDependenciesComplete` | `false` | What **the quests in this chapter** do about their own prerequisites unless a quest says otherwise: on, a quest here is hidden until its own rule is met. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same default for the reveal that waits on a prerequisite being *visible*. |
 
@@ -267,7 +288,7 @@ For a whole chapter:
 |---|---|---|
 | `repeatable` | `false` | Completable more than once. `timesCompleted` survives each completion, and something depending on it stays satisfied. |
 | `repeatCooldownTicks` | `0` | Ticks to wait between completions. 2400 is two minutes. |
-| `sequentialTasks` | `false` | Tasks must be handed in in order: the second cannot be handed in until the first is. |
+| `sequentialTasks` | `false` | Tasks must be handed in in order: the second cannot be handed in until the first is. Either this or the chapter's `defaultSequentialTasks` makes the quest sequential. |
 | `flexibleProgress` | `false` | Tasks may be worked on before the dependencies are met; completion still waits for them. Either this or the chapter's `defaultFlexibleProgress` makes the quest flexible. |
 | `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tenet:authoring/rewards]]. |
 | `exclusiveGroup` | — | Quests sharing a name are mutually exclusive: completing one locks the others, permanently. A [[exclusive-group]] is a choice of paths. Scoped to the chapter. |
@@ -291,7 +312,7 @@ from another chapter — so nothing warns about it.
 
 ## Visibility
 
-Eight flags, each hiding one different thing. All of them are presentation: a hidden quest still
+Nine flags, each hiding one different thing. All of them are presentation: a hidden quest still
 loads, still counts for progress, and is always shown to the editor.
 
 | Field | Default | Hides |
@@ -304,6 +325,8 @@ loads, still counts for progress, and is always shown to the editor.
 | `hideDependentLines` | `false` | The lines leaving this quest for its dependants. The outgoing half of the row above: a quest that fans out to twenty dependants draws twenty lines across the chapter, and the author may want the quest without the clutter. Either silence wins. |
 | `hideTextUntilComplete` | `false` | The description, until the quest is completed — for a quest whose text would give away what it asks for. |
 | `hideDetailsUntilStartable` | `false` | Task and reward details, until the quest can be started. The prerequisites stay: they are what tells the reader how to unlock it. |
+| `disableRecipeMod` | the file's | The quest in recipe viewers (JEI, REI, EMI): with it set, no viewer lists this quest. Three states like the two chapter-defaulted rows above — leave it out and the file's `defaultDisableRecipeMod` decides (see [[tenet:authoring/quest-files]]), `true` hides it, and `false` opts out of a file that hides its quests by default. FTB Quests calls this `disable_recipe_mod`. |
+| `hideLockIcon` | `false` | The quest's own padlock: with it set, this locked quest wears no padlock on the canvas. The quest's half of the file's `showLockIcons` (see [[tenet:authoring/quest-files]]) — either silence wins, and the node still reads locked through its edge and wash. FTB Quests calls this `hide_lock_icon`. |
 
 ## Announcements
 
@@ -366,7 +389,8 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 | Field | Default | Meaning |
 |---|---|---|
 | `defaultPrerequisiteMode` | `all_completed` | The `prerequisiteMode` a quest uses unless it says otherwise. |
-| `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. |
+| `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. When neither the task nor the chapter says, the file's `defaultConsumeItems` in `index.json` decides. |
+| `defaultSequentialTasks` | `false` | Whether this chapter's quests require their tasks in order unless a quest says otherwise. Either the quest's own `sequentialTasks` or this makes its tasks sequential. |
 | `defaultHideUntilDependenciesComplete` | `false` | Whether the chapter's quests are hidden until their own prerequisite rule is met — the reveal flag below, set once for a whole chapter. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same, for the reveal that waits on a prerequisite being visible. |
 | `defaultMinWidth` | `0` | What the chapter's quests use for their detail-panel width unless a quest says otherwise: a quest's own `minWidth` wins, and `0` (unset) means the panel kind decides. |

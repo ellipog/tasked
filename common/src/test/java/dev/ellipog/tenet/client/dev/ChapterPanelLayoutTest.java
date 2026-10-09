@@ -149,12 +149,13 @@ class ChapterPanelLayoutTest {
                 rows.stream().filter(ToolsLayout.Action::isHeading).map(ToolsLayout.Action::key).toList(),
                 "one heading per section, in the order an author reads them");
         assertEquals(List.of("title", "subtitle", ChapterPanelLayout.ICON,
-                        ChapterPanelLayout.VALUE_PREFIX + "description", "aliases",
+                        ChapterPanelLayout.VALUE_PREFIX + "description", "aliases", "tags",
                         "progressionMode", "defaultConsumeItems", "defaultFlexibleProgress",
-                        "defaultMinWidth", "autofocus",
+                        "defaultMinWidth", "defaultSequentialTasks", "autofocus",
                         "defaultPrerequisiteMode", "autoClaim",
                         "prerequisiteMode", "minRequired", "dependsOn", "completesWhen",
-                        "hideUntilDependenciesComplete", "defaultHideUntilDependenciesComplete",
+                        "hideUntilDependenciesComplete", "alwaysInvisible",
+                        "defaultHideUntilDependenciesComplete",
                         "defaultHideUntilDependenciesVisible",
                         "dependencyStyle.form", "dependencyStyle.arrowHead", "dependencyStyle.arrowPlace",
                         "dependencyStyle.arrowDensity", "dependencyStyle.dash", "dependencyStyle.weight",
@@ -352,6 +353,30 @@ class ChapterPanelLayoutTest {
         assertEquals(ToolsLayout.OFF, row(plain, "defaultHideUntilDependenciesComplete").buttonLabel(),
                 "a chapter that says nothing hides nothing: the pre-existing behaviour, unchanged");
         assertEquals(ToolsLayout.OFF, row(plain, "defaultHideUntilDependenciesVisible").buttonLabel());
+    }
+
+    @Test
+    @DisplayName("the always-invisible switch and the tags row read the file")
+    void alwaysInvisibleAndTagsReadTheFile() {
+        List<ToolsLayout.Action> rows = ChapterPanelLayout.rows(JsonParser.parseString("""
+                {
+                  "id": "second_steps",
+                  "title": "Second Steps",
+                  "alwaysInvisible": true,
+                  "tags": ["village", "early"],
+                  "quests": []
+                }
+                """).getAsJsonObject(), Set.of());
+
+        assertEquals(ToolsLayout.ON, row(rows, "alwaysInvisible").buttonLabel(),
+                "a switch row's state is its button's, like every other flag on this tab");
+        assertEquals("village, early", row(rows, "tags").value(),
+                "the list reads as a comma list, the shape the aliases row above it uses");
+
+        List<ToolsLayout.Action> plain = ChapterPanelLayout.rows(chapter(), Set.of());
+        assertEquals(ToolsLayout.OFF, row(plain, "alwaysInvisible").buttonLabel(),
+                "shown is what a chapter that says nothing does");
+        assertEquals("", row(plain, "tags").value(), "nothing said, nothing shown");
     }
 
     @Test

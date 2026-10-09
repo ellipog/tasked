@@ -1,10 +1,14 @@
 package dev.ellipog.tenet.client;
 
+import dev.ellipog.tenet.client.viewer.MinecraftTestBootstrap;
+
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -24,14 +28,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("The book's own identity")
 class ClientBookIdentityTest {
 
+    @BeforeAll
+    static void bootstrap() {
+        // The overlay below bumps `ClientQuestCache.textRevision()`, which initialises
+        // `ClientQuestCache` — and that class's initialiser resolves item stacks against
+        // `BuiltInRegistries.ITEM`. See `ClientLocaleTest` for the poisoning this avoids.
+        MinecraftTestBootstrap.boot();
+    }
+
     private static void tree(String json) {
         ClientQuestCache.acceptTree(0, 0, null, json.getBytes(StandardCharsets.UTF_8));
     }
 
     @AfterEach
     void forget() {
-        // A static cache: a test that leaves a tree behind changes the next one.
+        // A static cache: a test that leaves a tree behind changes the next one. And the overlay,
+        // for the same reason: a locale left by a test that translated the title would answer for
+        // the next test's lookup, which would pass without the tree having carried anything.
         ClientQuestCache.clear();
+        ClientLocale.clear();
     }
 
     @Test
@@ -72,5 +87,25 @@ class ClientBookIdentityTest {
         assertEquals("", ClientQuestCache.bookTitle());
         assertEquals("", ClientQuestCache.bookIconId());
         assertTrue(ClientQuestCache.bookIcon().isEmpty());
+    }
+
+    @Test
+    @DisplayName("the book's title reads the locale overlay first, and the editor reads the raw tree")
+    void theTitleReadsTheOverlayFirst() {
+        // The header draws what the player reads, so it resolves `book.title` over the tree's own
+        // title — the road a pack that translates its name uses. The editor instead seeds its Book
+        // field from the raw tree, because a translation written back would replace the author's
+        // own words with somebody else's translation of them.
+        tree("""
+                {"version":10,"bookTitle":"The Orrery Ledger","quests":[]}""");
+        assertEquals("The Orrery Ledger", ClientQuestCache.bookTitle(),
+                "with no overlay the tree's own title is what the header draws");
+
+        ClientLocale.accept("hu_hu", "hu_hu", Map.of("book.title", "Az Orrery Fokonyv"));
+
+        assertEquals("Az Orrery Fokonyv", ClientQuestCache.bookTitle(),
+                "the overlay wins where the header draws");
+        assertEquals("The Orrery Ledger", ClientQuestCache.bookTitleRaw(),
+                "while the raw tree keeps the author's words for the editor");
     }
 }

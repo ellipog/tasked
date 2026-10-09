@@ -436,9 +436,10 @@ class AdvancedTest {
             deepNames.add(field.path());
         }
         assertEquals(Set.of("entity", "entityTypeTag", "value", "customName", "nbtFilter", "optional",
-                        "disableToast", "title", "icon", "autoSubmitTicks"), deepNames,
-                "the kill task's own fields, plus the five every task carries");
-        assertEquals(Set.of("entity", "value", "optional", "disableToast", "title", "icon"), names(shallow),
+                        "disableToast", "title", "icon", "tags", "autoSubmitTicks"), deepNames,
+                "the kill task's own fields, plus the six every task carries");
+        assertEquals(Set.of("entity", "value", "optional", "disableToast", "title", "icon", "tags"),
+                names(shallow),
                 "and the shallow form keeps what the task counts, not how it counts it");
         assertNotEquals(deep.size(), shallow.size(), "the depth changed nothing about this form");
     }

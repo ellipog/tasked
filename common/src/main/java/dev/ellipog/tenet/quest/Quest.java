@@ -135,6 +135,18 @@ public record Quest(
     }
 
     /**
+     * Whether this quest's tasks must be done in order, with the chapter's default for a quest
+     * that says nothing.
+     *
+     * <p>Either true makes the quest sequential — there is no opt-out, which is why a migration
+     * tool inlines the resolved value when the chapter default is absent. FTB Quests'
+     * {@code require_sequential_tasks} on the chapter.
+     */
+    public boolean sequentialTasks(boolean chapterDefault) {
+        return sequentialTasks() || chapterDefault;
+    }
+
+    /**
      * Whether this quest gates the quests that depend on it.
      *
      * <p>An optional dependency counts as neither satisfied nor required: it neither helps nor
@@ -235,6 +247,75 @@ public record Quest(
         return presentation.requiresStageTeam();
     }
 
+    /**
+     * Whether this quest hides itself from recipe viewers, if it has an opinion.
+     *
+     * <p>FTB Quests' {@code disable_recipe_mod} on the quest. A tristate: absent defers to the
+     * file's {@code defaultDisableRecipeMod} — which is what every file written before this field
+     * existed says — so callers that need an answer take {@link #showInRecipeMod}. See
+     * {@link QuestPresentation}.
+     */
+    public Optional<Boolean> disableRecipeMod() {
+        return presentation.disableRecipeMod();
+    }
+
+    /**
+     * Whether this quest hides itself from recipe viewers, with the file's default for a quest
+     * that says nothing.
+     *
+     * <p>The quest's own flag wins when set; otherwise the file decides. An explicit false opts
+     * back out of a file that hides its quests by default — which is why the file stores a
+     * tristate rather than a boolean, and why the editor offers all three states.
+     */
+    public boolean effectiveDisableRecipeMod(boolean fileDefault) {
+        return disableRecipeMod().orElse(fileDefault);
+    }
+
+    /**
+     * Whether recipe viewers (JEI, REI, EMI) list this quest.
+     *
+     * <p>FTB Quests' {@code showInRecipeMod}: the negation of the effective flag above. The viewer
+     * content is built from this answer rather than from the tristate, because the client holds no
+     * file record to resolve one from — the server resolves it onto the wire.
+     */
+    public boolean showInRecipeMod(boolean fileDefault) {
+        return !effectiveDisableRecipeMod(fileDefault);
+    }
+
+    /**
+     * Whether this quest wears no lock mark of its own on the canvas.
+     *
+     * <p>FTB Quests' {@code hide_lock_icon} on the quest: the quest's half of the file's
+     * {@code showLockIcons}. Either silence wins — see {@link QuestVisibility#drawsLockMark} for
+     * the answer the canvas actually draws with. Absent draws, which is what every file written
+     * before this field existed says.
+     */
+    public boolean hideLockIcon() {
+        return presentation.hideLockIcon();
+    }
+
+    /**
+     * Words this quest answers to in lookups by tag.
+     *
+     * <p>FTB Quests' {@code tags}, present on every object. A lookup of {@code "#tag"} resolves
+     * to the first quest, chapter or group carrying it -- see {@link QuestIndex}. Each tag is
+     * {@code ^[a-z0-9_]{1,64}$}, the same rule an id follows.
+     */
+    public List<String> tags() {
+        return presentation.tags();
+    }
+
+    /**
+     * The guide book page this quest belongs to, or empty when it names none.
+     *
+     * <p>FTB Quests' {@code guide_page}, as a plain string. Tenet has no guide integration: the
+     * quest card shows this as a reference and nothing reads it further. Empty means absent,
+     * which is what every file written before this field existed says.
+     */
+    public String guidePage() {
+        return presentation.guidePage();
+    }
+
     // ------------------------------------------------------------------
 
     /**
@@ -282,7 +363,19 @@ public record Quest(
 
     /** Whether {@code index} is unlocked, given the tasks before it. Always true when not sequential. */
     public boolean isTaskUnlocked(int index, java.util.function.IntPredicate earlierTaskDone) {
-        if (!sequentialTasks()) {
+        return isTaskUnlocked(index, earlierTaskDone, false);
+    }
+
+    /**
+     * The same, with the chapter's {@code defaultSequentialTasks} for a quest that says nothing.
+     *
+     * <p>The engine calls this overload: a quest that says nothing follows its chapter, and either
+     * true locks later tasks until earlier ones are done. The single-argument overload is the
+     * quest's own answer, for callers with no chapter to hand (commands, tests).
+     */
+    public boolean isTaskUnlocked(int index, java.util.function.IntPredicate earlierTaskDone,
+                                  boolean chapterDefault) {
+        if (!sequentialTasks(chapterDefault)) {
             return true;
         }
         for (int earlier = 0; earlier < index; earlier++) {

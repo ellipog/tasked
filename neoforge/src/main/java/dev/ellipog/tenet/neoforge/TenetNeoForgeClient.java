@@ -77,7 +77,13 @@ public final class TenetNeoForgeClient {
                 Tenet.QUEST_BOOK_SCREEN,
                 InputConstants.KEY_B,
                 "key.categories.tenet",
-                () -> ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN));
+                // Refused with the pack's sentence when the pack disabled its book, like every
+                // other open. See `QuestBookScreen.checkOpenAllowed`.
+                () -> {
+                    if (QuestBookScreen.checkOpenAllowed()) {
+                        ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
+                    }
+                });
 
         // The HUD editor's own key, declared the same way -- see the Fabric side.
         ArmatureClient.registerKeyMapping(

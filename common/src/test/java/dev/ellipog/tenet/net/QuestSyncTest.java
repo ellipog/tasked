@@ -210,6 +210,113 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a quest hidden from recipe viewers says so on the wire, and a listed one sends nothing")
+    void hideFromViewersArrives() {
+        // Sparse, like the other presentation flags: absent means shown, which is every quest a
+        // version-19 server ever sent. The value is already resolved against the file's default —
+        // the client holds no file record, so the wire carries the answer rather than the question.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "plain", "title": "Plain"}""",
+                """
+                        {"id": "hidden", "title": "Hidden", "disableRecipeMod": true}""",
+                """
+                        {"id": "optout", "title": "Opt Out", "disableRecipeMod": false}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertFalse(entryFor("plain").hideFromViewers(), "a quest that says nothing is listed");
+        assertTrue(entryFor("hidden").hideFromViewers(), "an explicit hide survives the wire");
+        assertFalse(entryFor("optout").hideFromViewers(), "an explicit show survives the wire");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"hideFromViewers\":true"), "the hidden flag travels as a boolean");
+        assertFalse(json.contains("\"disableRecipeMod\""),
+                "the tristate itself never crosses: only the resolved answer does");
+    }
+
+    @Test
+    @DisplayName("a quest hiding its lock mark says so on the wire, and a marked one sends nothing (T26)")
+    void hideLockIconArrives() {
+        // Sparse and unversioned, like the viewer flag above: absent means drawn, which is every
+        // quest a version-19 server ever sent. The file's own `showLockIcons` travels on the root
+        // beside it; the canvas reads both, and either silence wins.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                """
+                        {"id": "plain", "title": "Plain"}""",
+                """
+                        {"id": "quiet", "title": "Quiet", "hideLockIcon": true}"""));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertFalse(entryFor("plain").hideLockIcon(), "a quest that says nothing is marked");
+        assertTrue(entryFor("quiet").hideLockIcon(), "an explicit hide survives the wire");
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"hideLockIcon\":true"), "the hidden flag travels as a boolean");
+    }
+
+    @Test
+    @DisplayName("the file's behaviour answers cross on the root, sparse and unversioned (T26)")
+    void fileBehaviourArrives() {
+        // The test settings are the defaults — the tree writer reads the live file, which no test
+        // replaces — so absence is the whole assertion: a pack that never heard of these fields
+        // sends exactly the bytes it sent before, and the client draws the defaults.
+        QuestIndex index = twoQuests();
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        for (String key : List.of("\"showLockIcons\"", "\"hideExcludedQuests\"", "\"pauseGame\"",
+                "\"disableGui\"", "\"lockMessage\"")) {
+            assertFalse(json.contains(key), "a defaulting pack sends no " + key);
+        }
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        assertTrue(ClientQuestCache.showLockIcons(), "absent draws, like FTB's !contains");
+        assertFalse(ClientQuestCache.hideExcludedQuests(), "absent hides nothing");
+        assertFalse(ClientQuestCache.pauseGame(), "absent keeps the world ticking");
+        assertFalse(ClientQuestCache.guiDisabled(), "absent opens the book");
+        assertTrue(ClientQuestCache.lockMessage().isEmpty(), "absent keeps the client's own word");
+
+        // And a server that sets them is read the same way: the root carries the keys, and the
+        // cache answers with them. Written by hand onto the writer's own bytes, because the file
+        // the writer reads is the live one — the keys' presence is the fact, exactly as it is for
+        // every other sparse field on this wire.
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        root.addProperty("showLockIcons", false);
+        root.addProperty("hideExcludedQuests", true);
+        root.addProperty("pauseGame", true);
+        root.addProperty("disableGui", true);
+        root.addProperty("lockMessage", "Sealed");
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(),
+                root.toString().getBytes(StandardCharsets.UTF_8));
+        assertFalse(ClientQuestCache.showLockIcons(), "the file hides every mark");
+        assertTrue(ClientQuestCache.hideExcludedQuests(), "the file hides the shut-out");
+        assertTrue(ClientQuestCache.pauseGame(), "the file stills the world");
+        assertTrue(ClientQuestCache.guiDisabled(), "the file closes the book");
+        assertEquals("Sealed", ClientQuestCache.lockMessage(), "the author's own locked word");
+    }
+
+    @Test
+    @DisplayName("an excluded quest is marked on the progress wire, and a merely locked one is not (T26)")
+    void excludedMarkArrives() {
+        // The mark is the reason, not the state: LOCKED is also what "not yet unlocked" looks
+        // like, so the reader that hides excluded quests reads this rather than the state.
+        QuestIndex index = Fixtures.indexOf(Fixtures.file(
+                q("sword").exclusiveGroup("spec").build(),
+                q("pick").exclusiveGroup("spec").build(),
+                q("late").dependsOn("sword").build()));
+        TeamProgress progress = progressWith(index, "sword",
+                QuestProgress.NONE.completedAt(NOW).withRewardsClaimed(true));
+        ProgressionEngine.Resolution resolution = ProgressionEngine.resolve(index, progress, NOW);
+        byte[] bytes = QuestSync.progressAsJson(resolution, progress, index);
+        String json = new String(bytes, StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"excluded\":true"), "the shut-out travels as a boolean");
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+        ClientQuestCache.acceptProgress(UUID.randomUUID(), NOW, bytes, CLIENT_TICK);
+        assertTrue(ClientQuestCache.excludedOf("pick"), "the sibling the choice shut out");
+        assertFalse(ClientQuestCache.excludedOf("sword"), "not the quest that took the group");
+        assertFalse(ClientQuestCache.excludedOf("late"),
+                "and not a quest that is merely not yet unlocked");
+    }
+
+    @Test
     @DisplayName("a quiet task and a quiet reward say so on the wire, and loud ones send nothing")
     void quietTasksAndRewardsArrive() {
         QuestIndex index = Fixtures.indexOf(Fixtures.file(
@@ -1015,6 +1122,86 @@ class QuestSyncTest {
     }
 
     @Test
+    @DisplayName("a chapter subtitle arrives, and the pack's conventional key translates it")
+    void chapterSubtitleReadsTranslated() {
+        // The road a converted pack uses: `chapter.<id>.subtitle` needs nothing in the chapter file,
+        // which is what lets a translation be added without editing the questline at all. The
+        // fixture's chapter is `chapter`, so the conventional key is `chapter.chapter.subtitle`.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"title\": \"Chapter\", \"subtitle\": \"Five quests, no tricks\",",
+                "{\"id\": \"a\", \"title\": \"A\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals("Five quests, no tricks", entryFor("a").chapterSubtitle(),
+                "the wire still carries the author's own words");
+        assertEquals("Five quests, no tricks", entryFor("a").chapterSubtitleText());
+        assertEquals("Five quests, no tricks", ClientQuestCache.chapterSubtitleText("chapter"));
+
+        ClientLocale.accept("hu_hu", "hu_hu",
+                java.util.Map.of("chapter.chapter.subtitle", "Ot kuldetes, trukk nelkul"));
+
+        assertEquals("Ot kuldetes, trukk nelkul", entryFor("a").chapterSubtitleText());
+        assertEquals("Ot kuldetes, trukk nelkul", ClientQuestCache.chapterSubtitleText("chapter"));
+        // And the raw field is untouched, because the editor seeds its text fields from it and a
+        // translated string written back would replace the author's own words.
+        assertEquals("Five quests, no tricks", entryFor("a").chapterSubtitle());
+    }
+
+    @Test
+    @DisplayName("a translatable chapter subtitle arrives as a key with its words")
+    void translatableChapterSubtitleReadsAsItsFallback() {
+        // The same two halves the chapter's title has carried since version 13: the key, and the
+        // English words a player reads when nothing translated it. The author's own key wins over
+        // the pack's conventional one, like every other text on this wire.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"title\": \"Chapter\","
+                        + " \"subtitle\": {\"translate\": \"my_pack.chapter_sub\","
+                        + " \"fallback\": \"Five quests\"},",
+                "{\"id\": \"a\", \"title\": \"A\"}"));
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        ClientQuestCache.Entry entry = entryFor("a");
+        assertEquals("my_pack.chapter_sub", entry.chapterSubtitle(),
+                "the wire still carries the author's key");
+        assertEquals("Five quests", entry.chapterSubtitleFallback(), "and the words beside it");
+        assertEquals("Five quests", entry.chapterSubtitleText(),
+                "a player must never be shown the raw key");
+
+        ClientLocale.accept("hu_hu", "hu_hu", java.util.Map.of(
+                "my_pack.chapter_sub", "Sajat",
+                "chapter.chapter.subtitle", "Konvencionalis"));
+
+        assertEquals("Sajat", entryFor("a").chapterSubtitleText(),
+                "the author's own key wins over the pack's conventional one");
+    }
+
+    @Test
+    @DisplayName("a chapter with no subtitle sends nothing, and reads as nothing")
+    void aChapterWithNoSubtitleSendsNothing() {
+        // Sparse, like the quest's own subtitle: absence means no subtitle, which is every chapter
+        // a version-19 server ever sent. A key saying "nothing here" would be the largest thing in
+        // a tree of sixty-six chapters for the ordinary case.
+        QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                "\"title\": \"Chapter\",", "{\"id\": \"a\", \"title\": \"A\"}"));
+
+        String json = new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8);
+        assertFalse(JsonParser.parseString(json).getAsJsonObject().getAsJsonArray("quests")
+                        .get(0).getAsJsonObject().has("chapterSubtitle"),
+                "a chapter that names no subtitle should send no key for one");
+        assertFalse(JsonParser.parseString(json).getAsJsonObject().getAsJsonArray("quests")
+                        .get(0).getAsJsonObject().has("chapterSubtitleFallback"));
+
+        ClientQuestCache.acceptTree(index.questCount(), index.chapterCount(), QuestSync.treeAsJson(index));
+
+        assertEquals("", entryFor("a").chapterSubtitle());
+        assertEquals("", entryFor("a").chapterSubtitleText(),
+                "and an older server's tree reads the same way, through the same absence");
+        assertEquals("", ClientQuestCache.chapterSubtitleText("chapter"));
+        assertEquals("", ClientQuestCache.chapterSubtitleText("no_such_chapter"),
+                "an unknown chapter is no subtitle rather than a throw");
+    }
+
+    @Test
     @DisplayName("the tree carries no locale but the canonical one")
     void theTreeCarriesOneLocaleOnly() {
         // The whole point of the separate channel: the tree is broadcast, so fifteen locales on it
@@ -1369,7 +1556,7 @@ class QuestSyncTest {
         }
 
         @Test
-        @DisplayName("the version the manual-only flag arrived at is pinned, so bumping it is a decision")
+        @DisplayName("the version the chapter subtitle arrived at is pinned, so bumping it is a decision")
         void theAliasVersionIsPinned() {
             // Deliberately a literal rather than `QuestSync.TREE_VERSION` on both sides, which is how the
             // case above is written and why it could not notice this feature: a reader importing the
@@ -1378,11 +1565,12 @@ class QuestSyncTest {
             //
             // Version 14 added the elements; version 15 added the links beside them; version 16 added
             // the aliases; version 17 added the authoring flags; version 18 added each icon's kind;
-            // version 19 added each item, item-tag and fluid task's manualOnly. The ledger in
+            // version 19 added each item, item-tag and fluid task's manualOnly; version 20 added each
+            // chapter's subtitle beside its title. The ledger in
             // QuestSync carries the history; this pins the present, because bumping is
             // a deliberate break rather than a side effect of an edit.
-            assertEquals(19, QuestSync.TREE_VERSION,
-                    "version 19 added the manual-only flag beside its task. "
+            assertEquals(20, QuestSync.TREE_VERSION,
+                    "version 20 added the chapter subtitle beside its title. "
                             + "Bumping this is a "
                             + "deliberate break rather than a side effect of an edit -- see the ledger in "
                             + "QuestSync for what each version added.");
@@ -1585,6 +1773,78 @@ class QuestSyncTest {
                     .filter(each -> each.id().equals("a")).findFirst().orElseThrow();
             assertTrue(bare.matches("a"));
             assertFalse(bare.matches("old_name"), "a quest with no aliases answers to its id alone");
+        }
+
+        @Test
+        @DisplayName("a quest's tags and guide page travel sparsely, and a plain quest sends neither (T30)")
+        void questTagsAndGuidePageTravel() {
+            // Sparse and unversioned, like the aliases above: absent means "none", which is what
+            // every older server says, and an old reader ignores both keys.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter("",
+                    "{\"id\": \"a\", \"title\": \"A\", \"tags\": [\"village\"],"
+                            + " \"guidePage\": \"my_pack:early_game\"}"));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject quest = root.getAsJsonArray("quests").get(0).getAsJsonObject();
+            assertTrue(quest.has("tags"), "a tagged quest has to send them");
+            assertEquals(1, quest.getAsJsonArray("tags").size());
+            assertEquals("village", quest.getAsJsonArray("tags").get(0).getAsString());
+            assertEquals("my_pack:early_game", quest.get("guidePage").getAsString());
+
+            QuestIndex plain = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+            JsonObject plainQuest = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(plain), StandardCharsets.UTF_8)).getAsJsonObject()
+                    .getAsJsonArray("quests").get(0).getAsJsonObject();
+            assertFalse(plainQuest.has("tags"),
+                    "an empty list is sent as nothing rather than as an empty array");
+            assertFalse(plainQuest.has("guidePage"), "and so is an unnamed page");
+
+            // And the reader resolves a #tag the way the server does, with an empty list and an
+            // empty page when the server sent none.
+            send(index);
+            ClientQuestCache.Entry entry = ClientQuestCache.entries().stream()
+                    .filter(each -> each.id().equals("a")).findFirst().orElseThrow();
+            assertEquals(List.of("village"), entry.tags());
+            assertEquals("my_pack:early_game", entry.guidePage());
+            assertTrue(entry.matches("#village"), "a press naming the tag opens the quest");
+            assertTrue(entry.matches("#VILLAGE"), "in any letter case, because lookups are");
+            assertFalse(entry.matches("#nowhere"), "and nothing else does");
+
+            send(plain);
+            ClientQuestCache.Entry bare = ClientQuestCache.entries().stream()
+                    .filter(each -> each.id().equals("a")).findFirst().orElseThrow();
+            assertTrue(bare.tags().isEmpty());
+            assertEquals("", bare.guidePage());
+            assertFalse(bare.matches("#village"), "a quest with no tags answers to its id alone");
+        }
+
+        @Test
+        @DisplayName("an always-invisible chapter says so on the wire, and a shown one sends nothing (T30)")
+        void alwaysInvisibleTravels() {
+            // Sparse and unversioned: absent means shown, which is what every older server says,
+            // and an old reader ignores the key and lists the chapter.
+            QuestIndex index = Fixtures.indexOf(Fixtures.fileWithChapter(
+                    "\"alwaysInvisible\": true,", q("a").build()));
+
+            JsonObject root = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(index), StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject chapter = root.getAsJsonArray("chapters").get(0).getAsJsonObject();
+            assertTrue(chapter.has("alwaysInvisible"), "a hidden chapter has to send it");
+            assertTrue(chapter.get("alwaysInvisible").getAsBoolean());
+
+            QuestIndex plain = Fixtures.indexOf(Fixtures.fileWithChapter("", q("a").build()));
+            JsonObject plainChapter = JsonParser.parseString(
+                    new String(QuestSync.treeAsJson(plain), StandardCharsets.UTF_8)).getAsJsonObject()
+                    .getAsJsonArray("chapters").get(0).getAsJsonObject();
+            assertFalse(plainChapter.has("alwaysInvisible"),
+                    "absence is the ordinary case, and means shown");
+
+            send(index);
+            assertTrue(ClientQuestCache.chapters().get(0).alwaysInvisible(),
+                    "and the reader holds it for the visibility rule");
+            send(plain);
+            assertFalse(ClientQuestCache.chapters().get(0).alwaysInvisible());
         }
 
         @Test

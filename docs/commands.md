@@ -17,6 +17,7 @@ below take the same level, because they read the server's own costs rather than 
 | `/tenet progress` | The tree from your point of view: each quest's state, and every task's count against what it needs. |
 | `/tenet submit <quest> [<index>]` | Hand a task in by hand — the same call the Submit button makes. The optional second argument is the task's index, a bare integer counted from 0; omitted, it is the first task. |
 | `/tenet claim <quest>` | Collect the quest's outstanding rewards. The same call the Claim button makes. |
+| `/tenet emergency` | Collect the pack's emergency shelf: the file's `emergencyItems`, once per `emergencyItemsCooldown` seconds — see [[tenet:authoring/quest-files]]. What fits goes into your inventory; the rest drops at your feet. |
 | `/tenet open_book [quest]` | Open the quest book on your client — on one quest when one is named. FTB Quests' `/ftbquests open_book`, which command rewards and click actions name. |
 | `/tenet stage list [player]` | The stages a player carries. Without an argument, your own; naming another player asks for permission level 2. |
 | `/tenet stage team-list [player]` | The stages a player's team holds. The same permission rule as `list`. |

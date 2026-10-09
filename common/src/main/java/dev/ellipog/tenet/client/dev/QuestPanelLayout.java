@@ -113,6 +113,13 @@ public final class QuestPanelLayout {
                             : "tenet.dev.chapter.paragraphs_in_file", paragraphs)));
             rows.add(InspectRow.field("aliases", "tenet.dev.panel.aliases",
                     String.join(", ", strings(quest, "aliases"))));
+            // Words this quest answers to in lookups by tag, comma-separated like the aliases
+            // above: `#tag` resolves to the first object carrying it. Empty clears the list.
+            rows.add(InspectRow.field("tags", "tenet.dev.panel.tags",
+                    String.join(", ", strings(quest, "tags"))));
+            // The guide book page this quest belongs to. A reference the quest card shows;
+            // Tenet has no guide integration, so this is text and nothing more.
+            rows.add(field(quest, "guidePage"));
         }
 
         rows.add(InspectRow.heading(PLACEMENT, "tenet.dev.panel.placement"));
@@ -931,6 +938,7 @@ public final class QuestPanelLayout {
         if (path.equals("showTitle") || path.equals("repeatable") || path.equals("sequentialTasks")
                 || path.equals("invisible") || path.equals("hideDependentLines")
                 || path.equals("disableToast") || path.endsWith(".disableToast")
+                || path.equals("disableRecipeMod") || path.equals("hideLockIcon")
                 || path.equals("ignoreRewardBlocking") || path.equals("requiresStageTeam")
                 || path.endsWith(".consumeItems")
                 || path.endsWith(".optional")) {
@@ -962,6 +970,7 @@ public final class QuestPanelLayout {
             Map.entry("customName", "tenet.dev.field.custom_name"),
             Map.entry("description", "tenet.dev.field.description"),
             Map.entry("dimension", "tenet.dev.field.dimension"),
+            Map.entry("disableRecipeMod", "tenet.dev.field.disable_recipe_mod"),
             Map.entry("disableToast", "tenet.dev.field.disable_toast"),
             Map.entry("entity", "tenet.dev.field.entity"),
             Map.entry("entityTypeTag", "tenet.dev.field.entity_type_tag"),
@@ -969,6 +978,7 @@ public final class QuestPanelLayout {
             Map.entry("exclusiveGroup", "tenet.dev.field.exclusive_group"),
             Map.entry("filter", "tenet.dev.field.filter"),
             Map.entry("fluid", "tenet.dev.field.fluid"),
+            Map.entry("guidePage", "tenet.dev.field.guide_page"),
             Map.entry("icon.item", "tenet.dev.field.icon_item"),
             Map.entry("iconScale", "tenet.dev.field.icon_scale"),
             Map.entry("id", "tenet.dev.field.id"),
@@ -1010,6 +1020,7 @@ public final class QuestPanelLayout {
             Map.entry("subtitle", "tenet.dev.field.subtitle"),
             Map.entry("table", "tenet.dev.field.table"),
             Map.entry("tag", "tenet.dev.field.tag"),
+            Map.entry("tags", "tenet.dev.field.tags"),
             Map.entry("timer", "tenet.dev.field.timer"),
             Map.entry("title", "tenet.dev.field.title"),
             Map.entry("toObserve", "tenet.dev.field.to_observe"),

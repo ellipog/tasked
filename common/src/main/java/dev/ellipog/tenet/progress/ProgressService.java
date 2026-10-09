@@ -565,9 +565,10 @@ public final class ProgressService {
             }
 
             QuestProgress questProgress = working.progressOf(quest);
-            boolean chapterConsumes = chapterOf(index, entry)
-                    .map(Chapter::defaultConsumeItems)
-                    .orElse(false);
+            var chapter = chapterOf(index, entry);
+            boolean chapterConsumes = chapter.map(Chapter::defaultConsumeItems).orElse(false)
+                    || TenetQuests.settings().defaultConsumeItems();
+            boolean chapterSequential = chapter.map(c -> c.rules().defaultSequentialTasks()).orElse(false);
 
             // Who the reward goes to if this quest finishes in this pass. Reassigned below to the
             // member whose inventory moved the quest forward, so a party pays the player who
@@ -598,7 +599,8 @@ public final class ProgressService {
                 // the progress as it stands at this moment.
                 final QuestProgress beforeThisTask = questProgress;
                 if (!quest.isTaskUnlocked(taskIndex,
-                        earlier -> ProgressionEngine.isTaskSatisfied(quest, earlier, beforeThisTask))) {
+                        earlier -> ProgressionEngine.isTaskSatisfied(quest, earlier, beforeThisTask),
+                        chapterSequential)) {
                     continue;
                 }
 
@@ -2051,8 +2053,11 @@ public final class ProgressService {
         // this submit changes anything.
         final QuestProgress beforeSubmit = questProgress;
 
+        boolean submitChapterSequential = chapterOf(TenetQuests.index(), entry)
+                .map(c -> c.rules().defaultSequentialTasks()).orElse(false);
         if (!quest.isTaskUnlocked(taskIndex,
-                earlier -> ProgressionEngine.isTaskSatisfied(quest, earlier, beforeSubmit))) {
+                earlier -> ProgressionEngine.isTaskSatisfied(quest, earlier, beforeSubmit),
+                submitChapterSequential)) {
             return false;
         }
 
@@ -2066,8 +2071,8 @@ public final class ProgressService {
 
         Optional<dev.ellipog.tenet.quest.task.TaskBehaviour<QuestTask>> behaviour = TaskTypes.behaviourOf(task);
         boolean chapterConsumes = chapterOf(TenetQuests.index(), entry)
-                .map(Chapter::defaultConsumeItems)
-                .orElse(false);
+                .map(Chapter::defaultConsumeItems).orElse(false)
+                || TenetQuests.settings().defaultConsumeItems();
         // `acceptsClientSubmit`, not `canSubmitByHand`: a task may have no button and still be
         // submitted by the client that did the work -- an observation's watching is exactly that. See
         // the two methods on TaskBehaviour. Both are asked with the chapter's default, because an item

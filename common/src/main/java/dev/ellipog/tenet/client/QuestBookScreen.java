@@ -1990,6 +1990,15 @@ public final class QuestBookScreen extends ArmatureScreen
         for (Map.Entry<String, int[]> entry : tally.entrySet()) {
             counts.put(entry.getKey(), new ChapterProgress(entry.getValue()[0], entry.getValue()[1]));
         }
+        // An always-invisible chapter reads complete, whatever its quests say: FTB Quests'
+        // getRelativeProgress answers 100 for one. Counted here rather than in the walk above
+        // because the walk counts quests and this is a property of the chapter.
+        for (ClientQuestCache.ChapterEntry chapter : ClientQuestCache.chapters()) {
+            int[] pair = tally.get(chapter.id());
+            if (chapter.alwaysInvisible() && pair != null) {
+                counts.put(chapter.id(), new ChapterProgress(pair[1], pair[1]));
+            }
+        }
         chapterCounts = new ChapterCounts(progress, tree, self, authoring, counts);
         return chapterCounts;
     }
@@ -4233,7 +4242,8 @@ public final class QuestBookScreen extends ArmatureScreen
     private static boolean questVisible(String id) {
         // Remembered per tree and per progress, and those two are the whole of the answer's inputs: the
         // rules read the quest's own flags (the tree), its state, its prerequisite rule and how many of its
-        // tasks have progress (progress). Nothing here reads a draft or the view.
+        // tasks have progress (progress) — and the exclusion answer below reads the file's setting (the
+        // tree) and the server's mark (progress). Nothing here reads a draft or the view.
         //
         // It is worth remembering because `drawNode` asks it for **every node it draws**, every frame, in
         // edit mode — and each call is a recursive walk of the prerequisite chain that allocates a deque
@@ -4250,9 +4260,13 @@ public final class QuestBookScreen extends ArmatureScreen
         if (known != null) {
             return known;
         }
+        // The exclusion answer travels with the rule's own inputs — the file's setting on the tree,
+        // the server's mark on the progress — so the tree-plus-progress key above stays the whole of
+        // what this answer depends on. See `QuestVisibility.visible` for the rule itself.
         boolean answer = dev.ellipog.tenet.client.dev.QuestVisibility.visible(id, VISIBILITY_LOOKUP,
                 ClientQuestCache::stateOf, QuestBookScreen::prerequisiteRuleMet,
-                QuestBookScreen::tasksWithProgress);
+                QuestBookScreen::tasksWithProgress, ClientQuestCache::excludedOf,
+                ClientQuestCache.hideExcludedQuests());
         visibleCache.put(id, answer);
         return answer;
     }
@@ -4267,14 +4281,15 @@ public final class QuestBookScreen extends ArmatureScreen
      *
      * <h2>The rule is {@code ChapterVisibility}'s; this is the cache and the answers</h2>
      *
-     * <p>Two things hide a chapter from a reader: its author asking to be withheld until its own gate is
-     * met, and it having <b>nothing visible in it</b> — every quest still hidden behind its own
-     * prerequisites, every quest an unmoved easter egg, or no quests at all. The second is the base rule
+     * <p>Three things hide a chapter from a reader: its author asking for it to be always
+     * invisible, its author asking to be withheld until its own gate is met, and it having
+     * <b>nothing visible in it</b> — every quest still hidden behind its own
+     * prerequisites, every quest an unmoved easter egg, or no quests at all. The third is the base rule
      * and it is why the earlier version of this method was wrong: it only asked about the author's flag,
      * so a chapter of fifty quests that none of which were visible yet still drew a row into an empty
      * canvas — and so did a chapter with a single note in it and nothing else.
      *
-     * <p>An author bypasses both rules, which is a parameter of the rule rather than a second check here,
+     * <p>An author bypasses all three rules, which is a parameter of the rule rather than a second check here,
      * so the whole of it can be asserted in {@code ChapterVisibilityTest} — the screen cannot be
      * instantiated by a test, and this is behaviour a person only ever sees as a missing row.
      */
@@ -4290,6 +4305,12 @@ public final class QuestBookScreen extends ArmatureScreen
                 public boolean hidesUntilDependenciesComplete(String chapterId) {
                     ClientQuestCache.ChapterEntry chapter = chapterEntryFor(chapterId);
                     return chapter != null && chapter.hideUntilDependenciesComplete();
+                }
+
+                @Override
+                public boolean alwaysInvisible(String chapterId) {
+                    ClientQuestCache.ChapterEntry chapter = chapterEntryFor(chapterId);
+                    return chapter != null && chapter.alwaysInvisible();
                 }
 
                 @Override
@@ -6970,12 +6991,16 @@ public final class QuestBookScreen extends ArmatureScreen
             commit.accept(null);
             return;
         }
-        if (path.equals("aliases") || (chapter && path.equals("dependsOn"))
+        if (path.equals("aliases") || path.equals("tags") || path.endsWith(".tags")
+                || (chapter && path.equals("dependsOn"))
                 || (chapter && path.equals("completesWhen"))) {
             // One field for the list, because each entry is one word: commas between them, empties gone.
             // A chapter's two gate lists are a list of names like an alias list, so they take the same
-            // treatment rather than three near-identical branches. A name that resolves to nothing is the
-            // server's to report with the file and line, which is the whole reason this can be a text row.
+            // treatment rather than three near-identical branches. Tags ride along because they are the
+            // same shape -- one word per entry, on a quest, a chapter, a task or a reward -- and a tag
+            // that breaks the pattern is the server's to report with the file and line, which is the
+            // whole reason this can be a text row. A name that resolves to nothing is likewise the
+            // server's to report.
             List<String> names = Arrays.stream(typed.split(","))
                     .map(String::trim).filter(name -> !name.isEmpty()).toList();
             commit.accept(stringArray(names));
@@ -12338,6 +12363,20 @@ public final class QuestBookScreen extends ArmatureScreen
             }
             return;
         }
+        // Words an entry answers to in lookups by tag: one field for the list, commas between
+        // them, empties gone -- the card's half of the inspector's own comma rule in
+        // `commitField`. A tag that breaks the pattern is the server's to report, which is the
+        // whole reason this can be a text box rather than a picker.
+        if (path.equals("tags") || path.matches("(tasks|rewards)\\.\\d+\\.tags")) {
+            if (text == null || text.trim().isEmpty()) {
+                sendField(target, path, null);
+                return;
+            }
+            List<String> names = Arrays.stream(text.trim().split(","))
+                    .map(String::trim).filter(name -> !name.isEmpty()).toList();
+            sendField(target, path, stringArray(names));
+            return;
+        }
         if (text == null || text.trim().isEmpty()) {
             sendField(target, path, null);
             return;
@@ -13695,6 +13734,11 @@ public final class QuestBookScreen extends ArmatureScreen
      * whatever was there, so a refresh that dropped the missing-item line would quietly answer a
      * different question than the row does. The rewards waiting are not repeated: they are a "(3)" in
      * the row's own corner again, and one fact does not need two places to be read from.
+     *
+     * <p>The chapter's subtitle, when it names one, is the hover's second line: the row's label is
+     * the title, so this is the one line under the name, resolved in the player's language like every
+     * other player-facing text. A chapter with no quests carries no entry to read one from, so it
+     * shows none — the same reading an older server gets, which sent no subtitle at all.
      */
     private void refreshSidebarChapterTooltips(SidebarLayout layout, ChapterCounts counts) {
         Map<String, SidebarIcon> icons = sidebarIcons();
@@ -13702,10 +13746,14 @@ public final class QuestBookScreen extends ArmatureScreen
             if (row.group() || !(sidebarView.get(row.key()) instanceof ArmatureButton button)) {
                 continue;
             }
-            List<Component> lines = new ArrayList<>(2);
+            List<Component> lines = new ArrayList<>(3);
             SidebarIcon icon = icons.get(row.key());
             if (icon != null && icon.stack().isEmpty() && !icon.id().isEmpty()) {
                 lines.add(Component.translatable("tenet.screen.missing_item_hint"));
+            }
+            String subtitle = ClientQuestCache.chapterSubtitleText(row.id());
+            if (!subtitle.isEmpty()) {
+                lines.add(Component.literal(subtitle));
             }
             // What a shut chapter is waiting for, and how far along that is. Only while it is shut: a
             // gate that is met explains nothing, and a permanent "Needs X" on an open chapter would read
@@ -13758,6 +13806,33 @@ public final class QuestBookScreen extends ArmatureScreen
             int fill = ArmatureTheme.inProgress();
             RewardBadge.draw(r, quest.geometry(), nodeScreenX(quest), nodeScreenY(quest), nodeSize(quest),
                     count, fill, Colour.shade(fill, -0.45F), ArmatureTheme.canvas());
+        }
+    }
+
+    /**
+     * The padlocks, one per locked node that lets it show, in their own pass after every node.
+     *
+     * <p>Each mark straddles its node's top-right corner — half in, half out — rather than sitting
+     * inside it: see the call site for why the corner's inside is the item's territory. The gating
+     * is the node's own — locked, rings tier, pack and quest flags — read here rather than carried,
+     * so the pass and the node cannot disagree about which nodes wear one.
+     */
+    private void drawLockMarks(GuiRenderer r, List<ClientQuestCache.Entry> visible, CanvasDetail detail) {
+        if (!detail.rings()) {
+            return;
+        }
+        boolean showLockIcons = ClientQuestCache.showLockIcons();
+        for (ClientQuestCache.Entry quest : visible) {
+            if (ClientQuestCache.stateOf(quest.id()) != QuestState.LOCKED) {
+                continue;
+            }
+            if (!dev.ellipog.tenet.client.dev.QuestVisibility.drawsLockMark(showLockIcons,
+                    quest.hideLockIcon())) {
+                continue;
+            }
+            int size = nodeSize(quest);
+            int box = Math.max(9, size / 4);
+            drawLockMark(r, nodeScreenX(quest) + size - box / 2, nodeScreenY(quest) - box / 2, box);
         }
     }
 
@@ -22337,8 +22412,9 @@ public final class QuestBookScreen extends ArmatureScreen
                     if (dev.ellipog.tenet.client.dev.FieldDraft.BOOK_OWNER.equals(owner)) {
                         // The book's values are in no chapter copy: the tree is their only source, so
                         // the tree's own value is what a book draft converges against. Empty means the
-                        // key is absent, which is the null a cleared draft is waiting for.
-                        String value = "bookTitle".equals(path) ? ClientQuestCache.bookTitle()
+                        // key is absent, which is the null a cleared draft is waiting for. Raw, not
+                        // resolved: a translation written back would replace the author's own words.
+                        String value = "bookTitle".equals(path) ? ClientQuestCache.bookTitleRaw()
                                 : "bookIcon".equals(path) ? ClientQuestCache.bookIconId() : null;
                         if (value == null) {
                             return null;
@@ -22816,6 +22892,15 @@ public final class QuestBookScreen extends ArmatureScreen
         // corner on a long name, so a badge drawn with the nodes would vanish exactly when the chapter
         // is busiest.
         drawRewardBadges(r, visible, detail);
+        // The padlocks after everything node-shaped, straddling their node's top-right corner:
+        // a large icon reaches the corner the lock would sit inside, and vanilla's item pipeline
+        // draws over fills whatever order they are issued in — a lock drawn with its node ends up
+        // under the item. Half outside the panel the icon cannot reach it, and the half that stays
+        // reads as pinned to the node rather than floating beside it. FTB Quests' `show_lock_icons`
+        // with the quest's own `hide_lock_icon`, either silence winning; a locked node without one
+        // still reads locked — the blocked edge and the dim wash stay — because the mark is the
+        // announcement, not the state.
+        drawLockMarks(r, visible, detail);
 
         // The handle layer **after the nodes**, deliberately: a dot that overlaps a node -- an anchor
         // dragged round to its far side -- has to be on top of it, or the thing in your hand disappears.
@@ -23012,6 +23097,55 @@ public final class QuestBookScreen extends ArmatureScreen
             r.fill(x, y + i, x + 1, y + i + length, colour);
             r.fill(x + size - 1, y + i, x + size, y + i + length, colour);
         }
+    }
+
+    /**
+     * A padlock straddling a node's top-right corner, marking a locked quest.
+     *
+     * <p>Drawn from fills rather than from a texture, because there is no lock sprite: an arched
+     * shackle over a hollow body with a keyhole, in the title ink and transparent everywhere else,
+     * so whatever is behind the mark shows through it. That is also why there is no backing chip:
+     * a locked node already wears the dim wash, which is the dark the ink reads against. The
+     * caller positions the box centred on the node's corner — half outside the panel, where no
+     * icon can reach, and half in, which reads as pinned rather than floating. Sized with a
+     * floor — below nine pixels the shackle's bars would be one pixel or none, which reads as
+     * dirt on the node rather than as a mark. Skipped at the far zoom for the same reason the
+     * rings are: the caller asks {@code detail} before calling.
+     *
+     * @param bx the box's left edge, already resolved against the node's corner
+     * @param by the box's top edge, already resolved against the node's corner
+     * @param box the box's edge, nine pixels or more
+     */
+    private static void drawLockMark(GuiRenderer r, int bx, int by, int box) {
+        int ink = ArmatureTheme.title();
+        int bar = Math.max(1, box / 7);
+        // The shackle: an inverted U straddling the body's top edge — two legs joined by one bar,
+        // hollow in the middle so the node reads through it.
+        int bodyTop = by + (box * 2) / 5;
+        int legLeft = bx + box / 4;
+        int legRight = bx + (box * 3) / 4 - bar;
+        int shackleBottom = bodyTop + bar;
+        r.fill(legLeft, by, legLeft + bar, shackleBottom, ink);
+        r.fill(legRight, by, legRight + bar, shackleBottom, ink);
+        r.fill(legLeft, by, legRight + bar, by + bar, ink);
+        // The body: a hollow box with its corners cut, so it reads round rather than square. The
+        // shackle's feet land on its top edge, merging the two into one outline.
+        int edge = bar;
+        int bottom = by + box;
+        int right = bx + box;
+        r.fill(bx + 1, bodyTop, right - 1, bodyTop + edge, ink);
+        r.fill(bx + 1, bottom - edge, right - 1, bottom, ink);
+        r.fill(bx, bodyTop + 1, bx + edge, bottom - 1, ink);
+        r.fill(right - edge, bodyTop + 1, right, bottom - 1, ink);
+        // The keyhole: a dot over a short stem, centred in the body.
+        int bodyH = bottom - bodyTop;
+        int cx = bx + box / 2;
+        int d = box >= 14 ? 2 : 1;
+        int dx = cx - d / 2;
+        int dy = bodyTop + bodyH / 3;
+        r.fill(dx, dy, dx + d, dy + d, ink);
+        int stemH = Math.max(1, bodyH / 4);
+        r.fill(cx, dy + d, cx + 1, dy + d + stemH, ink);
     }
 
     /**
@@ -26465,7 +26599,7 @@ public final class QuestBookScreen extends ArmatureScreen
             titleAdvance = FtbText.drawColored(r, titleOfRaw(entry), textX, top + 12,
                     InlineEdit.ink("title"));
         }
-        r.text(stateLabel(state), textX + titleAdvance + 10, top + 12,
+        r.text(cardStateLabel(state), textX + titleAdvance + 10, top + 12,
                 stateColour(state));
 
         String whereSub = subtitleOf(entry);
@@ -26478,8 +26612,15 @@ public final class QuestBookScreen extends ArmatureScreen
             if (!whereSub.isEmpty()) {
                 r.text("  \u00b7  ", atX, top + 26, InlineEdit.ink("subtitle"));
                 atX += r.textWidth("  \u00b7  ");
-                FtbText.drawColored(r, subtitleOfRaw(entry), atX, top + 26,
+                atX = FtbText.drawColored(r, subtitleOfRaw(entry), atX, top + 26,
                         InlineEdit.ink("subtitle"));
+            }
+            // The guide book page this quest belongs to, when it names one. A reference in
+            // faint ink, and nothing more: Tenet has no guide integration, so there is no
+            // press and no page to open -- the line says where the quest is documented.
+            if (!entry.guidePage().isEmpty()) {
+                String guide = "  \u00b7  Guide: " + entry.guidePage();
+                r.text(guide, atX, top + 26, ArmatureTheme.faint());
             }
         }
 
@@ -30415,9 +30556,11 @@ public final class QuestBookScreen extends ArmatureScreen
 
     /** The book's name as its field should show it: the pending edit first, then the tree's own. */
     private String bookTitleValue() {
+        // Raw rather than resolved: the field edits the file, and a translation written back would
+        // replace the author's own words with somebody else's translation of them.
         return fieldDraft.text(effectiveChapter(),
                 dev.ellipog.tenet.client.dev.FieldDraft.BOOK_OWNER, "bookTitle",
-                ClientQuestCache.bookTitle());
+                ClientQuestCache.bookTitleRaw());
     }
 
     /** Commits the book's name. Blank clears it, so the client's own title comes back. */
@@ -31066,10 +31209,16 @@ public final class QuestBookScreen extends ArmatureScreen
         // reward (`Inline`) or a reward's table from a file (`Extract`) are gone with inline tables.
     }
 
-    /** A quest book should not stop the world ticking — you want to read it mid-fight. */
+    /**
+     * Whether the book stills the world while it is open.
+     *
+     * <p>The file's {@code pauseGame}, read off the synced tree: false keeps the world ticking, so
+     * an author reading mid-fight keeps the default, and a lore book may still it. False before
+     * any tree arrives, which is the behaviour every pack that predates the field gets.
+     */
     @Override
     public boolean isPauseScreen() {
-        return false;
+        return ClientQuestCache.pauseGame();
     }
 
     // ------------------------------------------------------------------
@@ -31108,6 +31257,21 @@ public final class QuestBookScreen extends ArmatureScreen
         };
     }
 
+    /**
+     * The state word the quest card shows.
+     *
+     * <p>The file's {@code lockMessage} when a locked quest's pack has a better word than "Locked"
+     * — the author's own sentence, drawn as-is rather than translated — and {@link #stateLabel}
+     * otherwise. Only the card reads this: the viewers' rows and the narrator keep the shared
+     * word, so a pack's flourish cannot confuse a surface that compares states.
+     */
+    private static String cardStateLabel(QuestState state) {
+        if (state == QuestState.LOCKED && !ClientQuestCache.lockMessage().isEmpty()) {
+            return ClientQuestCache.lockMessage();
+        }
+        return stateLabel(state);
+    }
+
     // wrap(String, int) and drawParagraphs(...) used to live here: a hand-rolled word wrap, and the
     // drawing of it, in the same class that needed the height. That is why the scrollbar's range and
     // the text on screen were two computations that had to be kept in step. The wrap rule is TextWrap's
@@ -31139,8 +31303,34 @@ public final class QuestBookScreen extends ArmatureScreen
         if (questId == null || questId.isEmpty() || cacheEntryFor(questId) == null) {
             return;
         }
+        if (!checkOpenAllowed()) {
+            return;
+        }
         QuestBookFocus.request(questId);
         ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
+    }
+
+    /**
+     * Whether the book may open right now, telling the player when it may not.
+     *
+     * <p>The one choke every client-side open path asks — the keybind, the inventory button, the
+     * book item's client half, a recipe viewer's {@link #openOn}, and the {@code open_book} payload
+     * handler — so a pack that disables its book refuses the same way everywhere: one sentence in
+     * chat instead of a screen. The server refuses {@code /tenet open_book} itself, because that
+     * path never reaches a client check; every other path ends here.
+     *
+     * @return true when the book may open; false after messaging the player
+     */
+    public static boolean checkOpenAllowed() {
+        if (!ClientQuestCache.guiDisabled()) {
+            return true;
+        }
+        Minecraft game = Minecraft.getInstance();
+        if (game.player != null) {
+            game.player.displayClientMessage(
+                    Component.translatable("tenet.screen.book_disabled"), false);
+        }
+        return false;
     }
 
     public static void forgetViewState() {

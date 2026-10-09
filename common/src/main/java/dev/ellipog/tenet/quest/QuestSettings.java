@@ -14,6 +14,7 @@ import dev.ellipog.tenet.quest.reward.RewardAutoClaim;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -40,7 +41,21 @@ import java.util.Set;
 public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTeamReward,
                             boolean suppressAllAutoclaiming, int detectionDelay,
                             String bookTitle, Optional<Icon> bookIcon, String fallbackLocale,
-                            int clickCommandLevel) {
+                            int clickCommandLevel, boolean defaultConsumeItems,
+                            boolean defaultDisableRecipeMod,
+                            /**
+                             * How the book behaves as a file: lock marks, pausing, the grid, the
+                             * emergency shelf.
+                             *
+                             * <p>Grouped for the mundane reason that record gives — the codec's
+                             * sixteen components — and the real one: these nine are about how the
+                             * book <i>behaves</i> rather than how its rewards and text resolve, which
+                             * is also why their readers go through the delegates below rather than
+                             * this accessor. The JSON stays flat regardless: {@code extra} is a
+                             * {@code MapCodec}, so its fields sit beside these on the
+                             * {@code settings} block, as if they were fields of their own.
+                             */
+                            QuestSettingsExtra extra) {
 
     /**
      * What a tree that says nothing gets.
@@ -57,12 +72,16 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      */
     public static final QuestSettings DEFAULTS =
             new QuestSettings(RewardAutoClaim.DISABLED, false, false, 20, "", Optional.empty(),
-                    "en_us", 0);
+                    "en_us", 0, false, false, QuestSettingsExtra.DEFAULT);
 
     /** The field names, for the validator and the schema. */
-    public static final Set<String> FIELDS =
-            Set.of("defaultAutoClaim", "defaultTeamReward", "suppressAllAutoclaiming", "detectionDelay",
-                    "bookTitle", "bookIcon", "fallbackLocale", "clickCommandLevel");
+    public static final Set<String> FIELDS = java.util.stream.Stream
+            .concat(java.util.stream.Stream.of("defaultAutoClaim", "defaultTeamReward",
+                    "suppressAllAutoclaiming", "detectionDelay", "bookTitle", "bookIcon",
+                    "fallbackLocale", "clickCommandLevel", "defaultConsumeItems",
+                    "defaultDisableRecipeMod"),
+                    QuestSettingsExtra.FIELDS.stream())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     /**
      * The book's icon: an item id as a bare string (every {@code index.json} written before the
@@ -127,7 +146,24 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
             // presser would be a privilege boundary drawn in the wrong place. File-only, like the
             // detection delay: it is read by the server that runs the command, and no client draws it.
             Codec.intRange(0, 2).optionalFieldOf("clickCommandLevel", 0)
-                    .forGetter(QuestSettings::clickCommandLevel)
+                    .forGetter(QuestSettings::clickCommandLevel),
+            // Whether item tasks take what they ask for when neither the task nor its chapter says.
+            // FTB Quests' file-level `default_consume_items`: the bottom rung of the consume ladder
+            // (task wins over chapter, chapter wins over this, this wins over false). False by
+            // default, because silently taking a player's items is the more surprising behaviour.
+            Codec.BOOL.optionalFieldOf("defaultConsumeItems", false)
+                    .forGetter(QuestSettings::defaultConsumeItems),
+            // Whether quests stay out of recipe viewers when they say nothing themselves.
+            // FTB Quests' file-level `default_quest_disable_jei`: the fallback a quest's own
+            // tristate defers to (see `Quest#showInRecipeMod`). False by default, because a file
+            // that hides every quest from every viewer is the surprising behaviour — ATM10 leaves
+            // it off and hides a single quest by name instead.
+            Codec.BOOL.optionalFieldOf("defaultDisableRecipeMod", false)
+                    .forGetter(QuestSettings::defaultDisableRecipeMod),
+            // How the book behaves as a file, grouped: a `MapCodec`, so its nine fields sit flat
+            // on the `settings` block beside these, as if they were fields of their own. See
+            // `QuestSettingsExtra` for why the grouping is invisible in JSON.
+            QuestSettingsExtra.MAP_CODEC.forGetter(QuestSettings::extra)
     ).apply(instance, QuestSettings::new));
 
     /**
@@ -140,6 +176,57 @@ public record QuestSettings(RewardAutoClaim defaultAutoClaim, boolean defaultTea
      */
     public String canonicalLocale() {
         return QuestLanguages.normalise(fallbackLocale);
+    }
+
+    /**
+     * How the book behaves, without learning {@link #extra()}'s name.
+     *
+     * <p>Kept so no caller learns the grouping's name: the grouping is a codec's answer to a
+     * codec's limit, and the callers predate it. See {@code Chapter#elements()} for the same
+     * arrangement and the reason it exists.
+     */
+    public boolean showLockIcons() {
+        return extra.showLockIcons();
+    }
+
+    /** Whether quests shut out by an exclusive choice vanish from the reader's book. */
+    public boolean hideExcludedQuests() {
+        return extra.hideExcludedQuests();
+    }
+
+    /** Whether the book pauses the world in single player. */
+    public boolean pauseGame() {
+        return extra.pauseGame();
+    }
+
+    /** Whether the book refuses to open. */
+    public boolean disableGui() {
+        return extra.disableGui();
+    }
+
+    /** Whether dying drops the quest book at the player's feet. */
+    public boolean dropBookOnDeath() {
+        return extra.dropBookOnDeath();
+    }
+
+    /** The editor canvas's grid step, in content units per cell edge. */
+    public double gridScale() {
+        return extra.gridScale();
+    }
+
+    /** What a locked quest is called when the pack has a better word than "Locked". */
+    public String lockMessage() {
+        return extra.lockMessage();
+    }
+
+    /** How long a player waits between emergency grants, in seconds. */
+    public int emergencyItemsCooldown() {
+        return extra.emergencyItemsCooldown();
+    }
+
+    /** What {@code /tenet emergency} hands out. */
+    public java.util.List<ItemRef> emergencyItems() {
+        return extra.emergencyItems();
     }
 
     public static final Codec<QuestSettings> CODEC = MAP_CODEC.codec();

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -65,7 +66,7 @@ class AuthoringFlagsTest {
     class Presentation {
 
         @Test
-        @DisplayName("a quest that says nothing presents as before: unset width, drawn edges, announced, held, personal gate")
+        @DisplayName("a quest that says nothing presents as before: unset width, drawn edges, announced, held, personal gate, listed, marked")
         void absentIsTheOldBehaviour() {
             Quest parsed = quest("""
                     {"id": "one", "title": "One"}""");
@@ -75,21 +76,26 @@ class AuthoringFlagsTest {
             assertFalse(parsed.disableToast());
             assertFalse(parsed.ignoreRewardBlocking());
             assertFalse(parsed.requiresStageTeam());
+            assertEquals(Optional.empty(), parsed.disableRecipeMod());
+            assertFalse(parsed.hideLockIcon());
         }
 
         @Test
-        @DisplayName("minWidth, hideDependentLines, disableToast, ignoreRewardBlocking and requiresStageTeam round-trip flat on the quest")
+        @DisplayName("minWidth, hideDependentLines, disableToast, ignoreRewardBlocking, requiresStageTeam, disableRecipeMod and hideLockIcon round-trip flat on the quest")
         void presentationRoundTrips() {
             Quest parsed = quest("""
                     {"id": "one", "title": "One", "minWidth": 250,
                      "hideDependentLines": true, "disableToast": true,
-                     "ignoreRewardBlocking": true, "requiresStageTeam": true}""");
+                     "ignoreRewardBlocking": true, "requiresStageTeam": true,
+                     "disableRecipeMod": true, "hideLockIcon": true}""");
 
             assertEquals(250, parsed.minWidth());
             assertTrue(parsed.hideDependentLines());
             assertTrue(parsed.disableToast());
             assertTrue(parsed.ignoreRewardBlocking());
             assertTrue(parsed.requiresStageTeam());
+            assertEquals(Optional.of(true), parsed.disableRecipeMod());
+            assertTrue(parsed.hideLockIcon());
 
             Quest decoded = decoded(Quest.CODEC.parse(JsonOps.INSTANCE,
                     Quest.CODEC.encodeStart(JsonOps.INSTANCE, parsed).getOrThrow()), "re-decode");
@@ -98,16 +104,22 @@ class AuthoringFlagsTest {
             assertTrue(decoded.disableToast());
             assertTrue(decoded.ignoreRewardBlocking());
             assertTrue(decoded.requiresStageTeam());
+            assertEquals(Optional.of(true), decoded.disableRecipeMod());
+            assertTrue(decoded.hideLockIcon());
         }
 
         @Test
-        @DisplayName("the five presentation names are validator-visible at quest level")
+        @DisplayName("the nine presentation names are validator-visible at quest level")
         void presentationFieldsAreKnown() {
             assertTrue(QuestPresentation.FIELDS.contains("minWidth"));
             assertTrue(QuestPresentation.FIELDS.contains("hideDependentLines"));
             assertTrue(QuestPresentation.FIELDS.contains("disableToast"));
             assertTrue(QuestPresentation.FIELDS.contains("ignoreRewardBlocking"));
             assertTrue(QuestPresentation.FIELDS.contains("requiresStageTeam"));
+            assertTrue(QuestPresentation.FIELDS.contains("disableRecipeMod"));
+            assertTrue(QuestPresentation.FIELDS.contains("hideLockIcon"));
+            assertTrue(QuestPresentation.FIELDS.contains("tags"));
+            assertTrue(QuestPresentation.FIELDS.contains("guidePage"));
         }
     }
 

@@ -197,12 +197,17 @@ public final class QuestSettingsLayout {
     }
 
     // ------------------------------------------------------------------
-    // The two three-state reveal rows
+    // The three-state rows: the two reveal flags, and the viewer flag
     // ------------------------------------------------------------------
 
-    /** The rows whose values are a reveal flag's three states rather than a closed set of words. */
+    /**
+     * The rows whose values are three states rather than a closed set of words: the default, on,
+     * off. The two reveal flags defer to the chapter; the viewer flag defers to the file's
+     * settings — one vocabulary, two fallbacks, which is why the unset <i>label</i> differs while
+     * the cycling and the writing stay shared.
+     */
     private static final List<String> TRI_STATE_KEYS = List.of("hideUntilDependenciesComplete",
-            "hideUntilDependenciesVisible");
+            "hideUntilDependenciesVisible", "disableRecipeMod");
 
     /**
      * Whether this row's values are the three states of a reveal flag.
@@ -247,6 +252,21 @@ public final class QuestSettingsLayout {
         if (value == null || value.isEmpty()) {
             return Labels.of("tenet.dev.quest.chapter_default",
                     Labels.of(chapterDefault ? ToolsLayout.ON : ToolsLayout.OFF));
+        }
+        return Labels.of("true".equalsIgnoreCase(value) ? ToolsLayout.ON : ToolsLayout.OFF);
+    }
+
+    /**
+     * A file-defaulted flag as a person reads it: the file's default, on, off.
+     *
+     * <p>Unlike {@link #triStateLabel}, the unset state does not name which way the file goes: the
+     * file's settings are not synced to this client, so the page cannot know. "File default" is
+     * the honest label — the author reads the file for the value — and the picker still offers
+     * all three states, so one quest can opt out of a file that hides its quests by default.
+     */
+    public static String fileDefaultLabel(String value) {
+        if (value == null || value.isEmpty()) {
+            return Labels.of("tenet.dev.quest.file_default");
         }
         return Labels.of("true".equalsIgnoreCase(value) ? ToolsLayout.ON : ToolsLayout.OFF);
     }
@@ -455,6 +475,16 @@ public final class QuestSettingsLayout {
             // Whether this quest's rewards survive a held payout, beside the announcement answer: the
             // quest's flag covers every reward on it, a reward's own flag covers just itself.
             rows.add(switchRow("ignoreRewardBlocking", "tenet.dev.quest.ignore_reward_blocking"));
+            // Whether recipe viewers list this quest, beside the other answers about who sees what:
+            // a picker rather than a switch for the same reason as the reveal flags above — absent
+            // defers to the file's default, and one quest has to be able to opt back out of a file
+            // that hides its quests. See `fileDefaultLabel` for why the unset state names no value.
+            rows.add(new Row("disableRecipeMod", Row.Kind.CHOICE, "tenet.dev.quest.disable_recipe_mod"));
+            // Whether this quest wears its own lock mark: the quest's half of the file's
+            // `showLockIcons`, beside the other answers about who sees what. A switch rather
+            // than a picker — absent draws, and either silence wins, so there is no third
+            // state to defer to.
+            rows.add(switchRow("hideLockIcon", "tenet.dev.quest.hide_lock_icon"));
             rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
             rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));
             rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tenet.dev.quest.repeat_cooldown"));
@@ -465,6 +495,13 @@ public final class QuestSettingsLayout {
             rows.add(new Row("h:identity", Row.Kind.HEADING, "tenet.dev.quest.identity_extras"));
             rows.add(new Row("id", Row.Kind.VALUE, "tenet.dev.quest.id"));
             rows.add(new Row("aliases", Row.Kind.FIELD, "tenet.dev.quest.aliases"));
+            // Words this quest answers to in lookups by tag, comma-separated like the aliases
+            // above: `#tag` resolves to the first object carrying it. Beside the aliases because
+            // it is the same shape: one field for a list of words.
+            rows.add(new Row("tags", Row.Kind.FIELD, "tenet.dev.quest.tags"));
+            // The guide book page this quest belongs to. A reference the quest card shows;
+            // Tenet has no guide integration, so this is text and nothing more.
+            rows.add(new Row("guidePage", Row.Kind.FIELD, "tenet.dev.quest.guide_page"));
         }
         // And the two rows hidden inside sections that stay: the rotation and the icon's scale, which
         // refine a shape and an icon that are basic, and the four rules that qualify the dependency list,

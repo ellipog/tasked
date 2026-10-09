@@ -228,6 +228,15 @@ public final class Tenet {
             if (!changed.isEmpty()) {
                 TenetNetworking.sendProgressToOwners(server, changed, ProgressSyncPayload.REASON_CHANGED);
             }
+            // The quest book's own afterlife: FTB Quests' `drop_book_on_death`. A player who fell
+            // with the file's flag on finds a fresh book where they fell, so death cannot take the
+            // pack away with it. Beside the kill task's hook rather than in it, because this is
+            // about one death (a player's) rather than every death the engine counts.
+            if (entity instanceof net.minecraft.server.level.ServerPlayer player
+                    && dev.ellipog.tenet.quest.TenetQuests.settings().dropBookOnDeath()
+                    && QuestBook.ITEM != null) {
+                player.drop(new net.minecraft.world.item.ItemStack(QuestBook.ITEM, 1), true);
+            }
         });
 
         ArmatureEvents.COMMANDS_REGISTER.register((dispatcher, context, selection) -> {

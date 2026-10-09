@@ -55,20 +55,20 @@ import java.util.Set;
 public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
                            boolean ignoreRewardBlocking, List<QuestCondition> conditions,
                            boolean disableToast, Optional<dev.ellipog.tenet.quest.QuestText> title,
-                           Optional<dev.ellipog.tenet.quest.Icon> icon) {
+                           Optional<dev.ellipog.tenet.quest.Icon> icon, List<String> tags) {
 
     /** The four-field shape: no conditions, announced, computed words. */
     public RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
                         boolean ignoreRewardBlocking) {
         this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, List.of(), false,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), List.of());
     }
 
     /** The five-field shape: conditions, announced, computed words. */
     public RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean excludeFromClaimAll,
                         boolean ignoreRewardBlocking, List<QuestCondition> conditions) {
         this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, conditions, false,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), List.of());
     }
 
     /** The six-field shape: conditions, announcement, computed words. */
@@ -76,7 +76,7 @@ public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean
                         boolean ignoreRewardBlocking, List<QuestCondition> conditions,
                         boolean disableToast) {
         this(team, auto, excludeFromClaimAll, ignoreRewardBlocking, conditions, disableToast,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), List.of());
     }
 
     /** What a reward that says nothing is: every axis deferred. */
@@ -85,7 +85,7 @@ public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean
 
     /** The fields this contributes, for the validator and the editor's row list. */
     public static final Set<String> FIELDS = Set.of("team", "auto", "excludeFromClaimAll",
-            "ignoreRewardBlocking", "conditions", "disableToast", "title", "icon");
+            "ignoreRewardBlocking", "conditions", "disableToast", "title", "icon", "tags");
 
     public static final MapCodec<RewardCommon> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             Codec.BOOL.optionalFieldOf("team").forGetter(RewardCommon::team),
@@ -99,7 +99,8 @@ public record RewardCommon(Optional<Boolean> team, RewardAutoClaim auto, boolean
             Codec.BOOL.optionalFieldOf("disableToast", false).forGetter(RewardCommon::disableToast),
             dev.ellipog.tenet.quest.QuestText.CODEC.optionalFieldOf("title")
                     .forGetter(RewardCommon::title),
-            dev.ellipog.tenet.quest.Icon.CODEC.optionalFieldOf("icon").forGetter(RewardCommon::icon)
+            dev.ellipog.tenet.quest.Icon.CODEC.optionalFieldOf("icon").forGetter(RewardCommon::icon),
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(RewardCommon::tags)
     ).apply(instance, RewardCommon::new));
 
     /** Whether this reward goes to the whole team, given the quest tree's own default. */

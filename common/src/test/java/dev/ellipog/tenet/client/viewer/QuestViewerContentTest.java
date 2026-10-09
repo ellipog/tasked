@@ -244,6 +244,33 @@ class QuestViewerContentTest {
     }
 
     @Test
+    @DisplayName("a quest hidden from recipe viewers has no page, and no lookup")
+    void aHiddenQuestHasNoPage() {
+        // FTB Quests' `disable_recipe_mod`, resolved server-side against the file's default and
+        // carried as `hideFromViewers` — the client holds no file record, so the wire carries the
+        // answer rather than the question.
+        accept("""
+                {"id": "shown", "title": "Shown", "tasks": [
+                  {"type": "tenet:item", "item": "minecraft:oak_log", "count": 8}]}""",
+                """
+                {"id": "hidden", "title": "Hidden", "disableRecipeMod": true, "tasks": [
+                  {"type": "tenet:item", "item": "minecraft:oak_log", "count": 8}]}""");
+        QuestViewerContent content = new QuestViewerContent();
+        content.tick();
+
+        assertTrue(ClientQuestCache.entry("hidden").hideFromViewers(),
+                "the resolved answer survives the wire");
+        assertFalse(ClientQuestCache.entry("shown").hideFromViewers(),
+                "absence means shown, which is what every old tree says");
+        assertEquals(1, content.pages().size(), "the hidden quest never becomes a page");
+        assertEquals("shown", content.pages().get(0).quest().id());
+        assertNull(content.page("hidden"), "and no id lookup finds it either");
+        assertEquals(List.of("shown"),
+                ids(content.index().questsUsing(ResourceLocation.parse("minecraft:oak_log"))),
+                "and no item lookup leads to it");
+    }
+
+    @Test
     @DisplayName("a tag task keeps its tag and finds its members through the resolver")
     void aTagTaskCarriesItsTagAndExpandsIt() {
         accept(ONE_QUEST);

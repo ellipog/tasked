@@ -33,9 +33,16 @@ class ChapterVisibilityTest {
         private final Map<String, Boolean> hides = new HashMap<>();
         private final Map<String, QuestState> states = new HashMap<>();
         private final Set<String> withVisibleQuests = new HashSet<>();
+        private final Set<String> alwaysHidden = new HashSet<>();
 
         Answers hides(String chapterId) {
             hides.put(chapterId, true);
+            return this;
+        }
+
+        /** The chapter is withheld from every reader, whatever its gate says. */
+        Answers alwaysHidden(String chapterId) {
+            alwaysHidden.add(chapterId);
             return this;
         }
 
@@ -53,6 +60,11 @@ class ChapterVisibilityTest {
         @Override
         public boolean hidesUntilDependenciesComplete(String chapterId) {
             return hides.getOrDefault(chapterId, false);
+        }
+
+        @Override
+        public boolean alwaysInvisible(String chapterId) {
+            return alwaysHidden.contains(chapterId);
         }
 
         @Override
@@ -169,6 +181,32 @@ class ChapterVisibilityTest {
                     "a withheld chapter is still a row to an author");
             assertTrue(ChapterVisibility.visible("brand_new", answers, true),
                     "and so is one with nothing in it");
+        }
+
+        @Test
+        @DisplayName("sees an always-invisible chapter too, or the flag could not be undone")
+        void seesAlwaysInvisible() {
+            Answers answers = new Answers().alwaysHidden("the_deep").shows("the_deep");
+
+            assertTrue(ChapterVisibility.visible("the_deep", answers, true),
+                    "hidden from every reader means every reader but an author");
+        }
+    }
+
+    @Nested
+    @DisplayName("an always-invisible chapter")
+    class AlwaysInvisible {
+
+        @Test
+        @DisplayName("is not a row, whatever its gate says and whatever it holds")
+        void hiddenWhateverTheGateSays() {
+            for (QuestState state : QuestState.values()) {
+                Answers answers = new Answers().alwaysHidden("the_deep").shows("the_deep")
+                        .state("the_deep", state);
+
+                assertFalse(visible(answers, "the_deep"),
+                        "withheld while " + state + ", even with a quest to show");
+            }
         }
     }
 

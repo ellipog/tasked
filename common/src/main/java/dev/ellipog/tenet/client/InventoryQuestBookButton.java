@@ -106,6 +106,11 @@ public final class InventoryQuestBookButton extends ArmatureButton {
     }
 
     private static void open(ArmatureButton button) {
+        // Refused with the pack's sentence when the pack disabled its book, like every other
+        // client-side open. See `QuestBookScreen.checkOpenAllowed`.
+        if (!QuestBookScreen.checkOpenAllowed()) {
+            return;
+        }
         ArmatureClient.openScreen(Tenet.QUEST_BOOK_SCREEN);
     }
 }

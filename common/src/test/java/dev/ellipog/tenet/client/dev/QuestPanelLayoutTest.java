@@ -102,13 +102,14 @@ class QuestPanelLayoutTest {
         assertTrue(heading.label().contains("tenet:item"), "the section names the type");
 
         // The registry's own field names plus the common ones, sorted: autoSubmitTicks, consumeItems,
-        // count, disableToast, icon, item, manualOnly, match, onlyFromCrafting, optional, title.
+        // count, disableToast, icon, item, manualOnly, match, onlyFromCrafting, optional, tags, title.
         // `conditions` is in
         // the registered set too and is filtered out on the way to a row, because a list of objects is
         // not a text cell.
         assertEquals(List.of("tasks.0.autoSubmitTicks", "tasks.0.consumeItems", "tasks.0.count",
                         "tasks.0.disableToast", "tasks.0.icon", "tasks.0.item", "tasks.0.manualOnly",
-                        "tasks.0.match", "tasks.0.onlyFromCrafting", "tasks.0.optional", "tasks.0.title"),
+                        "tasks.0.match", "tasks.0.onlyFromCrafting", "tasks.0.optional", "tasks.0.tags",
+                        "tasks.0.title"),
                 rows.stream().map(InspectRow::key)
                         .filter(key -> key.startsWith("tasks.0.") && !key.equals("tasks.0.type"))
                         .toList(),
@@ -253,9 +254,10 @@ class QuestPanelLayoutTest {
         assertEquals(2, lines.size(),
                 "a hint and the fields it will ask for, and no third line repeating the id: " + lines);
         assertEquals("Be in a biome, or any biome of a tag.", lines.get(0));
-        assertEquals("Fields: autoSubmitTicks, biome, conditions, disableToast, icon, optional, title",
+        assertEquals("Fields: autoSubmitTicks, biome, conditions, disableToast, icon, optional, tags,"
+                        + " title",
                 lines.get(1),
-                "the fields come from the registry -- the type's own plus the six every task has -- "
+                "the fields come from the registry -- the type's own plus the seven every task has -- "
                         + "not from a second list: " + lines);
 
         assertEquals(List.of("addon:mystery"), QuestPanelLayout.typeTooltip("tasks", "addon:mystery"),

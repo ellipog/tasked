@@ -1599,6 +1599,13 @@ public final class TenetNetworking {
 
     /** A command asked for the quest book: open it, on the named quest when one was named. */
     private static void handleOpenBook(OpenBookPayload payload) {
+        // Refused the same way as every other client-side open when the pack disabled its book:
+        // the server already refused the command itself, but a payload forged or delayed past a
+        // reload must not open what the file says is closed. `openOn` asks again for the quest
+        // branch, so this gate covers the plain branch.
+        if (!dev.ellipog.tenet.client.QuestBookScreen.checkOpenAllowed()) {
+            return;
+        }
         if (payload.questId() == null || payload.questId().isEmpty()) {
             dev.ellipog.armature.api.client.ArmatureClient.openScreen(dev.ellipog.tenet.Tenet.QUEST_BOOK_SCREEN);
         }

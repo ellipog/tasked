@@ -68,7 +68,10 @@ public final class RewardTypes {
                                     "the words the row wears instead of the type's own")
                             .hint("the words this reward's row wears; empty means the type's own sentence"),
                     dev.ellipog.tenet.quest.EditorField.icon("icon", "Picture")
-                            .hint("the picture this reward's row wears; empty means the type's own"));
+                            .hint("the picture this reward's row wears; empty means the type's own"),
+                    dev.ellipog.tenet.quest.EditorField.text("tags", "Tags",
+                                    "words this reward answers to, comma-separated")
+                            .hint("words this reward answers to in lookups by tag; empty means none"));
 
     /**
      * The four table-backed rewards share one form: <b>one</b> control.

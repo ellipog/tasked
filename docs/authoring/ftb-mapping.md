@@ -50,12 +50,14 @@ quietly becomes required fails there first.
 
 | FTB field | Tenet field | Notes for the tool |
 |---|---|---|
-| `require_sequential_tasks` (quest) | `sequentialTasks` (quest) | Same flag. The **chapter** default has no Tenet home yet — inline the resolved value onto each quest until one exists. |
+| `require_sequential_tasks` (quest) | `sequentialTasks` (quest) | Same flag. Either the quest's own flag or the chapter's `defaultSequentialTasks` makes its tasks sequential. |
+| `require_sequential_tasks` (chapter) | `defaultSequentialTasks` (chapter) | Same flag, as the chapter default for its quests. |
 | `hide_quest_until_deps_complete` | `hideUntilDependenciesComplete` | Absent defers to the chapter default on both sides; `false` forces the quest visible. |
 | `hide_quest_until_deps_visible` | `hideUntilDependenciesVisible` | Same tristate behaviour. |
 | `hide_dependency_lines` | `hideDependencyLines` | Incoming lines only; the outgoing side is `hideDependentLines` below. |
 | `hide_dependent_lines` | `hideDependentLines` | The outgoing half: lines leaving this quest for its dependants. Either silence wins. |
 | `disable_toast` (quest, task) | `disableToast` (quest, every task) | Same flag. A quieted quest announces no completion and no task rows; a quieted task skips only its own row. Either silence wins over the auto-claim ladder. |
+| `disable_recipe_mod` (quest) | `disableRecipeMod` (quest) | Same flag, as a tristate: absent defers to the file default below, `false` opts out of it. A hidden quest never reaches a viewer — the server resolves it onto the wire, since the client holds no file record. |
 | `min_width` (quest) | `minWidth` (quest) | Same field, 0–3000, 0 unset. A quest's own value wins over the chapter's `defaultMinWidth`. |
 | chapter `default_min_width` | `defaultMinWidth` (chapter) | The chapter default for its quests' panel width. |
 | chapter `autofocus_id` | `autofocus` (chapter) | The quest, by id or alias in this chapter, the canvas centres on when selected. Absent centres on the chapter's bounding box. |
@@ -66,9 +68,28 @@ quietly becomes required fails there first.
 | `hide_details_until_startable` | `hideDetailsUntilStartable` | Same flag. |
 | `invisible` (+ `invisible_until_tasks`) | `invisible` (+ `invisibleUntilTasks`) | Same pair, same counting rule. |
 | chapter `default_hide_dependency_lines` etc. | `defaultHideUntilDependenciesComplete`, `defaultHideUntilDependenciesVisible` | The chapter defaults for the two tristate flags above. |
-| chapter `default_consume_items` | `defaultConsumeItems` | The chapter default for item tasks. The **file** default (`default_consume_items` in `data.snbt`) has no Tenet home yet — inline the resolved value onto each chapter until one exists. |
+| chapter `default_consume_items` | `defaultConsumeItems` | The chapter default for item tasks. |
+| file `default_consume_items` | `defaultConsumeItems` (index settings) | The bottom rung of the consume ladder: a task wins over its chapter, the chapter over this. |
+| file `default_quest_disable_jei` | `defaultDisableRecipeMod` (index settings) | The fallback a quest's own `disableRecipeMod` defers to: with it on, every quest that says nothing stays out of the viewers. |
 | file `detection_delay` | `detectionDelay` | Same field: the minimum ticks between inventory checks, flooring item, item-tag, filter, fluid and energy tasks. |
 | quest `requiresStage` + `team_stage` | `requiresStage` + `requiresStageTeam` (quest) | The gate reads the team's stages when the team flag is set rather than the player's own. |
+| chapter `subtitle` (+ lang `chapter.<id>.chapter_subtitle`, a single-element array) | `subtitle` (chapter) | The one line under the chapter's name, drawn as the second line of its sidebar row's hover. The lang array's element becomes the subtitle's literal text; a pack that wants it translated instead writes `chapter.<id>.subtitle` in Tenet's own `lang/` folder. |
+| file `title` (+ lang `file.<id>.title`) | `bookTitle` (index settings) | What the book calls itself, drawn top-left in its header. The lang value becomes the title's literal text; a pack that wants it translated instead writes `book.title` in Tenet's own `lang/` folder. |
+| quest `hide_lock_icon` | `hideLockIcon` (quest) | The quest's own padlock: with it set, this locked quest wears no padlock on the canvas. The quest's half of the file's `showLockIcons` below; either silence wins. Tenet draws the padlock itself (a fills-drawn badge on the locked node) — FTB's overlay has no sprite here — and the node still reads locked through its edge and wash. |
+| chapter `always_invisible` | `alwaysInvisible` (chapter) | Same flag: the chapter is withheld from every reader whatever its gate says, while the gate itself still opens, completes and gates its quests. Its progress reads 100%, and the editor still lists it. No uses in the reference pack. |
+| `tags` (quest, chapter, task, reward, group) | `tags` | Same list on every object. Each tag is lowercase letters, digits and underscores, the same rule an id follows. A `#tag` lookup resolves to the first object of the asked kind carrying it — in commands, scripts and `open_quest` clicks. The reference pack's one use is `["village"]` on a quest. |
+| quest `guide_page` | `guidePage` (quest) | Same string. Tenet has no guide integration: the quest card shows it as a `Guide: <page>` reference and nothing reads it further. Empty means absent. No uses in the reference pack. |
+| file `show_lock_icons` | `showLockIcons` (index settings) | Whether a locked quest wears its padlock. Absent draws on both sides (`!contains \|\| getBoolean`), so a file that never heard of the field draws exactly as before. |
+| file `hide_excluded_quests` | `hideExcludedQuests` (index settings) | Whether quests shut out for good vanish from the reader's book. Tenet's exclusion is a taken `exclusiveGroup` or a reached `maxCompletableDependents` cap resolving to LOCKED, and the server marks those quests on the progress wire — the client cannot tell "excluded" from "not yet" by the state alone. |
+| file `pause_game` | `pauseGame` (index settings) | Whether the book pauses the world in single player: `isPauseScreen` answers this rather than a constant. |
+| file `disable_gui` | `disableGui` (index settings) | The book refuses to open: every open path answers "The quest book is disabled in this pack" instead of a screen. FTB's own semantics are unclear; Tenet reads it as a pack-level switch. |
+| file `drop_book_on_death` | `dropBookOnDeath` (index settings) | A dying player drops a quest book where they fell. |
+| file `grid_scale` | `gridScale` (index settings) | The editor canvas's grid step, 1/32 to 8, default 0.5. File-only for now: validated and stored, while the editor keeps its 8-unit step. |
+| file `lock_message` | `lockMessage` (index settings) | What a locked quest is called on its card when the pack has a better word than "Locked". Empty means the client's own word. |
+| file `emergency_items_cooldown` | `emergencyItemsCooldown` (index settings) | How long a player waits between `/tenet emergency` grants, in seconds (FTB documents no unit; Tenet reads seconds, so `300` is five minutes). |
+| file `emergency_items` | `emergencyItems` (index settings) | What `/tenet emergency` hands out: item references with counts and components. Empty means the command answers that there is nothing to grant. There is no book button — the shelf is asked for by name, with an in-memory per-player cooldown. |
+| file `drop_loot_crates`, `loot_crate_no_drop` | _tool-reported_ | No Tenet home: loot crates are out of scope (T29), so the tool reports these as manual work rather than emitting them. |
+| file `verify_on_load` | _tool-reported_ | No Tenet home: a loader flag with no quest-file meaning here, so the tool reports it as manual work. |
 
 ## Commands the tool rewrites
 
@@ -87,9 +108,25 @@ spellings, with quest ids remapped to the new lowercase Tenet ids:
 `editing_mode`, `locked` and the rest have no Tenet home: the tool reports them as manual work
 rather than emitting them.
 
+## Inlined at import (no Tenet field)
+
+Visual presets and chapter appearance defaults are resolved by the tool into explicit quest
+values — Tenet reads the result, never the preset:
+
+| FTB field | What the tool emits | Notes |
+|---|---|---|
+| quest/chapter/file `preset` + `presets` map (`goal`, `info`, `normal`) | quest `shape` + `size` | A preset names shape and size only. The tool resolves quest → chapter/file default → `presets[name]` and writes the shape and size onto each quest. Tenet keeps no preset map. |
+| chapter `default_quest_shape`, `default_quest_size` | quest `shape` + `size` | Same inlining: quest → chapter → file `default_quest_shape` → `circle` / `1.0`. An empty shape (`""`) and a zero size mean unset. |
+| chapter `default_repeatable_quest` | quest `repeatable` | Quest `can_repeat` → chapter default → `false`. |
+| chapter `default_hide_dependency_lines` | quest `hideDependencyLines` | Quest → chapter → `false`. |
+| file `default_quest_shape` | quest `shape` | Bottom of the shape chain above. |
+| file `progression_mode` | quest `flexibleProgress` | Quest tristate → chapter → file; `flexible` sets the flag. |
+
 ## Deliberately unmapped here
 
-Claim-timed repeats,
-file settings, presets and chapter appearance defaults, and ghost validation are all
+Claim-timed repeats
+and ghost validation are
 **not** on this page: each needs Tenet work first, and the tool must gate on that work rather
-than emit fields nothing reads.
+than emit fields nothing reads. The file settings that have no Tenet home — `drop_loot_crates`,
+`loot_crate_no_drop` (loot crates are out of scope) and `verify_on_load` (a loader flag) — are
+rows above marked _tool-reported_ rather than mappings.

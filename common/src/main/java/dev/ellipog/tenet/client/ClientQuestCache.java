@@ -324,7 +324,14 @@ public final class ClientQuestCache {
                                 * when the chapter says nothing — the canvas centres on its bounding box,
                                 * which is what a version-16 server always says.
                                 */
-                               String autofocus) {
+                               String autofocus,
+                                /**
+                                 * Whether this chapter is withheld from every reader, whatever its
+                                 * gate says. FTB Quests' {@code always_invisible}: a reader never sees
+                                 * the row, while an author still does. Sparse on the wire, so absent
+                                 * means shown, which is what every older server says.
+                                 */
+                                boolean alwaysInvisible) {
 
         public ChapterEntry {
             dependsOn = List.copyOf(dependsOn);
@@ -402,7 +409,7 @@ public final class ClientQuestCache {
      * as supported, which is worse than one that is absent.
      */
     public record Entry(String chapterGroupId, String chapterId, String chapterTitle, String chapterTheme,
-                        String id, String title, String subtitle,
+                        String id, String title, String subtitle, String chapterSubtitle,
                         List<String> description, ItemStack icon, int x, int y, int size, QuestShape shape,
                         double iconScale, int rotation, boolean showTitle,
                         /** The dependency rule, as the server resolved it: null means the chapter default. */
@@ -478,14 +485,18 @@ public final class ClientQuestCache {
                          */
                         dev.ellipog.tenet.quest.reward.RewardAutoClaim chapterAutoClaim,
                         /**
-                         * The four text fields' English halves, since version 13.
+                         * The text fields' English halves, since version 13.
                          *
                          * <h2>Why they are here rather than beside the text they belong to</h2>
                          *
                          * <p>Because each is the second half of a field that already exists, and
                          * grouping them says so: {@code title}/{@code titleFallback} are one fact in
                          * two parts, and a reader looking for "where did the English go" finds all
-                         * four answers in one place rather than four.
+                         * the answers in one place rather than scattered.
+                         *
+                         * <p>{@code chapterSubtitle} sits with the values above while its fallback
+                         * sits here, the same split {@code chapterTitle} has: the value rides with
+                         * the field it describes, and the English half rides with the other halves.
                          *
                          * <p>Each is <b>empty for a plain string</b> and holds the English words when
                          * the file wrote {@code {"translate": key, "fallback": words}}. That empty is
@@ -499,6 +510,7 @@ public final class ClientQuestCache {
                          * which resolves to the canonical paragraph that travelled beside it.
                          */
                         String titleFallback, String subtitleFallback, String chapterTitleFallback,
+                        String chapterSubtitleFallback,
                         List<String> descriptionFallbacks,
                         /**
                          * The quest's former ids, for the lookups the server answers by id or alias.
@@ -525,11 +537,37 @@ public final class ClientQuestCache {
                          * Whether completing this quest is announced. ORed with the silent
                          * auto-claim modes where notices are decided. Absent means announced.
                          */
-                        boolean disableToast) {
+                        boolean disableToast,
+                        /**
+                         * Whether recipe viewers list this quest. Resolved server-side from the
+                         * quest's own tristate against the file's default, since the client holds
+                         * no file record; absent means shown, which is what a version-19 server
+                         * always says. The viewer content skips these entries outright.
+                         */
+                        boolean hideFromViewers,
+                        /**
+                         * Whether this quest wears no lock mark of its own on the canvas. The
+                         * quest's half of the file's {@code showLockIcons}: either silence wins,
+                         * and the canvas reads both. Absent means drawn, which is what a
+                         * version-19 server always says.
+                         */
+                        boolean hideLockIcon,
+                        /**
+                         * Words this quest answers to in lookups by tag. Sparse on the wire:
+                         * absent means none, which is what every older server says.
+                         */
+                        List<String> tags,
+                        /**
+                         * The guide book page this quest belongs to, or empty when it names none.
+                         * A reference the quest card shows; Tenet has no guide integration, so
+                         * nothing reads it further. Sparse on the wire, like the tags above.
+                         */
+                        String guidePage) {
 
         public Entry {
             descriptionFallbacks = List.copyOf(descriptionFallbacks);
             aliases = List.copyOf(aliases);
+            tags = List.copyOf(tags);
         }
 
         /**
@@ -537,10 +575,20 @@ public final class ClientQuestCache {
          *
          * <p>Without regard to letter case, because lookups are: the server normalises the same way,
          * and a client that resolved case-sensitively would refuse a reference the server accepts.
-         * See {@code Quest#matches} for the server's own half of this.
+         * A {@code "#tag"} resolves to the first quest carrying it, the client's half of the
+         * server's own lookup. See {@code Quest#matches} for the server's own half of this.
          */
         public boolean matches(String idOrAlias) {
             if (idOrAlias == null) {
+                return false;
+            }
+            if (idOrAlias.startsWith("#") && idOrAlias.length() > 1) {
+                String tag = idOrAlias.substring(1);
+                for (String held : tags) {
+                    if (held.equalsIgnoreCase(tag)) {
+                        return true;
+                    }
+                }
                 return false;
             }
             if (id.equalsIgnoreCase(idOrAlias)) {
@@ -602,6 +650,24 @@ public final class ClientQuestCache {
         /** The chapter title with its FTB tokens still in it. See {@link #titleTextRaw}. */
         public String chapterTitleTextRaw() {
             return textRaw(chapterTitle, chapterTitleFallback, "chapter." + chapterId + ".title");
+        }
+
+        /**
+         * The chapter's subtitle, as the player reads it.
+         *
+         * <p>The one line under the chapter's name, which the sidebar row's hover draws: the row's
+         * label is the title, so this is the hover's second line. Empty for a chapter that names no
+         * subtitle — which is every chapter a version-19 server ever sent — and empty for a literal
+         * until the pack's {@code chapter.<id>.subtitle} translates it. Authoring paths use
+         * {@link #chapterSubtitle()}.
+         */
+        public String chapterSubtitleText() {
+            return text(chapterSubtitle, chapterSubtitleFallback, "chapter." + chapterId + ".subtitle");
+        }
+
+        /** The chapter subtitle with its FTB tokens still in it. See {@link #titleTextRaw}. */
+        public String chapterSubtitleTextRaw() {
+            return textRaw(chapterSubtitle, chapterSubtitleFallback, "chapter." + chapterId + ".subtitle");
         }
 
         /**
@@ -752,7 +818,15 @@ public final class ClientQuestCache {
                              * never repeated, which reads as zero — the direction that cannot invent a
                              * history.
                              */
-                            int timesCompleted) {
+                            int timesCompleted,
+                            /**
+                             * Whether an exclusive choice shut this quest out for good — a taken group,
+                             * or a reached dependent cap. Absent for every quest of a server that
+                             * predates the mark, which reads as not excluded: without it the
+                             * {@code hideExcludedQuests} setting has nothing to hide. See
+                             * {@link #excludedOf}.
+                             */
+                            boolean excluded) {
 
         /** Who is holding what toward one task, in the order the server named them. Empty for nobody. */
         Map<UUID, Integer> contributorsOf(int taskIndex) {
@@ -910,6 +984,22 @@ public final class ClientQuestCache {
     private static volatile ItemStack bookIconStack = ItemStack.EMPTY;
     /** The book's texture path when its icon is a texture, and empty otherwise. See {@link #bookIcon}. */
     private static volatile String bookTextureIcon = "";
+
+    /**
+     * The file's own answers the client draws with, from the tree root.
+     *
+     * <p>Every one travels sparse and unversioned — absent means the default, which is what a
+     * server that predates the key always says — so each default here must match the file's:
+     * marks shown, nothing hidden, the world unpaused, the book opening, and no custom locked
+     * word. {@code acceptTree}'s catch and {@code clear()} both
+     * reset them with everything else, so a malformed tree or a disconnect cannot leave one
+     * pack's answers on another's book.
+     */
+    private static volatile boolean showLockIcons = true;
+    private static volatile boolean hideExcludedQuests = false;
+    private static volatile boolean pauseGame = false;
+    private static volatile boolean guiDisabled = false;
+    private static volatile String lockMessage = "";
 
     /**
      * Which tree this cache holds, as a number that only ever increases.
@@ -1195,6 +1285,27 @@ public final class ClientQuestCache {
         return null;
     }
 
+    /**
+     * The chapter's subtitle, as the player reads it, or empty when it names none.
+     *
+     * <p>Looked up in the entries like {@link #chapterTheme}, for the same reason: the subtitle
+     * arrives on every quest of the chapter, so a second structure would be a second thing to keep
+     * in step. What the sidebar row's hover draws. Empty for a chapter with no quests — which
+     * carries no entry to read one from — and for every chapter of a server older than version 20,
+     * which sent none at all.
+     */
+    public static String chapterSubtitleText(String chapterId) {
+        if (chapterId == null) {
+            return "";
+        }
+        for (Entry entry : entries) {
+            if (entry.chapterId().equals(chapterId)) {
+                return entry.chapterSubtitleText();
+            }
+        }
+        return "";
+    }
+
     public static int questCount() {
         return questCount;
     }
@@ -1203,8 +1314,27 @@ public final class ClientQuestCache {
         return chapterCount;
     }
 
-    /** The pack's own name for the book, or empty for the client's translatable title. */
+    /**
+     * The pack's own name for the book, as the player reads it.
+     *
+     * <p>The tree's title overlaid with the pack's {@code book.title}: a pack that ships that key
+     * renames the book for every language it translates, without touching {@code index.json}. Empty
+     * reads as the client's own translatable title, which is what a pack that declares no title gets
+     * — and what the header drew before the overlay existed, when nothing could translate it.
+     */
     public static String bookTitle() {
+        return ClientLocale.text("book.title", bookTitle);
+    }
+
+    /**
+     * The tree's own book title, exactly as the server sent it.
+     *
+     * <p>The raw half of {@link #bookTitle()}: the editor seeds its Book field from this, because a
+     * translated string written back to {@code index.json} would replace the author's own words with
+     * somebody else's translation of them. See the {@code title()}/{@code titleText()} split on the
+     * entries, which exists for the same reason.
+     */
+    public static String bookTitleRaw() {
         return bookTitle;
     }
 
@@ -1231,6 +1361,81 @@ public final class ClientQuestCache {
      */
     public static String bookTextureIcon() {
         return bookTextureIcon;
+    }
+
+    /**
+     * Whether a locked quest wears its lock mark: the file's {@code showLockIcons}, read with the
+     * quest's own {@code hideLockIcon} where a node is drawn. True for every server that predates
+     * the key, which sent none at all.
+     */
+    public static boolean showLockIcons() {
+        return showLockIcons;
+    }
+
+    /**
+     * Whether a quest's own flag hides its lock mark, regardless of the file above.
+     *
+     * <p>False for a quest the tree never marked, which is every quest on a server that predates
+     * the key. Read beside {@link #showLockIcons} — either silence wins — so a caller that only
+     * asks one of them is a caller that draws a mark the pack asked to hide.
+     */
+    public static boolean hideLockIconOf(String questId) {
+        Entry found = entry(questId);
+        return found != null && found.hideLockIcon();
+    }
+
+    /**
+     * Whether the reader's book hides quests an exclusive choice shut out.
+     *
+     * <p>False for every server that predates the key. Read with {@link #excludedOf}: the setting
+     * says whether to hide, and the progress mark says which quests it applies to.
+     */
+    public static boolean hideExcludedQuests() {
+        return hideExcludedQuests;
+    }
+
+    /**
+     * Whether this quest was shut out for good by an exclusive choice — a taken group, or a
+     * reached dependent cap — rather than merely not yet unlocked.
+     *
+     * <p>False for every quest on a server that predates the mark, which is the reading that hides
+     * least: without it the setting above has nothing to hide.
+     */
+    public static boolean excludedOf(String questId) {
+        Progress found = progress.get(questId);
+        return found != null && found.excluded();
+    }
+
+    /**
+     * Whether the book pauses the world in single player: the file's {@code pauseGame}, which
+     * {@code QuestBookScreen.isPauseScreen} answers with.
+     *
+     * <p>False for every server that predates the key — the book has never paused the world, and
+     * a pack that never heard of the field keeps that behaviour.
+     */
+    public static boolean pauseGame() {
+        return pauseGame;
+    }
+
+    /**
+     * Whether the book refuses to open: the file's {@code disableGui}.
+     *
+     * <p>False for every server that predates the key. Every open path answers with the same
+     * sentence instead of a screen while this holds.
+     */
+    public static boolean guiDisabled() {
+        return guiDisabled;
+    }
+
+    /**
+     * What a locked quest is called when the pack has a better word than "Locked": the file's
+     * {@code lockMessage}, the author's own sentence.
+     *
+     * <p>Empty means the client's own word, which is what every pack that predates the key gets —
+     * and what the card draws without consulting this at all.
+     */
+    public static String lockMessage() {
+        return lockMessage;
     }
 
     public static long syncedAt() {
@@ -1697,6 +1902,11 @@ public final class ClientQuestCache {
             bookIcon = "";
             bookIconStack = ItemStack.EMPTY;
             bookTextureIcon = "";
+            showLockIcons = true;
+            hideExcludedQuests = false;
+            pauseGame = false;
+            guiDisabled = false;
+            lockMessage = "";
             treeReceived = false;
         }
     }
@@ -1813,6 +2023,11 @@ public final class ClientQuestCache {
         bookIcon = "";
         bookIconStack = ItemStack.EMPTY;
         bookTextureIcon = "";
+        showLockIcons = true;
+        hideExcludedQuests = false;
+        pauseGame = false;
+        guiDisabled = false;
+        lockMessage = "";
         treeReceived = false;
         // The sampled outlines go with the trees that asked for them: they are keyed by shape and
         // angle, so they cannot go stale, but a world's worth of them is not this world's to keep.
@@ -1914,7 +2129,9 @@ public final class ClientQuestCache {
                         chapter.has("hideUntilDependenciesComplete")
                                 && chapter.get("hideUntilDependenciesComplete").getAsBoolean(),
                         str(chapter, "titleFallback"),
-                        str(chapter, "autofocus")));
+                        str(chapter, "autofocus"),
+                        chapter.has("alwaysInvisible")
+                                && chapter.get("alwaysInvisible").getAsBoolean()));
 
                 // The canvas's decoration, when the server sent any -- version 14 and a chapter that has
                 // some. Read by the element codec rather than field by field, which is the other half of
@@ -1993,6 +2210,16 @@ public final class ClientQuestCache {
         bookIcon = book.id();
         bookIconStack = book.stack();
         bookTextureIcon = book.texture();
+        // The file's own answers, when the tree carries them. Each travels sparse and unversioned,
+        // so absence is the default — which is what a server that predates the key always says,
+        // and what the accessors above promise. Read here, beside the book's identity, for the
+        // same reason: they travel with the tree, and the catch and `clear()` reset them below.
+        showLockIcons = !root.has("showLockIcons") || root.get("showLockIcons").getAsBoolean();
+        hideExcludedQuests = root.has("hideExcludedQuests")
+                && root.get("hideExcludedQuests").getAsBoolean();
+        pauseGame = root.has("pauseGame") && root.get("pauseGame").getAsBoolean();
+        guiDisabled = root.has("disableGui") && root.get("disableGui").getAsBoolean();
+        lockMessage = str(root, "lockMessage");
 
         List<Entry> parsed = new ArrayList<>(quests.size());
         for (JsonElement element : quests) {
@@ -2079,6 +2306,9 @@ public final class ClientQuestCache {
                     str(quest, "id"),
                     str(quest, "title"),
                     str(quest, "subtitle"),
+                    // The chapter's subtitle, since version 20. Absent — every older server, and
+                    // every chapter that names none — reads as "", which resolves to nothing.
+                    str(quest, "chapterSubtitle"),
                     List.copyOf(description),
                     questIcon.stack(),
                     quest.has("x") ? quest.get("x").getAsInt() : 0,
@@ -2156,11 +2386,12 @@ public final class ClientQuestCache {
                             ? quest.getAsJsonObject("chapterThemePatch") : null,
                     autoClaim(quest, "autoClaim"),
                     autoClaim(quest, "chapterAutoClaim"),
-                    // The four text fields' English halves, absent for every literal -- see the record's
+                    // The text fields' English halves, absent for every literal -- see the record's
                     // own note on why an empty fallback is the fact that says "this is not a key".
                     str(quest, "titleFallback"),
                     str(quest, "subtitleFallback"),
                     str(quest, "chapterTitleFallback"),
+                    str(quest, "chapterSubtitleFallback"),
                     List.copyOf(descriptionFallbacks),
                     // Former ids, when the server sent any -- version 16 and a quest that was renamed.
                     // Absent means none, which is what a version-15 tree always says: the key's presence
@@ -2172,7 +2403,18 @@ public final class ClientQuestCache {
                     quest.has("minWidth") ? Math.max(0, quest.get("minWidth").getAsInt()) : 0,
                     quest.has("hideDependentLines")
                             && quest.get("hideDependentLines").getAsBoolean(),
-                    quest.has("disableToast") && quest.get("disableToast").getAsBoolean()));
+                    quest.has("disableToast") && quest.get("disableToast").getAsBoolean(),
+                    quest.has("hideFromViewers")
+                            && quest.get("hideFromViewers").getAsBoolean(),
+                    quest.has("hideLockIcon")
+                            && quest.get("hideLockIcon").getAsBoolean(),
+                    // Words this quest answers to in lookups by tag. Sparse: absent means none,
+                    // which is what every older server says. Read like the aliases above, whose
+                    // key's presence is likewise the fact.
+                    readTags(quest),
+                    // The guide book page this quest belongs to, or empty when it names none.
+                    // Sparse, like the tags: absent means none.
+                    str(quest, "guidePage")));
         }
         entries = List.copyOf(parsed);
         groups = List.copyOf(parsedGroups);
@@ -2458,7 +2700,8 @@ public final class ClientQuestCache {
                         lockMap(one, "rewardLocks"),
                         one.has("settled") && one.get("settled").getAsBoolean(),
                         Set.copyOf(ready),
-                        one.has("timesCompleted") ? Math.max(0, one.get("timesCompleted").getAsInt()) : 0));
+                        one.has("timesCompleted") ? Math.max(0, one.get("timesCompleted").getAsInt()) : 0,
+                        one.has("excluded") && one.get("excluded").getAsBoolean()));
             }
         }
         progress = Map.copyOf(next);
@@ -2723,5 +2966,24 @@ public final class ClientQuestCache {
             }
         }
         return List.copyOf(aliases);
+    }
+
+    /**
+     * Words a quest answers to in lookups by tag, as the tree sent them, or empty.
+     *
+     * <p>Read like the aliases above, and lenient for the same reason: strings only, and an
+     * absent or misshapen list is no tags rather than a failed tree.
+     */
+    private static List<String> readTags(JsonObject quest) {
+        if (!quest.has("tags") || !quest.get("tags").isJsonArray()) {
+            return List.of();
+        }
+        List<String> tags = new ArrayList<>();
+        for (JsonElement each : quest.getAsJsonArray("tags")) {
+            if (each.isJsonPrimitive() && each.getAsJsonPrimitive().isString()) {
+                tags.add(each.getAsString());
+            }
+        }
+        return List.copyOf(tags);
     }
 }

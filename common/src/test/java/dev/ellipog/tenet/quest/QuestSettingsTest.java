@@ -50,4 +50,35 @@ class QuestSettingsTest {
         assertTrue(QuestSettings.FIELDS.contains("clickCommandLevel"),
                 "or the schema comparison names it as undocumented");
     }
+
+    @Test
+    @DisplayName("a file that says nothing about behaviour gets the old behaviour (T26)")
+    void behaviourDefaultsAreTheOldBehaviour() {
+        QuestSettings defaults = QuestSettings.DEFAULTS;
+        assertTrue(defaults.showLockIcons(), "marks drawn, as FTB reads an absent field");
+        assertTrue(!defaults.hideExcludedQuests() && !defaults.pauseGame()
+                        && !defaults.disableGui() && !defaults.dropBookOnDeath(),
+                "nothing hidden, paused, refused or dropped");
+        assertEquals(0.5, defaults.gridScale());
+        assertEquals("", defaults.lockMessage());
+        assertEquals(300, defaults.emergencyItemsCooldown());
+        assertTrue(defaults.emergencyItems().isEmpty());
+
+        QuestSettings read = read("{}");
+        assertTrue(read.showLockIcons(), "absent draws rather than refusing");
+        assertEquals(defaults.emergencyItemsCooldown(), read.emergencyItemsCooldown());
+    }
+
+    @Test
+    @DisplayName("the behaviour fields are declared for the schema comparison (T26)")
+    void behaviourFieldsAreDeclared() {
+        for (String field : new String[] {"showLockIcons", "hideExcludedQuests", "pauseGame",
+                "disableGui", "dropBookOnDeath", "gridScale", "lockMessage",
+                "emergencyItemsCooldown", "emergencyItems"}) {
+            assertTrue(QuestSettings.FIELDS.contains(field),
+                    "or the schema comparison names " + field + " as undocumented");
+            assertTrue(QuestSettingsExtra.FIELDS.contains(field),
+                    "or the grouping does not carry " + field);
+        }
+    }
 }

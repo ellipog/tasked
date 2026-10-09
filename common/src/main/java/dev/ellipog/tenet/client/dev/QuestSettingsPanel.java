@@ -122,10 +122,14 @@ public final class QuestSettingsPanel {
             Map.entry("minWidth", "tenet.dev.help.min_width"),
             Map.entry("disableToast", "tenet.dev.help.disable_toast"),
             Map.entry("ignoreRewardBlocking", "tenet.dev.help.ignore_reward_blocking"),
+            Map.entry("disableRecipeMod", "tenet.dev.help.disable_recipe_mod"),
+            Map.entry("hideLockIcon", "tenet.dev.help.hide_lock_icon"),
             Map.entry("hideTextUntilComplete", "tenet.dev.help.hide_text_until_done"),
             Map.entry("hideDetailsUntilStartable", "tenet.dev.help.hide_details_until_startable"),
             Map.entry("id", "tenet.dev.help.id"),
-            Map.entry("aliases", "tenet.dev.help.aliases"));
+            Map.entry("aliases", "tenet.dev.help.aliases"),
+            Map.entry("tags", "tenet.dev.help.tags"),
+            Map.entry("guidePage", "tenet.dev.help.guide_page"));
 
     /**
      * Draws the whole page: the preview, the controls, and the help line under them.
@@ -429,6 +433,10 @@ public final class QuestSettingsPanel {
                     QuestSettingsLayout.triStateLabel(value, view.chapterHideUntilDepsComplete());
             case "hideUntilDependenciesVisible" ->
                     QuestSettingsLayout.triStateLabel(value, view.chapterHideUntilDepsVisible());
+            // The viewer flag defers to the file's settings rather than to the chapter, and the
+            // file's settings are not synced to this client — so its unset state names no value.
+            // See `QuestSettingsLayout.fileDefaultLabel`.
+            case "disableRecipeMod" -> QuestSettingsLayout.fileDefaultLabel(value);
             default -> QuestSettingsLayout.requirementLabel(value, view.chapterRequirement());
         };
         r.text(Measure.truncate(shown, Math.max(0, strip.width() - 40),

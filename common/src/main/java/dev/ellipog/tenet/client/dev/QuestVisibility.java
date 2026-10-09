@@ -78,6 +78,30 @@ public final class QuestVisibility {
         return visible(id, lookup, states, ruleMet, tasksWithProgress, new ArrayDeque<>());
     }
 
+    /**
+     * The same, with the pack's answer on quests an exclusive choice shut out.
+     *
+     * <p>FTB Quests' {@code hide_excluded_quests}: when the file hides the shut-out, an excluded
+     * quest is not drawn — read before every reveal flag, because an excluded quest resolves
+     * LOCKED and the flags below would otherwise draw it locked. A completed quest still shows,
+     * because nothing can be lost behind a flag, which is the rule the family below keeps.
+     *
+     * @param excluded    whether the server marked a quest shut out for good — a taken exclusive
+     *                    group, or a reached dependent cap — rather than merely not yet unlocked.
+     *                    The state cannot answer this, which is why it travels as its own mark.
+     * @param hideExcluded whether the file hides the shut-out at all; false draws them locked
+     */
+    public static boolean visible(String id, Lookup lookup, Function<String, QuestState> states,
+                                  Function<String, Boolean> ruleMet,
+                                  Function<String, Integer> tasksWithProgress,
+                                  Function<String, Boolean> excluded,
+                                  boolean hideExcluded) {
+        if (hideExcluded && excluded.apply(id) && states.apply(id) != QuestState.COMPLETED) {
+            return false;
+        }
+        return visible(id, lookup, states, ruleMet, tasksWithProgress, new ArrayDeque<>());
+    }
+
     private static boolean visible(String id, Lookup lookup, Function<String, QuestState> states,
                                    Function<String, Boolean> ruleMet,
                                    Function<String, Integer> tasksWithProgress,
@@ -158,6 +182,19 @@ public final class QuestVisibility {
      */
     public static boolean drawsDependentLines(boolean hideDependentLines) {
         return !hideDependentLines;
+    }
+
+    /**
+     * Whether a locked quest wears its lock mark on the canvas.
+     *
+     * <p>FTB Quests' {@code show_lock_icons} with the quest's own {@code hide_lock_icon}: the
+     * file hides every mark, or this quest hides its own, and either silence wins. Read where the
+     * node is drawn, off the tree's setting and the quest's flag — both travel on the tree, so no
+     * reader needs the file. Absent draws on both sides, which is what every file written before
+     * either field existed says.
+     */
+    public static boolean drawsLockMark(boolean showLockIcons, boolean hideLockIcon) {
+        return showLockIcons && !hideLockIcon;
     }
 
     /**

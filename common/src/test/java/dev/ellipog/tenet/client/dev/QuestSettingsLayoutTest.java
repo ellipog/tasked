@@ -658,5 +658,28 @@ class QuestSettingsLayoutTest {
             assertEquals("one started", QuestSettingsLayout.requirementLabel("one_started", "all_completed"),
                     "a written-out mode should read as itself, not as the default");
         }
+
+        @Test
+        @DisplayName("the viewer flag is a tristate row whose unset state defers to the file")
+        void theViewerFlagIsTriState() {
+            // The press path is the shared one: the default, on, off — cycling and writing are the
+            // tristate's own, so a quest can opt out of a file that hides its quests by default.
+            assertTrue(QuestSettingsLayout.isTriStateKey("disableRecipeMod"),
+                    "the press must cycle it like the reveal flags, or the third state writes nothing");
+            assertEquals("true", QuestSettingsLayout.cycleTriState("", 1));
+            assertNull(QuestSettingsLayout.triStateValue(""),
+                    "the unset state is the absence of the field, so a file that says nothing stays unsaid");
+            // The unset label names no value: the file's settings are not synced to this client, so
+            // the page cannot know which way the file goes — unlike the chapter default the reveal
+            // rows name beside it. Asserted as a difference plus the word both spellings share,
+            // because a language is not guaranteed to be installed in the test JVM: with one the
+            // label reads "File default", without it the key, "tenet.dev.quest.file_default".
+            String unset = QuestSettingsLayout.fileDefaultLabel("");
+            assertTrue(unset.toLowerCase(java.util.Locale.ROOT).contains("file"),
+                    "the unset state should read as the file's default, got: " + unset);
+            assertNotEquals(unset, QuestSettingsLayout.fileDefaultLabel("true"));
+            assertNotEquals(QuestSettingsLayout.fileDefaultLabel("true"),
+                    QuestSettingsLayout.fileDefaultLabel("false"));
+        }
     }
 }

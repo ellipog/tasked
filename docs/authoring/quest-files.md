@@ -71,10 +71,13 @@ itself left out of a reader's book, so the whole chapter arrives as one reveal.
 
 The fields a group or a chapter can carry beyond those are on [[tenet:authoring/quests]], because they are the
 same fields a quest inherits from them: `defaultPrerequisiteMode`, `defaultConsumeItems`,
-`defaultFlexibleProgress`, `defaultMinWidth`, and the
+`defaultFlexibleProgress`, `defaultMinWidth`, `defaultSequentialTasks`, and the
 `dependencyStyle` a chapter's lines are drawn with. A chapter's own `dependsOn`, `prerequisiteMode`,
-`minRequired`, `completesWhen`, `autofocus` and `hideUntilDependenciesComplete` are documented there too, under
-*[a chapter's own dependencies](quests.md#a-chapters-own-dependencies)*.
+`minRequired`, `completesWhen`, `autofocus`, `hideUntilDependenciesComplete` and `alwaysInvisible`
+are documented there too, under
+*[a chapter's own dependencies](quests.md#a-chapters-own-dependencies)*. Quests, chapters and
+groups each carry an optional `tags` list as well — see
+*[tags](quests.md#tags)*.
 
 > [!WARNING]
 > **A folder's name is its id, and that is checked.** A folder called `first_light` whose manifest
@@ -205,7 +208,18 @@ thing it affects:
 | `suppressAllAutoclaiming` | `false` | Holds every automatic payout, whatever individual rewards say — an operator's switch for an event |
 | `detectionDelay` | `20` | Minimum ticks between inventory checks: an item, item-tag, filter, fluid or energy task is re-read no more often than this, whatever its own interval says. Other task types keep their own cadence. |
 | `clickCommandLevel` | `0` | What a canvas click's `run_command` runs as: `0` is the pressing player's own level, `2` is elevated enough for `say`, `give` and `summon` without opening op. Never above `2`, and never the presser's own level however high that is. File-only: no client draws it, so the Book panel has no row for it. |
-| `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title |
+| `defaultConsumeItems` | `false` | Whether item tasks take the items when neither the task nor its chapter says: the bottom rung of the consume ladder (task wins over chapter, chapter over this). |
+| `defaultDisableRecipeMod` | `false` | Whether quests stay out of recipe viewers (JEI, REI, EMI) when they say nothing themselves: the fallback a quest's own `disableRecipeMod` defers to, and a quest may write `false` to opt out. |
+| `showLockIcons` | `true` | Whether a locked quest wears its padlock on the canvas. A quest opts out for itself with `hideLockIcon` (see [[tenet:authoring/quests]]); either silence wins. Synced to every client with the tree. |
+| `hideExcludedQuests` | `false` | Whether quests shut out for good by an exclusive choice (a taken `exclusiveGroup`, or a reached `maxCompletableDependents` cap) vanish from the reader's book instead of drawing locked. Synced to every client with the tree. |
+| `pauseGame` | `false` | Whether the book pauses the world in single player while it is open. Synced to every client with the tree. |
+| `disableGui` | `false` | Whether the book refuses to open: every open path (command, key, button, book item, viewer) answers "The quest book is disabled in this pack" instead of a screen. Synced to every client with the tree. |
+| `dropBookOnDeath` | `false` | Whether a dying player drops a quest book where they fell, so death cannot take the pack away with it. Server-side: nothing crosses the wire. |
+| `gridScale` | `0.5` | The editor canvas's grid step, from FTB Quests' `grid_scale` (1/32 to 8). File-only for now: validated and stored, while the editor keeps its 8-unit step — see the field's note in the schema. |
+| `lockMessage` | `""` | What a locked quest is called when the pack has a better word than "Locked": the author's own sentence, drawn on the quest card. Empty means the client's own word. Synced to every client with the tree. |
+| `emergencyItemsCooldown` | `300` | How long a player waits between `/tenet emergency` grants, in seconds (FTB documents no unit; Tenet reads seconds, so `300` is five minutes). See [[tenet:commands]]. |
+| `emergencyItems` | `[]` | What `/tenet emergency` hands out: item references with counts and components, exactly as a task writes them. Empty means the command answers that there is nothing to grant. See [[tenet:commands]]. |
+| `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title. Translatable via `book.title` in `lang/` — see [[tenet:authoring/languages]] |
 | `bookIcon` | `""` | The item id the book wears in its header; an id a client cannot resolve is drawn as a missing-item mark |
 
 The last two are the book's identity, synced to every client with the tree. They can be set by hand
