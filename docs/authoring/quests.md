@@ -317,6 +317,20 @@ ladder: a quest that asked for no toast gets none, whatever its `auto` says.
 | task | That task's row only; its siblings still speak. |
 | reward | Recorded on the model, the wire and the editor for the reward-level notice. No such notice exists yet — only quest and task notices do — so it travels as data for the notice that will. A reward in a quieted quest stays quiet through the quest's own flag. |
 
+## Held payouts
+
+`/tenet rewards block` holds a team's payouts, and a held reward stays outstanding until it is
+released. Two flags exempt a payout from the hold — FTB Quests' `ignore_reward_blocking` on both
+quest objects:
+
+| Where | Exempts |
+|---|---|
+| quest (`ignoreRewardBlocking`) | Every reward on the quest. |
+| reward (`ignoreRewardBlocking`) | Just itself. |
+
+Either flag wins: a held team still pays a quest that asked to be exempt, and a held quest still
+pays the one reward on it that asked. See [[tenet:authoring/rewards]].
+
 ## Stages
 
 `requiresStage` is a namespaced id the player must have for the quest to be open to them:
@@ -329,6 +343,11 @@ It is the one gate here that is **per player rather than per team**: a quest gat
 to a player who has it and locked to one who does not, even in the same party. Stages are granted by
 [[tenet:authoring/rewards|stage rewards]] and removed by them, read by stage tasks, and manipulated from
 scripts — see [[tenet:authoring/kubejs]].
+
+`requiresStageTeam: true` reads the gate from the team's stages instead: one member's induction opens
+the quest for everybody. The team half is granted by a stage reward with `teamStage: true`, asked about
+by a stage task with `teamStage: true`, and handed out by hand with `/tenet stage add-team`. FTB Quests
+calls the flag `team_stage`.
 
 > [!WARNING]
 > Nothing validates that a stage exists, because a stage exists by being granted: there is no list to

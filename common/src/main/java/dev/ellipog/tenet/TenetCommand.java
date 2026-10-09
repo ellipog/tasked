@@ -41,6 +41,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -150,10 +151,31 @@ public final class TenetCommand {
                                 .then(Commands.argument("task", IntegerArgumentType.integer(0))
                                         .executes(ctx -> submit(ctx, IntegerArgumentType.getInteger(ctx, "task"))))))
 
+                // Forcing quests through for testing a chain, and the two wider spellings a pack's
+                // command rewards and click actions are rewritten to: `with-dependencies` finishes the
+                // quest and everything it waits on, and `complete-all` finishes the whole book. All three
+                // take an optional player, so an operator (or a command block's script) can move somebody
+                // else's progress; without one they move the invoker's. FTB Quests' names for these are
+                // what the migration tool rewrites from.
                 .then(Commands.literal("complete")
                         .requires(QuestAuthority.mayEdit())
                         .then(Commands.argument("quest", StringArgumentType.word())
-                                .executes(TenetCommand::complete)))
+                                .executes(ctx -> complete(ctx, false, null))
+                                .then(Commands.literal("with-dependencies")
+                                        .executes(ctx -> complete(ctx, true, null))
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(ctx -> complete(ctx, true,
+                                                        EntityArgument.getPlayer(ctx, "player")))))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(ctx -> complete(ctx, false,
+                                                EntityArgument.getPlayer(ctx, "player"))))))
+
+                .then(Commands.literal("complete-all")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(ctx -> completeAll(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(ctx -> completeAll(ctx,
+                                        EntityArgument.getPlayer(ctx, "player")))))
 
                 // No permission gate, and that is the point rather than an omission: this is a player
                 // collecting what they already earned, not an operator changing anything. The same
@@ -174,9 +196,37 @@ public final class TenetCommand {
 
                 .then(Commands.literal("reset")
                         .requires(QuestAuthority.mayEdit())
-                        .executes(ctx -> reset(ctx, null))
+                        .executes(ctx -> reset(ctx, null, false, null))
                         .then(Commands.argument("quest", StringArgumentType.word())
-                                .executes(ctx -> reset(ctx, StringArgumentType.getString(ctx, "quest")))))
+                                .executes(ctx -> reset(ctx, StringArgumentType.getString(ctx, "quest"),
+                                        false, null))
+                                .then(Commands.literal("with-dependencies")
+                                        .executes(ctx -> reset(ctx,
+                                                StringArgumentType.getString(ctx, "quest"), true, null))
+                                        .then(Commands.argument("player", EntityArgument.player())
+                                                .executes(ctx -> reset(ctx,
+                                                        StringArgumentType.getString(ctx, "quest"), true,
+                                                        EntityArgument.getPlayer(ctx, "player")))))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .executes(ctx -> reset(ctx,
+                                                StringArgumentType.getString(ctx, "quest"), false,
+                                                EntityArgument.getPlayer(ctx, "player"))))))
+
+                .then(Commands.literal("reset-all")
+                        .requires(QuestAuthority.mayEdit())
+                        .executes(ctx -> resetAll(ctx, null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(ctx -> resetAll(ctx,
+                                        EntityArgument.getPlayer(ctx, "player")))))
+
+                // Opens the quest book on the invoker's client, on one quest when one is named. No
+                // permission gate: opening a book is a player's own act, like collecting a reward.
+                // FTB Quests' `/ftbquests open_book`, which command rewards and click actions name.
+                .then(Commands.literal("open_book")
+                        .executes(ctx -> openBook(ctx, ""))
+                        .then(Commands.argument("quest", StringArgumentType.word())
+                                .executes(ctx -> openBook(ctx,
+                                        StringArgumentType.getString(ctx, "quest")))))
 
                 .then(Commands.literal("types")
                         .executes(TenetCommand::types))
@@ -184,22 +234,40 @@ public final class TenetCommand {
                 // Stages: the flags a pack's quests and scripts ask about. Add and remove are an operator's
                 // business -- they hand out progression -- while listing is something a player may do for
                 // themselves, which is why the gate is on the two subcommands rather than on the subtree.
+                // The `-team` variants are FTB Quests' `/ftbteams teamstage`: one member's induction held
+                // by the whole party, read by team-stage tasks and team-gated quests.
                 .then(Commands.literal("stage")
                         .then(Commands.literal("add")
                                 .requires(QuestAuthority.mayEdit())
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .then(Commands.argument("stage", ResourceLocationArgument.id())
                                                 .executes(ctx -> stage(ctx, true)))))
+                        .then(Commands.literal("add-team")
+                                .requires(QuestAuthority.mayEdit())
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .then(Commands.argument("stage", ResourceLocationArgument.id())
+                                                .executes(ctx -> stageTeam(ctx, true)))))
                         .then(Commands.literal("remove")
                                 .requires(QuestAuthority.mayEdit())
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .then(Commands.argument("stage", ResourceLocationArgument.id())
                                                 .executes(ctx -> stage(ctx, false)))))
+                        .then(Commands.literal("remove-team")
+                                .requires(QuestAuthority.mayEdit())
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .then(Commands.argument("stage", ResourceLocationArgument.id())
+                                                .executes(ctx -> stageTeam(ctx, false)))))
                         .then(Commands.literal("list")
                                 .executes(ctx -> stageList(ctx, null))
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .requires(QuestAuthority.mayEdit())
                                         .executes(ctx -> stageList(ctx,
+                                                EntityArgument.getPlayer(ctx, "player")))))
+                        .then(Commands.literal("team-list")
+                                .executes(ctx -> stageTeamList(ctx, null))
+                                .then(Commands.argument("player", EntityArgument.player())
+                                        .requires(QuestAuthority.mayEdit())
+                                        .executes(ctx -> stageTeamList(ctx,
                                                 EntityArgument.getPlayer(ctx, "player"))))))
 
                 // The reward tables, in their own file: reading a chest and filling one are aimed
@@ -727,8 +795,10 @@ public final class TenetCommand {
      * longer grants anything, this command no longer does either. Use {@code /tenet claim} for the
      * rewards, which is what a player does.
      */
-    private static int complete(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        ServerPlayer player = context.getSource().getPlayerOrException();
+    private static int complete(CommandContext<CommandSourceStack> context, boolean withDependencies,
+                                ServerPlayer named) throws CommandSyntaxException {
+        ServerPlayer invoker = context.getSource().getPlayerOrException();
+        ServerPlayer target = named != null ? named : invoker;
         String id = StringArgumentType.getString(context, "quest");
 
         Optional<QuestIndex.QuestEntry> entry = TenetQuests.find(id);
@@ -737,14 +807,45 @@ public final class TenetCommand {
             return 0;
         }
 
+        if (!withDependencies) {
+            return completeOne(context, target, entry.get(), id);
+        }
+
+        // The quest and everything it waits on, dependencies first: completing the chain from its
+        // start is what a command reward that "finishes the chapter up to here" means. Each node is
+        // attempted with the same guards as a single press, and a node that refuses is skipped
+        // rather than stopping the sweep -- a locked chain still finishes everything up to the lock.
+        int done = 0;
+        for (QuestIndex.QuestEntry each : dependencyClosure(entry.get())) {
+            if (tryComplete(context.getSource().getServer(), target, each)) {
+                done++;
+            }
+        }
+        pushToTeam(context.getSource(), target);
+        final int finished = done;
+        context.getSource().sendSuccess(
+                () -> Component.translatable("tenet.command.complete.many", finished, id), false);
+        return done;
+    }
+
+    /**
+     * Forces one quest complete for one player, with the refusal that names why not.
+     *
+     * <p>The guards are the command's own rather than the service's: the service refuses quietly
+     * (it returns the progress unchanged), while an operator needs to hear whether the quest was
+     * locked, unfinished, or gated. Returns 1 when something changed, 0 with a failure message
+     * when nothing did.
+     */
+    private static int completeOne(CommandContext<CommandSourceStack> context, ServerPlayer target,
+                                   QuestIndex.QuestEntry entry, String id) {
         var server = context.getSource().getServer();
-        java.util.UUID owner = ProgressService.progressOwner(server, player);
+        java.util.UUID owner = ProgressService.progressOwner(server, target);
         var progress = ProgressService.progressFor(server, owner);
 
         // Refuse a quest that is not playable, so this cannot be used to skip a locked chain. An op
         // who wants that can complete the prerequisite first, which is a more honest test anyway.
         QuestState state = ProgressionEngine.resolve(TenetQuests.index(), progress,
-                server.overworld().getGameTime()).stateOf(entry.get().quest());
+                server.overworld().getGameTime()).stateOf(entry.quest());
         if (!state.isPlayable()) {
             context.getSource().sendFailure(Component.translatable("tenet.command.complete.locked",
                     id, state.label()));
@@ -756,7 +857,7 @@ public final class TenetCommand {
         // satisfied and the cooldown has not started -- so the check above lets it through and
         // `complete` would do nothing. Reporting success there would be this command telling an
         // operator that something happened when nothing did.
-        if (!ProgressService.canComplete(entry.get().quest(), progress)) {
+        if (!ProgressService.canComplete(entry.quest(), progress)) {
             context.getSource().sendFailure(Component.translatable("tenet.command.complete.pending", id));
             return 0;
         }
@@ -766,17 +867,102 @@ public final class TenetCommand {
         // the call below still refuses -- the guard is in `complete` itself, where the tick path also
         // reaches it -- but this command would report "done" over a refusal, which is worse than a
         // refusal because an operator would believe it.
-        if (!ProgressService.stageGateOpen(server, entry.get().quest(), player.getUUID())) {
+        if (!ProgressService.stageGateOpen(server, entry.quest(), target.getUUID())) {
             context.getSource().sendFailure(Component.translatable("tenet.command.complete.gated",
-                    id, entry.get().quest().requiresStage().map(Object::toString).orElse(""),
-                    player.getScoreboardName()));
+                    id, entry.quest().requiresStage().map(Object::toString).orElse(""),
+                    target.getScoreboardName()));
             return 0;
         }
 
-        ProgressService.complete(server, owner, player, entry.get(), progress);
-        pushToTeam(context.getSource(), player);
+        ProgressService.complete(server, owner, target, entry, progress);
+        pushToTeam(context.getSource(), target);
         context.getSource().sendSuccess(() -> Component.translatable("tenet.command.complete.done", id), false);
         return 1;
+    }
+
+    /**
+     * Attempts one quest's completion without reporting why not: the sweep's workhorse.
+     *
+     * <p>Same three guards as {@link #completeOne}, silent. A sweep that stopped to explain every
+     * skipped node would bury the count that is its answer.
+     */
+    private static boolean tryComplete(MinecraftServer server, ServerPlayer target,
+                                       QuestIndex.QuestEntry entry) {
+        java.util.UUID owner = ProgressService.progressOwner(server, target);
+        var progress = ProgressService.progressFor(server, owner);
+        QuestState state = ProgressionEngine.resolve(TenetQuests.index(), progress,
+                server.overworld().getGameTime()).stateOf(entry.quest());
+        if (!state.isPlayable() || !ProgressService.canComplete(entry.quest(), progress)
+                || !ProgressService.stageGateOpen(server, entry.quest(), target.getUUID())) {
+            return false;
+        }
+        var before = progress.progressOf(entry.quest()).state();
+        ProgressService.complete(server, owner, target, entry, progress);
+        return ProgressService.progressFor(server, owner).progressOf(entry.quest()).state()
+                != before;
+    }
+
+    /**
+     * Finishes every quest in the book for one player, dependencies first.
+     *
+     * <p>Iterated to a fixed point rather than attempted once each: a quest whose dependencies were
+     * completed by this same sweep becomes playable only after they are, so one pass is never
+     * enough for a chain. Bounded by the quest count plus one, so a pack that cannot settle stops
+     * rather than spins.
+     */
+    private static int completeAll(CommandContext<CommandSourceStack> context, ServerPlayer named)
+            throws CommandSyntaxException {
+        ServerPlayer invoker = context.getSource().getPlayerOrException();
+        ServerPlayer target = named != null ? named : invoker;
+        var server = context.getSource().getServer();
+        java.util.UUID owner = ProgressService.progressOwner(server, target);
+
+        int done = 0;
+        int rounds = 0;
+        boolean moved;
+        do {
+            moved = false;
+            for (QuestIndex.QuestEntry entry : TenetQuests.index().quests()) {
+                if (tryComplete(server, target, entry)) {
+                    done++;
+                    moved = true;
+                }
+            }
+            rounds++;
+        } while (moved && rounds <= TenetQuests.index().questCount());
+
+        pushToTeam(context.getSource(), target);
+        final int finished = done;
+        context.getSource().sendSuccess(
+                () -> Component.translatable("tenet.command.complete.all", finished,
+                        target.getScoreboardName()),
+                false);
+        return done;
+    }
+
+    /**
+     * A quest and everything it waits on, dependencies first, the quest itself last.
+     *
+     * <p>Depth-first over the index's own resolution, so an alias or a case mix resolves exactly as
+     * the engine resolves it. Guarded against cycles: a looping pack fails validation, but a command
+     * that spun forever on one would be worse than the loop.
+     */
+    private static List<QuestIndex.QuestEntry> dependencyClosure(QuestIndex.QuestEntry entry) {
+        List<QuestIndex.QuestEntry> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        visitDependencies(entry, seen, out);
+        return out;
+    }
+
+    private static void visitDependencies(QuestIndex.QuestEntry entry, java.util.Set<String> seen,
+                                          List<QuestIndex.QuestEntry> out) {
+        if (!seen.add(entry.quest().id())) {
+            return;
+        }
+        for (dev.ellipog.tenet.quest.QuestRef ref : entry.quest().dependencies()) {
+            TenetQuests.find(ref.id()).ifPresent(dep -> visitDependencies(dep, seen, out));
+        }
+        out.add(entry);
     }
 
     /**
@@ -831,28 +1017,42 @@ public final class TenetCommand {
         return 1;
     }
 
-    private static int reset(CommandContext<CommandSourceStack> context, String questId) {
+    private static int reset(CommandContext<CommandSourceStack> context, String questId,
+                             boolean withDependencies, ServerPlayer named) {
         var server = context.getSource().getServer();
-        ServerPlayer player = context.getSource().getPlayer();
-        if (player == null) {
-            // Naming a quest does not help here, and this message used to say it did.
-            //
-            // The null check fires before `questId` is ever looked at, so "/tenet reset stone_age"
-            // from the console hit the same message as "/tenet reset" -- the one escape the message
-            // offered was the one case that also failed. A reader would conclude the mod was broken.
-            //
-            // The real reason is worth saying, because it is not a limitation of the command: progress
-            // belongs to a *team*, a team is derived from a player, and the console is in no team. There
-            // is no argument that would supply one, so the fix is an honest message rather than a
-            // redirect -- and if a console-driven reset is ever wanted, it has to take a player or a
-            // team id and is a different command.
+        ServerPlayer invoker = context.getSource().getPlayer();
+        // A named player supplies the team, so this is the one reset the console may run: progress
+        // belongs to a team, a team is derived from a player, and the console is in no team. Without
+        // one there is no team to name, which is the honest message rather than a redirect.
+        ServerPlayer target = named != null ? named : invoker;
+        if (target == null) {
             context.getSource().sendFailure(Component.literal(
                     "Run this as a player. Progress belongs to a team, and the console is not in one."));
             return 0;
         }
 
-        java.util.UUID owner = ProgressService.progressOwner(server, player);
-        int cleared = ProgressService.reset(server, owner, Optional.ofNullable(questId));
+        java.util.UUID owner = ProgressService.progressOwner(server, target);
+        int cleared;
+        if (questId == null) {
+            cleared = ProgressService.reset(server, owner, Optional.empty());
+        }
+        else if (!withDependencies) {
+            cleared = ProgressService.reset(server, owner, Optional.of(questId));
+        }
+        else {
+            // The quest and everything it waits on: redoing a chain from its start. Each node is
+            // reset by id, so a dangling reference in the middle costs one miss rather than the sweep.
+            Optional<QuestIndex.QuestEntry> entry = TenetQuests.find(questId);
+            if (entry.isEmpty()) {
+                context.getSource().sendFailure(
+                        Component.translatable("tenet.command.quest.notfound", questId));
+                return 0;
+            }
+            cleared = 0;
+            for (QuestIndex.QuestEntry each : dependencyClosure(entry.get())) {
+                cleared += ProgressService.reset(server, owner, Optional.of(each.quest().id()));
+            }
+        }
 
         if (cleared == 0) {
             context.getSource().sendFailure(questId == null
@@ -860,9 +1060,73 @@ public final class TenetCommand {
                     : Component.translatable("tenet.command.quest.notfound", questId));
             return 0;
         }
-        pushToTeam(context.getSource(), player);
-        context.getSource().sendSuccess(() -> Component.translatable("tenet.command.reset.done", cleared), false);
+        pushToTeam(context.getSource(), target);
+        final int count = cleared;
+        context.getSource().sendSuccess(() -> Component.translatable("tenet.command.reset.done", count), false);
         return cleared;
+    }
+
+    /**
+     * Clears everything for one player: the whole book, back to unstarted.
+     *
+     * <p>The explicit spelling of a bare {@code /tenet reset}, which clears the invoker's own. With
+     * a player it clears theirs, which is the shape a pack's reset-everything command reward takes.
+     */
+    private static int resetAll(CommandContext<CommandSourceStack> context, ServerPlayer named) {
+        var server = context.getSource().getServer();
+        ServerPlayer invoker = context.getSource().getPlayer();
+        ServerPlayer target = named != null ? named : invoker;
+        if (target == null) {
+            context.getSource().sendFailure(Component.literal(
+                    "Run this as a player. Progress belongs to a team, and the console is not in one."));
+            return 0;
+        }
+
+        java.util.UUID owner = ProgressService.progressOwner(server, target);
+        int cleared = ProgressService.reset(server, owner, Optional.empty());
+
+        if (cleared == 0) {
+            context.getSource().sendFailure(Component.translatable("tenet.command.reset.nothing"));
+            return 0;
+        }
+        pushToTeam(context.getSource(), target);
+        final int count = cleared;
+        context.getSource().sendSuccess(() -> Component.translatable("tenet.command.reset.done", count), false);
+        return cleared;
+    }
+
+    /**
+     * Opens the quest book on the invoker's client, on one quest when one is named.
+     *
+     * <p>A command runs on the server and a screen opens on the client, so this sends one payload
+     * to the player it was run for rather than opening anything here. FTB Quests'
+     * {@code /ftbquests open_book}, which command rewards and click actions name -- and the reason
+     * the payload carries a quest id rather than the command opening the book plainly.
+     */
+    private static int openBook(CommandContext<CommandSourceStack> context, String questId)
+            throws CommandSyntaxException {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) {
+            context.getSource().sendFailure(Component.literal(
+                    "Run this as a player. Only a player has a screen to open."));
+            return 0;
+        }
+        if (!questId.isEmpty() && TenetQuests.find(questId).isEmpty()) {
+            context.getSource().sendFailure(
+                    Component.translatable("tenet.command.quest.notfound", questId));
+            return 0;
+        }
+        dev.ellipog.tenet.net.TenetNetworking.sendOpenBookTo(player, questId);
+        if (questId.isEmpty()) {
+            context.getSource().sendSuccess(
+                    () -> Component.translatable("tenet.command.open_book.done"), false);
+        }
+        else {
+            final String id = questId;
+            context.getSource().sendSuccess(
+                    () -> Component.translatable("tenet.command.open_book.quest", id), false);
+        }
+        return 1;
     }
 
     /**
@@ -943,6 +1207,53 @@ public final class TenetCommand {
                 target.getScoreboardName(), stages.size()), false);
         // One line each, the shape `/tenet types` uses, because a pack can hold twenty and a wrapped line
         // is one nobody can read a name out of.
+        for (ResourceLocation stage : stages) {
+            context.getSource().sendSuccess(() -> Component.literal("  " + stage), false);
+        }
+        return 1;
+    }
+
+    /**
+     * Grants or takes away a team's stage, naming a member to say which team.
+     *
+     * <p>The command half of FTB Quests' {@code /ftbteams teamstage}: the team is the named player's,
+     * so an operator grants the party without listing its members. Every online member is told,
+     * because each of them sees the union of their own and their team's.
+     */
+    private static int stageTeam(CommandContext<CommandSourceStack> context, boolean grant)
+            throws CommandSyntaxException {
+        ServerPlayer target = EntityArgument.getPlayer(context, "player");
+        ResourceLocation stage = ResourceLocationArgument.getId(context, "stage");
+        MinecraftServer server = context.getSource().getServer();
+        java.util.UUID team = ProgressService.progressOwner(server, target);
+        boolean changed = grant
+                ? StageService.addTeam(server, team, stage)
+                : StageService.removeTeam(server, team, stage);
+        context.getSource().sendSuccess(() -> Component.translatable(
+                grant
+                        ? (changed ? "tenet.command.stage.team_added" : "tenet.command.stage.team_already")
+                        : (changed ? "tenet.command.stage.team_removed" : "tenet.command.stage.team_absent"),
+                target.getScoreboardName(), stage.toString()), false);
+        return changed ? 1 : 0;
+    }
+
+    /** Lists a player's team's stages: their own team's by default, anybody's team's for an operator. */
+    private static int stageTeamList(CommandContext<CommandSourceStack> context, ServerPlayer named) {
+        ServerPlayer target = named != null ? named : context.getSource().getPlayer();
+        if (target == null) {
+            context.getSource().sendFailure(Component.translatable("tenet.command.stage.needsplayer"));
+            return 0;
+        }
+        MinecraftServer server = context.getSource().getServer();
+        java.util.UUID team = ProgressService.progressOwner(server, target);
+        Set<ResourceLocation> stages = StageService.listTeam(server, team);
+        if (stages.isEmpty()) {
+            context.getSource().sendSuccess(() -> Component.translatable("tenet.command.stage.team_none",
+                    target.getScoreboardName()), false);
+            return 1;
+        }
+        context.getSource().sendSuccess(() -> Component.translatable("tenet.command.stage.team_list",
+                target.getScoreboardName(), stages.size()), false);
         for (ResourceLocation stage : stages) {
             context.getSource().sendSuccess(() -> Component.literal("  " + stage), false);
         }

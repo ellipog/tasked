@@ -352,6 +352,15 @@ public final class TenetNetworking {
                 TenetNetworking::handleStages,
                 null));
 
+        // --- a command asked for the quest book: open it, there ---
+
+        ArmatureNetwork.register(new ArmatureNetwork.Registration<>(
+                OpenBookPayload.TYPE,
+                OpenBookPayload.CODEC,
+                ArmatureNetwork.Direction.TO_CLIENT,
+                TenetNetworking::handleOpenBook,
+                null));
+
         // --- one edit, client to server, and the server's answer ---
         //
         // The op path. A client asks; the server checks permission, applies the operation to its own model
@@ -1361,17 +1370,29 @@ public final class TenetNetworking {
         dev.ellipog.tenet.client.ClientStages.accept(payload.stages());
     }
 
-    /** Pushes one player's stages to their own client. Called on join, and after every change. */
+    /**
+     * Pushes one player's stages to their own client. Called on join, and after every change.
+     *
+     * <p>What the player sees is their own stages and their team's together: a stage task or a quest
+     * gate that reads the team's set must agree with what a client script asks about, and the store
+     * keeps them apart so that leaving a party takes the team's half away. See
+     * {@code StageService.effective}.
+     */
     public static void sendStagesTo(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null) {
             return;
         }
-        List<String> ids = dev.ellipog.tenet.progress.StageService.list(server, player.getUUID()).stream()
+        List<String> ids = dev.ellipog.tenet.progress.StageService.effective(server, player.getUUID()).stream()
                 .map(net.minecraft.resources.ResourceLocation::toString)
                 .sorted()
                 .toList();
         ArmatureNetwork.sendToPlayer(player, new StageSyncPayload(ids));
+    }
+
+    /** Asks one player's client to open the quest book, on one quest when one is named. */
+    public static void sendOpenBookTo(ServerPlayer player, String questId) {
+        ArmatureNetwork.sendToPlayer(player, new OpenBookPayload(questId == null ? "" : questId));
     }
 
     private static void handlePartySync(PartySyncPayload payload) {
@@ -1574,6 +1595,16 @@ public final class TenetNetworking {
         // reply when the table cannot be rolled, so one marker is consumed either way.
         ClientEditReplies.takeSent();
         dev.ellipog.tenet.client.ClientTableRoll.accept(payload.subject(), payload);
+    }
+
+    /** A command asked for the quest book: open it, on the named quest when one was named. */
+    private static void handleOpenBook(OpenBookPayload payload) {
+        if (payload.questId() == null || payload.questId().isEmpty()) {
+            dev.ellipog.armature.api.client.ArmatureClient.openScreen(dev.ellipog.tenet.Tenet.QUEST_BOOK_SCREEN);
+        }
+        else {
+            dev.ellipog.tenet.client.QuestBookScreen.openOn(payload.questId());
+        }
     }
 
     /** A command asked for a table's editor: park the request and make sure the book is on screen. */

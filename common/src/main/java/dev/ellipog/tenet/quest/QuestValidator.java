@@ -91,9 +91,10 @@ public final class QuestValidator {
      * <p>{@link QuestRules} holds sixteen of these — the repeat flags, the reveal flags, the five hide
      * flags, {@code invisibleUntilTasks}, {@code requiresStage} and {@code autoClaim}, listed in
      * {@link QuestRules#FIELDS} — because {@code RecordCodecBuilder} caps out at sixteen components and
-     * the flat quest was over it. {@link QuestPresentation} holds three more — {@code minWidth},
-     * {@code hideDependentLines} and {@code disableToast} — for the same reason, listed in its own
-     * {@code FIELDS}. They are flat in JSON regardless; the grouping is only visible in Java.
+     * the flat quest was over it. {@link QuestPresentation} holds five more — {@code minWidth},
+     * {@code hideDependentLines}, {@code disableToast}, {@code ignoreRewardBlocking} and
+     * {@code requiresStageTeam} — for the same reason, listed in its own {@code FIELDS}. They are flat
+     * in JSON regardless; the grouping is only visible in Java.
      */
     private static final Set<String> QUEST_FIELDS = union(
             union(Set.of(
@@ -775,9 +776,10 @@ public final class QuestValidator {
         }
 
         // How this quest presents itself: how wide its card wants to be, which of its outgoing
-        // edges are drawn, and whether its completion is announced. All three are presentation —
-        // a typo here changes what the player sees, not whether the file loads — so each is a
-        // closed-set check rather than a codec surprise.
+        // edges are drawn, whether its completion is announced, whether its rewards survive a held
+        // payout, and which set the stage gate reads. All five are presentation — a typo here changes
+        // what the player sees, not whether the file loads — so each is a closed-set check rather
+        // than a codec surprise.
         if (document.has(path + ".minWidth")) {
             Checks.optionalInt(document, path + ".minWidth", problems).ifPresent(width -> {
                 if (width < QuestPresentation.MIN_WIDTH_MIN
@@ -793,6 +795,12 @@ public final class QuestValidator {
         }
         if (document.has(path + ".disableToast")) {
             Checks.optionalBool(document, path + ".disableToast", problems);
+        }
+        if (document.has(path + ".ignoreRewardBlocking")) {
+            Checks.optionalBool(document, path + ".ignoreRewardBlocking", problems);
+        }
+        if (document.has(path + ".requiresStageTeam")) {
+            Checks.optionalBool(document, path + ".requiresStageTeam", problems);
         }
 
         checkDependencies(document, path + ".dependsOn", "quest", problems);

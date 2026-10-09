@@ -195,6 +195,8 @@ public final class TableRowFields {
                         "the stage to set when this is collected"));
                 out.add(new Control(Kind.FLAG, "remove", "Take away",
                         "take the stage away instead of granting it"));
+                out.add(new Control(Kind.FLAG, "teamStage", "Team stage",
+                        "grant to the team rather than the claiming player"));
             }
             case TableReward nested -> {
                 // Only for a named table: an inline one has no id to open, and the card is where it is

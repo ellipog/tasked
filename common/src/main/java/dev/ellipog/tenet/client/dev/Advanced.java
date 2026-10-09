@@ -91,7 +91,9 @@ public final class Advanced {
             // An item reward: the random extra, and the skip-if-carried rule.
             "randomBonus", "onlyOne",
             // The two switches every reward carries about how it is collected.
-            "excludeFromClaimAll", "ignoreRewardBlocking");
+            "excludeFromClaimAll", "ignoreRewardBlocking",
+            // Whose stages a stage task reads, or a stage reward grants to.
+            "teamStage");
 
     /**
      * A row of the quest settings page that is hidden on its own, inside a section that stays.

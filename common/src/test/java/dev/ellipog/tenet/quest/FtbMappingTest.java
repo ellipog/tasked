@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>What is deliberately <b>not</b> here: every row that still needs Tenet work (quest
  * {@code optional}, flexible progress, titles and icons, images, links, click actions, text
- * tokens, energy and currency rewards, team stages, file settings, presets). Those belong
+ * tokens, energy and currency rewards, file settings, presets). Those belong
  * to later batches, and adding them here early would pin JSON nothing reads.
  */
 @DisplayName("FTB Quests mappings that need no Tenet change")
@@ -268,6 +268,14 @@ class FtbMappingTest {
     }
 
     @Test
+    @DisplayName("quest ignore_reward_blocking decodes (G7)")
+    void questIgnoreRewardBlocking() {
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"ignoreRewardBlocking\": true}")
+                .ignoreRewardBlocking());
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\"}").ignoreRewardBlocking());
+    }
+
+    @Test
     @DisplayName("disable_toast decodes on every quest object")
     void disableToastOnEveryObject() {
         assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"disableToast\": true}").disableToast());
@@ -358,6 +366,33 @@ class FtbMappingTest {
                         + " \"onlyOne\": true, \"randomBonus\": 3}"));
         assertTrue(parsed.onlyOne());
         assertEquals(3, parsed.randomBonus());
+    }
+
+    @Test
+    @DisplayName("stage team flags decode (T22)")
+    void stageTeamFlagsDecode() {
+        var teamTask = assertInstanceOf(dev.ellipog.tenet.quest.task.StageTask.class,
+                task("{\"type\": \"tenet:stage\", \"stage\": \"my_pack:inducted\","
+                        + " \"teamStage\": true}"));
+        assertTrue(teamTask.teamStage());
+        var plainTask = assertInstanceOf(dev.ellipog.tenet.quest.task.StageTask.class,
+                task("{\"type\": \"tenet:stage\", \"stage\": \"my_pack:inducted\"}"));
+        assertFalse(plainTask.teamStage(), "absent reads the player's own stages");
+
+        var teamReward = assertInstanceOf(dev.ellipog.tenet.quest.reward.StageReward.class,
+                reward("{\"type\": \"tenet:stage\", \"stage\": \"my_pack:inducted\","
+                        + " \"teamStage\": true}"));
+        assertTrue(teamReward.teamStage());
+        assertFalse(teamReward.remove());
+        var plainReward = assertInstanceOf(dev.ellipog.tenet.quest.reward.StageReward.class,
+                reward("{\"type\": \"tenet:stage\", \"stage\": \"my_pack:inducted\"}"));
+        assertFalse(plainReward.teamStage(), "absent grants the claiming player");
+
+        assertTrue(quest("{\"id\": \"a\", \"title\": \"A\", \"requiresStage\": \"my_pack:inducted\","
+                + " \"requiresStageTeam\": true}").requiresStageTeam());
+        assertFalse(quest("{\"id\": \"a\", \"title\": \"A\","
+                + " \"requiresStage\": \"my_pack:inducted\"}").requiresStageTeam(),
+                "absent gates on the player's own stages");
     }
 
     // ------------------------------------------------------------------

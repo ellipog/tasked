@@ -23,7 +23,7 @@ folded open, so a chapter can be read at a glance and unfolded only where someth
 | `team` | the tree's `defaultTeamReward` | One claim for the team, rather than one per player. |
 | `auto` | `default` | When it is handed over. See below. |
 | `excludeFromClaimAll` | `false` | Claim all leaves this one for its own press. |
-| `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tenet rewards block`. |
+| `ignoreRewardBlocking` | `false` | Give it even while the team's payouts are held by `/tenet rewards block`. A quest's own flag covers every reward on it; this one covers just itself. |
 | `disableToast` | `false` | Collecting this reward raises no toast. Quiets the reward-level notice (toast description, command feedback). See [[tenet:authoring/quests#announcements]]. |
 | `title` | the type's own | The words the row wears instead of the type's own sentence. |
 | `icon` | the type's own | The picture the row wears instead of the type's own: an item, a texture file, or an entity drawn as its spawn egg. An entity with no egg keeps the type's picture. |
@@ -103,7 +103,7 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | `tenet:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
 | `tenet:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
 | `tenet:currency` | `amount` | How much currency to pay. The coin it names belongs to the installed economy: a currency mod (or script) registers the paying half, and with nothing registered the grant pays nothing while the quest still completes. |
-| `tenet:stage` | `stage`, `remove` | The stage to set; `remove: true` takes it away instead of granting it. |
+| `tenet:stage` | `stage`, `remove`, `teamStage` | The stage to set; `remove: true` takes it away instead of granting it. `teamStage: true` grants to the team rather than the claiming player. |
 | `tenet:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
 | `tenet:toast` | `description` | The message shown when collected, as literal text or a translation key with fallback. Empty shows the generic toast sentence. |
 

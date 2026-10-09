@@ -156,6 +156,22 @@ public final class TenetKubeJsPlugin implements KubeJSPlugin {
             return TenetScripts.stages(player);
         }
 
+        public boolean hasTeamStage(ServerPlayer player, String stage) {
+            return TenetScripts.hasTeamStage(player, stage);
+        }
+
+        public boolean addTeamStage(ServerPlayer player, String stage) {
+            return TenetScripts.addTeamStage(player, stage);
+        }
+
+        public boolean removeTeamStage(ServerPlayer player, String stage) {
+            return TenetScripts.removeTeamStage(player, stage);
+        }
+
+        public List<String> teamStages(ServerPlayer player) {
+            return TenetScripts.teamStages(player);
+        }
+
         /** {@code LOCKED}, {@code UNLOCKED}, {@code STARTED}, {@code COMPLETED} or {@code UNKNOWN}. */
         public String state(ServerPlayer player, String questId) {
             return TenetScripts.state(player, questId);

@@ -1,5 +1,6 @@
 package dev.ellipog.tenet.quest.task;
 
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
@@ -31,16 +32,21 @@ import java.util.function.Function;
  *
  * <p>Measured, never handed in: whether the flag is set is not something the player can attest to, and a
  * Submit button for it would be a button that either does nothing or lets a player grant their own stages.
+ *
+ * <p>{@code teamStage} is FTB Quests' {@code team_stage}: ask about the team's stages rather than the
+ * player's own. One member's induction then satisfies the task for everybody, which is the multiplayer
+ * pack's version of "you were there".
  */
-public record StageTask(TaskCommon common, ResourceLocation stage) implements QuestTask {
+public record StageTask(TaskCommon common, ResourceLocation stage, boolean teamStage) implements QuestTask {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tenet.MOD_ID, "stage");
 
-    public static final Set<String> FIELDS = Set.of("stage");
+    public static final Set<String> FIELDS = Set.of("stage", "teamStage");
 
     public static final MapCodec<StageTask> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             TaskCommon.mapCodec(20).forGetter(StageTask::common),
-            ResourceLocation.CODEC.fieldOf("stage").forGetter(StageTask::stage)
+            ResourceLocation.CODEC.fieldOf("stage").forGetter(StageTask::stage),
+            Codec.BOOL.optionalFieldOf("teamStage", false).forGetter(StageTask::teamStage)
     ).apply(instance, StageTask::new));
 
     @Override
@@ -58,7 +64,19 @@ public record StageTask(TaskCommon common, ResourceLocation stage) implements Qu
 
         @Override
         public int current(StageTask task, TaskContext context) {
-            return StageService.has(context.player().getServer(), context.player().getUUID(), task.stage())
+            net.minecraft.server.MinecraftServer server = context.player().getServer();
+            if (server == null) {
+                // A harness, or a server on its way down: a gate nobody can ask about is not one
+                // that blocks, so an unaskable stage reads as absent rather than failing the read.
+                return 0;
+            }
+            if (task.teamStage()) {
+                java.util.UUID team =
+                        dev.ellipog.armature.api.teams.Teams.teamOf(server,
+                                context.player().getUUID()).id();
+                return StageService.hasTeam(server, team, task.stage()) ? 1 : 0;
+            }
+            return StageService.has(server, context.player().getUUID(), task.stage())
                     ? 1 : 0;
         }
 

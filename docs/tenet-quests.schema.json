@@ -925,6 +925,11 @@
           "default": false,
           "description": "Completing this quest raises no toast. Combines with the silent auto-claim modes: either silence wins. FTB Quests calls this disable_toast."
         },
+        "ignoreRewardBlocking": {
+          "type": "boolean",
+          "default": false,
+          "description": "This quest's rewards keep flowing while the team's payouts are held. Either the quest's flag or a reward's own flag exempts that reward. FTB Quests calls this ignore_reward_blocking."
+        },
         "hideTextUntilComplete": {
           "type": "boolean",
           "default": false,
@@ -938,6 +943,11 @@
         "requiresStage": {
           "$ref": "#/definitions/namespacedId",
           "description": "A stage the player must have for the quest to be open to them, e.g. my_pack:chapter_one. The one gate here that is per player rather than per team: a quest gated on a stage is open to a player who has it and locked to one who does not, even in the same party. Nothing validates that the stage exists -- one exists by being granted -- so a typo shows up as a quest nobody can open."
+        },
+        "requiresStageTeam": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read the quest's requiresStage gate from the team's stages rather than the player's own. One member's induction then opens the quest for everybody. FTB Quests calls this team_stage."
         }
       }
     },
@@ -1196,12 +1206,17 @@
         },
         "stage": {
           "$ref": "#/definitions/namespacedId",
-          "description": "tenet:stage (task and reward) — the stage the player has to have, or the one to set. Any id: a stage exists by being granted, so there is no list to pick from and nothing to validate."
+          "description": "tenet:stage (task and reward) — the stage the player has to have, or the one to set. Any id: a stage exists by being granted, so there is no list to pick from and nothing to validate. With teamStage, the team's stages instead."
         },
         "remove": {
           "type": "boolean",
           "default": false,
           "description": "tenet:stage (reward) — take the stage away instead of granting it."
+        },
+        "teamStage": {
+          "type": "boolean",
+          "default": false,
+          "description": "tenet:stage (task and reward), and the quest's requiresStage gate via requiresStageTeam — read or grant the team's stages rather than the player's own. FTB Quests calls this team_stage."
         }
       }
     }

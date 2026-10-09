@@ -331,11 +331,13 @@ public final class TaskTypes {
             "stage", StageTask.MAP_CODEC, StageTask.FIELDS, java.util.List.of(
                     EditorField.text("stage", "Stage", "the id a reward, a command or a script grants")
                             .hint("the stage the player has to have; a stage exists by being granted, so "
-                                    + "there is no list to pick from and no id to validate")),
+                                    + "there is no list to pick from and no id to validate"),
+                    EditorField.flag("teamStage", "Team stage")
+                            .hint("ask about the team's stages rather than the player's own")),
             StageTask.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("lever"), 1), StageTask.DISPLAY,
             () -> new StageTask(new TaskCommon(false, 20),
-                    ResourceLocation.fromNamespaceAndPath("example", "stage")));
+                    ResourceLocation.fromNamespaceAndPath("example", "stage"), false));
 
     private TaskTypes() {
     }

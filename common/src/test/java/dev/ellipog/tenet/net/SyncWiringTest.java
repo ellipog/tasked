@@ -167,6 +167,10 @@ class SyncWiringTest {
                 // the server, since no loader exposes a hook for it.
                 "tenet:locale_request",
                 "tenet:locale_sync",
+                // Not a viewer message: a command's answer to "open the book", which no existing
+                // message carries — progress carries states, the tree carries content, and neither
+                // opens a screen. Asked and answered here like the vitals switch below.
+                "tenet:open_book",
                 "tenet:party_sync",
                 "tenet:progress_sync",
                 "tenet:quest_sync",

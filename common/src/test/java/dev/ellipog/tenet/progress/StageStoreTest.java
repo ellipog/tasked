@@ -117,5 +117,61 @@ class StageStoreTest {
         ProgressStore loaded = ProgressStore.load(old, RegistryAccess.EMPTY);
 
         assertEquals(0, loaded.stagedPlayerCount(), "a missing section is 'no stages', which is a valid state");
+        assertEquals(0, loaded.stagedTeamCount(), "and the team section missing is 'no team stages' too");
+    }
+
+    // ------------------------------------------------------------------
+    // Team stages (T22): FTB Quests' `team_stage`
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a team stage can be granted, asked about, and taken away once")
+    void teamSetSemantics() {
+        ProgressStore store = new ProgressStore();
+        UUID team = UUID.randomUUID();
+
+        assertFalse(store.hasTeamStage(team, LEFT), "a team starts with nothing");
+        assertTrue(store.addTeamStage(team, LEFT), "the first grant changes something");
+        assertFalse(store.addTeamStage(team, LEFT), "and the second does not");
+        assertTrue(store.hasTeamStage(team, LEFT));
+
+        assertTrue(store.removeTeamStage(team, LEFT), "taking away what is there changes something");
+        assertFalse(store.removeTeamStage(team, LEFT), "and taking away what is not there does not");
+        assertFalse(store.hasTeamStage(team, LEFT));
+        assertEquals(0, store.stagedTeamCount(), "a team with no stages is not a row in the file");
+    }
+
+    @Test
+    @DisplayName("team stages are beside player stages: neither answers for the other")
+    void teamAndPlayerStagesAreSeparate() {
+        ProgressStore store = new ProgressStore();
+        UUID player = UUID.randomUUID();
+        UUID team = UUID.randomUUID();
+
+        store.addTeamStage(team, LEFT);
+        store.addStage(player, COUNCIL);
+
+        assertTrue(store.hasTeamStage(team, LEFT));
+        assertFalse(store.hasTeamStage(team, COUNCIL), "a player's own grant is not the team's");
+        assertFalse(store.hasStage(player, LEFT), "and the team's grant is not the player's");
+        assertTrue(store.hasStage(player, COUNCIL));
+    }
+
+    @Test
+    @DisplayName("the file gives the team stages back too")
+    void teamRoundTrip() {
+        ProgressStore store = new ProgressStore();
+        UUID team = UUID.randomUUID();
+        UUID player = UUID.randomUUID();
+        store.addTeamStage(team, LEFT);
+        store.addTeamStage(team, COUNCIL);
+        store.addStage(player, LEFT);
+
+        ProgressStore loaded = ProgressStore.load(store.save(new CompoundTag(), RegistryAccess.EMPTY),
+                RegistryAccess.EMPTY);
+
+        assertEquals(1, loaded.stagedTeamCount(), "the team survives the file");
+        assertTrue(loaded.hasTeamStage(team, LEFT) && loaded.hasTeamStage(team, COUNCIL));
+        assertTrue(loaded.hasStage(player, LEFT), "and the player's own survives beside it");
     }
 }

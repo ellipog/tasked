@@ -202,6 +202,7 @@ class QuestPlaythroughTest {
         seeded.addAll(seedFilterChapter(configDir));
         seeded.addAll(seedChargeChapter(configDir));
         seeded.addAll(seedLinkChapter(configDir));
+        seeded.addAll(seedTeamStageChapter(configDir));
         Collections.sort(seeded);
         examples = List.copyOf(seeded);
 
@@ -2996,6 +2997,213 @@ class QuestPlaythroughTest {
         }
     }
 
+    /** The flag the team gallery grants: the party's, not whoever claimed it. */
+    private static final ResourceLocation TEAM_OATH =
+            ResourceLocation.fromNamespaceAndPath("the_induction", "team_oath");
+
+    /** Whether a team holds a stage, read on the server thread like every other read here. */
+    private static boolean teamHasStage(UUID team, ResourceLocation stage) {
+        return server.callOnServerThread(
+                () -> dev.ellipog.tenet.progress.StageService.hasTeam(server.server(), team, stage));
+    }
+
+    @Test
+    @Order(214)
+    @DisplayName("a team stage reward marks the whole party, and a team task completes for both")
+    void aTeamStageRewardMarksTheWholeParty() {
+        // A party of two, built the way order 95 builds one: by command, invited, accepted.
+        assertEquals(1, asOperator("/tenet party create the-oath-party").result());
+        assertEquals(1, asOperator("/tenet party invite tenet-friend").result());
+        assertTrue(server.callOnServerThread(
+                        () -> Teams.of(server.server()).acceptInvite(friend.getUUID()).isPresent()),
+                "the friend joins, so the party has two online members");
+        UUID team = ownerOf(player);
+        assertEquals(team, ownerOf(friend), "both members resolve to the party");
+
+        assertFalse(teamHasStage(team, TEAM_OATH), "the party starts holding nothing");
+        assertFalse(hasStage(player, TEAM_OATH), "and neither does the player personally");
+        assertFalse(hasStage(friend, TEAM_OATH), "nor the friend");
+
+        HeadlessServer.Outcome submitted = asOperator("/tenet submit team_summons 0");
+        assertEquals(1, submitted.result(),
+                () -> "the checkmark should have been accepted:\n" + submitted.text());
+        HeadlessServer.Outcome claimed = asOperator("/tenet claim team_summons");
+        assertEquals(1, claimed.result(), () -> "the team stage should have been granted:\n"
+                + claimed.text());
+
+        assertTrue(teamHasStage(team, TEAM_OATH), "the claim granted the stage to the team");
+        assertFalse(hasStage(player, TEAM_OATH),
+                "while the claiming player holds nothing personally");
+        assertFalse(hasStage(friend, TEAM_OATH), "and neither does the friend");
+
+        // The team task is measured, never handed in: it completes by itself once the team holds
+        // the flag, for a party whose members each hold nothing.
+        assertTrue(tickUntil(() -> stateOf("team_mark") == QuestState.COMPLETED,
+                        Duration.ofSeconds(20)),
+                () -> "team_mark's team task did not satisfy once the team held the oath. It is "
+                        + stateOf("team_mark"));
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "team_mark"),
+                "and the friend reads the same stored answer, because progress is the party's");
+        assertFalse(stageLocked().contains("team_mark"),
+                "the team gate is open for a member holding nothing: " + stageLocked());
+
+        note("a team stage reward marked the party rather than the claimer, and the team task"
+                + " completed for both members");
+    }
+
+    @Test
+    @Order(215)
+    @DisplayName("a team gate serves the member holding nothing, and the team commands move it")
+    void aTeamGateServesTheMemberHoldingNothing() {
+        // The friend never held anything personally, and the quest is already finished for the
+        // party -- so what the gate owes them is their own copy of the payout, collected like any
+        // member's. A gate that read personal stages would refuse this claim.
+        clearInventories();
+        HeadlessServer.Outcome claimed = asOperator(friend, "/tenet claim team_mark");
+        assertEquals(1, claimed.result(), () -> "the friend's claim should have paid:\n"
+                + claimed.text());
+        assertEquals(1, countInInventoryOf(friend, Items.GOLDEN_APPLE),
+                "the member holding nothing personally is paid through the team gate");
+        assertFalse(hasStage(friend, TEAM_OATH),
+                "and still holds nothing personally -- the team holds it");
+
+        // The team commands, which are FTB Quests' /ftbteams teamstage under Tenet's name: take the
+        // oath away and the gate shuts for both members; grant it back and it opens.
+        UUID team = ownerOf(player);
+        HeadlessServer.Outcome listed = asOperator("/tenet stage team-list tenet-tester");
+        assertTrue(listed.text().contains("the_induction:team_oath"),
+                "team-list names what the team holds:\n" + listed.text());
+
+        HeadlessServer.Outcome removed = asOperator("/tenet stage remove-team tenet-tester "
+                + TEAM_OATH);
+        assertEquals(1, removed.result(), () -> "the team stage should have been taken away:\n"
+                + removed.text());
+        assertFalse(teamHasStage(team, TEAM_OATH));
+        assertTrue(stageLocked().contains("team_mark"),
+                "with the team's oath gone the gate is shut again: " + stageLocked());
+
+        HeadlessServer.Outcome regranted = asOperator("/tenet stage add-team tenet-friend "
+                + TEAM_OATH);
+        assertEquals(1, regranted.result(), () -> "naming either member grants the team:\n"
+                + regranted.text());
+        assertTrue(teamHasStage(team, TEAM_OATH));
+        assertFalse(stageLocked().contains("team_mark"), "and the gate is open again");
+
+        note("the team gate paid the member holding nothing, and add-team/remove-team moved it");
+    }
+
+    @Test
+    @Order(216)
+    @DisplayName("a team-removing reward clears the team's flag, and leaving takes it away")
+    void aTeamRemovingRewardClearsTheTeamsFlag() {
+        UUID team = ownerOf(player);
+        assertTrue(teamHasStage(team, TEAM_OATH), "order 215 left the team holding the oath");
+
+        HeadlessServer.Outcome submitted = asOperator("/tenet submit team_fall 0");
+        assertEquals(1, submitted.result(),
+                () -> "the checkmark should have been accepted:\n" + submitted.text());
+        HeadlessServer.Outcome claimed = asOperator("/tenet claim team_fall");
+        assertEquals(1, claimed.result(), () -> "the fall should have been collected:\n"
+                + claimed.text());
+        assertFalse(teamHasStage(team, TEAM_OATH), "the fall's reward took the team's stage away");
+        assertTrue(stageLocked().contains("team_mark"),
+                "cleared, so the team gate is shut again: " + stageLocked());
+
+        // The personal vocabulary is untouched by every team operation above: team stages live
+        // beside player stages, and neither answers for the other.
+        assertTrue(hasStage(player, THE_MARK),
+                "the player's own mark survived the team's oath coming and going");
+
+        assertEquals(1, asOperator("/tenet party disband").result(), "and the party is cleaned up");
+        assertFalse(teamHasStage(team, TEAM_OATH),
+                "disbanding changes no flag -- the gone party's oath simply has no party left");
+        assertTrue(stageLocked().contains("team_mark"),
+                "solo again with no team oath, the gate reads shut: " + stageLocked());
+
+        note("the fall cleared the team's oath while the player's own mark stayed held");
+    }
+
+    @Test
+    @Order(217)
+    @DisplayName("complete with-dependencies finishes the chain from its start")
+    void completeWithDependenciesFinishesTheChain() {
+        // team_fall waits on team_mark, and both are cleared: one press must finish the dependency
+        // first and the quest itself second, rather than refusing the locked chain.
+        assertEquals(1, asOperator("/tenet reset team_mark").result());
+        assertEquals(1, asOperator("/tenet reset team_fall").result());
+        assertNotEquals(QuestState.COMPLETED, stateOf("team_mark"), "both start cleared");
+        assertNotEquals(QuestState.COMPLETED, stateOf("team_fall"), "both start cleared");
+        assertEquals(1, asOperator("/tenet stage add-team tenet-tester " + TEAM_OATH).result(),
+                "the team gate must be open for the sweep to reach the fall");
+
+        HeadlessServer.Outcome swept = asOperator("/tenet complete team_fall with-dependencies");
+        assertTrue(swept.result() >= 2,
+                () -> "the sweep should have finished the mark and the fall. It said:\n" + swept.text());
+        assertEquals(QuestState.COMPLETED, stateOf("team_mark"), "the dependency finished first");
+        assertEquals(QuestState.COMPLETED, stateOf("team_fall"), "and then the quest itself");
+
+        note("complete with-dependencies finished team_mark and team_fall in one press");
+    }
+
+    @Test
+    @Order(218)
+    @DisplayName("reset-all and complete-all move a whole book, for a named player too")
+    void resetAllAndCompleteAllMoveAWholeBook() {
+        // The chain order 217 finished, so resetting with dependencies must clear both nodes back.
+        HeadlessServer.Outcome reset = asOperator("/tenet reset team_fall with-dependencies");
+        assertTrue(reset.result() >= 2,
+                () -> "resetting with dependencies should have cleared two. It said:\n" + reset.text());
+        assertNotEquals(QuestState.COMPLETED, stateOf("team_mark"));
+        assertNotEquals(QuestState.COMPLETED, stateOf("team_fall"));
+
+        // complete-all finishes what can be finished: the checkmark chain among it. The count is
+        // what the sweep reports, and the chain's own states are what it proves.
+        HeadlessServer.Outcome swept = asOperator("/tenet complete-all");
+        assertTrue(swept.result() >= 2,
+                () -> "complete-all should have finished at least the team chain. It said:\n"
+                        + swept.text());
+        assertEquals(QuestState.COMPLETED, stateOf("team_mark"));
+        assertEquals(QuestState.COMPLETED, stateOf("team_fall"));
+
+        // And the named-player spellings move somebody else's book: the friend is solo, so their
+        // record is their own to clear and to finish.
+        HeadlessServer.Outcome friendReset = asOperator("/tenet reset-all tenet-friend");
+        assertTrue(friendReset.result() >= 1,
+                () -> "reset-all for a named player should have cleared something. It said:\n"
+                        + friendReset.text());
+        assertEquals(1, asOperator("/tenet stage add-team tenet-friend " + TEAM_OATH).result(),
+                "the friend's own team needs the oath for the team gate to open there");
+        HeadlessServer.Outcome friendSweep = asOperator("/tenet complete-all tenet-friend");
+        assertTrue(friendSweep.result() >= 1,
+                () -> "complete-all for a named player should have finished something. It said:\n"
+                        + friendSweep.text());
+        assertEquals(QuestState.COMPLETED, stateFor(friend, "team_mark"),
+                "the friend's own book finished the team chain");
+
+        // Back to a clean chain for whatever comes next: reset-all clears the invoker's own book.
+        assertTrue(asOperator("/tenet reset-all").result() >= 1, "reset-all clears the book");
+        assertNotEquals(QuestState.COMPLETED, stateOf("team_mark"));
+
+        note("reset-all and complete-all cleared and finished whole books, self and named");
+    }
+
+    @Test
+    @Order(219)
+    @DisplayName("open_book asks the client to open, and names a missing quest honestly")
+    void openBookAsksTheClientToOpen() {
+        // Headless, so there is no screen to see: what the command owns is asking (the payload to
+        // the invoker) and refusing a quest the book does not hold. The opening itself is the
+        // client's handler, which a server test cannot see.
+        assertEquals(1, asOperator("/tenet open_book").result(),
+                "opening the book plainly should be accepted");
+        assertEquals(1, asOperator("/tenet open_book team_mark").result(),
+                "opening it on a quest the book holds should be accepted");
+        HeadlessServer.Outcome missing = asOperator("/tenet open_book no_such_quest");
+        assertEquals(0, missing.result(), "and a quest nobody holds must be refused, not sent");
+
+        note("open_book asked twice and refused the missing quest");
+    }
+
     @Test
     @DisplayName("a locale is packed once per language, however many players read it")
     void aLocaleIsPackedOncePerLanguage() {
@@ -3543,6 +3751,59 @@ class QuestPlaythroughTest {
                 """);
         return List.of("link_gallery/group.json", "link_gallery/link_works/chapter.json",
                 "link_gallery/link_works/link_a.json", "link_gallery/link_works/link_b.json");
+    }
+
+    /**
+     * The team-stage gallery: one party's oath, held by the team rather than by whoever claimed it.
+     *
+     * <p>Written by the test for the reason the engine gallery is: no example quest grants to a team,
+     * and the orders below ask whether one member's induction opens the chapter for everybody. The
+     * stage is `the_induction:team_oath` so it shares the induction chapter's vocabulary without
+     * touching the personal `marked` flag any other order hands out.
+     */
+    private static List<String> seedTeamStageChapter(Path configDir) throws IOException {
+        Path quests = configDir.resolve("tenet/quests/team_gallery");
+        Path chapter = quests.resolve("team_works");
+        Files.createDirectories(chapter);
+        Files.writeString(quests.resolve("group.json"), """
+                { "id": "team_gallery", "title": "Team Gallery", "chapters": ["team_works"] }
+                """);
+        Files.writeString(chapter.resolve("chapter.json"), """
+                { "$schema": "../../../_schema/chapter.schema.json",
+                  "id": "team_works", "title": "Team Works",
+                  "quests": ["team_summons.json", "team_mark.json", "team_fall.json"] }
+                """);
+        Files.writeString(chapter.resolve("team_summons.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "team_summons",
+                  "title": "Team Summons", "x": 0, "y": 0,
+                  "icon": { "item": "minecraft:paper" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Answer for the party" }],
+                  "rewards": [{ "type": "tenet:stage", "stage": "the_induction:team_oath",
+                    "teamStage": true }] }
+                """);
+        Files.writeString(chapter.resolve("team_mark.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "team_mark",
+                  "title": "Team Mark", "x": 64, "y": 0,
+                  "icon": { "item": "minecraft:golden_apple" },
+                  "requiresStage": "the_induction:team_oath", "requiresStageTeam": true,
+                  "tasks": [{ "type": "tenet:stage", "stage": "the_induction:team_oath",
+                    "teamStage": true }],
+                  "rewards": [{ "type": "tenet:item", "item": "minecraft:golden_apple",
+                    "auto": "disabled" }] }
+                """);
+        Files.writeString(chapter.resolve("team_fall.json"), """
+                { "$schema": "../../../_schema/quest.schema.json", "id": "team_fall",
+                  "title": "Team Fall", "x": 128, "y": 0,
+                  "dependsOn": ["team_mark"],
+                  "icon": { "item": "minecraft:wither_rose" },
+                  "tasks": [{ "type": "tenet:checkmark", "title": "Renounce for the party" }],
+                  "rewards": [{ "type": "tenet:stage", "stage": "the_induction:team_oath",
+                    "remove": true, "teamStage": true }] }
+                """);
+        return List.of("team_gallery/group.json", "team_gallery/team_works/chapter.json",
+                "team_gallery/team_works/team_summons.json",
+                "team_gallery/team_works/team_mark.json",
+                "team_gallery/team_works/team_fall.json");
     }
 
     private static List<String> seedRewardInboxChapter(Path configDir) throws IOException {

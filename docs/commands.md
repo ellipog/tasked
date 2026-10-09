@@ -1,8 +1,8 @@
 # Commands
 
 Everything Tenet can be asked from the command line is under `/tenet`. Player actions — submitting,
-claiming, and everything under `party` — are for whoever is playing. The commands that change the
-quest files or operator state (`reload`, `removed`, `restore`, `complete`, `reset`, `rewards
+claiming, opening the book, and everything under `party` — are for whoever is playing. The commands that change the
+quest files or operator state (`reload`, `removed`, `restore`, `complete`, `complete-all`, `reset`, `reset-all`, `rewards
 block|unblock`, `stage add|remove`, and naming another player in `stage list`) ask for permission level
 2, a command block's level — and so does everything under `table`, the reads included, along with
 `config`: they name the server's own file paths and table ids. The three diagnostics in their own table
@@ -17,7 +17,9 @@ below take the same level, because they read the server's own costs rather than 
 | `/tenet progress` | The tree from your point of view: each quest's state, and every task's count against what it needs. |
 | `/tenet submit <quest> [<index>]` | Hand a task in by hand — the same call the Submit button makes. The optional second argument is the task's index, a bare integer counted from 0; omitted, it is the first task. |
 | `/tenet claim <quest>` | Collect the quest's outstanding rewards. The same call the Claim button makes. |
+| `/tenet open_book [quest]` | Open the quest book on your client — on one quest when one is named. FTB Quests' `/ftbquests open_book`, which command rewards and click actions name. |
 | `/tenet stage list [player]` | The stages a player carries. Without an argument, your own; naming another player asks for permission level 2. |
+| `/tenet stage team-list [player]` | The stages a player's team holds. The same permission rule as `list`. |
 | `/tenet party` | Who is in your party, how it counts, and **which mod the parties come from** — Tenet's answer to "are these the parties I think they are". |
 | `/tenet version` | The Tenet and Armature versions this server is running. |
 
@@ -28,11 +30,15 @@ below take the same level, because they read the server's own costs rather than 
 | `/tenet reload` | Re-read the quest folder without a restart, and re-sync every connected player. Reports how many files loaded, and how many had errors. |
 | `/tenet removed` | Every recoverable delete under the quest folder — the copy a delete sets aside, and the name each would come back as. See [removing something](index.md#removing-something-and-getting-it-back). |
 | `/tenet restore <path>` | Put one of those back, using the path `/tenet removed` printed. The file or folder returns under its own name and is listed again where it belongs, and every connected player's tree is refreshed — no reload, so the undo history survives it. |
-| `/tenet complete <quest>` | Mark a quest complete for the team. It checks that the quest is playable and its stage gate is met, but it does not evaluate the tasks — that is what it is for. Rewards are left waiting to be claimed. |
-| `/tenet reset [quest]` | Clear progress — one quest, or the whole tree when no quest is named. Run it as a player: progress belongs to a team, and the console is not in one. |
+| `/tenet complete <quest> [with-dependencies] [player]` | Mark a quest complete for the team. It checks that the quest is playable and its stage gate is met, but it does not evaluate the tasks — that is what it is for. Rewards are left waiting to be claimed. `with-dependencies` finishes the quest and everything it waits on, dependencies first. With a player it moves their progress rather than yours. |
+| `/tenet complete-all [player]` | Mark every completable quest complete, iterating to a fixed point so a chain finishes in one press. Without a player, your own book; with one, theirs. |
+| `/tenet reset [quest] [with-dependencies] [player]` | Clear progress — one quest, or the whole tree when no quest is named. `with-dependencies` clears the quest and everything it waits on. With a player it clears theirs, which the console may run; without one, run it as a player, because progress belongs to a team and the console is not in one. |
+| `/tenet reset-all [player]` | Clear the whole book — the explicit spelling of a bare `/tenet reset`, and with a player, theirs. |
 | `/tenet rewards block` / `unblock` | Hold or release the team's rewards. A held team collects nothing: the automatic payouts stop and every claim is refused, except for rewards marked `ignoreRewardBlocking`. |
 | `/tenet stage add <player> <stage>` | Grant a stage. |
 | `/tenet stage remove <player> <stage>` | Take one away. |
+| `/tenet stage add-team <player> <stage>` | Grant a stage to the player's team — FTB Quests' `/ftbteams teamstage`. Every online member is told, because each of them sees their own stages and their team's together. |
+| `/tenet stage remove-team <player> <stage>` | Take a team's stage away. |
 | `/tenet types` | Every task, reward and condition type this build has, with the fields each one takes. |
 | `/tenet config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tenet reload` — both files are re-read. A player's own text size is in the book's Settings card; the palette, the corner radius and the Motion switch are in the tools panel's Quest Book tab, which needs edit permission. |
 

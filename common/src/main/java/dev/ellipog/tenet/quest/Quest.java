@@ -177,7 +177,8 @@ public record Quest(
      * gate is checked where a player's own view is built (they see the quest locked) and where a quest could
      * be finished or collected, so a quest with a shut gate cannot complete or pay out for a player who
      * never had the stage. A pack that wants a whole party gated grants the stage to every member, which is
-     * how it does that for anything else too.
+     * how it does that for anything else too -- or names {@link #requiresStageTeam} and grants once to
+     * the team.
      */
     public Optional<ResourceLocation> requiresStage() {
         return rules.requiresStage();
@@ -211,6 +212,27 @@ public record Quest(
      */
     public boolean disableToast() {
         return presentation.disableToast();
+    }
+
+    /**
+     * Whether this quest's rewards keep flowing while the team's payouts are held.
+     *
+     * <p>FTB Quests' {@code ignore_reward_blocking} on the quest. Either this or a reward's own
+     * flag exempts that reward; see {@link QuestPresentation} and
+     * {@link dev.ellipog.tenet.progress.ProgressService#isBlocked}.
+     */
+    public boolean ignoreRewardBlocking() {
+        return presentation.ignoreRewardBlocking();
+    }
+
+    /**
+     * Whether the quest's stage gate reads the team's stages rather than the player's own.
+     *
+     * <p>Qualifies {@link #requiresStage}: one member's induction then opens the quest for
+     * everybody. See {@link QuestPresentation}.
+     */
+    public boolean requiresStageTeam() {
+        return presentation.requiresStageTeam();
     }
 
     // ------------------------------------------------------------------

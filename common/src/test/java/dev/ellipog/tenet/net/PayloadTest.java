@@ -131,6 +131,7 @@ class PayloadTest {
                 "tenet:editor_reply",
                 "tenet:locale_request",
                 "tenet:locale_sync",
+                "tenet:open_book",
                 "tenet:party_sync",
                 "tenet:progress_sync",
                 "tenet:quest_sync",
@@ -213,6 +214,9 @@ class PayloadTest {
         // container. Either the wrong way round is a press that does nothing at all.
         assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:table_open"));
         assertEquals(ArmatureNetwork.Direction.TO_SERVER, directionOf("tenet:table_import_request"));
+        // A book a command told the client to open, on one quest when one was named: the server
+        // decides, the client opens. The other way round a book opens for nobody.
+        assertEquals(ArmatureNetwork.Direction.TO_CLIENT, directionOf("tenet:open_book"));
     }
 
     @Test
@@ -622,9 +626,21 @@ class PayloadTest {
     }
 
     @Test
+    @DisplayName("an open-book request survives the wire, quest id and all")
+    void openBookRoundTrip() {
+        // One string, both spellings: a named quest opens on it, and empty opens the book as it
+        // was. A codec that dropped the id would open the book plainly for a command that named
+        // a quest, and one that invented an id would focus a quest nobody asked for.
+        OpenBookPayload named = roundTrip(OpenBookPayload.CODEC, new OpenBookPayload("punch_a_tree"));
+        assertEquals("punch_a_tree", named.questId());
+
+        OpenBookPayload plain = roundTrip(OpenBookPayload.CODEC, new OpenBookPayload(""));
+        assertEquals("", plain.questId(), "empty is the plain opening, not a quest");
+    }
+
+    @Test
     @DisplayName("the vitals switch is one boolean, both ways")
-    void vitalsRoundTrip() {
-        // One byte, and it has to carry both answers: "off" is a value, not the absence of a message — a
+    void vitalsRoundTrip() {        // One byte, and it has to carry both answers: "off" is a value, not the absence of a message — a
         // client that is not told anything keeps whatever it had, so an operator turning the overlay off
         // must be told exactly as clearly as one turning it on.
         for (boolean on : new boolean[] {true, false}) {

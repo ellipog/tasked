@@ -232,6 +232,7 @@ other missing item: the id is kept and the quest still loads.
 | Field | Meaning |
 |---|---|
 | `stage` | The stage the player has to have, e.g. `my_pack:left_the_village`. |
+| `teamStage` | `false` | Ask about the team's stages rather than the player's own. One member's induction then satisfies the task for everybody. FTB Quests calls this `team_stage`. |
 
 The read half of the same feature whose write half is a stage [[tenet:authoring/rewards|reward]], a command, or
 a script: a pack grants a stage somewhere and asks about it here. Nothing is required of the id — a

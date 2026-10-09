@@ -206,11 +206,13 @@ public final class RewardTypes {
                                     "the id to set; any id, since a stage exists by being granted")
                             .hint("the stage to set when this reward is collected"),
                     dev.ellipog.tenet.quest.EditorField.flag("remove", "Take away")
-                            .hint("take the stage away instead of granting it")),
+                            .hint("take the stage away instead of granting it"),
+                    dev.ellipog.tenet.quest.EditorField.flag("teamStage", "Team stage")
+                            .hint("grant to the team rather than the claiming player")),
             StageReward.BEHAVIOUR,
             new ItemRef(ResourceLocation.withDefaultNamespace("oak_sign"), 1), StageReward.DISPLAY,
             () -> new StageReward(RewardCommon.DEFAULT,
-                    ResourceLocation.fromNamespaceAndPath("example", "stage"), false));
+                    ResourceLocation.fromNamespaceAndPath("example", "stage"), false, false));
 
     /** {@code tenet:toast} — show the player a message. */
     public static final QuestRewardType<ToastReward> TOAST = register(

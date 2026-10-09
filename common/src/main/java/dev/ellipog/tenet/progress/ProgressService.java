@@ -973,7 +973,7 @@ public final class ProgressService {
         List<Grant> grants = new ArrayList<>();
         for (int index = 0; index < quest.rewards().size(); index++) {
             QuestReward reward = quest.rewards().get(index);
-            if (isBlocked(team, reward) || !reward.autoGrantable()) {
+            if (isBlocked(team, quest, reward) || !reward.autoGrantable()) {
                 continue;
             }
             if (!reward.common().autoClaim(fileDefault).automatic()) {
@@ -1010,8 +1010,9 @@ public final class ProgressService {
     }
 
     /** Whether this team's rewards are blocked, for this reward. See {@link TeamProgress#rewardsBlocked()}. */
-    public static boolean isBlocked(TeamProgress team, QuestReward reward) {
-        return team.rewardsBlocked() && !reward.common().ignoreRewardBlocking();
+    public static boolean isBlocked(TeamProgress team, Quest quest, QuestReward reward) {
+        return team.rewardsBlocked() && !reward.common().ignoreRewardBlocking()
+                && !quest.ignoreRewardBlocking();
     }
 
     /**
@@ -1078,6 +1079,9 @@ public final class ProgressService {
             // accidental.
             return true;
         }
+        if (quest.requiresStageTeam()) {
+            return StageService.hasTeam(server, Teams.teamOf(server, player).id(), required.get());
+        }
         return StageService.has(server, player, required.get());
     }
 
@@ -1095,10 +1099,13 @@ public final class ProgressService {
         }
         java.util.Set<net.minecraft.resources.ResourceLocation> held = StageService.list(server,
                 player.getUUID());
+        java.util.Set<net.minecraft.resources.ResourceLocation> teamHeld = StageService.listTeam(server,
+                progressOwner(server, player));
         java.util.Set<String> locked = new java.util.LinkedHashSet<>();
         for (QuestIndex.QuestEntry entry : index.quests()) {
             Quest quest = entry.quest();
-            if (quest.requiresStage().isPresent() && !held.contains(quest.requiresStage().get())) {
+            if (quest.requiresStage().isPresent()
+                    && !(quest.requiresStageTeam() ? teamHeld : held).contains(quest.requiresStage().get())) {
                 locked.add(quest.id());
             }
         }
@@ -1248,7 +1255,7 @@ public final class ProgressService {
                 sawLocked = true;
                 continue;
             }
-            if (isBlocked(team, reward)) {
+            if (isBlocked(team, quest, reward)) {
                 sawBlocked = true;
                 continue;
             }
@@ -1766,7 +1773,7 @@ public final class ProgressService {
                 boolean teamMode = reward.common().teamReward(settings.defaultTeamReward());
                 if (!reward.autoGrantable()
                         || !reward.common().autoClaim(fileDefault).automatic()
-                        || isBlocked(team, reward)
+                        || isBlocked(team, quest, reward)
                         || current.claimed(player.getUUID(), index, teamMode)) {
                     continue;
                 }

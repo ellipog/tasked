@@ -43,9 +43,23 @@ class StageGateTest {
         Quest gated = quest("{\"id\": \"a\", \"title\": \"A\", \"requiresStage\": \"my_pack:chapter_one\"}");
         assertTrue(gated.requiresStage().isPresent(), "the gate is part of the format, not of the engine only");
         assertTrue(gated.requiresStage().get().toString().equals("my_pack:chapter_one"));
+        assertFalse(gated.requiresStageTeam(), "absent reads the player's own stages");
 
         Quest open = quest("{\"id\": \"b\", \"title\": \"B\"}");
         assertFalse(open.requiresStage().isPresent(), "and saying nothing is a quest with no gate");
+    }
+
+    @Test
+    @DisplayName("a team gate reads the team's stages (T22)")
+    void teamGateRoundTrips() {
+        Quest gated = quest("{\"id\": \"a\", \"title\": \"A\", \"requiresStage\": \"my_pack:chapter_one\","
+                + " \"requiresStageTeam\": true}");
+        assertTrue(gated.requiresStageTeam());
+
+        JsonObject encoded = Quest.CODEC.encodeStart(JsonOps.INSTANCE, gated)
+                .getOrThrow(error -> new AssertionError("a team-gated quest did not encode: " + error))
+                .getAsJsonObject();
+        assertTrue(encoded.has("requiresStageTeam"), "the team gate is written back: " + encoded);
     }
 
     @Test

@@ -65,7 +65,7 @@ class AuthoringFlagsTest {
     class Presentation {
 
         @Test
-        @DisplayName("a quest that says nothing presents as before: unset width, drawn edges, announced")
+        @DisplayName("a quest that says nothing presents as before: unset width, drawn edges, announced, held, personal gate")
         void absentIsTheOldBehaviour() {
             Quest parsed = quest("""
                     {"id": "one", "title": "One"}""");
@@ -73,32 +73,41 @@ class AuthoringFlagsTest {
             assertEquals(0, parsed.minWidth());
             assertFalse(parsed.hideDependentLines());
             assertFalse(parsed.disableToast());
+            assertFalse(parsed.ignoreRewardBlocking());
+            assertFalse(parsed.requiresStageTeam());
         }
 
         @Test
-        @DisplayName("minWidth, hideDependentLines and disableToast round-trip flat on the quest")
+        @DisplayName("minWidth, hideDependentLines, disableToast, ignoreRewardBlocking and requiresStageTeam round-trip flat on the quest")
         void presentationRoundTrips() {
             Quest parsed = quest("""
                     {"id": "one", "title": "One", "minWidth": 250,
-                     "hideDependentLines": true, "disableToast": true}""");
+                     "hideDependentLines": true, "disableToast": true,
+                     "ignoreRewardBlocking": true, "requiresStageTeam": true}""");
 
             assertEquals(250, parsed.minWidth());
             assertTrue(parsed.hideDependentLines());
             assertTrue(parsed.disableToast());
+            assertTrue(parsed.ignoreRewardBlocking());
+            assertTrue(parsed.requiresStageTeam());
 
             Quest decoded = decoded(Quest.CODEC.parse(JsonOps.INSTANCE,
                     Quest.CODEC.encodeStart(JsonOps.INSTANCE, parsed).getOrThrow()), "re-decode");
             assertEquals(250, decoded.minWidth());
             assertTrue(decoded.hideDependentLines());
             assertTrue(decoded.disableToast());
+            assertTrue(decoded.ignoreRewardBlocking());
+            assertTrue(decoded.requiresStageTeam());
         }
 
         @Test
-        @DisplayName("the three presentation names are validator-visible at quest level")
+        @DisplayName("the five presentation names are validator-visible at quest level")
         void presentationFieldsAreKnown() {
             assertTrue(QuestPresentation.FIELDS.contains("minWidth"));
             assertTrue(QuestPresentation.FIELDS.contains("hideDependentLines"));
             assertTrue(QuestPresentation.FIELDS.contains("disableToast"));
+            assertTrue(QuestPresentation.FIELDS.contains("ignoreRewardBlocking"));
+            assertTrue(QuestPresentation.FIELDS.contains("requiresStageTeam"));
         }
     }
 

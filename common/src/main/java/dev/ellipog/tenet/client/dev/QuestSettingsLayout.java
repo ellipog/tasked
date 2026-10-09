@@ -452,6 +452,9 @@ public final class QuestSettingsLayout {
             // this or a silent auto-claim mode quiets it, and the two are one author's answer from
             // opposite ends.
             rows.add(switchRow("disableToast", "tenet.dev.quest.disable_toast"));
+            // Whether this quest's rewards survive a held payout, beside the announcement answer: the
+            // quest's flag covers every reward on it, a reward's own flag covers just itself.
+            rows.add(switchRow("ignoreRewardBlocking", "tenet.dev.quest.ignore_reward_blocking"));
             rows.add(new Row("h:rules", Row.Kind.HEADING, "tenet.dev.quest.rules"));
             rows.add(switchRow("repeatable", "tenet.dev.quest.repeatable"));
             rows.add(new Row("repeatCooldownTicks", Row.Kind.NUMBER, "tenet.dev.quest.repeat_cooldown"));

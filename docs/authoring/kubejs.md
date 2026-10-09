@@ -20,6 +20,10 @@ use, so a script cannot do what an operator could not.
 | `Tenet.addStage(player, 'my_pack:inducted')` | whether anything changed — false when they already had it |
 | `Tenet.removeStage(player, 'my_pack:inducted')` | whether it was there to take |
 | `Tenet.stages(player)` | every stage they have, as strings, sorted |
+| `Tenet.hasTeamStage(player, 'my_pack:inducted')` | whether this player's team holds the stage |
+| `Tenet.addTeamStage(player, 'my_pack:inducted')` | whether anything changed — granted to the team, told to every online member |
+| `Tenet.removeTeamStage(player, 'my_pack:inducted')` | whether it was there to take |
+| `Tenet.teamStages(player)` | every stage the team holds, as strings, sorted |
 | `Tenet.state(player, 'quest_id')` | `LOCKED`, `UNLOCKED`, `STARTED`, `COMPLETED`, or `UNKNOWN` for an id that resolves to no quest |
 | `Tenet.complete(player, 'quest_id')` | finishes it exactly as `/tenet complete` does — the same service call, so a script cannot complete what the command would refuse |
 | `Tenet.customTaskIds()` | the ids this build has a custom-task handler for |

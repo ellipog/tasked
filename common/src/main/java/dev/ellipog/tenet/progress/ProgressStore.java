@@ -56,6 +56,14 @@ import java.util.UUID;
  *
  * <p>They share this file rather than getting one of their own so that a grant and the completion that
  * caused it are written, versioned and backed up together -- one world's quest data in one place.
+ *
+ * <h2>Team stages, beside the player's own</h2>
+ *
+ * <p>FTB Quests' {@code team_stage}: a flag a <b>team</b> holds, for the multiplayer pack where one
+ * member's induction opens the chapter for everybody. Keyed by team id — which is a solo player's
+ * own UUID, so a solo grant reads exactly like a personal one — and stored beside the player's own
+ * in the same sectioned shape. A stage task or a quest gate that names {@code teamStage} reads the
+ * team's set; everything else reads the player's.
  */
 public final class ProgressStore extends SavedData {
 
@@ -71,6 +79,16 @@ public final class ProgressStore extends SavedData {
      * the two lines it costs for anyone debugging a pack by reading the file.
      */
     private final Map<UUID, Set<ResourceLocation>> stagesByPlayer = new LinkedHashMap<>();
+
+    /**
+     * Each team's stages, by team id.
+     *
+     * <p>The same insertion-ordered sets as the player's own, for the same stable-file reason. A solo
+     * team's id is the player's own UUID, so a solo grant lands in a different map under the same key
+     * rather than colliding — the two sets are asked about separately, and only together when the
+     * sync builds what one member sees.
+     */
+    private final Map<UUID, Set<ResourceLocation>> stagesByTeam = new LinkedHashMap<>();
 
     /** The store for this server. */
     public static ProgressStore of(MinecraftServer server) {
@@ -158,6 +176,51 @@ public final class ProgressStore extends SavedData {
     }
 
     // ------------------------------------------------------------------
+    // Team stages: named flags, per team
+    // ------------------------------------------------------------------
+
+    /** Every stage this team holds, in the order they were granted. Empty for a team with none. */
+    public Set<ResourceLocation> stagesOfTeam(UUID team) {
+        return Set.copyOf(stagesByTeam.getOrDefault(team, Set.of()));
+    }
+
+    public boolean hasTeamStage(UUID team, ResourceLocation stage) {
+        return stagesByTeam.getOrDefault(team, Set.of()).contains(stage);
+    }
+
+    /**
+     * Grants a team stage.
+     *
+     * @return whether it changed anything -- false when the team already held it
+     */
+    public boolean addTeamStage(UUID team, ResourceLocation stage) {
+        if (!stagesByTeam.computeIfAbsent(team, id -> new java.util.LinkedHashSet<>()).add(stage)) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
+    /** Takes a team stage away. False when the team did not hold it. */
+    public boolean removeTeamStage(UUID team, ResourceLocation stage) {
+        Set<ResourceLocation> held = stagesByTeam.get(team);
+        if (held == null || !held.remove(stage)) {
+            return false;
+        }
+        if (held.isEmpty()) {
+            // Like the player's own: a team with no stages is not a team with an empty entry.
+            stagesByTeam.remove(team);
+        }
+        setDirty();
+        return true;
+    }
+
+    /** How many teams hold at least one stage. For diagnostics. */
+    public int stagedTeamCount() {
+        return stagesByTeam.size();
+    }
+
+    // ------------------------------------------------------------------
 
     static ProgressStore load(CompoundTag tag, HolderLookup.Provider registries) {
         ProgressStore store = new ProgressStore();
@@ -175,6 +238,7 @@ public final class ProgressStore extends SavedData {
 
         // Absent in a file written before stages existed, which is why nothing checks the version: a missing
         // section is a player with no stages, and that is a valid state rather than something to migrate.
+        // The same holds for the team section a file written before team stages existed: absent means none.
         ListTag stages = tag.getList("stages", Tag.TAG_COMPOUND);
         for (int i = 0; i < stages.size(); i++) {
             CompoundTag entry = stages.getCompound(i);
@@ -196,14 +260,36 @@ public final class ProgressStore extends SavedData {
             store.stagesByPlayer.put(player, held);
         }
 
+        ListTag teamStages = tag.getList("team_stages", Tag.TAG_COMPOUND);
+        for (int i = 0; i < teamStages.size(); i++) {
+            CompoundTag entry = teamStages.getCompound(i);
+            UUID team = readUuid(entry.getString("team"));
+            if (team == null) {
+                Constants.LOG.warn("tenet: skipping stored team stages with no team id");
+                continue;
+            }
+            Set<ResourceLocation> held = new java.util.LinkedHashSet<>();
+            ListTag ids = entry.getList("ids", Tag.TAG_STRING);
+            for (int j = 0; j < ids.size(); j++) {
+                ResourceLocation stage = ResourceLocation.tryParse(ids.getString(j));
+                if (stage == null) {
+                    Constants.LOG.warn("tenet: '{}' is not a valid stage id in stored team stages",
+                            ids.getString(j));
+                    continue;
+                }
+                held.add(stage);
+            }
+            store.stagesByTeam.put(team, held);
+        }
+
         return store;
     }
 
     @Override
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
-        // 2 since stages were added. The version is written for anyone reading the file; nothing reads it
+        // 3 since team stages were added. The version is written for anyone reading the file; nothing reads it
         // back, because every section is additive and a missing one means "none" rather than "old shape".
-        tag.putInt("version", 2);
+        tag.putInt("version", 3);
 
         ListTag list = new ListTag();
         byTeam.forEach((teamId, progress) -> {
@@ -228,6 +314,19 @@ public final class ProgressStore extends SavedData {
             stages.add(entry);
         });
         tag.put("stages", stages);
+
+        ListTag teamStages = new ListTag();
+        stagesByTeam.forEach((team, held) -> {
+            CompoundTag entry = new CompoundTag();
+            entry.putString("team", team.toString());
+            ListTag ids = new ListTag();
+            for (ResourceLocation stage : held) {
+                ids.add(net.minecraft.nbt.StringTag.valueOf(stage.toString()));
+            }
+            entry.put("ids", ids);
+            teamStages.add(entry);
+        });
+        tag.put("team_stages", teamStages);
 
         return tag;
     }

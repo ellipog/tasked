@@ -94,6 +94,50 @@ public final class TenetScripts {
                 .toList();
     }
 
+    /**
+     * Whether the player's team holds the stage. False for an id that is not one.
+     *
+     * <p>FTB Quests' {@code team_stage}: the flag one member's induction grants to everybody.
+     */
+    public static boolean hasTeamStage(ServerPlayer player, String stage) {
+        ResourceLocation id = ResourceLocation.tryParse(stage == null ? "" : stage);
+        MinecraftServer server = player == null ? null : player.getServer();
+        return id != null && server != null
+                && StageService.hasTeam(server, ProgressService.progressOwner(server, player), id);
+    }
+
+    /**
+     * Grants the stage to the player's team.
+     *
+     * @return whether anything changed — false when the team already held it
+     */
+    public static boolean addTeamStage(ServerPlayer player, String stage) {
+        ResourceLocation id = ResourceLocation.tryParse(stage == null ? "" : stage);
+        MinecraftServer server = player == null ? null : player.getServer();
+        return id != null && server != null
+                && StageService.addTeam(server, ProgressService.progressOwner(server, player), id);
+    }
+
+    /** Takes the team's stage away, and returns whether it was there to take. */
+    public static boolean removeTeamStage(ServerPlayer player, String stage) {
+        ResourceLocation id = ResourceLocation.tryParse(stage == null ? "" : stage);
+        MinecraftServer server = player == null ? null : player.getServer();
+        return id != null && server != null
+                && StageService.removeTeam(server, ProgressService.progressOwner(server, player), id);
+    }
+
+    /** Every stage the player's team holds, as strings a script can compare or print. */
+    public static List<String> teamStages(ServerPlayer player) {
+        MinecraftServer server = player == null ? null : player.getServer();
+        if (server == null) {
+            return List.of();
+        }
+        return StageService.listTeam(server, ProgressService.progressOwner(server, player)).stream()
+                .map(ResourceLocation::toString)
+                .sorted()
+                .toList();
+    }
+
     // ------------------------------------------------------------------
     // Quests
     // ------------------------------------------------------------------

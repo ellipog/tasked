@@ -31,17 +31,22 @@ import java.util.function.Function;
  * <p>The player who claimed, even on a team-mode quest, because a stage is per player everywhere it is
  * used: GameStages, FTB Quests' stage integration, and every pack script written against them. A team-wide
  * grant is a script's loop over the roster, which is also how a pack does it elsewhere.
+ *
+ * <p>{@code teamStage} is FTB Quests' {@code team_stage}: grant to the team instead. The whole party
+ * then holds the flag, which is what a multiplayer pack's induction quest hands over.
  */
-public record StageReward(RewardCommon common, ResourceLocation stage, boolean remove) implements QuestReward {
+public record StageReward(RewardCommon common, ResourceLocation stage, boolean remove,
+                          boolean teamStage) implements QuestReward {
 
     public static final ResourceLocation TYPE = ResourceLocation.fromNamespaceAndPath(Tenet.MOD_ID, "stage");
 
-    public static final Set<String> FIELDS = Set.of("stage", "remove");
+    public static final Set<String> FIELDS = Set.of("stage", "remove", "teamStage");
 
     public static final MapCodec<StageReward> MAP_CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             RewardCommon.MAP_CODEC.forGetter(StageReward::common),
             ResourceLocation.CODEC.fieldOf("stage").forGetter(StageReward::stage),
-            Codec.BOOL.optionalFieldOf("remove", false).forGetter(StageReward::remove)
+            Codec.BOOL.optionalFieldOf("remove", false).forGetter(StageReward::remove),
+            Codec.BOOL.optionalFieldOf("teamStage", false).forGetter(StageReward::teamStage)
     ).apply(instance, StageReward::new));
 
     @Override
@@ -50,7 +55,15 @@ public record StageReward(RewardCommon common, ResourceLocation stage, boolean r
     }
 
     public static final RewardBehaviour<StageReward> BEHAVIOUR = (reward, context) -> {
-        if (reward.remove()) {
+        if (reward.teamStage()) {
+            if (reward.remove()) {
+                StageService.removeTeam(context.server(), context.owner(), reward.stage());
+            }
+            else {
+                StageService.addTeam(context.server(), context.owner(), reward.stage());
+            }
+        }
+        else if (reward.remove()) {
             StageService.remove(context.player().getServer(), context.player().getUUID(), reward.stage());
         }
         else {

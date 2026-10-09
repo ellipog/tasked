@@ -121,6 +121,7 @@ public final class QuestSettingsPanel {
             Map.entry("hideDependentLines", "tenet.dev.help.hide_dependent_lines"),
             Map.entry("minWidth", "tenet.dev.help.min_width"),
             Map.entry("disableToast", "tenet.dev.help.disable_toast"),
+            Map.entry("ignoreRewardBlocking", "tenet.dev.help.ignore_reward_blocking"),
             Map.entry("hideTextUntilComplete", "tenet.dev.help.hide_text_until_done"),
             Map.entry("hideDetailsUntilStartable", "tenet.dev.help.hide_details_until_startable"),
             Map.entry("id", "tenet.dev.help.id"),

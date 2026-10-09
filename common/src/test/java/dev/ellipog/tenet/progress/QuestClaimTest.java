@@ -3,10 +3,13 @@ package dev.ellipog.tenet.progress;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 
+import dev.ellipog.tenet.quest.Quest;
+import dev.ellipog.tenet.quest.QuestReward;
 import dev.ellipog.tenet.quest.QuestRules;
 import dev.ellipog.tenet.quest.QuestSettings;
 import dev.ellipog.tenet.quest.reward.RewardAutoClaim;
 import dev.ellipog.tenet.quest.reward.RewardCommon;
+import dev.ellipog.tenet.quest.reward.RewardTypes;
 import dev.ellipog.tenet.quest.reward.TableReward;
 import dev.ellipog.tenet.quest.reward.XpReward;
 
@@ -70,6 +73,46 @@ class QuestClaimTest {
         assertTrue(claims.claimed(bob, 1, true), "one claim settles it for the team");
         assertFalse(claims.claimed(alice, 1, false),
                 "and a team claim is not a personal one -- the maps do not bleed");
+    }
+
+    // ------------------------------------------------------------------
+    // Held payouts: the team's block, and the two flags that survive it
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a held payout still pays a quest or reward that ignores blocking (G7)")
+    void heldPayoutExemptions() {
+        TeamProgress held = TeamProgress.empty().withRewardsBlocked(true);
+        TeamProgress open = TeamProgress.empty();
+
+        Quest plain = decodedQuest("{\"id\": \"a\", \"title\": \"A\"}");
+        Quest exempt = decodedQuest("{\"id\": \"b\", \"title\": \"B\", \"ignoreRewardBlocking\": true}");
+        QuestReward reward = decodedReward(
+                "{\"type\": \"tenet:item\", \"item\": \"minecraft:stone\"}");
+        QuestReward exemptReward = decodedReward(
+                "{\"type\": \"tenet:item\", \"item\": \"minecraft:stone\","
+                        + " \"ignoreRewardBlocking\": true}");
+
+        assertTrue(ProgressService.isBlocked(held, plain, reward),
+                "a held team blocks an ordinary reward");
+        assertFalse(ProgressService.isBlocked(open, plain, reward),
+                "an unheld team blocks nothing");
+        assertFalse(ProgressService.isBlocked(held, exempt, reward),
+                "the quest's flag covers every reward on it");
+        assertFalse(ProgressService.isBlocked(held, plain, exemptReward),
+                "a reward's own flag covers just itself");
+        assertFalse(ProgressService.isBlocked(held, exempt, exemptReward),
+                "both flags together are still exempt");
+    }
+
+    private static Quest decodedQuest(String text) {
+        return Quest.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(text))
+                .result().orElseThrow(() -> new AssertionError(text + " did not decode"));
+    }
+
+    private static QuestReward decodedReward(String text) {
+        return RewardTypes.dispatchCodec().parse(JsonOps.INSTANCE, JsonParser.parseString(text))
+                .result().orElseThrow(() -> new AssertionError(text + " did not decode"));
     }
 
     // ------------------------------------------------------------------

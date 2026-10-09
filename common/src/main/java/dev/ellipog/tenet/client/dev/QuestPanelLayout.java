@@ -135,8 +135,10 @@ public final class QuestPanelLayout {
             rows.add(field(quest, "prerequisiteMode"));
             rows.add(field(quest, "minRequired"));
             // The stage gate, beside the other rules about when a quest opens: it is the one of them that is
-            // per player rather than per team, which is what its label says.
+            // per player rather than per team, which is what its label says -- unless the row below
+            // says the team's stages answer instead.
             rows.add(field(quest, "requiresStage"));
+            rows.add(toggle(quest, "requiresStageTeam"));
         }
 
         rows.add(InspectRow.heading(DEPENDENCIES, "tenet.dev.panel.dependencies"));
@@ -929,6 +931,7 @@ public final class QuestPanelLayout {
         if (path.equals("showTitle") || path.equals("repeatable") || path.equals("sequentialTasks")
                 || path.equals("invisible") || path.equals("hideDependentLines")
                 || path.equals("disableToast") || path.endsWith(".disableToast")
+                || path.equals("ignoreRewardBlocking") || path.equals("requiresStageTeam")
                 || path.endsWith(".consumeItems")
                 || path.endsWith(".optional")) {
             return InspectField.flag(label);
@@ -995,6 +998,7 @@ public final class QuestPanelLayout {
             Map.entry("repeatCooldownTicks", "tenet.dev.field.repeat_cooldown_ticks"),
             Map.entry("repeatable", "tenet.dev.field.repeatable"),
             Map.entry("requiresStage", "tenet.dev.field.requires_stage"),
+            Map.entry("requiresStageTeam", "tenet.dev.field.requires_stage_team"),
             Map.entry("sequentialTasks", "tenet.dev.field.sequential_tasks"),
             Map.entry("shape", "tenet.dev.field.shape"),
             Map.entry("showTitle", "tenet.dev.field.show_title"),
