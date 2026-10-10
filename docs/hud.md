@@ -32,8 +32,9 @@ comes back if anything about the quest changes — and `Hide claimed quests` in 
 hiding off. A finished quest with rewards still out stays until you collect them.
 
 Pins are **yours, not the world's.** They live in this client's own config, they survive leaving a server,
-and a pin naming a quest the server you are on does not have is simply skipped — it stays in the list, so it
-comes back the next time you are somewhere that has that quest.
+and a pin naming a quest no loaded tree holds is skipped in the draw. It does not wait forever: the
+next time the tree moves on, dead ids are pruned — except while no tree has arrived yet, when there is
+nothing to judge them against.
 
 ## The pinned boxes
 
@@ -42,8 +43,7 @@ recent first. Each box shows its quest's name and chapter, then its tasks with t
 tick on each one that is done. A task that is underway grows a 2-pixel bar under its sentence, filling as it
 goes and gliding to the new width when progress lands rather than jumping; the unfilled remainder is a grey
 track rather than empty world, so a half-done task reads as a bar. A task with nothing done yet
-shows none. A quest with more than six tasks says how many more there are
-rather than growing past the bottom of your window, and a finished quest says `Complete` in its own box —
+shows none. A finished quest says `Complete` in its own box —
 or `Claimable`, when its rewards are still out: done is not the news, collectable is.
 
 The book's header has a **Pinned** button, beside Settings, that lists every pin: each row wears its
@@ -119,7 +119,7 @@ The elements are:
 
 | Element | Where it ships | What it is |
 |---|---|---|
-| **Inventory button** | Top-left, over containers | The quest book's other door. Shown on every container screen — your inventory in survival *and* creative, chests, crafting, furnaces and modded interfaces, wherever EMI and JEI draw. Anchor it to the inventory from its editor row and it follows the panel across GUI scales; on a taller or wider container a button parked outside keeps its gap outside instead of being swallowed — `Under` stays under the chest, not inside it. |
+| **Inventory button** | Top-left, over containers | The quest book's other door. Shown on every container screen — your inventory in survival *and* creative, chests, crafting, furnaces and modded interfaces, wherever recipe viewers draw. Anchor it to the inventory from its editor row and it follows the panel across GUI scales; on a taller or wider container a button parked outside keeps its gap outside instead of being swallowed — `Under` stays under the chest, not inside it. |
 | **Pinned quests** | Middle-left of the HUD | The boxes described above. |
 | **Notifications** | Top-left of the HUD | The notices described above. |
 
@@ -156,5 +156,20 @@ button is a window pixel as it has always been.
 { "pins": ["chapter_one/gather_wood"], "hideClaimed": false }
 ```
 
-A pin whose quest is not in the pack you are playing is skipped and kept. The next time the pack moves, so
-does the list: ids the tree no longer holds are dropped, and the ones you pinned stay in your order.
+A pin whose quest is not in the pack you are playing is skipped in the draw. When the pack moves,
+so does the list: ids the tree no longer holds are dropped, and the ones you pinned stay in your
+order.
+
+## The files beside them
+
+`hud.json` and `pinned.json` are two of six client files under `config/tenet/`, all read at
+startup and all safe to hand-edit. The same tolerance everywhere: a file you have never touched
+does not exist, an unreadable one is reported and the defaults stand in, and unknown fields are
+ignored.
+
+| File | Holds |
+|---|---|
+| `appearance.json` | This client's look: the theme, the motion toggle, the text scale, a corner radius, and any per-token overrides. `themes/` beside it holds the themes saved from the editor — hand-written or saved in game, selectable without a restart. |
+| `client.json` | The editor's own preferences: the edit-mode flag (off unless turned on), the Advanced depth (off — showing less cannot lie), the snap and the chapter progress bars (both on), and the panel widths as a diff from the defaults. |
+| `canvas.json` | Three zoom thresholds: no hover or selection ring below `ringsBelow` (0.5), no titles and no reward badges below `blocksBelow` (0.3), and the stand-in block instead of the item below `iconMinBox` pixels (12). Out-of-range values take the nearest end. |
+| `working.json` | Hints, not state: the table last opened, the Assets panel's section, the drawer's tab. A stale value is harmless — every reader checks it is still true before using it — because the file is per client, not per world. |

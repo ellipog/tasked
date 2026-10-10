@@ -34,14 +34,25 @@ authoring material for a pack's first chapter.
 | [[tenet:hud]] | The HUD: pinning quests to it, the notices it shows, and the editor that places them |
 | [[tenet:authoring/quest-files]] | The folder format: chapter groups, chapters, one quest per file, and the order things load in |
 | [[tenet:authoring/quests]] | Every field on a quest, from its place on the canvas to the flags that hide it |
-| [[tenet:authoring/tasks]] | The fifteen task types, and what each one counts |
-| [[tenet:authoring/rewards]] | The ten reward types, and the reward tables behind four of them |
+| [[tenet:authoring/tasks]] | The seventeen task types, and what each one counts |
+| [[tenet:authoring/rewards]] | The twelve reward types, and the reward tables behind four of them |
 | [[tenet:authoring/conditions]] | The six condition types — gating a task or a reward on an item, a tag, a score, an advancement, a stage or a party's size |
 | [[tenet:authoring/languages]] | Shipping a questline in more than one language: `lang/<locale>.json`, which file a player gets, and the keys |
 | [[tenet:authoring/validation]] | What the validator checks, and what a mistake reads like |
 | [[tenet:authoring/ftb-mapping]] | Which FTB Quests fields already have a Tenet home: the migration tool's contract for the mapped half |
 | [[tenet:commands]] | The `/tenet` commands, for players and operators |
 | [[tenet:authoring/kubejs]] | Driving a questline from a KubeJS script |
+
+## For addon mods
+
+Quests name their types by id, and the set is open: a mod registers its own task, reward and
+condition types with `TaskTypes.register`, `RewardTypes.register` and `ConditionTypes.register`,
+each pairing an id with the codec that reads it. A `tenet:custom` task or reward needs no new type
+at all — it names a handler id, and the handler is registered by a mod or a script (see
+[[tenet:authoring/kubejs]]). The lifecycle — quests starting and completing, tasks satisfied,
+rewards handed over, stages granted and taken, canvas presses — is published as `TenetEvents` for
+both. An economy mod pays `tenet:currency` rewards by setting a `CurrencyReward.CurrencyProvider`
+with `CurrencyReward.CurrencyProviders.setActive`.
 
 ## From files to a running questline
 

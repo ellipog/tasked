@@ -141,22 +141,6 @@ inherited default:
 /tenet quest punch_a_tree
 ```
 
-Two things cost more than one file, and both are said in the log rather than left to be discovered:
-
-- **A name with nothing behind it.** A `chapters` or `quests` entry that resolves to no folder or file
-  is an error against *that name*, not against the manifest that listed it — so a quest file deleted by
-  hand, or a chapter folder renamed on one side only, costs exactly the one thing that is missing. It
-  used to be reported against the manifest, and a manifest carrying an error is refused, which took the
-  chapter — or the whole group — with it.
-- **A manifest that cannot say what it holds.** A `group.json` or `chapter.json` that will not parse,
-  names no `id`, or has a `chapters`/`quests` that is not a list of names cannot be read at all, so its
-  subtree does not load and the error is against that file. That is the only case where one file costs
-  more than itself.
-
-A root `index.json` is a third, and it is the one that is read *around* rather than skipped: one that
-cannot declare the root is read as if it were not there, and the tree loads by folder name — see
-[[tenet:authoring/quest-files]].
-
 `/tenet progress` prints the tree from the player's point of view: each quest's state, and every task
 with its recorded count against what it needs. A task that shows `0/8` while the player carries eight
 logs is a matching or consumption question, not a loading one.

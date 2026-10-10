@@ -8,7 +8,7 @@ Nothing in this folder is compiled, and nothing in it ships in the jar.
 
 **One group, one chapter, every feature.** The examples used to be twelve questlines, one per
 family of mechanisms, because that was the only way to show everything: a chapter wears one theme
-and one progression mode, so demonstrating fifteen themes took fifteen chapters. They are one
+and one progression mode, so demonstrating sixteen themes took sixteen chapters. They are one
 orrery now — `first_light/first_steps` — because a reader learns more from a single canvas that
 uses everything than from twelve that each use a part.
 
@@ -33,7 +33,7 @@ and the hub opens the sky — seven arms, each a family of mechanisms:
 | measures | Experience in points and levels, both fluids, a vanilla statistic, `sequentialTasks`, the custom task, and the turned gear. |
 | the compass | Dimension, biome (id and tag), structure (id and tag), location boxes (with and without `ignoreDimension`), the curved line with anchors, and the size extremes. |
 | the hunt | Kills by id, custom name, SNBT filter and entity tag; all seven `observeType` values; the advancement task whole and by criterion. |
-| the treasury | Eight of the ten reward types — `advancement`, `all_table`, `choice`, `command`, `item`, `loot`, `random` and `xp` — every table mode (named, inline, nested, the empty band), the payout flags, and the command reward's placeholders. The other two live elsewhere: `stage` in the clockwork, `custom` in the veils. |
+| the treasury | Eight of the twelve reward types — `advancement`, `all_table`, `choice`, `command`, `item`, `loot`, `random` and `xp` — every table mode (named, inline, nested, the empty band), the payout flags, and the command reward's placeholders. Two more live elsewhere: `stage` in the clockwork, `custom` in the veils. Two have no worked example yet: `currency` (needs an economy mod to pay through) and `toast` — both decode and are unit-tested, but no quest here uses one. |
 | the clockwork | The OR-gate, the exclusive pair, the capped branch point, the repeatable round, stages granted, read and removed, a translation-key title, and all six condition types. |
 | the veils | The whole hiding family, an alias with a dependency written against it, and the custom reward. |
 
@@ -53,6 +53,12 @@ icon of 0.25, and a node that size is a wall rather than an example — the code
 "certainly a typo for 40". And `gen_examples.py` — the script
 that writes the files — runs the same checklist *before* it writes anything, so a mechanism cannot
 be lost by editing the generator either.
+
+That checklist is currently behind the registries, and the gap is worth stating rather than leaving
+for the next reader to trip over: the `filter` and `energy` tasks and the `currency` and `toast`
+rewards have registered types but no worked example, so neither the test nor the script names them
+yet. Writing the four example quests is what promotes them onto both lists; extending either list
+without the quests would fail the build rather than fix it.
 
 Three assertions left the test in the collapse to one chapter, and they are worth naming because
 their absence is a deliberate trade: a large **LINEAR** chapter, a dependency that crosses chapter

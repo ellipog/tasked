@@ -23,6 +23,7 @@ below take the same level, because they read the server's own costs rather than 
 | `/tenet stage team-list [player]` | The stages a player's team holds. The same permission rule as `list`. |
 | `/tenet party` | Who is in your party, how it counts, and **which mod the parties come from** — Tenet's answer to "are these the parties I think they are". |
 | `/tenet version` | The Tenet and Armature versions this server is running. |
+| `/tenet types` | Every task, reward and condition type this build has, with the fields each one takes. |
 
 ## For operators
 
@@ -40,7 +41,6 @@ below take the same level, because they read the server's own costs rather than 
 | `/tenet stage remove <player> <stage>` | Take one away. |
 | `/tenet stage add-team <player> <stage>` | Grant a stage to the player's team — FTB Quests' `/ftbteams teamstage`. Every online member is told, because each of them sees their own stages and their team's together. |
 | `/tenet stage remove-team <player> <stage>` | Take a team's stage away. |
-| `/tenet types` | Every task, reward and condition type this build has, with the fields each one takes. |
 | `/tenet config` | The server's settings in force — the party cap and a new party's policy, the tree-wide quest defaults — and the files they live in. Edit and `/tenet reload` — both files are re-read. A player's own text size is in the book's Settings card; the palette, the corner radius and the Motion switch are in the tools panel's Quest Book tab, which needs edit permission. |
 
 Three diagnostics, and they are operator tools rather than preferences:
@@ -92,7 +92,7 @@ Tenet shows may be its own or another mod's, depending on what is installed.
 | `/tenet party uninvite <player>` | Withdraw an invitation before it is answered. Whoever sent it may always withdraw their own. |
 | `/tenet party open [on\|off]` | Read, or set, whether anybody may join without an invitation. Owner only. |
 | `/tenet party member-invites [on\|off]` | Read, or set, whether ordinary members may invite. Owner only. On by default. |
-| `/tenet party leave` | Leave the party you are in. An owner with members present is sent to the successor picker by the panel; by command the ownership fallback applies. |
+| `/tenet party leave` | Leave the party you are in. An owner with members present is sent to the successor picker by the panel; by command the ownership fallback applies — the most senior remaining member, ties broken arbitrarily but stably. |
 | `/tenet party kick <player>` | Remove a member. |
 | `/tenet party disband` | End the party for everyone in it. |
 | `/tenet party mode [mode]` | Read, or set, how the party's counts combine. |

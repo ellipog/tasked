@@ -143,11 +143,11 @@ would not yet see, which is the point of the `hideTextUntilComplete` flag below.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `x`, `y` | `0` | Position on the canvas, in canvas units rather than pixels, so the layout survives a window resize. The shipped chapters sit on a 32-unit grid; the editor snaps to 8. |
+| `x`, `y` | `0` | Position on the canvas, in canvas pixels. The shipped chapters sit on a 32-pixel grid; the editor snaps to 8. |
 | `shape` | `rounded` | The outline: `rounded`, `square`, `circle`, `diamond`, `hexagon`, `octagon`, `pentagon`, `gear`, `heart`, `tome`, `star`, or `none`. |
 | `size` | `48` | The node's width and height, 16–512 pixels. |
-| `rotation` | `0` | Degrees clockwise. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |
-| `iconScale` | `0.75` | How much of the node the icon fills; the outline caps it, so a shape with less room draws the largest item it can hold. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
+| `rotation` | `0` | Degrees clockwise, 0–359. Any shape can be turned, and the turned outline is fitted to the node with one uniform scale, so nothing is cut off at the node's edge and nothing is stretched. A full turn is written as `0`, because it is the same shape. |
+| `iconScale` | `0.75` | How much of the node the icon fills, 0.25–1.0; the outline caps it, so a shape with less room draws the largest item it can hold. `1.0` is corner to corner; the default leaves a margin so the shape reads. |
 | `showTitle` | `false` | Draw the quest's name under its node. Off by default, because a canvas of fifty names is a wall of text — the name is on hover either way. |
 | `minWidth` | `0` | Minimum width of the quest's detail panel, 0–3000. `0` is unset: the chapter's `defaultMinWidth` decides, and then the panel kind's default. |
 
@@ -168,7 +168,7 @@ open. They may live in other files, and a reference that resolves to nothing is 
 |---|---|---|
 | `dependsOn` | — | Quest ids or aliases this quest waits on. |
 | `prerequisiteMode` | the chapter's | What the dependencies have to reach: `all_completed`, `one_completed`, `all_started`, `one_started`. This is the [[progression-mode]] axis — how a set of prerequisites is treated. |
-| `minRequired` | `0` | How many dependencies must be satisfied, replacing the mode's own count. This is how "any three of these five" is written. May not exceed the number of dependencies. |
+| `minRequired` | `0` | How many dependencies must be satisfied, 0–64, replacing the mode's own count. This is how "any three of these five" is written. May not exceed the number of dependencies. |
 | `dependencyLines` | — | Per-line overrides for the canvas, keyed by the dependency's id. |
 
 `minRequired` replaces the *count*, not the *bar*: the mode still decides what each one must reach, so
@@ -281,7 +281,7 @@ then to the built-ins (`chamfered`, a chevron at the target, `solid`, `thin`).
 | `arrowDensity` | `low`, `medium`, `high` | How far apart a `stream` repeats: 64, 32 or 16 pixels. |
 | `dash` | `solid`, `dashed`, `dotted`, `dash_dot`, `double`, `hazard` | The line's pattern. `double` is two hairlines either side of the route and ignores `weight`; `hazard` is the run plus diagonal hatch marks. |
 | `weight` | `thin`, `thick`, `bold`, `conduit` | How many pixels wide: 1, 2, 3, or a 6-pixel conduit with dark borders around a lighter core. |
-| `bend` | −0.8–0.8 | How far a curved line bows, as a fraction of the chord between its ends. |
+| `bend` | −0.8–0.8 | How far a curved line bows, as a fraction of the chord between its ends. The built-ins carry `0.2`, so a chapter that sets only `form: curved` still bows slightly. |
 | `fromAnchor` / `toAnchor` | degrees | The angle a line leaves or meets a node at, 0 east and growing clockwise. Per line only, because which rim a line meets is a fact about its two ends. |
 | `fromHandle` / `toHandle` | `[along, across]` | A split line's control points. They are written together — one alone is a split with half a shape. |
 
@@ -308,7 +308,7 @@ For a whole chapter:
 | `flexibleProgress` | `false` | Tasks may be worked on before the dependencies are met; completion still waits for them. Either this or the chapter's `defaultFlexibleProgress` makes the quest flexible. |
 | `autoClaim` | the chapter's | Whether this quest's rewards are handed over the moment it completes: `disabled`, `enabled`, `no_toast` or `invisible`. Overrides the chapter's `autoClaim`, and is overridden by a reward's own `auto`. See [[tenet:authoring/rewards]]. |
 | `exclusiveGroup` | — | Quests sharing a name are mutually exclusive: completing one locks the others, permanently. A [[exclusive-group]] is a choice of paths. Scoped to the chapter. |
-| `maxCompletableDependents` | `0` | At most this many of the quests depending on this one may complete; the rest stay locked for good. `0` is no cap. A dependent already completed stays completed. |
+| `maxCompletableDependents` | `0` | At most this many of the quests depending on this one may complete, 0–64. `0` is no cap. A dependent already completed stays completed. |
 
 A repeatable quest's cooldown runs from the moment its **last unclaimed reward is claimed**,
 not from the completion: the round ends when its payout is fully collected, and the count moves
@@ -334,7 +334,7 @@ loads, still counts for progress, and is always shown to the editor.
 | Field | Default | Hides |
 |---|---|---|
 | `invisible` | `false` | The whole quest, until it is completed. |
-| `invisibleUntilTasks` | `0` | With `invisible` set: also unhide once this many tasks have any progress. The easter-egg case — a quest nobody can see until they stumble onto part of it. Without `invisible` it does nothing. |
+| `invisibleUntilTasks` | `0` | With `invisible` set: also unhide once this many tasks have any progress, 0–64. The easter-egg case — a quest nobody can see until they stumble onto part of it. Without `invisible` it does nothing. |
 | `hideUntilDependenciesComplete` | the chapter's | Until the prerequisite *rule* is satisfied — the same rule the card's "2 of 3 met" counts, so `minRequired` and the started-based modes are honoured. Three states: leave it out and the chapter's `defaultHideUntilDependenciesComplete` decides, `true` forces it on, and `false` opts out of a chapter that hides its quests by default. |
 | `hideUntilDependenciesVisible` | the chapter's | Until at least one prerequisite is itself visible. Recursive, so a chain reveals itself one link at a time from its first visible end. The same three states as the row above. A quest with **no** prerequisites is visible: an empty rule is met. |
 | `hideDependencyLines` | `false` | The lines arriving at this quest. The quest itself is unaffected, and quests that depend on it still draw their lines to it. |
@@ -343,6 +343,20 @@ loads, still counts for progress, and is always shown to the editor.
 | `hideDetailsUntilStartable` | `false` | Task and reward details, until the quest can be started. The prerequisites stay: they are what tells the reader how to unlock it. |
 | `disableRecipeMod` | the file's | The quest in recipe viewers (JEI, REI, EMI): with it set, no viewer lists this quest. Three states like the two chapter-defaulted rows above — leave it out and the file's `defaultDisableRecipeMod` decides (see [[tenet:authoring/quest-files]]), `true` hides it, and `false` opts out of a file that hides its quests by default. FTB Quests calls this `disable_recipe_mod`. |
 | `hideLockIcon` | `false` | The quest's own padlock: with it set, this locked quest wears no padlock on the canvas. The quest's half of the file's `showLockIcons` (see [[tenet:authoring/quest-files]]) — either silence wins, and the node still reads locked through its edge and wash. FTB Quests calls this `hide_lock_icon`. |
+
+## Recipe viewers
+
+A recipe viewer with Tenet's pages shows the questline beside the recipes: EMI renders full quest
+pages, JEI and REI share a fallback over the same item lookup, and where more than one viewer is
+installed the first in that order wins outright — the others register nothing. All three are soft
+dependencies: a client without any of them loses nothing.
+
+Traffic goes both ways. Pressing a quest in the viewer opens the book on that quest — a press for a
+quest the tree no longer holds opens nothing rather than an empty card. Pressing a task or reward
+row in the book opens the viewer's recipes for what the row names, tags included where the viewer
+supports them; with no viewer installed the press is inert. Which quests a viewer may list is the
+`disableRecipeMod` flag above: a hidden quest never reaches the viewer, because the server resolves
+it onto the wire and the client holds no file record to second-guess.
 
 ## Announcements
 
@@ -406,6 +420,7 @@ These live on the chapter manifest and apply to its quests unless a quest overri
 |---|---|---|
 | `defaultPrerequisiteMode` | `all_completed` | The `prerequisiteMode` a quest uses unless it says otherwise. |
 | `defaultConsumeItems` | `false` | Whether item tasks in this chapter take the items unless the task says otherwise. An author sets it once for a whole trade chapter. When neither the task nor the chapter says, the file's `defaultConsumeItems` in `index.json` decides. |
+| `defaultFlexibleProgress` | `false` | Whether this chapter's quests let their tasks be worked on before their dependencies are met unless a quest says otherwise. Either the quest's own `flexibleProgress` or this makes its tasks flexible. |
 | `defaultSequentialTasks` | `false` | Whether this chapter's quests require their tasks in order unless a quest says otherwise. Either the quest's own `sequentialTasks` or this makes its tasks sequential. |
 | `defaultHideUntilDependenciesComplete` | `false` | Whether the chapter's quests are hidden until their own prerequisite rule is met — the reveal flag below, set once for a whole chapter. A quest writes `false` to opt out. |
 | `defaultHideUntilDependenciesVisible` | `false` | The same, for the reveal that waits on a prerequisite being visible. |

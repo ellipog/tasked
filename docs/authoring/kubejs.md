@@ -26,6 +26,7 @@ use, so a script cannot do what an operator could not.
 | `Tenet.teamStages(player)` | every stage the team holds, as strings, sorted |
 | `Tenet.state(player, 'quest_id')` | `LOCKED`, `UNLOCKED`, `STARTED`, `COMPLETED`, or `UNKNOWN` for an id that resolves to no quest |
 | `Tenet.complete(player, 'quest_id')` | finishes it exactly as `/tenet complete` does — the same service call, so a script cannot complete what the command would refuse |
+| `Tenet.resolve(player, 'quest_id')` | the quest a string names, or null — for a script deciding whether to bother |
 | `Tenet.customTaskIds()` | the ids this build has a custom-task handler for |
 | `Tenet.customRewardIds()` | the same for custom rewards |
 | `Tenet.registerTask(id, handler)` | registers what a `tenet:custom` task measures |
@@ -103,8 +104,9 @@ Tenet.registerReward('my_pack:announce', (player, context) => {
 ```
 
 Register handlers at the top level of a server script, not inside a listener: the registry is
-consulted when a quest file is read, and handlers are forgotten before every script load — so a reload
-replaces them rather than stacking them, and a deleted script's handler stops existing.
+consulted when a quest file is read, and handlers are forgotten on a server reload — so a reload
+replaces them rather than stacking them, and a deleted script's handler stops existing. A client
+script reload does not clear them, only a server one does.
 
 > [!NOTE]
 > A `tenet:custom` task whose handler is not registered is not an error: the quest still loads and the

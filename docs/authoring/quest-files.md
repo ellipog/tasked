@@ -30,6 +30,11 @@ order they should appear — that list is the only place the order is expressed:
 }
 ```
 
+A group also carries its own `description` and `icon` (a group with no icon borrows its first
+chapter's on the client), its former ids as `aliases`, and `collapsedByDefault`: with it set, the
+book shows the group's chapters collapsed the first time it sees the tree. That first sight is all
+it decides — no client ever writes it back, so reopening a group stays reopened.
+
 A chapter folder holds a `chapter.json`. Its `quests` array names the chapter's quest files, in order,
 and that order is **load-bearing rather than cosmetic**: in a `linear` chapter it *is* the progression,
 because each quest unlocks when the one above it completes.
@@ -153,8 +158,8 @@ completion; no `dependsOn`, gate or milestone may name one.
 `quest` is the target by id or alias, in any chapter — a name that resolves to nothing is reported
 with the file and line, because the link would then mirror nothing and its press would do nothing.
 A link's `id` must not equal any quest, chapter or group id or alias. `x` and `y` are the top-left
-corner in canvas pixels, exactly as for a quest; `shape` and `size` default to the target's own
-(`rounded`, 48). FTB Quests calls the target `linked_quest` and writes centre-based doubles, and
+corner in canvas pixels, exactly as for a quest; `shape` and `size` fall back to the quest defaults
+(`rounded`, 48) rather than copying the target's. FTB Quests calls the target `linked_quest` and writes centre-based doubles, and
 the migration tool maps both onto this shape.
 
 **`locked: true` pins a picture against the editor's drag**: grips and moves leave it where it is,
@@ -217,10 +222,11 @@ thing it affects:
 | `dropBookOnDeath` | `false` | Whether a dying player drops a quest book where they fell, so death cannot take the pack away with it. Server-side: nothing crosses the wire. |
 | `gridScale` | `0.5` | The editor canvas's grid step, from FTB Quests' `grid_scale` (1/32 to 8). File-only for now: validated and stored, while the editor keeps its 8-unit step — see the field's note in the schema. |
 | `lockMessage` | `""` | What a locked quest is called when the pack has a better word than "Locked": the author's own sentence, drawn on the quest card. Empty means the client's own word. Synced to every client with the tree. |
-| `emergencyItemsCooldown` | `300` | How long a player waits between `/tenet emergency` grants, in seconds (FTB documents no unit; Tenet reads seconds, so `300` is five minutes). See [[tenet:commands]]. |
+| `emergencyItemsCooldown` | `300` | How long a player waits between `/tenet emergency` grants, in seconds, 0–86400 (FTB documents no unit; Tenet reads seconds, so `300` is five minutes). See [[tenet:commands]]. |
 | `emergencyItems` | `[]` | What `/tenet emergency` hands out: item references with counts and components, exactly as a task writes them. Empty means the command answers that there is nothing to grant. See [[tenet:commands]]. |
 | `bookTitle` | `""` | What the book calls itself, drawn top-left in its header; empty uses the client's own title. Translatable via `book.title` in `lang/` — see [[tenet:authoring/languages]] |
 | `bookIcon` | `""` | The item id the book wears in its header; an id a client cannot resolve is drawn as a missing-item mark |
+| `fallbackLocale` | `en_us` | The locale the tree's own strings are written in. Every other locale is merged over it, so a player whose language has no file still reads this one — see [[tenet:authoring/languages]] |
 
 The last two are the book's identity, synced to every client with the tree. They can be set by hand
 here or in game from the **Book** section of the tools panel — an operator's tool. Unlike every other

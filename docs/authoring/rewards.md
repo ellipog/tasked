@@ -85,7 +85,7 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | Type | Gives |
 |---|---|
 | `tenet:advancement` | An advancement, or one criterion of one. |
-| `tenet:choice` | One entry of a table, picked by the player. |
+| `tenet:choice` | One entry of a table, picked by the player. A choice can never be a table *entry* — a table that offers a pick inside a roll is refused, because a roll cannot wait for an answer. |
 | `tenet:command` | A command, run as the player. |
 | `tenet:currency` | Money, paid through the installed economy. |
 | `tenet:custom` | Whatever a registered handler does. |
@@ -102,8 +102,8 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | Type | Field | Meaning |
 |---|---|---|
 | `tenet:advancement` | `advancement`, `criterion` | The advancement to award; `criterion` names one criterion instead of the whole thing. |
-| `tenet:xp` | `amount`, `levels` | Points, or whole levels when `levels` is `true`. Default is points. |
-| `tenet:currency` | `amount` | How much currency to pay. The coin it names belongs to the installed economy: a currency mod (or script) registers the paying half, and with nothing registered the grant pays nothing while the quest still completes. |
+| `tenet:xp` | `amount`, `levels` | Points, 1 to 100,000, or whole levels when `levels` is `true`. Default is points. |
+| `tenet:currency` | `amount` | How much currency to pay, 1 to 1,000,000. The coin it names belongs to the installed economy: a currency mod registers the paying half (`CurrencyReward.CurrencyProvider` via `CurrencyReward.CurrencyProviders.setActive`), and with nothing registered the grant pays nothing while the quest still completes. |
 | `tenet:stage` | `stage`, `remove`, `teamStage` | The stage to set; `remove: true` takes it away instead of granting it. `teamStage: true` grants to the team rather than the claiming player. |
 | `tenet:custom` | `id` | The id a handler was registered under. A reward whose handler is not registered warns rather than failing. |
 | `tenet:toast` | `description` | The message shown when collected, as literal text or a translation key with fallback. Empty shows the generic toast sentence. |
@@ -116,7 +116,7 @@ progress rather than in a save, so it is a server-side decision and not up to th
 | `count` | `1` | How many. |
 | `components` | — | 1.21 data components, as on the item task. |
 | `randomBonus` | `0` | Up to this many more, rolled at random on top of the count. |
-| `onlyOne` | `false` | Skip it if the player already carries this item. |
+| `onlyOne` | `false` | Skip it if the player already carries this item — checked by item type, ignoring components, so a plain sword counts as carrying the renamed one. |
 
 ## `tenet:command`
 
@@ -126,7 +126,7 @@ runs through the server's own dispatcher with the player as the source.
 | Field | Default | Meaning |
 |---|---|---|
 | `command` | — | The command, without the leading slash. |
-| `permissionLevel` | `2` | The level it runs at; 2 is a command block's. |
+| `permissionLevel` | `2` | The level it runs at, 0 to 4; 2 is a command block's. |
 | `silent` | `false` | Do not say in chat that it ran. |
 | `feedbackMessage` | — | A message shown when the command runs; absent shows nothing extra. FTB Quests calls this `feedback_message`. |
 
@@ -156,9 +156,7 @@ operator reading the log is a one-second fix, and a command that silently loses 
 ## Table rewards
 
 Four types share one shape: `tenet:random`, `tenet:loot`, `tenet:all_table` and `tenet:choice`.
-Each names a table — a file under `reward_tables/`, by id and without the `.json` suffix — or carries
-its own `inline`. The type *is* the mode; a file cannot turn a `random` into a `choice` by adding a
-field.
+The type *is* the mode; a file cannot turn a `random` into a `choice` by adding a field.
 
 | Type | What the roll does |
 |---|---|
@@ -166,6 +164,15 @@ field.
 | `tenet:loot` | The same, except the empty band exists — `emptyWeight` is the chance of nothing on a throw. |
 | `tenet:all_table` | Grants every entry, no dice. |
 | `tenet:choice` | Sends the entries to the player and waits for the pick. |
+
+| Field | Meaning |
+|---|---|
+| `table` | The table's id — a file under `reward_tables/`, without the `.json` suffix. |
+| `inline` | The table itself, written in the reward. A table in its own file never needs one. |
+
+Both are optional and the reward rolls one table or the other, never both; a reward carrying
+neither rolls nothing. The type *is* still the mode — a file cannot turn a `random` into a `choice`
+by adding a field.
 
 `random`, `loot` and `all_table` resolve the moment the reward is granted. `choice` cannot — the
 player picks — so the claim marks nothing until it is answered, which also means a crash between the
@@ -189,7 +196,7 @@ A table is a list of entries, each an ordinary reward with a weight:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `entries` | — | The table. Each entry is a `reward` and a `weight`. |
+| `entries` | — | The table. Each entry is a `reward` and a `weight`, which defaults to `1` when absent. |
 | `emptyWeight` | `0` | The chance of nothing on a throw, against the positive weights. Only `tenet:loot` includes it. |
 | `lootSize` | `1` | How many times the dice are thrown. |
 | `title` | the id | What the in-game editor calls the table. Absent, the id is opened out: `tier_1_ores` reads as "Tier 1 ores". |
@@ -226,7 +233,9 @@ reward's **Table** field is a card: it shows the table's icon, its name and its 
 opens two panels.
 
 **The browser** (`Click to select or create a table`) lists every table the pack has, searchable by
-name or id, with `Edit`, `Copy` and `×` on each row and one button that makes one:
+name or id, with `Edit`, `Copy` and `×` on each row and one button that makes one. `×` sets the file
+aside, and refuses while any reward or table still names it — the refusal lists the referrers, so the
+author can go and look:
 
 - **New table** — a file under `reward_tables/`, with the name you give it.
 - **None** — clears the field, so the reward rolls no table.

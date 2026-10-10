@@ -6,7 +6,7 @@ Why one chapter
 ---------------
 The examples used to be twelve questlines, one per mechanism family, because that was the only
 way to show every field and every value of every enum: a chapter wears one theme and one
-progression mode, so demonstrating fifteen themes took fifteen chapters. Twelve questlines is
+progression mode, so demonstrating sixteen themes took sixteen chapters. Twelve questlines is
 also a lot of reading, and the reader who wants to see "how do I write an OR-gate" should not
 have to learn which of twelve groups happens to hold one.
 
@@ -1658,7 +1658,7 @@ def build_chapter() -> dict:
             "A hub at the centre opens seven arms. The instruments arm carries the item tasks;"
             " the measures arm carries experience, fluid, statistics and the custom handler;"
             " the compass carries dimension, biome, structure and location; the hunt carries"
-            " kills and observations; the treasury carries eight of the ten reward types and"
+            " kills and observations; the treasury carries eight of the twelve reward types and"
             " every table mode; the clockwork carries the gates, the repeats, the stages and a"
             " translation-key title; the veils carry the hiding family, the aliases and the"
             " custom reward. Every file names the field it demonstrates and says why the field"

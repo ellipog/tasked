@@ -88,7 +88,7 @@ item task's `consumeItems` has no counterpart here, because a condition only eve
 | Field | Default | Meaning |
 |---|---|---|
 | `objective` | — | The scoreboard objective's name, as the scoreboard command spells it. |
-| `min` | — | The score to reach. |
+| `min` | — | The score to reach, 1 or more. |
 
 Read from the scoreboard, per player. Two things are worth knowing:
 
@@ -119,7 +119,7 @@ one, and a script can too.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `min` | — | How many members of the party have to be online. |
+| `min` | — | How many members of the party have to be online, 1 to 1000. |
 
 **Online members, not the roster, and you count as one.** A solo player is a party of one, so
 `"min": 2` is the bring-a-friend gate; a party of three with two members offline is one person here.

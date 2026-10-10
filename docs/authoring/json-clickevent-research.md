@@ -1,5 +1,12 @@
 # JSON `clickEvent` research (FTB Quests 1.21.1 · vanilla 1.21.1 · Tenet)
 
+> [!NOTE]
+> **A research note, not the manual.** Sections 1–3 record what FTB Quests and vanilla 1.21.1 do,
+> which still stands. Sections 4–5 describe Tenet before JSON clicks were implemented — a whole
+> JSON paragraph now keeps its colours, emphasis, `open_url` links and `change_page` quest refs
+> instead of dropping them. For what the reader's card does today, see
+> [[tenet:authoring/quests#ftb-text-codes]].
+
 Primary sources only: FTB-Quests `1.21.1/main` GitHub source, local FTB jars
 (`ftb-quests-neoforge-2101.1.34.jar`, `ftb-library-neoforge-2101.1.35.jar`) via
 `javap -c`, Mojang-mapped 1.21.1 merged jar in `tenet/.gradle/loom-cache` via
